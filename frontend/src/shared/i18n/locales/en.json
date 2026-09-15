@@ -1,0 +1,130 @@
+{
+  "common": {
+    "loading": "Loading...",
+    "subtotal": "Subtotal",
+    "description": "Description",
+    "note": "Note",
+    "notePlaceholder": "Example: less spicy, less salt...",
+    "quantity": "Quantity",
+    "cart": "Cart"
+  },
+  "auth": {
+    "guestLoginLabel": "Please enter your name",
+    "guestLoginPlaceholder": "Your name...",
+    "enterStore": "Enter store",
+    "loginSuccessTitle": "Login successful",
+    "loginErrorTitle": "Login failed"
+  },
+  "menu": {
+    "title": "Menu",
+    "categories": "Categories"
+  },
+  "orders": {
+    "title": "Orders",
+    "addedToCart": "Added to cart",
+    "addToCart": "Add to cart"
+  },
+  "dishes": {
+    "dishesSuffix": "dishes",
+    "noDishFound": "No dishes found",
+    "searchPlaceholder": "Search dishes...",
+    "productNotFound": "Product not found"
+  },
+  "landing": {
+    "appTitle": "VietFood",
+    "fineDining": "Fine Dining",
+    "servingWithCare": "Serving with care",
+    "hero": {
+      "fineDiningLabel": "Fine Dining",
+      "restaurantPrefix": "Restaurant",
+      "restaurantName": "La Perla Dining",
+      "description": "Whether you come for a light lunch, a romantic dinner, or a special celebration - VietFood always delivers a memorable dining experience.",
+      "tagline": "Great flavors · Every moment",
+      "featuredDishAlt": "Featured dish"
+    },
+    "features": {
+      "freshIngredients": "Fresh ingredients",
+      "fiveStarChef": "5-star chefs",
+      "luxurySpace": "Elegant atmosphere",
+      "dedicatedService": "Attentive service"
+    },
+    "menu": {
+      "title": "Menu",
+      "highlightPrefix": "A wide variety of",
+      "highlightAccent": "dishes",
+      "viewMore": "See more ->",
+      "fallbackDishAlt": "Dish",
+      "loadingDishes": "Loading dishes..."
+    },
+    "quote": {
+      "text": "Every meal is a journey. Let VietFood take you to unforgettable culinary emotions.",
+      "brand": "VietFood"
+    },
+    "footer": {
+      "tagline": "Great flavors · Every moment",
+      "copyright": "© 2024 VietFood Restaurant. All rights reserved."
+    }
+  },
+  "chatbot": {
+    "menuCard": {
+      "title": "Need help?",
+      "subtitle": "Ask AI assistant"
+    },
+    "title": "Store Assistant",
+    "welcome": "Hi! I am Miki AI. What would you like to eat today?",
+    "welcomeWithName": "Hi {name}! I am Miki AI. What would you like to eat today?",
+    "assistantName": "Miki AI",
+    "staffLabel": "Staff",
+    "staffMode": "Staff",
+    "you": "You",
+    "guestRole": "Guest",
+    "aiRole": "AI",
+    "headerStatus": {
+      "ai": "● Miki AI",
+      "staffOffline": "● Staff offline",
+      "staffConnecting": "● Connecting...",
+      "staffOnline": "● Staff online"
+    },
+    "input": {
+      "aiPlaceholder": "Ask Miki about dishes, ordering flow...",
+      "staffDisconnected": "Staff is disconnected...",
+      "staffPlaceholder": "Type a message to Staff...",
+      "defaultPlaceholder": "Type your message..."
+    },
+    "mode": {
+      "ai": "Miki AI",
+      "staff": "Staff",
+      "offline": "offline",
+      "switchToAi": "Switch to Miki AI"
+    },
+    "messages": {
+      "thinking": "Miki is thinking... {seconds}s",
+      "recommendedItems": "You may also like"
+    },
+    "quickReplies": {
+      "categories": "What's on the menu?",
+      "howToOrder": "How do I place an order?",
+      "deliveryTime": "How long does it take?",
+      "deliveryAvailable": "Do you offer delivery?"
+    },
+    "answers": {
+      "categories": "VietFood proudly serves authentic Vietnamese dishes: Traditional Pho, Hanoi Bun Cha, Fresh Spring Rolls, and savory Family Rice Sets. Check out our 'Menu' for details.",
+      "howToOrder": "It's easy: \n1) Scan the QR code at your table\n2) Select your favorite food and drinks\n3) Click 'Place Order' to notify our kitchen\n4) Our staff will serve you shortly.",
+      "deliveryTime": "Preparation typically takes 10-15 minutes to ensure your meal is served fresh, hot, and full of flavor.",
+      "deliveryAvailable": "Yes! We offer home delivery via our website. You can also select the 'Takeaway' option directly in this app.",
+      "fallback": "Thank you for reaching out! For immediate assistance, please press the 'Call Staff' button at your table."
+    },
+    "errors": {
+      "staffConnecting": "Connecting to Staff. Please try again in a few seconds.",
+      "staffOffline": "Staff is offline. You can continue with Miki AI.",
+      "connection": "Sorry, Miki is having a connection issue. Please try again shortly."
+    },
+    "widget": {
+      "dialogTitle": "Chatbot answer",
+      "questionLabel": "Question",
+      "answerLabel": "Answer",
+      "close": "Close"
+    },
+    "fabTitle": "Store assistant"
+  }
+}
