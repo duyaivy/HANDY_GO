@@ -1,0 +1,90 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2023",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
+    "paths": {
+      "@app/auth": [
+        "./libs/auth/src"
+      ],
+      "@app/auth/*": [
+        "./libs/auth/src/*"
+      ],
+      "@app/common": [
+        "./libs/common/src"
+      ],
+      "@app/common/*": [
+        "./libs/common/src/*"
+      ],
+      "@app/config": [
+        "./libs/config/src"
+      ],
+      "@app/config/*": [
+        "./libs/config/src/*"
+      ],
+      "@app/database": [
+        "./libs/database/src"
+      ],
+      "@app/database/*": [
+        "./libs/database/src/*"
+      ]
+    }
+  },
+  "files": [],
+  "references": [
+    {
+      "path": "./apps/backend/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/api-gateway/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/auth-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/catalog-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/order-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/user-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/bidding-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/matching-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/payment-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/notification-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/wallet-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/tracking-service/tsconfig.app.json"
+    }
+  ]
+}
