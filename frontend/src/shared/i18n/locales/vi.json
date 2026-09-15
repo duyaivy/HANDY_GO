@@ -1,0 +1,130 @@
+{
+  "common": {
+    "loading": "Đang tải...",
+    "subtotal": "Tạm tính",
+    "description": "Mô tả",
+    "note": "Ghi chú",
+    "notePlaceholder": "Ví dụ: không cay, ít muối...",
+    "quantity": "Số lượng",
+    "cart": "Giỏ hàng"
+  },
+  "auth": {
+    "guestLoginLabel": "Vui lòng nhập tên của quý khách",
+    "guestLoginPlaceholder": "Tên của bạn...",
+    "enterStore": "Vào cửa hàng",
+    "loginSuccessTitle": "Đăng nhập thành công",
+    "loginErrorTitle": "Đăng nhập thất bại"
+  },
+  "menu": {
+    "title": "Menu",
+    "categories": "Danh mục"
+  },
+  "orders": {
+    "title": "Đơn hàng",
+    "addedToCart": "Đã thêm vào giỏ",
+    "addToCart": "Thêm vào giỏ hàng"
+  },
+  "dishes": {
+    "dishesSuffix": "món",
+    "noDishFound": "Không tìm thấy món ăn nào",
+    "searchPlaceholder": "Tìm kiếm món ăn...",
+    "productNotFound": "Không tìm thấy sản phẩm"
+  },
+  "landing": {
+    "appTitle": "VietFood",
+    "fineDining": "Fine Dining",
+    "servingWithCare": "Phục vụ tận tâm",
+    "hero": {
+      "fineDiningLabel": "Fine Dining",
+      "restaurantPrefix": "Nhà hàng",
+      "restaurantName": "La Perla Dining",
+      "description": "Dù bạn đến để thưởng thức bữa trưa nhẹ nhàng, bữa tối lãng mạn hay một buổi tiệc đặc biệt - VietFood luôn mang đến trải nghiệm ẩm thực đáng nhớ.",
+      "tagline": "Vị ngon · Trọn khoảnh khắc",
+      "featuredDishAlt": "Món nổi bật"
+    },
+    "features": {
+      "freshIngredients": "Nguyên liệu tươi ngon",
+      "fiveStarChef": "Đầu bếp 5 sao",
+      "luxurySpace": "Không gian sang trọng",
+      "dedicatedService": "Phục vụ tận tâm"
+    },
+    "menu": {
+      "title": "Thực đơn",
+      "highlightPrefix": "Đa dạng",
+      "highlightAccent": "món ăn",
+      "viewMore": "Xem thêm ->",
+      "fallbackDishAlt": "Món ăn",
+      "loadingDishes": "Đang tải món ăn..."
+    },
+    "quote": {
+      "text": "Mỗi bữa ăn là một hành trình. Hãy để VietFood đưa bạn đến những cảm xúc ẩm thực chưa từng có.",
+      "brand": "VietFood"
+    },
+    "footer": {
+      "tagline": "Vị ngon · Trọn khoảnh khắc",
+      "copyright": "© 2024 Nhà hàng VietFood. All rights reserved."
+    }
+  },
+  "chatbot": {
+    "menuCard": {
+      "title": "Cần hỗ trợ?",
+      "subtitle": "Hỏi AI trợ lý"
+    },
+    "title": "Trợ lý cửa hàng",
+    "welcome": "Xin chào! Tôi là Miki AI. Bạn muốn tìm món gì hôm nay?",
+    "welcomeWithName": "Xin chào {name}! Tôi là Miki AI. Bạn muốn tìm món gì hôm nay?",
+    "assistantName": "Miki AI",
+    "staffLabel": "Staff",
+    "staffMode": "Nhân viên",
+    "you": "Bạn",
+    "guestRole": "Khách",
+    "aiRole": "AI",
+    "headerStatus": {
+      "ai": "● Miki AI",
+      "staffOffline": "● Staff offline",
+      "staffConnecting": "● Đang kết nối...",
+      "staffOnline": "● Staff online"
+    },
+    "input": {
+      "aiPlaceholder": "Hỏi Miki về món ăn, quy trình đặt món...",
+      "staffDisconnected": "Staff đang mất kết nối...",
+      "staffPlaceholder": "Nhập tin nhắn cho Staff...",
+      "defaultPlaceholder": "Nhập tin nhắn..."
+    },
+    "mode": {
+      "ai": "Miki AI",
+      "staff": "Staff",
+      "offline": "offline",
+      "switchToAi": "Chuyển sang Miki AI"
+    },
+    "messages": {
+      "thinking": "Miki đang suy nghĩ... {seconds}s",
+      "recommendedItems": "Tham khảo một số món ăn"
+    },
+    "quickReplies": {
+      "categories": "Thực đơn có gì đặc sắc?",
+      "howToOrder": "Cách đặt món tại bàn?",
+      "deliveryTime": "Mất bao lâu để có món?",
+      "deliveryAvailable": "Nhà hàng có giao hàng không?"
+    },
+    "answers": {
+      "categories": "VietFood tự hào phục vụ các món ăn thuần Việt: Phở truyền thống, Bún chả Hà Nội, Gỏi cuốn tươi và các set cơm gia đình đậm đà. Bạn có thể xem chi tiết trong mục 'Thực đơn'.",
+      "howToOrder": "Rất đơn giản: \n1) Quét mã QR tại bàn\n2) Chọn món ăn và đồ uống yêu thích\n3) Nhấn 'Đặt món' để gửi đơn xuống bếp\n4) Nhân viên sẽ phục vụ bạn ngay sau ít phút.",
+      "deliveryTime": "Thời gian chế biến trung bình từ 10-15 phút để đảm bảo món ăn luôn nóng hổi và chuẩn vị khi đến bàn bạn.",
+      "deliveryAvailable": "Chúng tôi có phục vụ giao hàng tận nơi qua website hoặc ứng dụng. Bạn cũng có thể đặt 'Mang về' trực tiếp trên hệ thống này.",
+      "fallback": "Cảm ơn bạn đã quan tâm! Để được hỗ trợ nhanh nhất, bạn vui lòng nhấn nút 'Gọi nhân viên' tại bàn nhé."
+    },
+    "errors": {
+      "staffConnecting": "Đang kết nối Staff. Vui lòng thử lại sau vài giây.",
+      "staffOffline": "Staff đang offline. Bạn vẫn có thể tiếp tục với Miki AI.",
+      "connection": "Xin lỗi, Miki đang gặp sự cố kết nối. Bạn thử lại sau ít phút nhé."
+    },
+    "widget": {
+      "dialogTitle": "Chatbot trả lời câu hỏi",
+      "questionLabel": "Câu hỏi",
+      "answerLabel": "Trả lời",
+      "close": "Đóng"
+    },
+    "fabTitle": "Trợ lý cửa hàng"
+  }
+}
