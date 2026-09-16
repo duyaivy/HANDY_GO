@@ -45,6 +45,24 @@
       ],
       "@app/database/*": [
         "./libs/database/src/*"
+      ],
+      "@app/event-bus": [
+        "./libs/event-bus/src"
+      ],
+      "@app/event-bus/*": [
+        "./libs/event-bus/src/*"
+      ],
+      "@app/logger": [
+        "./libs/logger/src"
+      ],
+      "@app/logger/*": [
+        "./libs/logger/src/*"
+      ],
+      "@app/redis": [
+        "./libs/redis/src"
+      ],
+      "@app/redis/*": [
+        "./libs/redis/src/*"
       ]
     }
   },
@@ -85,6 +103,9 @@
     },
     {
       "path": "./apps/tracking-service/tsconfig.app.json"
+    },
+    {
+      "path": "./apps/user-trust-service/tsconfig.app.json"
     }
   ]
 }

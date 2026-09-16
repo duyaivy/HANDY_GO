@@ -82,6 +82,24 @@
         "tsConfigPath": "libs/database/tsconfig.lib.json"
       }
     },
+    "event-bus": {
+      "type": "library",
+      "root": "libs/event-bus",
+      "entryFile": "index",
+      "sourceRoot": "libs/event-bus/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/event-bus/tsconfig.lib.json"
+      }
+    },
+    "logger": {
+      "type": "library",
+      "root": "libs/logger",
+      "entryFile": "index",
+      "sourceRoot": "libs/logger/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/logger/tsconfig.lib.json"
+      }
+    },
     "matching-service": {
       "type": "application",
       "root": "apps/matching-service",
@@ -118,6 +136,15 @@
         "tsConfigPath": "apps/payment-service/tsconfig.app.json"
       }
     },
+    "redis": {
+      "type": "library",
+      "root": "libs/redis",
+      "entryFile": "index",
+      "sourceRoot": "libs/redis/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/redis/tsconfig.lib.json"
+      }
+    },
     "tracking-service": {
       "type": "application",
       "root": "apps/tracking-service",
@@ -127,13 +154,13 @@
         "tsConfigPath": "apps/tracking-service/tsconfig.app.json"
       }
     },
-    "user-service": {
+    "user-trust-service": {
       "type": "application",
-      "root": "apps/user-service",
+      "root": "apps/user-trust-service",
       "entryFile": "main",
-      "sourceRoot": "apps/user-service/src",
+      "sourceRoot": "apps/user-trust-service/src",
       "compilerOptions": {
-        "tsConfigPath": "apps/user-service/tsconfig.app.json"
+        "tsConfigPath": "apps/user-trust-service/tsconfig.app.json"
       }
     },
     "wallet-service": {
