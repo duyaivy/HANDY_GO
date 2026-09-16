@@ -1,1 +1,6 @@
 .history/*
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

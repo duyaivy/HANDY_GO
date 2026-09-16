@@ -1,0 +1,34 @@
+{
+  "onboarding": {
+    "message": "Chào mừng bạn đến với HANDY GO - Nền tảng kết nối dịch vụ tiện ích"
+  },
+  "settings": {
+    "about": "Giới thiệu",
+    "app_name": "Tên ứng dụng",
+    "arabic": "Tiếng Ả Rập",
+    "english": "Tiếng Anh",
+    "generale": "Cài đặt chung",
+    "github": "Github",
+    "language": "Ngôn ngữ",
+    "links": "Liên kết",
+    "logout": "Đăng xuất",
+    "more": "Xem thêm",
+    "privacy": "Chính sách bảo mật",
+    "rate": "Đánh giá ứng dụng",
+    "share": "Chia sẻ",
+    "support": "Hỗ trợ",
+    "support_us": "Ủng hộ chúng tôi",
+    "terms": "Điều khoản dịch vụ",
+    "theme": {
+      "dark": "Tối",
+      "light": "Sáng",
+      "system": "Hệ thống",
+      "title": "Giao diện"
+    },
+    "title": "Cài đặt",
+    "version": "Phiên bản",
+    "vietnamese": "Tiếng Việt",
+    "website": "Trang web"
+  },
+  "welcome": "Chào mừng bạn đến với HANDY GO"
+}
