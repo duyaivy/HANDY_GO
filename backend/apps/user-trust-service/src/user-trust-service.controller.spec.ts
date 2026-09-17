@@ -11,7 +11,9 @@ describe('UserTrustServiceController', () => {
       providers: [UserTrustServiceService],
     }).compile();
 
-    userTrustServiceController = app.get<UserTrustServiceController>(UserTrustServiceController);
+    userTrustServiceController = app.get<UserTrustServiceController>(
+      UserTrustServiceController,
+    );
   });
 
   describe('root', () => {

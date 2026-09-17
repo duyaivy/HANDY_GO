@@ -1,19 +1,4 @@
-import { NestFactory } from '@nestjs/core';
 import { WalletServiceModule } from './wallet-service.module.js';
+import { bootstrapApplication } from '@app/common';
 
-import { Logger } from 'nestjs-pino';
-
-async function bootstrap() {
-  const app = await NestFactory.create(WalletServiceModule, {
-    bufferLogs: true,
-  });
-
-  app.useLogger(app.get(Logger));
-
-  const port = Number(process.env.PORT ?? 3000);
-
-  await app.listen(port);
-
-  console.log(`Wallet Service running on port ${port}`);
-}
-await bootstrap();
+await bootstrapApplication(WalletServiceModule);

@@ -4,7 +4,8 @@
     "composite": true,
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "../../dist/libs/event-bus"
+    "outDir": "../../dist/libs/event-bus",
+    "tsBuildInfoFile": "../../dist/libs/event-bus.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]

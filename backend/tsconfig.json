@@ -17,59 +17,46 @@
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false,
-    "types": [
-      "vitest/globals",
-      "node"
-    ],
+    "types": ["vitest/globals", "node"],
     "paths": {
-      "@app/auth": [
-        "./libs/auth/src"
-      ],
-      "@app/auth/*": [
-        "./libs/auth/src/*"
-      ],
-      "@app/common": [
-        "./libs/common/src"
-      ],
-      "@app/common/*": [
-        "./libs/common/src/*"
-      ],
-      "@app/config": [
-        "./libs/config/src"
-      ],
-      "@app/config/*": [
-        "./libs/config/src/*"
-      ],
-      "@app/database": [
-        "./libs/database/src"
-      ],
-      "@app/database/*": [
-        "./libs/database/src/*"
-      ],
-      "@app/event-bus": [
-        "./libs/event-bus/src"
-      ],
-      "@app/event-bus/*": [
-        "./libs/event-bus/src/*"
-      ],
-      "@app/logger": [
-        "./libs/logger/src"
-      ],
-      "@app/logger/*": [
-        "./libs/logger/src/*"
-      ],
-      "@app/redis": [
-        "./libs/redis/src"
-      ],
-      "@app/redis/*": [
-        "./libs/redis/src/*"
-      ]
+      "@app/auth": ["./libs/auth/src/index.ts"],
+      "@app/auth/*": ["./libs/auth/src/*"],
+      "@app/common": ["./libs/common/src/index.ts"],
+      "@app/common/*": ["./libs/common/src/*"],
+      "@app/config": ["./libs/config/src/index.ts"],
+      "@app/config/*": ["./libs/config/src/*"],
+      "@app/database": ["./libs/database/src/index.ts"],
+      "@app/database/*": ["./libs/database/src/*"],
+      "@app/event-bus": ["./libs/event-bus/src/index.ts"],
+      "@app/event-bus/*": ["./libs/event-bus/src/*"],
+      "@app/logger": ["./libs/logger/src/index.ts"],
+      "@app/logger/*": ["./libs/logger/src/*"],
+      "@app/redis": ["./libs/redis/src/index.ts"],
+      "@app/redis/*": ["./libs/redis/src/*"]
     }
   },
   "files": [],
   "references": [
     {
-      "path": "./apps/backend/tsconfig.app.json"
+      "path": "./libs/auth/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/common/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/config/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/database/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/event-bus/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/logger/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/redis/tsconfig.lib.json"
     },
     {
       "path": "./apps/api-gateway/tsconfig.app.json"
@@ -82,9 +69,6 @@
     },
     {
       "path": "./apps/order-service/tsconfig.app.json"
-    },
-    {
-      "path": "./apps/user-service/tsconfig.app.json"
     },
     {
       "path": "./apps/bidding-service/tsconfig.app.json"

@@ -3,7 +3,9 @@ import { TrackingServiceService } from './tracking-service.service.js';
 
 @Controller()
 export class TrackingServiceController {
-  constructor(private readonly trackingServiceService: TrackingServiceService) {}
+  constructor(
+    private readonly trackingServiceService: TrackingServiceService,
+  ) {}
 
   @Get()
   getHello(): string {

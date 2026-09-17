@@ -4,8 +4,14 @@
     "composite": true,
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "../../dist/apps/bidding-service"
+    "outDir": "../../dist/apps/bidding-service",
+    "tsBuildInfoFile": "../../dist/apps/bidding-service.tsbuildinfo"
   },
   "include": ["src/**/*"],
+  "references": [
+    { "path": "../../libs/common/tsconfig.lib.json" },
+    { "path": "../../libs/config/tsconfig.lib.json" },
+    { "path": "../../libs/logger/tsconfig.lib.json" }
+  ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

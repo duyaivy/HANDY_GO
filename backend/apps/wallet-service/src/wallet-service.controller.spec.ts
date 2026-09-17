@@ -11,7 +11,9 @@ describe('WalletServiceController', () => {
       providers: [WalletServiceService],
     }).compile();
 
-    walletServiceController = app.get<WalletServiceController>(WalletServiceController);
+    walletServiceController = app.get<WalletServiceController>(
+      WalletServiceController,
+    );
   });
 
   describe('root', () => {

@@ -4,8 +4,14 @@
     "composite": true,
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "../../dist/apps/wallet-service"
+    "outDir": "../../dist/apps/wallet-service",
+    "tsBuildInfoFile": "../../dist/apps/wallet-service.tsbuildinfo"
   },
   "include": ["src/**/*"],
+  "references": [
+    { "path": "../../libs/common/tsconfig.lib.json" },
+    { "path": "../../libs/config/tsconfig.lib.json" },
+    { "path": "../../libs/logger/tsconfig.lib.json" }
+  ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

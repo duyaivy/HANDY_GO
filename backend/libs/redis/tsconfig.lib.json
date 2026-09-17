@@ -4,7 +4,8 @@
     "composite": true,
     "declaration": true,
     "rootDir": "./src",
-    "outDir": "../../dist/libs/redis"
+    "outDir": "../../dist/libs/redis",
+    "tsBuildInfoFile": "../../dist/libs/redis.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]

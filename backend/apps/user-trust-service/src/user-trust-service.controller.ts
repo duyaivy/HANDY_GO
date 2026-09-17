@@ -3,7 +3,9 @@ import { UserTrustServiceService } from './user-trust-service.service.js';
 
 @Controller()
 export class UserTrustServiceController {
-  constructor(private readonly userTrustServiceService: UserTrustServiceService) {}
+  constructor(
+    private readonly userTrustServiceService: UserTrustServiceService,
+  ) {}
 
   @Get()
   getHello(): string {

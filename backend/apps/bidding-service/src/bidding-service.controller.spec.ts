@@ -11,7 +11,9 @@ describe('BiddingServiceController', () => {
       providers: [BiddingServiceService],
     }).compile();
 
-    biddingServiceController = app.get<BiddingServiceController>(BiddingServiceController);
+    biddingServiceController = app.get<BiddingServiceController>(
+      BiddingServiceController,
+    );
   });
 
   describe('root', () => {

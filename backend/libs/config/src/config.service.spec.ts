@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from './config.module.js';
 import { ConfigService } from './config.service.js';
 
 describe('ConfigService', () => {
@@ -6,7 +7,12 @@ describe('ConfigService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ConfigService],
+      imports: [
+        ConfigModule.forRoot({
+          serviceName: 'test-service',
+          defaultPort: 3999,
+        }),
+      ],
     }).compile();
 
     service = module.get<ConfigService>(ConfigService);

@@ -11,7 +11,9 @@ describe('MatchingServiceController', () => {
       providers: [MatchingServiceService],
     }).compile();
 
-    matchingServiceController = app.get<MatchingServiceController>(MatchingServiceController);
+    matchingServiceController = app.get<MatchingServiceController>(
+      MatchingServiceController,
+    );
   });
 
   describe('root', () => {

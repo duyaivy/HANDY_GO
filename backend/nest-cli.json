@@ -4,7 +4,7 @@
   "sourceRoot": "apps/api-gateway/src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "builder": "tsc",
+    "builder": "rspack",
     "tsConfigPath": "apps/api-gateway/tsconfig.app.json"
   },
   "monorepo": true,

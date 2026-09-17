@@ -3,7 +3,9 @@ import { MatchingServiceService } from './matching-service.service.js';
 
 @Controller()
 export class MatchingServiceController {
-  constructor(private readonly matchingServiceService: MatchingServiceService) {}
+  constructor(
+    private readonly matchingServiceService: MatchingServiceService,
+  ) {}
 
   @Get()
   getHello(): string {

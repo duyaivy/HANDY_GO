@@ -11,7 +11,9 @@ describe('TrackingServiceController', () => {
       providers: [TrackingServiceService],
     }).compile();
 
-    trackingServiceController = app.get<TrackingServiceController>(TrackingServiceController);
+    trackingServiceController = app.get<TrackingServiceController>(
+      TrackingServiceController,
+    );
   });
 
   describe('root', () => {
