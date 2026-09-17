@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "rootDir": "./src",
+    "outDir": "../../dist/apps/payment-service",
+    "tsBuildInfoFile": "../../dist/apps/payment-service.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../libs/common/tsconfig.lib.json" },
+    { "path": "../../libs/config/tsconfig.lib.json" },
+    { "path": "../../libs/logger/tsconfig.lib.json" }
+  ],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
+}
