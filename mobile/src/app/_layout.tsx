@@ -52,6 +52,9 @@ export default function RootLayout() {
     <Providers onLayout={onLayoutRootView}>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="customer" options={{ headerShown: false }} />
+        <Stack.Screen name="worker" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
       </Stack>
     </Providers>
