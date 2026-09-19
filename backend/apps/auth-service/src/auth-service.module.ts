@@ -4,12 +4,14 @@ import { AuthServiceService } from './auth-service.service.js';
 import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
+import { RabbitMQModule } from '@app/rabbitmq';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ serviceName: 'auth-service', defaultPort: 3001 }),
     LoggerModule.forRoot('auth-service'),
     HealthModule,
+    RabbitMQModule,
   ],
   controllers: [AuthServiceController],
   providers: [AuthServiceService],

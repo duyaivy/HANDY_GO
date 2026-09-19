@@ -11,7 +11,8 @@
   "references": [
     { "path": "../../libs/common/tsconfig.lib.json" },
     { "path": "../../libs/config/tsconfig.lib.json" },
-    { "path": "../../libs/logger/tsconfig.lib.json" }
+    { "path": "../../libs/logger/tsconfig.lib.json" },
+    { "path": "../../libs/rabbitmq/tsconfig.lib.json"}
   ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

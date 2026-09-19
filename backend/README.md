@@ -6,7 +6,7 @@ NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư 
 > **Trạng thái hiện tại:**
 >
 > - Toàn bộ 11 ứng dụng hiện là **HTTP scaffold** với endpoint kiểm tra sức khỏe (`/health`). Chưa triển khai business logic ngoài route proxy mẫu tại API Gateway.
-> - Các thư viện hạ tầng (`libs/database`, `libs/redis`, `libs/event-bus`, `libs/auth`) là **scaffold**, chưa kết nối tới PostgreSQL (Supabase), Redis hoặc Apache Kafka.
+> - Các thư viện hạ tầng (`libs/database`, `libs/redis`, `libs/rabbitmq`, `libs/auth`) là **scaffold**, chưa kết nối tới PostgreSQL (Supabase), Redis hoặc Apache Kafka.
 > - Docker Compose hiện chỉ quản lý 11 ứng dụng NestJS, **không** khởi chạy containers cho PostgreSQL, Redis, hoặc Kafka.
 
 ---
@@ -36,7 +36,7 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 - **`libs/config`** *(Hoạt động)*: Tích hợp `@nestjs/config`, nạp env phân tầng và kiểm tra tính hợp lệ của `PORT`, `NODE_ENV`, `LOG_LEVEL`, cùng các URL upstream bắt buộc.
 - **`libs/logger`** *(Hoạt động)*: Pino logging (`nestjs-pino`), xuất pretty log ở development và JSON log ở production; xử lý `x-request-id` và tự động che headers nhạy cảm (`authorization`, `cookie`).
 - **`libs/common`** *(Hoạt động)*: Khởi tạo ứng dụng chuẩn (`bootstrapApplication`) gồm Logger, CORS, tiền tố toàn cục `API_PREFIX` (mặc định `api/v1`), loại trừ `/health`.
-- **`libs/database`**, **`libs/redis`**, **`libs/event-bus`**, **`libs/auth`** *(Scaffold)*: Khung module và service rỗng, chưa khởi tạo client hay kết nối cơ sở hạ tầng.
+- **`libs/database`**, **`libs/redis`**, **`libs/rabbitmq`**, **`libs/auth`** *(Scaffold)*: Khung module và service rỗng, chưa khởi tạo client hay kết nối cơ sở hạ tầng.
 
 ---
 
@@ -188,3 +188,27 @@ Phản hồi chuẩn: `{"status":"ok","service":"<name>","timestamp":"..."}`.
 | **Build Gateway** | `pnpm build:gateway` | Chỉ biên dịch `api-gateway` |
 | **Chạy Production** | `pnpm start:prod` | Chạy bundle production của Gateway (`node dist/apps/api-gateway/main.js`) |
 | **Format code** | `pnpm format` | Tự động format code với Prettier |
+
+## 8. Event message sử dụng structure
+```bash
+{
+  eventId: string;
+  eventVersion: number;
+  occurredAt: Date;
+  producer: string;
+  data: T;
+}
+
+# Ví dụ
+{
+  "eventId": "event-001",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-19T09:00:00.000Z",
+  "producer": "order-service",
+  "data": {
+    "orderId": "order-001",
+    "customerId": "user-001",
+    "serviceId": "service-001"
+  }
+}
+```

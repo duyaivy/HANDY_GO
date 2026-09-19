@@ -17,22 +17,53 @@
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false,
-    "types": ["vitest/globals", "node"],
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
     "paths": {
-      "@app/auth": ["./libs/auth/src/index.ts"],
-      "@app/auth/*": ["./libs/auth/src/*"],
-      "@app/common": ["./libs/common/src/index.ts"],
-      "@app/common/*": ["./libs/common/src/*"],
-      "@app/config": ["./libs/config/src/index.ts"],
-      "@app/config/*": ["./libs/config/src/*"],
-      "@app/database": ["./libs/database/src/index.ts"],
-      "@app/database/*": ["./libs/database/src/*"],
-      "@app/event-bus": ["./libs/event-bus/src/index.ts"],
-      "@app/event-bus/*": ["./libs/event-bus/src/*"],
-      "@app/logger": ["./libs/logger/src/index.ts"],
-      "@app/logger/*": ["./libs/logger/src/*"],
-      "@app/redis": ["./libs/redis/src/index.ts"],
-      "@app/redis/*": ["./libs/redis/src/*"]
+      "@app/auth": [
+        "./libs/auth/src/index.ts"
+      ],
+      "@app/auth/*": [
+        "./libs/auth/src/*"
+      ],
+      "@app/common": [
+        "./libs/common/src/index.ts"
+      ],
+      "@app/common/*": [
+        "./libs/common/src/*"
+      ],
+      "@app/config": [
+        "./libs/config/src/index.ts"
+      ],
+      "@app/config/*": [
+        "./libs/config/src/*"
+      ],
+      "@app/database": [
+        "./libs/database/src/index.ts"
+      ],
+      "@app/database/*": [
+        "./libs/database/src/*"
+      ],
+      "@app/logger": [
+        "./libs/logger/src/index.ts"
+      ],
+      "@app/logger/*": [
+        "./libs/logger/src/*"
+      ],
+      "@app/rabbitmq": [
+        "./libs/rabbitmq/src/index.ts"
+      ],
+      "@app/rabbitmq/*": [
+        "./libs/rabbitmq/src/*"
+      ],
+      "@app/redis": [
+        "./libs/redis/src/index.ts"
+      ],
+      "@app/redis/*": [
+        "./libs/redis/src/*"
+      ]
     }
   },
   "files": [],
@@ -50,7 +81,7 @@
       "path": "./libs/database/tsconfig.lib.json"
     },
     {
-      "path": "./libs/event-bus/tsconfig.lib.json"
+      "path": "./libs/rabbitmq/tsconfig.lib.json"
     },
     {
       "path": "./libs/logger/tsconfig.lib.json"
