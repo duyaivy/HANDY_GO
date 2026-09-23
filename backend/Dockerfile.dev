@@ -1,0 +1,24 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:24-bookworm-slim
+
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable \
+  && corepack prepare pnpm@10.17.1 --activate
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  pnpm config set store-dir /pnpm/store \
+  && pnpm install --frozen-lockfile
+
+COPY . .
+
+CMD ["pnpm", "exec", "nest", "start", "api-gateway", "--watch"]

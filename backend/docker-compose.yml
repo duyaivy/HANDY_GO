@@ -1,0 +1,185 @@
+name: handy-go-backend
+
+x-app: &app
+  image: handy-go-backend-dev:local
+  pull_policy: never
+  init: true
+  restart: unless-stopped
+  working_dir: /app
+  command:
+    - sh
+    - -c
+    - >-
+      exec pnpm exec nodemon
+      --watch "apps/$$NEST_PROJECT"
+      --watch libs
+      --watch nest-cli.json
+      --watch tsconfig.json
+      --ext ts,json
+      --delay 300ms
+      --exec "pnpm exec nest start $$NEST_PROJECT"
+  volumes:
+    - ./apps:/app/apps
+    - ./libs:/app/libs
+    - ./nest-cli.json:/app/nest-cli.json:ro
+    - ./tsconfig.json:/app/tsconfig.json:ro
+    - ./tsconfig.build.json:/app/tsconfig.build.json:ro
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - >-
+        const http=require('node:http');
+        const request=http.get({host:'127.0.0.1',port:process.env.PORT,path:'/health'},
+        response=>process.exit(response.statusCode===200?0:1));
+        request.on('error',()=>process.exit(1));
+        request.setTimeout(2000,()=>{request.destroy();process.exit(1)});
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 30s
+
+x-development-environment: &development-environment
+  NODE_ENV: development
+  LOG_LEVEL: debug
+  API_PREFIX: api/v1
+  CORS_ORIGIN: http://localhost:5173
+  CHOKIDAR_USEPOLLING: "true"
+  CHOKIDAR_INTERVAL: "500"
+  WATCHPACK_POLLING: "true"
+
+services:
+  api-gateway:
+    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: api-gateway
+      PORT: "3000"
+      UPSTREAM_TIMEOUT_MS: "3000"
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      CATALOG_SERVICE_URL: http://catalog-service:3003
+      ORDER_SERVICE_URL: http://order-service:3004
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
+      PAYMENT_SERVICE_URL: http://payment-service:3007
+      NOTIFICATION_SERVICE_URL: http://notification-service:3008
+      WALLET_SERVICE_URL: http://wallet-service:3009
+      TRACKING_SERVICE_URL: http://tracking-service:3010
+    ports:
+      - "3000:3000"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-trust-service:
+        condition: service_healthy
+      catalog-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      bidding-service:
+        condition: service_healthy
+      matching-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+      tracking-service:
+        condition: service_healthy
+
+  auth-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: auth-service
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+
+  user-trust-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: user-trust-service
+      PORT: "3002"
+    ports:
+      - "3002:3002"
+
+  catalog-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: catalog-service
+      PORT: "3003"
+    ports:
+      - "3003:3003"
+
+  order-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: order-service
+      PORT: "3004"
+    ports:
+      - "3004:3004"
+
+  bidding-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: bidding-service
+      PORT: "3005"
+    ports:
+      - "3005:3005"
+
+  matching-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: matching-service
+      PORT: "3006"
+    ports:
+      - "3006:3006"
+
+  payment-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: payment-service
+      PORT: "3007"
+    ports:
+      - "3007:3007"
+
+  notification-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: notification-service
+      PORT: "3008"
+    ports:
+      - "3008:3008"
+
+  wallet-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: wallet-service
+      PORT: "3009"
+    ports:
+      - "3009:3009"
+
+  tracking-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: tracking-service
+      PORT: "3010"
+    ports:
+      - "3010:3010"

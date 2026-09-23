@@ -1,8 +1,9 @@
 .history/*
+.agy-mcp/*
 .idea/
 .vscode/
 *.swp
 .DS_Store
 Thumbs.db
 .pnpm-store/
-.agy-mcp/
+
