@@ -1,13 +1,16 @@
 # HANDY GO Backend
 
+> **Chạy cùng mobile qua Metro:** đọc [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Phần 1 là chạy hằng ngày; phần 2 là chuẩn bị env, keys, DB và build lần đầu. Các mô tả scaffold/lệnh cũ ở những phần chưa cập nhật của README này cần đối chiếu với source.
+
 NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư viện dùng chung (**shared libraries**).
 
 > [!NOTE]
 > **Trạng thái hiện tại:**
 >
-> - Toàn bộ 11 ứng dụng hiện là **HTTP scaffold** với endpoint kiểm tra sức khỏe (`/health`). Chưa triển khai business logic ngoài route proxy mẫu tại API Gateway.
-> - Các thư viện hạ tầng (`libs/database`, `libs/redis`, `libs/rabbitmq`, `libs/auth`) là **scaffold**, chưa kết nối tới PostgreSQL (Supabase), Redis hoặc Apache Kafka.
-> - Docker Compose hiện chỉ quản lý 11 ứng dụng NestJS, **không** khởi chạy containers cho PostgreSQL, Redis, hoặc Kafka.
+> - Gateway, Auth và User & Trust đã có luồng đăng ký, OTP, JWT, session và hồ sơ; các domain còn lại có phần scaffold.
+> - Auth/User & Trust đang dùng PostgreSQL riêng, Prisma, RabbitMQ và RS256; luồng local dùng Mailpit cho OTP.
+> - Docker Compose hiện có hai PostgreSQL, RabbitMQ, Mailpit và các ứng dụng NestJS. Các app scaffold bổ sung dùng profile `all`.
+> - Luồng Customer đã chạy trên điện thoại thật; các ca OTP đồng thời, trạng thái deleted và validation backend còn có lỗi đã ghi nhận trong lần kiểm tra trước.
 
 ---
 
@@ -19,9 +22,9 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 
 | Ứng dụng | Thư mục | Port | Trạng thái & Vai trò |
 | :--- | :--- | :---: | :--- |
-| **`api-gateway`** | `apps/api-gateway` | `3000` | Intended client-facing gateway; proxy request (đã có route demo chuyển tiếp tới `auth-service`) |
-| **`auth-service`** | `apps/auth-service` | `3001` | HTTP scaffold cho domain xác thực (auth) |
-| **`user-trust-service`** | `apps/user-trust-service` | `3002` | HTTP scaffold cho domain người dùng & độ tin cậy (user & trust) |
+| **`api-gateway`** | `apps/api-gateway` | `3000` | Cổng mobile gọi API; chuyển tiếp Auth và User & Trust |
+| **`auth-service`** | `apps/auth-service` | `3001` | Đăng ký, OTP, login, RS256, refresh session, roles và outbox |
+| **`user-trust-service`** | `apps/user-trust-service` | `3002` | Nhận event, lưu user/Customer profile và cung cấp hồ sơ |
 | **`catalog-service`** | `apps/catalog-service` | `3003` | HTTP scaffold cho domain danh mục dịch vụ (catalog) |
 | **`order-service`** | `apps/order-service` | `3004` | HTTP scaffold cho domain đơn yêu cầu dịch vụ (order) |
 | **`bidding-service`** | `apps/bidding-service` | `3005` | HTTP scaffold cho domain đấu thầu / báo giá (bidding) |

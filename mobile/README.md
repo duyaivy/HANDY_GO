@@ -1,5 +1,7 @@
 # HANDYGO MOBILE
 
+> **Chạy trên điện thoại bằng Metro:** dùng [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Máy đã cài làm phần 1; máy mới làm phần 2 trước. Khi lệnh/env trong README này khác hướng dẫn đó, đối chiếu source và dùng quy trình mới.
+
 Ứng dụng di động của dự án HANDY GO, xây dựng bằng React Native và Expo Development Build. Source base được tổ chức theo business domain và vai trò người dùng để nhiều thành viên có thể phát triển song song với ít xung đột Git.
 
 README này là tài liệu bắt đầu dành cho thành viên mobile. Hãy đọc ít nhất các mục **Cài đặt lần đầu**, **Quy trình chạy ứng dụng hằng ngày** và **Quy tắc sở hữu source code** trước khi sửa code.
