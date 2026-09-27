@@ -3,20 +3,46 @@ import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { View } from 'react-native';
 
+import { BrandLogo } from '@/components/brand-logo';
 import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 
+import { useAuthStore } from '@/stores/use-auth-store';
+
 export function BaseDemoScreen() {
   const router = useRouter();
+  const setUser = useAuthStore.use.setUser();
+
+  const handleOpenCustomer = () => {
+    setUser({
+      id: 'demo-customer-id',
+      phone: '0912345678',
+      email: 'customer@handygo.vn',
+      roles: ['Customer'],
+      permissions: ['profile:read', 'orders:read'],
+    });
+    router.push(RouteNames.CUSTOMER_HOME);
+  };
+
+  const handleOpenWorker = () => {
+    setUser({
+      id: 'demo-worker-id',
+      phone: '0987654321',
+      email: 'worker@handygo.vn',
+      roles: ['Worker'],
+      permissions: ['profile:read', 'jobs:read'],
+    });
+    router.push(RouteNames.WORKER_HOME);
+  };
 
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <View className="flex-1 items-center justify-center px-6 py-12">
         {/* Logo / Badge */}
-        <View className="mb-6 size-20 items-center justify-center rounded-3xl bg-blue-600 shadow-lg shadow-blue-500/30">
-          <Text className="text-3xl font-bold text-white">HG</Text>
+        <View className="mb-6">
+          <BrandLogo size={128} />
         </View>
 
         {/* App Title & Subtitle */}
@@ -44,14 +70,14 @@ export function BaseDemoScreen() {
             testID="dev-demo-open-customer"
             label="Xem giao diện Khách (/customer)"
             variant="default"
-            onPress={() => router.push(RouteNames.CUSTOMER_HOME)}
+            onPress={handleOpenCustomer}
           />
 
           <Button
             testID="dev-demo-open-worker"
             label="Xem giao diện Thợ (/worker)"
             variant="outline"
-            onPress={() => router.push(RouteNames.WORKER_HOME)}
+            onPress={handleOpenWorker}
           />
 
           <Button

@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { View } from 'react-native';
 
+import { BrandLogo } from '@/components/brand-logo';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 
@@ -8,8 +9,8 @@ export function CustomerHomeScreen() {
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <View testID="home-customer-screen" className="flex-1 items-center justify-center px-6 py-12">
-        <View className="mb-6 size-16 items-center justify-center rounded-2xl bg-blue-600 shadow-md">
-          <Text className="text-2xl font-bold text-white">🏠</Text>
+        <View className="mb-6">
+          <BrandLogo />
         </View>
 
         <Text className="text-center text-2xl font-bold text-neutral-900 dark:text-white">

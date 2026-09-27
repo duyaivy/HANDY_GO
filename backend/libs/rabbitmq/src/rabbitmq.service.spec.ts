@@ -7,7 +7,17 @@ describe('RabbitMQService', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RabbitMQService],
+      providers: [
+        RabbitMQService,
+        {
+          provide: 'RABBITMQ_CLIENT',
+          useValue: {
+            emit: () => ({ toPromise: () => Promise.resolve() }),
+            send: () => ({ toPromise: () => Promise.resolve() }),
+            close: () => Promise.resolve(),
+          },
+        },
+      ],
     }).compile();
 
     service = module.get<RabbitMQService>(RabbitMQService);

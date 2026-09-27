@@ -5,6 +5,12 @@ import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { AuthDatabaseModule } from '@app/database';
+import { AuthModule, AuthSignerModule } from '@app/auth';
+import { OtpService } from './otp/otp.service.js';
+import { AuthSeedService } from './seed/auth-seed.service.js';
+import { OutboxPublisherService } from './outbox/outbox-publisher.service.js';
+import { RateLimiterService } from './rate-limit/rate-limiter.service.js';
 
 @Module({
   imports: [
@@ -12,8 +18,18 @@ import { RabbitMQModule } from '@app/rabbitmq';
     LoggerModule.forRoot('auth-service'),
     HealthModule,
     RabbitMQModule,
+    AuthDatabaseModule,
+    AuthModule,
+    AuthSignerModule,
   ],
   controllers: [AuthServiceController],
-  providers: [AuthServiceService],
+  providers: [
+    AuthServiceService,
+    OtpService,
+    AuthSeedService,
+    OutboxPublisherService,
+    RateLimiterService,
+  ],
+  exports: [AuthServiceService],
 })
 export class AuthServiceModule {}

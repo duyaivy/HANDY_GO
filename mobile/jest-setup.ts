@@ -95,6 +95,28 @@ jest.mock('react-native-mmkv', () => ({
   })),
 }));
 
+// Mock expo-secure-store
+jest.mock('expo-secure-store', () => {
+  const store = new Map<string, string>();
+  return {
+    isAvailableAsync: jest.fn(async () => true),
+    getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      store.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      store.delete(key);
+    }),
+    getItem: jest.fn((key: string) => store.get(key) ?? null),
+    setItem: jest.fn((key: string, value: string) => {
+      store.set(key, value);
+    }),
+    deleteItem: jest.fn((key: string) => {
+      store.delete(key);
+    }),
+  };
+});
+
 // Global window object setup for React Native testing
 // @ts-expect-error
 global.window = {};

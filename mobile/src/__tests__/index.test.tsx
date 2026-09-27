@@ -1,32 +1,96 @@
+/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
-import HomeScreen from '@/app/index';
+import IndexScreen from '@/app/index';
 import { cleanup, render, screen } from '@/lib/test-utils';
+import { useAuthStore } from '@/stores/use-auth-store';
 
-afterEach(cleanup);
+const mockReplace = jest.fn();
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    replace: mockReplace,
+    push: jest.fn(),
+  }),
+}));
 
-describe('homeScreen Entry Point', () => {
-  it('renders HANDYGO MOBILE title correctly', () => {
-    render(<HomeScreen />);
-    expect(screen.getByText('HANDYGO MOBILE')).toBeOnTheScreen();
+afterEach(() => {
+  cleanup();
+  jest.clearAllMocks();
+});
+
+describe('indexScreen Session Restoration & Gatekeeper', () => {
+  it('renders loading state when session is hydrating', () => {
+    useAuthStore.setState({
+      isHydrated: false,
+      isAuthenticated: false,
+      user: null,
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(screen.getByTestId('session-loading-screen')).toBeOnTheScreen();
+    expect(screen.getByText('Đang khôi phục phiên đăng nhập...')).toBeOnTheScreen();
   });
 
-  it('renders Scaffold & Modular Base Architecture subtitle correctly', () => {
-    render(<HomeScreen />);
-    expect(screen.getByText('Scaffold & Modular Base Architecture')).toBeOnTheScreen();
+  it('redirects to login when user is unauthenticated after hydration', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: false,
+      user: null,
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
   });
 
-  it('renders navigation buttons for Customer, Worker and Login', () => {
-    render(<HomeScreen />);
-    expect(screen.getByTestId('dev-demo-open-customer')).toBeOnTheScreen();
-    expect(screen.getByTestId('dev-demo-open-worker')).toBeOnTheScreen();
-    expect(screen.getByTestId('dev-demo-open-login')).toBeOnTheScreen();
+  it('redirects to customer home when user has Customer role', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: true,
+      user: {
+        id: 'user-cust',
+        phone: '0912345678',
+        email: 'cust@handygo.vn',
+        roles: ['Customer'],
+        permissions: [],
+      },
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(mockReplace).toHaveBeenCalledWith('/customer');
   });
 
-  it('renders base architecture info card', () => {
-    render(<HomeScreen />);
-    expect(screen.getByText('Kiến trúc Nền tảng (Integration Rules)')).toBeOnTheScreen();
-    expect(screen.getByText('Framework')).toBeOnTheScreen();
-    expect(screen.getByText('TypeScript (Strict)')).toBeOnTheScreen();
-    expect(screen.getByText('Single API Gateway')).toBeOnTheScreen();
+  it('redirects to worker home when user is Worker-only', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: true,
+      user: {
+        id: 'user-wrk',
+        phone: '0987654321',
+        email: 'worker@handygo.vn',
+        roles: ['Worker'],
+        permissions: [],
+      },
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(mockReplace).toHaveBeenCalledWith('/worker');
+  });
+
+  it('renders network error screen when session hydration encounters network outage', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: false,
+      user: null,
+      hydrationError: 'NETWORK_ERROR',
+    });
+
+    render(<IndexScreen />);
+    expect(screen.getByTestId('session-network-error')).toBeOnTheScreen();
+    expect(screen.getByText('Không thể kết nối máy chủ')).toBeOnTheScreen();
+    expect(screen.getByTestId('retry-hydration-btn')).toBeOnTheScreen();
+    expect(screen.getByTestId('goto-login-btn')).toBeOnTheScreen();
   });
 });

@@ -3,9 +3,9 @@
  * Automatically sanitizes sensitive keys (tokens, passwords, secrets) and suppresses verbose logs in production.
  */
 
-const SENSITIVE_KEYS = ['password', 'token', 'access', 'refresh', 'secret', 'authorization', 'creditcard'];
+export const SENSITIVE_KEYS = ['password', 'token', 'access', 'refresh', 'secret', 'authorization', 'creditcard', 'otp'];
 
-function sanitize(data: unknown): unknown {
+export function sanitize(data: unknown): unknown {
   if (!data || typeof data !== 'object') {
     return data;
   }

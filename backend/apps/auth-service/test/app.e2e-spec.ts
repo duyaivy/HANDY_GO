@@ -16,11 +16,26 @@ describe('AuthServiceController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/health (GET) should be accessible publicly without token', () => {
+    return request(app.getHttpServer())
+      .get('/health')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.status).toBe('ok');
+        expect(res.body.service).toBe('auth-service');
+      });
+  });
+
+  it('/auth/me (GET) should reject request with 401 when token is missing', () => {
+    return request(app.getHttpServer())
+      .get('/auth/me')
+      .expect(401);
+  });
+
+  it('/ (GET) should return 404', () => {
     return request(app.getHttpServer())
       .get('/')
-      .expect(200)
-      .expect('Hello World!');
+      .expect(404);
   });
 
   afterEach(async () => {

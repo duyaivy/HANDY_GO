@@ -21,4 +21,6 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 COPY . .
 
+RUN pnpm run prisma:generate
+
 CMD ["pnpm", "exec", "nest", "start", "api-gateway", "--watch"]

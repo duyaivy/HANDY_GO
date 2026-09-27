@@ -4,6 +4,8 @@ import { ApiGatewayService } from './api-gateway.service.js';
 import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
+import { AuthGatewayController } from './auth/auth-gateway.controller.js';
+import { UsersGatewayController } from './users/users-gateway.controller.js';
 
 @Module({
   imports: [
@@ -15,7 +17,11 @@ import { ConfigModule } from '@app/config';
     LoggerModule.forRoot('api-gateway'),
     HealthModule,
   ],
-  controllers: [ApiGatewayController],
+  controllers: [
+    ApiGatewayController,
+    AuthGatewayController,
+    UsersGatewayController,
+  ],
   providers: [ApiGatewayService],
 })
 export class ApiGatewayModule {}

@@ -1,0 +1,129 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/auth-client"
+}
+
+model Account {
+  id              String           @id @default(uuid())
+  phone           String           @unique
+  email           String           @unique
+  passwordHash    String
+  isVerified      Boolean          @default(false)
+  status          String           @default("pending")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  roles           AccountRole[]
+  refreshSessions RefreshSession[]
+  otpChallenges   OtpChallenge[]
+
+  @@map("accounts")
+}
+
+model Role {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  accountRoles    AccountRole[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  code            String           @unique
+  description     String?
+  createdAt       DateTime         @default(now())
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model AccountRole {
+  id         String   @id @default(uuid())
+  accountId  String
+  roleId     String
+  assignedAt DateTime @default(now())
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, roleId])
+  @@map("account_roles")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model OtpChallenge {
+  id                String   @id @default(uuid())
+  accountId         String
+  type              String   @default("email_verification")
+  otpHash           String
+  expiresAt         DateTime
+  attempts          Int      @default(0)
+  resendAvailableAt DateTime
+  isUsed            Boolean  @default(false)
+  deliveryStatus    String   @default("pending")
+  deliveryError     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  account           Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, isUsed])
+  @@map("otp_challenges")
+}
+
+model RefreshSession {
+  id                String    @id @default(uuid())
+  accountId         String
+  refreshTokenHash  String
+  revokedAt         DateTime?
+  expiresAt         DateTime
+  absoluteExpiresAt DateTime
+  userAgent         String?
+  ipAddress         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  account           Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([refreshTokenHash, revokedAt])
+  @@map("refresh_sessions")
+}
+
+model OutboxEvent {
+  id           String    @id @default(uuid())
+  eventType    String
+  eventVersion Int       @default(1)
+  payload      Json
+  status       String    @default("pending")
+  retryCount   Int       @default(0)
+  lastError    String?
+  nextRetryAt  DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  publishedAt  DateTime?
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+}
+
+model RateLimit {
+  key      String   @id
+  points   Int      @default(0)
+  expireAt DateTime
+
+  @@index([expireAt])
+  @@map("rate_limits")
+}
