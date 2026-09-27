@@ -1,5 +1,7 @@
-import Image from "next/image";
+// src/app/page.tsx
+
+import LandingPage from "@/feature/landing-page/LandingPage";
 
 export default function Home() {
-  return <h1>Hello Admin</h1>;
+  return <LandingPage />;
 }

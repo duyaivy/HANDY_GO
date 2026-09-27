@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="100%" height="100%">
+  <defs>
+    <linearGradient id="appIconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9E16" />
+      <stop offset="35%" stop-color="#FF720E" />
+      <stop offset="100%" stop-color="#FF4D00" />
+    </linearGradient>
+
+    <!-- Squircle Background Subtle Gradient -->
+    <linearGradient id="squircleBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFDF9" />
+      <stop offset="100%" stop-color="#F5EFE6" />
+    </linearGradient>
+
+    <!-- Soft Drop Shadow -->
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.08" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Rounded Base -->
+  <rect x="12" y="12" width="216" height="216" rx="54" fill="url(#squircleBg)" stroke="#EDE4D8" stroke-width="1.5" filter="url(#softShadow)" />
+
+  <!-- Speed-House-Pin Icon Centered -->
+  <g transform="translate(48, 48) scale(0.66)">
+    <!-- 3 Speed Lines on the left -->
+    <rect x="-70" y="38" width="58" height="15" rx="7.5" fill="url(#appIconGrad)" />
+    <rect x="-92" y="65" width="40" height="15" rx="7.5" fill="url(#appIconGrad)" />
+    <rect x="-66" y="92" width="52" height="15" rx="7.5" fill="url(#appIconGrad)" />
+
+    <!-- Pin Outer Shape -->
+    <path d="M 150 4
+             C 192 4 218 36 218 78
+             C 218 108 185 142 150 162
+             C 115 142 82 108 82 78
+             C 82 36 108 4 150 4 Z"
+          fill="url(#appIconGrad)" />
+
+    <!-- Inner Circle Cutout -->
+    <circle cx="150" cy="74" r="48" fill="#ffffff" />
+
+    <!-- House Icon inside Pin -->
+    <path d="M 150 45 L 178 69 L 168 77 L 150 62 L 132 77 L 122 69 Z"
+          fill="#1E2530" />
+    <rect x="135" y="80" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="153" y="80" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="135" y="96" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="153" y="96" width="12" height="12" rx="1.5" fill="#1E2530" />
+  </g>
+</svg>

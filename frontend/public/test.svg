@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400">
+  <defs>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFA028" />
+      <stop offset="50%" stop-color="#FF6B08" />
+      <stop offset="100%" stop-color="#FF4E00" />
+    </linearGradient>
+    <linearGradient id="goGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF5E14" />
+      <stop offset="100%" stop-color="#FFA028" />
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="#ffffff" />
+</svg>
