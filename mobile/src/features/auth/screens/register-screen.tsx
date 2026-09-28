@@ -15,6 +15,7 @@ export function RegisterScreen() {
   const router = useRouter();
 
   const [fullName, setFullName] = React.useState('');
+  const [role, setRole] = React.useState<'Customer' | 'Worker'>('Customer');
   const [phone, setPhone] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -103,6 +104,7 @@ export function RegisterScreen() {
         phone: phone.trim(),
         email: email.trim().toLowerCase(),
         password, // DO NOT TRIM PASSWORD
+        role,
       });
 
       // Navigate to OTP verification with user details
@@ -178,12 +180,59 @@ export function RegisterScreen() {
             Tạo tài khoản mới
           </Text>
           <Text className="mt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
-            Đăng ký tài khoản Khách hàng trên HANDY GO
+            {role === 'Worker' ? 'Đăng ký tài khoản Thợ dịch vụ trên HANDY GO' : 'Đăng ký tài khoản Khách hàng trên HANDY GO'}
           </Text>
         </View>
 
         {/* Form Card */}
         <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+          {/* Role Selection */}
+          <View className="mb-4">
+            <Text className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              Bạn tham gia với vai trò:
+            </Text>
+            <View className="flex-row rounded-xl bg-neutral-100 p-1 dark:bg-neutral-800">
+              <Pressable
+                testID="role-customer-btn"
+                onPress={() => setRole('Customer')}
+                className={`flex-1 items-center justify-center rounded-lg py-2.5 ${
+                  role === 'Customer'
+                    ? 'bg-white shadow-sm dark:bg-neutral-700'
+                    : 'bg-transparent'
+                }`}
+              >
+                <Text
+                  className={`text-sm font-semibold ${
+                    role === 'Customer'
+                      ? 'text-neutral-900 dark:text-white'
+                      : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+                >
+                  Khách hàng
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="role-worker-btn"
+                onPress={() => setRole('Worker')}
+                className={`flex-1 items-center justify-center rounded-lg py-2.5 ${
+                  role === 'Worker'
+                    ? 'bg-white shadow-sm dark:bg-neutral-700'
+                    : 'bg-transparent'
+                }`}
+              >
+                <Text
+                  className={`text-sm font-semibold ${
+                    role === 'Worker'
+                      ? 'text-neutral-900 dark:text-white'
+                      : 'text-neutral-500 dark:text-neutral-400'
+                  }`}
+                >
+                  Thợ dịch vụ
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+
           {serverError
             ? (
                 <View testID="auth-register-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">

@@ -68,14 +68,8 @@ const _useAuthStore = create<AuthState>(set => ({
       const response = await AuthApi.verifyOtp(payload);
       const session = response.data;
 
-      await setToken({
-        access: session.accessToken,
-        refresh: session.refreshToken,
-      });
-
+      // Verification activates account on backend; do not auto-login to allow manual login
       set({
-        user: session.user,
-        isAuthenticated: true,
         isLoading: false,
         error: null,
         hydrationError: null,

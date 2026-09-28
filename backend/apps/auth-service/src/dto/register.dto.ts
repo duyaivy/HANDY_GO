@@ -1,5 +1,5 @@
-import { IsEmail, IsNotEmpty, IsString, MaxLength, MinLength, Validate } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength, Validate } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { ValidationArguments, ValidatorConstraintInterface } from 'class-validator';
 import { ValidatorConstraint } from 'class-validator';
 
@@ -38,4 +38,14 @@ export class RegisterDto {
   @MinLength(8, { message: 'Mật khẩu phải có tối thiểu 8 ký tự' })
   @Validate(IsBcryptSafeConstraint)
   password!: string;
+
+  @ApiPropertyOptional({
+    example: 'Customer',
+    enum: ['Customer', 'Worker'],
+    description: 'Vai trò tài khoản (Customer hoặc Worker, mặc định: Customer)',
+  })
+  @IsOptional()
+  @IsString({ message: 'Vai trò phải là chuỗi ký tự' })
+  @IsIn(['Customer', 'Worker'], { message: 'Vai trò chỉ có thể là Customer hoặc Worker' })
+  role?: 'Customer' | 'Worker';
 }

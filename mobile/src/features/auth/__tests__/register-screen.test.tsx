@@ -23,6 +23,8 @@ describe('registerScreen', () => {
   it('renders all form fields and submit button', () => {
     render(<RegisterScreen />);
     expect(screen.getByTestId('auth-register-screen')).toBeOnTheScreen();
+    expect(screen.getByTestId('role-customer-btn')).toBeOnTheScreen();
+    expect(screen.getByTestId('role-worker-btn')).toBeOnTheScreen();
     expect(screen.getByTestId('register-fullname-input')).toBeOnTheScreen();
     expect(screen.getByTestId('register-phone-input')).toBeOnTheScreen();
     expect(screen.getByTestId('register-email-input')).toBeOnTheScreen();
@@ -54,7 +56,7 @@ describe('registerScreen', () => {
     expect(await screen.findByText('Mật khẩu xác nhận không trùng khớp')).toBeOnTheScreen();
   });
 
-  it('submits valid registration and navigates to OTP verification screen', async () => {
+  it('submits valid registration with Customer role by default', async () => {
     const registerSpy = jest.spyOn(AuthApi, 'register').mockResolvedValue({
       statusCode: 201,
       message: 'Đăng ký thành công',
@@ -80,6 +82,7 @@ describe('registerScreen', () => {
         phone: '0912345678',
         email: 'customer@example.com',
         password: 'Password123',
+        role: 'Customer',
       });
       expect(mockPush).toHaveBeenCalledWith({
         pathname: '/(auth)/otp',
@@ -89,6 +92,38 @@ describe('registerScreen', () => {
           emailMasked: undefined,
           resendAvailableAt: undefined,
         },
+      });
+    });
+  });
+
+  it('submits valid registration with Worker role when selected', async () => {
+    const registerSpy = jest.spyOn(AuthApi, 'register').mockResolvedValue({
+      statusCode: 201,
+      message: 'Đăng ký thành công',
+      data: {
+        userId: 'worker-1',
+        phone: '+84912345679',
+        email: 'worker@example.com',
+        verificationInstructions: 'Nhập mã OTP',
+      },
+    });
+
+    render(<RegisterScreen />);
+    fireEvent.press(screen.getByTestId('role-worker-btn'));
+    fireEvent.changeText(screen.getByTestId('register-fullname-input'), 'Tho Sua Chua');
+    fireEvent.changeText(screen.getByTestId('register-phone-input'), '0912345679');
+    fireEvent.changeText(screen.getByTestId('register-email-input'), 'worker@example.com');
+    fireEvent.changeText(screen.getByTestId('register-password-input'), 'Password123');
+    fireEvent.changeText(screen.getByTestId('register-confirm-password-input'), 'Password123');
+    fireEvent.press(screen.getByTestId('register-submit-button'));
+
+    await waitFor(() => {
+      expect(registerSpy).toHaveBeenCalledWith({
+        fullName: 'Tho Sua Chua',
+        phone: '0912345679',
+        email: 'worker@example.com',
+        password: 'Password123',
+        role: 'Worker',
       });
     });
   });

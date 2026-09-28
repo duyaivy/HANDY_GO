@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
@@ -14,20 +14,35 @@ import { useAuthStore } from '@/stores/use-auth-store';
 
 export function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ phone?: string; verified?: string }>();
   const login = useAuthStore.use.login();
   const isLoading = useAuthStore.use.isLoading();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const clearError = useAuthStore.use.clearError();
 
-  const [phone, setPhone] = React.useState('');
+  const [phone, setPhone] = React.useState(params?.phone || '');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = React.useState<string | null>(
+    params?.verified === 'true'
+      ? 'Xác thực tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.'
+      : null,
+  );
   const [localErrors, setLocalErrors] = React.useState<{
     phone?: string;
     password?: string;
   }>({});
+
+  React.useEffect(() => {
+    if (params?.phone) {
+      setPhone(params.phone);
+    }
+    if (params?.verified === 'true') {
+      setSuccessMessage('Xác thực tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.');
+    }
+  }, [params?.phone, params?.verified]);
 
   // Auth guard: already logged in users cannot re-enter login screen via back navigation
   React.useEffect(() => {
@@ -75,6 +90,7 @@ export function LoginScreen() {
     }
 
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     try {
       const session = await login({
@@ -151,6 +167,16 @@ export function LoginScreen() {
 
         {/* Form Card */}
         <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+          {successMessage
+            ? (
+                <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
+                  <Text className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                    {successMessage}
+                  </Text>
+                </View>
+              )
+            : null}
+
           {errorMessage
             ? (
                 <View testID="auth-login-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">

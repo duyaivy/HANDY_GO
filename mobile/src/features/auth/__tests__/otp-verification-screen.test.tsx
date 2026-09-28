@@ -42,7 +42,7 @@ describe('otpVerificationScreen', () => {
     ).toBeOnTheScreen();
   });
 
-  it('submits valid OTP and navigates to Customer home on auto-login success', async () => {
+  it('submits valid OTP and navigates to Login screen on verification success', async () => {
     const verifyOtpMock = jest.fn().mockResolvedValue({
       accessToken: 'token',
       refreshToken: 'refresh',
@@ -67,7 +67,13 @@ describe('otpVerificationScreen', () => {
         phone: '0912345678',
         otp: '123456',
       });
-      expect(mockReplace).toHaveBeenCalledWith('/customer');
+      expect(mockReplace).toHaveBeenCalledWith({
+        pathname: '/(auth)/login',
+        params: {
+          phone: '0912345678',
+          verified: 'true',
+        },
+      });
     });
   });
 

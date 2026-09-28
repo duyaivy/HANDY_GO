@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
-import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { AuthApi } from '@/services/auth/auth-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -96,20 +95,20 @@ export function OtpVerificationScreen() {
     setSuccessNotice(null);
 
     try {
-      const session = await verifyOtp({
+      await verifyOtp({
         email,
         phone,
         otp: cleanOtp,
       });
 
-      // Verification successful, auto-logged in, navigate according to roles
-      const dest = getDestinationByRoles(session.user.roles);
-      if (dest.type === 'ROUTE') {
-        router.replace(dest.path as any);
-      }
-      else {
-        router.replace(RouteNames.ROOT);
-      }
+      // Verification successful, navigate to Login screen to log in with Phone + Password
+      router.replace({
+        pathname: RouteNames.AUTH_LOGIN,
+        params: {
+          phone: phone || '',
+          verified: 'true',
+        },
+      } as any);
     }
     catch (err: any) {
       const code = err?.code;

@@ -117,15 +117,20 @@ export class AuthServiceService {
     const otp = this.otpService.generateOtp();
     const eventId = crypto.randomUUID();
 
-    // Ensure role Customer exists
-    let customerRole = await this.db.role.findUnique({
-      where: { name: 'Customer' },
+    const targetRoleName = dto.role === 'Worker' ? 'Worker' : 'Customer';
+
+    // Ensure role exists
+    let assignedRole = await this.db.role.findUnique({
+      where: { name: targetRoleName },
     });
-    if (!customerRole) {
-      customerRole = await this.db.role.create({
+    if (!assignedRole) {
+      assignedRole = await this.db.role.create({
         data: {
-          name: 'Customer',
-          description: 'Khách hàng sử dụng dịch vụ tiện ích',
+          name: targetRoleName,
+          description:
+            targetRoleName === 'Worker'
+              ? 'Thợ cung cấp dịch vụ tiện ích'
+              : 'Khách hàng sử dụng dịch vụ tiện ích',
         },
       });
     }
@@ -142,7 +147,7 @@ export class AuthServiceService {
             status: 'pending',
             roles: {
               create: {
-                roleId: customerRole!.id,
+                roleId: assignedRole!.id,
               },
             },
             otpChallenges: {
@@ -170,6 +175,7 @@ export class AuthServiceService {
             fullName: trimmedFullName,
             phone: normalizedPhone,
             email: normalizedEmail,
+            role: targetRoleName,
           },
         };
 
