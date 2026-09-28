@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="100%" height="100%">
+  <defs>
+    <linearGradient id="navOrangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9E16" />
+      <stop offset="35%" stop-color="#FF720E" />
+      <stop offset="100%" stop-color="#FF4D00" />
+    </linearGradient>
+    <linearGradient id="navGoGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF5200" />
+      <stop offset="100%" stop-color="#FF9914" />
+    </linearGradient>
+  </defs>
+
+  <!-- Left: Speed-House-Pin Mark -->
+  <g id="nav-mark" transform="translate(14, 6) scale(0.42)">
+    <!-- 3 Speed Lines on the left -->
+    <rect x="-70" y="38" width="58" height="15" rx="7.5" fill="url(#navOrangeGrad)" />
+    <rect x="-92" y="65" width="40" height="15" rx="7.5" fill="url(#navOrangeGrad)" />
+    <rect x="-66" y="92" width="52" height="15" rx="7.5" fill="url(#navOrangeGrad)" />
+
+    <!-- Pin Outer Shape -->
+    <path d="M 150 4
+             C 192 4 218 36 218 78
+             C 218 108 185 142 150 162
+             C 115 142 82 108 82 78
+             C 82 36 108 4 150 4 Z"
+          fill="url(#navOrangeGrad)" />
+
+    <!-- Inner Circle Cutout -->
+    <circle cx="150" cy="74" r="48" fill="#ffffff" />
+
+    <!-- House Icon inside Pin -->
+    <path d="M 150 45 L 178 69 L 168 77 L 150 62 L 132 77 L 122 69 Z"
+          fill="#1E2530" />
+    <rect x="135" y="80" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="153" y="80" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="135" y="96" width="12" height="12" rx="1.5" fill="#1E2530" />
+    <rect x="153" y="96" width="12" height="12" rx="1.5" fill="#1E2530" />
+  </g>
+
+  <!-- Right: Wordmark + Tagline -->
+  <g id="nav-text" transform="translate(108, 45)">
+    <text font-family="system-ui, -apple-system, 'Plus Jakarta Sans', sans-serif"
+          font-weight="900"
+          font-size="34"
+          letter-spacing="-0.8">
+      <tspan fill="#1E2530">Handy</tspan><tspan fill="url(#navGoGrad)" dx="1">Go</tspan>
+    </text>
+    <text x="1" y="20"
+          fill="#526071"
+          font-family="system-ui, -apple-system, 'Plus Jakarta Sans', sans-serif"
+          font-weight="700"
+          font-size="8.5"
+          letter-spacing="1.2">
+      DỊCH VỤ TẬN NƠI, TRONG TẦM TAY
+    </text>
+  </g>
+</svg>
