@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     face_execution_provider: str = "CPUExecutionProvider"
     face_detection_size: int = 640
     face_detection_confidence: float = 0.50
-    face_match_threshold: float = 0.50
-    face_review_threshold: float = 0.40
+    face_match_threshold: float = 0.70
+    face_review_threshold: float = 0.50
     face_max_image_pixels: int = 20_000_000
     # Ảnh CCCD và selfie là dữ liệu nhạy cảm; không lưu mặc định.
     face_save_debug: bool = False
