@@ -11,7 +11,16 @@ export class AuthPrismaService
     const connectionString =
       process.env.DATABASE_URL_AUTH ||
       'postgresql://postgres:postgres@localhost:5432/handy_auth';
-    const adapter = new PrismaPg({ connectionString });
+
+    let schema: string | undefined;
+    try {
+      const url = new URL(connectionString);
+      schema = url.searchParams.get('schema') || undefined;
+    } catch {
+      // ignore parsing error if custom format
+    }
+
+    const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
     super({ adapter });
   }
 

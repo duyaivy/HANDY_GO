@@ -11,7 +11,16 @@ export class UserTrustPrismaService
     const connectionString =
       process.env.DATABASE_URL_USER_TRUST ||
       'postgresql://postgres:postgres@localhost:5433/handy_user_trust';
-    const adapter = new PrismaPg({ connectionString });
+
+    let schema: string | undefined;
+    try {
+      const url = new URL(connectionString);
+      schema = url.searchParams.get('schema') || undefined;
+    } catch {
+      // ignore parsing error if custom format
+    }
+
+    const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
     super({ adapter });
   }
 
