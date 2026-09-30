@@ -34,6 +34,10 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.prisma.json"
+    "catalog:prisma:generate": "prisma generate --schema=apps/catalog-service/prisma/schema.prisma",
+    "catalog:prisma:migrate": "prisma migrate dev --schema=apps/catalog-service/prisma/schema.prisma --config=apps/catalog-service/prisma.config.ts",
+    "catalog:prisma:deploy": "prisma migrate deploy --schema=apps/catalog-service/prisma/schema.prisma --config=apps/catalog-service/prisma.config.ts",
+    "typecheck": "tsc -b --force --pretty false"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",

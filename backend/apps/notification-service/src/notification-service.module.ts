@@ -14,7 +14,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     }),
     LoggerModule.forRoot('notification-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [NotificationServiceController],
   providers: [NotificationServiceService],
