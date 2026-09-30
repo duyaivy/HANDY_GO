@@ -11,7 +11,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     ConfigModule.forRoot({ serviceName: 'wallet-service', defaultPort: 3009 }),
     LoggerModule.forRoot('wallet-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [WalletServiceController],
   providers: [WalletServiceService],

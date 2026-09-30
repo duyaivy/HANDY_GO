@@ -11,7 +11,9 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
         name: 'RABBITMQ_CLIENT',
         transport: Transport.RMQ,
         options: {
-          urls: [process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672'],
+          urls: [
+            process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672',
+          ],
           queue: 'handy-go-publisher',
           queueOptions: {
             durable: true,

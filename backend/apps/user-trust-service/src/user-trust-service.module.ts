@@ -14,7 +14,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     }),
     LoggerModule.forRoot('user-trust-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [UserTrustServiceController],
   providers: [UserTrustServiceService],

@@ -10,10 +10,7 @@ export class RabbitMQContextService {
     channel.ack(message);
   }
 
-  nack(
-    context: RmqContext,
-    requeue = true,
-  ): void {
+  nack(context: RmqContext, requeue = true): void {
     const channel = context.getChannelRef();
     const message = context.getMessage();
 
@@ -21,6 +18,6 @@ export class RabbitMQContextService {
   }
 }
 
-// yêu cầu acknowledgement trên cùng channel với delivery. 
-// Khi manual ACK được bật, message chỉ nên ACK sau khi xử lý xong; 
+// yêu cầu acknowledgement trên cùng channel với delivery.
+// Khi manual ACK được bật, message chỉ nên ACK sau khi xử lý xong;
 // nếu consumer mất kết nối trước ACK, broker có thể redeliver message.
