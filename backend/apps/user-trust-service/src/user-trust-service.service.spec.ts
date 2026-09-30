@@ -27,6 +27,9 @@ describe('UserTrustServiceService', () => {
         create: vi.fn(),
         upsert: vi.fn(),
       },
+      workerProfile: {
+        upsert: vi.fn(),
+      },
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
 
@@ -43,15 +46,14 @@ describe('UserTrustServiceService', () => {
   describe('handleUserRegistered', () => {
     const event = {
       eventId: 'evt-001',
-      eventVersion: 1,
+      eventVersion: 2,
       occurredAt: new Date(),
       producer: 'auth-service',
       data: {
         userId: 'user-001',
-        accountId: 'user-001',
+        accountId: 'account-001',
         fullName: 'Nguyen Van A',
-        phone: '+84912345678',
-        email: 'a@example.com',
+        role: 'Customer' as const,
       },
     };
 
@@ -59,8 +61,7 @@ describe('UserTrustServiceService', () => {
       dbMock.eventInbox.findUnique.mockResolvedValue(null);
       dbMock.user.findUnique.mockResolvedValue(null);
       dbMock.user.create.mockResolvedValue({ id: 'user-001' });
-      dbMock.customerProfile.findUnique.mockResolvedValue(null);
-      dbMock.customerProfile.create.mockResolvedValue({ id: 'prof-001' });
+      dbMock.customerProfile.upsert.mockResolvedValue({ id: 'prof-001' });
 
       const result = await service.handleUserRegistered(event);
 
@@ -76,11 +77,13 @@ describe('UserTrustServiceService', () => {
           data: expect.objectContaining({ id: 'user-001' }),
         }),
       );
-      expect(dbMock.customerProfile.create).toHaveBeenCalledWith(
+      expect(dbMock.customerProfile.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ userId: 'user-001' }),
+          where: { userId: 'user-001' },
+          create: expect.objectContaining({ userId: 'user-001' }),
         }),
       );
+      expect(dbMock.workerProfile.upsert).not.toHaveBeenCalled();
     });
 
     it('should be idempotent and skip processing if eventId already exists in eventInbox', async () => {
@@ -93,6 +96,27 @@ describe('UserTrustServiceService', () => {
       expect(dbMock.eventInbox.create).not.toHaveBeenCalled();
       expect(dbMock.user.create).not.toHaveBeenCalled();
     });
+
+    it('creates only a draft WorkerProfile for Worker registration', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.user.findUnique.mockResolvedValue(null);
+      dbMock.user.create.mockResolvedValue({ id: 'user-worker' });
+
+      const result = await service.handleUserRegistered({
+        ...event,
+        eventId: 'evt-worker',
+        data: { ...event.data, userId: 'user-worker', role: 'Worker' },
+      });
+
+      expect(result.processed).toBe(true);
+      expect(dbMock.workerProfile.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-worker' },
+          create: expect.objectContaining({ userId: 'user-worker', status: 'draft' }),
+        }),
+      );
+      expect(dbMock.customerProfile.upsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('getUserAuthStatus', () => {
@@ -103,7 +127,7 @@ describe('UserTrustServiceService', () => {
         customerProfile: { id: 'prof-001' },
       });
 
-      const result = await service.getUserAuthStatus('user-001');
+      const result = await service.getUserAuthStatus('user-001', ['Customer']);
       expect(result).toEqual({
         exists: true,
         status: 'active',
@@ -114,10 +138,50 @@ describe('UserTrustServiceService', () => {
     it('should return exists: false when user is not found', async () => {
       dbMock.user.findUnique.mockResolvedValue(null);
 
-      const result = await service.getUserAuthStatus('non-existent');
+      const result = await service.getUserAuthStatus('non-existent', ['Customer']);
       expect(result).toEqual({
         exists: false,
         status: 'none',
+        isProvisioned: false,
+      });
+    });
+
+    it('checks WorkerProfile rather than CustomerProfile for Worker login', async () => {
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'user-worker',
+        status: 'active',
+        customerProfile: null,
+        workerProfile: { status: 'draft' },
+      });
+
+      expect(await service.getUserAuthStatus('user-worker', ['Worker'])).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: true,
+      });
+      expect(await service.getUserAuthStatus('user-worker', ['Customer'])).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: false,
+      });
+    });
+
+    it('allows an Admin user without a Customer or Worker profile', async () => {
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'user-admin',
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+      });
+
+      expect(await service.getUserAuthStatus('user-admin', ['Admin'])).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: true,
+      });
+      expect(await service.getUserAuthStatus('user-admin', [])).toEqual({
+        exists: true,
+        status: 'active',
         isProvisioned: false,
       });
     });
@@ -128,9 +192,8 @@ describe('UserTrustServiceService', () => {
       dbMock.user.findUnique.mockResolvedValue({
         id: 'user-001',
         fullName: 'Nguyen Van A',
-        phone: '+84912345678',
-        email: 'a@example.com',
-        customerProfile: { loyaltyPoints: 0 },
+        avatarUrl: null,
+        customerProfile: { bio: null },
       });
 
       const result: any = await service.getProfile(
@@ -141,6 +204,8 @@ describe('UserTrustServiceService', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.data.id).toBe('user-001');
+      expect(result.data).not.toHaveProperty('phone');
+      expect(result.data).not.toHaveProperty('email');
     });
 
     it('should forbid reading other user profile without user:read permission', async () => {

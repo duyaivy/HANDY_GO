@@ -1,7 +1,14 @@
+import { beforeEach, describe, expect, it, afterEach, vi } from 'vitest';
+
+process.env.OTP_SECRET = 'test-otp-secret-key-for-e2e-testing-only-12345';
+process.env.INTERNAL_SERVICE_SECRET = 'test-internal-secret-key-12345';
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { AuthSeedService } from '../src/seed/auth-seed.service.js';
+import { OutboxPublisherService } from '../src/outbox/outbox-publisher.service.js';
 import { AuthServiceModule } from './../src/auth-service.module.js';
 
 describe('AuthServiceController (e2e)', () => {
@@ -10,7 +17,20 @@ describe('AuthServiceController (e2e)', () => {
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AuthServiceModule],
-    }).compile();
+    })
+      .overrideProvider(AuthSeedService)
+      .useValue({
+        seed: vi.fn().mockResolvedValue(undefined),
+        onModuleInit: vi.fn().mockResolvedValue(undefined),
+      })
+      .overrideProvider(OutboxPublisherService)
+      .useValue({
+        triggerPublish: vi.fn().mockResolvedValue(undefined),
+        publishPendingEvents: vi.fn().mockResolvedValue(0),
+        onModuleInit: vi.fn(),
+        onModuleDestroy: vi.fn(),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
@@ -39,6 +59,8 @@ describe('AuthServiceController (e2e)', () => {
   });
 
   afterEach(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 });

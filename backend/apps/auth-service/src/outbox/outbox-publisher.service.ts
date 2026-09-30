@@ -14,13 +14,13 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    if (process.env.NODE_ENV !== 'test') {
-      // Poll every 3 seconds for pending outbox events
-      this.timer = setInterval(() => {
-        void this.publishPendingEvents();
-      }, 3000);
-    }
+    // Poll every 3 seconds for pending outbox events
+    this.timer = setInterval(() => {
+      void this.publishPendingEvents();
+    }, 3000);
+    this.timer.unref?.();
   }
+
 
   onModuleDestroy(): void {
     if (this.timer) {

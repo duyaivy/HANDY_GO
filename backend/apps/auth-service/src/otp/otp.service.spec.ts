@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import nodemailer from 'nodemailer';
+import type { ConfigService } from '@app/config';
 import { OtpService } from './otp.service.js';
 
 vi.mock('nodemailer', () => {
@@ -15,10 +16,30 @@ vi.mock('nodemailer', () => {
 
 describe('OtpService', () => {
   let service: OtpService;
+  let mockConfig: ConfigService;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new OtpService();
+    mockConfig = {
+      otpSecret: 'test-otp-secret-key-1234567890',
+      smtpHost: 'localhost',
+      smtpPort: 1025,
+      smtpSecure: false,
+      smtpFrom: 'HANDY GO <noreply@handygo.vn>',
+      smtpUser: undefined,
+      smtpPass: undefined,
+    } as unknown as ConfigService;
+    service = new OtpService(mockConfig);
+  });
+
+  it('should throw an error on startup if OTP_SECRET is missing or empty', () => {
+    const invalidConfig = {
+      otpSecret: '',
+    } as unknown as ConfigService;
+
+    expect(() => new OtpService(invalidConfig)).toThrow(
+      'OTP_SECRET environment variable is required',
+    );
   });
 
   it('should generate a 6-digit OTP code with valid expiration and cooldown', () => {
@@ -40,7 +61,7 @@ describe('OtpService', () => {
     expect(service.maskEmail('a@b.com')).toBe('a***@b.com');
   });
 
-  it('should send email using SMTP transporter with correct payload', async () => {
+  it('should send email using SMTP transporter with correct payload from template', async () => {
     const transporter = (nodemailer.createTransport as any)();
     await service.sendVerificationOtp('test@example.com', '123456');
 

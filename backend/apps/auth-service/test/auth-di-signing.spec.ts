@@ -14,6 +14,12 @@ import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '../src/outbox/outbox-publisher.service.js';
 import { RateLimiterService } from '../src/rate-limit/rate-limiter.service.js';
 import { AuthServiceController } from '../src/auth-service.controller.js';
+import { ConfigService } from '@app/config';
+import { RegisterFlowService } from '../src/flows/register-flow.service.js';
+import { OtpFlowService } from '../src/flows/otp-flow.service.js';
+import { LoginFlowService } from '../src/flows/login-flow.service.js';
+import { SessionService } from '../src/session/session.service.js';
+import { UserTrustClient } from '../src/rpc/user-trust.client.js';
 
 describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   let module: TestingModule;
@@ -32,6 +38,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       role: {
         findUnique: vi.fn(),
@@ -41,9 +48,10 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
         findFirst: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         count: vi.fn().mockResolvedValue(0),
       },
+
       refreshSession: {
         create: vi.fn().mockImplementation((args) => Promise.resolve({ id: args.data.id ?? 'sess-1', ...args.data })),
         findFirst: vi.fn(),
@@ -103,13 +111,26 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       controllers: [AuthServiceController],
       providers: [
         AuthServiceService,
+        RegisterFlowService,
+        OtpFlowService,
+        LoginFlowService,
+        SessionService,
+        UserTrustClient,
         { provide: AuthPrismaService, useValue: dbMock },
         { provide: OtpService, useValue: otpServiceMock },
         { provide: OutboxPublisherService, useValue: outboxPublisherMock },
         { provide: RateLimiterService, useValue: rateLimiterMock },
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        {
+          provide: ConfigService,
+          useValue: {
+            internalServiceSecret: 'test-secret',
+            otpSecret: 'test-otp-secret',
+          },
+        },
       ],
     }).compile();
+
 
     authService = module.get<AuthServiceService>(AuthServiceService);
     verifier = module.get<TokenVerifierService>(TokenVerifierService);
@@ -134,16 +155,17 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const mockAccount = {
       id: 'acc-real-signer-1',
+      userId: 'user-real-signer-1',
       phone: '+84912345678',
       email: 'user@example.com',
       passwordHash,
-      isVerified: true,
+      emailVerifiedAt: new Date(),
       status: 'active',
       roles: [
         {
           role: {
             name: 'Customer',
-            rolePermissions: [{ permission: { code: 'auth:me' } }],
+            permissionRoles: [{ permission: { code: 'auth:me' } }],
           },
         },
       ],
@@ -163,7 +185,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     // Verify token with real verifier
     const decoded = await verifier.verifyAccessToken(result.data.accessToken);
     expect(decoded.sub).toBe('acc-real-signer-1');
-    expect(decoded.userId).toBe('acc-real-signer-1');
+    expect(decoded.userId).toBe('user-real-signer-1');
     expect(decoded.roles).toEqual(['Customer']);
     expect(decoded.permissions).toEqual(['auth:me']);
     expect(decoded.iss).toBe('handy-go-auth');
@@ -173,11 +195,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   it('3. VerifyEmail with real signer produces RS256 JWT that TokenVerifierService successfully verifies', async () => {
     const mockAccount = {
       id: 'acc-verify-1',
+      userId: 'user-verify-1',
       phone: '+84912345678',
       email: 'user@example.com',
-      isVerified: false,
+      emailVerifiedAt: null,
       status: 'pending',
-      roles: [{ role: { name: 'Customer', rolePermissions: [] } }],
+      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
       otpChallenges: [
         {
           id: 'otp-1',
@@ -196,7 +219,9 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       attempts: 0,
       expiresAt: new Date(Date.now() + 600000),
       isUsed: false,
+      deliveryStatus: 'delivered',
     });
+
 
     const result: any = await authService.verifyEmail({
       phone: '0912345678',
@@ -216,11 +241,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     const hashed = (authService as any).tokenSigner.hashToken(rawOldRefreshToken);
     const mockAccount = {
       id: 'acc-refresh-1',
+      userId: 'user-refresh-1',
       phone: '+84912345678',
       email: 'user@example.com',
-      isVerified: true,
+      emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', rolePermissions: [] } }],
+      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.refreshSession.findFirst.mockResolvedValue({
@@ -228,7 +254,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       refreshTokenHash: hashed,
       revokedAt: null,
       expiresAt: new Date(Date.now() + 3600000),
-      absoluteExpiresAt: new Date(Date.now() + 7 * 86400000),
+      createdAt: new Date(),
       account: mockAccount,
     });
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
@@ -258,11 +284,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   it('6. Atomicity: If token signing fails in verifyEmail, database changes are NOT committed', async () => {
     const mockAccount = {
       id: 'acc-verify-fail-1',
+      userId: 'user-verify-fail-1',
       phone: '+84912345678',
       email: 'user@example.com',
-      isVerified: false,
+      emailVerifiedAt: null,
       status: 'pending',
-      roles: [{ role: { name: 'Customer', rolePermissions: [] } }],
+      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
       otpChallenges: [
         {
           id: 'otp-challenge-fail-1',
@@ -281,7 +308,9 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       attempts: 0,
       expiresAt: new Date(Date.now() + 600000),
       isUsed: false,
+      deliveryStatus: 'delivered',
     });
+
 
     // Simulate signing failure
     vi.spyOn((authService as any).tokenSigner, 'signAccessToken').mockRejectedValueOnce(
@@ -304,12 +333,13 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const mockAccount = {
       id: 'acc-login-fail-1',
+      userId: 'user-login-fail-1',
       phone: '+84912345678',
       email: 'user@example.com',
       passwordHash,
-      isVerified: true,
+      emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', rolePermissions: [] } }],
+      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
@@ -332,11 +362,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     const hashed = (authService as any).tokenSigner.hashToken(rawOldRefreshToken);
     const mockAccount = {
       id: 'acc-refresh-fail-1',
+      userId: 'user-refresh-fail-1',
       phone: '+84912345678',
       email: 'user@example.com',
-      isVerified: true,
+      emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', rolePermissions: [] } }],
+      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.refreshSession.findFirst.mockResolvedValue({
@@ -344,7 +375,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       refreshTokenHash: hashed,
       revokedAt: null,
       expiresAt: new Date(Date.now() + 3600000),
-      absoluteExpiresAt: new Date(Date.now() + 7 * 86400000),
+      createdAt: new Date(),
       account: mockAccount,
     });
     dbMock.account.findUnique.mockResolvedValue(mockAccount);

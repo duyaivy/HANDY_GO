@@ -6,6 +6,7 @@ export interface ConfigModuleOptions {
   serviceName: string;
   defaultPort: number;
   requiredUrls?: string[];
+  requiredKeys?: string[];
 }
 
 @Global()
@@ -77,5 +78,13 @@ function validateEnvironment(
     }
   }
 
+  for (const key of options.requiredKeys ?? []) {
+    const value = config[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${key} environment variable is required`);
+    }
+  }
+
   return config;
 }
+

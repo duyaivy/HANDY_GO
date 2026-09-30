@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
@@ -13,8 +14,7 @@ export interface UserRegisteredData {
   userId: string;
   accountId: string;
   fullName: string;
-  phone: string;
-  email: string;
+  role: 'Customer' | 'Worker';
 }
 
 @Injectable()
@@ -28,6 +28,11 @@ export class UserTrustServiceService {
   ): Promise<{ processed: boolean; idempotent: boolean }> {
     const { eventId, producer, data } = event;
     const eventType = 'user.registered';
+
+    if (event.eventVersion !== 2 || !['Customer', 'Worker'].includes(data.role)) {
+      this.logger.warn(`Ignoring unsupported user.registered event ${eventId}`);
+      return { processed: false, idempotent: false };
+    }
 
     // Check event inbox for idempotency
     const existingEvent = await this.db.eventInbox.findUnique({
@@ -68,35 +73,47 @@ export class UserTrustServiceService {
         where: { id: data.userId },
       });
 
+      const now = new Date();
       const user = existingUser
         ? existingUser
         : await tx.user.create({
             data: {
               id: data.userId,
               fullName: data.fullName,
-              phone: data.phone,
-              email: data.email,
               status: 'active',
+              createdAt: now,
+              updatedAt: now,
             },
           });
 
-      // 3. Create customer profile if not exists
-      const existingCustomerProfile = await tx.customerProfile.findUnique({
-        where: { userId: user.id },
-      });
-
-      if (!existingCustomerProfile) {
-        await tx.customerProfile.create({
-          data: {
+      if (data.role === 'Customer') {
+        await tx.customerProfile.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: {
+            id: crypto.randomUUID(),
             userId: user.id,
-            loyaltyPoints: 0,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.workerProfile.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: {
+            id: crypto.randomUUID(),
+            userId: user.id,
+            status: 'draft',
+            createdAt: now,
+            updatedAt: now,
           },
         });
       }
     });
 
     this.logger.log(
-      `User & CustomerProfile created for userId ${data.userId} from event ${eventId}.`,
+      `User & ${data.role}Profile provisioned for userId ${data.userId} from event ${eventId}.`,
     );
 
     return { processed: true, idempotent: false };
@@ -104,20 +121,26 @@ export class UserTrustServiceService {
 
   async getUserAuthStatus(
     userId: string,
+    roles: string[],
   ): Promise<{ exists: boolean; status: string; isProvisioned: boolean }> {
     const user = await this.db.user.findUnique({
       where: { id: userId },
-      include: { customerProfile: true },
+      include: { customerProfile: true, workerProfile: true },
     });
 
     if (!user) {
       return { exists: false, status: 'none', isProvisioned: false };
     }
 
+    const hasProfileRole = roles.includes('Customer') || roles.includes('Worker');
+
     return {
       exists: true,
       status: user.status,
-      isProvisioned: Boolean(user.customerProfile),
+      isProvisioned:
+        (hasProfileRole || roles.includes('Admin')) &&
+        (!roles.includes('Customer') || Boolean(user.customerProfile)) &&
+        (!roles.includes('Worker') || Boolean(user.workerProfile)),
     };
   }
 
@@ -138,7 +161,7 @@ export class UserTrustServiceService {
 
     const user = await this.db.user.findUnique({
       where: { id: targetUserId },
-      include: { customerProfile: true },
+      include: { customerProfile: true, workerProfile: true },
     });
 
     if (!user) {
@@ -151,10 +174,10 @@ export class UserTrustServiceService {
       data: {
         id: user.id,
         fullName: user.fullName,
-        phone: user.phone,
-        email: user.email,
+        avatarUrl: user.avatarUrl,
         status: user.status,
         customerProfile: user.customerProfile,
+        workerProfile: user.workerProfile,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
@@ -189,8 +212,9 @@ export class UserTrustServiceService {
       where: { id: targetUserId },
       data: {
         fullName: dto.fullName.trim(),
+        updatedAt: new Date(),
       },
-      include: { customerProfile: true },
+      include: { customerProfile: true, workerProfile: true },
     });
 
     return {
@@ -199,10 +223,10 @@ export class UserTrustServiceService {
       data: {
         id: updated.id,
         fullName: updated.fullName,
-        phone: updated.phone,
-        email: updated.email,
+        avatarUrl: updated.avatarUrl,
         status: updated.status,
         customerProfile: updated.customerProfile,
+        workerProfile: updated.workerProfile,
         updatedAt: updated.updatedAt,
       },
     };

@@ -32,10 +32,9 @@ export class PermissionsGuard implements CanActivate {
     );
 
     if (!requiredPermissions || requiredPermissions.length === 0) {
-      throw new ForbiddenException(
-        'Route không khai báo permission và không phải public bị từ chối mặc định.',
-      );
+      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này');
     }
+
 
     const request = context.switchToHttp().getRequest();
     const user: AuthenticatedUser | undefined = request.user;

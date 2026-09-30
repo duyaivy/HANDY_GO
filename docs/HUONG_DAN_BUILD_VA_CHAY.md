@@ -167,9 +167,15 @@ Giữ cấu hình local trong hai file example. Trong `apps/api-gateway/.env` c�
 ```dotenv
 AUTH_SERVICE_URL=http://localhost:3001
 USER_TRUST_SERVICE_URL=http://localhost:3002
+INTERNAL_SERVICE_SECRET=your-internal-gateway-secret-32-chars
 ```
 
+Trong `backend/.env`, cần đảm bảo khai báo:
+- `OTP_SECRET`: Bắt buộc cho `auth-service` khởi động; dùng để băm HMAC-SHA256 mã OTP. Nếu đổi secret, OTP đang chờ xác thực sẽ không còn hợp lệ và cần gửi lại qua app (`/auth/resend-otp`).
+- `INTERNAL_SERVICE_SECRET`: Secret xác thực header nội bộ giữa Gateway và `auth-service` để chống giả mạo IP.
+
 `db:setup` sinh Prisma clients và áp dụng migration cho cả hai DB. Không thêm một `PORT=3000` dùng chung vào `backend/.env`.
+
 
 ### Chuẩn bị mobile và cài app lần đầu
 

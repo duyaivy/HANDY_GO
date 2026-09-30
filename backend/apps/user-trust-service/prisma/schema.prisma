@@ -7,30 +7,232 @@ generator client {
   output   = "../../../node_modules/@prisma/user-trust-client"
 }
 
+enum UserStatus {
+  active
+  suspended
+  deleted
+
+  @@map("user_status")
+}
+
+enum WorkerStatus {
+  draft
+  pending_kyc
+  under_review
+  verified
+  rejected
+  suspended
+
+  @@map("worker_status")
+}
+
+enum KycStatus {
+  draft
+  submitted
+  reviewing
+  approved
+  rejected
+
+  @@map("kyc_status")
+}
+
+enum ReviewStatus {
+  published
+  hidden
+  flagged
+  removed
+
+  @@map("review_status")
+}
+
+enum ComplaintStatus {
+  submitted
+  reviewing
+  awaiting_information
+  resolved
+  rejected
+  closed
+
+  @@map("complaint_status")
+}
+
+enum ComplaintCategory {
+  service_quality
+  worker_behavior
+  customer_behavior
+  payment
+  fraud
+  safety
+  other
+
+  @@map("complaint_category")
+}
+
 model User {
-  id              String           @id
-  fullName        String
-  phone           String           @unique
-  email           String           @unique
-  status          String           @default("active")
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  customerProfile CustomerProfile?
+  id                 String              @id @db.Uuid
+  fullName           String              @map("full_name") @db.VarChar(150)
+  avatarUrl          String?             @map("avatar_url")
+  status             UserStatus          @default(active)
+  createdAt          DateTime            @map("created_at") @db.Timestamp(6)
+  updatedAt          DateTime            @map("updated_at") @db.Timestamp(6)
+  customerProfile    CustomerProfile?
+  workerProfile      WorkerProfile?
+  bankAccounts       UserBankAccount[]
+  reviewedKycCases   KycCase[]           @relation("KycReviewer")
+  customerReviews    WorkerReview[]      @relation("ReviewCustomer")
+  workerReviews      WorkerReview[]      @relation("ReviewWorker")
+  moderatedReviews   WorkerReview[]      @relation("ReviewModerator")
+  complaintsFiled    Complaint[]         @relation("ComplaintComplainant")
+  complaintsReceived Complaint[]         @relation("ComplaintReported")
+  complaintsAssigned Complaint[]         @relation("ComplaintAdmin")
+  evidenceUploaded   ComplaintEvidence[]
 
   @@map("users")
 }
 
 model CustomerProfile {
-  id            String   @id @default(uuid())
-  userId        String   @unique
-  loyaltyPoints Int      @default(0)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  bio       String?
+  createdAt DateTime @map("created_at") @db.Timestamp(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamp(6)
+  user      User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@map("customer_profiles")
 }
 
+model WorkerProfile {
+  id                  String                  @id @db.Uuid
+  userId              String                  @unique @map("user_id") @db.Uuid
+  status              WorkerStatus            @default(draft)
+  averageRating       Decimal                 @default(0) @map("average_rating") @db.Decimal(3, 2)
+  ratingCount         Int                     @default(0) @map("rating_count")
+  completedOrderCount Int                     @default(0) @map("completed_order_count")
+  orderCountTotal     Int                     @default(0) @map("order_count_total")
+  verifiedAt          DateTime?               @map("verified_at") @db.Timestamp(6)
+  approvedAt          DateTime?               @map("approved_at") @db.Timestamp(6)
+  createdAt           DateTime                @map("created_at") @db.Timestamp(6)
+  updatedAt           DateTime                @map("updated_at") @db.Timestamp(6)
+  user                User                    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  serviceOfferings    WorkerServiceOffering[]
+  kycCases            KycCase[]
+
+  @@map("worker_profiles")
+}
+
+model UserBankAccount {
+  id                String   @id @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  bankCode          String   @map("bank_code") @db.VarChar(20)
+  bankName          String   @map("bank_name") @db.VarChar(100)
+  accountNumber     String   @map("account_number") @db.VarChar(50)
+  accountHolderName String   @map("account_holder_name") @db.VarChar(150)
+  isDefault         Boolean  @default(false) @map("is_default")
+  createdAt         DateTime @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime @map("updated_at") @db.Timestamp(6)
+  user              User     @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("user_bank_accounts")
+}
+
+model WorkerServiceOffering {
+  id              String        @id @db.Uuid
+  workerProfileId String        @map("worker_profile_id") @db.Uuid
+  serviceId       String        @map("service_id") @db.Uuid
+  title           String?       @db.VarChar(200)
+  description     String?
+  experienceYears Int?          @default(0) @map("experience_years")
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime      @map("updated_at") @db.Timestamp(6)
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([workerProfileId, serviceId], map: "worker_service_offerings_worker_profile_id_service_id_idx")
+  @@map("worker_service_offerings")
+}
+
+model KycCase {
+  id               String        @id @db.Uuid
+  workerProfileId  String        @map("worker_profile_id") @db.Uuid
+  idDocumentType   String        @map("id_document_type") @db.VarChar(50)
+  idNumberMasked   String?       @map("id_number_masked") @db.VarChar(100)
+  documentFrontRef String        @map("document_front_ref")
+  documentBackRef  String?       @map("document_back_ref")
+  selfieRef        String        @map("selfie_ref")
+  status           KycStatus     @default(draft)
+  aiSimilarityScore Decimal?     @map("ai_similarity_score") @db.Decimal(5, 4)
+  reviewedByUserId String?       @map("reviewed_by_user_id") @db.Uuid
+  reviewNote       String?       @map("review_note")
+  submittedAt      DateTime?     @map("submitted_at") @db.Timestamp(6)
+  reviewedAt       DateTime?     @map("reviewed_at") @db.Timestamp(6)
+  createdAt        DateTime      @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime      @map("updated_at") @db.Timestamp(6)
+  workerProfile    WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer         User?         @relation("KycReviewer", fields: [reviewedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("kyc_cases")
+}
+
+model WorkerReview {
+  id                String       @id @db.Uuid
+  orderId           String       @unique(map: "worker_reviews_order_id_idx") @map("order_id") @db.Uuid
+  customerUserId    String       @map("customer_user_id") @db.Uuid
+  workerUserId      String       @map("worker_user_id") @db.Uuid
+  rating            Int
+  attitudeRating    String       @map("attitude_rating")
+  qualityRating     String       @map("quality_rating")
+  speedRating       String       @map("speed_rating")
+  comment           String?
+  status            ReviewStatus @default(published)
+  moderatedByUserId String?      @map("moderated_by_user_id") @db.Uuid
+  moderationNote    String?      @map("moderation_note")
+  createdAt         DateTime     @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime     @map("updated_at") @db.Timestamp(6)
+  customer          User         @relation("ReviewCustomer", fields: [customerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  worker            User         @relation("ReviewWorker", fields: [workerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  moderator         User?        @relation("ReviewModerator", fields: [moderatedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([workerUserId])
+  @@index([customerUserId])
+  @@map("worker_reviews")
+}
+
+model Complaint {
+  id                  String              @id @db.Uuid
+  orderId             String              @map("order_id") @db.Uuid
+  complainantUserId   String              @map("complainant_user_id") @db.Uuid
+  reportedUserId      String?             @map("reported_user_id") @db.Uuid
+  category            ComplaintCategory
+  subject             String              @db.VarChar(200)
+  description         String
+  status              ComplaintStatus     @default(submitted)
+  assignedAdminUserId String?             @map("assigned_admin_user_id") @db.Uuid
+  resolution          String?
+  resolvedAt          DateTime?           @map("resolved_at") @db.Timestamp(6)
+  createdAt           DateTime            @map("created_at") @db.Timestamp(6)
+  updatedAt           DateTime            @map("updated_at") @db.Timestamp(6)
+  complainant         User                @relation("ComplaintComplainant", fields: [complainantUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reportedUser        User?               @relation("ComplaintReported", fields: [reportedUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  assignedAdmin       User?               @relation("ComplaintAdmin", fields: [assignedAdminUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  evidence            ComplaintEvidence[]
+
+  @@map("complaints")
+}
+
+model ComplaintEvidence {
+  id               String    @id @db.Uuid
+  complaintId      String    @map("complaint_id") @db.Uuid
+  uploadedByUserId String    @map("uploaded_by_user_id") @db.Uuid
+  fileUrl          String    @map("file_url")
+  note             String?
+  createdAt        DateTime  @map("created_at") @db.Timestamp(6)
+  complaint        Complaint @relation(fields: [complaintId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  uploadedBy       User      @relation(fields: [uploadedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("complaint_evidence")
+}
+
+// Operational table: retained for idempotent RabbitMQ consumption.
 model EventInbox {
   id          String    @id
   producer    String

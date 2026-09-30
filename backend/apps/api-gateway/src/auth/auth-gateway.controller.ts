@@ -19,18 +19,19 @@ export class AuthGatewayController {
 
   private getForwardHeaders(req: Request, authorization?: string, requestId?: string) {
     const userAgent = req.headers['user-agent'] as string | undefined;
-    const clientIp =
-      (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ||
-      req.ip ||
-      req.socket.remoteAddress;
+    // Gateway explicitly ignores client-supplied x-forwarded-for to prevent IP spoofing attacks.
+    // IP is obtained directly from socket or trusted proxy connection.
+    const clientIp = req.socket?.remoteAddress || req.ip || '127.0.0.1';
 
     return {
       authorization,
       'x-request-id': requestId || (req.headers['x-request-id'] as string | undefined),
       'x-forwarded-for': clientIp,
+      'x-internal-secret': this.gatewayService.internalSecret,
       'user-agent': userAgent,
     };
   }
+
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)

@@ -31,7 +31,7 @@ export interface AppErrorDetails {
   retryAfterSeconds?: number;
   remainingAttempts?: number;
   verification?: {
-    phone: string;
+    phone: string | null;
     emailMasked: string;
     expiresAt?: string;
     resendAvailableAt: string;

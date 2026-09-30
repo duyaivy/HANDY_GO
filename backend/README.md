@@ -2,6 +2,8 @@
 
 > **Chạy cùng mobile qua Metro:** đọc [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Phần 1 là chạy hằng ngày; phần 2 là chuẩn bị env, keys, DB và build lần đầu. Các mô tả scaffold/lệnh cũ ở những phần chưa cập nhật của README này cần đối chiếu với source.
 
+> **HG-23 schema:** xem [quy trình đồng bộ Auth và User & Trust](../docs/HG23_DB_ALIGNMENT.md) trước khi chạy migration. Migration mới chỉ dành cho DB rỗng; không tự xóa/chuyển dữ liệu cũ.
+
 NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư viện dùng chung (**shared libraries**).
 
 > [!NOTE]
@@ -68,9 +70,24 @@ Module `libs/config` đọc cấu hình theo thứ tự ưu tiên giảm dần:
 2. File cấu hình riêng của service: `apps/<service-name>/.env`.
 3. File cấu hình chung ở thư mục gốc: `backend/.env`.
 
-Quy tắc xác thực: `PORT` (1–65535), `NODE_ENV` (`development` | `test` | `production`), `LOG_LEVEL` (`fatal` | `error` | `warn` | `info` | `debug` | `trace` | `silent`), và các URL upstream bắt buộc phải đúng định dạng URL.
+Quy tắc xác thực: `PORT` (1–65535), `NODE_ENV` (`development` | `test` | `production`), `LOG_LEVEL` (`fatal` | `error` | `warn` | `info` | `debug` | `trace` | `silent`), `OTP_SECRET` (bắt buộc cho `auth-service`), và các URL upstream bắt buộc phải đúng định dạng URL.
 
-### 3.2. Thiết lập ban đầu
+### 3.2. Cấu hình Secret & Bảo mật
+
+Hệ thống yêu cầu hai secret quan trọng:
+
+1. **`OTP_SECRET`** (Bắt buộc cho `auth-service`):
+   - Chuỗi bí mật dùng để băm HMAC-SHA256 mã OTP trước khi lưu vào cơ sở dữ liệu.
+   - Độ dài khuyến nghị: tối thiểu 32 ký tự ngẫu nhiên.
+   - **Bắt buộc**: nếu không được cấu hình, `auth-service` sẽ từ chối khởi động để ngăn chặn rủi ro bảo mật từ default secret hardcode.
+   - *Lưu ý khi cập nhật secret*: các mã OTP đang chờ xác thực được tạo bằng secret cũ sẽ không còn hợp lệ. Người dùng cần bấm gửi lại mã (`/auth/resend-otp`).
+
+2. **`INTERNAL_SERVICE_SECRET`** (Chia sẻ giữa `api-gateway` và các service nội bộ):
+   - Secret nội bộ dùng để xác thực request chuyển tiếp từ API Gateway tới các microservice backend qua header `x-internal-secret`.
+   - `auth-service` chỉ tin cậy header `x-forwarded-for` khi header `x-internal-secret` hợp lệ; nếu không sẽ fallback về IP socket kết nối để ngăn chặn tấn công giả mạo IP (IP spoofing) vượt qua rate limit.
+   - Trong Docker Compose, cổng `3001` của `auth-service` không được publish ra host bên ngoài, chỉ giao tiếp nội bộ qua mạng docker với `api-gateway`.
+
+### 3.3. Thiết lập ban đầu
 
 ```bash
 # Tạo file env chung và file env cho service cần chạy
@@ -81,6 +98,7 @@ cp apps/auth-service/.env.example apps/auth-service/.env
 
 > [!WARNING]
 > Không commit các file `.env` thực tế vào Git.
+
 
 ---
 
@@ -166,15 +184,8 @@ Phản hồi chuẩn: `{"status":"ok","service":"<name>","timestamp":"..."}`.
 
   Gateway chuyển tiếp request tới `AUTH_SERVICE_URL/health` kèm `x-request-id`. Trả về `502 Bad Gateway` nếu upstream không phản hồi, hoặc `504 Gateway Timeout` nếu vượt quá `UPSTREAM_TIMEOUT_MS` (mặc định 3000ms).
 
-- **Endpoint gốc Gateway**:
-
-  ```bash
-  curl http://localhost:3000/api/v1
-  ```
-
-  Trả về chuỗi `"Hello World!"`.
-
 ---
+
 
 ## 7. Lệnh kiểm tra, Lint, Test & Build
 

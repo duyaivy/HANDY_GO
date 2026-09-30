@@ -37,7 +37,7 @@ export class UserTrustServiceController {
 
   /**
    * RabbitMQ Event Consumer for 'user.registered'.
-   * Creates User and CustomerProfile with Idempotency check via event_inbox.
+   * Creates User and the profile selected by the registration role.
    * Only ACKs after transaction commits.
    */
   @EventPattern(EVENT_PATTERNS.USER_REGISTERED)
@@ -75,9 +75,9 @@ export class UserTrustServiceController {
    */
   @MessagePattern('user.auth-status')
   async getUserAuthStatus(
-    @Payload() data: { userId: string },
+    @Payload() data: { userId: string; roles: string[] },
   ): Promise<{ exists: boolean; status: string; isProvisioned: boolean }> {
-    return this.userTrustService.getUserAuthStatus(data.userId);
+    return this.userTrustService.getUserAuthStatus(data.userId, data.roles);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

@@ -1,4 +1,5 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import crypto from 'node:crypto';
 import { AuthPrismaService } from '@app/database';
 import { StandardPermissions } from '@app/auth';
 
@@ -9,9 +10,6 @@ export class AuthSeedService implements OnModuleInit {
   constructor(private readonly db: AuthPrismaService) {}
 
   async onModuleInit(): Promise<void> {
-    if (process.env.NODE_ENV === 'test') {
-      return;
-    }
     try {
       await this.seed();
       this.logger.log('Auth seed completed successfully.');
@@ -21,19 +19,20 @@ export class AuthSeedService implements OnModuleInit {
     }
   }
 
+
   async seed(): Promise<void> {
     const roles = [
-      { name: 'Customer', description: 'Khách hàng sử dụng dịch vụ tiện ích' },
-      { name: 'Worker', description: 'Thợ cung cấp dịch vụ đã được KYC phê duyệt' },
-      { name: 'Admin', description: 'Quản trị viên hệ thống' },
+      { code: 'CUSTOMER', name: 'Customer' },
+      { code: 'WORKER', name: 'Worker' },
+      { code: 'ADMIN', name: 'Admin' },
     ];
 
     const permissions = [
-      { code: StandardPermissions.AUTH_ME, description: 'Xem thông tin tài khoản hiện tại' },
-      { code: StandardPermissions.PROFILE_READ, description: 'Xem hồ sơ cá nhân' },
-      { code: StandardPermissions.PROFILE_UPDATE, description: 'Cập nhật hồ sơ cá nhân' },
-      { code: StandardPermissions.USER_READ, description: 'Xem danh sách người dùng hệ thống' },
-      { code: StandardPermissions.USER_MANAGE, description: 'Quản lý người dùng hệ thống' },
+      { code: StandardPermissions.AUTH_ME, name: 'Xem tài khoản hiện tại', resource: 'auth', action: 'me' },
+      { code: StandardPermissions.PROFILE_READ, name: 'Xem hồ sơ cá nhân', resource: 'profile', action: 'read' },
+      { code: StandardPermissions.PROFILE_UPDATE, name: 'Cập nhật hồ sơ cá nhân', resource: 'profile', action: 'update' },
+      { code: StandardPermissions.USER_READ, name: 'Xem người dùng hệ thống', resource: 'user', action: 'read' },
+      { code: StandardPermissions.USER_MANAGE, name: 'Quản lý người dùng hệ thống', resource: 'user', action: 'manage' },
     ];
 
     // Seed permissions
@@ -41,8 +40,15 @@ export class AuthSeedService implements OnModuleInit {
     for (const perm of permissions) {
       const p = await this.db.permission.upsert({
         where: { code: perm.code },
-        update: { description: perm.description },
-        create: { code: perm.code, description: perm.description },
+        update: { name: perm.name, resource: perm.resource, action: perm.action },
+        create: {
+          id: crypto.randomUUID(),
+          code: perm.code,
+          name: perm.name,
+          resource: perm.resource,
+          action: perm.action,
+          createdAt: new Date(),
+        },
       });
       permissionMap.set(p.code, p.id);
     }
@@ -51,26 +57,31 @@ export class AuthSeedService implements OnModuleInit {
     const roleMap = new Map<string, string>();
     for (const role of roles) {
       const r = await this.db.role.upsert({
-        where: { name: role.name },
-        update: { description: role.description },
-        create: { name: role.name, description: role.description },
+        where: { code: role.code },
+        update: { name: role.name },
+        create: {
+          id: crypto.randomUUID(),
+          code: role.code,
+          name: role.name,
+          createdAt: new Date(),
+        },
       });
-      roleMap.set(r.name, r.id);
+      roleMap.set(r.code, r.id);
     }
 
     // Link permissions to roles
     const rolePermissionMappings: Record<string, string[]> = {
-      Customer: [
+      CUSTOMER: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
       ],
-      Worker: [
+      WORKER: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
       ],
-      Admin: [
+      ADMIN: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
@@ -79,25 +90,26 @@ export class AuthSeedService implements OnModuleInit {
       ],
     };
 
-    for (const [roleName, permCodes] of Object.entries(rolePermissionMappings)) {
-      const roleId = roleMap.get(roleName);
+    for (const [roleCode, permCodes] of Object.entries(rolePermissionMappings)) {
+      const roleId = roleMap.get(roleCode);
       if (!roleId) continue;
 
       for (const permCode of permCodes) {
         const permId = permissionMap.get(permCode);
         if (!permId) continue;
 
-        await this.db.rolePermission.upsert({
+        await this.db.permissionRole.upsert({
           where: {
-            roleId_permissionId: {
-              roleId,
+            permissionId_roleId: {
               permissionId: permId,
+              roleId,
             },
           },
           update: {},
           create: {
             roleId,
             permissionId: permId,
+            assignedAt: new Date(),
           },
         });
       }

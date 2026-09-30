@@ -1,4 +1,4 @@
-export type AccountStatus = 'pending' | 'active' | 'suspended';
+export type AccountStatus = 'pending' | 'active' | 'suspended' | 'locked' | 'deleted';
 
 export type RoleName = 'Customer' | 'Worker' | 'Admin';
 

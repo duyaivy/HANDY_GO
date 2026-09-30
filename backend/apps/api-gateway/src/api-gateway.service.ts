@@ -10,8 +10,8 @@ import { ConfigService } from '@app/config';
 export class ApiGatewayService {
   constructor(private readonly config: ConfigService) {}
 
-  getHello(): string {
-    return 'Hello World!';
+  get internalSecret(): string {
+    return this.config.internalServiceSecret;
   }
 
   async forwardRequest(
@@ -23,6 +23,7 @@ export class ApiGatewayService {
       'x-request-id'?: string;
       'x-forwarded-for'?: string;
       'user-agent'?: string;
+      'x-internal-secret'?: string;
       [key: string]: string | undefined;
     },
     body?: unknown,
@@ -45,6 +46,11 @@ export class ApiGatewayService {
     if (headers['user-agent']) {
       forwardHeaders['user-agent'] = headers['user-agent'];
     }
+    const internalSecret = headers['x-internal-secret'] || this.config.internalServiceSecret;
+    if (internalSecret) {
+      forwardHeaders['x-internal-secret'] = internalSecret;
+    }
+
 
     try {
       const response = await fetch(upstreamUrl, {

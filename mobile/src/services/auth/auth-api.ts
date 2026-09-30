@@ -2,8 +2,8 @@ import { ApiClient } from '@/services/api/api-client';
 
 export type AuthUser = {
   id: string;
-  phone: string;
-  email: string;
+  phone: string | null;
+  email: string | null;
   roles: string[];
   permissions: string[];
 };
