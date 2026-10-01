@@ -66,6 +66,7 @@ describe('AuthServiceService', () => {
         expiresIn: 300,
         jti: 'mock-jti',
       }),
+      signRefreshToken: vi.fn().mockResolvedValue('mock-refresh-token'),
       generateRefreshToken: vi.fn().mockReturnValue('mock-refresh-token'),
       hashToken: vi.fn((token: string) => `hashed_${token}`),
     };

@@ -5,6 +5,7 @@ import {
   ACCESS_TOKEN_EXPIRATION_SECONDS,
   JWT_AUDIENCE,
   JWT_ISSUER,
+  REFRESH_TOKEN_EXPIRATION_DAYS,
 } from './auth.constants.js';
 import type { JwtPayload } from './auth.types.js';
 import { resolvePrivateKey, resolvePublicKey } from './key-resolver.util.js';
@@ -100,8 +101,58 @@ export class TokenSignerService {
     };
   }
 
-  generateRefreshToken(): string {
-    return crypto.randomBytes(32).toString('hex');
+  async signRefreshToken(params: {
+    accountId: string;
+    userId: string;
+    sessionId: string;
+  }): Promise<string> {
+    if (!this.privateKey) {
+      throw new UnauthorizedException(
+        'Không tìm thấy JWT private key để ký refresh token.',
+      );
+    }
+    const jti = crypto.randomUUID();
+    const payload = {
+      sub: params.accountId,
+      userId: params.userId,
+      sid: params.sessionId,
+      tokenType: 'refresh',
+      iss: JWT_ISSUER,
+      aud: JWT_AUDIENCE,
+      jti,
+    };
+
+    return this.jwtService.signAsync(payload, {
+      algorithm: 'RS256',
+      privateKey: this.privateKey,
+      expiresIn: `${REFRESH_TOKEN_EXPIRATION_DAYS}d`,
+    });
+  }
+
+  generateRefreshToken(params?: {
+    accountId?: string;
+    userId?: string;
+    sessionId?: string;
+  }): string {
+    if (!this.privateKey) {
+      return crypto.randomBytes(32).toString('hex');
+    }
+    const jti = crypto.randomUUID();
+    const payload = {
+      sub: params?.accountId || 'refresh-account',
+      userId: params?.userId || 'refresh-user',
+      sid: params?.sessionId || crypto.randomUUID(),
+      tokenType: 'refresh',
+      iss: JWT_ISSUER,
+      aud: JWT_AUDIENCE,
+      jti,
+    };
+
+    return this.jwtService.sign(payload, {
+      algorithm: 'RS256',
+      privateKey: this.privateKey,
+      expiresIn: `${REFRESH_TOKEN_EXPIRATION_DAYS}d`,
+    });
   }
 
   hashToken(token: string): string {

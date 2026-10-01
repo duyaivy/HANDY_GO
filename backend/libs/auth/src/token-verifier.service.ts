@@ -41,6 +41,35 @@ export class TokenVerifierService {
     }
   }
 
+  async verifyRefreshToken(token: string): Promise<{
+    sub: string;
+    userId: string;
+    sid: string;
+    tokenType: string;
+    jti: string;
+  }> {
+    try {
+      const payload = await this.jwtService.verifyAsync<{
+        sub: string;
+        userId: string;
+        sid: string;
+        tokenType: string;
+        jti: string;
+      }>(token, {
+        algorithms: ['RS256'],
+        publicKey: this.publicKey,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      });
+      if (payload.tokenType !== 'refresh') {
+        throw new UnauthorizedException('Token không phải là refresh token');
+      }
+      return payload;
+    } catch {
+      throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
+    }
+  }
+
   generateRefreshToken(): string {
     return crypto.randomBytes(32).toString('hex');
   }

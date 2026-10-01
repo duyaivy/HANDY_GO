@@ -82,7 +82,11 @@ export class SessionService {
 
     const sessionId = crypto.randomUUID();
     const sessionCreatedAt = new Date();
-    const plainRefreshToken = this.tokenSigner.generateRefreshToken();
+    const plainRefreshToken = await this.tokenSigner.signRefreshToken({
+      accountId: account.id,
+      userId: account.userId,
+      sessionId,
+    });
     const refreshTokenHash = this.tokenSigner.hashToken(plainRefreshToken);
     const sessionExpiresAt = new Date(
       sessionCreatedAt.getTime() +
@@ -259,7 +263,11 @@ export class SessionService {
     );
 
     // Rotate refresh token: prepare new credentials
-    const newPlainRefreshToken = this.tokenSigner.generateRefreshToken();
+    const newPlainRefreshToken = await this.tokenSigner.signRefreshToken({
+      accountId: account.id,
+      userId: account.userId,
+      sessionId: session.id,
+    });
     const newRefreshTokenHash = this.tokenSigner.hashToken(newPlainRefreshToken);
     const next7Days = new Date(
       now.getTime() + REFRESH_TOKEN_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
