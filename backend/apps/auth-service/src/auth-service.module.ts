@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthServiceController } from './auth-service.controller.js';
 import { AuthServiceService } from './auth-service.service.js';
 import { HealthModule } from './health/health.module.js';
@@ -7,15 +8,15 @@ import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { AuthDatabaseModule } from '@app/database';
 import { AuthModule, AuthSignerModule } from '@app/auth';
-import { OtpService } from './otp/otp.service.js';
+import { OtpService, OtpFlowService } from './otp/index.js';
 import { AuthSeedService } from './seed/auth-seed.service.js';
-import { OutboxPublisherService } from './outbox/outbox-publisher.service.js';
+import { OutboxPublisherService, OutboxRepository } from '@app/common';
+import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
 import { RateLimiterService } from './rate-limit/rate-limiter.service.js';
 import { UserTrustClient } from './rpc/user-trust.client.js';
 import { SessionService } from './session/session.service.js';
-import { RegisterFlowService } from './flows/register-flow.service.js';
-import { OtpFlowService } from './flows/otp-flow.service.js';
-import { LoginFlowService } from './flows/login-flow.service.js';
+import { RegisterFlowService } from './register/index.js';
+import { LoginFlowService } from './login/index.js';
 
 @Module({
   imports: [
@@ -30,6 +31,13 @@ import { LoginFlowService } from './flows/login-flow.service.js';
     AuthDatabaseModule,
     AuthModule,
     AuthSignerModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 30,
+      },
+    ]),
   ],
   controllers: [AuthServiceController],
   providers: [
@@ -41,6 +49,11 @@ import { LoginFlowService } from './flows/login-flow.service.js';
     UserTrustClient,
     OtpService,
     AuthSeedService,
+    AuthOutboxRepository,
+    {
+      provide: OutboxRepository,
+      useClass: AuthOutboxRepository,
+    },
     OutboxPublisherService,
     RateLimiterService,
   ],
@@ -51,6 +64,8 @@ import { LoginFlowService } from './flows/login-flow.service.js';
     OtpFlowService,
     LoginFlowService,
     UserTrustClient,
+    OutboxPublisherService,
+    OutboxRepository,
   ],
 })
 export class AuthServiceModule {}

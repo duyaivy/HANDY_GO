@@ -92,6 +92,9 @@ services:
       SMTP_SECURE: "false"
       SMTP_FROM: "HANDY GO <noreply@handygo.vn>"
       OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
+      OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
+      OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
       JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
       JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem

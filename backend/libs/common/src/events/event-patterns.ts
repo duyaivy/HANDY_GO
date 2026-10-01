@@ -2,6 +2,7 @@ export const EVENT_PATTERNS = {
   USER_REGISTERED: 'user.registered',
   USER_SUSPENDED: 'user.suspended',
   USER_DELETED: 'user.deleted',
+  AUTH_OTP_REQUESTED: 'auth.otp.requested',
 
   KYC_SUBMITTED: 'kyc.submitted',
   KYC_COMPLETED: 'kyc.completed',

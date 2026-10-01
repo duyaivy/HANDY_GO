@@ -2,7 +2,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustPrismaService } from '@app/database';
-import { StandardPermissions } from '@app/auth';
+import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import { UserTrustServiceService } from './user-trust-service.service.js';
 
 describe('UserTrustServiceService', () => {
@@ -53,7 +53,7 @@ describe('UserTrustServiceService', () => {
         userId: 'user-001',
         accountId: 'account-001',
         fullName: 'Nguyen Van A',
-        role: 'Customer' as const,
+        role: RegisterRole.CUSTOMER,
       },
     };
 
@@ -105,7 +105,7 @@ describe('UserTrustServiceService', () => {
       const result = await service.handleUserRegistered({
         ...event,
         eventId: 'evt-worker',
-        data: { ...event.data, userId: 'user-worker', role: 'Worker' },
+        data: { ...event.data, userId: 'user-worker', role: RegisterRole.WORKER },
       });
 
       expect(result.processed).toBe(true);
@@ -127,7 +127,7 @@ describe('UserTrustServiceService', () => {
         customerProfile: { id: 'prof-001' },
       });
 
-      const result = await service.getUserAuthStatus('user-001', ['Customer']);
+      const result = await service.getUserAuthStatus('user-001', [RegisterRole.CUSTOMER]);
       expect(result).toEqual({
         exists: true,
         status: 'active',
@@ -138,7 +138,7 @@ describe('UserTrustServiceService', () => {
     it('should return exists: false when user is not found', async () => {
       dbMock.user.findUnique.mockResolvedValue(null);
 
-      const result = await service.getUserAuthStatus('non-existent', ['Customer']);
+      const result = await service.getUserAuthStatus('non-existent', [RegisterRole.CUSTOMER]);
       expect(result).toEqual({
         exists: false,
         status: 'none',
@@ -154,12 +154,12 @@ describe('UserTrustServiceService', () => {
         workerProfile: { status: 'draft' },
       });
 
-      expect(await service.getUserAuthStatus('user-worker', ['Worker'])).toEqual({
+      expect(await service.getUserAuthStatus('user-worker', [RegisterRole.WORKER])).toEqual({
         exists: true,
         status: 'active',
         isProvisioned: true,
       });
-      expect(await service.getUserAuthStatus('user-worker', ['Customer'])).toEqual({
+      expect(await service.getUserAuthStatus('user-worker', [RegisterRole.CUSTOMER])).toEqual({
         exists: true,
         status: 'active',
         isProvisioned: false,
@@ -174,7 +174,7 @@ describe('UserTrustServiceService', () => {
         workerProfile: null,
       });
 
-      expect(await service.getUserAuthStatus('user-admin', ['Admin'])).toEqual({
+      expect(await service.getUserAuthStatus('user-admin', [Role.ADMIN])).toEqual({
         exists: true,
         status: 'active',
         isProvisioned: true,

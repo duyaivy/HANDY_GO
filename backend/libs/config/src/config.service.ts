@@ -37,6 +37,21 @@ export class ConfigService {
     return secret;
   }
 
+  get otpExpirationMinutes(): number {
+    const val = this.config.get<string>('OTP_EXPIRATION_MINUTES');
+    return val ? Number(val) : 10;
+  }
+
+  get otpResendCooldownSeconds(): number {
+    const val = this.config.get<string>('OTP_RESEND_COOLDOWN_SECONDS');
+    return val ? Number(val) : 60;
+  }
+
+  get otpMaxAttempts(): number {
+    const val = this.config.get<string>('OTP_MAX_ATTEMPTS');
+    return val ? Number(val) : 5;
+  }
+
   get internalServiceSecret(): string {
     return this.config.get<string>('INTERNAL_SERVICE_SECRET') || '';
   }

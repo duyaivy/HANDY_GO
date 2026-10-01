@@ -1,10 +1,15 @@
 import {
+  Inject,
   Injectable,
   Logger,
+  Optional,
   type OnModuleDestroy,
-  type OnModuleInit,
 } from '@nestjs/common';
-import { AuthPrismaService } from '@app/database';
+import {
+  ThrottlerStorageService,
+  getStorageToken,
+  type ThrottlerStorage,
+} from '@nestjs/throttler';
 import { AppException, ERROR_CODES } from '@app/common';
 import {
   FAILED_LOGIN_LOCKOUT_SECONDS,
@@ -12,47 +17,53 @@ import {
 } from '../auth.constants.js';
 
 @Injectable()
-export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
+export class RateLimiterService implements OnModuleDestroy {
   private readonly logger = new Logger(RateLimiterService.name);
-  private cleanupTimer: NodeJS.Timeout | null = null;
+  private readonly storage: ThrottlerStorage;
 
-  constructor(private readonly db: AuthPrismaService) {}
-
-  onModuleInit(): void {
-    // Periodically clean up expired rate limit records (every 10 minutes)
-    this.cleanupTimer = setInterval(() => {
-      void this.cleanupExpiredRecords();
-    }, 10 * 60 * 1000);
-    this.cleanupTimer.unref?.();
+  constructor(
+    @Optional()
+    @Inject(getStorageToken())
+    storage?: ThrottlerStorage,
+  ) {
+    this.storage =
+      storage && typeof storage.increment === 'function'
+        ? storage
+        : new ThrottlerStorageService();
   }
 
   onModuleDestroy(): void {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
+    if (this.storage instanceof ThrottlerStorageService) {
+      this.storage.onApplicationShutdown();
     }
   }
 
   /**
-   * Periodic cleanup job for expired rate limit records.
+   * Periodic cleanup job for expired rate limit records using ThrottlerStorageService.
    */
   async cleanupExpiredRecords(): Promise<number> {
     try {
-      const result = await this.db.rateLimit.deleteMany({
-        where: { expireAt: { lte: new Date() } },
-      });
-      if (result.count > 0) {
-        this.logger.debug(`Cleaned up ${result.count} expired rate limit records`);
+      if (this.storage instanceof ThrottlerStorageService) {
+        const before = this.storage.storage.size;
+        (this.storage as any).evictIdleRecords?.();
+        const after = this.storage.storage.size;
+        const count = Math.max(0, before - after);
+        if (count > 0) {
+          this.logger.debug(`Cleaned up ${count} expired rate limit records`);
+        }
+        return count;
       }
-      return result.count;
+      return 0;
     } catch (err: unknown) {
-      this.logger.warn(`Failed to cleanup expired rate limits: ${(err as Error)?.message}`);
+      this.logger.warn(
+        `Failed to cleanup expired rate limits: ${(err as Error)?.message}`,
+      );
       return 0;
     }
   }
 
   /**
-   * Atomic check-and-increment using PostgreSQL single SQL statement with ON CONFLICT.
+   * Check and increment the hit count for a given key using @nestjs/throttler storage.
    */
   async checkAndIncrement(
     key: string,
@@ -60,51 +71,23 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     windowSeconds: number,
     errorMessage = 'Bạn đã vượt quá giới hạn yêu cầu. Vui lòng thử lại sau.',
   ): Promise<void> {
-    const now = new Date();
-    const expireAt = new Date(now.getTime() + windowSeconds * 1000);
+    const ttlMs = windowSeconds * 1000;
+    const throttlerName = 'default';
 
-    let points = 1;
-    let effectiveExpireAt = expireAt;
+    const record = await this.storage.increment(
+      key,
+      ttlMs,
+      limit,
+      ttlMs,
+      throttlerName,
+    );
 
-    if (typeof this.db.$queryRaw === 'function') {
-      try {
-        const rows = await this.db.$queryRaw<
-          Array<{ points: number; expireAt: Date }>
-        >`
-          INSERT INTO "rate_limits" ("key", "points", "expireAt")
-          VALUES (${key}, 1, ${expireAt})
-          ON CONFLICT ("key") DO UPDATE
-          SET
-            "points" = CASE
-              WHEN "rate_limits"."expireAt" <= ${now} THEN 1
-              ELSE "rate_limits"."points" + 1
-            END,
-            "expireAt" = CASE
-              WHEN "rate_limits"."expireAt" <= ${now} THEN ${expireAt}
-              ELSE "rate_limits"."expireAt"
-            END
-          RETURNING "points", "expireAt";
-        `;
-
-        if (rows && rows.length > 0) {
-          points = Number(rows[0].points);
-          effectiveExpireAt = new Date(rows[0].expireAt);
-        }
-      } catch {
-        const fallback = await this.fallbackUpsert(key, windowSeconds, now);
-        points = fallback.points;
-        effectiveExpireAt = fallback.expireAt;
-      }
-    } else {
-      const fallback = await this.fallbackUpsert(key, windowSeconds, now);
-      points = fallback.points;
-      effectiveExpireAt = fallback.expireAt;
-    }
-
-    if (points > limit) {
+    if (record.isBlocked || record.totalHits > limit) {
       const retryAfterSeconds = Math.max(
         1,
-        Math.ceil((effectiveExpireAt.getTime() - now.getTime()) / 1000),
+        record.timeToBlockExpire > 0
+          ? record.timeToBlockExpire
+          : record.timeToExpire,
       );
       throw new AppException(429, ERROR_CODES.RATE_LIMITED, errorMessage, {
         details: { retryAfterSeconds },
@@ -112,19 +95,23 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Check if a phone number is currently locked out due to exceeding MAX_FAILED_LOGIN_ATTEMPTS.
+   */
   async checkFailedLogins(phone: string): Promise<void> {
     const key = `login_fail:phone:${phone}`;
-    const now = new Date();
-    const entry = await this.db.rateLimit.findUnique({ where: { key } });
+    const record = this.getStorageRecord(key, 'failed-login');
+    if (!record) return;
 
-    if (
-      entry &&
-      entry.expireAt > now &&
-      entry.points >= MAX_FAILED_LOGIN_ATTEMPTS
-    ) {
+    const now = Date.now();
+    const isBlocked =
+      record.isBlocked || record.totalHits >= MAX_FAILED_LOGIN_ATTEMPTS;
+    const expireTime = Math.max(record.blockExpiresAt, record.expiresAt);
+
+    if (isBlocked && expireTime > now) {
       const retryAfterSeconds = Math.max(
         1,
-        Math.ceil((entry.expireAt.getTime() - now.getTime()) / 1000),
+        Math.ceil((expireTime - now) / 1000),
       );
       throw new AppException(
         429,
@@ -137,64 +124,56 @@ export class RateLimiterService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Record a failed login attempt for a phone number using @nestjs/throttler storage.
+   */
   async recordFailedLogin(phone: string): Promise<void> {
     const key = `login_fail:phone:${phone}`;
-    const now = new Date();
-    const expireAt = new Date(
-      now.getTime() + FAILED_LOGIN_LOCKOUT_SECONDS * 1000,
+    const ttlMs = FAILED_LOGIN_LOCKOUT_SECONDS * 1000;
+    await this.storage.increment(
+      key,
+      ttlMs,
+      MAX_FAILED_LOGIN_ATTEMPTS,
+      ttlMs,
+      'failed-login',
     );
-
-    if (typeof this.db.$queryRaw === 'function') {
-      try {
-        await this.db.$queryRaw`
-          INSERT INTO "rate_limits" ("key", "points", "expireAt")
-          VALUES (${key}, 1, ${expireAt})
-          ON CONFLICT ("key") DO UPDATE
-          SET
-            "points" = CASE
-              WHEN "rate_limits"."expireAt" <= ${now} THEN 1
-              ELSE "rate_limits"."points" + 1
-            END,
-            "expireAt" = CASE
-              WHEN "rate_limits"."expireAt" <= ${now} THEN ${expireAt}
-              ELSE "rate_limits"."expireAt"
-            END;
-        `;
-        return;
-      } catch {
-        // Fallback below
-      }
-    }
-
-    await this.fallbackUpsert(key, FAILED_LOGIN_LOCKOUT_SECONDS, now);
   }
 
+  /**
+   * Reset the failed login counter for a phone number.
+   */
   async resetFailedLogins(phone: string): Promise<void> {
     const key = `login_fail:phone:${phone}`;
-    await this.db.rateLimit.deleteMany({ where: { key } });
+    if (this.storage instanceof ThrottlerStorageService) {
+      this.storage.storage.delete(key);
+      (this.storage as any).hitExpirations?.delete(key);
+    }
   }
 
-  private async fallbackUpsert(
+  private getStorageRecord(
     key: string,
-    windowSeconds: number,
-    now: Date,
-  ): Promise<{ points: number; expireAt: Date }> {
-    const entry = await this.db.rateLimit.findUnique({ where: { key } });
-
-    if (!entry || entry.expireAt <= now) {
-      const expireAt = new Date(now.getTime() + windowSeconds * 1000);
-      await this.db.rateLimit.upsert({
-        where: { key },
-        create: { key, points: 1, expireAt },
-        update: { points: 1, expireAt },
-      });
-      return { points: 1, expireAt };
+    throttlerName: string,
+  ): {
+    totalHits: number;
+    expiresAt: number;
+    blockExpiresAt: number;
+    isBlocked: boolean;
+  } | undefined {
+    if (this.storage instanceof ThrottlerStorageService) {
+      const record = this.storage.storage.get(key);
+      if (!record) return undefined;
+      const totalHits =
+        record.totalHits instanceof Map
+          ? (record.totalHits.get(throttlerName) ?? 0)
+          : 0;
+      return {
+        totalHits,
+        expiresAt: record.expiresAt || 0,
+        blockExpiresAt: record.blockExpiresAt || 0,
+        isBlocked: record.isBlocked || false,
+      };
     }
-
-    const updated = await this.db.rateLimit.update({
-      where: { key },
-      data: { points: { increment: 1 } },
-    });
-    return { points: updated.points, expireAt: updated.expireAt };
+    return undefined;
   }
 }
+

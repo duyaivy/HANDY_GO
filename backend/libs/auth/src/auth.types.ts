@@ -1,6 +1,18 @@
 export type AccountStatus = 'pending' | 'active' | 'suspended' | 'locked' | 'deleted';
 
-export type RoleName = 'Customer' | 'Worker' | 'Admin';
+export enum RegisterRole {
+  CUSTOMER = 'Customer',
+  WORKER = 'Worker',
+}
+
+export const Role = {
+  ADMIN: 'Admin',
+  CUSTOMER: RegisterRole.CUSTOMER,
+  WORKER: RegisterRole.WORKER,
+} as const;
+
+export type Role = (typeof Role)[keyof typeof Role];
+export type RoleName = Role;
 
 export const StandardPermissions = {
   AUTH_ME: 'auth:me',

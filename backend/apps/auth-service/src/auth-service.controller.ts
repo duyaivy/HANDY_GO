@@ -20,19 +20,20 @@ import {
 } from '@app/auth';
 import { ConfigService } from '@app/config';
 import { AuthServiceService } from './auth-service.service.js';
-import { RegisterDto } from './dto/register.dto.js';
-import { VerifyOtpDto } from './dto/verify-otp.dto.js';
-import { ResendOtpDto } from './dto/resend-otp.dto.js';
-import { LoginDto } from './dto/login.dto.js';
-import { RefreshTokenDto } from './dto/refresh-token.dto.js';
-import { LogoutDto } from './dto/logout.dto.js';
-import type {
-  AuthSuccessResponse,
-  LogoutResponse,
-  MeResponse,
-  RegisterResponse,
-  ResendOtpResponse,
-} from './dto/auth-responses.dto.js';
+import { RegisterDto, type RegisterResponse } from './register/index.js';
+import {
+  VerifyOtpDto,
+  ResendOtpDto,
+  type ResendOtpResponse,
+} from './otp/index.js';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  LogoutDto,
+  type AuthSuccessResponse,
+  type LogoutResponse,
+  type MeResponse,
+} from './login/index.js';
 import {
   FORWARDED_FOR_HEADER,
   INTERNAL_GATEWAY_HEADER,
@@ -118,9 +119,14 @@ export class AuthServiceController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Gửi lại mã OTP xác thực' })
   @ApiResponse({ status: 200, description: 'Gửi lại OTP thành công' })
-  @ApiResponse({ status: 429, description: 'Chưa hết thời gian cooldown 60 giây' })
-  async resendOtp(@Body() dto: ResendOtpDto): Promise<ResendOtpResponse> {
-    return this.authService.resendOtp(dto);
+  @ApiResponse({ status: 429, description: 'Chưa hết thời gian cooldown 60 giây hoặc vượt rate limit' })
+  async resendOtp(
+    @Body() dto: ResendOtpDto,
+    @Ip() clientIp: string,
+    @Req() req: Request,
+  ): Promise<ResendOtpResponse> {
+    const ip = this.resolveClientIp(req, clientIp);
+    return this.authService.resendOtp(dto, ip);
   }
 
   @Public()
@@ -128,7 +134,7 @@ export class AuthServiceController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đăng nhập bằng số điện thoại và mật khẩu' })
   @ApiResponse({ status: 200, description: 'Đăng nhập thành công' })
-  @ApiResponse({ status: 401, description: 'Sai thông tin đăng nhập' })
+  @ApiResponse({ status: 422, description: 'Sai thông tin đăng nhập (lỗi thực thể hiển thị lên form)' })
   @ApiResponse({ status: 403, description: 'Tài khoản chưa xác thực hoặc bị khóa' })
   async login(
     @Body() dto: LoginDto,

@@ -15,9 +15,17 @@ export interface GeneratedOtp {
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
-  public static readonly EXPIRATION_MINUTES = 10;
-  public static readonly RESEND_COOLDOWN_SECONDS = 60;
-  public static readonly MAX_ATTEMPTS = 5;
+  public static readonly DEFAULT_EXPIRATION_MINUTES = 10;
+  public static readonly DEFAULT_RESEND_COOLDOWN_SECONDS = 60;
+  public static readonly DEFAULT_MAX_ATTEMPTS = 5;
+
+  public static readonly EXPIRATION_MINUTES = OtpService.DEFAULT_EXPIRATION_MINUTES;
+  public static readonly RESEND_COOLDOWN_SECONDS = OtpService.DEFAULT_RESEND_COOLDOWN_SECONDS;
+  public static readonly MAX_ATTEMPTS = OtpService.DEFAULT_MAX_ATTEMPTS;
+
+  public readonly expirationMinutes: number;
+  public readonly resendCooldownSeconds: number;
+  public readonly maxAttempts: number;
 
   private transporter: Transporter | null = null;
   private readonly secret: string;
@@ -27,6 +35,14 @@ export class OtpService {
     if (!this.secret || this.secret.trim().length === 0) {
       throw new Error('OTP_SECRET environment variable is required');
     }
+    this.expirationMinutes =
+      this.config.otpExpirationMinutes || OtpService.DEFAULT_EXPIRATION_MINUTES;
+    this.resendCooldownSeconds =
+      this.config.otpResendCooldownSeconds ||
+      OtpService.DEFAULT_RESEND_COOLDOWN_SECONDS;
+    this.maxAttempts =
+      this.config.otpMaxAttempts || OtpService.DEFAULT_MAX_ATTEMPTS;
+
     this.initTransporter();
   }
 
@@ -56,10 +72,10 @@ export class OtpService {
     const now = new Date();
 
     const expiresAt = new Date(
-      now.getTime() + OtpService.EXPIRATION_MINUTES * 60 * 1000,
+      now.getTime() + this.expirationMinutes * 60 * 1000,
     );
     const resendAvailableAt = new Date(
-      now.getTime() + OtpService.RESEND_COOLDOWN_SECONDS * 1000,
+      now.getTime() + this.resendCooldownSeconds * 1000,
     );
 
     return { code, hash, expiresAt, resendAvailableAt };
@@ -93,8 +109,8 @@ export class OtpService {
         from,
         to: email,
         subject: `[HANDY GO] Mã xác thực tài khoản của bạn`,
-        text: `Chào bạn, mã xác thực tài khoản HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${OtpService.EXPIRATION_MINUTES} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua.`,
-        html: buildOtpEmailHtml(otpCode, OtpService.EXPIRATION_MINUTES),
+        text: `Chào bạn, mã xác thực tài khoản HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua.`,
+        html: buildOtpEmailHtml(otpCode, this.expirationMinutes),
       });
 
       this.logger.log(`Verification OTP email sent to ${maskedEmail}`);

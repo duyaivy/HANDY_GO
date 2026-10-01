@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
-import { StandardPermissions } from '@app/auth';
+import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
@@ -14,7 +14,7 @@ export interface UserRegisteredData {
   userId: string;
   accountId: string;
   fullName: string;
-  role: 'Customer' | 'Worker';
+  role: RegisterRole;
 }
 
 @Injectable()
@@ -29,7 +29,8 @@ export class UserTrustServiceService {
     const { eventId, producer, data } = event;
     const eventType = 'user.registered';
 
-    if (event.eventVersion !== 2 || !['Customer', 'Worker'].includes(data.role)) {
+    const validRoles = Object.values(RegisterRole) as string[];
+    if (event.eventVersion !== 2 || !validRoles.includes(data.role)) {
       this.logger.warn(`Ignoring unsupported user.registered event ${eventId}`);
       return { processed: false, idempotent: false };
     }
@@ -86,7 +87,7 @@ export class UserTrustServiceService {
             },
           });
 
-      if (data.role === 'Customer') {
+      if (data.role === RegisterRole.CUSTOMER) {
         await tx.customerProfile.upsert({
           where: { userId: user.id },
           update: {},
@@ -97,7 +98,7 @@ export class UserTrustServiceService {
             updatedAt: now,
           },
         });
-      } else {
+      } else if (data.role === RegisterRole.WORKER) {
         await tx.workerProfile.upsert({
           where: { userId: user.id },
           update: {},
@@ -132,15 +133,16 @@ export class UserTrustServiceService {
       return { exists: false, status: 'none', isProvisioned: false };
     }
 
-    const hasProfileRole = roles.includes('Customer') || roles.includes('Worker');
+    const hasProfileRole =
+      roles.includes(RegisterRole.CUSTOMER) || roles.includes(RegisterRole.WORKER);
 
     return {
       exists: true,
       status: user.status,
       isProvisioned:
-        (hasProfileRole || roles.includes('Admin')) &&
-        (!roles.includes('Customer') || Boolean(user.customerProfile)) &&
-        (!roles.includes('Worker') || Boolean(user.workerProfile)),
+        (hasProfileRole || roles.includes(Role.ADMIN)) &&
+        (!roles.includes(RegisterRole.CUSTOMER) || Boolean(user.customerProfile)) &&
+        (!roles.includes(RegisterRole.WORKER) || Boolean(user.workerProfile)),
     };
   }
 

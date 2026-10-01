@@ -1,7 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { AuthPrismaService } from '@app/database';
-import { StandardPermissions } from '@app/auth';
+import { Role, StandardPermissions } from '@app/auth';
 
 @Injectable()
 export class AuthSeedService implements OnModuleInit {
@@ -22,9 +22,21 @@ export class AuthSeedService implements OnModuleInit {
 
   async seed(): Promise<void> {
     const roles = [
-      { code: 'CUSTOMER', name: 'Customer' },
-      { code: 'WORKER', name: 'Worker' },
-      { code: 'ADMIN', name: 'Admin' },
+      {
+        code: Role.CUSTOMER.toUpperCase(),
+        name: Role.CUSTOMER,
+        description: 'Khách hàng sử dụng dịch vụ tiện ích',
+      },
+      {
+        code: Role.WORKER.toUpperCase(),
+        name: Role.WORKER,
+        description: 'Thợ cung cấp dịch vụ đã được KYC phê duyệt',
+      },
+      {
+        code: Role.ADMIN.toUpperCase(),
+        name: Role.ADMIN,
+        description: 'Quản trị viên hệ thống',
+      },
     ];
 
     const permissions = [
@@ -71,17 +83,17 @@ export class AuthSeedService implements OnModuleInit {
 
     // Link permissions to roles
     const rolePermissionMappings: Record<string, string[]> = {
-      CUSTOMER: [
+      [Role.CUSTOMER.toUpperCase()]: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
       ],
-      WORKER: [
+      [Role.WORKER.toUpperCase()]: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
       ],
-      ADMIN: [
+      [Role.ADMIN.toUpperCase()]: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,

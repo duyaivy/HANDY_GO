@@ -10,8 +10,6 @@ export const FAILED_LOGIN_LOCKOUT_SECONDS = 15 * 60;
 export const RESEND_OTP_LIMIT = 5;
 export const RESEND_OTP_WINDOW_SECONDS = 3600;
 
-export const HTTP_TOO_EARLY = 425;
-
 export const INTERNAL_GATEWAY_HEADER = 'x-internal-secret';
 export const FORWARDED_FOR_HEADER = 'x-forwarded-for';
 export const USER_AGENT_HEADER = 'user-agent';

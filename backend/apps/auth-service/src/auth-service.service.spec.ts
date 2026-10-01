@@ -71,6 +71,9 @@ describe('AuthServiceService', () => {
     };
 
     otpServiceMock = {
+      maxAttempts: 5,
+      expirationMinutes: 10,
+      resendCooldownSeconds: 60,
       generateOtp: vi.fn().mockReturnValue({
         code: '123456',
         hash: 'mock_otp_hash',
@@ -454,7 +457,7 @@ describe('AuthServiceService', () => {
       );
     });
 
-    it('should reject login if password does not match', async () => {
+    it('should reject login if password does not match with 422 Unprocessable Entity', async () => {
       const passwordHash = await bcrypt.hash('CorrectPassword', 10);
       dbMock.account.findUnique.mockResolvedValue({
         id: 'acc-1',
@@ -471,7 +474,9 @@ describe('AuthServiceService', () => {
           phone: '0912345678',
           password: 'WrongPassword',
         }),
-      ).rejects.toThrow(HttpException);
+      ).rejects.toMatchObject({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+      });
     });
 
     it('should reject login with 403 Forbidden if account is pending / unverified', async () => {

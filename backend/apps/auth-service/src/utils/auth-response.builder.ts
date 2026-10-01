@@ -8,7 +8,7 @@ import type {
   RegisterResponse,
   ResendOtpResponse,
   UserSummaryDto,
-} from '../dto/auth-responses.dto.js';
+} from '../login/dto/auth-responses.dto.js';
 
 export class AuthResponseBuilder {
   static buildRegisterResponse(
@@ -16,11 +16,13 @@ export class AuthResponseBuilder {
     contact: { phone: string; email: string },
     otp: Pick<GeneratedOtp, 'expiresAt' | 'resendAvailableAt'>,
     maskedEmail: string,
+    challengeId?: string,
   ): RegisterResponse {
     return {
       statusCode: HttpStatus.CREATED,
       message: 'Đăng ký thành công. Vui lòng xác thực tài khoản qua mã OTP.',
       data: {
+        challengeId,
         userId: account.userId,
         phone: contact.phone,
         email: contact.email,
@@ -53,11 +55,13 @@ export class AuthResponseBuilder {
   static buildResendOtpResponse(
     otp: Pick<GeneratedOtp, 'expiresAt' | 'resendAvailableAt'>,
     maskedEmail: string,
+    challengeId?: string,
   ): ResendOtpResponse {
     return {
       statusCode: HttpStatus.OK,
       message: 'Mã xác thực OTP mới đã được gửi thành công.',
       data: {
+        challengeId,
         expiresAt: otp.expiresAt.toISOString(),
         resendAvailableAt: otp.resendAvailableAt.toISOString(),
         emailMasked: maskedEmail,

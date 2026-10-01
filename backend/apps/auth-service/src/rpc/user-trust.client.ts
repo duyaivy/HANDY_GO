@@ -1,7 +1,6 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { RabbitMQService } from '@app/rabbitmq';
 import { AppException, ERROR_CODES } from '@app/common';
-import { HTTP_TOO_EARLY } from '../auth.constants.js';
 
 export interface UserAuthStatusRpcResponse {
   exists: boolean;
@@ -46,7 +45,7 @@ export class UserTrustClient {
 
       if (!status || !status.exists || !status.isProvisioned) {
         throw new AppException(
-          HTTP_TOO_EARLY,
+          HttpStatus.FAILED_DEPENDENCY,
           ERROR_CODES.PROFILE_NOT_READY,
           'Hồ sơ người dùng đang được khởi tạo. Vui lòng thử lại sau giây lát.',
         );

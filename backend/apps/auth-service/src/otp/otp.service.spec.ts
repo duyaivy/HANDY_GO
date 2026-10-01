@@ -83,4 +83,33 @@ describe('OtpService', () => {
       service.sendVerificationOtp('test@example.com', '123456'),
     ).rejects.toThrow('SMTP connection failure');
   });
+
+  it('should use default values for expiration, cooldown, and max attempts when not configured', () => {
+    expect(service.expirationMinutes).toBe(10);
+    expect(service.resendCooldownSeconds).toBe(60);
+    expect(service.maxAttempts).toBe(5);
+  });
+
+  it('should read custom OTP expiration, cooldown, and max attempts from config', () => {
+    const customConfig = {
+      otpSecret: 'test-otp-secret-key-1234567890',
+      otpExpirationMinutes: 15,
+      otpResendCooldownSeconds: 90,
+      otpMaxAttempts: 3,
+      smtpHost: 'localhost',
+      smtpPort: 1025,
+      smtpSecure: false,
+      smtpFrom: 'HANDY GO <noreply@handygo.vn>',
+    } as unknown as ConfigService;
+
+    const customService = new OtpService(customConfig);
+    expect(customService.expirationMinutes).toBe(15);
+    expect(customService.resendCooldownSeconds).toBe(90);
+    expect(customService.maxAttempts).toBe(3);
+
+    const generated = customService.generateOtp();
+    const expectedExpireMs = Date.now() + 15 * 60 * 1000;
+    expect(Math.abs(generated.expiresAt.getTime() - expectedExpireMs)).toBeLessThan(2000);
+  });
 });
+

@@ -1,109 +1,115 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import type { AuthPrismaService } from '@app/database';
-import { AppException } from '@app/common';
+import { describe, expect, it, beforeEach } from 'vitest';
+import { ThrottlerStorageService } from '@nestjs/throttler';
+import { AppException, ERROR_CODES } from '@app/common';
 import { RateLimiterService } from './rate-limiter.service.js';
 import {
   MAX_FAILED_LOGIN_ATTEMPTS,
 } from '../auth.constants.js';
 
-
 describe('RateLimiterService', () => {
   let service: RateLimiterService;
-  let dbMock: any;
+  let storage: ThrottlerStorageService;
 
   beforeEach(() => {
-    dbMock = {
-      rateLimit: {
-        findUnique: vi.fn(),
-        upsert: vi.fn(),
-        update: vi.fn(),
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-      },
-      $queryRaw: vi.fn(),
-    };
-    service = new RateLimiterService(dbMock as unknown as AuthPrismaService);
+    storage = new ThrottlerStorageService();
+    service = new RateLimiterService(storage);
   });
 
-  describe('checkAndIncrement (atomic)', () => {
-    it('should increment atomically via raw query when available', async () => {
-      dbMock.$queryRaw.mockResolvedValueOnce([
-        { points: 1, expireAt: new Date(Date.now() + 60000) },
-      ]);
-
+  describe('checkAndIncrement', () => {
+    it('should allow requests within the limit', async () => {
       await expect(
         service.checkAndIncrement('test-key', 5, 60),
       ).resolves.toBeUndefined();
 
-      expect(dbMock.$queryRaw).toHaveBeenCalled();
+      await expect(
+        service.checkAndIncrement('test-key', 5, 60),
+      ).resolves.toBeUndefined();
     });
 
     it('should throw 429 when points exceed the limit', async () => {
-      dbMock.$queryRaw.mockResolvedValueOnce([
-        { points: 6, expireAt: new Date(Date.now() + 30000) },
-      ]);
+      const key = 'test-exceed-key';
+      const limit = 2;
 
-      await expect(
-        service.checkAndIncrement('test-key', 5, 60, 'Rate limit exceeded'),
-      ).rejects.toThrow(AppException);
+      await service.checkAndIncrement(key, limit, 60);
+      await service.checkAndIncrement(key, limit, 60);
+
+      try {
+        await service.checkAndIncrement(key, limit, 60, 'Custom limit message');
+        expect.unreachable('Should have thrown 429 AppException');
+      } catch (err) {
+        expect(err).toBeInstanceOf(AppException);
+        const appErr = err as AppException;
+        expect(appErr.getStatus()).toBe(429);
+        const response = appErr.getResponse() as any;
+        expect(response.code).toBe(ERROR_CODES.RATE_LIMITED);
+        expect(response.message).toBe('Custom limit message');
+        expect(response.details).toHaveProperty('retryAfterSeconds');
+      }
     });
 
-    it('should fallback to upsert when raw query fails', async () => {
-      dbMock.$queryRaw.mockRejectedValueOnce(new Error('raw query not supported'));
-      dbMock.rateLimit.findUnique.mockResolvedValueOnce(null);
-      dbMock.rateLimit.upsert.mockResolvedValueOnce({
-        points: 1,
-        expireAt: new Date(Date.now() + 60000),
-      });
-
+    it('should track different keys independently', async () => {
+      await service.checkAndIncrement('key-1', 1, 60);
       await expect(
-        service.checkAndIncrement('test-key', 5, 60),
+        service.checkAndIncrement('key-2', 1, 60),
       ).resolves.toBeUndefined();
-
-      expect(dbMock.rateLimit.upsert).toHaveBeenCalled();
     });
   });
 
   describe('failed logins tracking', () => {
-    it('should not throw if failed attempts are below limit', async () => {
-      dbMock.rateLimit.findUnique.mockResolvedValueOnce({
-        key: 'login_fail:phone:+84912345678',
-        points: 3,
-        expireAt: new Date(Date.now() + 60000),
-      });
+    const phone = '+84912345678';
 
-      await expect(
-        service.checkFailedLogins('+84912345678'),
-      ).resolves.toBeUndefined();
+    it('should not throw if failed attempts are below limit', async () => {
+      for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS - 1; i++) {
+        await service.recordFailedLogin(phone);
+      }
+
+      await expect(service.checkFailedLogins(phone)).resolves.toBeUndefined();
     });
 
     it('should throw 429 when failed attempts reach MAX_FAILED_LOGIN_ATTEMPTS', async () => {
-      dbMock.rateLimit.findUnique.mockResolvedValueOnce({
-        key: 'login_fail:phone:+84912345678',
-        points: MAX_FAILED_LOGIN_ATTEMPTS,
-        expireAt: new Date(Date.now() + 60000),
-      });
+      for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS; i++) {
+        await service.recordFailedLogin(phone);
+      }
 
-      await expect(
-        service.checkFailedLogins('+84912345678'),
-      ).rejects.toThrow(AppException);
+      try {
+        await service.checkFailedLogins(phone);
+        expect.unreachable('Should have thrown 429');
+      } catch (err) {
+        expect(err).toBeInstanceOf(AppException);
+        const appErr = err as AppException;
+        expect(appErr.getStatus()).toBe(429);
+        const response = appErr.getResponse() as any;
+        expect(response.code).toBe(ERROR_CODES.RATE_LIMITED);
+        expect(response.message).toContain(
+          `Bạn đã nhập sai mật khẩu quá ${MAX_FAILED_LOGIN_ATTEMPTS} lần`,
+        );
+        expect(response.details).toHaveProperty('retryAfterSeconds');
+      }
     });
 
-    it('should reset failed logins by deleting key', async () => {
-      await service.resetFailedLogins('+84912345678');
-      expect(dbMock.rateLimit.deleteMany).toHaveBeenCalledWith({
-        where: { key: 'login_fail:phone:+84912345678' },
-      });
+    it('should reset failed logins after successful authentication', async () => {
+      for (let i = 0; i < MAX_FAILED_LOGIN_ATTEMPTS; i++) {
+        await service.recordFailedLogin(phone);
+      }
+
+      await service.resetFailedLogins(phone);
+
+      await expect(service.checkFailedLogins(phone)).resolves.toBeUndefined();
     });
   });
 
   describe('cleanupExpiredRecords', () => {
-    it('should delete expired rate limit records', async () => {
-      dbMock.rateLimit.deleteMany.mockResolvedValueOnce({ count: 5 });
+    it('should run cleanup without error', async () => {
       const count = await service.cleanupExpiredRecords();
-      expect(count).toBe(5);
-      expect(dbMock.rateLimit.deleteMany).toHaveBeenCalledWith({
-        where: { expireAt: { lte: expect.any(Date) } },
-      });
+      expect(typeof count).toBe('number');
+      expect(count).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('onModuleDestroy', () => {
+    it('should shutdown storage cleanly', () => {
+      expect(() => service.onModuleDestroy()).not.toThrow();
     });
   });
 });
+

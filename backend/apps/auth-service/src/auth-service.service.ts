@@ -1,21 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { TokenSignerService } from '@app/auth';
-import { RegisterDto } from './dto/register.dto.js';
-import { VerifyOtpDto } from './dto/verify-otp.dto.js';
-import { ResendOtpDto } from './dto/resend-otp.dto.js';
-import { LoginDto } from './dto/login.dto.js';
-import { RefreshTokenDto } from './dto/refresh-token.dto.js';
-import { LogoutDto } from './dto/logout.dto.js';
-import type {
-  AuthSuccessResponse,
-  LogoutResponse,
-  MeResponse,
-  RegisterResponse,
-  ResendOtpResponse,
-} from './dto/auth-responses.dto.js';
-import { RegisterFlowService } from './flows/register-flow.service.js';
-import { OtpFlowService } from './flows/otp-flow.service.js';
-import { LoginFlowService } from './flows/login-flow.service.js';
+import {
+  RegisterDto,
+  RegisterFlowService,
+  type RegisterResponse,
+} from './register/index.js';
+import {
+  VerifyOtpDto,
+  ResendOtpDto,
+  OtpFlowService,
+  type ResendOtpResponse,
+} from './otp/index.js';
+import {
+  LoginDto,
+  RefreshTokenDto,
+  LogoutDto,
+  LoginFlowService,
+  type AuthSuccessResponse,
+  type LogoutResponse,
+  type MeResponse,
+} from './login/index.js';
 
 @Injectable()
 export class AuthServiceService {
@@ -41,8 +45,11 @@ export class AuthServiceService {
     return this.otpFlow.verifyEmail(dto, clientIp, userAgent);
   }
 
-  async resendOtp(dto: ResendOtpDto): Promise<ResendOtpResponse> {
-    return this.otpFlow.resendOtp(dto);
+  async resendOtp(
+    dto: ResendOtpDto,
+    clientIp?: string,
+  ): Promise<ResendOtpResponse> {
+    return this.otpFlow.resendOtp(dto, clientIp);
   }
 
   async login(

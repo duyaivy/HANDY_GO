@@ -22,7 +22,6 @@ import { RegisterFlowService } from '../src/flows/register-flow.service.js';
 import { OtpFlowService } from '../src/flows/otp-flow.service.js';
 import { LoginFlowService } from '../src/flows/login-flow.service.js';
 import {
-  HTTP_TOO_EARLY,
   INTERNAL_GATEWAY_HEADER,
   FORWARDED_FOR_HEADER,
 } from '../src/auth.constants.js';
@@ -361,7 +360,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       );
     });
 
-    it('throws 425 PROFILE_NOT_READY when profile is not yet provisioned', async () => {
+    it('throws 424 PROFILE_NOT_READY when profile is not yet provisioned', async () => {
       rabbitmqMock.send.mockResolvedValueOnce({
         exists: true,
         status: 'pending',
@@ -369,7 +368,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       await expect(userTrustClient.confirmUserStatus('user-1', ['Customer'])).rejects.toThrow(
-        expect.objectContaining({ status: HTTP_TOO_EARLY }),
+        expect.objectContaining({ status: HttpStatus.FAILED_DEPENDENCY }),
       );
     });
 

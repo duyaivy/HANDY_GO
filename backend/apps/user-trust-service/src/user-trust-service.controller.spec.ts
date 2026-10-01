@@ -2,7 +2,7 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustServiceController } from './user-trust-service.controller.js';
 import { UserTrustServiceService } from './user-trust-service.service.js';
-import { TokenVerifierService } from '@app/auth';
+import { RegisterRole, TokenVerifierService } from '@app/auth';
 
 describe('UserTrustServiceController', () => {
   let controller: UserTrustServiceController;
@@ -56,7 +56,7 @@ describe('UserTrustServiceController', () => {
       accountId: 'acc-1',
       userId: 'user-1',
       sessionId: 'sess-1',
-      roles: ['Customer'],
+      roles: [RegisterRole.CUSTOMER],
       permissions: ['profile:read'],
     };
 
