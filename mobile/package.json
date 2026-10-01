@@ -10,7 +10,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "adb:setup": "node ./scripts/setup-adb.js",
-    "start": "node ./scripts/setup-adb.js && expo start",
+    "start": "node ./scripts/setup-adb.js && expo start --localhost",
+    "start:lan": "node ./scripts/setup-adb.js && expo start --lan",
     "prebuild": "pnpm expo prebuild",
     "android": "node ./scripts/setup-adb.js && expo run:android",
     "ios": "expo run:ios",
