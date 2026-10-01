@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import type { Account } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
 import { AppException, ERROR_CODES, EVENT_PATTERNS } from '@app/common';
-import { RegisterRole, Role } from '@app/auth';
+import { RegisterRole } from '@app/auth';
 import { RegisterDto } from './dto/register.dto.js';
 import type { RegisterResponse } from './dto/register-response.dto.js';
 import { OtpService } from '../otp/otp.service.js';
