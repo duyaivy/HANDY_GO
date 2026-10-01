@@ -183,4 +183,61 @@ describe('apiClient 401 refresh flow', () => {
     expect(getToken()).toBeNull();
     expect(mockOnUnauthorized).toHaveBeenCalledTimes(1);
   });
+
+  it('wipes tokens and triggers unauthorized callback when refresh returns 400 validation error', async () => {
+    axiosInstance.defaults.adapter = async (config: any) => {
+      const error: any = new Error('401');
+      error.isAxiosError = true;
+      error.response = {
+        status: 401,
+        statusText: 'Unauthorized',
+        headers: {},
+        config,
+        data: { message: 'Unauthorized' },
+      };
+      error.config = config;
+      throw error;
+    };
+
+    (axios.post as jest.Mock).mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 400,
+        data: {
+          code: 'VALIDATION_ERROR',
+          message: 'Dữ liệu yêu cầu không hợp lệ',
+          fieldErrors: { refreshToken: ['Refresh token không đúng định dạng JWT'] },
+        },
+      },
+    });
+
+    await expect(ApiClient.get('/protected')).rejects.toThrow();
+
+    expect(getToken()).toBeNull();
+    expect(mockOnUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('wipes tokens when direct /auth/refresh returns 400 validation error', async () => {
+    axiosInstance.defaults.adapter = async (config: any) => {
+      const error: any = new Error('400');
+      error.isAxiosError = true;
+      error.response = {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: {},
+        config,
+        data: {
+          code: 'VALIDATION_ERROR',
+          message: 'Dữ liệu yêu cầu không hợp lệ',
+        },
+      };
+      error.config = config;
+      throw error;
+    };
+
+    await expect(ApiClient.post('/auth/refresh', { refreshToken: 'invalid-hex' })).rejects.toThrow();
+
+    expect(getToken()).toBeNull();
+    expect(mockOnUnauthorized).toHaveBeenCalledTimes(1);
+  });
 });

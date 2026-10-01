@@ -142,9 +142,12 @@ const _useAuthStore = create<AuthState>(set => ({
           }
           catch (refreshErr: any) {
             const isAuthRejection
-              = refreshErr?.statusCode === 401
+              = refreshErr?.statusCode === 400
+                || refreshErr?.statusCode === 401
                 || refreshErr?.statusCode === 403
+                || refreshErr?.statusCode === 422
                 || refreshErr?.code === 'INVALID_REFRESH_TOKEN'
+                || refreshErr?.code === 'VALIDATION_ERROR'
                 || refreshErr?.message?.includes('Unauthorized')
                 || refreshErr?.message?.includes('Refresh failed');
 
@@ -162,9 +165,12 @@ const _useAuthStore = create<AuthState>(set => ({
         }
 
         const isAuthError
-          = apiErr?.statusCode === 401
+          = apiErr?.statusCode === 400
+            || apiErr?.statusCode === 401
             || apiErr?.statusCode === 403
+            || apiErr?.statusCode === 422
             || apiErr?.code === 'INVALID_REFRESH_TOKEN'
+            || apiErr?.code === 'VALIDATION_ERROR'
             || apiErr?.message?.includes('Unauthorized');
 
         if (isAuthError) {
