@@ -41,7 +41,7 @@ function validateEnvironment(
   config.PORT ??= String(options.defaultPort);
   config.API_PREFIX ??= 'api/v1';
   config.CORS_ORIGIN ??= 'http://localhost:5173';
-  config.UPSTREAM_TIMEOUT_MS ??= '3000';
+  config.UPSTREAM_TIMEOUT_MS ??= '15000';
 
   const port = Number(config.PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {

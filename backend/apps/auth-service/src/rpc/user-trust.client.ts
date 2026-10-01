@@ -36,7 +36,7 @@ export class UserTrustClient {
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timer = setTimeout(
           () => reject(new Error('User & Trust RPC timeout')),
-          3000,
+          10000,
         );
         timer.unref?.();
       });

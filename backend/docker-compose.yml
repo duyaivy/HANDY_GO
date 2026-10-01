@@ -59,7 +59,7 @@ services:
       <<: *development-environment
       NEST_PROJECT: api-gateway
       PORT: "3000"
-      UPSTREAM_TIMEOUT_MS: "3000"
+      UPSTREAM_TIMEOUT_MS: "15000"
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
       CATALOG_SERVICE_URL: http://catalog-service:3003
