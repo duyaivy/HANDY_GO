@@ -4,7 +4,7 @@ import type { Prisma } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
 import { REFRESH_TOKEN_EXPIRATION_DAYS, TokenSignerService } from '@app/auth';
 import { AppException, ERROR_CODES } from '@app/common';
-import type { UserSummaryDto } from '../login/dto/auth-responses.dto.js';
+import type { UserSummaryDto } from '../dto/auth-responses.dto.js';
 import { UserTrustClient } from '../rpc/user-trust.client.js';
 
 export type AccountWithRolesAndPermissions = Prisma.AccountGetPayload<{
@@ -79,7 +79,6 @@ export class SessionService {
     _clientIp?: string,
     _userAgent?: string,
   ): Promise<PreparedSession> {
-
     const sessionId = crypto.randomUUID();
     const sessionCreatedAt = new Date();
     const plainRefreshToken = await this.tokenSigner.signRefreshToken({

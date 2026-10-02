@@ -11,15 +11,15 @@ import { AuthPrismaService } from '@app/database';
 import { RabbitMQService } from '@app/rabbitmq';
 import { AuthServiceService } from '../src/auth-service.service.js';
 import { OtpService } from '../src/otp/otp.service.js';
-import { OutboxPublisherService } from '../src/outbox/outbox-publisher.service.js';
-import { RateLimiterService } from '../src/rate-limit/rate-limiter.service.js';
+import { OutboxPublisherService } from '@app/common';
+import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
 import { AuthServiceController } from '../src/auth-service.controller.js';
 import { ConfigService } from '@app/config';
-import { RegisterFlowService } from '../src/flows/register-flow.service.js';
-import { OtpFlowService } from '../src/flows/otp-flow.service.js';
-import { LoginFlowService } from '../src/flows/login-flow.service.js';
-import { SessionService } from '../src/session/session.service.js';
-import { UserTrustClient } from '../src/rpc/user-trust.client.js';
+import { RegisterFlowService } from '../src/register/register-flow.service.js';
+import { OtpFlowService } from '../src/otp/otp-flow.service.js';
+import { LoginFlowService } from '../src/login/login-flow.service.js';
+import { SessionService } from '../src/common/session/session.service.js';
+import { UserTrustClient } from '../src/common/rpc/user-trust.client.js';
 
 describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   let module: TestingModule;

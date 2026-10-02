@@ -4,17 +4,17 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { VerifyOtpDto } from './dto/verify-otp.dto.js';
 import { ResendOtpDto } from './dto/resend-otp.dto.js';
 import type { ResendOtpResponse } from './dto/otp-responses.dto.js';
-import type { AuthSuccessResponse } from '../login/dto/auth-responses.dto.js';
+import type { AuthSuccessResponse } from '../common/dto/auth-responses.dto.js';
 import { OtpService } from './otp.service.js';
-import { RateLimiterService } from '../rate-limit/rate-limiter.service.js';
-import { UserTrustClient } from '../rpc/user-trust.client.js';
-import { SessionService } from '../session/session.service.js';
-import { normalizeVietnamesePhone } from '../utils/phone.util.js';
-import { AuthResponseBuilder } from '../utils/auth-response.builder.js';
+import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
+import { UserTrustClient } from '../common/rpc/user-trust.client.js';
+import { SessionService } from '../common/session/session.service.js';
+import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
+import { AuthResponseBuilder } from '../common/utils/auth-response.builder.js';
 import {
   RESEND_OTP_LIMIT,
   RESEND_OTP_WINDOW_SECONDS,
-} from '../auth.constants.js';
+} from '../common/constants/auth.constants.js';
 
 @Injectable()
 export class OtpFlowService {

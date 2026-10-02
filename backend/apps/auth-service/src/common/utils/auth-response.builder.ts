@@ -1,14 +1,14 @@
 import { HttpStatus } from '@nestjs/common';
 import type { Account } from '@prisma/auth-client';
-import type { GeneratedOtp } from '../otp/otp.service.js';
+import type { GeneratedOtp } from '../../otp/otp.service.js';
+import type { RegisterResponse } from '../../register/dto/register-response.dto.js';
+import type { ResendOtpResponse } from '../../otp/dto/otp-responses.dto.js';
 import type {
   AuthSuccessResponse,
   LogoutResponse,
   MeResponse,
-  RegisterResponse,
-  ResendOtpResponse,
   UserSummaryDto,
-} from '../login/dto/auth-responses.dto.js';
+} from '../dto/auth-responses.dto.js';
 
 export class AuthResponseBuilder {
   static buildRegisterResponse(

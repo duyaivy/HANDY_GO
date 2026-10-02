@@ -7,8 +7,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AuthSeedService } from '../src/seed/auth-seed.service.js';
-import { OutboxPublisherService } from '../src/outbox/outbox-publisher.service.js';
+import { AuthSeedService } from '../src/common/seed/auth-seed.service.js';
+import { OutboxPublisherService } from '@app/common';
 import { AuthServiceModule } from './../src/auth-service.module.js';
 
 describe('AuthServiceController (e2e)', () => {

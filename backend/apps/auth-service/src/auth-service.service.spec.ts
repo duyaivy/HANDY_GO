@@ -8,13 +8,13 @@ import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
 import { AuthServiceService } from './auth-service.service.js';
 import { OtpService } from './otp/otp.service.js';
-import { OutboxPublisherService } from './outbox/outbox-publisher.service.js';
-import { RateLimiterService } from './rate-limit/rate-limiter.service.js';
-import { RegisterFlowService } from './flows/register-flow.service.js';
-import { OtpFlowService } from './flows/otp-flow.service.js';
-import { LoginFlowService } from './flows/login-flow.service.js';
-import { SessionService } from './session/session.service.js';
-import { UserTrustClient } from './rpc/user-trust.client.js';
+import { OutboxPublisherService } from '@app/common';
+import { RateLimiterService } from './common/rate-limit/rate-limiter.service.js';
+import { RegisterFlowService } from './register/register-flow.service.js';
+import { OtpFlowService } from './otp/otp-flow.service.js';
+import { LoginFlowService } from './login/login-flow.service.js';
+import { SessionService } from './common/session/session.service.js';
+import { UserTrustClient } from './common/rpc/user-trust.client.js';
 
 describe('AuthServiceService', () => {
   let service: AuthServiceService;

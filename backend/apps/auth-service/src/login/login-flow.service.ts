@@ -9,17 +9,17 @@ import type {
   AuthSuccessResponse,
   LogoutResponse,
   MeResponse,
-} from './dto/auth-responses.dto.js';
-import { RateLimiterService } from '../rate-limit/rate-limiter.service.js';
+} from '../common/dto/auth-responses.dto.js';
+import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
 import { OtpService } from '../otp/otp.service.js';
-import { UserTrustClient } from '../rpc/user-trust.client.js';
-import { SessionService } from '../session/session.service.js';
-import { normalizeVietnamesePhone } from '../utils/phone.util.js';
-import { AuthResponseBuilder } from '../utils/auth-response.builder.js';
+import { UserTrustClient } from '../common/rpc/user-trust.client.js';
+import { SessionService } from '../common/session/session.service.js';
+import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
+import { AuthResponseBuilder } from '../common/utils/auth-response.builder.js';
 import {
   LOGIN_IP_RATE_LIMIT,
   LOGIN_IP_WINDOW_SECONDS,
-} from '../auth.constants.js';
+} from '../common/constants/auth.constants.js';
 
 @Injectable()
 export class LoginFlowService {
@@ -214,3 +214,5 @@ export class LoginFlowService {
     return AuthResponseBuilder.buildMeResponse(account, roleNames, permissions);
   }
 }
+
+export { LoginFlowService as LoginService };

@@ -4,7 +4,7 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { RateLimiterService } from './rate-limiter.service.js';
 import {
   MAX_FAILED_LOGIN_ATTEMPTS,
-} from '../auth.constants.js';
+} from '../constants/auth.constants.js';
 
 describe('RateLimiterService', () => {
   let service: RateLimiterService;
@@ -112,4 +112,3 @@ describe('RateLimiterService', () => {
     });
   });
 });
-

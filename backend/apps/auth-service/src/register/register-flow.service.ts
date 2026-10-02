@@ -3,19 +3,18 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import type { Account } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
-import { AppException, ERROR_CODES, EVENT_PATTERNS } from '@app/common';
+import { AppException, ERROR_CODES, EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { RegisterRole } from '@app/auth';
 import { RegisterDto } from './dto/register.dto.js';
 import type { RegisterResponse } from './dto/register-response.dto.js';
 import { OtpService } from '../otp/otp.service.js';
-import { OutboxPublisherService } from '../outbox/outbox-publisher.service.js';
-import { RateLimiterService } from '../rate-limit/rate-limiter.service.js';
-import { normalizeVietnamesePhone } from '../utils/phone.util.js';
-import { AuthResponseBuilder } from '../utils/auth-response.builder.js';
+import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
+import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
+import { AuthResponseBuilder } from '../common/utils/auth-response.builder.js';
 import {
   REGISTER_IP_RATE_LIMIT,
   REGISTER_IP_WINDOW_SECONDS,
-} from '../auth.constants.js';
+} from '../common/constants/auth.constants.js';
 
 @Injectable()
 export class RegisterFlowService {
@@ -279,3 +278,5 @@ export class RegisterFlowService {
     );
   }
 }
+
+export { RegisterFlowService as RegisterService };

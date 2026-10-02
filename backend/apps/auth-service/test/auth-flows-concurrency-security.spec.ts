@@ -14,17 +14,17 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { AuthServiceService } from '../src/auth-service.service.js';
 import { AuthServiceController } from '../src/auth-service.controller.js';
 import { OtpService } from '../src/otp/otp.service.js';
-import { OutboxPublisherService } from '../src/outbox/outbox-publisher.service.js';
-import { RateLimiterService } from '../src/rate-limit/rate-limiter.service.js';
-import { UserTrustClient } from '../src/rpc/user-trust.client.js';
-import { SessionService } from '../src/session/session.service.js';
-import { RegisterFlowService } from '../src/flows/register-flow.service.js';
-import { OtpFlowService } from '../src/flows/otp-flow.service.js';
-import { LoginFlowService } from '../src/flows/login-flow.service.js';
+import { OutboxPublisherService } from '@app/common';
+import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
+import { UserTrustClient } from '../src/common/rpc/user-trust.client.js';
+import { SessionService } from '../src/common/session/session.service.js';
+import { RegisterFlowService } from '../src/register/register-flow.service.js';
+import { OtpFlowService } from '../src/otp/otp-flow.service.js';
+import { LoginFlowService } from '../src/login/login-flow.service.js';
 import {
   INTERNAL_GATEWAY_HEADER,
   FORWARDED_FOR_HEADER,
-} from '../src/auth.constants.js';
+} from '../src/common/constants/auth.constants.js';
 
 describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
   let module: TestingModule;

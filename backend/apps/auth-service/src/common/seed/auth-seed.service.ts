@@ -19,7 +19,6 @@ export class AuthSeedService implements OnModuleInit {
     }
   }
 
-
   async seed(): Promise<void> {
     const roles = [
       {

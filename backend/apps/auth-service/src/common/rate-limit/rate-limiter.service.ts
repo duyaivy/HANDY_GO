@@ -14,7 +14,7 @@ import { AppException, ERROR_CODES } from '@app/common';
 import {
   FAILED_LOGIN_LOCKOUT_SECONDS,
   MAX_FAILED_LOGIN_ATTEMPTS,
-} from '../auth.constants.js';
+} from '../constants/auth.constants.js';
 
 @Injectable()
 export class RateLimiterService implements OnModuleDestroy {
@@ -176,4 +176,3 @@ export class RateLimiterService implements OnModuleDestroy {
     return undefined;
   }
 }
-

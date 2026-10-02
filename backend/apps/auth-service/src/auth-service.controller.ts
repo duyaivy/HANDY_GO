@@ -10,7 +10,6 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
-import crypto from 'node:crypto';
 import {
   CurrentUser,
   Public,
@@ -30,16 +29,19 @@ import {
   LoginDto,
   RefreshTokenDto,
   LogoutDto,
-  type AuthSuccessResponse,
-  type LogoutResponse,
-  type MeResponse,
 } from './login/index.js';
-import {
-  FORWARDED_FOR_HEADER,
-  INTERNAL_GATEWAY_HEADER,
-  USER_AGENT_HEADER,
-} from './auth.constants.js';
+import type {
+  AuthSuccessResponse,
+  LogoutResponse,
+  MeResponse,
+} from './common/dto/auth-responses.dto.js';
+import { resolveClientIp } from './common/utils/client-ip.util.js';
+import { USER_AGENT_HEADER } from './common/constants/auth.constants.js';
 
+/**
+ * @deprecated Use RegisterController, OtpController, and LoginController from their respective feature modules.
+ * Maintained as a facade for backwards compatibility with existing test suites.
+ */
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthServiceController {
@@ -47,39 +49,6 @@ export class AuthServiceController {
     private readonly authService: AuthServiceService,
     private readonly config: ConfigService,
   ) {}
-
-  /**
-   * Only trusts forwarded client IP when the request includes a valid internal gateway secret.
-   * If secret is missing or mismatched, strictly falls back to socket IP.
-   */
-  private resolveClientIp(req: Request, fallbackIp?: string): string {
-    const incomingSecret = req?.headers?.[INTERNAL_GATEWAY_HEADER];
-    const expectedSecret = this.config.internalServiceSecret;
-
-    const isTrustedGateway = Boolean(
-      expectedSecret &&
-        typeof incomingSecret === 'string' &&
-        incomingSecret.length === expectedSecret.length &&
-        crypto.timingSafeEqual(
-          Buffer.from(incomingSecret),
-          Buffer.from(expectedSecret),
-        ),
-    );
-
-    if (isTrustedGateway) {
-      const forwarded = req?.headers?.[FORWARDED_FOR_HEADER];
-      if (typeof forwarded === 'string' && forwarded.trim().length > 0) {
-        return forwarded.split(',')[0].trim();
-      }
-    }
-
-    return (
-      fallbackIp ||
-      req?.socket?.remoteAddress ||
-      req?.ip ||
-      '127.0.0.1'
-    );
-  }
 
   @Public()
   @Post('register')
@@ -93,7 +62,7 @@ export class AuthServiceController {
     @Ip() clientIp: string,
     @Req() req: Request,
   ): Promise<RegisterResponse> {
-    const ip = this.resolveClientIp(req, clientIp);
+    const ip = resolveClientIp(this.config, req, clientIp);
     return this.authService.register(dto, ip);
   }
 
@@ -110,7 +79,7 @@ export class AuthServiceController {
     @Req() req: Request,
   ): Promise<AuthSuccessResponse> {
     const userAgent = req?.headers?.[USER_AGENT_HEADER] as string | undefined;
-    const ip = this.resolveClientIp(req, clientIp);
+    const ip = resolveClientIp(this.config, req, clientIp);
     return this.authService.verifyEmail(dto, ip, userAgent);
   }
 
@@ -125,7 +94,7 @@ export class AuthServiceController {
     @Ip() clientIp: string,
     @Req() req: Request,
   ): Promise<ResendOtpResponse> {
-    const ip = this.resolveClientIp(req, clientIp);
+    const ip = resolveClientIp(this.config, req, clientIp);
     return this.authService.resendOtp(dto, ip);
   }
 
@@ -142,7 +111,7 @@ export class AuthServiceController {
     @Req() req: Request,
   ): Promise<AuthSuccessResponse> {
     const userAgent = req?.headers?.[USER_AGENT_HEADER] as string | undefined;
-    const ip = this.resolveClientIp(req, clientIp);
+    const ip = resolveClientIp(this.config, req, clientIp);
     return this.authService.login(dto, ip, userAgent);
   }
 
@@ -158,7 +127,7 @@ export class AuthServiceController {
     @Req() req: Request,
   ): Promise<AuthSuccessResponse> {
     const userAgent = req?.headers?.[USER_AGENT_HEADER] as string | undefined;
-    const ip = this.resolveClientIp(req, clientIp);
+    const ip = resolveClientIp(this.config, req, clientIp);
     return this.authService.refresh(dto, ip, userAgent);
   }
 
@@ -171,8 +140,6 @@ export class AuthServiceController {
     return this.authService.logout(dto);
   }
 
-  // NOTE: APP_GUARD registers JwtAuthGuard and PermissionsGuard globally,
-  // so manual @UseGuards(...) is redundant and omitted here.
   @RequirePermissions(StandardPermissions.AUTH_ME)
   @Get('me')
   @HttpCode(HttpStatus.OK)
