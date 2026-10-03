@@ -6,6 +6,7 @@ export interface ConfigModuleOptions {
   serviceName: string;
   defaultPort: number;
   requiredUrls?: string[];
+  requiredKeys?: string[];
 }
 
 @Global()
@@ -40,7 +41,7 @@ function validateEnvironment(
   config.PORT ??= String(options.defaultPort);
   config.API_PREFIX ??= 'api/v1';
   config.CORS_ORIGIN ??= 'http://localhost:5173';
-  config.UPSTREAM_TIMEOUT_MS ??= '3000';
+  config.UPSTREAM_TIMEOUT_MS ??= '15000';
 
   const port = Number(config.PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -77,5 +78,13 @@ function validateEnvironment(
     }
   }
 
+  for (const key of options.requiredKeys ?? []) {
+    const value = config[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${key} environment variable is required`);
+    }
+  }
+
   return config;
 }
+

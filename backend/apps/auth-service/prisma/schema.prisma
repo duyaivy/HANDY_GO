@@ -1,0 +1,152 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/auth-client"
+}
+
+enum AccountStatus {
+  pending
+  active
+  suspended
+  locked
+  deleted
+
+  @@map("account_status")
+}
+
+enum OtpPurpose {
+  register
+  verify_email
+  reset_password
+
+  @@map("otp_purpose")
+}
+
+model Account {
+  id                String           @id @db.Uuid
+  userId            String           @unique @map("user_id") @db.Uuid
+  email             String?          @unique @db.VarChar(255)
+  phone             String?          @unique @db.VarChar(30)
+  passwordHash      String           @map("password_hash") @db.VarChar(255)
+  status            AccountStatus    @default(pending)
+  emailVerifiedAt   DateTime?        @map("email_verified_at") @db.Timestamp(6)
+  passwordChangedAt DateTime?        @map("password_changed_at") @db.Timestamp(6)
+  createdAt         DateTime         @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime         @map("updated_at") @db.Timestamp(6)
+  roles             AccountRole[]
+  refreshSessions   RefreshSession[]
+  otpChallenges     OtpChallenge[]
+
+  @@map("accounts")
+}
+
+model Role {
+  id              String           @id @db.Uuid
+  code            String           @unique @db.VarChar(50)
+  name            String           @db.VarChar(100)
+  createdAt       DateTime         @map("created_at") @db.Timestamp(6)
+  accountRoles    AccountRole[]
+  permissionRoles PermissionRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @db.Uuid
+  code            String           @unique @db.VarChar(100)
+  name            String           @db.VarChar(150)
+  resource        String           @db.VarChar(50)
+  action          String           @db.VarChar(30)
+  createdAt       DateTime         @map("created_at") @db.Timestamp(6)
+  permissionRoles PermissionRole[]
+
+  @@map("permissions")
+}
+
+model AccountRole {
+  accountId  String   @map("account_id") @db.Uuid
+  roleId     String   @map("role_id") @db.Uuid
+  assignedAt DateTime @map("assigned_at") @db.Timestamp(6)
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([accountId, roleId])
+  @@map("account_roles")
+}
+
+model PermissionRole {
+  permissionId String     @map("permission_id") @db.Uuid
+  roleId       String     @map("role_id") @db.Uuid
+  assignedAt   DateTime   @map("assigned_at") @db.Timestamp(6)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([permissionId, roleId])
+  @@map("permission_roles")
+}
+
+model RefreshSession {
+  id               String    @id @db.Uuid
+  accountId        String    @map("account_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(255)
+  deviceId         String?   @map("device_id") @db.VarChar(255)
+  deviceName       String?   @map("device_name") @db.VarChar(255)
+  userAgent        String?   @map("user_agent")
+  ipAddress        String?   @map("ip_address") @db.VarChar(64)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamp(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamp(6)
+  createdAt        DateTime  @map("created_at") @db.Timestamp(6)
+  account          Account   @relation(fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("refresh_sessions")
+}
+
+// Operational table: not part of the group's six Auth domain tables.
+model OtpChallenge {
+  id                String     @id @default(uuid()) @db.Uuid
+  accountId         String     @db.Uuid
+  type              OtpPurpose @default(verify_email)
+  otpHash           String
+  expiresAt         DateTime   @db.Timestamp(3)
+  attempts          Int        @default(0)
+  resendAvailableAt DateTime   @db.Timestamp(3)
+  isUsed            Boolean    @default(false)
+  deliveryStatus    String     @default("pending")
+  deliveryError     String?
+  createdAt         DateTime   @default(now()) @db.Timestamp(3)
+  updatedAt         DateTime   @updatedAt @db.Timestamp(3)
+  account           Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, isUsed])
+  @@map("otp_challenges")
+}
+
+// Operational table: retained for durable event publication.
+model OutboxEvent {
+  id           String    @id @default(uuid())
+  eventType    String
+  eventVersion Int       @default(1)
+  payload      Json
+  status       String    @default("pending")
+  retryCount   Int       @default(0)
+  lastError    String?
+  nextRetryAt  DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  publishedAt  DateTime?
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+}
+
+// Operational table: PostgreSQL-backed login and registration rate limiting.
+model RateLimit {
+  key      String   @id
+  points   Int      @default(0)
+  expireAt DateTime
+
+  @@index([expireAt])
+  @@map("rate_limits")
+}

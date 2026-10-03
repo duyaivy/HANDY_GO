@@ -4,6 +4,7 @@ import { ApiGatewayService } from './api-gateway.service.js';
 
 describe('ApiGatewayController', () => {
   let apiGatewayController: ApiGatewayController;
+  let apiGatewayService: ApiGatewayService;
 
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
@@ -12,18 +13,21 @@ describe('ApiGatewayController', () => {
         {
           provide: ApiGatewayService,
           useValue: {
-            getHello: () => 'Hello World!',
+            getAuthHealth: vi.fn().mockResolvedValue({ status: 'ok', service: 'auth-service' }),
           },
         },
       ],
     }).compile();
 
     apiGatewayController = app.get<ApiGatewayController>(ApiGatewayController);
+    apiGatewayService = app.get<ApiGatewayService>(ApiGatewayService);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(apiGatewayController.getHello()).toBe('Hello World!');
+  describe('services/auth/health', () => {
+    it('should return auth service health status', async () => {
+      const result = await apiGatewayController.getAuthHealth('req-123');
+      expect(result).toEqual({ status: 'ok', service: 'auth-service' });
+      expect(apiGatewayService.getAuthHealth).toHaveBeenCalledWith('req-123');
     });
   });
 });

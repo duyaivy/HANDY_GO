@@ -8,6 +8,9 @@
     "tsBuildInfoFile": "../../dist/libs/common.tsbuildinfo"
   },
   "include": ["src/**/*"],
-  "references": [{ "path": "../config/tsconfig.lib.json" }],
+  "references": [
+    { "path": "../config/tsconfig.lib.json" },
+    { "path": "../rabbitmq/tsconfig.lib.json" }
+  ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

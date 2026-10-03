@@ -5,6 +5,8 @@ import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { UserTrustDatabaseModule } from '@app/database';
+import { AuthModule } from '@app/auth';
 
 @Module({
   imports: [
@@ -14,9 +16,12 @@ import { RabbitMQModule } from '@app/rabbitmq';
     }),
     LoggerModule.forRoot('user-trust-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
+    UserTrustDatabaseModule,
+    AuthModule,
   ],
   controllers: [UserTrustServiceController],
   providers: [UserTrustServiceService],
+  exports: [UserTrustServiceService],
 })
 export class UserTrustServiceModule {}

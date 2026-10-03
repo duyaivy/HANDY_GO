@@ -12,10 +12,12 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
         transport: Transport.RMQ,
         options: {
           urls: [process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672'],
-          queue: 'handy-go-publisher',
+          queue: 'user-trust-service',
           queueOptions: {
             durable: true,
           },
+          exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
+          exchangeType: 'topic',
           persistent: true,
         },
       },
@@ -25,3 +27,17 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
   exports: [RabbitMQService, RabbitMQContextService],
 })
 export class RabbitMQModule {}
+ 
+export function createRabbitMQOptions(queue: string) {
+  return {
+    transport: Transport.RMQ,
+    options: {
+      urls: [process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672'],
+      queue,
+      noAck: false,
+      queueOptions: {
+        durable: true,
+      },
+    },
+  };
+}

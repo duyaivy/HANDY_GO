@@ -59,7 +59,7 @@ services:
       <<: *development-environment
       NEST_PROJECT: api-gateway
       PORT: "3000"
-      UPSTREAM_TIMEOUT_MS: "3000"
+      UPSTREAM_TIMEOUT_MS: "15000"
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
       CATALOG_SERVICE_URL: http://catalog-service:3003
@@ -70,28 +70,13 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3008
       WALLET_SERVICE_URL: http://wallet-service:3009
       TRACKING_SERVICE_URL: http://tracking-service:3010
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
     ports:
       - "3000:3000"
     depends_on:
       auth-service:
         condition: service_healthy
       user-trust-service:
-        condition: service_healthy
-      catalog-service:
-        condition: service_healthy
-      order-service:
-        condition: service_healthy
-      bidding-service:
-        condition: service_healthy
-      matching-service:
-        condition: service_healthy
-      payment-service:
-        condition: service_healthy
-      notification-service:
-        condition: service_healthy
-      wallet-service:
-        condition: service_healthy
-      tracking-service:
         condition: service_healthy
 
   auth-service:
@@ -100,8 +85,35 @@ services:
       <<: *development-environment
       NEST_PROJECT: auth-service
       PORT: "3001"
-    ports:
-      - "3001:3001"
+      DATABASE_URL_AUTH: ${DATABASE_URL_AUTH:-postgresql://postgres:postgres@postgres-auth:5432/handy_auth}
+      RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_FROM: "HANDY GO <noreply@handygo.vn>"
+      OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
+      OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
+      OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
+      JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+    volumes:
+      - ./apps:/app/apps
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tsconfig.build.json:/app/tsconfig.build.json:ro
+      - ./keys/jwt-private.pem:/app/keys/jwt-private.pem:ro
+      - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
 
   user-trust-service:
     <<: *app
@@ -109,11 +121,27 @@ services:
       <<: *development-environment
       NEST_PROJECT: user-trust-service
       PORT: "3002"
+      DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST:-postgresql://postgres:postgres@postgres-user-trust:5432/handy_user_trust}
+      RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
+      JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+    volumes:
+      - ./apps:/app/apps
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tsconfig.build.json:/app/tsconfig.build.json:ro
+      - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
     ports:
       - "3002:3002"
+    depends_on:
+      postgres-user-trust:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   catalog-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: catalog-service
@@ -123,6 +151,7 @@ services:
 
   order-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: order-service
@@ -132,6 +161,7 @@ services:
 
   bidding-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: bidding-service
@@ -141,6 +171,7 @@ services:
 
   matching-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: matching-service
@@ -150,6 +181,7 @@ services:
 
   payment-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: payment-service
@@ -159,6 +191,7 @@ services:
 
   notification-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: notification-service
@@ -168,6 +201,7 @@ services:
 
   wallet-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: wallet-service
@@ -177,9 +211,81 @@ services:
 
   tracking-service:
     <<: *app
+    profiles: ["all"]
     environment:
       <<: *development-environment
       NEST_PROJECT: tracking-service
       PORT: "3010"
     ports:
       - "3010:3010"
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_DATA_FILE: /data/mailpit.db
+    volumes:
+      - mailpit-data:/data
+
+  postgres-auth:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-user-trust:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_user_trust
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-user-trust-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_user_trust"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo
+      RABBITMQ_DEFAULT_PASS: handygo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-auth-data:
+  postgres-user-trust-data:
+  rabbitmq-data:
+  mailpit-data:
+
+

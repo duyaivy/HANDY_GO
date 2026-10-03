@@ -12,6 +12,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useThemeConfig } from '@/components/ui/use-theme-config';
 import { APIProvider } from '@/lib/api';
 import { loadSelectedTheme } from '@/lib/hooks/use-selected-theme';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 // Import global CSS file
 import '../global.css';
@@ -36,6 +37,7 @@ export default function RootLayout() {
   const hasHiddenSplash = React.useRef(false);
 
   React.useEffect(() => {
+    useAuthStore.getState().hydrate().catch(() => {});
     SplashScreen.hideAsync();
   }, []);
 

@@ -8,7 +8,21 @@ export default function AuthLayout() {
         name="login"
         options={{
           title: 'Đăng nhập',
-          headerShown: true,
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="register"
+        options={{
+          title: 'Đăng ký tài khoản',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="otp"
+        options={{
+          title: 'Xác thực OTP',
+          headerShown: false,
         }}
       />
     </Stack>

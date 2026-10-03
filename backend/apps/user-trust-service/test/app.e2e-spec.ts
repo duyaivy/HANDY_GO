@@ -16,11 +16,26 @@ describe('UserTrustServiceController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('/health (GET) should be accessible publicly without token', () => {
+    return request(app.getHttpServer())
+      .get('/health')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body.status).toBe('ok');
+        expect(res.body.service).toBe('user-trust-service');
+      });
+  });
+
+  it('/users/me (GET) should reject request with 401 when token is missing', () => {
+    return request(app.getHttpServer())
+      .get('/users/me')
+      .expect(401);
+  });
+
+  it('/ (GET) should return 404 as root welcome route was removed', () => {
     return request(app.getHttpServer())
       .get('/')
-      .expect(200)
-      .expect('Hello World!');
+      .expect(404);
   });
 
   afterEach(async () => {

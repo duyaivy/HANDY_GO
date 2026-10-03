@@ -10,3 +10,5 @@ coverage
 !apps/*/.env.example
 *.log
 .DS_Store
+keys
+*.pem
