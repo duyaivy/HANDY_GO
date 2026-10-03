@@ -65,9 +65,6 @@ export class ProxyMiddleware implements NestMiddleware {
               (err as { code?: string }).code === 'ECONNRESET';
 
             const statusCode = isTimeout ? 504 : 502;
-            const errorCode = isTimeout
-              ? 'GATEWAY_TIMEOUT'
-              : 'BAD_GATEWAY';
             const message = isTimeout
               ? `${route.upstreamName} request timed out`
               : `${route.upstreamName} is unavailable`;
@@ -81,7 +78,6 @@ export class ProxyMiddleware implements NestMiddleware {
             clientRes.status(statusCode).json({
               success: false,
               statusCode,
-              errorCode,
               message,
               upstream: route.upstreamName,
               timestamp: new Date().toISOString(),
