@@ -7,23 +7,19 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
  * Cấu hình Swagger UI tại /docs với Multi-Spec Selector (Giải pháp 1).
  *
  * Cơ chế hoạt động:
- *  - Swagger UI hiển thị một dropdown ở góc trên bên phải để chọn xem
+ *  - Swagger UI hiển thị một dropdown nổi bật ở thanh Topbar để chọn xem
  *    tài liệu API của từng microservice.
  *  - Mỗi lựa chọn trong dropdown gọi GET /docs/specs/:serviceName tại Gateway.
  *  - SwaggerSpecsController sẽ fetch OpenAPI spec từ service tương ứng và trả về.
  *  - Khi service thêm endpoint mới → Swagger UI tự động cập nhật KHÔNG cần sửa Gateway.
- *
- * Lưu ý: `document` được tạo ra với DocumentBuilder để serve spec cho chính
- * Gateway (health, root endpoints). Các service khác dùng `urls` dropdown.
  */
 export function setupSwagger(app: INestApplication): void {
-  // Spec cho chính Gateway (health check, root endpoints của Gateway)
   const config = new DocumentBuilder()
-    .setTitle('HANDY GO — API Gateway')
+    .setTitle('HANDY GO — API Gateway & Microservices Docs')
     .setDescription(
       'Unified API Gateway cho nền tảng HANDY GO.\n\n' +
-      'Sử dụng **dropdown ở góc trên bên phải** để chuyển đổi và xem tài liệu API của từng microservice.\n\n' +
-      '> 💡 Tất cả requests từ "Try it out" sẽ đi qua cổng Gateway (port 3000) và được tự động định tuyến đến service tương ứng.',
+        '👉 **Sử dụng Dropdown ở góc trên bên phải thanh Topbar (ô viền xanh)** để chọn xem tài liệu API của từng Microservice.\n\n' +
+        '> 💡 Tất cả requests từ "Try it out" sẽ đi qua cổng Gateway (port 3000) và được tự động định tuyến đến service tương ứng.',
     )
     .setVersion('1.0.0')
     .addBearerAuth(
@@ -42,15 +38,10 @@ export function setupSwagger(app: INestApplication): void {
 
   SwaggerModule.setup('docs', app, gatewayDocument, {
     swaggerOptions: {
-      // Persistent token — người dùng không cần nhập lại token khi chuyển tab
       persistAuthorization: true,
-      // Multi-Spec Selector: dropdown chọn từng microservice
-      // Mỗi url trỏ tới SwaggerSpecsController tại /docs/specs/:serviceName
+      layout: 'StandaloneLayout',
+      urlsPrimaryName: '🔐 Auth Service',
       urls: [
-        {
-          name: '🌐 Gateway (Health & Root)',
-          url: '/docs-json',
-        },
         {
           name: '🔐 Auth Service',
           url: '/docs/specs/auth-service',
@@ -91,9 +82,19 @@ export function setupSwagger(app: INestApplication): void {
           name: '📍 Tracking Service',
           url: '/docs/specs/tracking-service',
         },
+        {
+          name: '🌐 Gateway Root & Health',
+          url: '/docs-json',
+        },
       ],
     },
-    // Tùy chỉnh tiêu đề trang
+    customCss: `
+      .swagger-ui .topbar { background-color: #1b1b1b !important; padding: 10px 20px !important; }
+      .swagger-ui .topbar .download-url-wrapper { display: flex !important; align-items: center !important; justify-content: flex-end !important; width: 100% !important; }
+      .swagger-ui .topbar .download-url-wrapper label { color: #ffffff !important; font-weight: bold !important; font-size: 14px !important; margin-right: 10px !important; display: flex !important; align-items: center !important; }
+      .swagger-ui .topbar .download-url-wrapper select { display: block !important; visibility: visible !important; opacity: 1 !important; background: #2d3748 !important; color: #49cc90 !important; font-size: 15px !important; font-weight: bold !important; padding: 8px 16px !important; border: 2px solid #49cc90 !important; border-radius: 6px !important; cursor: pointer !important; min-width: 250px !important; }
+      .swagger-ui .topbar .download-url-wrapper input, .swagger-ui .topbar .download-url-wrapper .download-url-button { display: none !important; }
+    `,
     customSiteTitle: 'HANDY GO API Docs',
   });
 }

@@ -14,11 +14,10 @@ import { SERVICE_ROUTES } from '../proxy/proxy.constants.js';
  *  1. Client (trình duyệt Swagger UI) gọi: GET /docs/specs/auth-service
  *  2. Gateway fetch nội bộ: GET http://<AUTH_SERVICE_URL>/docs-json
  *  3. Gateway chuẩn hóa trường `servers` → [{ url: "/" }] để "Try it out"
- *     của Swagger UI tự động gọi qua cổng Gateway (không cần biết port service).
- *  4. Trả JSON spec về cho Swagger UI render.
- *
- * Lợi ích: Khi bất kỳ service nào thêm endpoint mới, Swagger UI tại Gateway
- * sẽ TỰ ĐỘNG cập nhật ngay lập tức mà không cần sửa một dòng code ở Gateway.
+ *     của Swagger UI tự động gọi qua cổng Gateway.
+ *  4. Loại bỏ endpoint nội bộ `/health` của container để tránh xung đột với
+ *     endpoint `/health` riêng của Gateway.
+ *  5. Trả JSON spec về cho Swagger UI render.
  */
 @ApiExcludeController()
 @Controller('docs/specs')
@@ -29,7 +28,6 @@ export class SwaggerSpecsController {
   async getServiceSpec(
     @Param('serviceName') serviceName: string,
   ): Promise<unknown> {
-    // Tra cứu route config theo tên service
     const route = SERVICE_ROUTES.find(
       (r) => r.upstreamName === serviceName,
     );
@@ -47,11 +45,10 @@ export class SwaggerSpecsController {
       return this.buildOfflineSpec(serviceName);
     }
 
-    // Fetch OpenAPI spec từ microservice
     try {
       const specUrl = new URL('/docs-json', serviceUrl);
       const response = await fetch(specUrl, {
-        signal: AbortSignal.timeout(5000), // 5s timeout để không treo cả UI
+        signal: AbortSignal.timeout(5000),
       });
 
       if (!response.ok) {
@@ -60,8 +57,14 @@ export class SwaggerSpecsController {
 
       const spec = (await response.json()) as Record<string, unknown>;
 
+      // Loại bỏ endpoint nội bộ /health khỏi spec hiển thị của microservice
+      // để tránh xung đột với /health của chính API Gateway khi bấm "Try it out"
+      if (spec.paths && typeof spec.paths === 'object') {
+        const pathsObj = spec.paths as Record<string, unknown>;
+        delete pathsObj['/health'];
+      }
+
       // Chuẩn hóa servers: thay thế bằng "/" để Swagger UI dùng cổng Gateway
-      // khi người dùng bấm "Try it out" — không cần biết port nội bộ của service
       spec['servers'] = [
         {
           url: '/',
@@ -75,10 +78,6 @@ export class SwaggerSpecsController {
     }
   }
 
-  /**
-   * Trả về OpenAPI spec tối giản khi service đang offline.
-   * Giúp Swagger UI vẫn hoạt động và hiển thị thông báo rõ ràng.
-   */
   private buildOfflineSpec(serviceName: string): Record<string, unknown> {
     return {
       openapi: '3.0.0',
