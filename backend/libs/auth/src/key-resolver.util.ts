@@ -1,9 +1,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+function normalizeKeyContent(key: string): string {
+  let trimmed = key.trim();
+  if (trimmed.startsWith('base64:')) {
+    trimmed = Buffer.from(trimmed.slice(7), 'base64').toString('utf-8').trim();
+  } else if (trimmed.includes('\\n')) {
+    trimmed = trimmed.replace(/\\n/g, '\n').trim();
+  }
+  return trimmed;
+}
+
 export function resolvePublicKey(): string {
-  if (process.env.JWT_PUBLIC_KEY) {
-    return process.env.JWT_PUBLIC_KEY.trim();
+  if (process.env.JWT_PUBLIC_KEY && process.env.JWT_PUBLIC_KEY.trim().length > 0) {
+    return normalizeKeyContent(process.env.JWT_PUBLIC_KEY);
   }
 
   if (process.env.JWT_PUBLIC_KEY_PATH && fs.existsSync(process.env.JWT_PUBLIC_KEY_PATH)) {
@@ -29,8 +39,8 @@ export function resolvePublicKey(): string {
 }
 
 export function resolvePrivateKey(): string {
-  if (process.env.JWT_PRIVATE_KEY) {
-    return process.env.JWT_PRIVATE_KEY.trim();
+  if (process.env.JWT_PRIVATE_KEY && process.env.JWT_PRIVATE_KEY.trim().length > 0) {
+    return normalizeKeyContent(process.env.JWT_PRIVATE_KEY);
   }
 
   if (process.env.JWT_PRIVATE_KEY_PATH && fs.existsSync(process.env.JWT_PRIVATE_KEY_PATH)) {

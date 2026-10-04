@@ -8,19 +8,28 @@ export class UserTrustPrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    const connectionString =
+    const rawUrl =
       process.env.DATABASE_URL_USER_TRUST ||
-      'postgresql://postgres:postgres@localhost:5433/handy_user_trust';
+      process.env.DATABASE_URL ||
+      'postgresql://postgres:postgres@localhost:5432/handygo?schema=user_trust_service';
 
-    let schema: string | undefined;
+    let connectionString = rawUrl;
+    let schema = 'user_trust_service';
+
     try {
-      const url = new URL(connectionString);
-      schema = url.searchParams.get('schema') || undefined;
+      const url = new URL(rawUrl);
+      const urlSchema = url.searchParams.get('schema');
+      if (urlSchema) {
+        schema = urlSchema;
+      } else {
+        url.searchParams.set('schema', schema);
+        connectionString = url.toString();
+      }
     } catch {
-      // ignore parsing error if custom format
+      // ignore custom parsing error
     }
 
-    const adapter = new PrismaPg({ connectionString }, schema ? { schema } : undefined);
+    const adapter = new PrismaPg({ connectionString }, { schema });
     super({ adapter });
   }
 

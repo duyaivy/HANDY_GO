@@ -64,11 +64,10 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 
 ### 3.1. Thứ tự ưu tiên nạp cấu hình
 
-Module `libs/config` đọc cấu hình theo thứ tự ưu tiên giảm dần:
+Module `libs/config` đọc cấu hình từ file `.env` tập trung tại thư mục gốc:
 
 1. Biến môi trường hệ thống / process (`process.env`, bao gồm mục `environment` trong Compose).
-2. File cấu hình riêng của service: `apps/<service-name>/.env`.
-3. File cấu hình chung ở thư mục gốc: `backend/.env`.
+2. File cấu hình chung ở thư mục gốc: `backend/.env` (tạo từ `.env.example`).
 
 Quy tắc xác thực: `PORT` (1–65535), `NODE_ENV` (`development` | `test` | `production`), `LOG_LEVEL` (`fatal` | `error` | `warn` | `info` | `debug` | `trace` | `silent`), `OTP_SECRET` (bắt buộc cho `auth-service`), và các URL upstream bắt buộc phải đúng định dạng URL.
 
@@ -90,10 +89,8 @@ Hệ thống yêu cầu hai secret quan trọng:
 ### 3.3. Thiết lập ban đầu
 
 ```bash
-# Tạo file env chung và file env cho service cần chạy
+# Tạo file env chung ở thư mục gốc từ file mẫu
 cp .env.example .env
-cp apps/api-gateway/.env.example apps/api-gateway/.env
-cp apps/auth-service/.env.example apps/auth-service/.env
 ```
 
 > [!WARNING]

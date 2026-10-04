@@ -1,4 +1,9 @@
-import { RequestMethod, ValidationPipe, type INestApplication, type Type } from '@nestjs/common';
+import {
+  type INestApplication,
+  RequestMethod,
+  type Type,
+  ValidationPipe,
+} from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@app/config';
 import { Logger } from 'nestjs-pino';
@@ -8,11 +13,14 @@ import { AppException, ERROR_CODES } from './errors/app-error.js';
 
 export interface BootstrapOptions {
   connectMicroservices?: (app: INestApplication) => void | Promise<void>;
+  setupApp?: (app: INestApplication) => void | Promise<void>;
 }
+
+export type SetupAppCallback = (app: INestApplication) => Promise<void> | void;
 
 export async function bootstrapApplication(
   rootModule: Type<unknown>,
-  options?: BootstrapOptions,
+  optionsOrSetup?: BootstrapOptions | SetupAppCallback,
 ): Promise<void> {
   const app = await NestFactory.create(rootModule, { bufferLogs: true });
   const config = app.get(ConfigService);
@@ -40,27 +48,72 @@ export async function bootstrapApplication(
       },
     }),
   );
-  app.enableCors({ origin: config.corsOrigins });
+
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Allow requests with no origin (such as mobile apps, curl, or server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+      if (
+        config.corsOrigins.includes('*') ||
+        config.corsOrigins.includes(origin)
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-request-id',
+      'x-client-platform',
+      'Accept',
+    ],
+    maxAge: 86400,
+  });
+
   app.setGlobalPrefix(config.apiPrefix, {
     exclude: [
       { path: 'health', method: RequestMethod.GET },
       { path: 'docs', method: RequestMethod.GET },
+      { path: 'docs/(.*)', method: RequestMethod.GET },
+      { path: 'docs-json', method: RequestMethod.GET },
     ],
   });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle(`${config.serviceName} API`)
-    .setDescription(`API documentation for ${config.serviceName}`)
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+  const hasCustomSetup =
+    typeof optionsOrSetup === 'function' ||
+    (typeof optionsOrSetup === 'object' && optionsOrSetup?.setupApp != null);
 
-  if (options?.connectMicroservices) {
-    await options.connectMicroservices(app);
-    await app.startAllMicroservices();
-    logger.log(`Microservices started for ${config.serviceName}`);
+  if (!hasCustomSetup) {
+    // Default Swagger: only when caller does NOT provide custom setupApp
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle(`${config.serviceName} API`)
+      .setDescription(`API documentation for ${config.serviceName}`)
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
+
+  if (typeof optionsOrSetup === 'function') {
+    await optionsOrSetup(app);
+  } else if (optionsOrSetup) {
+    if (optionsOrSetup.setupApp) {
+      await optionsOrSetup.setupApp(app);
+    }
+    if (optionsOrSetup.connectMicroservices) {
+      await optionsOrSetup.connectMicroservices(app);
+      await app.startAllMicroservices();
+      logger.log(`Microservices started for ${config.serviceName}`);
+    }
   }
 
   await app.listen(config.port);
