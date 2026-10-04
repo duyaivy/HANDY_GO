@@ -104,7 +104,7 @@ pnpm run lint
 | Library (`libs/`) | Exported Asset | Purpose & Usage Contract |
 | :--- | :--- | :--- |
 | **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { details });` |
-| | `bootstrapApplication(Module)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Used in `main.ts`. |
+| | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Used in `main.ts`. |
 | | `OutboxPublisherService`<br>`OutboxRepository` | **Reliable Transactional Outbox Pattern.** Persists domain events into the database within the same transaction and asynchronously dispatches to RabbitMQ with DLQ & retry support. |
 | | `renderEmailTemplate(template, vars)` | **HTML Email Template Renderer.** Injects dynamic placeholders `{{variable}}` into branded HANDY GO responsive HTML email layouts. |
 | | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.USER_REGISTERED`. |
@@ -143,7 +143,7 @@ pnpm run lint
 
 When creating a new business feature, agents must replicate this pattern:
 
-### 5.1. Controller Scaffold (`<feature>.controller.ts`)
+### 5.1. Controller Scaffold — Public Route (`<feature>.controller.ts`)
 ```typescript
 import { Body, Controller, HttpCode, HttpStatus, Ip, Post, Req } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -178,7 +178,80 @@ export class MyFeatureController {
 }
 ```
 
-### 5.2. Module Scaffold (`<feature>.module.ts`)
+### 5.2. Controller Scaffold — Protected Route (JWT required)
+
+> [!IMPORTANT]
+> **DOWNSTREAM SERVICES MUST NEVER RE-VERIFY THE JWT TOKEN.**
+> The API Gateway has already verified the RS256 token and injected trusted identity headers.
+> Read user identity directly from these headers — DO NOT import `TokenVerifierService`, `JwtAuthGuard`, or any JWT-decoding logic in downstream services.
+
+The API Gateway (`apps/api-gateway`) performs RS256 JWT verification once and injects the following **trusted internal headers** before forwarding to any downstream service:
+
+| Header | Source (from JWT payload) | Example value |
+| :--- | :--- | :--- |
+| `x-user-id` | `payload.userId` | `uuid-v4-user-id` |
+| `x-user-account-id` | `payload.sub` | `uuid-v4-account-id` |
+| `x-user-roles` | `payload.roles` (JSON array → comma-separated) | `Customer` or `Worker,Admin` |
+| `x-user-permissions` | `payload.permissions` (JSON array → comma-separated) | `profile:read,profile:update` |
+| `x-internal-secret` | `config.internalServiceSecret` | `<32-byte random hex>` |
+| `x-forwarded-for` | Client socket IP (resolved by gateway) | `203.0.113.5` |
+
+**Security invariant enforced by every downstream service:**
+- Validate `x-internal-secret` using **timing-safe comparison** against `config.internalServiceSecret`. If missing or mismatched → reject with `403 Forbidden` immediately.
+- Never trust `x-user-id`, `x-user-roles`, `x-user-permissions` unless `x-internal-secret` is valid (prevents header injection/spoofing from external clients).
+
+```typescript
+import { Controller, Get, Headers, ForbiddenException, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { ConfigService } from '@app/config';
+import crypto from 'node:crypto';
+import { MyProtectedService } from './my-protected.service.js';
+
+@ApiTags('My Protected Feature')
+@ApiBearerAuth()
+@Controller('my-resource')
+export class MyProtectedController {
+  constructor(
+    private readonly service: MyProtectedService,
+    private readonly config: ConfigService,
+  ) {}
+
+  @Get('me')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get current user resource (requires JWT via Gateway)' })
+  @ApiResponse({ status: 200, description: 'Success' })
+  @ApiResponse({ status: 403, description: 'Request did not come from the trusted API Gateway' })
+  async getMyResource(
+    @Headers('x-internal-secret') internalSecret: string | undefined,
+    @Headers('x-user-id') userId: string | undefined,
+    @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-user-permissions') userPermissions: string | undefined,
+  ) {
+    // 1. Validate the request came through the trusted API Gateway
+    this.assertTrustedGateway(internalSecret);
+
+    // 2. Parse identity from headers (no JWT decoding needed)
+    const roles = userRoles ? userRoles.split(',') : [];
+    const permissions = userPermissions ? userPermissions.split(',') : [];
+
+    return this.service.getMyResource(userId!, roles, permissions);
+  }
+
+  private assertTrustedGateway(incomingSecret: string | undefined): void {
+    const expected = this.config.internalServiceSecret;
+    const isValid =
+      !!expected &&
+      !!incomingSecret &&
+      incomingSecret.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(incomingSecret), Buffer.from(expected));
+    if (!isValid) {
+      throw new ForbiddenException('Request must originate from the API Gateway');
+    }
+  }
+}
+```
+
+### 5.3. Module Scaffold (`<feature>.module.ts`)
 ```typescript
 import { Module } from '@nestjs/common';
 import { MyFeatureController } from './my-feature.controller.js';
@@ -191,3 +264,55 @@ import { MyFeatureService } from './my-feature.service.js';
 })
 export class MyFeatureModule {}
 ```
+
+---
+
+## 6. Authentication Architecture: Centralized Gateway Auth (Defense-in-Depth)
+
+> [!IMPORTANT]
+> **This section defines the mandatory security boundary between the API Gateway and all downstream microservices. Every agent MUST understand and enforce this contract.**
+
+### 6.1. Who Does What
+
+```
+[Internet Client]
+     │  Authorization: Bearer <RS256 JWT>
+     ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  API GATEWAY  (apps/api-gateway)                                     │
+│                                                                      │
+│  ① Strip all client-supplied x-user-* headers (anti-spoofing)        │
+│  ② PUBLIC ROUTES → forward as-is (no token check)                   │
+│  ③ PROTECTED ROUTES → verify RS256 JWT (→ 401 if invalid)           │
+│  ④ Coarse-grained ROLE check per route pattern (→ 403 if denied)    │
+│  ⑤ Inject trusted headers + x-internal-secret, then forward         │
+└───────────────────────────┬──────────────────────────────────────────┘
+                            │ Internal VPC / Docker network
+                            ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  DOWNSTREAM SERVICES  (order, catalog, user-trust, wallet, ...)      │
+│                                                                      │
+│  ① Validate x-internal-secret (timing-safe) → 403 if missing/wrong  │
+│  ② Read x-user-id, x-user-roles, x-user-permissions from headers    │
+│  ③ Fine-grained (data-ownership) authorization in service layer      │
+│  ④ NEVER decode/verify the JWT token again                           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2. Public Routes (No JWT Required)
+
+The following route patterns are whitelisted at the Gateway and forwarded without authentication:
+
+| Pattern | Method(s) | Reason |
+| :--- | :--- | :--- |
+| `/api/v1/auth/register` | POST | Registration |
+| `/api/v1/auth/login` | POST | Login |
+| `/api/v1/auth/verify-email` | POST | OTP verification |
+| `/api/v1/auth/resend-otp` | POST | Resend OTP |
+| `/api/v1/auth/refresh` | POST | Token refresh (uses refresh token, not access token) |
+| `/api/v1/catalog` | GET | Public catalog browsing |
+| `/api/v1/categories` | GET | Public category listing |
+| `/health` | GET | Health check |
+| `/docs` | GET | Swagger UI |
+
+> **Critical:** `POST/PUT/PATCH/DELETE` on `/api/v1/catalog` and `/api/v1/categories` are **protected**. Only `GET` is public.
