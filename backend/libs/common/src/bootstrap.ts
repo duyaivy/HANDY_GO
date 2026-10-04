@@ -60,7 +60,10 @@ export async function bootstrapApplication(
       }
       if (
         config.corsOrigins.includes('*') ||
-        config.corsOrigins.includes(origin)
+        config.corsOrigins.includes(origin) ||
+        (process.env.NODE_ENV !== 'production' &&
+          (origin.startsWith('http://localhost:') ||
+            origin.startsWith('http://127.0.0.1:')))
       ) {
         return callback(null, true);
       }
