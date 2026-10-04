@@ -85,12 +85,12 @@ services:
       <<: *development-environment
       NEST_PROJECT: auth-service
       PORT: "3001"
-      DATABASE_URL_AUTH: ${DATABASE_URL_AUTH:-postgresql://postgres:postgres@postgres-auth:5432/handy_auth}
-      RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
-      SMTP_HOST: mailpit
-      SMTP_PORT: "1025"
-      SMTP_SECURE: "false"
-      SMTP_FROM: "HANDY GO <noreply@handygo.vn>"
+      DATABASE_URL_AUTH: ${DATABASE_URL_AUTH}
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_FROM: ${SMTP_FROM:-HANDY GO <noreply@handygo.vn>}
       OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
       OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
@@ -106,14 +106,6 @@ services:
       - ./tsconfig.build.json:/app/tsconfig.build.json:ro
       - ./keys/jwt-private.pem:/app/keys/jwt-private.pem:ro
       - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
-    depends_on:
-      postgres-auth:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      mailpit:
-        condition: service_started
-
 
   user-trust-service:
     <<: *app
@@ -121,8 +113,8 @@ services:
       <<: *development-environment
       NEST_PROJECT: user-trust-service
       PORT: "3002"
-      DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST:-postgresql://postgres:postgres@postgres-user-trust:5432/handy_user_trust}
-      RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
+      DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
+      RABBITMQ_URL: ${RABBITMQ_URL}
       JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
     volumes:
       - ./apps:/app/apps
@@ -133,11 +125,6 @@ services:
       - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
     ports:
       - "3002:3002"
-    depends_on:
-      postgres-user-trust:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
 
   catalog-service:
     <<: *app
@@ -218,74 +205,3 @@ services:
       PORT: "3010"
     ports:
       - "3010:3010"
-
-  mailpit:
-    image: axllent/mailpit:latest
-    restart: unless-stopped
-    ports:
-      - "1025:1025"
-      - "8025:8025"
-    environment:
-      MP_MAX_MESSAGES: 500
-      MP_DATA_FILE: /data/mailpit.db
-    volumes:
-      - mailpit-data:/data
-
-  postgres-auth:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: handy_auth
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-auth-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_auth"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  postgres-user-trust:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: handy_user_trust
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres-user-trust-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_user_trust"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    restart: unless-stopped
-    environment:
-      RABBITMQ_DEFAULT_USER: handygo
-      RABBITMQ_DEFAULT_PASS: handygo
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  postgres-auth-data:
-  postgres-user-trust-data:
-  rabbitmq-data:
-  mailpit-data:
-
-

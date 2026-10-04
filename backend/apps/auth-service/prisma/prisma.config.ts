@@ -16,16 +16,29 @@ for (const envPath of candidateEnvPaths) {
   }
 }
 
+function getDatabaseUrl(): string {
+  const urlStr =
+    process.env.DATABASE_URL_AUTH ||
+    process.env.DATABASE_URL ||
+    'postgresql://postgres:postgres@localhost:5432/handygo?schema=auth_service';
+
+  try {
+    const url = new URL(urlStr);
+    if (!url.searchParams.has('schema')) {
+      url.searchParams.set('schema', 'auth_service');
+    }
+    return url.toString();
+  } catch {
+    return urlStr;
+  }
+}
+
 export default defineConfig({
   schema: 'schema.prisma',
   migrations: {
     path: 'migrations',
   },
   datasource: {
-    url:
-      process.env.DATABASE_URL_AUTH ||
-      'postgresql://postgres:postgres@localhost:5432/handy_auth',
+    url: getDatabaseUrl(),
   },
 });
-
-
