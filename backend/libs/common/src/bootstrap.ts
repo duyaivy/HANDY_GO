@@ -82,17 +82,26 @@ export async function bootstrapApplication(
     exclude: [
       { path: 'health', method: RequestMethod.GET },
       { path: 'docs', method: RequestMethod.GET },
+      { path: 'docs/(.*)', method: RequestMethod.GET },
+      { path: 'docs-json', method: RequestMethod.GET },
     ],
   });
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle(`${config.serviceName} API`)
-    .setDescription(`API documentation for ${config.serviceName}`)
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('docs', app, document);
+  const hasCustomSetup =
+    typeof optionsOrSetup === 'function' ||
+    (typeof optionsOrSetup === 'object' && optionsOrSetup?.setupApp != null);
+
+  if (!hasCustomSetup) {
+    // Default Swagger: only when caller does NOT provide custom setupApp
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle(`${config.serviceName} API`)
+      .setDescription(`API documentation for ${config.serviceName}`)
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   if (typeof optionsOrSetup === 'function') {
     await optionsOrSetup(app);
