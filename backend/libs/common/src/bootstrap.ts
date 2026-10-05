@@ -87,6 +87,7 @@ export async function bootstrapApplication(
       { path: 'docs', method: RequestMethod.GET },
       { path: 'docs/(.*)', method: RequestMethod.GET },
       { path: 'docs-json', method: RequestMethod.GET },
+      { path: 'dev/(.*)', method: RequestMethod.GET },
     ],
   });
 

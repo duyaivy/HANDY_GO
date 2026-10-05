@@ -20,6 +20,7 @@ import { TokenVerifierService } from '@app/auth';
 import { CloudinaryModule } from '@app/cloudinary';
 import { UploadsController, UploadsModule } from './uploads/index.js';
 import { SwaggerSpecsController } from './swagger/index.js';
+import { DevVideoUploadController } from './dev/dev-video-upload.controller.js';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { SwaggerSpecsController } from './swagger/index.js';
     ApiGatewayController,
     UploadsController,
     SwaggerSpecsController,
+    DevVideoUploadController,
     FallbackController,
   ],
   providers: [

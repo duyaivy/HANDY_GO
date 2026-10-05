@@ -88,6 +88,8 @@ export class UploadsController {
     description:
       '**LƯU Ý QUAN TRỌNG:** ENDPOINT NÀY KHÔNG NHẬN VÀ KHÔNG UPLOAD DỮ LIỆU FILE VIDEO.\n\n' +
       'Phía Frontend / Mobile gọi endpoint này để nhận thông số chữ ký xác thực signed upload từ backend và thực hiện upload trực tiếp từng chunk dữ liệu sang Cloudinary.\n\n' +
+      '🛠️ **Development Tester:** (Môi trường dev)\n' +
+      'Truy cập UI giả lập upload browser tại: `GET /dev/video-upload`\n\n' +
       '**Các bước thực hiện cho FE / Mobile:**\n' +
       '1. Gọi `POST /api/v1/uploads/video/init` kèm theo metadata (fileName, fileSize, mimeType, checksumSha256 tùy chọn).\n' +
       '2. Nhận kết quả gồm `uploadId`, `uploadUrl`, `chunkSize`, `signature`, `timestamp`, `publicId`, `apiKey`, `cloudName`.\n' +

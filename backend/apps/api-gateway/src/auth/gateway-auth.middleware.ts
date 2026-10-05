@@ -18,11 +18,12 @@ const PUBLIC_PREFIXES: ReadonlyArray<{ prefix: string; methods?: string[] }> = [
   // Catalog & categories — chỉ GET là public, PUT/POST/DELETE yêu cầu xác thực
   { prefix: '/api/v1/catalog', methods: ['GET', 'HEAD'] },
   { prefix: '/api/v1/categories', methods: ['GET', 'HEAD'] },
-  // Infrastructure
+  // Infrastructure & Dev Tooling
   { prefix: '/health' },
   { prefix: '/docs' },
   { prefix: '/docs-json' },
   { prefix: '/favicon.ico' },
+  { prefix: '/dev' },
 ];
 
 function isPublicRoute(pathname: string, method: string): boolean {

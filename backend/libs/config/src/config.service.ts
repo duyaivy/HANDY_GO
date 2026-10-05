@@ -122,6 +122,14 @@ export class ConfigService {
   get(key: string): string | undefined {
     return this.config.get<string>(key);
   }
+
+  get nodeEnv(): string {
+    return this.config.get<string>('NODE_ENV') || 'development';
+  }
+
+  get isProduction(): boolean {
+    return this.nodeEnv === 'production';
+  }
 }
 
 

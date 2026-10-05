@@ -119,7 +119,7 @@ pnpm run lint
 | | `Role`, `RegisterRole`<br>`StandardPermissions` | Canonical enums for roles (`CUSTOMER`, `WORKER`, `ADMIN`) and permissions (`AUTH_ME`, `PROFILE_READ`, `PROFILE_UPDATE`, ...). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
-| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets, and required key validation. |
+| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
 | **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)` | High-performance Pino structured JSON logging module. |
@@ -127,10 +127,11 @@ pnpm run lint
 
 ---
 
-### 4.2. Service-Internal Utilities & Infrastructure (`apps/auth-service/src/common/`)
+### 4.2. Service-Internal Utilities & Infrastructure
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
+| `apps/api-gateway/src/dev/dev-video-upload.controller.ts` | `DevVideoUploadController` | **Development Video Upload Tester.** Serves HTML/JS tester page at `GET /dev/video-upload` in non-production environments (`NODE_ENV !== 'production'`) for direct-to-Cloudinary chunked video upload testing. Throws `404` in production. |
 | `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)` | **IP Spoofing Prevention.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from the API Gateway. Falls back to socket IP. |
 | `common/utils/phone.util.ts` | `normalizeVietnamesePhone(rawPhone)` | **E.164 Vietnamese Mobile Phone Normalization.** Converts valid 10-digit mobile numbers (03, 05, 07, 08, 09) to `+84xxxxxxxxx`. Handles leading zeros (`840...`, `+840...`). Throws `BadRequestException` on invalid formats. |
 | `common/utils/phone.util.ts` | `isValidVietnamesePhone(rawPhone)` | Boolean validator checking if a string conforms to Vietnamese mobile standards. |
