@@ -85,6 +85,13 @@ function validateEnvironment(
     }
   }
 
+  if (config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB !== undefined) {
+    const chunkSizeMb = Number(config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB);
+    if (isNaN(chunkSizeMb) || chunkSizeMb <= 5) {
+      throw new Error('CLOUDINARY_VIDEO_CHUNK_SIZE_MB must be a number greater than 5 MB');
+    }
+  }
+
   return config;
 }
 

@@ -12,7 +12,8 @@
     { "path": "../../libs/common/tsconfig.lib.json" },
     { "path": "../../libs/config/tsconfig.lib.json" },
     { "path": "../../libs/logger/tsconfig.lib.json" },
-    { "path": "../../libs/auth/tsconfig.lib.json" }
+    { "path": "../../libs/auth/tsconfig.lib.json" },
+    { "path": "../../libs/cloudinary/tsconfig.lib.json" }
   ],
-  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
+  "exclude": ["node_modules", "dist"]
 }

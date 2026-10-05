@@ -16,8 +16,11 @@ import { RateLimitMiddleware } from './rate-limit/index.js';
 import { GatewayExceptionFilter } from './filters/index.js';
 import { FallbackController } from './fallback/index.js';
 import { GatewayAuthMiddleware } from './auth/gateway-auth.middleware.js';
-import { SwaggerSpecsController } from './swagger/swagger-specs.controller.js';
 import { TokenVerifierService } from '@app/auth';
+import { CloudinaryModule } from '@app/cloudinary';
+import { UploadsController, UploadsModule } from './uploads/index.js';
+import { SwaggerSpecsController } from './swagger/index.js';
+import { DevVideoUploadController } from './dev/dev-video-upload.controller.js';
 
 @Module({
   imports: [
@@ -25,14 +28,23 @@ import { TokenVerifierService } from '@app/auth';
       serviceName: 'api-gateway',
       defaultPort: 3000,
       requiredUrls: [...UPSTREAM_SERVICE_URLS],
+      requiredKeys: [
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET',
+      ],
     }),
     LoggerModule.forRoot('api-gateway'),
     JwtModule.register({}),
     HealthModule,
+    CloudinaryModule,
+    UploadsModule,
   ],
   controllers: [
     ApiGatewayController,
+    UploadsController,
     SwaggerSpecsController,
+    DevVideoUploadController,
     FallbackController,
   ],
   providers: [

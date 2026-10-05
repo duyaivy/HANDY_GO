@@ -6,7 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { ERROR_CODES, type AppErrorResponseBody } from '../errors/app-error.js';
 
 @Catch()
@@ -16,6 +16,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
 
     if (!response || typeof response.status !== 'function') {
       // Non-HTTP context (e.g. Microservice RPC / Event)
@@ -52,14 +53,30 @@ export class HttpExceptionFilter implements ExceptionFilter {
         code = this.defaultCodeForStatus(statusCode);
       }
     } else if (exception instanceof Error) {
-      this.logger.error(`Unhandled Exception: ${exception.message}`, exception.stack);
       message = exception.message || 'Lỗi hệ thống nội bộ';
     }
+
+    const formattedMessage =
+      typeof message === 'string' ? message : JSON.stringify(message);
+    const method = request?.method || '';
+    const url = request?.originalUrl || request?.url || '';
+    const logInfo = `[${statusCode}] ${method} ${url} - ${formattedMessage}`;
+
+    if (statusCode >= 500) {
+      const stack = exception instanceof Error ? exception.stack : undefined;
+      this.logger.error(logInfo, stack);
+    } else if (statusCode >= 400) {
+      this.logger.warn(logInfo);
+    }
+
+    // Gắn exception vào response để pino-http có thể lấy đúng message lỗi thực tế thay vì 'failed with status code 500'
+    (response as any).err =
+      exception instanceof Error ? exception : new Error(formattedMessage);
 
     const payload: AppErrorResponseBody = {
       statusCode,
       code,
-      message: typeof message === 'string' ? message : JSON.stringify(message),
+      message: formattedMessage,
       fieldErrors,
       details,
     };

@@ -80,6 +80,41 @@ export class ConfigService {
     return this.config.get<string>('SMTP_PASS') || undefined;
   }
 
+  get cloudinaryCloudName(): string {
+    return this.config.get<string>('CLOUDINARY_CLOUD_NAME') || '';
+  }
+
+  get cloudinaryApiKey(): string {
+    return this.config.get<string>('CLOUDINARY_API_KEY') || '';
+  }
+
+  get cloudinaryApiSecret(): string {
+    return this.config.get<string>('CLOUDINARY_API_SECRET') || '';
+  }
+
+  get cloudinaryImageFolder(): string {
+    return this.config.get<string>('CLOUDINARY_IMAGE_FOLDER') || 'handy-go/images';
+  }
+
+  get cloudinaryVideoFolder(): string {
+    return this.config.get<string>('CLOUDINARY_VIDEO_FOLDER') || 'handy-go/videos';
+  }
+
+  get cloudinaryImageMaxSizeMb(): number {
+    const val = this.config.get<string>('CLOUDINARY_IMAGE_MAX_SIZE_MB');
+    return val ? Number(val) : 10;
+  }
+
+  get cloudinaryVideoMaxSizeMb(): number {
+    const val = this.config.get<string>('CLOUDINARY_VIDEO_MAX_SIZE_MB');
+    return val ? Number(val) : 2048;
+  }
+
+  get cloudinaryVideoChunkSizeMb(): number {
+    const val = this.config.get<string>('CLOUDINARY_VIDEO_CHUNK_SIZE_MB');
+    return val ? Number(val) : 20;
+  }
+
   getUrl(key: string): string {
     return this.config.getOrThrow<string>(key);
   }
@@ -87,5 +122,14 @@ export class ConfigService {
   get(key: string): string | undefined {
     return this.config.get<string>(key);
   }
+
+  get nodeEnv(): string {
+    return this.config.get<string>('NODE_ENV') || 'development';
+  }
+
+  get isProduction(): boolean {
+    return this.nodeEnv === 'production';
+  }
 }
+
 

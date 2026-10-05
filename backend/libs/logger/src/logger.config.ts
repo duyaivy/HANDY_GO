@@ -16,6 +16,16 @@ export const createLoggerConfig = (
       response.setHeader('x-request-id', requestId);
       return requestId;
     },
+    autoLogging: {
+      ignore: (req) => {
+        const url = req.url || '';
+        return url === '/health' || url.startsWith('/health?') || url === '/favicon.ico';
+      },
+    },
+    customErrorMessage: (req, res, err) => {
+      const errorMsg = err?.message || res.statusMessage || 'unknown error';
+      return `${req.method} ${req.url} failed with status code ${res.statusCode}: ${errorMsg}`;
+    },
     redact: {
       paths: [
         'req.headers.authorization',
