@@ -118,9 +118,9 @@ export async function refreshTokens(): Promise<string> {
       // Wipe session if the refresh token is rejected by the server (400, 401, 403, 422)
       const isAuthRejection
         = apiError.statusCode === 400
-        || apiError.statusCode === 401
-        || apiError.statusCode === 403
-        || apiError.statusCode === 422;
+          || apiError.statusCode === 401
+          || apiError.statusCode === 403
+          || apiError.statusCode === 422;
       if (isAuthRejection && getSessionVersion() === versionBeforeRefresh) {
         await removeToken();
         if (onUnauthorizedCallback) {
@@ -174,11 +174,11 @@ axiosInstance.interceptors.response.use(
     const url = originalRequest?.url || '';
     const isAuthEndpoint
       = url.includes('/auth/login')
-      || url.includes('/auth/register')
-      || url.includes('/auth/verify-email')
-      || url.includes('/auth/resend-otp')
-      || url.includes('/auth/refresh')
-      || url.includes('/auth/logout');
+        || url.includes('/auth/register')
+        || url.includes('/auth/verify-email')
+        || url.includes('/auth/resend-otp')
+        || url.includes('/auth/refresh')
+        || url.includes('/auth/logout');
 
     const hadAuthHeader = Boolean(originalRequest?.headers?.Authorization || originalRequest?.headers?.authorization);
 
