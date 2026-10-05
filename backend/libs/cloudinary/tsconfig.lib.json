@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "rootDir": "./src",
+    "outDir": "../../dist/libs/cloudinary",
+    "tsBuildInfoFile": "../../dist/libs/cloudinary.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"],
+  "references": [
+    { "path": "../common/tsconfig.lib.json" },
+    { "path": "../config/tsconfig.lib.json" }
+  ]
+}

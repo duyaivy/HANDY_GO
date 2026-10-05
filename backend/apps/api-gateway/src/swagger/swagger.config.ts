@@ -32,6 +32,7 @@ export function setupSwagger(app: INestApplication): void {
       'JWT-Auth',
     )
     .addTag('Gateway', 'Health check và root endpoints của API Gateway')
+    .addTag('Uploads & Media', 'Endpoints upload hình ảnh và khởi tạo chữ ký upload video Cloudinary')
     .build();
 
   const gatewayDocument = SwaggerModule.createDocument(app, config);
@@ -43,47 +44,51 @@ export function setupSwagger(app: INestApplication): void {
       urlsPrimaryName: '🔐 Auth Service',
       urls: [
         {
-          name: '🔐 Auth Service',
+          name: 'Uploads & Gateway Endpoints',
+          url: '/docs-json',
+        },
+        {
+          name: 'Auth Service',
           url: '/docs/specs/auth-service',
         },
         {
-          name: '👤 User & Trust Service',
+          name: 'User & Trust Service',
           url: '/docs/specs/user-trust-service',
         },
         {
-          name: '📦 Catalog Service',
+          name: 'Catalog Service',
           url: '/docs/specs/catalog-service',
         },
         {
-          name: '📋 Order Service',
+          name: 'Order Service',
           url: '/docs/specs/order-service',
         },
         {
-          name: '💰 Bidding Service',
+          name: 'Bidding Service',
           url: '/docs/specs/bidding-service',
         },
         {
-          name: '🔗 Matching Service',
+          name: 'Matching Service',
           url: '/docs/specs/matching-service',
         },
         {
-          name: '💳 Payment Service',
+          name: 'Payment Service',
           url: '/docs/specs/payment-service',
         },
         {
-          name: '🔔 Notification Service',
+          name: 'Notification Service',
           url: '/docs/specs/notification-service',
         },
         {
-          name: '👛 Wallet Service',
+          name: 'Wallet Service',
           url: '/docs/specs/wallet-service',
         },
         {
-          name: '📍 Tracking Service',
+          name: 'Tracking Service',
           url: '/docs/specs/tracking-service',
         },
         {
-          name: '🌐 Gateway Root & Health',
+          name: 'Gateway Root & Health',
           url: '/docs-json',
         },
       ],

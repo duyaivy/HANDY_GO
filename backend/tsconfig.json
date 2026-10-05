@@ -28,6 +28,12 @@
       "@app/auth/*": [
         "./libs/auth/src/*"
       ],
+      "@app/cloudinary": [
+        "./libs/cloudinary/src/index.ts"
+      ],
+      "@app/cloudinary/*": [
+        "./libs/cloudinary/src/*"
+      ],
       "@app/common": [
         "./libs/common/src/index.ts"
       ],
@@ -70,6 +76,9 @@
   "references": [
     {
       "path": "./libs/auth/tsconfig.lib.json"
+    },
+    {
+      "path": "./libs/cloudinary/tsconfig.lib.json"
     },
     {
       "path": "./libs/common/tsconfig.lib.json"
