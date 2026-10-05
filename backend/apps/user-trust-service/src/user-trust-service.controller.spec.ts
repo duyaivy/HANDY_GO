@@ -46,7 +46,7 @@ describe('UserTrustServiceController', () => {
       },
     } as any;
 
-    const result = await controller.handleUserRegistered(event);
+    const result = await controller.handleUserRegistered(event, undefined as any);
     expect(result).toEqual({ processed: true });
     expect(serviceMock.handleUserRegistered).toHaveBeenCalledWith(event);
   });
