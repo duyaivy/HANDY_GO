@@ -27,6 +27,11 @@ import { SwaggerSpecsController } from './swagger/index.js';
       serviceName: 'api-gateway',
       defaultPort: 3000,
       requiredUrls: [...UPSTREAM_SERVICE_URLS],
+      requiredKeys: [
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET',
+      ],
     }),
     LoggerModule.forRoot('api-gateway'),
     JwtModule.register({}),

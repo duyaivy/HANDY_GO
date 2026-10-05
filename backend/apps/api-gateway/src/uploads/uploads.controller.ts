@@ -20,9 +20,12 @@ import {
 import {
   CloudinaryService,
   InitVideoUploadDto,
+  InitVideoUploadApiResponseDto,
   InitVideoUploadResponseDto,
+  UploadImageApiResponseDto,
   UploadImageResponseDto,
 } from '@app/cloudinary';
+import { buildSuccessResponse, type ApiResponseEnvelope } from '@app/common';
 
 @ApiTags('Uploads & Media')
 @ApiBearerAuth('JWT-Auth')
@@ -56,7 +59,7 @@ export class UploadsController {
   @ApiResponse({
     status: 200,
     description: 'Upload hình ảnh thành công',
-    type: UploadImageResponseDto,
+    type: UploadImageApiResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -68,8 +71,13 @@ export class UploadsController {
   })
   async uploadImage(
     @UploadedFile() file: Express.Multer.File,
-  ): Promise<UploadImageResponseDto> {
-    return this.cloudinaryService.uploadImage(file);
+  ): Promise<ApiResponseEnvelope<UploadImageResponseDto>> {
+    const data = await this.cloudinaryService.uploadImage(file);
+    return buildSuccessResponse(
+      data,
+      'Upload hình ảnh thành công',
+      HttpStatus.OK,
+    );
   }
 
   @Post('video/init')
@@ -92,7 +100,7 @@ export class UploadsController {
   @ApiResponse({
     status: 200,
     description: 'Tạo chữ ký upload thành công',
-    type: InitVideoUploadResponseDto,
+    type: InitVideoUploadApiResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -104,7 +112,13 @@ export class UploadsController {
   })
   async initVideoUpload(
     @Body() dto: InitVideoUploadDto,
-  ): Promise<InitVideoUploadResponseDto> {
-    return this.cloudinaryService.createVideoUploadSignature(dto);
+  ): Promise<ApiResponseEnvelope<InitVideoUploadResponseDto>> {
+    const data = await this.cloudinaryService.createVideoUploadSignature(dto);
+    return buildSuccessResponse(
+      data,
+      'Khởi tạo chữ ký upload video thành công',
+      HttpStatus.OK,
+    );
   }
 }
+

@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { ApiResponseEnvelope } from '@app/common';
 
 export class InitVideoUploadResponseDto {
+
   @ApiProperty({
     description: 'Mã UUID duy nhất đại diện cho phiên upload chunk (sử dụng trong header X-Unique-Upload-Id)',
     example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
@@ -61,3 +63,24 @@ export class InitVideoUploadResponseDto {
   })
   chunkSize!: number;
 }
+
+export class InitVideoUploadApiResponseDto implements ApiResponseEnvelope<InitVideoUploadResponseDto> {
+  @ApiProperty({
+    description: 'Mã trạng thái HTTP',
+    example: 200,
+  })
+  statusCode!: number;
+
+  @ApiProperty({
+    description: 'Thông điệp phản hồi',
+    example: 'Khởi tạo chữ ký upload video thành công',
+  })
+  message!: string;
+
+  @ApiProperty({
+    description: 'Dữ liệu thông số khởi tạo chữ ký video',
+    type: InitVideoUploadResponseDto,
+  })
+  data!: InitVideoUploadResponseDto;
+}
+

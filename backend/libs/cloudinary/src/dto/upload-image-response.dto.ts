@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import type { ApiResponseEnvelope } from '@app/common';
 
 export class UploadImageResponseDto {
+
   @ApiProperty({
     description: 'Cloudinary Asset ID',
     example: 'd84b2fa816e4564c78168270564ef729',
@@ -50,3 +52,24 @@ export class UploadImageResponseDto {
   })
   bytes!: number;
 }
+
+export class UploadImageApiResponseDto implements ApiResponseEnvelope<UploadImageResponseDto> {
+  @ApiProperty({
+    description: 'Mã trạng thái HTTP',
+    example: 200,
+  })
+  statusCode!: number;
+
+  @ApiProperty({
+    description: 'Thông điệp phản hồi',
+    example: 'Upload hình ảnh thành công',
+  })
+  message!: string;
+
+  @ApiProperty({
+    description: 'Dữ liệu asset ảnh Cloudinary',
+    type: UploadImageResponseDto,
+  })
+  data!: UploadImageResponseDto;
+}
+

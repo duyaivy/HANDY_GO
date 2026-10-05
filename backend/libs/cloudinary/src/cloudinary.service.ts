@@ -59,6 +59,18 @@ export class CloudinaryService {
       );
     }
 
+    const cloudName = this.configService.cloudinaryCloudName;
+    const apiKey = this.configService.cloudinaryApiKey;
+    const apiSecret = this.configService.cloudinaryApiSecret;
+
+    if (!cloudName || !apiKey || !apiSecret) {
+      throw new AppException(
+        500,
+        ERROR_CODES.INTERNAL_SERVER_ERROR,
+        'Cấu hình Cloudinary (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) chưa đầy đủ trên server',
+      );
+    }
+
     const folder = this.configService.cloudinaryImageFolder;
 
     return new Promise<UploadImageResponseDto>((resolve, reject) => {
