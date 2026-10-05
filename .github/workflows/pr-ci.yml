@@ -64,6 +64,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate JWT keys
+        run: pnpm run keys:generate
+
       - name: Generate Prisma clients
         run: pnpm run prisma:generate
 
