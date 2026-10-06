@@ -31,9 +31,11 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
   let isPostgresAvailable = false;
 
   beforeAll(async () => {
-    // Ensure we connect to the local running PostgreSQL auth database
+    // Ensure we connect to the configured or local PostgreSQL auth database
     process.env.DATABASE_URL_AUTH =
-      process.env.DATABASE_URL_AUTH || 'postgresql://postgres:postgres@localhost:5432/handy_auth';
+      process.env.DATABASE_URL_AUTH ||
+      process.env.DATABASE_URL ||
+      'postgresql://postgres:postgres@localhost:5432/handy_auth';
 
     otpServiceMock = {
       generateOtp: vi.fn(),
@@ -90,10 +92,11 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     try {
       await prisma.$connect();
       await prisma.$queryRaw`SELECT 1`;
+      await prisma.account.findFirst();
       isPostgresAvailable = true;
-    } catch {
+    } catch (err) {
       isPostgresAvailable = false;
-      console.warn('PostgreSQL is not reachable (ECONNREFUSED). Skipping real PostgreSQL OTP concurrency tests.');
+      console.warn('PostgreSQL is not reachable or tables do not exist:', (err as Error).message);
     }
   });
 

@@ -45,13 +45,13 @@ x-development-environment: &development-environment
   NODE_ENV: development
   LOG_LEVEL: debug
   API_PREFIX: api/v1
-  CORS_ORIGIN: http://localhost:5173
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
   CHOKIDAR_USEPOLLING: 'true'
   CHOKIDAR_INTERVAL: '500'
   WATCHPACK_POLLING: 'true'
   DATABASE_URL: ${DATABASE_URL}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-  RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
+  RABBITMQ_URL: ${RABBITMQ_URL:-amqp://handygo:handygo@rabbitmq:5672}
   INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
   JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
   JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
