@@ -1,13 +1,13 @@
 datasource db {
   provider = "postgresql"
-  schemas  = ["catalog"]
+  schemas  = ["catalog_service"]
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
-model ServiceCategory {
+model Category {
   id          String   @id @default(uuid()) @db.Uuid
   parentId    String?  @map("parent_id") @db.Uuid
   name        String   @db.VarChar(150)
@@ -17,12 +17,12 @@ model ServiceCategory {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  parent   ServiceCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
-  children ServiceCategory[] @relation("CategoryHierarchy")
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryHierarchy")
   services Service[]
 
-  @@map("service_categories")
-  @@schema("catalog")
+  @@map("categories")
+  @@schema("catalog_service")
 }
 
 model Service {
@@ -35,8 +35,8 @@ model Service {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
-  category ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 
   @@map("services")
-  @@schema("catalog")
+  @@schema("catalog_service")
 }

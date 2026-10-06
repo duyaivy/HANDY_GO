@@ -127,7 +127,7 @@ export class ServicesService {
     const targetCategoryId = dto.categoryId ?? service.categoryId;
 
     if (dto.categoryId && dto.categoryId !== service.categoryId) {
-      const category = await this.prisma.serviceCategory.findUnique({
+      const category = await this.prisma.category.findUnique({
         where: { id: dto.categoryId },
       });
       if (!category) {

@@ -1,8 +1,8 @@
 -- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "catalog";
+CREATE SCHEMA IF NOT EXISTS "catalog_service";
 
 -- CreateTable
-CREATE TABLE "catalog"."service_categories" (
+CREATE TABLE "catalog_service"."categories" (
     "id" UUID NOT NULL,
     "parent_id" UUID,
     "name" VARCHAR(150) NOT NULL,
@@ -12,11 +12,11 @@ CREATE TABLE "catalog"."service_categories" (
     "created_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(6) NOT NULL,
 
-    CONSTRAINT "service_categories_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "categories_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
-CREATE TABLE "catalog"."services" (
+CREATE TABLE "catalog_service"."services" (
     "id" UUID NOT NULL,
     "category_id" UUID NOT NULL,
     "name" VARCHAR(180) NOT NULL,
@@ -30,7 +30,8 @@ CREATE TABLE "catalog"."services" (
 );
 
 -- AddForeignKey
-ALTER TABLE "catalog"."service_categories" ADD CONSTRAINT "service_categories_parent_id_fkey" FOREIGN KEY ("parent_id") REFERENCES "catalog"."service_categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "catalog_service"."categories" ADD CONSTRAINT "categories_parent_id_fkey" FOREIGN KEY ("parent_id") REFERENCES "catalog_service"."categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "catalog"."services" ADD CONSTRAINT "services_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "catalog"."service_categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "catalog_service"."services" ADD CONSTRAINT "services_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "catalog_service"."categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+

@@ -29,7 +29,7 @@ export class CategoriesService {
 
   async create(dto: CreateCategoryDto) {
     if (dto.parentId) {
-      const parent = await this.prisma.serviceCategory.findUnique({
+      const parent = await this.prisma.category.findUnique({
         where: { id: dto.parentId },
       });
       if (!parent) {
@@ -40,7 +40,7 @@ export class CategoriesService {
     }
 
     // Check duplicate name under the same parent
-    const existing = await this.prisma.serviceCategory.findFirst({
+    const existing = await this.prisma.category.findFirst({
       where: {
         parentId: dto.parentId ?? null,
         name: {
@@ -56,7 +56,7 @@ export class CategoriesService {
       );
     }
 
-    return this.prisma.serviceCategory.create({
+    return this.prisma.category.create({
       data: {
         name: dto.name,
         description: dto.description,
@@ -68,7 +68,7 @@ export class CategoriesService {
   }
 
   async findAll(query: QueryCategoryDto) {
-    const where: Prisma.ServiceCategoryWhereInput = {};
+    const where: Prisma.CategoryWhereInput = {};
 
     if (query.isActive !== undefined) {
       where.isActive = query.isActive;
@@ -87,7 +87,7 @@ export class CategoriesService {
 
     // If tree mode requested, build nested hierarchical tree
     if (query.tree) {
-      const allCategories = await this.prisma.serviceCategory.findMany({
+      const allCategories = await this.prisma.category.findMany({
         where,
         orderBy: { name: 'asc' },
         include: {
@@ -106,8 +106,8 @@ export class CategoriesService {
     const skip = (page - 1) * limit;
 
     const [total, items] = await Promise.all([
-      this.prisma.serviceCategory.count({ where }),
-      this.prisma.serviceCategory.findMany({
+      this.prisma.category.count({ where }),
+      this.prisma.category.findMany({
         where,
         skip,
         take: limit,
@@ -135,7 +135,7 @@ export class CategoriesService {
   }
 
   async findOne(id: string) {
-    const category = await this.prisma.serviceCategory.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { id },
       include: {
         parent: {
@@ -168,7 +168,7 @@ export class CategoriesService {
   }
 
   async update(id: string, dto: UpdateCategoryDto) {
-    const category = await this.prisma.serviceCategory.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { id },
     });
     if (!category) {
@@ -184,7 +184,7 @@ export class CategoriesService {
       }
 
       // Check parent exists
-      const parent = await this.prisma.serviceCategory.findUnique({
+      const parent = await this.prisma.category.findUnique({
         where: { id: dto.parentId },
       });
       if (!parent) {
@@ -205,7 +205,7 @@ export class CategoriesService {
     // Check duplicate name if name or parent changed
     const targetName = dto.name ?? category.name;
     if (dto.name || dto.parentId !== undefined) {
-      const duplicate = await this.prisma.serviceCategory.findFirst({
+      const duplicate = await this.prisma.category.findFirst({
         where: {
           id: { not: id },
           parentId: targetParentId ?? null,
@@ -220,7 +220,7 @@ export class CategoriesService {
       }
     }
 
-    return this.prisma.serviceCategory.update({
+    return this.prisma.category.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -233,7 +233,7 @@ export class CategoriesService {
   }
 
   async remove(id: string, hard = false) {
-    const category = await this.prisma.serviceCategory.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { id },
       include: {
         _count: {
@@ -258,12 +258,12 @@ export class CategoriesService {
         );
       }
 
-      await this.prisma.serviceCategory.delete({ where: { id } });
+      await this.prisma.category.delete({ where: { id } });
       return { message: `Category '${category.name}' deleted successfully` };
     }
 
     // Soft delete / disable
-    const updated = await this.prisma.serviceCategory.update({
+    const updated = await this.prisma.category.update({
       where: { id },
       data: { isActive: false },
     });
@@ -275,7 +275,7 @@ export class CategoriesService {
   }
 
   async toggleStatus(id: string, isActive?: boolean) {
-    const category = await this.prisma.serviceCategory.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { id },
     });
     if (!category) {
@@ -284,7 +284,7 @@ export class CategoriesService {
 
     const nextStatus = isActive !== undefined ? isActive : !category.isActive;
 
-    return this.prisma.serviceCategory.update({
+    return this.prisma.category.update({
       where: { id },
       data: { isActive: nextStatus },
     });
@@ -307,7 +307,7 @@ export class CategoriesService {
       visited.add(currentId);
 
       const node: { parentId: string | null } | null =
-        await this.prisma.serviceCategory.findUnique({
+        await this.prisma.category.findUnique({
           where: { id: currentId },
           select: { parentId: true },
         });
