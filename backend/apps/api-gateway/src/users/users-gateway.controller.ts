@@ -12,6 +12,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ApiGatewayService } from '../api-gateway.service.js';
+import { GatewayUpdateProfileDto } from './dto/index.js';
 
 @ApiTags('Users Gateway')
 @Controller('users')
@@ -71,7 +72,7 @@ export class UsersGatewayController {
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Không đủ quyền truy cập' })
   async updateMyProfile(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayUpdateProfileDto,
     @Headers('authorization') authorization?: string,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {

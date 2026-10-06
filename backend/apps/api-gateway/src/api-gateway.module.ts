@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ApiGatewayController } from './api-gateway.controller.js';
 import { ApiGatewayService } from './api-gateway.service.js';
 import { HealthModule } from './health/health.module.js';
@@ -16,12 +18,25 @@ import { UsersGatewayController } from './users/users-gateway.controller.js';
     }),
     LoggerModule.forRoot('api-gateway'),
     HealthModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
   ],
   controllers: [
     ApiGatewayController,
     AuthGatewayController,
     UsersGatewayController,
   ],
-  providers: [ApiGatewayService],
+  providers: [
+    ApiGatewayService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class ApiGatewayModule {}

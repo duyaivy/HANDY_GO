@@ -1,7 +1,7 @@
-import { IsByteLength, IsNotEmpty, IsString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsByteLength, IsNotEmpty, IsString } from 'class-validator';
 
-export class LoginDto {
+export class GatewayLoginDto {
   @ApiProperty({ example: '0912345678', description: 'Số điện thoại đăng nhập' })
   @IsString({ message: 'Số điện thoại phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Số điện thoại không được để trống' })

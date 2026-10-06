@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsByteLength,
   IsEmail,
@@ -7,12 +8,8 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { RegisterRole, Role } from '@app/auth';
 
-export { Role, RegisterRole };
-
-export class RegisterDto {
+export class GatewayRegisterDto {
   @ApiProperty({ example: 'Nguyen Van A', description: 'Họ và tên người dùng (2-100 ký tự)' })
   @IsString({ message: 'Họ và tên phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Họ và tên không được để trống' })

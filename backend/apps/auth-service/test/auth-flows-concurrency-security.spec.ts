@@ -16,6 +16,7 @@ import { AuthServiceController } from '../src/auth-service.controller.js';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from '../src/common/security/login-lockout.service.js';
 import { UserTrustClient } from '../src/common/rpc/user-trust.client.js';
 import { SessionService } from '../src/common/session/session.service.js';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
@@ -121,6 +122,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
           useValue: { triggerPublish: vi.fn().mockResolvedValue(undefined) },
         },
         { provide: RateLimiterService, useValue: rateLimiterMock },
+        LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
         {
           provide: ConfigService,

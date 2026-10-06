@@ -8,9 +8,17 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ApiGatewayService } from '../api-gateway.service.js';
+import {
+  GatewayLoginDto,
+  GatewayLogoutDto,
+  GatewayRefreshTokenDto,
+  GatewayRegisterDto,
+  GatewayResendOtpDto,
+  GatewayVerifyOtpDto,
+} from './dto/index.js';
 
 @ApiTags('Auth Gateway')
 @Controller('auth')
@@ -32,7 +40,6 @@ export class AuthGatewayController {
     };
   }
 
-
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Đăng ký tài khoản khách hàng mới' })
@@ -40,7 +47,7 @@ export class AuthGatewayController {
   @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ' })
   @ApiResponse({ status: 409, description: 'Số điện thoại hoặc email đã tồn tại' })
   async register(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayRegisterDto,
     @Req() req: Request,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {
@@ -60,7 +67,7 @@ export class AuthGatewayController {
   @ApiResponse({ status: 400, description: 'OTP sai hoặc hết hạn' })
   @ApiResponse({ status: 429, description: 'Vượt quá số lần thử OTP' })
   async verifyEmail(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayVerifyOtpDto,
     @Req() req: Request,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {
@@ -79,7 +86,7 @@ export class AuthGatewayController {
   @ApiResponse({ status: 200, description: 'Gửi lại OTP thành công' })
   @ApiResponse({ status: 429, description: 'Cooldown 60 giây chưa hết' })
   async resendOtp(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayResendOtpDto,
     @Req() req: Request,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {
@@ -95,21 +102,11 @@ export class AuthGatewayController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đăng nhập tài khoản' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        phone: { type: 'string', example: '0911111111' },
-        password: { type: 'string', example: 'Handygo@1234!!!!' },
-      },
-      required: ['phone', 'password'],
-    },
-  })
   @ApiResponse({ status: 200, description: 'Đăng nhập thành công, trả về token' })
   @ApiResponse({ status: 401, description: 'Sai thông tin đăng nhập' })
   @ApiResponse({ status: 403, description: 'Tài khoản chưa kích hoạt hoặc bị khóa' })
   async login(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayLoginDto,
     @Req() req: Request,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {
@@ -128,7 +125,7 @@ export class AuthGatewayController {
   @ApiResponse({ status: 200, description: 'Làm mới token thành công' })
   @ApiResponse({ status: 401, description: 'Refresh token không hợp lệ hoặc hết hạn' })
   async refresh(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayRefreshTokenDto,
     @Req() req: Request,
     @Headers('x-request-id') requestId?: string,
   ): Promise<unknown> {
@@ -146,7 +143,7 @@ export class AuthGatewayController {
   @ApiOperation({ summary: 'Đăng xuất tài khoản' })
   @ApiResponse({ status: 200, description: 'Đăng xuất thành công' })
   async logout(
-    @Body() body: Record<string, unknown>,
+    @Body() body: GatewayLogoutDto,
     @Req() req: Request,
     @Headers('authorization') authorization?: string,
     @Headers('x-request-id') requestId?: string,

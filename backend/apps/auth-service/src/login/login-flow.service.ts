@@ -11,6 +11,7 @@ import type {
   MeResponse,
 } from '../common/dto/auth-responses.dto.js';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from '../common/security/login-lockout.service.js';
 import { OtpService } from '../otp/otp.service.js';
 import { UserTrustClient } from '../common/rpc/user-trust.client.js';
 import { SessionService } from '../common/session/session.service.js';
@@ -26,6 +27,7 @@ export class LoginFlowService {
   constructor(
     private readonly db: AuthPrismaService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly lockoutService: LoginLockoutService,
     private readonly otpService: OtpService,
     private readonly userTrustClient: UserTrustClient,
     private readonly sessionService: SessionService,
@@ -47,7 +49,7 @@ export class LoginFlowService {
     const normalizedPhone = normalizeVietnamesePhone(dto.phone);
 
     // 2. Failed login rate limit check by phone
-    await this.rateLimiter.checkFailedLogins(normalizedPhone);
+    await this.lockoutService.checkFailedLogins(normalizedPhone);
 
     const account = await this.db.account.findUnique({
       where: { phone: normalizedPhone },
@@ -74,7 +76,7 @@ export class LoginFlowService {
     });
 
     if (!account) {
-      await this.rateLimiter.recordFailedLogin(normalizedPhone);
+      await this.lockoutService.recordFailedLogin(normalizedPhone);
       throw new AppException(
         HttpStatus.UNPROCESSABLE_ENTITY,
         ERROR_CODES.INVALID_CREDENTIALS,
@@ -87,7 +89,7 @@ export class LoginFlowService {
       account.passwordHash,
     );
     if (!isPasswordValid) {
-      await this.rateLimiter.recordFailedLogin(normalizedPhone);
+      await this.lockoutService.recordFailedLogin(normalizedPhone);
       throw new AppException(
         HttpStatus.UNPROCESSABLE_ENTITY,
         ERROR_CODES.INVALID_CREDENTIALS,
@@ -96,7 +98,7 @@ export class LoginFlowService {
     }
 
     // Reset failed attempts on valid credentials
-    await this.rateLimiter.resetFailedLogins(normalizedPhone);
+    await this.lockoutService.resetFailedLogins(normalizedPhone);
 
     if (account.status !== 'active' && account.status !== 'pending') {
       throw new AppException(
