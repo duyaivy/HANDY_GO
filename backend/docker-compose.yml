@@ -50,16 +50,16 @@ x-development-environment: &development-environment
   CHOKIDAR_INTERVAL: '500'
   WATCHPACK_POLLING: 'true'
   DATABASE_URL: ${DATABASE_URL}
-  REDIS_URL: ${REDIS_URL}
-  RABBITMQ_URL: ${RABBITMQ_URL}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  RABBITMQ_URL: amqp://handygo:handygo@rabbitmq:5672
   INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
   JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
   JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
   JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/app/keys/jwt-public.pem}
   JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/app/keys/jwt-private.pem}
-  CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
-  CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
-  CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+  CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-dev-cloud}
+  CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-dev-key}
+  CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-dev-secret}
   CLOUDINARY_IMAGE_FOLDER: ${CLOUDINARY_IMAGE_FOLDER:-handy-go/images}
   CLOUDINARY_VIDEO_FOLDER: ${CLOUDINARY_VIDEO_FOLDER:-handy-go/videos}
   CLOUDINARY_IMAGE_MAX_SIZE_MB: ${CLOUDINARY_IMAGE_MAX_SIZE_MB:-10}
@@ -132,6 +132,9 @@ services:
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
     ports:
       - '3002:3002'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   catalog-service:
     <<: *app
