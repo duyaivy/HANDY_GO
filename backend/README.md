@@ -10,8 +10,8 @@ NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư 
 > **Trạng thái hiện tại:**
 >
 > - Gateway, Auth và User & Trust đã có luồng đăng ký, OTP, JWT, session và hồ sơ; các domain còn lại có phần scaffold.
-> - Auth/User & Trust đang dùng PostgreSQL riêng, Prisma, RabbitMQ và RS256; luồng local dùng Mailpit cho OTP.
-> - Docker Compose hiện có hai PostgreSQL, RabbitMQ, Mailpit và các ứng dụng NestJS. Các app scaffold bổ sung dùng profile `all`.
+> - Auth/User & Trust đang dùng PostgreSQL riêng, Prisma, RabbitMQ và RS256; luồng OTP gửi trực tiếp qua Gmail SMTP.
+> - Docker Compose hiện có hai PostgreSQL, RabbitMQ và các ứng dụng NestJS. Các app scaffold bổ sung dùng profile `all`.
 > - Luồng Customer đã chạy trên điện thoại thật; các ca OTP đồng thời, trạng thái deleted và validation backend còn có lỗi đã ghi nhận trong lần kiểm tra trước.
 
 ---

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { ProfileHeaderCard } from '@/features/profile/components';
+import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 export function CustomerProfileScreen() {
@@ -12,6 +14,13 @@ export function CustomerProfileScreen() {
   const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
   const isLoading = useAuthStore.use.isLoading();
+
+  const {
+    profile,
+    isLoading: isProfileLoading,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useUserProfile();
 
   const handleLogout = async () => {
     try {
@@ -24,24 +33,22 @@ export function CustomerProfileScreen() {
 
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="profile-customer-screen" className="flex-1 px-6 py-8">
-        <View className="items-center">
-          <View className="mb-4 size-20 items-center justify-center rounded-3xl bg-blue-600 shadow-lg shadow-blue-500/20">
-            <Text className="text-3xl text-white">👤</Text>
-          </View>
-          <Text className="text-center text-2xl font-bold text-neutral-900 dark:text-white">
-            Hồ sơ Khách
-          </Text>
-          <Text className="mt-1 text-center text-sm font-medium text-neutral-500 dark:text-neutral-400">
-            Route: /customer/profile
-          </Text>
-          <Text className="mt-1 text-center text-xs text-neutral-400">
-            Customer Profile Owner
-          </Text>
-        </View>
+      <View testID="profile-customer-screen" className="flex-1 p-6">
+        {/* Profile Header & Mode Switcher */}
+        <ProfileHeaderCard
+          mode="Customer"
+          fullName={profile?.fullName}
+          avatarUrl={profile?.avatarUrl}
+          phone={user?.phone}
+          roles={user?.roles}
+          workerStatus={profile?.workerProfile?.status}
+          isLoading={isProfileLoading}
+          error={profileError}
+          onRetry={refetchProfile}
+        />
 
         {/* Account Details Card */}
-        <View className="mt-8 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <View className="mt-6 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
           <Text className="text-xs font-semibold tracking-wider text-blue-600 uppercase dark:text-blue-400">
             Thông tin tài khoản
           </Text>

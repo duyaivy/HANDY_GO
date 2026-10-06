@@ -15,7 +15,6 @@ export function RegisterScreen() {
   const router = useRouter();
 
   const [fullName, setFullName] = React.useState('');
-  const [role, setRole] = React.useState<'Customer' | 'Worker'>('Customer');
   const [phone, setPhone] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -77,6 +76,14 @@ export function RegisterScreen() {
     else if (new TextEncoder().encode(password).length > 72) {
       errs.password = 'Mật khẩu không được vượt quá 72 byte';
     }
+    else if (
+      !/[a-z]/.test(password)
+      || !/[A-Z]/.test(password)
+      || !/\d/.test(password)
+      || !/[^a-z0-9]/i.test(password)
+    ) {
+      errs.password = 'Mật khẩu phải bao gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt';
+    }
 
     // UI-only validation: Confirm password check
     if (!confirmPassword) {
@@ -104,15 +111,15 @@ export function RegisterScreen() {
         phone: phone.trim(),
         email: email.trim().toLowerCase(),
         password, // DO NOT TRIM PASSWORD
-        role,
       });
 
-      // Navigate to OTP verification with user details
+      // Navigate to OTP verification with user details and challengeId
       router.push({
         pathname: RouteNames.AUTH_OTP,
         params: {
           email: email.trim().toLowerCase(),
           phone: phone.trim(),
+          challengeId: response?.data?.challengeId,
           emailMasked: response?.data?.emailMasked,
           resendAvailableAt: response?.data?.resendAvailableAt,
         },
@@ -149,6 +156,7 @@ export function RegisterScreen() {
           params: {
             email: email.trim().toLowerCase(),
             phone: phone.trim(),
+            challengeId: err?.details?.verification?.challengeId,
             deliveryFailed: 'true',
             resendAvailableAt: err?.details?.verification?.resendAvailableAt,
           },
@@ -169,8 +177,15 @@ export function RegisterScreen() {
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="auth-register-screen" className="flex-1 justify-center px-6 py-8">
+    <Screen
+      safeArea
+      scrollable
+      keyboardAware
+      bottomOffset={70}
+      className="bg-neutral-50 dark:bg-neutral-950"
+      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+    >
+      <View testID="auth-register-screen" className="px-6 py-8">
         {/* Header */}
         <View className="mb-8 items-center">
           <View className="mb-4">
@@ -180,59 +195,12 @@ export function RegisterScreen() {
             Tạo tài khoản mới
           </Text>
           <Text className="mt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
-            {role === 'Worker' ? 'Đăng ký tài khoản Thợ dịch vụ trên HANDY GO' : 'Đăng ký tài khoản Khách hàng trên HANDY GO'}
+            Một tài khoản dùng cho cả App Khách và App Thợ trên HANDY GO
           </Text>
         </View>
 
         {/* Form Card */}
         <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          {/* Role Selection */}
-          <View className="mb-4">
-            <Text className="mb-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              Bạn tham gia với vai trò:
-            </Text>
-            <View className="flex-row rounded-xl bg-neutral-100 p-1 dark:bg-neutral-800">
-              <Pressable
-                testID="role-customer-btn"
-                onPress={() => setRole('Customer')}
-                className={`flex-1 items-center justify-center rounded-lg py-2.5 ${
-                  role === 'Customer'
-                    ? 'bg-white shadow-sm dark:bg-neutral-700'
-                    : 'bg-transparent'
-                }`}
-              >
-                <Text
-                  className={`text-sm font-semibold ${
-                    role === 'Customer'
-                      ? 'text-neutral-900 dark:text-white'
-                      : 'text-neutral-500 dark:text-neutral-400'
-                  }`}
-                >
-                  Khách hàng
-                </Text>
-              </Pressable>
-              <Pressable
-                testID="role-worker-btn"
-                onPress={() => setRole('Worker')}
-                className={`flex-1 items-center justify-center rounded-lg py-2.5 ${
-                  role === 'Worker'
-                    ? 'bg-white shadow-sm dark:bg-neutral-700'
-                    : 'bg-transparent'
-                }`}
-              >
-                <Text
-                  className={`text-sm font-semibold ${
-                    role === 'Worker'
-                      ? 'text-neutral-900 dark:text-white'
-                      : 'text-neutral-500 dark:text-neutral-400'
-                  }`}
-                >
-                  Thợ dịch vụ
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
           {serverError
             ? (
                 <View testID="auth-register-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
@@ -310,15 +278,19 @@ export function RegisterScreen() {
                   setServerError(null);
               }}
               error={errors.password}
+              rightAccessory={(
+                <Pressable
+                  testID="register-toggle-password-btn"
+                  onPress={() => setShowPassword(!showPassword)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  className="py-1"
+                >
+                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                    {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  </Text>
+                </Pressable>
+              )}
             />
-            <Pressable
-              onPress={() => setShowPassword(!showPassword)}
-              className="mt-1 self-end py-1"
-            >
-              <Text className="text-xs text-blue-600 dark:text-blue-400">
-                {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-              </Text>
-            </Pressable>
           </View>
 
           <View className="mt-3">
@@ -336,15 +308,19 @@ export function RegisterScreen() {
                   setServerError(null);
               }}
               error={errors.confirmPassword}
+              rightAccessory={(
+                <Pressable
+                  testID="register-toggle-confirm-password-btn"
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  className="py-1"
+                >
+                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                    {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  </Text>
+                </Pressable>
+              )}
             />
-            <Pressable
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              className="mt-1 self-end py-1"
-            >
-              <Text className="text-xs text-blue-600 dark:text-blue-400">
-                {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-              </Text>
-            </Pressable>
           </View>
 
           <View className="mt-6">

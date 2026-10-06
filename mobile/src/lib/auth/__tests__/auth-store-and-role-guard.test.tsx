@@ -1,4 +1,5 @@
 /* eslint-disable max-lines-per-function */
+/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { Text } from 'react-native';
 import { cleanup, render, screen } from '@/lib/test-utils';
@@ -15,6 +16,9 @@ jest.mock('expo-router', () => ({
     push: jest.fn(),
     back: jest.fn(),
   })),
+  useRootNavigationState: () => ({
+    key: 'root-test',
+  }),
 }));
 
 afterEach(async () => {
@@ -137,6 +141,100 @@ describe('secure Token Storage & Auth Store', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
     expect(getToken()).toBeNull();
+  });
+
+  it('does not store tokens in RAM if SecureStore write fails', async () => {
+    const SecureStore = require('expo-secure-store');
+    SecureStore.setItemAsync.mockRejectedValueOnce(new Error('Disk write failure'));
+
+    await expect(
+      setToken({ access: 'fail_access', refresh: 'fail_refresh' }),
+    ).rejects.toThrow('Không thể lưu trữ phiên đăng nhập an toàn trên thiết bị.');
+
+    expect(getToken()).toBeNull();
+  });
+
+  it('does not store tokens in RAM if SecureStore is not available', async () => {
+    const SecureStore = require('expo-secure-store');
+    SecureStore.isAvailableAsync.mockResolvedValueOnce(false);
+
+    await expect(
+      setToken({ access: 'fail_access', refresh: 'fail_refresh' }),
+    ).rejects.toThrow('Không thể lưu trữ phiên đăng nhập an toàn trên thiết bị.');
+
+    expect(getToken()).toBeNull();
+  });
+
+  it('handles login with dual roles, defaults activeMode to Customer, and triggers getMyProfile prefetch', async () => {
+    const getMyProfileSpy = jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'u-dual',
+        fullName: 'Dual Role User',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: { id: 'cp-1', userId: 'u-dual', bio: null, createdAt: '', updatedAt: '' },
+        workerProfile: { id: 'wp-1', userId: 'u-dual', status: 'draft', averageRating: '0', ratingCount: 0, completedOrderCount: 0, orderCountTotal: 0, verifiedAt: null, approvedAt: null, createdAt: '', updatedAt: '' },
+        createdAt: '',
+        updatedAt: '',
+      },
+    });
+
+    jest.spyOn(AuthApi, 'login').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        accessToken: 'access_dual',
+        refreshToken: 'refresh_dual',
+        expiresIn: 300,
+        user: {
+          id: 'u-dual',
+          phone: '+84912345678',
+          email: 'dual@example.com',
+          roles: ['Customer', 'Worker'],
+          permissions: [],
+        },
+      },
+    });
+
+    const session = await useAuthStore.getState().login({ phone: '0912345678', password: 'Password123' });
+    expect(session.user.roles).toEqual(['Customer', 'Worker']);
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.activeMode).toBe('Customer');
+    expect(getToken()?.access).toBe('access_dual');
+    expect(getMyProfileSpy).toHaveBeenCalled();
+  });
+
+  it('retains authenticated session even if getMyProfile throws during login', async () => {
+    jest.spyOn(AuthApi, 'getMyProfile').mockRejectedValueOnce(new Error('Network error loading profile'));
+
+    jest.spyOn(AuthApi, 'login').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        accessToken: 'access_ok',
+        refreshToken: 'refresh_ok',
+        expiresIn: 300,
+        user: {
+          id: 'u-net-err',
+          phone: '+84912345678',
+          email: 'net@example.com',
+          roles: ['Customer', 'Worker'],
+          permissions: [],
+        },
+      },
+    });
+
+    await useAuthStore.getState().login({ phone: '0912345678', password: 'Password123' });
+
+    // Session remains completely authenticated despite profile load error
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.user?.id).toBe('u-net-err');
+    expect(getToken()?.access).toBe('access_ok');
   });
 });
 

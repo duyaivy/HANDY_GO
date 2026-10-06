@@ -97,6 +97,87 @@ describe('UserTrustServiceService', () => {
       expect(dbMock.user.create).not.toHaveBeenCalled();
     });
 
+    it('should create both customer and draft worker profiles when eventVersion 3 is received', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.user.findUnique.mockResolvedValue(null);
+      dbMock.user.create.mockResolvedValue({ id: 'user-unified' });
+      dbMock.customerProfile.upsert.mockResolvedValue({ id: 'cust-prof' });
+      dbMock.workerProfile.upsert.mockResolvedValue({ id: 'work-prof' });
+
+      const eventV3 = {
+        eventId: 'evt-v3-001',
+        eventVersion: 3,
+        occurredAt: new Date(),
+        producer: 'auth-service',
+        data: {
+          userId: 'user-unified',
+          accountId: 'acc-unified',
+          fullName: 'Unified User',
+          roles: ['Customer', 'Worker'],
+        },
+      };
+
+      const result = await service.handleUserRegistered(eventV3);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(false);
+      expect(dbMock.eventInbox.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ id: 'evt-v3-001' }),
+        }),
+      );
+      expect(dbMock.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: 'user-unified',
+            fullName: 'Unified User',
+            status: 'active',
+          }),
+        }),
+      );
+      expect(dbMock.customerProfile.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-unified' },
+          create: expect.objectContaining({ userId: 'user-unified' }),
+        }),
+      );
+      expect(dbMock.workerProfile.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-unified' },
+          create: expect.objectContaining({
+            userId: 'user-unified',
+            status: 'draft',
+            verifiedAt: null,
+          }),
+        }),
+      );
+    });
+
+    it('should be idempotent and skip eventVersion 3 if already in inbox', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue({ id: 'evt-v3-001' });
+
+      const eventV3 = {
+        eventId: 'evt-v3-001',
+        eventVersion: 3,
+        occurredAt: new Date(),
+        producer: 'auth-service',
+        data: {
+          userId: 'user-unified',
+          accountId: 'acc-unified',
+          fullName: 'Unified User',
+          roles: ['Customer', 'Worker'],
+        },
+      };
+
+      const result = await service.handleUserRegistered(eventV3);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(true);
+      expect(dbMock.eventInbox.create).not.toHaveBeenCalled();
+      expect(dbMock.customerProfile.upsert).not.toHaveBeenCalled();
+      expect(dbMock.workerProfile.upsert).not.toHaveBeenCalled();
+    });
+
     it('creates only a draft WorkerProfile for Worker registration', async () => {
       dbMock.eventInbox.findUnique.mockResolvedValue(null);
       dbMock.user.findUnique.mockResolvedValue(null);
@@ -180,6 +261,65 @@ describe('UserTrustServiceService', () => {
         isProvisioned: true,
       });
       expect(await service.getUserAuthStatus('user-admin', [])).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: false,
+      });
+    });
+
+    it('requires both customerProfile and workerProfile for unified account with Customer and Worker roles', async () => {
+      // 1. Both profiles exist -> isProvisioned: true
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'user-unified',
+        status: 'active',
+        customerProfile: { id: 'cust-1' },
+        workerProfile: { id: 'work-1', status: 'draft' },
+      });
+
+      expect(
+        await service.getUserAuthStatus('user-unified', [
+          RegisterRole.CUSTOMER,
+          RegisterRole.WORKER,
+        ]),
+      ).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: true,
+      });
+
+      // 2. Missing workerProfile -> isProvisioned: false
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'user-unified',
+        status: 'active',
+        customerProfile: { id: 'cust-1' },
+        workerProfile: null,
+      });
+
+      expect(
+        await service.getUserAuthStatus('user-unified', [
+          RegisterRole.CUSTOMER,
+          RegisterRole.WORKER,
+        ]),
+      ).toEqual({
+        exists: true,
+        status: 'active',
+        isProvisioned: false,
+      });
+
+      // 3. Missing customerProfile -> isProvisioned: false
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'user-unified',
+        status: 'active',
+        customerProfile: null,
+        workerProfile: { id: 'work-1', status: 'draft' },
+      });
+
+      expect(
+        await service.getUserAuthStatus('user-unified', [
+          RegisterRole.CUSTOMER,
+          RegisterRole.WORKER,
+        ]),
+      ).toEqual({
         exists: true,
         status: 'active',
         isProvisioned: false,

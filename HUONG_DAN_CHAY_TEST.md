@@ -2,7 +2,7 @@
 
 Tài liệu này hướng dẫn chi tiết cách chạy toàn bộ hệ sinh thái backend ngầm bên trong Docker và kết nối ứng dụng mobile (React Native / Expo) trên cả **Điện thoại thật (cáp USB)** và **Máy ảo Android Studio (Emulator)** để kiểm thử.
 
-> 💡 **Điểm tiện lợi:** Toàn bộ Backend (Database, RabbitMQ, Mailpit, API Gateway, Auth, User-Trust) **đều chạy ngầm 100% trong Docker bằng 1 lệnh duy nhất (0 terminal mở)**. Bạn chỉ cần giữ **đúng 1 terminal duy nhất cho Mobile (Metro)**.
+> 💡 **Điểm tiện lợi:** Toàn bộ Backend (Database, RabbitMQ, API Gateway, Auth, User-Trust) **đều chạy ngầm 100% trong Docker bằng 1 lệnh duy nhất (0 terminal mở)**. Bạn chỉ cần giữ **đúng 1 terminal duy nhất cho Mobile (Metro)**.
 
 ---
 
@@ -22,17 +22,15 @@ docker build -t handy-go-backend-dev:local -f Dockerfile.dev .
    cd /d D:\SCHOOL\PBL6\backend
    docker compose up -d
    ```
-   > 🚀 **Lệnh này tự động bật ngầm toàn bộ 7 service:**
+   > 🚀 **Lệnh này tự động bật ngầm toàn bộ 6 service:**
    > - `postgres-auth`, `postgres-user-trust`: 2 cơ sở dữ liệu PostgreSQL.
    > - `rabbitmq`: Hệ thống hàng đợi Message Broker.
-   > - `mailpit`: Hộp thư ảo để nhận mã OTP xác thực (cổng 8025).
-   > - `auth-service`: Dịch vụ xác thực tài khoản (cổng 3001).
+   > - `auth-service`: Dịch vụ xác thực tài khoản (cổng 3001, gửi OTP qua Gmail SMTP).
    > - `user-trust-service`: Dịch vụ hồ sơ & độ tin cậy (cổng 3002).
    > - `api-gateway`: Cổng API Gateway điều phối toàn bộ hệ thống (cổng 3000).
 
 3. **Kiểm tra trên trình duyệt:**
    - **Tài liệu Swagger API:** [http://localhost:3000/docs](http://localhost:3000/docs) (Xem toàn bộ API đã sẵn sàng).
-   - **Hộp thư OTP (Mailpit):** [http://localhost:8025](http://localhost:8025).
 4. 👉 **TẮT LUÔN CỬA SỔ TERMINAL NÀY ĐI.** Toàn bộ Backend đã chạy ngầm trong Docker Desktop, không cần giữ terminal mở.
 
 ---
@@ -116,8 +114,8 @@ pnpm start --clear
    - Bấm **"Đăng ký tài khoản"**.
 
 2. **Lấy mã OTP xác thực:**
-   - Mở trình duyệt máy tính vào: **[http://localhost:8025](http://localhost:8025)** (Mailpit).
-   - Mở email mới nhất gửi đến đúng email vừa đăng ký, lấy mã OTP 6 số.
+   - Mở hòm thư Gmail (hoặc mục Spam/Quảng cáo) của email vừa đăng ký.
+   - Mở email có tiêu đề `[HANDY GO] Mã xác thực tài khoản của bạn`, lấy mã OTP 6 số.
    - Nhập vào màn hình app trên điện thoại/máy ảo -> Bấm **"Xác thực tài khoản"**.
 
 3. **Đăng nhập và kiểm tra kết quả:**
@@ -135,6 +133,6 @@ pnpm start --clear
 | :--- | :--- | :--- |
 | **`Filename longer than 260 characters`** khi build Android Studio | File `ninja.exe` cũ (v1.10) trong Android SDK CMake bị giới hạn 260 ký tự trên Windows. | Tải file `ninja.exe` mới nhất (v1.12+) từ GitHub Ninja Releases chép đè vào `AppData\Local\Android\Sdk\cmake\3.22.1\bin\ninja.exe`. Thêm `arguments "-DCMAKE_OBJECT_PATH_MAX=1024"` vào `build.gradle`. |
 | **"Không có kết nối mạng"** hoặc `NETWORK_ERROR` trên app | Cấu hình sai IP trong `.env` hoặc cáp USB chưa reverse port. | - **Nếu dùng điện thoại thật USB:** Đảm bảo `.env` là `127.0.0.1` và đã chạy lệnh `adb reverse tcp:3000 tcp:3000`.<br>- **Nếu dùng máy ảo Emulator:** Đảm bảo `.env` là `10.0.2.2`.<br>Sau khi sửa `.env`, luôn reload lại Metro bằng `pnpm start --clear`. |
-| **Không mở được `http://localhost:8025`** | Docker Desktop chưa bật hoặc các container chưa chạy. | Mở Docker Desktop và chạy lệnh: `docker compose up -d` tại thư mục `backend`. |
+| **Không nhận được mã OTP qua Gmail** | Email bị lọc vào Spam/Quảng cáo hoặc cấu hình Gmail App Password trong `backend/.env` chưa đúng. | Kiểm tra thư mục Spam trong Gmail; hoặc kiểm tra cấu hình `SMTP_USER` và `SMTP_PASS` trong file `backend/.env`. |
 | **Sửa code backend nhưng không thấy thay đổi** | Docker container đang chạy code cũ chưa cập nhật. | Chạy lại lệnh build image: `docker build -t handy-go-backend-dev:local -f Dockerfile.dev .` rồi chạy lại `docker compose up -d`. |
 | **Khi kết thúc làm việc** | Muốn tắt toàn bộ backend để giải phóng RAM máy tính. | Vào thư mục `backend` chạy lệnh: `docker compose down`. |

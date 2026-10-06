@@ -10,6 +10,9 @@ jest.mock('expo-router', () => ({
     replace: mockReplace,
     push: jest.fn(),
   }),
+  useRootNavigationState: () => ({
+    key: 'root-test',
+  }),
 }));
 
 afterEach(() => {

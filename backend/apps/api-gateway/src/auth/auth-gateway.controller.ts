@@ -8,7 +8,7 @@ import {
   Post,
   Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { ApiGatewayService } from '../api-gateway.service.js';
 
@@ -95,6 +95,16 @@ export class AuthGatewayController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Đăng nhập tài khoản' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        phone: { type: 'string', example: '0911111111' },
+        password: { type: 'string', example: 'Handygo@1234!!!!' },
+      },
+      required: ['phone', 'password'],
+    },
+  })
   @ApiResponse({ status: 200, description: 'Đăng nhập thành công, trả về token' })
   @ApiResponse({ status: 401, description: 'Sai thông tin đăng nhập' })
   @ApiResponse({ status: 403, description: 'Tài khoản chưa kích hoạt hoặc bị khóa' })

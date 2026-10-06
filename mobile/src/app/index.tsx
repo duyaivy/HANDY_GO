@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useRouter } from 'expo-router';
+import { useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
@@ -12,9 +12,11 @@ import { useAuthStore } from '@/stores/use-auth-store';
 
 export default function IndexScreen() {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const isHydrated = useAuthStore.use.isHydrated();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
+  const activeMode = useAuthStore.use.activeMode?.() ?? null;
   const hydrationError = useAuthStore.use.hydrationError();
   const hydrate = useAuthStore.use.hydrate();
   const logout = useAuthStore.use.logout();
@@ -23,10 +25,15 @@ export default function IndexScreen() {
     if (!isAuthenticated || !user) {
       return { type: 'UNAUTHENTICATED' as const };
     }
-    return getDestinationByRoles(user.roles);
-  }, [isAuthenticated, user]);
+    return getDestinationByRoles(user.roles, activeMode);
+  }, [isAuthenticated, user, activeMode]);
 
   React.useEffect(() => {
+    // Guard: ensure Expo Router navigation container has mounted before navigating
+    if (!rootNavigationState?.key) {
+      return;
+    }
+
     if (!isHydrated) {
       return;
     }
@@ -41,7 +48,7 @@ export default function IndexScreen() {
     else if (destination.type === 'UNAUTHENTICATED') {
       router.replace(RouteNames.AUTH_LOGIN as any);
     }
-  }, [isHydrated, hydrationError, destination, router]);
+  }, [rootNavigationState?.key, isHydrated, hydrationError, destination, router]);
 
   // If session couldn't be verified due to network outage, offer Retry or Go to Login
   if (isHydrated && hydrationError) {

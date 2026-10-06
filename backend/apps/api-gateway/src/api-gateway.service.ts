@@ -35,7 +35,8 @@ export class ApiGatewayService {
       'content-type': 'application/json',
     };
     if (headers.authorization) {
-      forwardHeaders.authorization = headers.authorization;
+      const auth = headers.authorization.trim();
+      forwardHeaders.authorization = auth.startsWith('Bearer ') ? auth : `Bearer ${auth}`;
     }
     if (headers['x-request-id']) {
       forwardHeaders['x-request-id'] = headers['x-request-id'];

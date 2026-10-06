@@ -90,7 +90,7 @@ Reviewer xác nhận bỏ qua việc soi chi tiết code mobile để ưu tiên 
 - **Không over-engineer:** Không cần mất thời gian bao bọc mọi hàm bằng `useCallback`, `useMemo` hay tách nhỏ component quá mức nếu không cần thiết.
 - **Tiêu chuẩn nghiệm thu:** 
   - Mở app mượt mà, chuyển đổi giữa tab Khách hàng và Thợ dịch vụ không bị giật lag.
-  - Luồng Đăng ký -> Nhận OTP (Mailpit) -> Điền OTP -> Đăng nhập thành công, app điều hướng chính xác vào `/customer/home` hoặc `/worker/home`.
+  - Luồng Đăng ký -> Nhận OTP qua Email -> Điền OTP -> Đăng nhập thành công, app điều hướng chính xác vào `/customer/home` hoặc `/worker/home`.
   - Không xuất hiện cảnh báo đỏ (Red Screen / Crash).
 - Đạt được các tiêu chuẩn trên là **đạt yêu cầu để merge luôn**, việc tối ưu sâu sẽ để dành cho các sprint sau khi ghép nối toàn bộ nghiệp vụ.
 

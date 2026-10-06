@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import type { Account } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
 import { AppException, ERROR_CODES, EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
-import { RegisterRole } from '@app/auth';
+import { RegisterRole, Role } from '@app/auth';
 import { RegisterDto } from './dto/register.dto.js';
 import type { RegisterResponse } from './dto/register-response.dto.js';
 import { OtpService } from '../otp/otp.service.js';
@@ -126,16 +126,18 @@ export class RegisterFlowService {
     const otp = this.otpService.generateOtp();
     const eventId = crypto.randomUUID();
 
-    const targetRoleName = dto.role ?? RegisterRole.CUSTOMER;
-    const targetRoleCode = targetRoleName.toUpperCase();
-    const assignedRole = await this.db.role.findUnique({
-      where: { code: targetRoleCode },
+    const defaultRoles = await this.db.role.findMany({
+      where: {
+        code: {
+          in: [Role.CUSTOMER.toUpperCase(), Role.WORKER.toUpperCase()],
+        },
+      },
     });
-    if (!assignedRole) {
+    if (defaultRoles.length < 2) {
       throw new AppException(
         HttpStatus.SERVICE_UNAVAILABLE,
         ERROR_CODES.DEPENDENCY_UNAVAILABLE,
-        'Vai trò đăng ký chưa được khởi tạo',
+        'Vai trò đăng ký chưa được khởi tạo đầy đủ',
       );
     }
 
@@ -158,10 +160,10 @@ export class RegisterFlowService {
             createdAt,
             updatedAt: createdAt,
             roles: {
-              create: {
-                roleId: assignedRole.id,
+              create: defaultRoles.map((role) => ({
+                roleId: role.id,
                 assignedAt: createdAt,
-              },
+              })),
             },
             otpChallenges: {
               create: {
@@ -180,14 +182,14 @@ export class RegisterFlowService {
 
         const outboxPayload = {
           eventId,
-          eventVersion: 2,
+          eventVersion: 3,
           occurredAt: new Date().toISOString(),
           producer: 'auth-service',
           data: {
             userId: newAccount.userId,
             accountId: newAccount.id,
             fullName: trimmedFullName,
-            role: targetRoleName,
+            roles: [RegisterRole.CUSTOMER, RegisterRole.WORKER],
           },
         };
 
@@ -195,7 +197,7 @@ export class RegisterFlowService {
           data: {
             id: eventId,
             eventType: EVENT_PATTERNS.USER_REGISTERED,
-            eventVersion: 2,
+            eventVersion: 3,
             payload: outboxPayload,
             status: 'pending',
           },
@@ -241,11 +243,13 @@ export class RegisterFlowService {
       this.logger.error(
         `SMTP delivery error for account ${account.id}: ${(smtpError as Error).message}`,
       );
+      const now = new Date();
       await this.db.otpChallenge.updateMany({
         where: { accountId: account.id, otpHash: otp.hash },
         data: {
           deliveryStatus: 'failed',
           deliveryError: (smtpError as Error).message,
+          resendAvailableAt: now,
         },
       });
 
@@ -256,9 +260,10 @@ export class RegisterFlowService {
         {
           details: {
             verification: {
+              challengeId,
               phone: normalizedPhone,
               emailMasked: this.otpService.maskEmail(normalizedEmail),
-              resendAvailableAt: otp.resendAvailableAt.toISOString(),
+              resendAvailableAt: now.toISOString(),
               expiresAt: otp.expiresAt.toISOString(),
             },
           },
