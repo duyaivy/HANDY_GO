@@ -7,6 +7,11 @@ jest.mock('react-native-worklets', () => ({
   default: {},
 }));
 
+// Mock @dev-plugins/react-query
+jest.mock('@dev-plugins/react-query', () => ({
+  useReactQueryDevTools: jest.fn(),
+}));
+
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const View = require('react-native').View;
@@ -70,30 +75,43 @@ jest.mock('expo-localization', () => ({
 }));
 
 // Mock react-native-mmkv
-jest.mock('react-native-mmkv', () => ({
-  MMKV: jest.fn(() => ({
-    set: jest.fn(),
-    getString: jest.fn(),
-    getNumber: jest.fn(),
-    getBoolean: jest.fn(),
-    delete: jest.fn(),
-    clearAll: jest.fn(),
-    getAllKeys: jest.fn(() => []),
-  })),
-  useMMKVString: jest.fn((_key: string) => [undefined, jest.fn()]),
-  useMMKVNumber: jest.fn((_key: string) => [undefined, jest.fn()]),
-  useMMKVBoolean: jest.fn((_key: string) => [undefined, jest.fn()]),
-  useMMKVObject: jest.fn((_key: string) => [undefined, jest.fn()]),
-  createMMKV: jest.fn(() => ({
-    set: jest.fn(),
-    getString: jest.fn(),
-    getNumber: jest.fn(),
-    getBoolean: jest.fn(),
-    delete: jest.fn(),
-    clearAll: jest.fn(),
-    getAllKeys: jest.fn(() => []),
-  })),
-}));
+jest.mock('react-native-mmkv', () => {
+  const store = new Map<string, any>();
+  const createInstance = () => ({
+    set: jest.fn((key: string, value: any) => {
+      store.set(key, String(value));
+    }),
+    getString: jest.fn((key: string) => store.get(key) ?? undefined),
+    getNumber: jest.fn((key: string) => {
+      const val = store.get(key);
+      return val !== undefined ? Number(val) : undefined;
+    }),
+    getBoolean: jest.fn((key: string) => {
+      const val = store.get(key);
+      return val !== undefined ? val === 'true' || val === true : undefined;
+    }),
+    delete: jest.fn((key: string) => {
+      store.delete(key);
+    }),
+    remove: jest.fn((key: string) => {
+      store.delete(key);
+    }),
+    contains: jest.fn((key: string) => store.has(key)),
+    clearAll: jest.fn(() => {
+      store.clear();
+    }),
+    getAllKeys: jest.fn(() => Array.from(store.keys())),
+  });
+
+  return {
+    MMKV: jest.fn(createInstance),
+    createMMKV: jest.fn(createInstance),
+    useMMKVString: jest.fn((key: string) => [store.get(key), (val: string) => store.set(key, val)]),
+    useMMKVNumber: jest.fn((key: string) => [store.get(key) ? Number(store.get(key)) : undefined, (val: number) => store.set(key, String(val))]),
+    useMMKVBoolean: jest.fn((key: string) => [store.get(key) === 'true', (val: boolean) => store.set(key, String(val))]),
+    useMMKVObject: jest.fn((key: string) => [store.get(key) ? JSON.parse(store.get(key)) : undefined, (val: any) => store.set(key, JSON.stringify(val))]),
+  };
+});
 
 // Mock expo-secure-store
 jest.mock('expo-secure-store', () => {
@@ -123,3 +141,16 @@ global.window = {};
 
 // @ts-expect-error
 global.window = global;
+
+// Mock react-native-keyboard-controller
+jest.mock('react-native-keyboard-controller', () => {
+  const React = require('react');
+  const { ScrollView } = require('react-native');
+  const mock = require('react-native-keyboard-controller/jest');
+  return {
+    ...mock,
+    KeyboardAwareScrollView: (props: any) =>
+      React.createElement(ScrollView, props),
+    KeyboardProvider: ({ children }: any) => children,
+  };
+});

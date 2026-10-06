@@ -102,10 +102,12 @@ services:
       NEST_PROJECT: auth-service
       PORT: '3001'
       DATABASE_URL_AUTH: ${DATABASE_URL_AUTH}
-      SMTP_HOST: ${SMTP_HOST:-localhost}
-      SMTP_PORT: ${SMTP_PORT:-1025}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_FROM: ${SMTP_FROM:-HANDY GO <noreply@handygo.vn>}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_FROM: ${SMTP_FROM:-HANDY GO <social.huynhducthinh@gmail.com>}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
       OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
@@ -202,3 +204,60 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
+
+
+  postgres-auth:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-user-trust:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_user_trust
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-user-trust-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_user_trust"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo
+      RABBITMQ_DEFAULT_PASS: handygo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-auth-data:
+  postgres-user-trust-data:
+  rabbitmq-data:

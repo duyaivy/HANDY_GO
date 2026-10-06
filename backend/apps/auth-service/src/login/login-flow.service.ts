@@ -108,6 +108,7 @@ export class LoginFlowService {
 
     if (!account.emailVerifiedAt || account.status === 'pending') {
       const challenge = account.otpChallenges[0];
+      const isFailedDelivery = challenge?.deliveryStatus === 'failed';
       throw new AppException(
         HttpStatus.FORBIDDEN,
         ERROR_CODES.ACCOUNT_PENDING,
@@ -115,14 +116,16 @@ export class LoginFlowService {
         {
           details: {
             verification: {
+              challengeId: challenge?.id,
               phone: account.phone,
               emailMasked: account.email
                 ? this.otpService.maskEmail(account.email)
                 : '***',
               expiresAt: challenge?.expiresAt?.toISOString(),
-              resendAvailableAt:
-                challenge?.resendAvailableAt?.toISOString() ||
-                new Date().toISOString(),
+              resendAvailableAt: isFailedDelivery
+                ? new Date().toISOString()
+                : (challenge?.resendAvailableAt?.toISOString() ||
+                  new Date().toISOString()),
             },
           },
         },

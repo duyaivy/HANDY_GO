@@ -57,11 +57,11 @@ export class ConfigService {
   }
 
   get smtpHost(): string {
-    return this.config.get<string>('SMTP_HOST') || 'localhost';
+    return this.config.get<string>('SMTP_HOST') || 'smtp.gmail.com';
   }
 
   get smtpPort(): number {
-    return Number(this.config.get<string>('SMTP_PORT') || 1025);
+    return Number(this.config.get<string>('SMTP_PORT') || 465);
   }
 
   get smtpSecure(): boolean {

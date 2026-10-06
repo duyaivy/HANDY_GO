@@ -14,11 +14,11 @@ Mở Docker Desktop, chờ Docker chạy. Mở terminal:
 
 ```powershell
 cd D:\school\PBL6\HANDY_GO\backend
-docker compose up -d postgres-auth postgres-user-trust rabbitmq mailpit
+docker compose up -d postgres-auth postgres-user-trust rabbitmq
 docker compose ps
 ```
 
-Chờ hai PostgreSQL và RabbitMQ hiện `healthy`; Mailpit hiện `Up`.
+Chờ hai PostgreSQL và RabbitMQ hiện `healthy`.
 
 Nếu vừa sửa source backend, build lại trước khi mở các service:
 
@@ -112,10 +112,9 @@ adb -s "$DeviceSerial" shell am start -W -a android.intent.action.VIEW -d "exp+h
 ### Bước 5 — Đăng ký / đăng nhập
 
 - Đã có tài khoản: đăng nhập bằng **phone + password**.
-- Tài khoản mới: đăng ký, rồi mở [Mailpit](http://localhost:8025) trên máy tính để lấy OTP.
-- Chọn email mới nhất gửi tới đúng địa chỉ đăng ký, nhập mã 6 số trên điện thoại.
-- Email local được nhận trong Mailpit, không gửi tới Gmail thật.
-- Dùng email dễ gõ với bàn phím Việt, ví dụ `hgn27092704@gmail.com`.
+- Tài khoản mới: đăng ký, sau đó kiểm tra hòm thư Gmail (hoặc thư mục Spam/Quảng cáo) để lấy mã OTP 6 số.
+- Nhập mã 6 số trên điện thoại để hoàn tất kích hoạt.
+- Email OTP được gửi trực tiếp qua Gmail SMTP thật (`smtp.gmail.com`).
 - OTP hết hạn sau 10 phút; gửi lại cần chờ cooldown 60 giây.
 
 **Chạy xong:** app vào Login hoặc khôi phục phiên; đăng ký/OTP vào Customer Home và hồ sơ tải được.
@@ -151,7 +150,7 @@ if (-not (Test-Path "apps/api-gateway/.env")) {
 }
 
 pnpm run keys:generate
-docker compose up -d postgres-auth postgres-user-trust rabbitmq mailpit
+docker compose up -d postgres-auth postgres-user-trust rabbitmq
 docker compose ps
 ```
 
@@ -207,7 +206,7 @@ Chọn đúng điện thoại. Lệnh sinh native project nếu chưa có, build
 | App báo lỗi mạng | Có reverse 3000; Gateway đã chạy; env có `/api/v1` |
 | Gateway báo thiếu `AUTH_SERVICE_URL` | Tạo và kiểm tra `backend/apps/api-gateway/.env` |
 | Backend báo thiếu bảng/client | Chờ DB healthy, chạy `pnpm run db:setup` rồi build lại |
-| Không thấy OTP trong Gmail | Đọc email tại `http://localhost:8025` |
+| Không thấy OTP trong Gmail | Kiểm tra hòm thư Spam/Junk hoặc kiểm tra cấu hình SMTP_USER / SMTP_PASS trong `backend/.env` |
 | Cổng bị chiếm | Đóng đúng terminal server/Metro cũ trước khi mở lại |
 | Build Android thiếu SDK/JDK | Kiểm tra `JAVA_HOME`, SDK path và cài phiên bản Gradle yêu cầu |
 

@@ -1,15 +1,14 @@
 import {
   IsEmail,
-  IsEnum,
   IsNotEmpty,
-  IsOptional,
   IsString,
   IsStrongPassword,
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { RegisterRole, Role } from '@app/auth';
+import { IsMaxByteLength } from '../../common/utils/password.util.js';
 
 export { Role, RegisterRole };
 
@@ -33,12 +32,13 @@ export class RegisterDto {
 
   @ApiProperty({
     example: 'P@ssword123',
-    description: 'Mật khẩu (8-72 ký tự, bao gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt)',
+    description: 'Mật khẩu (8-72 ký tự/byte, bao gồm chữ hoa, chữ thường, chữ số và ký tự đặc biệt)',
   })
   @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   @MinLength(8, { message: 'Mật khẩu phải có tối thiểu 8 ký tự' })
   @MaxLength(72, { message: 'Mật khẩu không được vượt quá 72 ký tự' })
+  @IsMaxByteLength(72, { message: 'Mật khẩu không được vượt quá 72 byte UTF-8' })
   @IsStrongPassword(
     {
       minLength: 8,
@@ -52,15 +52,4 @@ export class RegisterDto {
     },
   )
   password!: string;
-
-  @ApiPropertyOptional({
-    example: RegisterRole.CUSTOMER,
-    enum: RegisterRole,
-    description: `Vai trò tài khoản (${Object.values(RegisterRole).join(', ')}, mặc định: ${RegisterRole.CUSTOMER})`,
-  })
-  @IsOptional()
-  @IsEnum(RegisterRole, {
-    message: `Vai trò chỉ có thể là ${Object.values(RegisterRole).join(' hoặc ')}`,
-  })
-  role?: RegisterRole;
 }
