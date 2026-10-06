@@ -13,6 +13,7 @@ import { AuthServiceService } from '../src/auth-service.service.js';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from '../src/common/security/login-lockout.service.js';
 import { AuthServiceController } from '../src/auth-service.controller.js';
 import { ConfigService } from '@app/config';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
@@ -120,6 +121,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
         { provide: OtpService, useValue: otpServiceMock },
         { provide: OutboxPublisherService, useValue: outboxPublisherMock },
         { provide: RateLimiterService, useValue: rateLimiterMock },
+        LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
         {
           provide: ConfigService,

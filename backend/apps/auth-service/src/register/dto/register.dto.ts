@@ -1,4 +1,5 @@
 import {
+  IsByteLength,
   IsEmail,
   IsNotEmpty,
   IsString,
@@ -8,7 +9,6 @@ import {
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { RegisterRole, Role } from '@app/auth';
-import { IsMaxByteLength } from '../../common/utils/password.util.js';
 
 export { Role, RegisterRole };
 
@@ -38,7 +38,7 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   @MinLength(8, { message: 'Mật khẩu phải có tối thiểu 8 ký tự' })
   @MaxLength(72, { message: 'Mật khẩu không được vượt quá 72 ký tự' })
-  @IsMaxByteLength(72, { message: 'Mật khẩu không được vượt quá 72 byte UTF-8' })
+  @IsByteLength(1, 72, { message: 'Mật khẩu không được vượt quá 72 byte UTF-8' })
   @IsStrongPassword(
     {
       minLength: 8,

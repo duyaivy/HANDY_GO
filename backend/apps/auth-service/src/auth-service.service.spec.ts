@@ -10,6 +10,7 @@ import { AuthServiceService } from './auth-service.service.js';
 import { OtpService } from './otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from './common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from './common/security/login-lockout.service.js';
 import { RegisterFlowService } from './register/register-flow.service.js';
 import { OtpFlowService } from './otp/otp-flow.service.js';
 import { LoginFlowService } from './login/login-flow.service.js';
@@ -129,6 +130,7 @@ describe('AuthServiceService', () => {
         { provide: OtpService, useValue: otpServiceMock },
         { provide: OutboxPublisherService, useValue: outboxPublisherMock },
         { provide: RateLimiterService, useValue: rateLimiterMock },
+        LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
         {
           provide: ConfigService,
