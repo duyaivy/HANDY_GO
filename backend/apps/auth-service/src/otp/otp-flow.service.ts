@@ -430,11 +430,12 @@ export class OtpFlowService {
     const pendingChallenge = await this.db.$transaction(async (tx) => {
       // Row-level lock on account for concurrency control
       if (typeof (tx as any).$queryRaw === 'function') {
-        try {
-          await (tx as any).$queryRaw`SELECT id FROM accounts WHERE id = ${account.id}::uuid FOR UPDATE`;
-        } catch {
-          // Gracefully continue in mock/test environments
-        }
+        await (tx as any).$queryRaw`
+          SELECT id
+          FROM "auth_service"."accounts"
+          WHERE id = ${account.id}::uuid
+          FOR UPDATE
+        `;
       }
 
       const txNow = new Date();

@@ -464,6 +464,39 @@ describe('AuthServiceService', () => {
       expect(result.statusCode).toBe(HttpStatus.OK);
       expect(otpServiceMock.sendVerificationOtp).toHaveBeenCalled();
     });
+
+    it('locks the account in the auth_service schema before creating a resend challenge', async () => {
+      dbMock.account.findFirst.mockResolvedValue({
+        id: 'acc-1',
+        email: 'c@example.com',
+        status: 'pending',
+        emailVerifiedAt: null,
+      });
+      dbMock.$queryRaw = vi.fn().mockResolvedValue([{ id: 'acc-1' }]);
+      dbMock.otpChallenge.findFirst.mockResolvedValue(null);
+
+      await service.resendOtp({ email: 'c@example.com' });
+
+      expect(dbMock.$queryRaw).toHaveBeenCalledTimes(1);
+      const [queryParts, accountId] = dbMock.$queryRaw.mock.calls[0];
+      expect(queryParts.join('?')).toContain('FROM "auth_service"."accounts"');
+      expect(accountId).toBe('acc-1');
+    });
+
+    it('propagates row-lock failures instead of continuing an aborted transaction', async () => {
+      dbMock.account.findFirst.mockResolvedValue({
+        id: 'acc-1',
+        email: 'c@example.com',
+        status: 'pending',
+        emailVerifiedAt: null,
+      });
+      dbMock.$queryRaw = vi.fn().mockRejectedValue(new Error('row lock failed'));
+
+      await expect(
+        service.resendOtp({ email: 'c@example.com' }),
+      ).rejects.toThrow('row lock failed');
+      expect(dbMock.otpChallenge.findFirst).not.toHaveBeenCalled();
+    });
   });
 
   describe('login', () => {
