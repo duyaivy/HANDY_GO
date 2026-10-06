@@ -135,7 +135,7 @@ describe('otpVerificationScreen', () => {
       resendAvailableAt: new Date(Date.now() - 1000).toISOString(),
     };
 
-    jest.spyOn(AuthApi, 'resendOtp').mockResolvedValue({
+    const resendSpy = jest.spyOn(AuthApi, 'resendOtp').mockResolvedValue({
       statusCode: 200,
       message: 'Mã xác thực OTP mới đã được gửi',
       data: {
@@ -150,9 +150,18 @@ describe('otpVerificationScreen', () => {
     const resendBtn = screen.getByTestId('otp-resend-btn');
     fireEvent.press(resendBtn);
 
-    await waitFor(() => {
-      expect(screen.queryByText(/Không thể gửi email OTP đến hộp thư của bạn/)).toBeNull();
+    expect(resendSpy).toHaveBeenCalledWith({
+      email: 'customer@example.com',
+      phone: '0912345678',
     });
+    expect(
+      await screen.findByText(
+        'Mã OTP mới đã được gửi thành công.',
+        {},
+        { timeout: 5000 },
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText(/Không thể gửi email OTP đến hộp thư của bạn/)).toBeNull();
   });
 
   it('calls resendOtp when resend button is clicked after cooldown', async () => {
