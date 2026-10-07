@@ -121,7 +121,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
               </motion.button>
 
               {/* Login Quick Button */}
-              <motion.button
+              {/* <motion.button
                 type="button"
                 onClick={() => onOpenAuth('login')}
                 whileHover={{ scale: 1.02, y: -1 }}
@@ -131,7 +131,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
               >
                 <LogIn className="w-5 h-5 text-[#FF5E14]" />
                 <span>Đăng Nhập Tài Khoản</span>
-              </motion.button>
+              </motion.button> */}
             </motion.div>
 
             {/* App Store Icons & Social Proof */}

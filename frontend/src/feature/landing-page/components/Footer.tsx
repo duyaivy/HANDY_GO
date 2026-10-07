@@ -1,3 +1,4 @@
+"use client";
 import React from "react";
 
 import {
@@ -11,6 +12,8 @@ import {
 import { FaFacebookF, FaYoutube, FaInstagram } from "react-icons/fa";
 import { motion } from "motion/react";
 import { useLenis } from "lenis/react";
+import { useRouter } from "next/navigation";
+
 declare global {
   interface Window {
     __handyGoLenis?: ReturnType<typeof useLenis>;
@@ -18,14 +21,11 @@ declare global {
 }
 interface FooterProps {
   onOpenDownload: () => void;
-  onOpenAuth: (mode: "login" | "register") => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({
-  onOpenDownload,
-  onOpenAuth,
-}) => {
+export const Footer: React.FC<FooterProps> = ({ onOpenDownload }) => {
   const lenis = useLenis();
+  const router = useRouter();
 
   // Butter-smooth Lenis scroll handler with zero-jump guarantee
   const handleScrollTo = (
@@ -106,12 +106,12 @@ export const Footer: React.FC<FooterProps> = ({
             >
               {/* 👉 BẠN CÓ THỂ ĐỔI TRỰC TIẾP ĐƯỜNG DẪN ẢNH LOGO FOOTER TẠI ĐÂY: */}
               <img
-                src="/logo.png"
+                src="/handygo-logo-white.svg"
                 alt="HandyGo Logo"
                 onError={(e) => {
                   e.currentTarget.src = "/handygo-logo-white.png";
                 }}
-                className="h-12 sm:h-14 w-auto object-contain"
+                className="h-16 sm:h-18 w-auto object-contain"
               />
             </a>
             <p className="text-slate-300 text-sm sm:text-base leading-relaxed max-w-sm font-normal">
@@ -213,7 +213,7 @@ export const Footer: React.FC<FooterProps> = ({
               <li>
                 <button
                   type="button"
-                  onClick={() => onOpenAuth("login")}
+                  onClick={() => router.push("/login")}
                   className="hover:text-white hover:translate-x-1 inline-flex items-center gap-1.5 transition-all text-left cursor-pointer"
                 >
                   <ArrowRight className="w-4 h-4 text-orange-500" />
@@ -223,7 +223,7 @@ export const Footer: React.FC<FooterProps> = ({
               <li>
                 <button
                   type="button"
-                  onClick={() => onOpenAuth("login")}
+                  onClick={() => router.push("/login")}
                   className="hover:text-white hover:translate-x-1 inline-flex items-center gap-1.5 transition-all text-left cursor-pointer"
                 >
                   <ArrowRight className="w-4 h-4 text-orange-500" />
