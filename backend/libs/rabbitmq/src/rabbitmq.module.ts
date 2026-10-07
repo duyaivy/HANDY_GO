@@ -14,7 +14,7 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
           urls: [
             process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672',
           ],
-          queue: 'user-trust-service',
+          queue: 'handy-go-publisher', // chỉ dùng cho emit events qua exchange, không dùng cho RPC
           queueOptions: {
             durable: true,
           },
