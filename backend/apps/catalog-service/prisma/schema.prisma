@@ -40,3 +40,21 @@ model Service {
   @@map("services")
   @@schema("catalog_service")
 }
+
+model OutboxEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  eventType    String    @map("event_type") @db.VarChar(100)
+  eventVersion Int       @default(1) @map("event_version")
+  payload      Json
+  status       String    @default("pending") @db.VarChar(30)
+  retryCount   Int       @default(0) @map("retry_count")
+  lastError    String?   @map("last_error") @db.Text
+  nextRetryAt  DateTime  @default(now()) @map("next_retry_at") @db.Timestamp(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  publishedAt  DateTime? @map("published_at") @db.Timestamp(6)
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+  @@schema("catalog_service")
+}
+

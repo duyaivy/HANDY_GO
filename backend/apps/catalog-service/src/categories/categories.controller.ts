@@ -12,6 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiOperation,
   ApiParam,
@@ -24,12 +25,16 @@ import { CreateCategoryDto } from './dto/create-category.dto.js';
 import { UpdateCategoryDto } from './dto/update-category.dto.js';
 import { QueryCategoryDto } from './dto/query-category.dto.js';
 import { CategoryResponseDto } from './dto/category-response.dto.js';
+import { Public, RequirePermissions, StandardPermissions } from '@app/auth';
+import { buildSuccessResponse } from '@app/common';
 
 @ApiTags('Service Categories')
+@ApiBearerAuth()
 @Controller('categories')
 export class CategoriesController {
   constructor(private readonly categoriesService: CategoriesService) {}
 
+  @RequirePermissions(StandardPermissions.CATALOG_CREATE)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -55,10 +60,12 @@ export class CategoriesController {
     status: HttpStatus.CONFLICT,
     description: 'Duplicate category name under parent',
   })
-  create(@Body() dto: CreateCategoryDto) {
-    return this.categoriesService.create(dto);
+  async create(@Body() dto: CreateCategoryDto) {
+    const data = await this.categoriesService.create(dto);
+    return buildSuccessResponse(data, 'Tạo danh mục dịch vụ thành công', 201);
   }
 
+  @Public()
   @Get()
   @ApiOperation({
     summary: 'Get list of service categories',
@@ -70,10 +77,12 @@ export class CategoriesController {
     description: 'List of categories or category tree',
     type: [CategoryResponseDto],
   })
-  findAll(@Query() query: QueryCategoryDto) {
-    return this.categoriesService.findAll(query);
+  async findAll(@Query() query: QueryCategoryDto) {
+    const data = await this.categoriesService.findAll(query);
+    return buildSuccessResponse(data, 'Lấy danh sách danh mục thành công');
   }
 
+  @Public()
   @Get(':id')
   @ApiOperation({
     summary: 'Get service category detail',
@@ -90,10 +99,12 @@ export class CategoriesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Category not found',
   })
-  findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
-    return this.categoriesService.findOne(id);
+  async findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    const data = await this.categoriesService.findOne(id);
+    return buildSuccessResponse(data, 'Lấy chi tiết danh mục thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_UPDATE)
   @Patch(':id')
   @ApiOperation({
     summary: 'Update a service category',
@@ -119,13 +130,15 @@ export class CategoriesController {
     status: HttpStatus.CONFLICT,
     description: 'Duplicate category name',
   })
-  update(
+  async update(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() dto: UpdateCategoryDto,
   ) {
-    return this.categoriesService.update(id, dto);
+    const data = await this.categoriesService.update(id, dto);
+    return buildSuccessResponse(data, 'Cập nhật danh mục dịch vụ thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_UPDATE)
   @Patch(':id/status')
   @ApiOperation({
     summary: 'Enable or disable a category',
@@ -147,13 +160,15 @@ export class CategoriesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Category not found',
   })
-  toggleStatus(
+  async toggleStatus(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Query('isActive') isActive?: boolean,
   ) {
-    return this.categoriesService.toggleStatus(id, isActive);
+    const data = await this.categoriesService.toggleStatus(id, isActive);
+    return buildSuccessResponse(data, 'Cập nhật trạng thái danh mục thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_DELETE)
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete or disable a service category',
@@ -180,10 +195,11 @@ export class CategoriesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Category not found',
   })
-  remove(
+  async remove(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Query('hard') hard?: boolean,
   ) {
-    return this.categoriesService.remove(id, String(hard) === 'true');
+    const result = await this.categoriesService.remove(id, String(hard) === 'true');
+    return buildSuccessResponse(result, 'Xóa hoặc vô hiệu hóa danh mục thành công');
   }
 }

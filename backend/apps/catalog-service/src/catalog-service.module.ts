@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { CatalogServiceController } from './catalog-service.controller.js';
-import { CatalogServiceService } from './catalog-service.service.js';
 import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { CatalogCommonModule } from './common/catalog-common.module.js';
+import { AuthModule } from '@app/auth';
+import { RedisModule } from '@app/redis';
 import { CategoriesModule } from './categories/categories.module.js';
 import { ServicesModule } from './services/services.module.js';
 
@@ -16,10 +17,13 @@ import { ServicesModule } from './services/services.module.js';
     HealthModule,
     RabbitMQModule,
     PrismaModule,
+    CatalogCommonModule,
     CategoriesModule,
     ServicesModule,
+    AuthModule,
+    RedisModule,
   ],
-  controllers: [CatalogServiceController],
-  providers: [CatalogServiceService],
+  controllers: [],
+  providers: [],
 })
 export class CatalogServiceModule {}

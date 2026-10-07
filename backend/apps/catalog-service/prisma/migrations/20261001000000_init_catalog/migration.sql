@@ -35,3 +35,22 @@ ALTER TABLE "catalog_service"."categories" ADD CONSTRAINT "categories_parent_id_
 -- AddForeignKey
 ALTER TABLE "catalog_service"."services" ADD CONSTRAINT "services_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "catalog_service"."categories"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- CreateTable
+CREATE TABLE "catalog_service"."outbox_events" (
+    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "event_type" VARCHAR(100) NOT NULL,
+    "event_version" INTEGER NOT NULL DEFAULT 1,
+    "payload" JSONB NOT NULL,
+    "status" VARCHAR(30) NOT NULL DEFAULT 'pending',
+    "retry_count" INTEGER NOT NULL DEFAULT 0,
+    "last_error" TEXT,
+    "next_retry_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "published_at" TIMESTAMP(6),
+
+    CONSTRAINT "outbox_events_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "outbox_events_status_next_retry_at_idx" ON "catalog_service"."outbox_events"("status", "next_retry_at");
+

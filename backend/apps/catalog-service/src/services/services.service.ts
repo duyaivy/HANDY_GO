@@ -5,16 +5,20 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RedisService } from '@app/redis';
 import { CreateServiceDto } from './dto/create-service.dto.js';
 import { UpdateServiceDto } from './dto/update-service.dto.js';
 import { QueryServiceDto } from './dto/query-service.dto.js';
 
 @Injectable()
 export class ServicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   async create(dto: CreateServiceDto) {
-    const category = await this.prisma.serviceCategory.findUnique({
+    const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
     });
     if (!category) {
@@ -35,7 +39,7 @@ export class ServicesService {
       );
     }
 
-    return this.prisma.service.create({
+    const result = await this.prisma.service.create({
       data: {
         categoryId: dto.categoryId,
         name: dto.name,
@@ -49,6 +53,9 @@ export class ServicesService {
         },
       },
     });
+
+    await this.redis.delByPattern('catalog:*');
+    return result;
   }
 
   async findAll(query: QueryServiceDto) {
@@ -100,6 +107,12 @@ export class ServicesService {
   }
 
   async findOne(id: string) {
+    const cacheKey = `catalog:service:${id}`;
+    const cached = await this.redis.get<unknown>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const service = await this.prisma.service.findUnique({
       where: { id },
       include: {
@@ -113,6 +126,7 @@ export class ServicesService {
       throw new NotFoundException(`Service with ID '${id}' not found`);
     }
 
+    await this.redis.set(cacheKey, service, 3600);
     return service;
   }
 
@@ -154,7 +168,7 @@ export class ServicesService {
       }
     }
 
-    return this.prisma.service.update({
+    const updated = await this.prisma.service.update({
       where: { id },
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
@@ -169,6 +183,9 @@ export class ServicesService {
         },
       },
     });
+
+    await this.redis.delByPattern('catalog:*');
+    return updated;
   }
 
   async remove(id: string, hard = false) {
@@ -182,6 +199,7 @@ export class ServicesService {
 
     if (hard) {
       await this.prisma.service.delete({ where: { id } });
+      await this.redis.delByPattern('catalog:*');
       return { message: `Service '${service.name}' deleted successfully` };
     }
 
@@ -190,6 +208,7 @@ export class ServicesService {
       data: { isActive: false },
     });
 
+    await this.redis.delByPattern('catalog:*');
     return {
       message: `Service '${service.name}' deactivated successfully`,
       data: updated,
@@ -206,7 +225,7 @@ export class ServicesService {
 
     const nextStatus = isActive !== undefined ? isActive : !service.isActive;
 
-    return this.prisma.service.update({
+    const updated = await this.prisma.service.update({
       where: { id },
       data: { isActive: nextStatus },
       include: {
@@ -215,5 +234,8 @@ export class ServicesService {
         },
       },
     });
+
+    await this.redis.delByPattern('catalog:*');
+    return updated;
   }
 }

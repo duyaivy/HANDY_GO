@@ -12,6 +12,7 @@ import {
   Query,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
   ApiOperation,
   ApiParam,
@@ -24,12 +25,16 @@ import { CreateServiceDto } from './dto/create-service.dto.js';
 import { UpdateServiceDto } from './dto/update-service.dto.js';
 import { QueryServiceDto } from './dto/query-service.dto.js';
 import { ServiceResponseDto } from './dto/service-response.dto.js';
+import { Public, RequirePermissions, StandardPermissions } from '@app/auth';
+import { buildSuccessResponse } from '@app/common';
 
 @ApiTags('Services')
+@ApiBearerAuth()
 @Controller('services')
 export class ServicesController {
   constructor(private readonly servicesService: ServicesService) {}
 
+  @RequirePermissions(StandardPermissions.CATALOG_CREATE)
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -55,10 +60,12 @@ export class ServicesController {
     status: HttpStatus.CONFLICT,
     description: 'Duplicate service name in category',
   })
-  create(@Body() dto: CreateServiceDto) {
-    return this.servicesService.create(dto);
+  async create(@Body() dto: CreateServiceDto) {
+    const data = await this.servicesService.create(dto);
+    return buildSuccessResponse(data, 'Tạo dịch vụ thành công', 201);
   }
 
+  @Public()
   @Get()
   @ApiOperation({
     summary: 'Get list of services',
@@ -70,10 +77,12 @@ export class ServicesController {
     description: 'Paginated list of services',
     type: [ServiceResponseDto],
   })
-  findAll(@Query() query: QueryServiceDto) {
-    return this.servicesService.findAll(query);
+  async findAll(@Query() query: QueryServiceDto) {
+    const data = await this.servicesService.findAll(query);
+    return buildSuccessResponse(data, 'Lấy danh sách dịch vụ thành công');
   }
 
+  @Public()
   @Get(':id')
   @ApiOperation({
     summary: 'Get service detail',
@@ -90,10 +99,12 @@ export class ServicesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Service not found',
   })
-  findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
-    return this.servicesService.findOne(id);
+  async findOne(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+    const data = await this.servicesService.findOne(id);
+    return buildSuccessResponse(data, 'Lấy chi tiết dịch vụ thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_UPDATE)
   @Patch(':id')
   @ApiOperation({
     summary: 'Update a service',
@@ -119,13 +130,15 @@ export class ServicesController {
     status: HttpStatus.CONFLICT,
     description: 'Duplicate service name in category',
   })
-  update(
+  async update(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() dto: UpdateServiceDto,
   ) {
-    return this.servicesService.update(id, dto);
+    const data = await this.servicesService.update(id, dto);
+    return buildSuccessResponse(data, 'Cập nhật dịch vụ thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_UPDATE)
   @Patch(':id/status')
   @ApiOperation({
     summary: 'Enable or disable a service',
@@ -144,13 +157,15 @@ export class ServicesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Service not found',
   })
-  toggleStatus(
+  async toggleStatus(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Query('isActive') isActive?: boolean,
   ) {
-    return this.servicesService.toggleStatus(id, isActive);
+    const data = await this.servicesService.toggleStatus(id, isActive);
+    return buildSuccessResponse(data, 'Cập nhật trạng thái dịch vụ thành công');
   }
 
+  @RequirePermissions(StandardPermissions.CATALOG_DELETE)
   @Delete(':id')
   @ApiOperation({
     summary: 'Delete or disable a service',
@@ -172,10 +187,11 @@ export class ServicesController {
     status: HttpStatus.NOT_FOUND,
     description: 'Service not found',
   })
-  remove(
+  async remove(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Query('hard') hard?: boolean,
   ) {
-    return this.servicesService.remove(id, String(hard) === 'true');
+    const result = await this.servicesService.remove(id, String(hard) === 'true');
+    return buildSuccessResponse(result, 'Xóa hoặc vô hiệu hóa dịch vụ thành công');
   }
 }

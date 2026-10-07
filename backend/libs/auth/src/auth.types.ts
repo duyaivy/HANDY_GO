@@ -20,6 +20,10 @@ export const StandardPermissions = {
   PROFILE_UPDATE: 'profile:update',
   USER_READ: 'user:read',
   USER_MANAGE: 'user:manage',
+  CATALOG_READ: 'catalog:read',
+  CATALOG_CREATE: 'catalog:create',
+  CATALOG_UPDATE: 'catalog:update',
+  CATALOG_DELETE: 'catalog:delete',
 } as const;
 
 export interface JwtPayload {

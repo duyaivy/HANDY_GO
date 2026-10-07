@@ -5,10 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
 import { UpdateCategoryDto } from './dto/update-category.dto.js';
 import { QueryCategoryDto } from './dto/query-category.dto.js';
+
+import { RedisService } from '@app/redis';
 
 export interface CategoryTreeNode {
   id: string;
@@ -25,7 +28,11 @@ export interface CategoryTreeNode {
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outboxPublisher: OutboxPublisherService,
+    private readonly redis: RedisService,
+  ) {}
 
   async create(dto: CreateCategoryDto) {
     if (dto.parentId) {
@@ -56,15 +63,38 @@ export class CategoriesService {
       );
     }
 
-    return this.prisma.category.create({
-      data: {
-        name: dto.name,
-        description: dto.description,
-        imageUrl: dto.imageUrl,
-        parentId: dto.parentId ?? null,
-        isActive: dto.isActive ?? true,
-      },
+    const category = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.category.create({
+        data: {
+          name: dto.name,
+          description: dto.description,
+          imageUrl: dto.imageUrl,
+          parentId: dto.parentId ?? null,
+          isActive: dto.isActive ?? true,
+        },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.CATEGORY_CREATED,
+          payload: {
+            id: created.id,
+            name: created.name,
+            description: created.description,
+            imageUrl: created.imageUrl,
+            parentId: created.parentId,
+            isActive: created.isActive,
+            createdAt: created.createdAt.toISOString(),
+          },
+        },
+      });
+
+      return created;
     });
+
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:*');
+    return category;
   }
 
   async findAll(query: QueryCategoryDto) {
@@ -135,6 +165,12 @@ export class CategoriesService {
   }
 
   async findOne(id: string) {
+    const cacheKey = `catalog:category:${id}`;
+    const cached = await this.redis.get<unknown>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const category = await this.prisma.category.findUnique({
       where: { id },
       include: {
@@ -164,6 +200,7 @@ export class CategoriesService {
       throw new NotFoundException(`Service category with ID '${id}' not found`);
     }
 
+    await this.redis.set(cacheKey, category, 3600);
     return category;
   }
 
@@ -220,16 +257,39 @@ export class CategoriesService {
       }
     }
 
-    return this.prisma.category.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
-        ...(dto.parentId !== undefined && { parentId: dto.parentId }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.category.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(dto.parentId !== undefined && { parentId: dto.parentId }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+        },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.CATEGORY_UPDATED,
+          payload: {
+            id: result.id,
+            name: result.name,
+            description: result.description,
+            imageUrl: result.imageUrl,
+            parentId: result.parentId,
+            isActive: result.isActive,
+            updatedAt: result.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return result;
     });
+
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:*');
+    return updated;
   }
 
   async remove(id: string, hard = false) {
@@ -258,16 +318,50 @@ export class CategoriesService {
         );
       }
 
-      await this.prisma.category.delete({ where: { id } });
+      await this.prisma.$transaction(async (tx) => {
+        await tx.category.delete({ where: { id } });
+        await tx.outboxEvent.create({
+          data: {
+            eventType: EVENT_PATTERNS.CATEGORY_DELETED,
+            payload: {
+              id,
+              name: category.name,
+              hard: true,
+              deletedAt: new Date().toISOString(),
+            },
+          },
+        });
+      });
+
+      void this.outboxPublisher.triggerPublish();
+      await this.redis.delByPattern('catalog:*');
       return { message: `Category '${category.name}' deleted successfully` };
     }
 
     // Soft delete / disable
-    const updated = await this.prisma.category.update({
-      where: { id },
-      data: { isActive: false },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.category.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.CATEGORY_STATUS_CHANGED,
+          payload: {
+            id: res.id,
+            name: res.name,
+            isActive: false,
+            updatedAt: res.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return res;
     });
 
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:*');
     return {
       message: `Category '${category.name}' deactivated successfully`,
       data: updated,
@@ -284,10 +378,30 @@ export class CategoriesService {
 
     const nextStatus = isActive !== undefined ? isActive : !category.isActive;
 
-    return this.prisma.category.update({
-      where: { id },
-      data: { isActive: nextStatus },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.category.update({
+        where: { id },
+        data: { isActive: nextStatus },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.CATEGORY_STATUS_CHANGED,
+          payload: {
+            id: res.id,
+            name: res.name,
+            isActive: res.isActive,
+            updatedAt: res.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return res;
     });
+
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:*');
+    return updated;
   }
 
   private async checkIsDescendant(
