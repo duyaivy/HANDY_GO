@@ -36,6 +36,7 @@ export type ApiErrorDetails = {
   retryAfterSeconds?: number;
   remainingAttempts?: number;
   verification?: {
+    challengeId?: string;
     phone: string;
     emailMasked: string;
     expiresAt?: string;

@@ -11,6 +11,7 @@ import { AuthServiceService } from './auth-service.service.js';
 import { OtpService } from './otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from './common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from './common/security/login-lockout.service.js';
 import { RegisterFlowService } from './register/register-flow.service.js';
 import { OtpFlowService } from './otp/otp-flow.service.js';
 import { LoginFlowService } from './login/login-flow.service.js';
@@ -38,6 +39,10 @@ describe('AuthServiceService', () => {
       },
       role: {
         findUnique: vi.fn().mockResolvedValue({ id: 'role-customer', code: 'CUSTOMER', name: 'Customer' }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'role-customer', code: 'CUSTOMER', name: 'Customer' },
+          { id: 'role-worker', code: 'WORKER', name: 'Worker' },
+        ]),
         create: vi.fn(),
       },
       otpChallenge: {
@@ -137,6 +142,7 @@ describe('AuthServiceService', () => {
         { provide: OtpService, useValue: otpServiceMock },
         { provide: OutboxPublisherService, useValue: outboxPublisherMock },
         { provide: RateLimiterService, useValue: rateLimiterMock },
+        LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
         { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
@@ -153,8 +159,12 @@ describe('AuthServiceService', () => {
   });
 
   describe('register', () => {
-    it('should successfully register a customer, normalize phone, and emit outbox event', async () => {
+    it('should successfully register an account with Customer and Worker roles, normalize phone, and emit outbox event v3', async () => {
       dbMock.account.findUnique.mockResolvedValue(null);
+      dbMock.role.findMany.mockResolvedValue([
+        { id: 'role-customer', code: 'CUSTOMER', name: 'Customer' },
+        { id: 'role-worker', code: 'WORKER', name: 'Worker' },
+      ]);
       dbMock.account.create.mockResolvedValue({
         id: 'acc-1',
         userId: 'user-1',
@@ -179,23 +189,31 @@ describe('AuthServiceService', () => {
           id: expect.any(String),
           userId: expect.any(String),
           status: 'pending',
+          roles: {
+            create: [
+              { roleId: 'role-customer', assignedAt: expect.any(Date) },
+              { roleId: 'role-worker', assignedAt: expect.any(Date) },
+            ],
+          },
         }),
       });
       const createdAccount = dbMock.account.create.mock.calls[0][0].data;
       expect(createdAccount.id).not.toBe(createdAccount.userId);
-      expect(dbMock.role.findUnique).toHaveBeenCalledWith({ where: { code: 'CUSTOMER' } });
+      expect(dbMock.role.findMany).toHaveBeenCalledWith({
+        where: { code: { in: ['CUSTOMER', 'WORKER'] } },
+      });
       expect(dbMock.outboxEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             eventType: 'user.registered',
-            eventVersion: 2,
+            eventVersion: 3,
             status: 'pending',
             payload: expect.objectContaining({
-              eventVersion: 2,
+              eventVersion: 3,
               data: expect.objectContaining({
                 accountId: 'acc-1',
                 userId: 'user-1',
-                role: 'Customer',
+                roles: ['Customer', 'Worker'],
               }),
             }),
           }),
@@ -240,6 +258,43 @@ describe('AuthServiceService', () => {
           password: 'Password123',
         }),
       ).rejects.toThrow(HttpException);
+    });
+
+    it('should handle SMTP failure during registration by keeping pending account and returning immediate resend without cooldown', async () => {
+      dbMock.account.findUnique.mockResolvedValue(null);
+      dbMock.account.create.mockResolvedValue({
+        id: 'acc-1',
+        userId: 'user-1',
+        phone: '+84912345678',
+        email: 'smtp-fail@example.com',
+        status: 'pending',
+        emailVerifiedAt: null,
+      });
+      otpServiceMock.sendVerificationOtp.mockRejectedValueOnce(new Error('SMTP down'));
+
+      try {
+        await service.register({
+          fullName: 'Nguyen Van A',
+          phone: '0912345678',
+          email: 'smtp-fail@example.com',
+          password: 'Password123',
+        });
+        expect.fail('Should have thrown');
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(HttpStatus.FAILED_DEPENDENCY);
+        const res = err.getResponse();
+        expect(res.details.verification.challengeId).toBeDefined();
+        expect(res.details.verification.resendAvailableAt).toBeDefined();
+        expect(dbMock.otpChallenge.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              deliveryStatus: 'failed',
+              deliveryError: 'SMTP down',
+              resendAvailableAt: expect.any(Date),
+            }),
+          }),
+        );
+      }
     });
   });
 
@@ -334,9 +389,14 @@ describe('AuthServiceService', () => {
         }),
       ).rejects.toThrow(HttpException);
 
-      expect(dbMock.otpChallenge.update).toHaveBeenCalledWith(
+      expect(dbMock.otpChallenge.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'challenge-1' },
+          where: expect.objectContaining({
+            id: 'challenge-1',
+            isUsed: false,
+            deliveryStatus: 'delivered',
+            attempts: { lt: 5 },
+          }),
           data: { attempts: { increment: 1 } },
         }),
       );
@@ -406,6 +466,49 @@ describe('AuthServiceService', () => {
       const result: any = await service.resendOtp({ email: 'c@example.com' });
       expect(result.statusCode).toBe(HttpStatus.OK);
       expect(otpServiceMock.sendVerificationOtp).toHaveBeenCalled();
+    });
+
+    it('should allow immediate resend if previous challenge delivery failed without applying cooldown', async () => {
+      dbMock.account.findFirst.mockResolvedValue({ id: 'acc-1', email: 'c@example.com', status: 'pending', emailVerifiedAt: null });
+      // Previous challenge failed delivery; findFirst filtering for delivered returns null
+      dbMock.otpChallenge.findFirst.mockResolvedValue(null);
+
+      const result: any = await service.resendOtp({ email: 'c@example.com' });
+      expect(result.statusCode).toBe(HttpStatus.OK);
+      expect(otpServiceMock.sendVerificationOtp).toHaveBeenCalled();
+    });
+
+    it('locks the account in the auth_service schema before creating a resend challenge', async () => {
+      dbMock.account.findFirst.mockResolvedValue({
+        id: 'acc-1',
+        email: 'c@example.com',
+        status: 'pending',
+        emailVerifiedAt: null,
+      });
+      dbMock.$queryRaw = vi.fn().mockResolvedValue([{ id: 'acc-1' }]);
+      dbMock.otpChallenge.findFirst.mockResolvedValue(null);
+
+      await service.resendOtp({ email: 'c@example.com' });
+
+      expect(dbMock.$queryRaw).toHaveBeenCalledTimes(1);
+      const [queryParts, accountId] = dbMock.$queryRaw.mock.calls[0];
+      expect(queryParts.join('?')).toContain('FROM "auth_service"."accounts"');
+      expect(accountId).toBe('acc-1');
+    });
+
+    it('propagates row-lock failures instead of continuing an aborted transaction', async () => {
+      dbMock.account.findFirst.mockResolvedValue({
+        id: 'acc-1',
+        email: 'c@example.com',
+        status: 'pending',
+        emailVerifiedAt: null,
+      });
+      dbMock.$queryRaw = vi.fn().mockRejectedValue(new Error('row lock failed'));
+
+      await expect(
+        service.resendOtp({ email: 'c@example.com' }),
+      ).rejects.toThrow('row lock failed');
+      expect(dbMock.otpChallenge.findFirst).not.toHaveBeenCalled();
     });
   });
 
@@ -493,29 +596,38 @@ describe('AuthServiceService', () => {
       });
     });
 
-    it('should reject login with 403 Forbidden if account is pending / unverified', async () => {
+    it('should reject login with 403 Forbidden if account is pending and return challengeId', async () => {
       const passwordHash = await bcrypt.hash('Password123', 10);
       dbMock.account.findUnique.mockResolvedValue({
         id: 'acc-1',
         phone: '+84912345678',
+        email: 'pending@example.com',
         passwordHash,
         emailVerifiedAt: null,
         status: 'pending',
         roles: [],
         otpChallenges: [
           {
+            id: 'challenge-pending-456',
             resendAvailableAt: new Date(Date.now() + 30000),
             expiresAt: new Date(Date.now() + 600000),
+            deliveryStatus: 'delivered',
           },
         ],
       });
 
-      await expect(
-        service.login({
+      try {
+        await service.login({
           phone: '0912345678',
           password: 'Password123',
-        }),
-      ).rejects.toThrow(HttpException);
+        });
+        expect.fail('Should have thrown');
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(HttpStatus.FORBIDDEN);
+        const res = err.getResponse();
+        expect(res.details.verification.challengeId).toBe('challenge-pending-456');
+        expect(res.details.verification.phone).toBe('+84912345678');
+      }
     });
 
     it('should reject login with 403 Forbidden if account is suspended', async () => {

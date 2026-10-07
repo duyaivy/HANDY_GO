@@ -45,21 +45,21 @@ x-development-environment: &development-environment
   NODE_ENV: development
   LOG_LEVEL: debug
   API_PREFIX: api/v1
-  CORS_ORIGIN: http://localhost:5173
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
   CHOKIDAR_USEPOLLING: 'true'
   CHOKIDAR_INTERVAL: '500'
   WATCHPACK_POLLING: 'true'
   DATABASE_URL: ${DATABASE_URL}
-  REDIS_URL: ${REDIS_URL}
-  RABBITMQ_URL: ${RABBITMQ_URL}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  RABBITMQ_URL: ${RABBITMQ_URL:-amqp://handygo:handygo@rabbitmq:5672}
   INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
   JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
   JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
   JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/app/keys/jwt-public.pem}
   JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/app/keys/jwt-private.pem}
-  CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
-  CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
-  CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+  CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-dev-cloud}
+  CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-dev-key}
+  CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-dev-secret}
   CLOUDINARY_IMAGE_FOLDER: ${CLOUDINARY_IMAGE_FOLDER:-handy-go/images}
   CLOUDINARY_VIDEO_FOLDER: ${CLOUDINARY_VIDEO_FOLDER:-handy-go/videos}
   CLOUDINARY_IMAGE_MAX_SIZE_MB: ${CLOUDINARY_IMAGE_MAX_SIZE_MB:-10}
@@ -102,10 +102,12 @@ services:
       NEST_PROJECT: auth-service
       PORT: '3001'
       DATABASE_URL_AUTH: ${DATABASE_URL_AUTH}
-      SMTP_HOST: ${SMTP_HOST:-localhost}
-      SMTP_PORT: ${SMTP_PORT:-1025}
-      SMTP_SECURE: ${SMTP_SECURE:-false}
-      SMTP_FROM: ${SMTP_FROM:-HANDY GO <noreply@handygo.vn>}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_FROM: ${SMTP_FROM:-HANDY GO <social.huynhducthinh@gmail.com>}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
       OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
       OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
@@ -130,6 +132,9 @@ services:
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
     ports:
       - '3002:3002'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   catalog-service:
     <<: *app
@@ -202,3 +207,60 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
+
+
+  postgres-auth:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_auth"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-user-trust:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: handy_user_trust
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-user-trust-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d handy_user_trust"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo
+      RABBITMQ_DEFAULT_PASS: handygo
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-auth-data:
+  postgres-user-trust-data:
+  rabbitmq-data:

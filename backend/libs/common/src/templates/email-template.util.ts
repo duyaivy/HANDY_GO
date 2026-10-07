@@ -64,7 +64,7 @@ export function loadEmailTemplate(templatePath?: string): string {
   for (const candidate of candidatePaths) {
     if (fs.existsSync(candidate)) {
       try {
-        const content = fs.readFileSync(candidate, 'utf-8').trim();
+        const content = fs.readFileSync(candidate, 'utf-8').replace(/\r\n/g, '\n').trim();
         if (templatePath) {
           templateCache.set(templatePath, content);
         }

@@ -28,14 +28,16 @@ async function isSecureStoreAvailable(): Promise<boolean> {
 }
 
 export async function setToken(value: TokenType): Promise<void> {
-  memoryTokens = value;
-  sessionVersion++;
+  const isAvailable = await isSecureStoreAvailable();
+  if (!isAvailable) {
+    Logger.error('SECURE_STORE_UNAVAILABLE', 'SecureStore is not available on this device');
+    throw new Error('Không thể lưu trữ phiên đăng nhập an toàn trên thiết bị.');
+  }
 
   try {
-    const isAvailable = await isSecureStoreAvailable();
-    if (isAvailable) {
-      await SecureStore.setItemAsync(AUTH_TOKENS_KEY, JSON.stringify(value));
-    }
+    await SecureStore.setItemAsync(AUTH_TOKENS_KEY, JSON.stringify(value));
+    memoryTokens = value;
+    sessionVersion++;
   }
   catch (error) {
     Logger.error('SECURE_STORE_WRITE_ERROR', 'Failed to persist auth tokens securely', error);

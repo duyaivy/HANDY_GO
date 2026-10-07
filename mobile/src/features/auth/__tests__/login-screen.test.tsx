@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -13,6 +14,9 @@ jest.mock('expo-router', () => ({
     back: jest.fn(),
   })),
   useLocalSearchParams: jest.fn(() => ({})),
+  useRootNavigationState: () => ({
+    key: 'root-test',
+  }),
 }));
 
 afterEach(() => {

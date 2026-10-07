@@ -6,7 +6,7 @@
 
 Đọc **[Chạy HANDY GO trên điện thoại bằng Metro](docs/HUONG_DAN_CHAY_TEST.md)**. Máy đã cài đặt làm phần 1; máy mới làm phần 2 trước.
 
-Quy trình: bật hạ tầng Docker → chạy ba service backend → nối điện thoại USB → mở Metro → đăng nhập hoặc nhận OTP qua Mailpit.
+Quy trình: bật hạ tầng Docker → chạy ba service backend → nối điện thoại USB → mở Metro → đăng nhập hoặc nhận OTP qua email.
 
 ## Các ứng dụng
 

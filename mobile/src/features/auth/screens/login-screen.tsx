@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/use-auth-store';
 
 export function LoginScreen() {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const params = useLocalSearchParams<{ phone?: string; verified?: string }>();
   const login = useAuthStore.use.login();
   const isLoading = useAuthStore.use.isLoading();
@@ -35,24 +36,20 @@ export function LoginScreen() {
     password?: string;
   }>({});
 
-  React.useEffect(() => {
-    if (params?.phone) {
-      setPhone(params.phone);
-    }
-    if (params?.verified === 'true') {
-      setSuccessMessage('Xác thực tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.');
-    }
-  }, [params?.phone, params?.verified]);
-
   // Auth guard: already logged in users cannot re-enter login screen via back navigation
   React.useEffect(() => {
+    if (!rootNavigationState?.key) {
+      return;
+    }
+
     if (isAuthenticated && user) {
-      const dest = getDestinationByRoles(user.roles);
+      const activeMode = useAuthStore.getState().activeMode;
+      const dest = getDestinationByRoles(user.roles, activeMode);
       if (dest.type === 'ROUTE') {
         router.replace(dest.path as any);
       }
     }
-  }, [isAuthenticated, user, router]);
+  }, [rootNavigationState?.key, isAuthenticated, user, router]);
 
   React.useEffect(() => {
     clearError();
@@ -98,7 +95,8 @@ export function LoginScreen() {
         password, // DO NOT TRIM PASSWORD
       });
 
-      const dest = getDestinationByRoles(session.user.roles);
+      const currentMode = useAuthStore.getState().activeMode;
+      const dest = getDestinationByRoles(session.user.roles, currentMode);
       if (dest.type === 'ROUTE') {
         router.replace(dest.path as any);
       }
@@ -118,6 +116,7 @@ export function LoginScreen() {
           pathname: RouteNames.AUTH_OTP,
           params: {
             phone: phone.trim(),
+            ...(err?.details?.verification?.challengeId ? { challengeId: err.details.verification.challengeId } : {}),
             ...(err?.details?.verification?.emailMasked ? { emailMasked: err.details.verification.emailMasked } : {}),
             ...(err?.details?.verification?.resendAvailableAt ? { resendAvailableAt: err.details.verification.resendAvailableAt } : {}),
           },
@@ -150,8 +149,15 @@ export function LoginScreen() {
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="auth-login-screen" className="flex-1 justify-center px-6 py-8">
+    <Screen
+      safeArea
+      scrollable
+      keyboardAware
+      bottomOffset={70}
+      className="bg-neutral-50 dark:bg-neutral-950"
+      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+    >
+      <View testID="auth-login-screen" className="px-6 py-8">
         {/* Header / Brand */}
         <View className="mb-8 items-center">
           <View className="mb-4">
@@ -218,15 +224,19 @@ export function LoginScreen() {
                   setErrorMessage(null);
               }}
               error={localErrors.password}
+              rightAccessory={(
+                <Pressable
+                  testID="login-toggle-password-btn"
+                  onPress={() => setShowPassword(!showPassword)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  className="py-1"
+                >
+                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                    {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  </Text>
+                </Pressable>
+              )}
             />
-            <Pressable
-              onPress={() => setShowPassword(!showPassword)}
-              className="mt-1 self-end py-1"
-            >
-              <Text className="text-xs text-blue-600 dark:text-blue-400">
-                {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-              </Text>
-            </Pressable>
           </View>
 
           <View className="mt-6">

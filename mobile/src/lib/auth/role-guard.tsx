@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -10,11 +10,16 @@ export type RoleGuardProps = {
 
 export function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const isHydrated = useAuthStore.use.isHydrated();
 
   React.useEffect(() => {
+    if (!rootNavigationState?.key) {
+      return;
+    }
+
     if (!isHydrated)
       return;
 
@@ -38,7 +43,7 @@ export function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
         router.replace(RouteNames.ROOT as any);
       }
     }
-  }, [isAuthenticated, user, isHydrated, allowedRoles, router]);
+  }, [rootNavigationState?.key, isAuthenticated, user, isHydrated, allowedRoles, router]);
 
   // While checking or unauthorized, prevent rendering protected children
   if (!isHydrated) {

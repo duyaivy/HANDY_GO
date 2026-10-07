@@ -6,6 +6,7 @@ import { AuthDatabaseModule } from '@app/database';
 import { AuthModule, AuthSignerModule } from '@app/auth';
 import { OutboxPublisherService, OutboxRepository } from '@app/common';
 import { RateLimiterService } from './rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from './security/login-lockout.service.js';
 import { SessionService } from './session/session.service.js';
 import { UserTrustClient } from './rpc/user-trust.client.js';
 import { AuthSeedService } from './seed/auth-seed.service.js';
@@ -52,6 +53,7 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
     },
     OutboxPublisherService,
     RateLimiterService,
+    LoginLockoutService,
   ],
   exports: [
     RabbitMQModule,
@@ -65,6 +67,7 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
     OutboxRepository,
     OutboxPublisherService,
     RateLimiterService,
+    LoginLockoutService,
   ],
 })
 export class AuthCommonModule {}
