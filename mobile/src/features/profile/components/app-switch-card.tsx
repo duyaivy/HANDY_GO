@@ -47,21 +47,11 @@ export function AppSwitchCard({
             <WrenchIcon color="#FFFFFF" size={22} />
           </View>
           <View className="ml-3 flex-1">
-            <Text className="text-base font-bold text-white">
+            <Text className="text-[14px] font-bold text-white">
               Chuyển sang App Thợ
             </Text>
-            <Text className="mt-0.5 text-xs text-blue-100" numberOfLines={1}>
-              {workerStatus === 'verified'
-                ? 'Nhận việc và quản lý dịch vụ sửa chữa'
-                : workerStatus === 'draft'
-                  ? 'Tài khoản Thợ (Chưa xác minh)'
-                  : workerStatus === 'pending_kyc' || workerStatus === 'under_review'
-                    ? 'Tài khoản Thợ (Đang xác minh)'
-                    : workerStatus === 'rejected'
-                      ? 'Tài khoản Thợ (Yêu cầu xác minh lại)'
-                      : workerStatus === 'suspended'
-                        ? 'Tài khoản Thợ (Tạm khóa)'
-                        : 'Chuyển sang chế độ Thợ'}
+            <Text className="mt-0.5 text-[12px] text-blue-100">
+              Tìm và quản lý công việc
             </Text>
           </View>
         </View>
@@ -96,11 +86,11 @@ export function AppSwitchCard({
           <UserIcon color="#78350F" size={22} />
         </View>
         <View className="ml-3 flex-1">
-          <Text className="text-base font-bold text-amber-950 dark:text-neutral-900">
+          <Text className="text-[14px] font-bold text-amber-950 dark:text-neutral-900">
             Chuyển sang App Khách
           </Text>
-          <Text className="mt-0.5 text-xs text-amber-900/80 dark:text-neutral-800" numberOfLines={1}>
-            Đặt dịch vụ tiện ích và theo dõi yêu cầu
+          <Text className="mt-0.5 text-[12px] text-amber-900/80 dark:text-neutral-800" numberOfLines={1}>
+            Đặt dịch vụ cho bạn và gia đình
           </Text>
         </View>
       </View>

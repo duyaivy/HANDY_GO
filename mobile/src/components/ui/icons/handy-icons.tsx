@@ -2,6 +2,32 @@ import type { SvgProps } from 'react-native-svg';
 import * as React from 'react';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
+export function EditIcon({ color = '#FFFFFF', size = 16, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M12 20h9" />
+      <Path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </Svg>
+  );
+}
+
+export function PhoneIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.2 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.84.58 2.8.7a2 2 0 0 1 1.73 2.03Z" />
+    </Svg>
+  );
+}
+
+export function MailIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Rect x="3" y="5" width="18" height="14" rx="2" />
+      <Path d="m3 7 9 6 9-6" />
+    </Svg>
+  );
+}
+
 export function WrenchIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

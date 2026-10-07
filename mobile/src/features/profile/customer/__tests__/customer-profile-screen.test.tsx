@@ -7,13 +7,14 @@ import { useAuthStore } from '@/stores/use-auth-store';
 import { CustomerProfileScreen } from '../screens/customer-profile-screen';
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 
 jest.mock('expo-router', () => {
   const React = require('react');
   return {
     useRouter: () => ({
       replace: mockReplace,
-      push: jest.fn(),
+      push: mockPush,
       back: jest.fn(),
     }),
     useFocusEffect: (cb: any) => {
@@ -78,6 +79,10 @@ describe('customerProfileScreen', () => {
     expect(screen.getByTestId('profile-phone')).toHaveTextContent('0912345678');
     expect(screen.getByText('App Khách')).toBeOnTheScreen();
     expect(screen.getByTestId('profile-avatar-fallback')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('profile-header-card-pressable'));
+
+    expect(mockPush).toHaveBeenCalledWith('/customer/profile/detail');
   });
 
   it('renders switch button to Worker app when account has both roles', async () => {
