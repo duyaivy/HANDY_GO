@@ -1,10 +1,8 @@
 "use client";
 
-
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState } from "react";
-
-
+import Image from "next/image";
 import {
   LayoutDashboard,
   Users,
@@ -31,14 +29,13 @@ export interface ManageLayoutProps {
 }
 
 export default function ManageLayout({ children }: ManageLayoutProps) {
- const router = useRouter();
-const currentPath = usePathname();
+  const router = useRouter();
+  const currentPath = usePathname();
 
-const navigateTo = (path: string) => {
-  router.push(path);
-};
+  const navigateTo = (path: string) => {
+    router.push(path);
+  };
 
-  // Xác định menu đang active dựa trên URL thư mục
   const getActiveItem = () => {
     if (currentPath.includes("/customers")) return "customers";
     if (currentPath.includes("/workers")) return "workers";
@@ -56,33 +53,33 @@ const navigateTo = (path: string) => {
 
   const activeItem = getActiveItem();
 
-  // Trạng thái mở/đóng submenu
   const [isUsersOpen, setIsUsersOpen] = useState(true);
   const [isServicesOpen, setIsServicesOpen] = useState(true);
 
-  // Trạng thái Header
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [hasNotifications, setHasNotifications] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   return (
     <div className="min-h-screen w-full flex bg-[#F8FAFC] text-slate-800 font-sans selection:bg-[#FF5E14] selection:text-white">
-      {/* ========================================================================= */}
-      {/* 1. SIDEBAR CỐ ĐỊNH BÊN TRÁI */}
-      {/* ========================================================================= */}
       <aside className="w-64 bg-[#111827] text-slate-300 flex flex-col justify-between shrink-0 h-screen sticky top-0 select-none z-30 border-r border-slate-800/80">
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
           {/* LOGO HEADER */}
           <div className="h-20 flex items-center px-6 gap-3 border-b border-slate-800/60 shrink-0">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#FF5E14] to-[#FF7A30] text-white flex items-center justify-center shadow-lg shadow-orange-500/25 shrink-0">
-              <Zap className="w-5 h-5 fill-white stroke-white" />
-            </div>
+            <Image
+              src="/handygo-logo-horizontal.svg"
+              alt="HandyGo Logo"
+              width={180}
+              height={56}
+              className="h-30 w-auto object-contain"
+              priority
+            />
 
-            <div className="flex flex-col">
+            {/* <div className="flex flex-col">
               <span className="text-xl font-black text-white tracking-wider">
                 LOGO
               </span>
-            </div>
+            </div> */}
           </div>
 
           {/* DANH SÁCH MENU */}
