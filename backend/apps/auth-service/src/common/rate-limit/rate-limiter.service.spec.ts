@@ -40,7 +40,7 @@ describe('RateLimiterService', () => {
         const response = appErr.getResponse() as any;
         expect(response.code).toBe(ERROR_CODES.RATE_LIMITED);
         expect(response.message).toBe('Custom limit message');
-        expect(response.details).toHaveProperty('retryAfterSeconds');
+        expect(response.data).toHaveProperty('retryAfterSeconds');
       }
     });
 

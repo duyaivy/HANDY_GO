@@ -1,3 +1,5 @@
+import type { ApiResponseEnvelope } from '@app/common';
+
 export interface RegisterResponseData {
   challengeId?: string;
   userId: string;
@@ -9,8 +11,4 @@ export interface RegisterResponseData {
   verificationInstructions: string;
 }
 
-export interface RegisterResponse {
-  statusCode: number;
-  message: string;
-  data: RegisterResponseData;
-}
+export type RegisterResponse = ApiResponseEnvelope<RegisterResponseData>;

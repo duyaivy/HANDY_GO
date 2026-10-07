@@ -1,3 +1,5 @@
+import type { ApiResponseEnvelope } from '@app/common';
+
 export interface ResendOtpData {
   challengeId?: string;
   expiresAt: string;
@@ -5,8 +7,4 @@ export interface ResendOtpData {
   emailMasked: string;
 }
 
-export interface ResendOtpResponse {
-  statusCode: number;
-  message: string;
-  data: ResendOtpData;
-}
+export type ResendOtpResponse = ApiResponseEnvelope<ResendOtpData>;

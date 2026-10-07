@@ -123,14 +123,13 @@ export class OtpFlowService {
       );
     }
 
-    const maxAttempts =
-      this.otpService?.maxAttempts ?? OtpService.MAX_ATTEMPTS;
+    const maxAttempts = this.otpService?.maxAttempts ?? OtpService.MAX_ATTEMPTS;
     if (challenge.attempts >= maxAttempts) {
       throw new AppException(
         HttpStatus.TOO_MANY_REQUESTS,
         ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
         `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-        { details: { remainingAttempts: 0 } },
+        { data: { remainingAttempts: 0 } },
       );
     }
 
@@ -189,7 +188,7 @@ export class OtpFlowService {
             HttpStatus.TOO_MANY_REQUESTS,
             ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
             `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-            { details: { remainingAttempts: 0 } },
+            { data: { remainingAttempts: 0 } },
           );
         }
         if (updateResult.isUsed) {
@@ -212,7 +211,7 @@ export class OtpFlowService {
           HttpStatus.TOO_MANY_REQUESTS,
           ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
           `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-          { details: { remainingAttempts: 0 } },
+          { data: { remainingAttempts: 0 } },
         );
       }
 
@@ -220,7 +219,7 @@ export class OtpFlowService {
         HttpStatus.BAD_REQUEST,
         ERROR_CODES.OTP_INVALID,
         `Mã OTP không chính xác. Còn lại ${remaining} lần thử.`,
-        { details: { remainingAttempts: remaining } },
+        { data: { remainingAttempts: remaining } },
       );
     }
 
@@ -269,7 +268,7 @@ export class OtpFlowService {
             HttpStatus.TOO_MANY_REQUESTS,
             ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
             `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-            { details: { remainingAttempts: 0 } },
+            { data: { remainingAttempts: 0 } },
           );
         }
 
@@ -466,7 +465,7 @@ export class OtpFlowService {
             HttpStatus.TOO_MANY_REQUESTS,
             ERROR_CODES.RATE_LIMITED,
             `Mã OTP đang được gửi đi. Vui lòng đợi ${retryAfterSeconds} giây trước khi thử lại.`,
-            { details: { retryAfterSeconds } },
+            { data: { retryAfterSeconds } },
           );
         }
       }
@@ -499,7 +498,7 @@ export class OtpFlowService {
           HttpStatus.TOO_MANY_REQUESTS,
           ERROR_CODES.RATE_LIMITED,
           `Vui lòng đợi ${retryAfterSeconds} giây trước khi yêu cầu gửi lại OTP.`,
-          { details: { retryAfterSeconds } },
+          { data: { retryAfterSeconds } },
         );
       }
 

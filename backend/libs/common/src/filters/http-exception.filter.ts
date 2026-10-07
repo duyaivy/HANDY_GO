@@ -7,7 +7,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { ERROR_CODES, type AppErrorResponseBody } from '../errors/app-error.js';
+import { buildErrorResponse } from '../dto/api-response.dto.js';
+import {
+  ERROR_CODES,
+  type AppErrorData,
+  type AppErrorResponseBody,
+} from '../errors/app-error.js';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
@@ -26,8 +31,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let code: string = ERROR_CODES.INTERNAL_SERVER_ERROR;
     let message = 'Lỗi hệ thống nội bộ';
-    let fieldErrors: Record<string, string[]> | undefined;
-    let details: AppErrorResponseBody['details'] | undefined;
+    let data: AppErrorData | null = null;
 
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
@@ -37,15 +41,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
         const obj = res as Record<string, any>;
         code = obj.code || this.defaultCodeForStatus(statusCode);
         message = obj.message || exception.message;
-        fieldErrors = obj.fieldErrors;
-        details = obj.details;
+        const legacyDetails = obj.details as AppErrorData | undefined;
+        const fieldErrors = (obj.fieldErrors || obj.errors) as
+          Record<string, string[]> | undefined;
+        data =
+          obj.data && typeof obj.data === 'object'
+            ? (obj.data as AppErrorData)
+            : legacyDetails || fieldErrors
+              ? { ...legacyDetails, fieldErrors }
+              : null;
 
         // Handle default NestJS validation error format
         if (Array.isArray(obj.message) && !obj.code) {
           code = ERROR_CODES.VALIDATION_ERROR;
           message = 'Dữ liệu không hợp lệ';
-          if (!fieldErrors) {
-            fieldErrors = { validation: obj.message };
+          if (!data?.fieldErrors) {
+            data = {
+              ...data,
+              fieldErrors: { validation: obj.message },
+            };
           }
         }
       } else if (typeof res === 'string') {
@@ -73,13 +87,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
     (response as any).err =
       exception instanceof Error ? exception : new Error(formattedMessage);
 
-    const payload: AppErrorResponseBody = {
+    const payload: AppErrorResponseBody = buildErrorResponse(
       statusCode,
       code,
-      message: formattedMessage,
-      fieldErrors,
-      details,
-    };
+      formattedMessage,
+      data,
+    );
 
     response.status(statusCode).json(payload);
   }
