@@ -50,15 +50,22 @@ export class OtpService {
     const host = this.config.smtpHost;
     const port = this.config.smtpPort;
     const secure = this.config.smtpSecure;
+    const user = this.config.smtpUser;
+    const pass = this.config.smtpPass;
+
+    const isGmail = host.toLowerCase().includes('gmail');
+    if (isGmail && (!user || !pass)) {
+      throw new Error(
+        'Missing SMTP credentials: SMTP_USER and SMTP_PASS (App Password) are required when using Gmail SMTP.',
+      );
+    }
 
     const options: SMTPTransport.Options = {
       host,
       port,
-      secure,
+      secure: secure || port === 465,
     };
 
-    const user = this.config.smtpUser;
-    const pass = this.config.smtpPass;
     if (user && pass) {
       options.auth = { user, pass };
     }

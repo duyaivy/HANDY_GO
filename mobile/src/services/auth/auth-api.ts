@@ -13,10 +13,10 @@ export type RegisterPayload = {
   phone: string;
   email: string;
   password: string;
-  role?: 'Customer' | 'Worker';
 };
 
 export type RegisterResult = {
+  challengeId?: string;
   userId: string;
   phone: string;
   email: string;
@@ -27,6 +27,7 @@ export type RegisterResult = {
 };
 
 export type VerifyOtpPayload = {
+  challengeId?: string;
   email?: string;
   phone?: string;
   otp: string;
@@ -38,8 +39,10 @@ export type ResendOtpPayload = {
 };
 
 export type ResendOtpResult = {
+  challengeId?: string;
   resendAvailableAt: string;
   expiresAt?: string;
+  emailMasked?: string;
 };
 
 export type LoginPayload = {
@@ -61,6 +64,47 @@ export type ApiResponse<T> = {
   statusCode: number;
   message: string;
   data: T;
+};
+
+export type WorkerProfileStatus
+  = | 'draft'
+    | 'pending_kyc'
+    | 'under_review'
+    | 'verified'
+    | 'rejected'
+    | 'suspended';
+
+export type CustomerProfileData = {
+  id: string;
+  userId: string;
+  bio?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkerProfileData = {
+  id: string;
+  userId: string;
+  status: WorkerProfileStatus;
+  averageRating: number | string;
+  ratingCount: number;
+  completedOrderCount: number;
+  orderCountTotal: number;
+  verifiedAt?: string | null;
+  approvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserProfileResponse = {
+  id: string;
+  fullName: string;
+  avatarUrl?: string | null;
+  status: string;
+  customerProfile?: CustomerProfileData | null;
+  workerProfile?: WorkerProfileData | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export const AuthApi = {
@@ -92,7 +136,7 @@ export const AuthApi = {
     return ApiClient.get<ApiResponse<AuthUser>>('/auth/me');
   },
 
-  getMyProfile: async (): Promise<ApiResponse<any>> => {
-    return ApiClient.get<ApiResponse<any>>('/users/me');
+  getMyProfile: async (): Promise<ApiResponse<UserProfileResponse>> => {
+    return ApiClient.get<ApiResponse<UserProfileResponse>>('/users/me');
   },
 };

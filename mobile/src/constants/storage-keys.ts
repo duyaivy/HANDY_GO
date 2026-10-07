@@ -6,6 +6,7 @@ export const StorageKeys = {
   AUTH_TOKEN: 'handy_go_auth_token',
   USER_PROFILE: 'handy_go_user_profile',
   USER_ROLE: 'handy_go_user_role',
+  ACTIVE_MODE: (userId: string) => `handy_go_active_mode_${userId}` as const,
   APP_THEME: 'handy_go_app_theme',
   APP_LANGUAGE: 'handy_go_app_language',
   FIRST_TIME_OPEN: 'handy_go_first_time_open',

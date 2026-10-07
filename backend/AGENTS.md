@@ -103,14 +103,13 @@ pnpm run lint
 
 | Library (`libs/`) | Exported Asset | Purpose & Usage Contract |
 | :--- | :--- | :--- |
-| **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { details });` |
+| **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES`<br>`AppErrorDetails` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { details });`<br>Supports `details.verification` containing `challengeId`, `phone`, `emailMasked`, `expiresAt`, `resendAvailableAt` for pending account and delivery failure flows. |
 | | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Used in `main.ts`. |
 | | `HttpExceptionFilter` | **Global Exception Filter & Detailed Error Logger.** Catches all exceptions, formats standardized JSON error responses, logs full 5xx/4xx error context with method, URL, message & stack traces, and injects error details into `pino-http`. |
 | | `OutboxPublisherService`<br>`OutboxRepository` | **Reliable Transactional Outbox Pattern.** Persists domain events into the database within the same transaction and asynchronously dispatches to RabbitMQ with DLQ & retry support. |
 | | `renderEmailTemplate(template, vars)` | **HTML Email Template Renderer.** Injects dynamic placeholders `{{variable}}` into branded HANDY GO responsive HTML email layouts. |
-| | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.USER_REGISTERED`. |
+| | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.USER_REGISTERED` (eventVersion: 3, unified payload containing `roles: ["Customer", "Worker"]`). |
 | | `ApiResponseEnvelope`<br>`ApiResponseDto`<br>`buildSuccessResponse(data, message, statusCode)` | **Standardized API Response Envelope Engine.** Wraps all HTTP responses across microservices in `{ statusCode: 200, message: '...', data: T }` structure. |
-
 | **`@app/auth`**<br>`libs/auth/src/` | `@Public()` | Disables default JWT authentication guard for open endpoints (e.g., login, register, health). |
 | | `@RequirePermissions(...)` | Enforces declarative RBAC permission codes on routes. E.g., `@RequirePermissions(StandardPermissions.AUTH_ME)`. |
 | | `@CurrentUser()` | Parameter decorator resolving the authenticated user from the JWT payload: `@CurrentUser() user: AuthenticatedUser`. |
@@ -135,12 +134,14 @@ pnpm run lint
 | `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)` | **IP Spoofing Prevention.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from the API Gateway. Falls back to socket IP. |
 | `common/utils/phone.util.ts` | `normalizeVietnamesePhone(rawPhone)` | **E.164 Vietnamese Mobile Phone Normalization.** Converts valid 10-digit mobile numbers (03, 05, 07, 08, 09) to `+84xxxxxxxxx`. Handles leading zeros (`840...`, `+840...`). Throws `BadRequestException` on invalid formats. |
 | `common/utils/phone.util.ts` | `isValidVietnamesePhone(rawPhone)` | Boolean validator checking if a string conforms to Vietnamese mobile standards. |
-| `common/utils/auth-response.builder.ts` | `AuthResponseBuilder` | **Standardized API Response Envelopes.** Factory methods: `buildRegisterResponse`, `buildAuthSuccessResponse`, `buildResendOtpResponse`, `buildLogoutResponse`, `buildMeResponse`. |
+| `common/utils/password.util.ts` | `@IsMaxByteLength(72)` | **UTF-8 Byte Length Validator.** Enforces strict 72-byte limit matching mobile and bcrypt boundary, preventing truncation vulnerabilities while preserving 8-64 char complexity rules. |
+| `common/utils/auth-response.builder.ts` | `AuthResponseBuilder` | **Standardized API Response Envelopes.** Factory methods: `buildRegisterResponse` (includes `challengeId`), `buildAuthSuccessResponse`, `buildResendOtpResponse` (includes `challengeId`), `buildLogoutResponse`, `buildMeResponse`. |
 | `common/rate-limit/rate-limiter.service.ts` | `RateLimiterService` | **Multi-Tier Rate Limiting & Brute-Force Lockout:**<br>- `checkAndIncrement(key, limit, windowSecs, message)`: Throttler sliding window.<br>- `checkFailedLogins(phone)`: Lockout check (5 failed attempts locks for 15 minutes).<br>- `recordFailedLogin(phone)` & `resetFailedLogins(phone)`: Counter management. |
 | `common/session/session.service.ts` | `SessionService` | **Session & Refresh Token Lifecycle:**<br>- `prepareSession()`: Pre-signs JWT prior to database transaction.<br>- `createSession()`: Stores session atomically.<br>- `rotateSession(refreshToken)`: Refresh token rotation with strict 7-day absolute lifetime.<br>- `revokeSession(refreshToken)`: Immediate invalidation on logout. |
 | `common/rpc/user-trust.client.ts` | `UserTrustClient` | **Fail-Close RPC Client.** Communicates via RabbitMQ to verify user status and KYC profile provisioning in `user-trust-service`. |
 | `common/constants/auth.constants.ts` | Configuration Constants | Rate limits, lockout durations (`FAILED_LOGIN_LOCKOUT_SECONDS = 900`), and internal header names (`INTERNAL_GATEWAY_HEADER = 'x-internal-secret'`). |
-| `otp/otp.service.ts` | `OtpService` | **Cryptographic OTP Service:** Generates 6-digit codes, HMAC-SHA256 hashing, timing-safe equality verification, and SMTP email dispatching. |
+| `otp/otp.service.ts` | `OtpService` | **Cryptographic OTP & SMTP Service:** Generates 6-digit codes, HMAC-SHA256 hashing, timing-safe equality verification. Supports Gmail SMTP (`smtp.gmail.com:465` SSL with App Password) with fail-fast missing credentials check and delivery failure handling. |
+| `otp/otp-flow.service.ts` | `OtpFlowService` | **Atomic OTP Concurrency & Lockout:**<br>- `verifyEmail`: Transaction-level conditional updates (`isUsed = false`, `deliveryStatus = 'delivered'`, not expired, `attempts < 5`) for both failed and valid codes; 5 failed attempts completely locks verification until new challenge requested.<br>- `resendOtp`: Account row-level lock (`SELECT ... FOR UPDATE`), active pending challenge (15s timeout) / cooldown check returning 429 without sending 2nd email; SMTP dispatch outside transaction with timeout; on SMTP failure old delivered code remains valid and immediate resend allowed. |
 
 ---
 

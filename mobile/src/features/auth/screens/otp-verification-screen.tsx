@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/use-auth-store';
 export function OtpVerificationScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    challengeId?: string;
     email?: string;
     phone?: string;
     emailMasked?: string;
@@ -26,7 +27,9 @@ export function OtpVerificationScreen() {
   const email = params.email;
   const phone = params.phone;
   const emailMasked = params.emailMasked;
-  const deliveryFailed = params.deliveryFailed === 'true';
+  const [isDeliveryFailed, setIsDeliveryFailed] = React.useState(params.deliveryFailed === 'true');
+
+  const [challengeId, setChallengeId] = React.useState<string | undefined>(params.challengeId);
 
   const verifyOtp = useAuthStore.use.verifyOtp();
   const isLoading = useAuthStore.use.isLoading();
@@ -40,7 +43,9 @@ export function OtpVerificationScreen() {
   const targetResendTimestamp = React.useRef<number>(
     params.resendAvailableAt
       ? new Date(params.resendAvailableAt).getTime()
-      : Date.now() + 60000,
+      : isDeliveryFailed
+        ? Date.now()
+        : Date.now() + 60000,
   );
 
   const calculateRemainingSeconds = React.useCallback(() => {
@@ -96,19 +101,14 @@ export function OtpVerificationScreen() {
 
     try {
       await verifyOtp({
+        challengeId,
         email,
         phone,
         otp: cleanOtp,
       });
 
-      // Verification successful, navigate to Login screen to log in with Phone + Password
-      router.replace({
-        pathname: RouteNames.AUTH_LOGIN,
-        params: {
-          phone: phone || '',
-          verified: 'true',
-        },
-      } as any);
+      // Verification successful: tokens saved and store updated, navigate directly into Customer App
+      router.replace(RouteNames.CUSTOMER_HOME as any);
     }
     catch (err: any) {
       const code = err?.code;
@@ -169,6 +169,11 @@ export function OtpVerificationScreen() {
     try {
       const response = await AuthApi.resendOtp({ email, phone });
       setSuccessNotice('Mã OTP mới đã được gửi thành công.');
+      setIsDeliveryFailed(false);
+
+      if (response?.data?.challengeId) {
+        setChallengeId(response.data.challengeId);
+      }
 
       if (response?.data?.resendAvailableAt) {
         targetResendTimestamp.current = new Date(response.data.resendAvailableAt).getTime();
@@ -196,8 +201,15 @@ export function OtpVerificationScreen() {
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="auth-otp-screen" className="flex-1 justify-center px-6 py-8">
+    <Screen
+      safeArea
+      scrollable
+      keyboardAware
+      bottomOffset={70}
+      className="bg-neutral-50 dark:bg-neutral-950"
+      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+    >
+      <View testID="auth-otp-screen" className="px-6 py-8">
         {/* Header */}
         <View className="mb-8 items-center">
           <View className="mb-4">
@@ -216,7 +228,7 @@ export function OtpVerificationScreen() {
 
         {/* Card */}
         <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          {deliveryFailed
+          {isDeliveryFailed
             ? (
                 <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/50">
                   <Text className="text-sm font-medium text-amber-800 dark:text-amber-200">

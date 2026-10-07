@@ -11,25 +11,28 @@ const inputTv = tv({
   slots: {
     container: 'mb-2',
     label: 'text-grey-100 mb-1 text-lg dark:text-neutral-100',
+    inputWrapper:
+      'min-h-[48px] flex-row items-center rounded-xl border-[0.5px] border-neutral-300 bg-neutral-100 px-4 dark:border-neutral-700 dark:bg-neutral-800',
     input:
-      'font-inter mt-0 rounded-xl border-[0.5px] border-neutral-300 bg-neutral-100 px-4 py-3 text-base/5 font-medium dark:border-neutral-700 dark:bg-neutral-800 dark:text-white',
+      'font-inter flex-1 py-3 text-base/5 font-medium text-neutral-900 dark:text-white',
+    rightAccessory: 'ml-2 items-center justify-center',
   },
 
   variants: {
     focused: {
       true: {
-        input: 'border-neutral-400 dark:border-neutral-300',
+        inputWrapper: 'border-neutral-400 dark:border-neutral-300',
       },
     },
     error: {
       true: {
-        input: 'border-danger-600',
+        inputWrapper: 'border-danger-600',
         label: 'text-danger-600 dark:text-danger-600',
       },
     },
     disabled: {
       true: {
-        input: 'bg-neutral-200',
+        inputWrapper: 'bg-neutral-200',
       },
     },
   },
@@ -44,10 +47,11 @@ export type NInputProps = {
   label?: string;
   disabled?: boolean;
   error?: string;
+  rightAccessory?: React.ReactNode;
 } & TextInputProps;
 
 export function Input({ ref, ...props }: NInputProps & { ref?: React.Ref<NTextInput | null> }) {
-  const { label, error, testID, onBlur: onBlurProp, onFocus: onFocusProp, ...inputProps } = props;
+  const { label, error, testID, rightAccessory, onBlur: onBlurProp, onFocus: onFocusProp, ...inputProps } = props;
   const [isFocussed, setIsFocussed] = React.useState(false);
 
   const onBlur = React.useCallback(
@@ -82,20 +86,28 @@ export function Input({ ref, ...props }: NInputProps & { ref?: React.Ref<NTextIn
           {label}
         </Text>
       )}
-      <NTextInput
-        testID={testID}
-        ref={ref}
-        placeholderTextColor={colors.neutral[400]}
-        className={styles.input()}
-        onBlur={onBlur}
-        onFocus={onFocus}
-        {...inputProps}
-        style={StyleSheet.flatten([
-          { writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr' },
-          { textAlign: I18nManager.isRTL ? 'right' : 'left' },
-          inputProps.style,
-        ])}
-      />
+      <View className={styles.inputWrapper()}>
+        <NTextInput
+          testID={testID}
+          ref={ref}
+          placeholderTextColor={colors.neutral[400]}
+          className={styles.input()}
+          onBlur={onBlur}
+          onFocus={onFocus}
+          editable={!props.disabled}
+          {...inputProps}
+          style={StyleSheet.flatten([
+            { writingDirection: I18nManager.isRTL ? 'rtl' : 'ltr' },
+            { textAlign: I18nManager.isRTL ? 'right' : 'left' },
+            inputProps.style,
+          ])}
+        />
+        {rightAccessory && (
+          <View className={styles.rightAccessory()}>
+            {rightAccessory}
+          </View>
+        )}
+      </View>
       {error && (
         <Text
           testID={testID ? `${testID}-error` : undefined}

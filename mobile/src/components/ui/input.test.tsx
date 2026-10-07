@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { I18nManager } from 'react-native';
 
@@ -105,5 +106,17 @@ describe('input component ', () => {
 
     const input = screen.getByTestId('input');
     expect(input.props.disabled).toBe(true);
+  });
+
+  it('renders rightAccessory correctly inside input', () => {
+    const { Text } = require('react-native');
+    render(
+      <Input
+        testID="input"
+        rightAccessory={<Text testID="accessory-btn">Hiện mật khẩu</Text>}
+      />,
+    );
+    expect(screen.getByTestId('accessory-btn')).toBeOnTheScreen();
+    expect(screen.getByText('Hiện mật khẩu')).toBeOnTheScreen();
   });
 });

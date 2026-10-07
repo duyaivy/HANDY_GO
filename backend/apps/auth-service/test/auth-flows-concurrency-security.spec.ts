@@ -16,6 +16,7 @@ import { AuthServiceController } from '../src/auth-service.controller.js';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
+import { LoginLockoutService } from '../src/common/security/login-lockout.service.js';
 import { UserTrustClient } from '../src/common/rpc/user-trust.client.js';
 import { SessionService } from '../src/common/session/session.service.js';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
@@ -48,10 +49,15 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       },
       role: {
         findUnique: vi.fn().mockResolvedValue({ id: 'role-cust', code: 'CUSTOMER', name: 'Customer' }),
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'role-cust', code: 'CUSTOMER', name: 'Customer' },
+          { id: 'role-worker', code: 'WORKER', name: 'Worker' },
+        ]),
         create: vi.fn(),
       },
       otpChallenge: {
         findFirst: vi.fn(),
+        findUnique: vi.fn(),
         create: vi.fn().mockImplementation((args) => Promise.resolve({ id: 'challenge-new', ...args.data })),
         update: vi.fn().mockImplementation((args) => Promise.resolve({ id: args.where.id, ...args.data })),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -116,6 +122,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
           useValue: { triggerPublish: vi.fn().mockResolvedValue(undefined) },
         },
         { provide: RateLimiterService, useValue: rateLimiterMock },
+        LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
         {
           provide: ConfigService,
@@ -198,7 +205,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       ).rejects.toThrow(AppException);
     });
 
-    it('wrong OTP attempts use atomic increment without overwriting concurrent attempts', async () => {
+    it('wrong OTP attempts use conditional update in transaction without overwriting concurrent attempts', async () => {
       dbMock.account.findFirst.mockResolvedValue({
         id: 'acc-attempt-test',
         phone: '+84912345678',
@@ -216,25 +223,60 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         deliveryStatus: 'delivered',
       });
 
-      // Simulate atomic increment returning 3
-      dbMock.otpChallenge.update.mockResolvedValueOnce({
-        id: 'ch-attempt',
-        attempts: 3,
-      });
+      dbMock.otpChallenge.updateMany.mockResolvedValueOnce({ count: 1 });
+      dbMock.otpChallenge.findUnique.mockResolvedValueOnce({ id: 'ch-attempt', attempts: 3 });
 
       await expect(
         authService.verifyEmail({ phone: '0912345678', otp: '999999' }),
       ).rejects.toThrow(AppException);
 
-      expect(dbMock.otpChallenge.update).toHaveBeenCalledWith({
-        where: { id: 'ch-attempt' },
-        data: { attempts: { increment: 1 } },
+      expect(dbMock.otpChallenge.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'ch-attempt',
+            isUsed: false,
+            deliveryStatus: 'delivered',
+            attempts: { lt: 5 },
+          }),
+          data: { attempts: { increment: 1 } },
+        }),
+      );
+    });
+
+    it('after 5 wrong attempts, submitting the correct OTP code is rejected with 429 until new code is requested', async () => {
+      dbMock.account.findFirst.mockResolvedValue({
+        id: 'acc-attempt-5',
+        phone: '+84912345678',
+        email: 'attempt5@example.com',
+        emailVerifiedAt: null,
+        status: 'pending',
       });
+
+      // Challenge already reached 5 attempts
+      dbMock.otpChallenge.findFirst.mockResolvedValue({
+        id: 'ch-attempt-5',
+        otpHash: 'hashed_123456',
+        attempts: 5,
+        expiresAt: new Date(Date.now() + 600000),
+        isUsed: false,
+        deliveryStatus: 'delivered',
+      });
+
+      try {
+        await authService.verifyEmail({ phone: '0912345678', otp: '123456' });
+        expect.unreachable('Should have thrown 429');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(AppException);
+        expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+        expect(err.getResponse()).toMatchObject({
+          code: ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
+        });
+      }
     });
   });
 
   describe('2. Concurrent OTP Resend & Delivery Failure Isolation', () => {
-    it('creates pending challenge as a slot holder; two concurrent resends do not produce two usable codes', async () => {
+    it('creates pending challenge as a slot holder; second concurrent request while pending receives 429', async () => {
       dbMock.account.findFirst.mockResolvedValue({
         id: 'acc-resend-test',
         phone: '+84912345678',
@@ -243,23 +285,27 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         status: 'pending',
       });
 
-      // Initially no challenge cooldown
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce(null);
+      // First query in tx finds an existing pending delivery (dispatched recently)
+      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
+        id: 'ch-pending-active',
+        accountId: 'acc-resend-test',
+        type: 'verify_email',
+        deliveryStatus: 'pending',
+        isUsed: false,
+        createdAt: new Date(),
+      });
 
-      const resendResult = await authService.resendOtp({ phone: '0912345678' });
-      expect(resendResult.statusCode).toBe(HttpStatus.OK);
-
-      // Pending challenge was created first, then activated after SMTP success
-      expect(dbMock.otpChallenge.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ deliveryStatus: 'pending' }),
-        }),
-      );
-      expect(dbMock.otpChallenge.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: { deliveryStatus: 'delivered' },
-        }),
-      );
+      try {
+        await authService.resendOtp({ phone: '0912345678' });
+        expect.unreachable('Should have thrown 429');
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(AppException);
+        expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+        expect(err.getResponse()).toMatchObject({
+          code: ERROR_CODES.RATE_LIMITED,
+        });
+      }
+      expect(otpServiceMock.sendVerificationOtp).not.toHaveBeenCalled();
     });
 
     it('if SMTP delivery fails on resend, pending placeholder is invalidated and old delivered code remains valid', async () => {
@@ -298,31 +344,35 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
   });
 
   describe('3. Registration & Preseeded Roles', () => {
-    it('uses a preseeded Worker role without creating roles during registration', async () => {
+    it('uses preseeded Customer and Worker roles without creating roles during registration', async () => {
       dbMock.account.findUnique.mockResolvedValue(null);
-      dbMock.role.findUnique.mockResolvedValue({ id: 'role-worker', code: 'WORKER', name: 'Worker' });
+      dbMock.role.findMany.mockResolvedValue([
+        { id: 'role-cust', code: 'CUSTOMER', name: 'Customer' },
+        { id: 'role-worker', code: 'WORKER', name: 'Worker' },
+      ]);
       dbMock.account.create.mockResolvedValue({
-        id: 'acc-worker-1',
-        userId: 'user-worker-1',
+        id: 'acc-unified-1',
+        userId: 'user-unified-1',
         phone: '+84987654321',
-        email: 'worker@example.com',
+        email: 'unified@example.com',
         emailVerifiedAt: null,
         status: 'pending',
       });
 
       const res = await authService.register(
         {
-          fullName: 'Tran Van Worker',
+          fullName: 'Tran Van Unified',
           phone: '0987654321',
-          email: 'worker@example.com',
+          email: 'unified@example.com',
           password: 'Password123@',
-          role: 'Worker',
         },
         '10.0.0.1',
       );
 
       expect(res.statusCode).toBe(HttpStatus.CREATED);
-      expect(dbMock.role.findUnique).toHaveBeenCalledWith({ where: { code: 'WORKER' } });
+      expect(dbMock.role.findMany).toHaveBeenCalledWith({
+        where: { code: { in: ['CUSTOMER', 'WORKER'] } },
+      });
       expect(dbMock.role.create).not.toHaveBeenCalled();
     });
 

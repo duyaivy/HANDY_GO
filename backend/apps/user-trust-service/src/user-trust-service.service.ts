@@ -14,7 +14,8 @@ export interface UserRegisteredData {
   userId: string;
   accountId: string;
   fullName: string;
-  role: RegisterRole;
+  roles?: string[];
+  role?: RegisterRole;
 }
 
 @Injectable()
@@ -30,8 +31,18 @@ export class UserTrustServiceService {
     const eventType = 'user.registered';
 
     const validRoles = Object.values(RegisterRole) as string[];
-    if (event.eventVersion !== 2 || !validRoles.includes(data.role)) {
-      this.logger.warn(`Ignoring unsupported user.registered event ${eventId}`);
+    const isVersion3 =
+      event.eventVersion === 3 &&
+      Array.isArray(data.roles) &&
+      data.roles.includes(RegisterRole.CUSTOMER) &&
+      data.roles.includes(RegisterRole.WORKER);
+    const isVersion2 =
+      event.eventVersion === 2 &&
+      typeof data.role === 'string' &&
+      validRoles.includes(data.role);
+
+    if (!isVersion3 && !isVersion2) {
+      this.logger.warn(`Ignoring unsupported or invalid user.registered event ${eventId}`);
       return { processed: false, idempotent: false };
     }
 
@@ -87,7 +98,8 @@ export class UserTrustServiceService {
             },
           });
 
-      if (data.role === RegisterRole.CUSTOMER) {
+      if (isVersion3) {
+        // Unified account: upsert both CustomerProfile and WorkerProfile in same transaction
         await tx.customerProfile.upsert({
           where: { userId: user.id },
           update: {},
@@ -98,7 +110,7 @@ export class UserTrustServiceService {
             updatedAt: now,
           },
         });
-      } else if (data.role === RegisterRole.WORKER) {
+
         await tx.workerProfile.upsert({
           where: { userId: user.id },
           update: {},
@@ -106,15 +118,42 @@ export class UserTrustServiceService {
             id: crypto.randomUUID(),
             userId: user.id,
             status: 'draft',
+            verifiedAt: null,
             createdAt: now,
             updatedAt: now,
           },
         });
+      } else {
+        if (data.role === RegisterRole.CUSTOMER) {
+          await tx.customerProfile.upsert({
+            where: { userId: user.id },
+            update: {},
+            create: {
+              id: crypto.randomUUID(),
+              userId: user.id,
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        } else if (data.role === RegisterRole.WORKER) {
+          await tx.workerProfile.upsert({
+            where: { userId: user.id },
+            update: {},
+            create: {
+              id: crypto.randomUUID(),
+              userId: user.id,
+              status: 'draft',
+              verifiedAt: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
       }
     });
 
     this.logger.log(
-      `User & ${data.role}Profile provisioned for userId ${data.userId} from event ${eventId}.`,
+      `User and profiles provisioned for userId ${data.userId} from event ${eventId}.`,
     );
 
     return { processed: true, idempotent: false };

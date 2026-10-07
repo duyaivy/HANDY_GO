@@ -111,5 +111,47 @@ describe('OtpService', () => {
     const expectedExpireMs = Date.now() + 15 * 60 * 1000;
     expect(Math.abs(generated.expiresAt.getTime() - expectedExpireMs)).toBeLessThan(2000);
   });
+
+  it('should throw when Gmail host is used without credentials', () => {
+    const gmailConfigWithoutCreds = {
+      otpSecret: 'test-otp-secret-key-1234567890',
+      smtpHost: 'smtp.gmail.com',
+      smtpPort: 465,
+      smtpSecure: true,
+      smtpFrom: 'HANDY GO <noreply@gmail.com>',
+      smtpUser: undefined,
+      smtpPass: undefined,
+    } as unknown as ConfigService;
+
+    expect(() => new OtpService(gmailConfigWithoutCreds)).toThrow(
+      'Missing SMTP credentials: SMTP_USER and SMTP_PASS (App Password) are required when using Gmail SMTP.',
+    );
+  });
+
+  it('should configure Gmail transport with SSL and auth when credentials are provided', () => {
+    const gmailConfigWithCreds = {
+      otpSecret: 'test-otp-secret-key-1234567890',
+      smtpHost: 'smtp.gmail.com',
+      smtpPort: 465,
+      smtpSecure: false, // Should auto-enable secure for port 465
+      smtpFrom: 'HANDY GO <myaccount@gmail.com>',
+      smtpUser: 'myaccount@gmail.com',
+      smtpPass: 'abcd efgh ijkl mnop',
+    } as unknown as ConfigService;
+
+    const gmailService = new OtpService(gmailConfigWithCreds);
+    expect(gmailService).toBeDefined();
+    expect(nodemailer.createTransport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: 'myaccount@gmail.com',
+          pass: 'abcd efgh ijkl mnop',
+        },
+      }),
+    );
+  });
 });
 
