@@ -13,19 +13,6 @@ import { QueryCategoryDto } from './dto/query-category.dto.js';
 
 import { RedisService } from '@app/redis';
 
-export interface CategoryTreeNode {
-  id: string;
-  parentId: string | null;
-  name: string;
-  description: string | null;
-  imageUrl: string | null;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  servicesCount?: number;
-  children: CategoryTreeNode[];
-}
-
 @Injectable()
 export class CategoriesService {
   constructor(
@@ -93,11 +80,24 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:*');
+    await this.redis.delByPattern('catalog:categories:*');
     return category;
   }
 
   async findAll(query: QueryCategoryDto) {
+    const cacheKey = `catalog:categories:list:${
+      [
+        `ia:${query.isActive ?? 'all'}`,
+        `s:${query.search ?? ''}`,
+        `pid:${query.parentId ?? 'all'}`,
+        `p:${query.page ?? 1}`,
+        `l:${query.limit ?? 20}`,
+      ].join(',')
+    }`;
+
+    const cached = await this.redis.get<unknown>(cacheKey);
+    if (cached) return cached;
+
     const where: Prisma.CategoryWhereInput = {};
 
     if (query.isActive !== undefined) {
@@ -115,22 +115,6 @@ export class CategoriesService {
       where.parentId = query.parentId;
     }
 
-    // If tree mode requested, build nested hierarchical tree
-    if (query.tree) {
-      const allCategories = await this.prisma.category.findMany({
-        where,
-        orderBy: { name: 'asc' },
-        include: {
-          _count: {
-            select: { services: true },
-          },
-        },
-      });
-
-      return this.buildTree(allCategories);
-    }
-
-    // Flat paginated list
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
@@ -147,13 +131,13 @@ export class CategoriesService {
             select: { id: true, name: true },
           },
           _count: {
-            select: { children: true, services: true },
+             select: { children: true, services: true },
           },
         },
       }),
     ]);
 
-    return {
+    const result = {
       data: items,
       meta: {
         total,
@@ -162,6 +146,9 @@ export class CategoriesService {
         totalPages: Math.ceil(total / limit),
       },
     };
+
+    await this.redis.set(cacheKey, result, 300);
+    return result;
   }
 
   async findOne(id: string) {
@@ -288,7 +275,7 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:*');
+    await this.redis.delByPattern('catalog:categories:*');
     return updated;
   }
 
@@ -334,7 +321,7 @@ export class CategoriesService {
       });
 
       void this.outboxPublisher.triggerPublish();
-      await this.redis.delByPattern('catalog:*');
+      await this.redis.delByPattern('catalog:categories:*');
       return { message: `Category '${category.name}' deleted successfully` };
     }
 
@@ -400,7 +387,7 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:*');
+    await this.redis.delByPattern('catalog:categories:*');
     return updated;
   }
 
@@ -430,50 +417,5 @@ export class CategoriesService {
     }
 
     return false;
-  }
-
-  private buildTree(
-    categories: Array<{
-      id: string;
-      parentId: string | null;
-      name: string;
-      description: string | null;
-      imageUrl: string | null;
-      isActive: boolean;
-      createdAt: Date;
-      updatedAt: Date;
-      _count?: { services: number };
-    }>,
-  ): CategoryTreeNode[] {
-    const map = new Map<string, CategoryTreeNode>();
-    const roots: CategoryTreeNode[] = [];
-
-    // Initialize map
-    for (const cat of categories) {
-      map.set(cat.id, {
-        id: cat.id,
-        parentId: cat.parentId,
-        name: cat.name,
-        description: cat.description,
-        imageUrl: cat.imageUrl,
-        isActive: cat.isActive,
-        createdAt: cat.createdAt,
-        updatedAt: cat.updatedAt,
-        servicesCount: cat._count?.services ?? 0,
-        children: [],
-      });
-    }
-
-    // Connect parents and children
-    for (const cat of categories) {
-      const node = map.get(cat.id)!;
-      if (cat.parentId && map.has(cat.parentId)) {
-        map.get(cat.parentId)!.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-
-    return roots;
   }
 }

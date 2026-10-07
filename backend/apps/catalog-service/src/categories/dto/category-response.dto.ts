@@ -1,36 +1,64 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationMetaDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CategoryResponseDto {
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
-  id: string;
+  id!: string;
 
   @ApiPropertyOptional({ example: null, nullable: true })
-  parentId: string | null;
+  parentId!: string | null;
 
   @ApiProperty({ example: 'Home Cleaning' })
-  name: string;
+  name!: string;
 
   @ApiPropertyOptional({
     example: 'Professional home and apartment cleaning services',
     nullable: true,
   })
-  description: string | null;
+  description!: string | null;
 
   @ApiPropertyOptional({
     example: 'https://example.com/images/cleaning.png',
     nullable: true,
   })
-  imageUrl: string | null;
+  imageUrl!: string | null;
 
   @ApiProperty({ example: true })
-  isActive: boolean;
+  isActive!: boolean;
 
   @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
-  createdAt: Date;
+  createdAt!: Date;
 
   @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
-  updatedAt: Date;
+  updatedAt!: Date;
+}
 
-  @ApiPropertyOptional({ type: () => [CategoryResponseDto] })
-  children?: CategoryResponseDto[];
+export class PaginatedCategoryDataDto {
+  @ApiProperty({ type: [CategoryResponseDto] })
+  data!: CategoryResponseDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta!: PaginationMetaDto;
+}
+
+export class CategorySuccessResponseDto {
+  @ApiProperty({ example: 200 })
+  statusCode!: number;
+
+  @ApiProperty({ example: 'Thao tác danh mục thành công' })
+  message!: string;
+
+  @ApiProperty({ type: CategoryResponseDto })
+  data!: CategoryResponseDto;
+}
+
+export class CategoryListSuccessResponseDto {
+  @ApiProperty({ example: 200 })
+  statusCode!: number;
+
+  @ApiProperty({ example: 'Lấy danh sách danh mục thành công' })
+  message!: string;
+
+  @ApiProperty({ type: PaginatedCategoryDataDto })
+  data!: PaginatedCategoryDataDto;
 }

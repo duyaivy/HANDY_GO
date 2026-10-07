@@ -11,18 +11,4 @@ export class QueryCategoryDto extends PaginationQueryDto {
   @IsOptional()
   @IsUUID('4', { message: 'Parent ID must be a valid UUID v4' })
   parentId?: string;
-
-  @ApiPropertyOptional({
-    description:
-      'If true, returns hierarchical nested category tree structure instead of flat list',
-    default: false,
-  })
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) => {
-    if (value === 'true' || value === true) return true;
-    if (value === 'false' || value === false) return false;
-    return value;
-  })
-  @IsBoolean()
-  tree?: boolean;
 }

@@ -24,7 +24,10 @@ import { ServicesService } from './services.service.js';
 import { CreateServiceDto } from './dto/create-service.dto.js';
 import { UpdateServiceDto } from './dto/update-service.dto.js';
 import { QueryServiceDto } from './dto/query-service.dto.js';
-import { ServiceResponseDto } from './dto/service-response.dto.js';
+import {
+  ServiceListSuccessResponseDto,
+  ServiceSuccessResponseDto,
+} from './dto/service-response.dto.js';
 import { Public, RequirePermissions, StandardPermissions } from '@app/auth';
 import { buildSuccessResponse } from '@app/common';
 
@@ -46,7 +49,7 @@ export class ServicesController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Service created successfully',
-    type: ServiceResponseDto,
+    type: ServiceSuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -75,7 +78,7 @@ export class ServicesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Paginated list of services',
-    type: [ServiceResponseDto],
+    type: ServiceListSuccessResponseDto,
   })
   async findAll(@Query() query: QueryServiceDto) {
     const data = await this.servicesService.findAll(query);
@@ -93,7 +96,7 @@ export class ServicesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Service detail',
-    type: ServiceResponseDto,
+    type: ServiceSuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -116,7 +119,7 @@ export class ServicesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Service updated successfully',
-    type: ServiceResponseDto,
+    type: ServiceSuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -152,7 +155,11 @@ export class ServicesController {
     type: Boolean,
     description: 'Explicit active status. If omitted, toggles current status.',
   })
-  @ApiResponse({ status: HttpStatus.OK, description: 'Service status updated' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Service status updated',
+    type: ServiceSuccessResponseDto,
+  })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Service not found',

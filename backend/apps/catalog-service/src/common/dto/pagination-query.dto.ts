@@ -40,3 +40,17 @@ export class PaginationQueryDto {
   @IsBoolean()
   isActive?: boolean;
 }
+
+export class PaginationMetaDto {
+  @ApiPropertyOptional({ example: 100, description: 'Total number of items' })
+  total!: number;
+
+  @ApiPropertyOptional({ example: 1, description: 'Current page number' })
+  page!: number;
+
+  @ApiPropertyOptional({ example: 20, description: 'Items per page' })
+  limit!: number;
+
+  @ApiPropertyOptional({ example: 5, description: 'Total pages' })
+  totalPages!: number;
+}

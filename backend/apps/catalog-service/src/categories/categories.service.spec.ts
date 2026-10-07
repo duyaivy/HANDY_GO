@@ -4,11 +4,13 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { CategoriesService } from './categories.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
+import { RedisService } from '@app/redis';
 
 describe('CategoriesService', () => {
   let service: CategoriesService;
   let prisma: any;
   let outboxPublisher: any;
+  let redis: any;
 
   const mockCategory = {
     id: '11111111-1111-1111-1111-111111111111',
@@ -42,11 +44,18 @@ describe('CategoriesService', () => {
       triggerPublish: vi.fn().mockResolvedValue(undefined),
     };
 
+    redis = {
+      get: vi.fn().mockResolvedValue(null),
+      set: vi.fn().mockResolvedValue('OK'),
+      delByPattern: vi.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CategoriesService,
         { provide: PrismaService, useValue: prisma },
         { provide: OutboxPublisherService, useValue: outboxPublisher },
+        { provide: RedisService, useValue: redis },
       ],
     }).compile();
 
@@ -103,45 +112,18 @@ describe('CategoriesService', () => {
   });
 
   describe('findAll', () => {
-    it('should return paginated list of categories when tree is false', async () => {
+    it('should return paginated list of categories', async () => {
       prisma.category.count.mockResolvedValue(1);
       prisma.category.findMany.mockResolvedValue([
         { ...mockCategory, parent: null, _count: { children: 0, services: 2 } },
       ]);
 
-      const result = await service.findAll({ page: 1, limit: 10 });
+      const result = (await service.findAll({ page: 1, limit: 10 })) as any;
 
       expect(result).toHaveProperty('data');
       expect(result).toHaveProperty('meta');
       expect(result.data).toHaveLength(1);
       expect(result.meta.total).toBe(1);
-    });
-
-    it('should return hierarchical tree when tree option is true', async () => {
-      const childCat = {
-        id: '22222222-2222-2222-2222-222222222222',
-        parentId: mockCategory.id,
-        name: 'Lau kính',
-        description: null,
-        imageUrl: null,
-        isActive: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        _count: { services: 1 },
-      };
-
-      prisma.category.findMany.mockResolvedValue([
-        { ...mockCategory, _count: { services: 0 } },
-        childCat,
-      ]);
-
-      const result = await service.findAll({ tree: true });
-
-      expect(Array.isArray(result)).toBe(true);
-      expect(result).toHaveLength(1);
-      expect((result as any[])[0].id).toBe(mockCategory.id);
-      expect((result as any[])[0].children).toHaveLength(1);
-      expect((result as any[])[0].children[0].id).toBe(childCat.id);
     });
   });
 
@@ -155,7 +137,7 @@ describe('CategoriesService', () => {
         _count: { services: 0, children: 0 },
       });
 
-      const result = await service.findOne(mockCategory.id);
+      const result = (await service.findOne(mockCategory.id)) as any;
 
       expect(result.id).toBe(mockCategory.id);
     });

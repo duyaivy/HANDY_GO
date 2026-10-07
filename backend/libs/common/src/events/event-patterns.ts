@@ -31,4 +31,9 @@ export const EVENT_PATTERNS = {
   CATEGORY_UPDATED: 'category.updated',
   CATEGORY_STATUS_CHANGED: 'category.status_changed',
   CATEGORY_DELETED: 'category.deleted',
+
+  SERVICE_CREATED: 'service.created',
+  SERVICE_UPDATED: 'service.updated',
+  SERVICE_STATUS_CHANGED: 'service.status_changed',
+  SERVICE_DELETED: 'service.deleted',
 } as const;

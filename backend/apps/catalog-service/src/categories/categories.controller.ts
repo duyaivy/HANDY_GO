@@ -24,7 +24,10 @@ import { CategoriesService } from './categories.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
 import { UpdateCategoryDto } from './dto/update-category.dto.js';
 import { QueryCategoryDto } from './dto/query-category.dto.js';
-import { CategoryResponseDto } from './dto/category-response.dto.js';
+import {
+  CategoryListSuccessResponseDto,
+  CategorySuccessResponseDto,
+} from './dto/category-response.dto.js';
 import { Public, RequirePermissions, StandardPermissions } from '@app/auth';
 import { buildSuccessResponse } from '@app/common';
 
@@ -46,7 +49,7 @@ export class CategoriesController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Category created successfully',
-    type: CategoryResponseDto,
+    type: CategorySuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -70,12 +73,12 @@ export class CategoriesController {
   @ApiOperation({
     summary: 'Get list of service categories',
     description:
-      'Public endpoint to fetch categories with pagination, search, status filtering, and hierarchical tree mode',
+      'Public endpoint to fetch categories with pagination, search, and status filtering',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'List of categories or category tree',
-    type: [CategoryResponseDto],
+    description: 'List of categories',
+    type: CategoryListSuccessResponseDto,
   })
   async findAll(@Query() query: QueryCategoryDto) {
     const data = await this.categoriesService.findAll(query);
@@ -93,7 +96,7 @@ export class CategoriesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Category detail',
-    type: CategoryResponseDto,
+    type: CategorySuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -116,7 +119,7 @@ export class CategoriesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Category updated successfully',
-    type: CategoryResponseDto,
+    type: CategorySuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
@@ -155,6 +158,7 @@ export class CategoriesController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Category status updated',
+    type: CategorySuccessResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,

@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RedisService } from '@app/redis';
 import { CreateServiceDto } from './dto/create-service.dto.js';
@@ -14,6 +15,7 @@ import { QueryServiceDto } from './dto/query-service.dto.js';
 export class ServicesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly outboxPublisher: OutboxPublisherService,
     private readonly redis: RedisService,
   ) {}
 
@@ -39,26 +41,59 @@ export class ServicesService {
       );
     }
 
-    const result = await this.prisma.service.create({
-      data: {
-        categoryId: dto.categoryId,
-        name: dto.name,
-        description: dto.description,
-        iconUrl: dto.iconUrl,
-        isActive: dto.isActive ?? true,
-      },
-      include: {
-        category: {
-          select: { id: true, name: true, imageUrl: true },
+    const result = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.service.create({
+        data: {
+          categoryId: dto.categoryId,
+          name: dto.name,
+          description: dto.description,
+          iconUrl: dto.iconUrl,
+          isActive: dto.isActive ?? true,
         },
-      },
+        include: {
+          category: {
+            select: { id: true, name: true, imageUrl: true },
+          },
+        },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.SERVICE_CREATED,
+          payload: {
+            id: created.id,
+            categoryId: created.categoryId,
+            name: created.name,
+            description: created.description,
+            iconUrl: created.iconUrl,
+            isActive: created.isActive,
+            createdAt: created.createdAt.toISOString(),
+          },
+        },
+      });
+
+      return created;
     });
 
-    await this.redis.delByPattern('catalog:*');
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:services:*');
     return result;
   }
 
   async findAll(query: QueryServiceDto) {
+    const cacheKey = `catalog:services:list:${
+      [
+        `cid:${query.categoryId ?? 'all'}`,
+        `ia:${query.isActive ?? 'all'}`,
+        `s:${query.search ?? ''}`,
+        `p:${query.page ?? 1}`,
+        `l:${query.limit ?? 20}`,
+      ].join(',')
+    }`;
+
+    const cached = await this.redis.get<unknown>(cacheKey);
+    if (cached) return cached;
+
     const where: Prisma.ServiceWhereInput = {};
 
     if (query.categoryId) {
@@ -95,7 +130,7 @@ export class ServicesService {
       }),
     ]);
 
-    return {
+    const result = {
       data: items,
       meta: {
         total,
@@ -104,6 +139,9 @@ export class ServicesService {
         totalPages: Math.ceil(total / limit),
       },
     };
+
+    await this.redis.set(cacheKey, result, 300);
+    return result;
   }
 
   async findOne(id: string) {
@@ -168,23 +206,43 @@ export class ServicesService {
       }
     }
 
-    const updated = await this.prisma.service.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined && { name: dto.name }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
-        ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
-        ...(dto.isActive !== undefined && { isActive: dto.isActive }),
-      },
-      include: {
-        category: {
-          select: { id: true, name: true, imageUrl: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.service.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
+          ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
         },
-      },
+        include: {
+          category: {
+            select: { id: true, name: true, imageUrl: true },
+          },
+        },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.SERVICE_UPDATED,
+          payload: {
+            id: res.id,
+            categoryId: res.categoryId,
+            name: res.name,
+            description: res.description,
+            iconUrl: res.iconUrl,
+            isActive: res.isActive,
+            updatedAt: res.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return res;
     });
 
-    await this.redis.delByPattern('catalog:*');
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:services:*');
     return updated;
   }
 
@@ -198,17 +256,49 @@ export class ServicesService {
     }
 
     if (hard) {
-      await this.prisma.service.delete({ where: { id } });
-      await this.redis.delByPattern('catalog:*');
+      await this.prisma.$transaction(async (tx) => {
+        await tx.service.delete({ where: { id } });
+        await tx.outboxEvent.create({
+          data: {
+            eventType: EVENT_PATTERNS.SERVICE_DELETED,
+            payload: {
+              id,
+              name: service.name,
+              hard: true,
+              deletedAt: new Date().toISOString(),
+            },
+          },
+        });
+      });
+
+      void this.outboxPublisher.triggerPublish();
+      await this.redis.delByPattern('catalog:services:*');
       return { message: `Service '${service.name}' deleted successfully` };
     }
 
-    const updated = await this.prisma.service.update({
-      where: { id },
-      data: { isActive: false },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.service.update({
+        where: { id },
+        data: { isActive: false },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.SERVICE_STATUS_CHANGED,
+          payload: {
+            id: res.id,
+            name: res.name,
+            isActive: false,
+            updatedAt: res.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return res;
     });
 
-    await this.redis.delByPattern('catalog:*');
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:services:*');
     return {
       message: `Service '${service.name}' deactivated successfully`,
       data: updated,
@@ -225,17 +315,34 @@ export class ServicesService {
 
     const nextStatus = isActive !== undefined ? isActive : !service.isActive;
 
-    const updated = await this.prisma.service.update({
-      where: { id },
-      data: { isActive: nextStatus },
-      include: {
-        category: {
-          select: { id: true, name: true },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.service.update({
+        where: { id },
+        data: { isActive: nextStatus },
+        include: {
+          category: {
+            select: { id: true, name: true },
+          },
         },
-      },
+      });
+
+      await tx.outboxEvent.create({
+        data: {
+          eventType: EVENT_PATTERNS.SERVICE_STATUS_CHANGED,
+          payload: {
+            id: res.id,
+            name: res.name,
+            isActive: res.isActive,
+            updatedAt: res.updatedAt.toISOString(),
+          },
+        },
+      });
+
+      return res;
     });
 
-    await this.redis.delByPattern('catalog:*');
+    void this.outboxPublisher.triggerPublish();
+    await this.redis.delByPattern('catalog:services:*');
     return updated;
   }
 }
