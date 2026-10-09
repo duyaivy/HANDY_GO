@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from '@/components/ui/icons/arrow-left';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
+import { RouteNames } from '@/constants/route-names';
 import { ProfileDetailHeaderCard } from '@/features/profile-detail/components';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -19,23 +20,21 @@ export function WorkerProfileDetailScreen() {
     refetch,
   } = useUserProfile();
 
-  const handleStartVerification = () => {
-    Alert.alert('Xác minh KYC', 'Luồng xác minh sẽ sớm được cập nhật.');
-  };
+  const handleStartVerification = () => router.push(RouteNames.ACCOUNT_VERIFICATION_INTRO as any);
 
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="worker-profile-detail-screen" className="flex-1 p-5">
-        <View className="mb-5 flex-row items-center">
+      <View testID="worker-profile-detail-screen" className="flex-1">
+        <View className="relative h-12 flex-row items-center justify-center border-b border-neutral-200 dark:border-neutral-800">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Quay lại"
             onPress={() => router.back()}
-            className="mr-3 size-10 items-center justify-center rounded-full border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900"
+            className="absolute top-1 left-4 size-10 items-center justify-center rounded-full active:bg-neutral-200 dark:active:bg-neutral-800"
           >
             <ArrowLeft width={10} height={20} color="#374151" />
           </Pressable>
-          <Text className="text-lg font-bold text-neutral-900 dark:text-white">Thông tin hồ sơ thợ</Text>
+          <Text className="text-base font-bold text-neutral-900 dark:text-white">Thông tin hồ sơ</Text>
         </View>
 
         <ProfileDetailHeaderCard

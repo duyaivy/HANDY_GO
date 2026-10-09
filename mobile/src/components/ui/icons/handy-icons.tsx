@@ -28,6 +28,15 @@ export function MailIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & 
   );
 }
 
+export function CameraIcon({ color = '#FFFFFF', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
+      <Circle cx="12" cy="13" r="3" />
+    </Svg>
+  );
+}
+
 export function WrenchIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

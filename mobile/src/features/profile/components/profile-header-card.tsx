@@ -87,19 +87,13 @@ export function ProfileHeaderCard({
             </View>
 
             {/* User Details Area */}
-            <View className="flex-1">
+            <View className="flex-1 gap-3">
               <Text
                 testID="profile-full-name"
                 className="text-[14px] font-bold text-neutral-900 dark:text-white"
                 numberOfLines={1}
               >
                 {displayName}
-              </Text>
-              <Text
-                testID="profile-phone"
-                className="mt-0.5 text-[12px] text-neutral-500 dark:text-neutral-400"
-              >
-                {phone || 'Chưa cập nhật SĐT'}
               </Text>
               {/* Badges Row */}
               <View className="mt-1 flex-row flex-wrap items-center justify-between gap-1.5">

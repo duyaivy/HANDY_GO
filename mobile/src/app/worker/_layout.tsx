@@ -7,6 +7,7 @@ export default function WorkerLayout() {
     <RoleGuard allowedRoles={['Worker']}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/detail" options={{ headerShown: false }} />
       </Stack>
     </RoleGuard>
   );

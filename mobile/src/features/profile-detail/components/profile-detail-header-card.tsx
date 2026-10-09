@@ -105,7 +105,7 @@ export function ProfileDetailHeaderCard({
   const accountStatusLabel = accountStatusLabels[accountStatusKey] || accountStatus;
 
   return (
-    <View testID="profile-detail-header-card" className="rounded-2xl border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
+    <View testID="profile-detail-header-card" className="ml-3 h-[282px] w-[370px] rounded-2xl border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
       <View className="flex-row items-center">
         <View className="relative size-[64px] shrink-0">
           {avatarUrl
@@ -178,14 +178,14 @@ export function ProfileDetailHeaderCard({
       {canStartVerification && (
         <Button
           testID="profile-detail-start-verification"
-          accessibilityLabel="Xác thực tài khoản"
+          accessibilityLabel="Xác minh tài khoản"
           variant="destructive"
           size="lg"
           className="mt-2.5 h-10 w-[200px] self-center rounded-xl bg-red-600 px-4 shadow-md shadow-red-600/30 active:bg-red-700 dark:bg-red-600"
           onPress={onStartVerification}
         >
           <View className="w-full flex-row items-center justify-center">
-            <Text className="text-base font-semibold text-white">Xác thực tài khoản</Text>
+            <Text className="text-base font-semibold text-white">Xác minh tài khoản</Text>
           </View>
         </Button>
       )}
