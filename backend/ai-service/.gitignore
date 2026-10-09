@@ -1,0 +1,122 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.pytype/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+MANIFEST
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+*.secret
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Runtime / Temporary
+# =========================
+tmp/
+temp/
+*.tmp
+*.bak
+*.cache
+
+# =========================
+# Application data
+# =========================
+storage/
+uploads/
+results/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Test / Coverage artifacts
+# =========================
+.pytest_cache/
+test-results/
+coverage.xml
+htmlcov/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Docker
+# =========================
+docker-compose.override.yml
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# =========================
+# Local AI / Model files
+# =========================
+models/
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# =========================
+# Project-specific local files
+# =========================
+identity_results/
