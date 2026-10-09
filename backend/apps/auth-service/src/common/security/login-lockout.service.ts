@@ -44,7 +44,7 @@ export class LoginLockoutService {
         `Bạn đã nhập sai mật khẩu quá ${MAX_FAILED_LOGIN_ATTEMPTS} lần. Vui lòng thử lại sau ${Math.ceil(
           retryAfterSeconds / 60,
         )} phút.`,
-        { details: { retryAfterSeconds } },
+        { data: { retryAfterSeconds } },
       );
     }
   }
@@ -62,9 +62,7 @@ export class LoginLockoutService {
       now - existing.lastAttemptAt > FAILED_LOGIN_LOCKOUT_SECONDS * 1000;
 
     const record: LockoutRecord =
-      existing && !isStale
-        ? existing
-        : { attempts: 0, lastAttemptAt: now };
+      existing && !isStale ? existing : { attempts: 0, lastAttemptAt: now };
 
     record.attempts += 1;
     record.lastAttemptAt = now;

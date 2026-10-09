@@ -8,6 +8,7 @@ import {
 import type { Request, Response, NextFunction } from 'express';
 import type { Socket } from 'node:net';
 import crypto from 'node:crypto';
+import { buildErrorResponse, ERROR_CODES } from '@app/common';
 import { SERVICE_ROUTES, type ServiceRouteConfig } from './proxy.constants.js';
 
 interface RouteHandlerEntry {
@@ -75,15 +76,21 @@ export class ProxyMiddleware implements NestMiddleware {
                 ? existingRequestId[0]
                 : existingRequestId) || 'unknown';
 
-            clientRes.status(statusCode).json({
-              success: false,
-              statusCode,
-              message,
-              upstream: route.upstreamName,
-              timestamp: new Date().toISOString(),
-              path: clientReq.originalUrl || clientReq.url,
-              requestId,
-            });
+            clientRes.status(statusCode).json(
+              buildErrorResponse(
+                statusCode,
+                isTimeout
+                  ? ERROR_CODES.GATEWAY_TIMEOUT
+                  : ERROR_CODES.BAD_GATEWAY,
+                message,
+                {
+                  upstream: route.upstreamName,
+                  timestamp: new Date().toISOString(),
+                  path: clientReq.originalUrl || clientReq.url,
+                  requestId,
+                },
+              ),
+            );
           },
         },
       });

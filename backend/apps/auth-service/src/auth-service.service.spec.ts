@@ -283,8 +283,8 @@ describe('AuthServiceService', () => {
       } catch (err: any) {
         expect(err.getStatus()).toBe(HttpStatus.FAILED_DEPENDENCY);
         const res = err.getResponse();
-        expect(res.details.verification.challengeId).toBeDefined();
-        expect(res.details.verification.resendAvailableAt).toBeDefined();
+        expect(res.data.verification.challengeId).toBeDefined();
+        expect(res.data.verification.resendAvailableAt).toBeDefined();
         expect(dbMock.otpChallenge.updateMany).toHaveBeenCalledWith(
           expect.objectContaining({
             data: expect.objectContaining({
@@ -625,8 +625,8 @@ describe('AuthServiceService', () => {
       } catch (err: any) {
         expect(err.getStatus()).toBe(HttpStatus.FORBIDDEN);
         const res = err.getResponse();
-        expect(res.details.verification.challengeId).toBe('challenge-pending-456');
-        expect(res.details.verification.phone).toBe('+84912345678');
+        expect(res.data.verification.challengeId).toBe('challenge-pending-456');
+        expect(res.data.verification.phone).toBe('+84912345678');
       }
     });
 

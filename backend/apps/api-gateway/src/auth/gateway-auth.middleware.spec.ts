@@ -28,7 +28,11 @@ function buildReq(overrides: Partial<Request> = {}): Request {
   } as unknown as Request;
 }
 
-function buildRes(): { res: Response; json: ReturnType<typeof vi.fn>; status: ReturnType<typeof vi.fn> } {
+function buildRes(): {
+  res: Response;
+  json: ReturnType<typeof vi.fn>;
+  status: ReturnType<typeof vi.fn>;
+} {
   const json = vi.fn().mockReturnThis();
   const status = vi.fn().mockReturnValue({ json });
   const res = { status, headersSent: false } as unknown as Response;
@@ -85,7 +89,9 @@ describe('GatewayAuthMiddleware', () => {
 
       await middleware.use(req, res, next);
 
-      expect(req.headers['x-internal-secret']).toBe('super-secret-internal-key');
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
     });
   });
 
@@ -101,7 +107,10 @@ describe('GatewayAuthMiddleware', () => {
     });
 
     it('DELETE /api/v1/categories/1 yêu cầu xác thực', async () => {
-      const req = buildReq({ originalUrl: '/api/v1/categories/1', method: 'DELETE' });
+      const req = buildReq({
+        originalUrl: '/api/v1/categories/1',
+        method: 'DELETE',
+      });
       const { res, status } = buildRes();
 
       await middleware.use(req, res, next);
@@ -114,12 +123,23 @@ describe('GatewayAuthMiddleware', () => {
   describe('Protected routes — yêu cầu JWT hợp lệ', () => {
     it('trả 401 khi không có Authorization header', async () => {
       const req = buildReq({ originalUrl: '/api/v1/orders', method: 'GET' });
-      const { res, status } = buildRes();
+      const { res, status, json } = buildRes();
 
       await middleware.use(req, res, next);
 
       expect(next).not.toHaveBeenCalled();
       expect(status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: 'Thiếu mã truy cập. Vui lòng đăng nhập.',
+          data: expect.objectContaining({
+            path: '/api/v1/orders',
+            requestId: expect.any(String),
+          }),
+        }),
+      );
     });
 
     it('trả 401 khi format sai (không phải Bearer)', async () => {
@@ -169,7 +189,9 @@ describe('GatewayAuthMiddleware', () => {
       expect(req.headers['x-user-account-id']).toBe('account-uuid');
       expect(req.headers['x-user-roles']).toBe('Customer');
       expect(req.headers['x-user-permissions']).toBe('profile:read');
-      expect(req.headers['x-internal-secret']).toBe('super-secret-internal-key');
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
     });
 
     it('strip x-user-* headers do client inject (chống spoofing)', async () => {

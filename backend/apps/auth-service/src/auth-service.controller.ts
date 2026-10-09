@@ -18,6 +18,7 @@ import {
   type AuthenticatedUser,
 } from '@app/auth';
 import { ConfigService } from '@app/config';
+import { ApiErrorResponseDto } from '@app/common';
 import { AuthServiceService } from './auth-service.service.js';
 import { RegisterDto, type RegisterResponse } from './register/index.js';
 import {
@@ -55,8 +56,9 @@ export class AuthServiceController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Đăng ký tài khoản mới' })
   @ApiResponse({ status: 201, description: 'Đăng ký thành công, cần xác thực OTP' })
-  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ' })
-  @ApiResponse({ status: 409, description: 'Số điện thoại hoặc email đã tồn tại' })
+  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 409, description: 'Số điện thoại hoặc email đã tồn tại', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 424, description: 'Tạo tài khoản thành công nhưng không gửi được OTP', type: ApiErrorResponseDto })
   async register(
     @Body() dto: RegisterDto,
     @Ip() clientIp: string,

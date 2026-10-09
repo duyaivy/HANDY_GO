@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { TokenVerifierService } from '@app/auth';
 import { ConfigService } from '@app/config';
 import crypto from 'node:crypto';
+import { buildErrorResponse, ERROR_CODES } from '@app/common';
 
 /**
  * Public routes — các route này KHÔNG yêu cầu xác thực JWT.
@@ -62,14 +63,13 @@ function buildUnauthorizedResponse(
       ? existingRequestId[0]
       : existingRequestId) || crypto.randomUUID();
 
-  res.status(401).json({
-    success: false,
-    statusCode: 401,
-    message,
-    timestamp: new Date().toISOString(),
-    path: req.originalUrl || req.url,
-    requestId,
-  });
+  res.status(401).json(
+    buildErrorResponse(401, ERROR_CODES.UNAUTHORIZED, message, {
+      timestamp: new Date().toISOString(),
+      path: req.originalUrl || req.url,
+      requestId,
+    }),
+  );
 }
 
 @Injectable()
