@@ -61,7 +61,7 @@ export class RateLimiterService implements OnModuleDestroy {
           : record.timeToExpire,
       );
       throw new AppException(429, ERROR_CODES.RATE_LIMITED, errorMessage, {
-        details: { retryAfterSeconds },
+        data: { retryAfterSeconds },
       });
     }
   }

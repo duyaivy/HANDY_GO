@@ -1,3 +1,5 @@
+import type { ApiResponseEnvelope } from '@app/common';
+
 export interface UserSummaryDto {
   id: string;
   phone: string | null;
@@ -13,17 +15,9 @@ export interface AuthSuccessData {
   user: UserSummaryDto;
 }
 
-export interface AuthSuccessResponse {
-  statusCode: number;
-  message: string;
-  data: AuthSuccessData;
-}
+export type AuthSuccessResponse = ApiResponseEnvelope<AuthSuccessData>;
 
-export interface LogoutResponse {
-  statusCode: number;
-  message: string;
-  data: null;
-}
+export type LogoutResponse = ApiResponseEnvelope<null>;
 
 export interface MeResponseData {
   id: string;
@@ -36,8 +30,4 @@ export interface MeResponseData {
   createdAt: Date;
 }
 
-export interface MeResponse {
-  statusCode: number;
-  message: string;
-  data: MeResponseData;
-}
+export type MeResponse = ApiResponseEnvelope<MeResponseData>;

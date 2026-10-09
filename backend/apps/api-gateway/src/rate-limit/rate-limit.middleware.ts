@@ -2,6 +2,7 @@ import { Injectable, type NestMiddleware } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { rateLimit, type RateLimitRequestHandler } from 'express-rate-limit';
 import crypto from 'node:crypto';
+import { buildErrorResponse, ERROR_CODES } from '@app/common';
 
 @Injectable()
 export class RateLimitMiddleware implements NestMiddleware {
@@ -16,14 +17,18 @@ export class RateLimitMiddleware implements NestMiddleware {
           ? existingRequestId[0]
           : existingRequestId) || crypto.randomUUID();
 
-      res.status(429).json({
-        success: false,
-        statusCode: 429,
-        message: 'Too many requests, please try again later',
-        timestamp: new Date().toISOString(),
-        path: req.originalUrl || req.url,
-        requestId,
-      });
+      res.status(429).json(
+        buildErrorResponse(
+          429,
+          ERROR_CODES.RATE_LIMITED,
+          'Too many requests, please try again later',
+          {
+            timestamp: new Date().toISOString(),
+            path: req.originalUrl || req.url,
+            requestId,
+          },
+        ),
+      );
     };
 
     this.globalLimiter = rateLimit({
