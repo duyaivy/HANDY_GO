@@ -11,7 +11,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     ConfigModule.forRoot({ serviceName: 'payment-service', defaultPort: 3007 }),
     LoggerModule.forRoot('payment-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [PaymentServiceController],
   providers: [PaymentServiceService],

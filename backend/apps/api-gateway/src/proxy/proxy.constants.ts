@@ -18,7 +18,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'catalog-service',
     envKey: 'CATALOG_SERVICE_URL',
-    prefixes: ['/api/v1/catalog', '/api/v1/categories'],
+    prefixes: ['/api/v1/catalog', '/api/v1/categories', '/api/v1/services'],
   },
   {
     upstreamName: 'order-service',

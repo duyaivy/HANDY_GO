@@ -6,6 +6,7 @@ import { AuthPrismaService } from '@app/database';
 import { TokenSignerService } from '@app/auth';
 import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
+import { of } from 'rxjs';
 import { AuthServiceService } from './auth-service.service.js';
 import { OtpService } from './otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
@@ -25,6 +26,7 @@ describe('AuthServiceService', () => {
   let outboxPublisherMock: any;
   let rateLimiterMock: any;
   let rabbitmqMock: any;
+  let userTrustRpcClientMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -117,6 +119,16 @@ describe('AuthServiceService', () => {
       }),
     };
 
+    userTrustRpcClientMock = {
+      send: vi.fn().mockReturnValue(
+        of({
+          exists: true,
+          status: 'active',
+          isProvisioned: true,
+        }),
+      ),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthServiceService,
@@ -132,6 +144,7 @@ describe('AuthServiceService', () => {
         { provide: RateLimiterService, useValue: rateLimiterMock },
         LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
           provide: ConfigService,
           useValue: {
@@ -552,7 +565,7 @@ describe('AuthServiceService', () => {
 
       expect(result.data.user.id).toBe('user-worker');
       expect(result.data.user.roles).toEqual(['Worker']);
-      expect(rabbitmqMock.send).toHaveBeenCalledWith('user.auth-status', {
+      expect(userTrustRpcClientMock.send).toHaveBeenCalledWith('user.auth-status', {
         userId: 'user-worker',
         roles: ['Worker'],
       });

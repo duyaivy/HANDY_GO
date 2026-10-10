@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ClientsModule, Transport } from '@nestjs/microservices';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { AuthDatabaseModule } from '@app/database';
 import { AuthModule, AuthSignerModule } from '@app/auth';
@@ -15,6 +16,21 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
 @Module({
   imports: [
     RabbitMQModule,
+    // RPC client riêng để giao tiếp với user-trust-service
+    // Tách biệt với global RABBITMQ_CLIENT (chỉ dùng để emit events)
+    ClientsModule.register([
+      {
+        name: 'USER_TRUST_RPC_CLIENT',
+        transport: Transport.RMQ,
+        options: {
+          urls: [
+            process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672',
+          ],
+          queue: 'user-trust-service',
+          queueOptions: { durable: true },
+        },
+      },
+    ]),
     AuthDatabaseModule,
     AuthModule,
     AuthSignerModule,

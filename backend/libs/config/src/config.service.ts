@@ -130,6 +130,10 @@ export class ConfigService {
   get isProduction(): boolean {
     return this.nodeEnv === 'production';
   }
+
+  get redisUrl(): string {
+    return this.config.get<string>('REDIS_URL') || 'redis://localhost:6379';
+  }
 }
 
 

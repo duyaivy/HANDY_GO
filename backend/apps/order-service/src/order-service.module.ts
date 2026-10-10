@@ -11,7 +11,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     ConfigModule.forRoot({ serviceName: 'order-service', defaultPort: 3004 }),
     LoggerModule.forRoot('order-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [OrderServiceController],
   providers: [OrderServiceService],

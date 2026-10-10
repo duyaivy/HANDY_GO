@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { of } from 'rxjs';
 import {
   AuthModule,
   AuthSignerModule,
@@ -169,6 +170,15 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       }),
     };
 
+    const userTrustRpcClientMock = {
+      send: vi.fn().mockImplementation((pattern: string, data: any) => {
+        if (pattern === 'user.auth-status') {
+          return of(userTrustService.getUserAuthStatus(data.userId, data.roles));
+        }
+        return of({ exists: true, status: 'active', isProvisioned: true });
+      }),
+    };
+
     const rateLimiterMock = {
       checkAndIncrement: vi.fn().mockResolvedValue({
         allowed: true,
@@ -206,6 +216,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
         { provide: RateLimiterService, useValue: rateLimiterMock },
         LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
           provide: ConfigService,
           useValue: {

@@ -9,6 +9,7 @@ import {
 } from '@app/auth';
 import { AuthPrismaService } from '@app/database';
 import { RabbitMQService } from '@app/rabbitmq';
+import { of } from 'rxjs';
 import { AuthServiceService } from '../src/auth-service.service.js';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
@@ -31,6 +32,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   let outboxPublisherMock: any;
   let rateLimiterMock: any;
   let rabbitmqMock: any;
+  let userTrustRpcClientMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -106,6 +108,16 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       }),
     };
 
+    userTrustRpcClientMock = {
+      send: vi.fn().mockReturnValue(
+        of({
+          exists: true,
+          status: 'active',
+          isProvisioned: true,
+        }),
+      ),
+    };
+
     // Build real module graph: imports AuthModule & AuthSignerModule with REAL TokenSignerService
     module = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
@@ -123,6 +135,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
         { provide: RateLimiterService, useValue: rateLimiterMock },
         LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
           provide: ConfigService,
           useValue: {

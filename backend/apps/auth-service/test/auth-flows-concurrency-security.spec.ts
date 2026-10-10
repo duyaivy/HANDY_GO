@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { of, throwError } from 'rxjs';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ExecutionContext, ForbiddenException, HttpStatus } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -36,7 +37,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
   let otpServiceMock: any;
   let rabbitmqMock: any;
   let rateLimiterMock: any;
-
+  let userTrustRpcClientMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -98,6 +99,16 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       }),
     };
 
+    userTrustRpcClientMock = {
+      send: vi.fn().mockReturnValue(
+        of({
+          exists: true,
+          status: 'active',
+          isProvisioned: true,
+        }),
+      ),
+    };
+
     rateLimiterMock = {
       checkAndIncrement: vi.fn().mockResolvedValue(undefined),
       checkFailedLogins: vi.fn().mockResolvedValue(undefined),
@@ -124,6 +135,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         { provide: RateLimiterService, useValue: rateLimiterMock },
         LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
           provide: ConfigService,
           useValue: {
@@ -396,14 +408,16 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
 
   describe('4. User & Trust RPC Fail-Close (No Test Bypass & 503 on Failure)', () => {
     it('throws 503 SERVICE_UNAVAILABLE when RabbitMQ dependency is missing', async () => {
-      const clientWithoutRmq = new UserTrustClient(undefined);
+      const clientWithoutRmq = new UserTrustClient(undefined as any);
       await expect(clientWithoutRmq.confirmUserStatus('user-1', ['Customer'])).rejects.toThrow(
         expect.objectContaining({ status: HttpStatus.SERVICE_UNAVAILABLE }),
       );
     });
 
     it('throws 503 SERVICE_UNAVAILABLE when RPC call throws or RabbitMQ is down', async () => {
-      rabbitmqMock.send.mockRejectedValueOnce(new Error('Broker connection terminated'));
+      userTrustRpcClientMock.send.mockReturnValueOnce(
+        throwError(() => new Error('Broker connection terminated')),
+      );
 
       await expect(userTrustClient.confirmUserStatus('user-1', ['Customer'])).rejects.toThrow(
         expect.objectContaining({ status: HttpStatus.SERVICE_UNAVAILABLE }),
@@ -411,11 +425,13 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
     });
 
     it('throws 424 PROFILE_NOT_READY when profile is not yet provisioned', async () => {
-      rabbitmqMock.send.mockResolvedValueOnce({
-        exists: true,
-        status: 'pending',
-        isProvisioned: false,
-      });
+      userTrustRpcClientMock.send.mockReturnValueOnce(
+        of({
+          exists: true,
+          status: 'pending',
+          isProvisioned: false,
+        }),
+      );
 
       await expect(userTrustClient.confirmUserStatus('user-1', ['Customer'])).rejects.toThrow(
         expect.objectContaining({ status: HttpStatus.FAILED_DEPENDENCY }),
@@ -423,11 +439,13 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
     });
 
     it('throws 403 ACCOUNT_BLOCKED when user status is suspended or deleted', async () => {
-      rabbitmqMock.send.mockResolvedValueOnce({
-        exists: true,
-        status: 'suspended',
-        isProvisioned: true,
-      });
+      userTrustRpcClientMock.send.mockReturnValueOnce(
+        of({
+          exists: true,
+          status: 'suspended',
+          isProvisioned: true,
+        }),
+      );
 
       await expect(userTrustClient.confirmUserStatus('user-1', ['Customer'])).rejects.toThrow(
         expect.objectContaining({ status: HttpStatus.FORBIDDEN }),

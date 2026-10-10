@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
+import { of } from 'rxjs';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
 import { AuthModule, AuthSignerModule } from '@app/auth';
@@ -76,6 +77,10 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
         {
           provide: RabbitMQService,
           useValue: { send: vi.fn().mockResolvedValue({ exists: true, status: 'active', isProvisioned: true }) },
+        },
+        {
+          provide: 'USER_TRUST_RPC_CLIENT',
+          useValue: { send: vi.fn().mockReturnValue(of({ exists: true, status: 'active', isProvisioned: true })) },
         },
         {
           provide: ConfigService,

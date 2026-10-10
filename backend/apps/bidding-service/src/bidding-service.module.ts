@@ -11,7 +11,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005 }),
     LoggerModule.forRoot('bidding-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [BiddingServiceController],
   providers: [BiddingServiceService],

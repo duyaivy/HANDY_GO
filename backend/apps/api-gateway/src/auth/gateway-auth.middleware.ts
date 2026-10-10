@@ -19,6 +19,7 @@ const PUBLIC_PREFIXES: ReadonlyArray<{ prefix: string; methods?: string[] }> = [
   // Catalog & categories — chỉ GET là public, PUT/POST/DELETE yêu cầu xác thực
   { prefix: '/api/v1/catalog', methods: ['GET', 'HEAD'] },
   { prefix: '/api/v1/categories', methods: ['GET', 'HEAD'] },
+  { prefix: '/api/v1/services', methods: ['GET', 'HEAD'] },
   // Infrastructure & Dev Tooling
   { prefix: '/health' },
   { prefix: '/docs' },
