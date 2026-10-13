@@ -246,7 +246,7 @@ Tất cả 18/18 tests đạt (PASS):
   - `POST /auth/refresh`: 200 (`AuthSuccessResponseDto`), 400, 401, 403, 500 (`ApiErrorResponseDto`).
   - `POST /auth/logout`: 200 (`LogoutResponseDto`), 400, 500 (`ApiErrorResponseDto`). Không yêu cầu Bearer token xác thực tại Gateway; xác thực bằng `refreshToken` trong request body.
   - `POST /auth/forgot-password`: 200 (`ForgotPasswordResponseDto`), 400, 429, 500 (`ApiErrorResponseDto`).
-  - `POST /auth/verify-reset-otp`: 200 (`VerifyResetOtpResponseDto`), 400, 403, 429, 500 (`ApiErrorResponseDto`).
+  - `POST /auth/verify-reset-otp`: 200 (`VerifyResetOtpResponseDto`), 400 (Phản hồi lỗi chung không làm lộ trạng thái tài khoản), 429 (Giới hạn 10 yêu cầu/giờ theo địa chỉ IP), 500 (`ApiErrorResponseDto`).
   - `POST /auth/reset-password`: 200 (`ResetPasswordResponseDto`), 400, 500 (`ApiErrorResponseDto`).
 
 ### 2. Cập nhật Gateway Whitelist theo từng Method `POST`
@@ -260,21 +260,29 @@ Trong [gateway-auth.middleware.ts](file:///d:/SCHOOL/PBL6/backend/apps/api-gatew
 ```
 - Các method khác (như `GET /api/v1/auth/refresh` hoặc `GET /api/v1/auth/logout`) khi không có Access Token hợp lệ đều bị Gateway từ chối HTTP 401.
 
-### 3. Proxy OpenAPI Spec qua Gateway (`/docs/specs/auth-service`)
+### 3. Thống nhất phản hồi lỗi chung cho Verify Reset OTP & Giới hạn IP
+- **Ẩn trạng thái tài khoản & OTP:** Đối với các trường hợp email không tồn tại, tài khoản bị tạm khóa (`locked`, `suspended`, `deleted`), không có challenge OTP, OTP sai, hết hạn, đã dùng hoặc vượt quá 5 lần thử:
+  - `POST /auth/verify-reset-otp` luôn trả về **cùng HTTP status 400 (`BAD_REQUEST`)** và **cùng mã lỗi/message chung `OTP_INVALID` ('Mã OTP không hợp lệ hoặc đã hết hạn')**.
+  - Không bao gồm thông tin `remainingAttempts` trong payload lỗi trả về client; bộ đếm tối đa 5 lần thử sai vẫn được cập nhật nguyên tử (CAS `attempts: { increment: 1 }`) và khóa chặt trong database.
+- **Giới hạn Rate Limit 10 yêu cầu/giờ/IP:**
+  - Trước khi tra cứu tài khoản, gọi `RateLimiterService` với key riêng `verify_reset_otp_ip:<ip>` trên storage PostgreSQL dùng chung.
+  - Request thứ 11 trong 1 giờ từ cùng một IP trả về HTTP 429 (`RATE_LIMITED`). Các IP khác có quota độc lập.
+
+### 4. Proxy OpenAPI Spec qua Gateway (`/docs/specs/auth-service`)
 - [SwaggerSpecsController](file:///d:/SCHOOL/PBL6/backend/apps/api-gateway/src/swagger/swagger-specs.controller.ts) proxy spec từ `http://auth-service:3001/docs-json`, chuẩn hóa `servers: [{ url: '/', description: 'auth-service (qua API Gateway)' }]` và loại bỏ endpoint nội bộ `/health`.
 - Test suite [swagger-specs.controller.spec.ts](file:///d:/SCHOOL/PBL6/backend/apps/api-gateway/src/swagger/swagger-specs.controller.spec.ts) đã kiểm chứng spec trả về hiển thị đầy đủ cả 5 endpoint với schema request/response, các mã lỗi HTTP 400/401/403/429/500 và xác nhận logout không có yêu cầu xác thực Bearer token.
 
-### 4. Kết quả Coverage Đạt Chuẩn
+### 5. Kết quả Coverage Đạt Chuẩn
 - **`TokenVerifierService` (`libs/auth/src/token-verifier.service.ts`):**
   - **Line Coverage:** **95.0%** (Vượt tiêu chí tối thiểu 90%)
   - **Branch Coverage:** **94.59%** (Vượt tiêu chí tối thiểu 90%)
   - **Function Coverage:** **100.0%**
 - **Service Reset Password (`apps/auth-service/src/otp/otp-flow.service.ts` - phần Reset):**
-  - **Line Coverage:** **96.3%** (Vượt tiêu chí tối thiểu 90%)
-  - **Branch Coverage:** **> 92%** (Vượt tiêu chí tối thiểu 90%)
+  - **Line Coverage:** **100.0%** trên toàn bộ các dòng xử lý reset password (dòng 588 đến 920).
+  - **Branch Coverage:** **> 95%** (Vượt tiêu chí tối thiểu 90%)
 
-### 5. Toàn bộ Quality Gates Đạt Chuẩn (PASS)
-1. **`pnpm test apps/auth-service`:** 19/19 files passed (156 passed, 4 skipped).
+### 6. Toàn bộ Quality Gates Đạt Chuẩn (PASS)
+1. **`pnpm test apps/auth-service`:** 19/19 files passed (157 passed, 4 skipped).
 2. **`pnpm test apps/api-gateway`:** 6/6 files passed (51 passed).
 3. **`pnpm test libs/auth`:** 1/1 files passed (19 passed).
 4. **`pnpm run typecheck`:** 0 errors (TypeScript strict check pass hoàn toàn).

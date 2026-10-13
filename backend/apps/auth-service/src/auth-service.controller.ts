@@ -149,12 +149,11 @@ export class AuthServiceController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Xác thực mã OTP đặt lại mật khẩu và nhận reset token',
-    description: 'Kiểm tra mã OTP 6 chữ số cho mục đích reset_password. Khi hợp lệ, cấp mã resetToken ngắn hạn 15 phút dùng một lần.',
+    description: 'Kiểm tra mã OTP 6 chữ số cho mục đích reset_password. Khi hợp lệ, cấp mã resetToken ngắn hạn 15 phút dùng một lần. Giới hạn tối đa 10 yêu cầu/giờ theo địa chỉ IP.',
   })
   @ApiResponse({ status: 200, description: 'Xác thực OTP thành công, trả về reset token ngắn hạn', type: VerifyResetOtpResponseDto })
-  @ApiResponse({ status: 400, description: 'Mã OTP không hợp lệ, đã hết hạn hoặc đã được sử dụng', type: ApiErrorResponseDto })
-  @ApiResponse({ status: 403, description: 'Tài khoản không ở trạng thái hoạt động', type: ApiErrorResponseDto })
-  @ApiResponse({ status: 429, description: 'Vượt quá số lần thử OTP cho phép (tối đa 5 lần)', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 400, description: 'Mã OTP không hợp lệ, đã hết hạn hoặc thông tin không chính xác', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 429, description: 'Vượt quá giới hạn yêu cầu theo IP (tối đa 10 lần/giờ)', type: ApiErrorResponseDto })
   @ApiResponse({ status: 500, description: 'Lỗi máy chủ nội bộ', type: ApiErrorResponseDto })
   async verifyResetOtp(
     @Body() dto: VerifyResetOtpDto,

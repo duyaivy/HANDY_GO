@@ -116,14 +116,14 @@ describe('SwaggerSpecsController', () => {
         '/auth/verify-reset-otp': {
           post: {
             summary: 'Xác thực mã OTP đặt lại mật khẩu và nhận reset token',
+            description: 'Kiểm tra mã OTP 6 chữ số cho mục đích reset_password. Khi hợp lệ, cấp mã resetToken ngắn hạn 15 phút dùng một lần. Giới hạn tối đa 10 yêu cầu/giờ theo địa chỉ IP.',
             requestBody: {
               content: { 'application/json': { schema: { $ref: '#/components/schemas/VerifyResetOtpDto' } } },
             },
             responses: {
               '200': { description: 'Xác thực OTP thành công', content: { 'application/json': { schema: { $ref: '#/components/schemas/VerifyResetOtpResponseDto' } } } },
-              '400': { description: 'Mã OTP không hợp lệ hoặc đã hết hạn', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
-              '403': { description: 'Tài khoản không ở trạng thái hoạt động', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
-              '429': { description: 'Vượt quá số lần thử OTP', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
+              '400': { description: 'Mã OTP không hợp lệ, đã hết hạn hoặc thông tin không chính xác', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
+              '429': { description: 'Vượt quá giới hạn yêu cầu theo IP (tối đa 10 lần/giờ)', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
               '500': { description: 'Lỗi máy chủ nội bộ', content: { 'application/json': { schema: { $ref: '#/components/schemas/ApiErrorResponseDto' } } } },
             },
           },

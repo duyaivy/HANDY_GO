@@ -111,6 +111,20 @@ describe('AuthServiceController', () => {
     expect(authServiceMock.verifyResetOtp).toHaveBeenCalledWith(dto, '127.0.0.1');
   });
 
+  it('should resolve client IP from trusted gateway and pass to verifyResetOtp', async () => {
+    const dto = { email: 'user@example.com', otp: '123456' };
+    const trustedReq = {
+      headers: {
+        'x-forwarded-for': '203.0.113.195',
+        'x-internal-secret': 'test-gateway-secret',
+      },
+      socket: { remoteAddress: '10.0.0.2' },
+    } as any;
+
+    await controller.verifyResetOtp(dto as any, '10.0.0.2', trustedReq);
+    expect(authServiceMock.verifyResetOtp).toHaveBeenCalledWith(dto, '203.0.113.195');
+  });
+
   it('should call resetPassword on service', async () => {
     const dto = { resetToken: 'mock-token', newPassword: 'NewP@ssword123' };
     await controller.resetPassword(dto as any);

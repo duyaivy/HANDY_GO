@@ -120,48 +120,56 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
   });
 
   describe('1. Kiểm tra xác thực OTP (POST /auth/verify-reset-otp)', () => {
-    it('từ chối khi tài khoản không tồn tại', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(null);
-
-      await expect(
-        flowService.verifyResetOtp({
-          email: 'unknown@example.com',
-          otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
+    const expectGenericOtpError = async (promise: Promise<any>) => {
+      await expect(promise).rejects.toThrow(
         expect.objectContaining({
           status: HttpStatus.BAD_REQUEST,
           response: expect.objectContaining({
-            code: ERROR_CODES.INVALID_CREDENTIALS,
+            statusCode: 400,
+            code: ERROR_CODES.OTP_INVALID,
+            message: 'Mã OTP không hợp lệ hoặc đã hết hạn',
           }),
+        }),
+      );
+      try {
+        await promise;
+      } catch (err: any) {
+        expect(err.getStatus()).toBe(HttpStatus.BAD_REQUEST);
+        const res = err.getResponse();
+        expect(res.code).toBe(ERROR_CODES.OTP_INVALID);
+        expect(res.message).toBe('Mã OTP không hợp lệ hoặc đã hết hạn');
+        expect(res.data?.remainingAttempts).toBeUndefined();
+      }
+    };
+
+    it('từ chối với phản hồi lỗi chung khi tài khoản không tồn tại, không tiết lộ remainingAttempts', async () => {
+      dbMock.account.findUnique.mockResolvedValueOnce(null);
+
+      await expectGenericOtpError(
+        flowService.verifyResetOtp({
+          email: 'unknown@example.com',
+          otp: rawOtpCode,
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối khi tài khoản bị khóa (locked, suspended, deleted)', async () => {
+    it('từ chối với phản hồi lỗi chung khi tài khoản bị khóa (locked, suspended, deleted), không tiết lộ remainingAttempts', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce({
         ...validAccount,
         status: 'locked',
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.FORBIDDEN,
-          response: expect.objectContaining({
-            code: ERROR_CODES.ACCOUNT_BLOCKED,
-          }),
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối khi OTP chưa được gửi thành công (deliveryStatus !== delivered)', async () => {
+    it('từ chối với phản hồi lỗi chung khi OTP chưa được gửi thành công (deliveryStatus !== delivered), không tiết lộ remainingAttempts', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
       dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
         id: 'ch-pending',
@@ -174,23 +182,16 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         deliveryStatus: 'failed',
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_INVALID,
-          }),
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối với OTP_ALREADY_USED khi OTP đã được sử dụng', async () => {
+    it('từ chối với phản hồi lỗi chung khi OTP đã được sử dụng, không tiết lộ remainingAttempts', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
       dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
         id: 'ch-used',
@@ -203,23 +204,16 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         deliveryStatus: 'delivered',
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ALREADY_USED,
-          }),
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối với OTP_EXPIRED khi OTP đã hết hạn', async () => {
+    it('từ chối với phản hồi lỗi chung khi OTP đã hết hạn, không tiết lộ remainingAttempts', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
       dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
         id: 'ch-expired',
@@ -232,23 +226,16 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         deliveryStatus: 'delivered',
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_EXPIRED,
-          }),
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối với OTP_ATTEMPTS_EXCEEDED khi đã vượt quá 5 lần thử', async () => {
+    it('từ chối với phản hồi lỗi chung khi OTP đã vượt quá 5 lần thử, không tiết lộ remainingAttempts', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
       dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
         id: 'ch-maxed',
@@ -261,23 +248,16 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         deliveryStatus: 'delivered',
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.TOO_MANY_REQUESTS,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-          }),
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
     });
 
-    it('từ chối và tăng số lần thử nguyên tử khi OTP sai mã', async () => {
+    it('từ chối với phản hồi lỗi chung và tăng số lần thử nguyên tử trong DB khi OTP sai mã', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
       const activeChallenge = {
         id: 'ch-wrong-code',
@@ -291,19 +271,11 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       };
       dbMock.otpChallenge.findFirst.mockResolvedValueOnce(activeChallenge);
       vi.spyOn(otpService, 'verifyOtpHash').mockReturnValueOnce(false);
-      dbMock.otpChallenge.findUnique.mockResolvedValueOnce({ attempts: 2 });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: '999999',
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_INVALID,
-          }),
         }),
       );
 
@@ -313,6 +285,7 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
             id: activeChallenge.id,
             isUsed: false,
             deliveryStatus: 'delivered',
+            attempts: { lt: 5 },
           }),
           data: {
             attempts: { increment: 1 },
@@ -320,6 +293,107 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
+    });
+
+    it('sau 5 lần sai mã OTP: challenge bị khóa trong database (attempts = 5), tiếp tục thử mã đúng vẫn nhận lỗi chung và không tạo grant', async () => {
+      dbMock.account.findUnique.mockResolvedValue(validAccount);
+      const lockedChallenge = {
+        id: 'ch-locked-after-5',
+        accountId: validAccount.id,
+        type: 'reset_password',
+        otpHash: hashedOtpCode,
+        expiresAt: new Date(Date.now() + 600000),
+        attempts: 5, // Đã chạm mốc 5 lần sai
+        isUsed: false,
+        deliveryStatus: 'delivered',
+      };
+      dbMock.otpChallenge.findFirst.mockResolvedValue(lockedChallenge);
+      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true); // Nhập mã đúng
+
+      await expectGenericOtpError(
+        flowService.verifyResetOtp({
+          email: validAccount.email,
+          otp: rawOtpCode,
+        }),
+      );
+      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
+    });
+
+    it('chặn request thứ 11 trong 1 giờ từ cùng một IP với HTTP 429 RATE_LIMITED trước khi tra cứu tài khoản', async () => {
+      const rateLimiter = module.get<RateLimiterService>(RateLimiterService);
+      vi.spyOn(rateLimiter, 'checkAndIncrement').mockRejectedValueOnce(
+        new AppException(
+          HttpStatus.TOO_MANY_REQUESTS,
+          ERROR_CODES.RATE_LIMITED,
+          'Địa chỉ IP của bạn đã gửi quá nhiều yêu cầu xác thực OTP đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.',
+        ),
+      );
+
+      await expect(
+        flowService.verifyResetOtp(
+          { email: validAccount.email, otp: rawOtpCode },
+          '203.0.113.195',
+        ),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          status: HttpStatus.TOO_MANY_REQUESTS,
+          response: expect.objectContaining({
+            statusCode: 429,
+            code: ERROR_CODES.RATE_LIMITED,
+          }),
+        }),
+      );
+
+      expect(rateLimiter.checkAndIncrement).toHaveBeenCalledWith(
+        'verify_reset_otp_ip:203.0.113.195',
+        10,
+        3600,
+        expect.any(String),
+      );
+      // Giới hạn áp dụng trước khi tra cứu tài khoản
+      expect(dbMock.account.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('IP khác có quota độc lập, key limiter được gán đúng theo IP client', async () => {
+      const rateLimiter = module.get<RateLimiterService>(RateLimiterService);
+      const checkSpy = vi.spyOn(rateLimiter, 'checkAndIncrement').mockResolvedValue(undefined);
+
+      dbMock.account.findUnique.mockResolvedValue(validAccount);
+      dbMock.otpChallenge.findFirst.mockResolvedValue({
+        id: 'ch-quota-check',
+        accountId: validAccount.id,
+        type: 'reset_password',
+        otpHash: hashedOtpCode,
+        expiresAt: new Date(Date.now() + 600000),
+        attempts: 0,
+        isUsed: false,
+        deliveryStatus: 'delivered',
+      });
+      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
+
+      // Request từ IP A
+      await flowService.verifyResetOtp(
+        { email: validAccount.email, otp: rawOtpCode },
+        '203.0.113.10',
+      );
+      expect(checkSpy).toHaveBeenCalledWith(
+        'verify_reset_otp_ip:203.0.113.10',
+        10,
+        3600,
+        expect.any(String),
+      );
+
+      // Request từ IP B
+      await flowService.verifyResetOtp(
+        { email: validAccount.email, otp: rawOtpCode },
+        '203.0.113.20',
+      );
+      expect(checkSpy).toHaveBeenCalledWith(
+        'verify_reset_otp_ip:203.0.113.20',
+        10,
+        3600,
+        expect.any(String),
+      );
     });
 
     it('OTP hợp lệ tạo đúng một reset grant ngẫu nhiên ngắn hạn, chỉ lưu hash và vô hiệu hóa challenge', async () => {
@@ -400,55 +474,15 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         isUsed: true,
       });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
         }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ALREADY_USED,
-          }),
-        }),
       );
     });
 
-    it('nhập sai OTP lần thứ 5 trả về 429 OTP_ATTEMPTS_EXCEEDED với remainingAttempts = 0', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValue({
-        id: 'challenge-wrong-code-5',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        deliveryStatus: 'delivered',
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 4, // Lần này sai sẽ chạm mốc 5
-      });
-
-      // Transaction CAS update attempts từ 4 -> 5
-      dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 1 });
-      dbMock.otpChallenge.findUnique.mockResolvedValue({ attempts: 5 });
-
-      await expect(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: '000000', // Sai OTP
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.TOO_MANY_REQUESTS,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-            data: { remainingAttempts: 0 },
-          }),
-        }),
-      );
-    });
-
-    it('verifyResetOtp khi challengeUpdate.count = 0 do challenge đã bị dùng (race condition) ném OTP_ALREADY_USED', async () => {
+    it('verifyResetOtp khi challengeUpdate.count = 0 (race condition trong transaction) trả về phản hồi lỗi chung', async () => {
       dbMock.account.findUnique.mockResolvedValue(validAccount);
       dbMock.otpChallenge.findFirst.mockResolvedValue({
         id: 'challenge-race-used',
@@ -462,132 +496,13 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       });
       vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
 
-      // CAS updateMany trả count = 0 (bị request khác dùng trước)
+      // CAS updateMany trả count = 0 (bị request khác tranh chấp)
       dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 0 });
-      dbMock.otpChallenge.findUnique.mockResolvedValue({
-        id: 'challenge-race-used',
-        isUsed: true,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 0,
-      });
 
-      await expect(
+      await expectGenericOtpError(
         flowService.verifyResetOtp({
           email: validAccount.email,
           otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ALREADY_USED,
-          }),
-        }),
-      );
-    });
-
-    it('verifyResetOtp khi challengeUpdate.count = 0 do attempts >= maxAttempts ném OTP_ATTEMPTS_EXCEEDED', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValue({
-        id: 'challenge-race-exceeded',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        deliveryStatus: 'delivered',
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 0,
-      });
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
-
-      dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 0 });
-      dbMock.otpChallenge.findUnique.mockResolvedValue({
-        id: 'challenge-race-exceeded',
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 5,
-      });
-
-      await expect(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.TOO_MANY_REQUESTS,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-          }),
-        }),
-      );
-    });
-
-    it('verifyResetOtp khi challengeUpdate.count = 0 do hết hạn trong lúc xử lý ném OTP_EXPIRED', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValue({
-        id: 'challenge-race-expired',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        deliveryStatus: 'delivered',
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 0,
-      });
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
-
-      dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 0 });
-      dbMock.otpChallenge.findUnique.mockResolvedValue({
-        id: 'challenge-race-expired',
-        isUsed: false,
-        expiresAt: new Date(Date.now() - 5000), // đã hết hạn
-        attempts: 0,
-      });
-
-      await expect(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_EXPIRED,
-          }),
-        }),
-      );
-    });
-
-    it('verifyResetOtp khi challengeUpdate.count = 0 và findUnique trả null ném OTP_ALREADY_USED', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValue({
-        id: 'challenge-race-null',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        deliveryStatus: 'delivered',
-        isUsed: false,
-        expiresAt: new Date(Date.now() + 600_000),
-        attempts: 0,
-      });
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
-
-      dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 0 });
-      dbMock.otpChallenge.findUnique.mockResolvedValue(null);
-
-      await expect(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.OTP_ALREADY_USED,
-          }),
         }),
       );
     });

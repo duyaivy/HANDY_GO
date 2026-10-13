@@ -27,6 +27,8 @@ import {
   FORGOT_PASSWORD_EMAIL_LIMIT,
   FORGOT_PASSWORD_IP_LIMIT,
   FORGOT_PASSWORD_WINDOW_SECONDS,
+  VERIFY_RESET_OTP_IP_LIMIT,
+  VERIFY_RESET_OTP_WINDOW_SECONDS,
 } from '../common/constants/auth.constants.js';
 
 @Injectable()
@@ -686,34 +688,43 @@ export class OtpFlowService {
     return AuthResponseBuilder.buildForgotPasswordResponse();
   }
 
+  private throwGenericResetOtpError(): never {
+    throw new AppException(
+      HttpStatus.BAD_REQUEST,
+      ERROR_CODES.OTP_INVALID,
+      'Mã OTP không hợp lệ hoặc đã hết hạn',
+    );
+  }
+
   async verifyResetOtp(
     dto: VerifyResetOtpDto,
-    _clientIp?: string,
+    clientIp?: string,
   ): Promise<VerifyResetOtpResponse> {
+    // 1. Giới hạn tần suất theo IP: tối đa 10 yêu cầu/giờ
+    const ip = clientIp || '127.0.0.1';
+    await this.rateLimiter.checkAndIncrement(
+      `verify_reset_otp_ip:${ip}`,
+      VERIFY_RESET_OTP_IP_LIMIT,
+      VERIFY_RESET_OTP_WINDOW_SECONDS,
+      'Địa chỉ IP của bạn đã gửi quá nhiều yêu cầu xác thực OTP đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.',
+    );
+
     const normalizedEmail = dto.email.trim().toLowerCase();
 
-    // 1. Tra cứu tài khoản theo email đã chuẩn hóa
+    // 2. Tra cứu tài khoản theo email đã chuẩn hóa
     const account = await this.db.account.findUnique({
       where: { email: normalizedEmail },
     });
 
     if (!account) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ERROR_CODES.INVALID_CREDENTIALS,
-        'Tài khoản không tồn tại',
-      );
+      this.throwGenericResetOtpError();
     }
 
     if (['suspended', 'locked', 'deleted'].includes(account.status)) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ERROR_CODES.ACCOUNT_BLOCKED,
-        'Tài khoản đã bị tạm khóa. Không thể đặt lại mật khẩu.',
-      );
+      this.throwGenericResetOtpError();
     }
 
-    // 2. Tìm challenge OTP mục đích reset_password mới nhất
+    // 3. Tìm challenge OTP mục đích reset_password mới nhất
     const now = new Date();
     const maxAttempts = this.otpService?.maxAttempts ?? OtpService.MAX_ATTEMPTS;
 
@@ -726,44 +737,28 @@ export class OtpFlowService {
     });
 
     if (!challenge || challenge.deliveryStatus !== 'delivered') {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ERROR_CODES.OTP_INVALID,
-        'Mã OTP không hợp lệ hoặc chưa được gửi thành công.',
-      );
+      this.throwGenericResetOtpError();
     }
 
     if (challenge.isUsed) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ERROR_CODES.OTP_ALREADY_USED,
-        'Mã OTP đã được sử dụng hoặc không hợp lệ.',
-      );
+      this.throwGenericResetOtpError();
     }
 
     if (challenge.expiresAt <= now) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ERROR_CODES.OTP_EXPIRED,
-        'Mã OTP không hợp lệ hoặc đã hết hạn',
-      );
+      this.throwGenericResetOtpError();
     }
 
     if (challenge.attempts >= maxAttempts) {
-      throw new AppException(
-        HttpStatus.TOO_MANY_REQUESTS,
-        ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-        `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-        { data: { remainingAttempts: 0 } },
-      );
+      this.throwGenericResetOtpError();
     }
 
-    // 3. So khớp mã OTP
+    // 4. So khớp mã OTP
     const isMatch = this.otpService.verifyOtpHash(dto.otp, challenge.otpHash);
     if (!isMatch) {
       // Cập nhật nguyên tử số lần thử thất bại trong transaction có điều kiện
-      const updateResult = await this.db.$transaction(async (tx) => {
-        const updateCount = await tx.otpChallenge.updateMany({
+      // Vẫn giữ bộ đếm tối đa 5 lần sai trong database
+      await this.db.$transaction(async (tx) => {
+        await tx.otpChallenge.updateMany({
           where: {
             id: challenge.id,
             isUsed: false,
@@ -775,80 +770,13 @@ export class OtpFlowService {
             attempts: { increment: 1 },
           },
         });
-
-        if (updateCount.count === 0) {
-          const latest =
-            typeof tx.otpChallenge.findUnique === 'function'
-              ? await tx.otpChallenge.findUnique({
-                  where: { id: challenge.id },
-                })
-              : null;
-          return {
-            success: false,
-            attempts: latest?.attempts ?? maxAttempts,
-            isUsed: latest?.isUsed ?? true,
-            isExpired: !latest || latest.expiresAt <= new Date(),
-          };
-        }
-
-        const updated =
-          typeof tx.otpChallenge.findUnique === 'function'
-            ? await tx.otpChallenge.findUnique({
-                where: { id: challenge.id },
-                select: { attempts: true },
-              })
-            : { attempts: challenge.attempts + 1 };
-
-        return {
-          success: true,
-          attempts: updated?.attempts ?? challenge.attempts + 1,
-          isUsed: false,
-          isExpired: false,
-        };
       });
 
-      if (!updateResult.success) {
-        if (updateResult.attempts >= maxAttempts) {
-          throw new AppException(
-            HttpStatus.TOO_MANY_REQUESTS,
-            ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-            `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-            { data: { remainingAttempts: 0 } },
-          );
-        }
-        if (updateResult.isUsed) {
-          throw new AppException(
-            HttpStatus.BAD_REQUEST,
-            ERROR_CODES.OTP_ALREADY_USED,
-            'Mã OTP đã được sử dụng hoặc không hợp lệ.',
-          );
-        }
-        throw new AppException(
-          HttpStatus.BAD_REQUEST,
-          ERROR_CODES.OTP_EXPIRED,
-          'Mã OTP không hợp lệ hoặc đã hết hạn',
-        );
-      }
-
-      const remaining = maxAttempts - updateResult.attempts;
-      if (remaining <= 0) {
-        throw new AppException(
-          HttpStatus.TOO_MANY_REQUESTS,
-          ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-          `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-          { data: { remainingAttempts: 0 } },
-        );
-      }
-
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ERROR_CODES.OTP_INVALID,
-        `Mã OTP không chính xác. Còn lại ${remaining} lần thử.`,
-        { data: { remainingAttempts: remaining } },
-      );
+      // Phản hồi lỗi chung, không tiết lộ số lần thử còn lại hay trạng thái challenge
+      this.throwGenericResetOtpError();
     }
 
-    // 4. Khi OTP hợp lệ:
+    // 5. Khi OTP hợp lệ:
     // Tạo reset grant ngẫu nhiên (32 bytes hex), ngắn hạn (15 phút), chỉ lưu hash (SHA-256)
     const resetToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
@@ -873,43 +801,7 @@ export class OtpFlowService {
       });
 
       if (challengeUpdate.count === 0) {
-        const current =
-          typeof tx.otpChallenge.findUnique === 'function'
-            ? await tx.otpChallenge.findUnique({
-                where: { id: challenge.id },
-              })
-            : null;
-
-        if (current && current.attempts >= maxAttempts) {
-          throw new AppException(
-            HttpStatus.TOO_MANY_REQUESTS,
-            ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
-            `Bạn đã nhập sai mã OTP quá ${maxAttempts} lần. Vui lòng yêu cầu mã mới.`,
-            { data: { remainingAttempts: 0 } },
-          );
-        }
-
-        if (!current || current.isUsed) {
-          throw new AppException(
-            HttpStatus.BAD_REQUEST,
-            ERROR_CODES.OTP_ALREADY_USED,
-            'Mã OTP đã được sử dụng hoặc không hợp lệ.',
-          );
-        }
-
-        if (current.expiresAt <= verifyTime) {
-          throw new AppException(
-            HttpStatus.BAD_REQUEST,
-            ERROR_CODES.OTP_EXPIRED,
-            'Mã OTP không hợp lệ hoặc đã hết hạn',
-          );
-        }
-
-        throw new AppException(
-          HttpStatus.BAD_REQUEST,
-          ERROR_CODES.OTP_INVALID,
-          'Mã OTP không hợp lệ hoặc đã hết hạn',
-        );
+        this.throwGenericResetOtpError();
       }
 
       // Vô hiệu hóa bất kỳ grant chưa dùng nào trước đó của tài khoản này

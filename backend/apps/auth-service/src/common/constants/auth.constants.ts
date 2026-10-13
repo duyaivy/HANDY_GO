@@ -14,6 +14,9 @@ export const FORGOT_PASSWORD_EMAIL_LIMIT = 5;
 export const FORGOT_PASSWORD_IP_LIMIT = 10;
 export const FORGOT_PASSWORD_WINDOW_SECONDS = 3600;
 
+export const VERIFY_RESET_OTP_IP_LIMIT = 10;
+export const VERIFY_RESET_OTP_WINDOW_SECONDS = 3600;
+
 export const INTERNAL_GATEWAY_HEADER = 'x-internal-secret';
 export const FORWARDED_FOR_HEADER = 'x-forwarded-for';
 export const USER_AGENT_HEADER = 'user-agent';
