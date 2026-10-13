@@ -1,5 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vitest';
+import { UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { AuthModule, AuthSignerModule } from './auth.module.js';
 import { TokenVerifierService } from './token-verifier.service.js';
 import { TokenSignerService } from './token-signer.service.js';
@@ -29,7 +31,7 @@ describe('AuthModule & Token Architecture', () => {
     expect(() => module.get<TokenSignerService>(TokenSignerService)).toThrow();
   });
 
-  it('should allow AuthSignerModule to sign and TokenVerifierService to verify RS256 token claims', async () => {
+  it('should allow AuthSignerModule to sign and TokenVerifierService to verify RS256 token claims with tokenType: access', async () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
     }).compile();
@@ -54,8 +56,275 @@ describe('AuthModule & Token Architecture', () => {
     expect(payload.sid).toBe('sess-123');
     expect(payload.roles).toEqual(['Customer']);
     expect(payload.permissions).toEqual(['auth:me', 'profile:read']);
+    expect(payload.tokenType).toBe('access');
     expect(payload.iss).toBe('handy-go-auth');
     expect(payload.aud).toBe('handy-go-api');
+  });
+
+  describe('Phân biệt Access Token và Refresh Token', () => {
+    let signer: TokenSignerService;
+    let verifier: TokenVerifierService;
+    let jwtService: JwtService;
+    let privateKey: string;
+
+    beforeEach(async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [AuthModule, AuthSignerModule],
+      }).compile();
+
+      signer = module.get<TokenSignerService>(TokenSignerService);
+      verifier = module.get<TokenVerifierService>(TokenVerifierService);
+      jwtService = module.get<JwtService>(JwtService);
+      privateKey = (signer as any).privateKey;
+    });
+
+    it('1. Access Token mới có tokenType: access và verifier chấp nhận', async () => {
+      const { token } = await signer.signAccessToken({
+        accountId: 'acc-new',
+        userId: 'user-new',
+        sessionId: 'sess-new',
+        roles: ['Customer'],
+        permissions: ['auth:me'],
+      });
+
+      const payload = await verifier.verifyAccessToken(token);
+      expect(payload.tokenType).toBe('access');
+      expect(payload.sub).toBe('acc-new');
+    });
+
+    it('2. Access Token cũ không có tokenType vẫn được chấp nhận trong giai đoạn chuyển tiếp', async () => {
+      const legacyToken = await jwtService.signAsync(
+        {
+          sub: 'acc-legacy',
+          userId: 'user-legacy',
+          sid: 'sess-legacy',
+          roles: ['Worker'],
+          permissions: ['profile:read'],
+          iss: 'handy-go-auth',
+          aud: 'handy-go-api',
+          jti: 'legacy-jti-123',
+          // không có tokenType
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '5m',
+        },
+      );
+
+      const payload = await verifier.verifyAccessToken(legacyToken);
+      expect(payload.tokenType).toBeUndefined();
+      expect(payload.sub).toBe('acc-legacy');
+      expect(payload.roles).toEqual(['Worker']);
+    });
+
+    it('3. Verifier từ chối Refresh Token (tokenType: refresh) khi dùng làm Access Token', async () => {
+      const refreshToken = await signer.signRefreshToken({
+        accountId: 'acc-refresh',
+        userId: 'user-refresh',
+        sessionId: 'sess-refresh',
+      });
+
+      await expect(verifier.verifyAccessToken(refreshToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      await expect(verifier.verifyAccessToken(refreshToken)).rejects.toThrow(
+        'Refresh token không được phép sử dụng làm mã truy cập',
+      );
+    });
+
+    it('4. Verifier từ chối Access Token có tokenType không hợp lệ', async () => {
+      const weirdToken = await jwtService.signAsync(
+        {
+          sub: 'acc-weird',
+          userId: 'user-weird',
+          sid: 'sess-weird',
+          tokenType: 'unknown_token_type',
+          iss: 'handy-go-auth',
+          aud: 'handy-go-api',
+          jti: 'weird-jti',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '5m',
+        },
+      );
+
+      await expect(verifier.verifyAccessToken(weirdToken)).rejects.toThrow(
+        'Loại mã truy cập không hợp lệ',
+      );
+    });
+
+    it('5. Verifier từ chối token có chữ ký RS256 không hợp lệ (ký bằng khóa lạ)', async () => {
+      const crypto = await import('node:crypto');
+      const fakePair = crypto.generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      const forgedToken = await jwtService.signAsync(
+        {
+          sub: 'acc-fake',
+          userId: 'user-fake',
+          sid: 'sess-fake',
+          tokenType: 'access',
+          iss: 'handy-go-auth',
+          aud: 'handy-go-api',
+          jti: 'fake-jti',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey: fakePair.privateKey,
+          expiresIn: '5m',
+        },
+      );
+
+      await expect(verifier.verifyAccessToken(forgedToken)).rejects.toThrow(
+        'Mã truy cập không hợp lệ hoặc đã hết hạn',
+      );
+    });
+
+    it('6. Verifier từ chối token có issuer không hợp lệ', async () => {
+      const wrongIssToken = await jwtService.signAsync(
+        {
+          sub: 'acc-iss',
+          userId: 'user-iss',
+          sid: 'sess-iss',
+          tokenType: 'access',
+          iss: 'malicious-issuer',
+          aud: 'handy-go-api',
+          jti: 'iss-jti',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '5m',
+        },
+      );
+
+      await expect(verifier.verifyAccessToken(wrongIssToken)).rejects.toThrow(
+        'Mã truy cập không hợp lệ hoặc đã hết hạn',
+      );
+    });
+
+    it('7. Verifier từ chối token có audience không hợp lệ', async () => {
+      const wrongAudToken = await jwtService.signAsync(
+        {
+          sub: 'acc-aud',
+          userId: 'user-aud',
+          sid: 'sess-aud',
+          tokenType: 'access',
+          iss: 'handy-go-auth',
+          aud: 'wrong-audience',
+          jti: 'aud-jti',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '5m',
+        },
+      );
+
+      await expect(verifier.verifyAccessToken(wrongAudToken)).rejects.toThrow(
+        'Mã truy cập không hợp lệ hoặc đã hết hạn',
+      );
+    });
+
+    it('8. Verifier từ chối token đã hết hạn', async () => {
+      const expiredToken = await jwtService.signAsync(
+        {
+          sub: 'acc-exp',
+          userId: 'user-exp',
+          sid: 'sess-exp',
+          tokenType: 'access',
+          iss: 'handy-go-auth',
+          aud: 'handy-go-api',
+          jti: 'exp-jti',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '-10s',
+        },
+      );
+
+      await expect(verifier.verifyAccessToken(expiredToken)).rejects.toThrow(
+        'Mã truy cập không hợp lệ hoặc đã hết hạn',
+      );
+    });
+
+    it('9. verifyRefreshToken xác minh thành công Refresh Token hợp lệ (RS256, issuer, audience, tokenType: refresh)', async () => {
+      const refreshToken = await signer.signRefreshToken({
+        accountId: 'acc-rf-1',
+        userId: 'user-rf-1',
+        sessionId: 'sess-rf-1',
+      });
+
+      const payload = await verifier.verifyRefreshToken(refreshToken);
+      expect(payload.tokenType).toBe('refresh');
+      expect(payload.sub).toBe('acc-rf-1');
+      expect(payload.userId).toBe('user-rf-1');
+      expect(payload.sid).toBe('sess-rf-1');
+    });
+
+    it('10. verifyRefreshToken từ chối Access Token (không phải tokenType: refresh)', async () => {
+      const { token: accessToken } = await signer.signAccessToken({
+        accountId: 'acc-rf-2',
+        userId: 'user-rf-2',
+        sessionId: 'sess-rf-2',
+        roles: ['Customer'],
+        permissions: [],
+      });
+
+      await expect(verifier.verifyRefreshToken(accessToken)).rejects.toThrow(
+        'Token không phải là refresh token',
+      );
+    });
+
+    it('11. verifyRefreshToken kiểm tra và ràng buộc đúng sub, userId, sid với session', async () => {
+      const refreshToken = await signer.signRefreshToken({
+        accountId: 'acc-session-1',
+        userId: 'user-session-1',
+        sessionId: 'sess-session-1',
+      });
+
+      // 11a. Khớp hoàn toàn cả 3 trường
+      const validPayload = await verifier.verifyRefreshToken(refreshToken, {
+        id: 'sess-session-1',
+        accountId: 'acc-session-1',
+        userId: 'user-session-1',
+      });
+      expect(validPayload.sid).toBe('sess-session-1');
+
+      // 11b. Sai sessionId (sid)
+      await expect(
+        verifier.verifyRefreshToken(refreshToken, {
+          id: 'sess-wrong',
+          accountId: 'acc-session-1',
+          userId: 'user-session-1',
+        }),
+      ).rejects.toThrow('Refresh token không khớp với phiên làm việc (sid)');
+
+      // 11c. Sai accountId (sub)
+      await expect(
+        verifier.verifyRefreshToken(refreshToken, {
+          id: 'sess-session-1',
+          accountId: 'acc-wrong',
+          userId: 'user-session-1',
+        }),
+      ).rejects.toThrow('Refresh token không khớp với tài khoản (sub)');
+
+      // 11d. Sai userId
+      await expect(
+        verifier.verifyRefreshToken(refreshToken, {
+          id: 'sess-session-1',
+          accountId: 'acc-session-1',
+          userId: 'user-wrong',
+        }),
+      ).rejects.toThrow('Refresh token không khớp với người dùng (userId)');
+    });
   });
 
   it('should allow non-HTTP contexts (like RabbitMQ) to bypass JwtAuthGuard and PermissionsGuard', async () => {

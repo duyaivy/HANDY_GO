@@ -83,6 +83,7 @@ export class TokenSignerService {
       sid: params.sessionId,
       roles: params.roles,
       permissions: params.permissions,
+      tokenType: 'access',
       iss: JWT_ISSUER,
       aud: JWT_AUDIENCE,
       jti,

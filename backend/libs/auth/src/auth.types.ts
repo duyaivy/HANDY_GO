@@ -35,8 +35,29 @@ export interface JwtPayload {
   iss: string;
   aud: string;
   jti: string;
+  tokenType?: 'access' | 'refresh' | string;
   iat?: number;
   exp?: number;
+}
+
+export interface RefreshTokenPayload {
+  sub: string;
+  userId: string;
+  sid: string;
+  tokenType: string;
+  jti: string;
+  iss?: string;
+  aud?: string;
+  iat?: number;
+  exp?: number;
+}
+
+export interface SessionBinding {
+  id?: string;
+  sid?: string;
+  accountId?: string;
+  sub?: string;
+  userId?: string;
 }
 
 export interface AuthenticatedUser {

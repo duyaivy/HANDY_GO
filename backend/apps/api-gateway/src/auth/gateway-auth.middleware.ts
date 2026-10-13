@@ -112,11 +112,13 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     let payload;
     try {
       payload = await this.tokenVerifier.verifyAccessToken(token);
-    } catch {
+    } catch (error: any) {
       return buildUnauthorizedResponse(
         res,
         req,
-        'Mã truy cập không hợp lệ hoặc đã hết hạn.',
+        error instanceof Error && error.message
+          ? error.message
+          : 'Mã truy cập không hợp lệ hoặc đã hết hạn.',
       );
     }
 
