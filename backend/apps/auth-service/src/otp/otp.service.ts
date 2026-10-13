@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 import { ConfigService } from '@app/config';
-import { buildOtpEmailHtml } from './templates/otp-email.template.js';
+import {
+  buildOtpEmailHtml,
+  buildPasswordResetEmailHtml,
+} from './templates/otp-email.template.js';
 
 export interface GeneratedOtp {
   code: string;
@@ -92,6 +95,13 @@ export class OtpService {
     return crypto.createHmac('sha256', this.secret).update(otp).digest('hex');
   }
 
+  hashEmail(email: string): string {
+    return crypto
+      .createHmac('sha256', this.secret)
+      .update(email.trim().toLowerCase())
+      .digest('hex');
+  }
+
   verifyOtpHash(plainOtp: string, expectedHash: string): boolean {
     const computedHash = this.hashOtp(plainOtp);
     if (computedHash.length !== expectedHash.length) {
@@ -124,6 +134,32 @@ export class OtpService {
     } catch (error) {
       this.logger.error(
         `Failed to deliver OTP email to ${maskedEmail}: ${(error as Error).message}`,
+      );
+      throw error;
+    }
+  }
+
+  async sendPasswordResetOtp(email: string, otpCode: string): Promise<void> {
+    const from = this.config.smtpFrom;
+    const maskedEmail = this.maskEmail(email);
+
+    if (!this.transporter) {
+      this.initTransporter();
+    }
+
+    try {
+      await this.transporter!.sendMail({
+        from,
+        to: email,
+        subject: `[HANDY GO] Mã xác thực đặt lại mật khẩu`,
+        text: `Chào bạn, mã xác thực đặt lại mật khẩu HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email.`,
+        html: buildPasswordResetEmailHtml(otpCode, this.expirationMinutes),
+      });
+
+      this.logger.log(`Password reset OTP email sent to ${maskedEmail}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to deliver password reset OTP email to ${maskedEmail}: ${(error as Error).message}`,
       );
       throw error;
     }

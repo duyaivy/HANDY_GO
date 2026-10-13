@@ -501,7 +501,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
     });
   });
 
-  describe('6. Logout Response Normalization', () => {
+  describe('6. Logout Response Normalization & Idempotency (HG-31 Phase 3)', () => {
     it('standardizes logout response to { statusCode: 200, message, data: null }', async () => {
       const res = await authService.logout({ refreshToken: 'mock-token' });
       expect(res).toEqual({
@@ -509,6 +509,26 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         message: 'Đăng xuất thành công',
         data: null,
       });
+    });
+
+    it('logout với token không khớp hoặc đã thu hồi vẫn trả 200 idempotent không tiết lộ trạng thái session', async () => {
+      dbMock.refreshSession.updateMany.mockResolvedValueOnce({ count: 0 });
+      const res = await authService.logout({ refreshToken: 'non-existent-token' });
+      expect(res).toEqual({
+        statusCode: 200,
+        message: 'Đăng xuất thành công',
+        data: null,
+      });
+      expect(dbMock.refreshSession.create).not.toHaveBeenCalled();
+    });
+
+    it('gọi lại logout nhiều lần liên tiếp không làm phát sinh lỗi và không tạo session mới', async () => {
+      dbMock.refreshSession.updateMany.mockResolvedValue({ count: 0 });
+      const res1 = await authService.logout({ refreshToken: 'same-token' });
+      const res2 = await authService.logout({ refreshToken: 'same-token' });
+      expect(res1.statusCode).toBe(200);
+      expect(res2.statusCode).toBe(200);
+      expect(dbMock.refreshSession.create).not.toHaveBeenCalled();
     });
   });
 

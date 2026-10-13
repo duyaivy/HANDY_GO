@@ -69,6 +69,10 @@ describe('GatewayAuthMiddleware', () => {
       { url: '/api/v1/auth/verify-email', method: 'POST' },
       { url: '/api/v1/auth/resend-otp', method: 'POST' },
       { url: '/api/v1/auth/refresh', method: 'POST' },
+      { url: '/api/v1/auth/logout', method: 'POST' },
+      { url: '/api/v1/auth/forgot-password', method: 'POST' },
+      { url: '/api/v1/auth/verify-reset-otp', method: 'POST' },
+      { url: '/api/v1/auth/reset-password', method: 'POST' },
       { url: '/api/v1/catalog', method: 'GET' },
       { url: '/api/v1/catalog/123', method: 'GET' },
       { url: '/api/v1/categories', method: 'GET' },
@@ -99,6 +103,124 @@ describe('GatewayAuthMiddleware', () => {
       expect(req.headers['x-internal-secret']).toBe(
         'super-secret-internal-key',
       );
+    });
+  });
+
+  describe('POST /api/v1/auth/refresh — Route public cấp mới access token', () => {
+    it('POST /api/v1/auth/refresh không yêu cầu Access Token hay Authorization header', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/refresh',
+        method: 'POST',
+        headers: {},
+      });
+      const { res } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
+    });
+
+    it('GET /api/v1/auth/refresh yêu cầu xác thực JWT và trả 401 khi không có Authorization header', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/refresh',
+        method: 'GET',
+        headers: {},
+      });
+      const { res, status } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('POST /api/v1/auth/logout — Route public, xác thực bằng Refresh Token trong body', () => {
+    it('POST /api/v1/auth/logout không yêu cầu Access Token hay Authorization header (cho phép next() và inject x-internal-secret)', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/logout',
+        method: 'POST',
+        headers: {}, // Không có authorization header
+      });
+      const { res } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
+    });
+
+    it('POST /api/v1/auth/logout với Access Token đã hết hạn / không hợp lệ trong Authorization header vẫn được bypass để request tới auth-service', async () => {
+      // Giả lập client gửi kèm header Authorization với Access Token đã hết hạn
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/logout',
+        method: 'POST',
+        headers: { authorization: 'Bearer expired.access.token' },
+      });
+      const { res } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      // Route public phải bypass verifier, không bị 401 chặn trước khi tới auth service
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
+    });
+
+    it('GET /api/v1/auth/logout yêu cầu xác thực JWT và trả 401 khi không có Authorization header', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/logout',
+        method: 'GET',
+        headers: {},
+      });
+      const { res, status } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(401);
+    });
+  });
+
+  describe('POST /api/v1/auth/forgot-password — Route public quên mật khẩu', () => {
+    it('POST /api/v1/auth/forgot-password không yêu cầu Access Token hay Authorization header (cho phép next() và inject x-internal-secret)', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/forgot-password',
+        method: 'POST',
+        headers: {},
+      });
+      const { res } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
+    });
+
+    it('GET /api/v1/auth/forgot-password yêu cầu xác thực JWT và trả 401 khi không có Authorization header', async () => {
+      const req = buildReq({
+        originalUrl: '/api/v1/auth/forgot-password',
+        method: 'GET',
+        headers: {},
+      });
+      const { res, status } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(401);
     });
   });
 

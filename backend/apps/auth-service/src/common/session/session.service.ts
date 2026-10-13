@@ -336,4 +336,18 @@ export class SessionService {
       data: { revokedAt: new Date() },
     });
   }
+
+  /**
+   * Revokes all active refresh sessions for an account.
+   */
+  async revokeAllSessions(
+    accountId: string,
+    client: Prisma.TransactionClient | AuthPrismaService = this.db,
+  ): Promise<void> {
+    await client.refreshSession.updateMany({
+      where: { accountId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 }
+

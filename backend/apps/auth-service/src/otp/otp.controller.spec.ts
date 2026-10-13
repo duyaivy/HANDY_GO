@@ -13,6 +13,13 @@ describe('OtpController', () => {
     otpFlowMock = {
       verifyEmail: vi.fn().mockResolvedValue({ statusCode: 200 }),
       resendOtp: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      forgotPassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'OK', data: null }),
+      verifyResetOtp: vi.fn().mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: { resetToken: 'mock-token', expiresIn: 900 },
+      }),
+      resetPassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'OK', data: null }),
     };
 
     configMock = {
@@ -46,5 +53,25 @@ describe('OtpController', () => {
     const fakeReq = { headers: {} } as any;
     await controller.resendOtp(dto as any, '127.0.0.1', fakeReq);
     expect(otpFlowMock.resendOtp).toHaveBeenCalledWith(dto, '127.0.0.1');
+  });
+
+  it('should call forgotPassword on flow service', async () => {
+    const dto = { email: 'a@example.com' };
+    const fakeReq = { headers: {} } as any;
+    await controller.forgotPassword(dto as any, '127.0.0.1', fakeReq);
+    expect(otpFlowMock.forgotPassword).toHaveBeenCalledWith(dto, '127.0.0.1');
+  });
+
+  it('should call verifyResetOtp on flow service', async () => {
+    const dto = { email: 'a@example.com', otp: '123456' };
+    const fakeReq = { headers: {} } as any;
+    await controller.verifyResetOtp(dto as any, '127.0.0.1', fakeReq);
+    expect(otpFlowMock.verifyResetOtp).toHaveBeenCalledWith(dto, '127.0.0.1');
+  });
+
+  it('should call resetPassword on flow service', async () => {
+    const dto = { resetToken: 'mock-token', newPassword: 'NewP@ssword123' };
+    await controller.resetPassword(dto as any);
+    expect(otpFlowMock.resetPassword).toHaveBeenCalledWith(dto);
   });
 });

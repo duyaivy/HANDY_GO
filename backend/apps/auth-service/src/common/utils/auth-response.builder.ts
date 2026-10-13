@@ -5,9 +5,12 @@ import type { RegisterResponse } from '../../register/dto/register-response.dto.
 import type { ResendOtpResponse } from '../../otp/dto/otp-responses.dto.js';
 import type {
   AuthSuccessResponse,
+  ForgotPasswordResponse,
   LogoutResponse,
   MeResponse,
+  ResetPasswordResponse,
   UserSummaryDto,
+  VerifyResetOtpResponse,
 } from '../dto/auth-responses.dto.js';
 
 export class AuthResponseBuilder {
@@ -76,6 +79,42 @@ export class AuthResponseBuilder {
       data: null,
     };
   }
+
+  static buildForgotPasswordResponse(
+    message = 'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
+  ): ForgotPasswordResponse {
+    return {
+      statusCode: HttpStatus.OK,
+      message,
+      data: null,
+    };
+  }
+
+  static buildVerifyResetOtpResponse(
+    resetToken: string,
+    expiresIn = 900,
+    message = 'Xác thực mã OTP thành công. Vui lòng đặt lại mật khẩu mới.',
+  ): VerifyResetOtpResponse {
+    return {
+      statusCode: HttpStatus.OK,
+      message,
+      data: {
+        resetToken,
+        expiresIn,
+      },
+    };
+  }
+
+  static buildResetPasswordResponse(
+    message = 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại với mật khẩu mới.',
+  ): ResetPasswordResponse {
+    return {
+      statusCode: HttpStatus.OK,
+      message,
+      data: null,
+    };
+  }
+
 
   static buildMeResponse(
     account: Pick<Account, 'userId' | 'phone' | 'email' | 'emailVerifiedAt' | 'status' | 'createdAt'>,

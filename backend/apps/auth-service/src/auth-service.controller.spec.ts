@@ -18,6 +18,13 @@ describe('AuthServiceController', () => {
       login: vi.fn().mockResolvedValue({ statusCode: 200 }),
       refresh: vi.fn().mockResolvedValue({ statusCode: 200 }),
       logout: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Đăng xuất thành công', data: null }),
+      forgotPassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'OK', data: null }),
+      verifyResetOtp: vi.fn().mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: { resetToken: 'mock-token', expiresIn: 900 },
+      }),
+      resetPassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'OK', data: null }),
       getMe: vi.fn().mockResolvedValue({ statusCode: 200 }),
     };
 
@@ -89,4 +96,25 @@ describe('AuthServiceController', () => {
     await controller.register(dto as any, '10.0.0.2', trustedReq);
     expect(authServiceMock.register).toHaveBeenCalledWith(dto, '203.0.113.195');
   });
+
+  it('should call forgotPassword on service', async () => {
+    const dto = { email: 'user@example.com' };
+    const fakeReq = { headers: {} } as any;
+    await controller.forgotPassword(dto as any, '127.0.0.1', fakeReq);
+    expect(authServiceMock.forgotPassword).toHaveBeenCalledWith(dto, '127.0.0.1');
+  });
+
+  it('should call verifyResetOtp on service', async () => {
+    const dto = { email: 'user@example.com', otp: '123456' };
+    const fakeReq = { headers: {} } as any;
+    await controller.verifyResetOtp(dto as any, '127.0.0.1', fakeReq);
+    expect(authServiceMock.verifyResetOtp).toHaveBeenCalledWith(dto, '127.0.0.1');
+  });
+
+  it('should call resetPassword on service', async () => {
+    const dto = { resetToken: 'mock-token', newPassword: 'NewP@ssword123' };
+    await controller.resetPassword(dto as any);
+    expect(authServiceMock.resetPassword).toHaveBeenCalledWith(dto);
+  });
 });
+

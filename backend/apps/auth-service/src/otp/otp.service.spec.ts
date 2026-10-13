@@ -153,5 +153,26 @@ describe('OtpService', () => {
       }),
     );
   });
+
+  it('should hash email with HMAC sha256 and normalize input', () => {
+    const hash1 = service.hashEmail('user@example.com');
+    const hash2 = service.hashEmail('  USER@EXAMPLE.COM  ');
+    expect(hash1).toBe(hash2);
+    expect(hash1).toHaveLength(64);
+  });
+
+  it('should send password reset OTP email with proper content', async () => {
+    const transporter = (nodemailer.createTransport as any)();
+    await service.sendPasswordResetOtp('reset@example.com', '654321');
+    expect(transporter.sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'reset@example.com',
+        subject: '[HANDY GO] Mã xác thực đặt lại mật khẩu',
+        text: expect.stringContaining('654321'),
+        html: expect.stringContaining('654321'),
+      }),
+    );
+  });
 });
+
 

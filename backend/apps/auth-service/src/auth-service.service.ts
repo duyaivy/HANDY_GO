@@ -8,6 +8,9 @@ import {
 import {
   VerifyOtpDto,
   ResendOtpDto,
+  ForgotPasswordDto,
+  VerifyResetOtpDto,
+  ResetPasswordDto,
   OtpFlowService,
   type ResendOtpResponse,
 } from './otp/index.js';
@@ -17,6 +20,9 @@ import {
   LogoutDto,
   LoginFlowService,
   type AuthSuccessResponse,
+  type ForgotPasswordResponse,
+  type VerifyResetOtpResponse,
+  type ResetPasswordResponse,
   type LogoutResponse,
   type MeResponse,
 } from './login/index.js';
@@ -50,6 +56,26 @@ export class AuthServiceService {
     clientIp?: string,
   ): Promise<ResendOtpResponse> {
     return this.otpFlow.resendOtp(dto, clientIp);
+  }
+
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+    clientIp?: string,
+  ): Promise<ForgotPasswordResponse> {
+    return this.otpFlow.forgotPassword(dto, clientIp);
+  }
+
+  async verifyResetOtp(
+    dto: VerifyResetOtpDto,
+    clientIp?: string,
+  ): Promise<VerifyResetOtpResponse> {
+    return this.otpFlow.verifyResetOtp(dto, clientIp);
+  }
+
+  async resetPassword(
+    dto: ResetPasswordDto,
+  ): Promise<ResetPasswordResponse> {
+    return this.otpFlow.resetPassword(dto);
   }
 
   async login(

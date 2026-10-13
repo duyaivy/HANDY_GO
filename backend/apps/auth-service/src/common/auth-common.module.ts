@@ -2,10 +2,11 @@ import { Global, Module } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { RabbitMQModule } from '@app/rabbitmq';
-import { AuthDatabaseModule } from '@app/database';
+import { AuthDatabaseModule, AuthPrismaService } from '@app/database';
 import { AuthModule, AuthSignerModule } from '@app/auth';
 import { OutboxPublisherService, OutboxRepository } from '@app/common';
 import { RateLimiterService } from './rate-limit/rate-limiter.service.js';
+import { PostgresThrottlerStorage } from './rate-limit/postgres-throttler-storage.js';
 import { LoginLockoutService } from './security/login-lockout.service.js';
 import { SessionService } from './session/session.service.js';
 import { UserTrustClient } from './rpc/user-trust.client.js';
@@ -34,13 +35,20 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
     AuthDatabaseModule,
     AuthModule,
     AuthSignerModule,
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60000,
-        limit: 30,
-      },
-    ]),
+    ThrottlerModule.forRootAsync({
+      imports: [AuthDatabaseModule],
+      inject: [AuthPrismaService],
+      useFactory: (db: AuthPrismaService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: 60000,
+            limit: 30,
+          },
+        ],
+        storage: new PostgresThrottlerStorage(db),
+      }),
+    }),
   ],
   providers: [
     SessionService,

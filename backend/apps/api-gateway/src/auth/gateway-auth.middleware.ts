@@ -15,7 +15,11 @@ const PUBLIC_PREFIXES: ReadonlyArray<{ prefix: string; methods?: string[] }> = [
   { prefix: '/api/v1/auth/register' },
   { prefix: '/api/v1/auth/verify-email' },
   { prefix: '/api/v1/auth/resend-otp' },
-  { prefix: '/api/v1/auth/refresh' },
+  { prefix: '/api/v1/auth/refresh', methods: ['POST'] },
+  { prefix: '/api/v1/auth/logout', methods: ['POST'] },
+  { prefix: '/api/v1/auth/forgot-password', methods: ['POST'] },
+  { prefix: '/api/v1/auth/verify-reset-otp', methods: ['POST'] },
+  { prefix: '/api/v1/auth/reset-password', methods: ['POST'] },
   // Catalog & categories — chỉ GET là public, PUT/POST/DELETE yêu cầu xác thực
   { prefix: '/api/v1/catalog', methods: ['GET', 'HEAD'] },
   { prefix: '/api/v1/categories', methods: ['GET', 'HEAD'] },

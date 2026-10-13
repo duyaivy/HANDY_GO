@@ -325,6 +325,38 @@ describe('AuthModule & Token Architecture', () => {
         }),
       ).rejects.toThrow('Refresh token không khớp với người dùng (userId)');
     });
+
+    it('12. generateRefreshToken và hashToken sinh token ngẫu nhiên và hash SHA-256 đúng', () => {
+      const token = verifier.generateRefreshToken();
+      expect(typeof token).toBe('string');
+      expect(token.length).toBe(64); // 32 bytes hex = 64 hex chars
+
+      const hash1 = verifier.hashToken(token);
+      const hash2 = verifier.hashToken(token);
+      expect(hash1).toBe(hash2);
+      expect(hash1.length).toBe(64);
+    });
+
+    it('13. verifyRefreshToken từ chối token thiếu sub, userId hoặc sid', async () => {
+      const missingSubToken = await jwtService.signAsync(
+        {
+          tokenType: 'refresh',
+          userId: 'user-1',
+          sid: 'sid-1',
+          iss: 'handy-go-auth',
+          aud: 'handy-go-api',
+        },
+        {
+          algorithm: 'RS256',
+          privateKey,
+          expiresIn: '7d',
+        },
+      );
+
+      await expect(verifier.verifyRefreshToken(missingSubToken)).rejects.toThrow(
+        'Refresh token thiếu thông tin định danh',
+      );
+    });
   });
 
   it('should allow non-HTTP contexts (like RabbitMQ) to bypass JwtAuthGuard and PermissionsGuard', async () => {
