@@ -23,12 +23,17 @@ export interface LandingPageProps {
   onNavigateToAuth?: (mode?: AuthModalMode) => void;
 }
 
+declare global {
+  interface Window {
+    __handyGoLenis?: ReturnType<typeof useLenis>;
+  }
+}
 // Helper component syncs Lenis instance to global window for instant access
 function LenisSync() {
   const lenis = useLenis();
   React.useEffect(() => {
     if (lenis) {
-      (window as any).__handyGoLenis = lenis;
+      window.__handyGoLenis = lenis;
     }
   }, [lenis]);
   return null;

@@ -25,7 +25,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Xử lý chọn ảnh từ máy tính
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
