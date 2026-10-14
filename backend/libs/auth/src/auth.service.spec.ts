@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
@@ -7,6 +8,12 @@ import { TokenVerifierService } from './token-verifier.service.js';
 import { TokenSignerService } from './token-signer.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { PermissionsGuard } from './permissions.guard.js';
+
+const alternateKeyPair = crypto.generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 describe('AuthModule & Token Architecture', () => {
   it('should compile AuthModule and provide verifier and guards without needing signer or private key', async () => {
@@ -156,101 +163,90 @@ describe('AuthModule & Token Architecture', () => {
       );
     });
 
-    it('5. Verifier từ chối token có chữ ký RS256 không hợp lệ (ký bằng khóa lạ)', async () => {
-      const crypto = await import('node:crypto');
-      const fakePair = crypto.generateKeyPairSync('rsa', {
-        modulusLength: 2048,
-        publicKeyEncoding: { type: 'spki', format: 'pem' },
-        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-      });
-
-      const forgedToken = await jwtService.signAsync(
-        {
-          sub: 'acc-fake',
-          userId: 'user-fake',
-          sid: 'sess-fake',
-          tokenType: 'access',
-          iss: 'handy-go-auth',
-          aud: 'handy-go-api',
-          jti: 'fake-jti',
-        },
-        {
-          algorithm: 'RS256',
-          privateKey: fakePair.privateKey,
-          expiresIn: '5m',
-        },
-      );
-
-      await expect(verifier.verifyAccessToken(forgedToken)).rejects.toThrow(
-        'Mã truy cập không hợp lệ hoặc đã hết hạn',
-      );
-    });
-
-    it('6. Verifier từ chối token có issuer không hợp lệ', async () => {
-      const wrongIssToken = await jwtService.signAsync(
-        {
-          sub: 'acc-iss',
-          userId: 'user-iss',
-          sid: 'sess-iss',
-          tokenType: 'access',
-          iss: 'malicious-issuer',
-          aud: 'handy-go-api',
-          jti: 'iss-jti',
-        },
-        {
-          algorithm: 'RS256',
-          privateKey,
-          expiresIn: '5m',
-        },
-      );
-
-      await expect(verifier.verifyAccessToken(wrongIssToken)).rejects.toThrow(
-        'Mã truy cập không hợp lệ hoặc đã hết hạn',
-      );
-    });
-
-    it('7. Verifier từ chối token có audience không hợp lệ', async () => {
-      const wrongAudToken = await jwtService.signAsync(
-        {
-          sub: 'acc-aud',
-          userId: 'user-aud',
-          sid: 'sess-aud',
-          tokenType: 'access',
-          iss: 'handy-go-auth',
-          aud: 'wrong-audience',
-          jti: 'aud-jti',
-        },
-        {
-          algorithm: 'RS256',
-          privateKey,
-          expiresIn: '5m',
-        },
-      );
-
-      await expect(verifier.verifyAccessToken(wrongAudToken)).rejects.toThrow(
-        'Mã truy cập không hợp lệ hoặc đã hết hạn',
-      );
-    });
-
-    it('8. Verifier từ chối token đã hết hạn', async () => {
-      const expiredToken = await jwtService.signAsync(
-        {
-          sub: 'acc-exp',
-          userId: 'user-exp',
-          sid: 'sess-exp',
-          tokenType: 'access',
-          iss: 'handy-go-auth',
-          aud: 'handy-go-api',
-          jti: 'exp-jti',
-        },
-        {
-          algorithm: 'RS256',
-          privateKey,
-          expiresIn: '-10s',
-        },
-      );
-
-      await expect(verifier.verifyAccessToken(expiredToken)).rejects.toThrow(
+    it.each([
+      [
+        'chữ ký RS256 không hợp lệ (ký bằng khóa lạ)',
+        () =>
+          jwtService.signAsync(
+            {
+              sub: 'acc-fake',
+              userId: 'user-fake',
+              sid: 'sess-fake',
+              tokenType: 'access',
+              iss: 'handy-go-auth',
+              aud: 'handy-go-api',
+              jti: 'fake-jti',
+            },
+            {
+              algorithm: 'RS256',
+              privateKey: alternateKeyPair.privateKey,
+              expiresIn: '5m',
+            },
+          ),
+      ],
+      [
+        'issuer không hợp lệ',
+        () =>
+          jwtService.signAsync(
+            {
+              sub: 'acc-iss',
+              userId: 'user-iss',
+              sid: 'sess-iss',
+              tokenType: 'access',
+              iss: 'malicious-issuer',
+              aud: 'handy-go-api',
+              jti: 'iss-jti',
+            },
+            {
+              algorithm: 'RS256',
+              privateKey,
+              expiresIn: '5m',
+            },
+          ),
+      ],
+      [
+        'audience không hợp lệ',
+        () =>
+          jwtService.signAsync(
+            {
+              sub: 'acc-aud',
+              userId: 'user-aud',
+              sid: 'sess-aud',
+              tokenType: 'access',
+              iss: 'handy-go-auth',
+              aud: 'wrong-audience',
+              jti: 'aud-jti',
+            },
+            {
+              algorithm: 'RS256',
+              privateKey,
+              expiresIn: '5m',
+            },
+          ),
+      ],
+      [
+        'token đã hết hạn',
+        () =>
+          jwtService.signAsync(
+            {
+              sub: 'acc-exp',
+              userId: 'user-exp',
+              sid: 'sess-exp',
+              tokenType: 'access',
+              iss: 'handy-go-auth',
+              aud: 'handy-go-api',
+              jti: 'exp-jti',
+            },
+            {
+              algorithm: 'RS256',
+              privateKey,
+              expiresIn: '-10s',
+            },
+          ),
+      ],
+    ])('5-8. Verifier từ chối token có %s', async (_, generateToken) => {
+      const token = await generateToken();
+      await expect(verifier.verifyAccessToken(token)).rejects.toThrow(
         'Mã truy cập không hợp lệ hoặc đã hết hạn',
       );
     });
@@ -397,17 +393,9 @@ describe('AuthModule & Token Architecture', () => {
   });
 
   it('should fail fast on startup if JWT keypair does not match', async () => {
-    // Generate an alternate RS256 keypair
-    const crypto = await import('node:crypto');
-    const altPair = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
-
     const originalPriv = process.env.JWT_PRIVATE_KEY;
     // Set private key to the alternate pair while public key is default
-    process.env.JWT_PRIVATE_KEY = altPair.privateKey;
+    process.env.JWT_PRIVATE_KEY = alternateKeyPair.privateKey;
 
     try {
       await expect(

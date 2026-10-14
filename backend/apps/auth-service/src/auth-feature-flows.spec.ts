@@ -7,7 +7,6 @@ import { TokenSignerService } from '@app/auth';
 import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
 import { of } from 'rxjs';
-import { AuthServiceService } from './auth-service.service.js';
 import { OtpService } from './otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from './common/rate-limit/rate-limiter.service.js';
@@ -18,8 +17,10 @@ import { LoginFlowService } from './login/login-flow.service.js';
 import { SessionService } from './common/session/session.service.js';
 import { UserTrustClient } from './common/rpc/user-trust.client.js';
 
-describe('AuthServiceService', () => {
-  let service: AuthServiceService;
+describe('Auth feature flows', () => {
+  let registerFlow: RegisterFlowService;
+  let otpFlow: OtpFlowService;
+  let loginFlow: LoginFlowService;
   let dbMock: any;
   let tokenSignerMock: any;
   let otpServiceMock: any;
@@ -131,7 +132,6 @@ describe('AuthServiceService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AuthServiceService,
         RegisterFlowService,
         OtpFlowService,
         LoginFlowService,
@@ -155,7 +155,9 @@ describe('AuthServiceService', () => {
       ],
     }).compile();
 
-    service = module.get<AuthServiceService>(AuthServiceService);
+    registerFlow = module.get<RegisterFlowService>(RegisterFlowService);
+    otpFlow = module.get<OtpFlowService>(OtpFlowService);
+    loginFlow = module.get<LoginFlowService>(LoginFlowService);
   });
 
   describe('register', () => {
@@ -174,7 +176,7 @@ describe('AuthServiceService', () => {
         emailVerifiedAt: null,
       });
 
-      const result: any = await service.register({
+      const result: any = await registerFlow.execute({
         fullName: 'Nguyen Van A',
         phone: '0912345678',
         email: 'customer@example.com',
@@ -225,7 +227,7 @@ describe('AuthServiceService', () => {
       dbMock.account.findUnique.mockResolvedValueOnce({ id: 'existing-acc' });
 
       await expect(
-        service.register({
+        registerFlow.execute({
           fullName: 'Nguyen Van A',
           phone: '0912345678',
           email: 'new@example.com',
@@ -240,7 +242,7 @@ describe('AuthServiceService', () => {
         .mockResolvedValueOnce({ id: 'existing-acc' }); // email check
 
       await expect(
-        service.register({
+        registerFlow.execute({
           fullName: 'Nguyen Van A',
           phone: '0912345678',
           email: 'existing@example.com',
@@ -251,7 +253,7 @@ describe('AuthServiceService', () => {
 
     it('should throw BadRequestException if phone format is invalid', async () => {
       await expect(
-        service.register({
+        registerFlow.execute({
           fullName: 'Nguyen Van A',
           phone: '12345',
           email: 'test@example.com',
@@ -273,7 +275,7 @@ describe('AuthServiceService', () => {
       otpServiceMock.sendVerificationOtp.mockRejectedValueOnce(new Error('SMTP down'));
 
       try {
-        await service.register({
+        await registerFlow.execute({
           fullName: 'Nguyen Van A',
           phone: '0912345678',
           email: 'smtp-fail@example.com',
@@ -309,7 +311,7 @@ describe('AuthServiceService', () => {
         });
 
         await expect(
-          service.verifyEmail({ email: 'blocked@example.com', otp: '123456' }),
+          otpFlow.verifyEmail({ email: 'blocked@example.com', otp: '123456' }),
         ).rejects.toThrow(HttpException);
         expect(dbMock.otpChallenge.findFirst).not.toHaveBeenCalled();
       },
@@ -346,7 +348,7 @@ describe('AuthServiceService', () => {
       });
       dbMock.refreshSession.create.mockResolvedValue({ id: 'session-1' });
 
-      const result: any = await service.verifyEmail({
+      const result: any = await otpFlow.verifyEmail({
         email: 'customer@example.com',
         otp: '123456',
       });
@@ -383,7 +385,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.verifyEmail({
+        otpFlow.verifyEmail({
           email: 'customer@example.com',
           otp: '000000',
         }),
@@ -414,7 +416,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.verifyEmail({
+        otpFlow.verifyEmail({
           email: 'customer@example.com',
           otp: '123456',
         }),
@@ -434,7 +436,7 @@ describe('AuthServiceService', () => {
         });
 
         await expect(
-          service.resendOtp({ email: 'blocked@example.com' }),
+          otpFlow.resendOtp({ email: 'blocked@example.com' }),
         ).rejects.toThrow(HttpException);
         expect(otpServiceMock.sendVerificationOtp).not.toHaveBeenCalled();
       },
@@ -450,7 +452,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.resendOtp({ email: 'c@example.com' }),
+        otpFlow.resendOtp({ email: 'c@example.com' }),
       ).rejects.toThrow(HttpException);
     });
 
@@ -463,7 +465,7 @@ describe('AuthServiceService', () => {
         deliveryStatus: 'delivered',
       });
 
-      const result: any = await service.resendOtp({ email: 'c@example.com' });
+      const result: any = await otpFlow.resendOtp({ email: 'c@example.com' });
       expect(result.statusCode).toBe(HttpStatus.OK);
       expect(otpServiceMock.sendVerificationOtp).toHaveBeenCalled();
     });
@@ -473,7 +475,7 @@ describe('AuthServiceService', () => {
       // Previous challenge failed delivery; findFirst filtering for delivered returns null
       dbMock.otpChallenge.findFirst.mockResolvedValue(null);
 
-      const result: any = await service.resendOtp({ email: 'c@example.com' });
+      const result: any = await otpFlow.resendOtp({ email: 'c@example.com' });
       expect(result.statusCode).toBe(HttpStatus.OK);
       expect(otpServiceMock.sendVerificationOtp).toHaveBeenCalled();
     });
@@ -488,7 +490,7 @@ describe('AuthServiceService', () => {
       dbMock.$queryRaw = vi.fn().mockResolvedValue([{ id: 'acc-1' }]);
       dbMock.otpChallenge.findFirst.mockResolvedValue(null);
 
-      await service.resendOtp({ email: 'c@example.com' });
+      await otpFlow.resendOtp({ email: 'c@example.com' });
 
       expect(dbMock.$queryRaw).toHaveBeenCalledTimes(1);
       const [queryParts, accountId] = dbMock.$queryRaw.mock.calls[0];
@@ -506,7 +508,7 @@ describe('AuthServiceService', () => {
       dbMock.$queryRaw = vi.fn().mockRejectedValue(new Error('row lock failed'));
 
       await expect(
-        service.resendOtp({ email: 'c@example.com' }),
+        otpFlow.resendOtp({ email: 'c@example.com' }),
       ).rejects.toThrow('row lock failed');
       expect(dbMock.otpChallenge.findFirst).not.toHaveBeenCalled();
     });
@@ -535,7 +537,7 @@ describe('AuthServiceService', () => {
       dbMock.account.findUnique.mockResolvedValue(mockAccount);
       dbMock.refreshSession.create.mockResolvedValue({ id: 'session-1' });
 
-      const result: any = await service.login({
+      const result: any = await loginFlow.login({
         phone: '0912345678',
         password: 'Password123',
       });
@@ -558,7 +560,7 @@ describe('AuthServiceService', () => {
         otpChallenges: [],
       });
 
-      const result = await service.login({
+      const result = await loginFlow.login({
         phone: '0912345678',
         password: 'Password123',
       });
@@ -587,7 +589,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.login({
+        loginFlow.login({
           phone: '0912345678',
           password: 'WrongPassword',
         }),
@@ -617,7 +619,7 @@ describe('AuthServiceService', () => {
       });
 
       try {
-        await service.login({
+        await loginFlow.login({
           phone: '0912345678',
           password: 'Password123',
         });
@@ -642,7 +644,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.login({
+        loginFlow.login({
           phone: '0912345678',
           password: 'Password123',
         }),
@@ -661,7 +663,7 @@ describe('AuthServiceService', () => {
       });
 
       await expect(
-        service.login({
+        loginFlow.login({
           phone: '0912345678',
           password: 'Password123',
         }),
@@ -696,7 +698,7 @@ describe('AuthServiceService', () => {
         ],
       });
 
-      const result: any = await service.refresh({
+      const result: any = await loginFlow.refresh({
         refreshToken: 'valid-token',
       });
 
@@ -714,7 +716,7 @@ describe('AuthServiceService', () => {
         revokedAt: null,
       });
 
-      await expect(service.refresh({ refreshToken: 'old-token' })).rejects.toThrow(HttpException);
+      await expect(loginFlow.refresh({ refreshToken: 'old-token' })).rejects.toThrow(HttpException);
       expect(dbMock.refreshSession.update).toHaveBeenCalledWith({
         where: { id: 'session-expired' },
         data: { revokedAt: expect.any(Date) },
@@ -726,7 +728,7 @@ describe('AuthServiceService', () => {
       dbMock.refreshSession.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.refresh({ refreshToken: 'expired-token' }),
+        loginFlow.refresh({ refreshToken: 'expired-token' }),
       ).rejects.toThrow(HttpException);
     });
   });
@@ -735,7 +737,7 @@ describe('AuthServiceService', () => {
     it('should revoke session on logout and return data: null', async () => {
       dbMock.refreshSession.updateMany.mockResolvedValue({ count: 1 });
 
-      const result: any = await service.logout({ refreshToken: 'mock-refresh-token' });
+      const result: any = await loginFlow.logout({ refreshToken: 'mock-refresh-token' });
 
       expect(result.statusCode).toBe(HttpStatus.OK);
       expect(result.message).toBe('Đăng xuất thành công');
@@ -744,3 +746,4 @@ describe('AuthServiceService', () => {
     });
   });
 });
+

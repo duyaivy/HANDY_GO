@@ -8,9 +8,8 @@ import { AuthPrismaService } from '@app/database';
 import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
 import { OutboxPublisherService } from '@app/common';
-import { AuthServiceService } from '../src/auth-service.service.js';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
-import { OtpFlowService } from '../src/otp/otp-flow.service.js';
+import { PasswordResetFlowService } from '../src/otp/password-reset-flow.service.js';
 import { LoginFlowService } from '../src/login/login-flow.service.js';
 import { SessionService } from '../src/common/session/session.service.js';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
@@ -20,7 +19,7 @@ import { OtpService } from '../src/otp/otp.service.js';
 
 describe('Password Reset Concurrency & Integration with Isolated Test Database', () => {
   let module: TestingModule;
-  let flowService: OtpFlowService;
+  let flowService: PasswordResetFlowService;
   let prisma: AuthPrismaService;
   let otpServiceMock: {
     generateOtp: ReturnType<typeof vi.fn>;
@@ -55,9 +54,8 @@ describe('Password Reset Concurrency & Integration with Isolated Test Database',
     module = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
       providers: [
-        AuthServiceService,
         RegisterFlowService,
-        OtpFlowService,
+        PasswordResetFlowService,
         LoginFlowService,
         SessionService,
         UserTrustClient,
@@ -85,7 +83,7 @@ describe('Password Reset Concurrency & Integration with Isolated Test Database',
       ],
     }).compile();
 
-    flowService = module.get<OtpFlowService>(OtpFlowService);
+    flowService = module.get<PasswordResetFlowService>(PasswordResetFlowService);
     prisma = module.get<AuthPrismaService>(AuthPrismaService);
 
     try {

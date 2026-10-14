@@ -28,17 +28,17 @@ export class PostgresThrottlerStorage implements ThrottlerStorage {
     const rows = await this.db.$queryRaw<
       Array<{ points: number | bigint; expireAt: Date | string }>
     >`
-      INSERT INTO ${tableName} ("key", "points", "expireAt")
+      INSERT INTO ${tableName} AS r ("key", "points", "expireAt")
       VALUES (${key}, 1, ${expireAt})
       ON CONFLICT ("key") DO UPDATE
       SET 
         "points" = CASE 
-          WHEN "rate_limits"."expireAt" <= NOW() THEN 1 
-          ELSE "rate_limits"."points" + 1 
+          WHEN r."expireAt" <= NOW() THEN 1 
+          ELSE r."points" + 1 
         END,
         "expireAt" = CASE 
-          WHEN "rate_limits"."expireAt" <= NOW() THEN ${expireAt} 
-          ELSE "rate_limits"."expireAt" 
+          WHEN r."expireAt" <= NOW() THEN ${expireAt} 
+          ELSE r."expireAt" 
         END
       RETURNING "points", "expireAt"
     `;

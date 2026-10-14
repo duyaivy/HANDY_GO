@@ -34,12 +34,14 @@ import { ApiErrorResponseDto } from '@app/common';
 import { resolveClientIp } from '../common/utils/client-ip.util.js';
 import { USER_AGENT_HEADER } from '../common/constants/auth.constants.js';
 import { OtpFlowService } from './otp-flow.service.js';
+import { PasswordResetFlowService } from './password-reset-flow.service.js';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class OtpController {
   constructor(
     private readonly otpFlow: OtpFlowService,
+    private readonly passwordResetFlow: PasswordResetFlowService,
     private readonly config: ConfigService,
   ) {}
 
@@ -103,7 +105,7 @@ export class OtpController {
     @Req() req: Request,
   ): Promise<ForgotPasswordResponse> {
     const ip = resolveClientIp(this.config, req, clientIp);
-    return this.otpFlow.forgotPassword(dto, ip);
+    return this.passwordResetFlow.forgotPassword(dto, ip);
   }
 
   @Public()
@@ -123,7 +125,7 @@ export class OtpController {
     @Req() req: Request,
   ): Promise<VerifyResetOtpResponse> {
     const ip = resolveClientIp(this.config, req, clientIp);
-    return this.otpFlow.verifyResetOtp(dto, ip);
+    return this.passwordResetFlow.verifyResetOtp(dto, ip);
   }
 
   @Public()
@@ -139,7 +141,7 @@ export class OtpController {
   async resetPassword(
     @Body() dto: ResetPasswordDto,
   ): Promise<ResetPasswordResponse> {
-    return this.otpFlow.resetPassword(dto);
+    return this.passwordResetFlow.resetPassword(dto);
   }
 }
 

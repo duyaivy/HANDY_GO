@@ -12,7 +12,6 @@ import { RabbitMQService } from '@app/rabbitmq';
 import { OutboxPublisherService, type DomainEvent } from '@app/common';
 import { ConfigService } from '@app/config';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { AuthServiceService } from '../src/auth-service.service.js';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
 import { OtpFlowService } from '../src/otp/otp-flow.service.js';
 import { LoginFlowService } from '../src/login/login-flow.service.js';
@@ -27,7 +26,10 @@ import {
 } from '../../user-trust-service/src/user-trust-service.service.js';
 
 describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Account)', () => {
-  let authService: AuthServiceService;
+  let registerFlow: RegisterFlowService;
+  let otpFlow: OtpFlowService;
+  let loginFlow: LoginFlowService;
+  let sessionService: SessionService;
   let userTrustService: UserTrustServiceService;
   let verifier: TokenVerifierService;
 
@@ -199,7 +201,6 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
     const module: TestingModule = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
       providers: [
-        AuthServiceService,
         RegisterFlowService,
         OtpFlowService,
         LoginFlowService,
@@ -227,7 +228,10 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       ],
     }).compile();
 
-    authService = module.get<AuthServiceService>(AuthServiceService);
+    registerFlow = module.get<RegisterFlowService>(RegisterFlowService);
+    otpFlow = module.get<OtpFlowService>(OtpFlowService);
+    loginFlow = module.get<LoginFlowService>(LoginFlowService);
+    sessionService = module.get<SessionService>(SessionService);
     userTrustService = module.get<UserTrustServiceService>(UserTrustServiceService);
     verifier = module.get<TokenVerifierService>(TokenVerifierService);
   });
@@ -266,7 +270,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       password: 'StrongP@ssword2026',
     };
 
-    const registerResponse = await authService.register(registerPayload, '192.168.1.100');
+    const registerResponse = await registerFlow.execute(registerPayload, '192.168.1.100');
 
     // Assert Registration Output
     expect(registerResponse.statusCode).toBe(201);
@@ -389,7 +393,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       deliveryStatus: 'delivered',
     });
 
-    const verifyOtpResponse = await authService.verifyEmail(
+    const verifyOtpResponse = await otpFlow.verifyEmail(
       {
         phone: '0988776655',
         otp: '123456',
@@ -410,7 +414,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
     };
     authDbMock.account.findUnique.mockResolvedValue(activeAccountForLogin);
 
-    const loginResponse = await authService.login(
+    const loginResponse = await loginFlow.login(
       {
         phone: '0988776655',
         password: 'StrongP@ssword2026',
@@ -440,7 +444,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       revokedAt: null,
     });
 
-    const refreshResponse = await authService.loginFlow['sessionService'].rotateSession(
+    const refreshResponse = await sessionService.rotateSession(
       loginResponse.data.refreshToken,
       '192.168.1.100',
     );
@@ -449,7 +453,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
     // ---------------------------------------------------------------------------------------------
     // STEP 6: /auth/me returns both roles
     // ---------------------------------------------------------------------------------------------
-    const meResponse = await authService.getMe(createdAccountData.id);
+    const meResponse = await loginFlow.getMe(createdAccountData.id);
     expect(meResponse.statusCode).toBe(200);
     expect(meResponse.data.roles).toEqual(['Customer', 'Worker']);
 

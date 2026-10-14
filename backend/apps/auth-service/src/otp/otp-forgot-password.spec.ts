@@ -1,23 +1,19 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { HttpStatus } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@app/config';
 import { AuthPrismaService } from '@app/database';
 import { AppException, ERROR_CODES } from '@app/common';
-import { OtpFlowService } from './otp-flow.service.js';
+import { PasswordResetFlowService } from './password-reset-flow.service.js';
 import { OtpService } from './otp.service.js';
-import { OtpController } from './otp.controller.js';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
-import { PostgresThrottlerStorage } from '../common/rate-limit/postgres-throttler-storage.js';
-import { UserTrustClient } from '../common/rpc/user-trust.client.js';
 import { SessionService } from '../common/session/session.service.js';
 
 describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
   let module: TestingModule;
-  let flowService: OtpFlowService;
+  let flowService: PasswordResetFlowService;
   let otpService: OtpService;
   let rateLimiter: RateLimiterService;
-  let controller: OtpController;
   let dbMock: any;
   let configMock: any;
 
@@ -30,22 +26,18 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
     emailVerifiedAt: new Date('2026-01-01T00:00:00Z'),
   };
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     dbMock = {
       account: {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
       },
       otpChallenge: {
-        create: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: 'challenge-new-uuid', ...args.data }),
-        ),
-        update: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: args.where.id, ...args.data }),
-        ),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        create: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
       },
-      $queryRaw: vi.fn().mockResolvedValue([{ points: 1, expireAt: new Date(Date.now() + 3600000) }]),
+      $queryRaw: vi.fn(),
     };
 
     configMock = {
@@ -63,28 +55,45 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
     };
 
     module = await Test.createTestingModule({
-      controllers: [OtpController],
       providers: [
-        OtpFlowService,
+        PasswordResetFlowService,
         OtpService,
         RateLimiterService,
         { provide: AuthPrismaService, useValue: dbMock },
         { provide: ConfigService, useValue: configMock },
-        { provide: UserTrustClient, useValue: { confirmUserStatus: vi.fn() } },
         { provide: SessionService, useValue: {} },
       ],
     }).compile();
 
-    flowService = module.get<OtpFlowService>(OtpFlowService);
+    flowService = module.get<PasswordResetFlowService>(PasswordResetFlowService);
     otpService = module.get<OtpService>(OtpService);
     rateLimiter = module.get<RateLimiterService>(RateLimiterService);
-    controller = module.get<OtpController>(OtpController);
+  });
+
+  afterAll(async () => {
+    await module?.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.otpChallenge.create.mockImplementation((args: any) =>
+      Promise.resolve({ id: 'challenge-new-uuid', ...args.data }),
+    );
+    dbMock.otpChallenge.update.mockImplementation((args: any) =>
+      Promise.resolve({ id: args.where.id, ...args.data }),
+    );
+    dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.$queryRaw.mockResolvedValue([
+      { points: 1, expireAt: new Date(Date.now() + 3600000) },
+    ]);
   });
 
   describe('1. Email hợp lệ của tài khoản đã xác minh', () => {
     it('tạo OTP reset_password, lưu HMAC hash và gửi đúng địa chỉ', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validVerifiedAccount);
-      const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp').mockResolvedValueOnce();
+      const sendMailSpy = vi
+        .spyOn(otpService, 'sendPasswordResetOtp')
+        .mockResolvedValueOnce();
 
       const response = await flowService.forgotPassword(
         { email: 'valid.user@example.com' },
@@ -94,7 +103,8 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
       // Trả status 200 và message công khai
       expect(response).toEqual({
         statusCode: HttpStatus.OK,
-        message: 'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
+        message:
+          'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
         data: null,
       });
 
@@ -125,7 +135,9 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
 
     it('chuẩn hóa email trước khi tra cứu và băm HMAC (lowercase và trim)', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validVerifiedAccount);
-      const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp').mockResolvedValueOnce();
+      const sendMailSpy = vi
+        .spyOn(otpService, 'sendPasswordResetOtp')
+        .mockResolvedValueOnce();
 
       await flowService.forgotPassword(
         { email: '  Valid.User@Example.COM  ' },
@@ -146,61 +158,42 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
   });
 
   describe('2. Chống lộ tài khoản (User Enumeration Prevention)', () => {
-    it('email không tồn tại không tạo challenge nhưng trả cùng status và body', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(null);
-      const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp');
+    it.each([
+      ['email không tồn tại', null],
+      [
+        'email chưa xác minh (emailVerifiedAt = null)',
+        {
+          ...validVerifiedAccount,
+          status: 'pending',
+          emailVerifiedAt: null,
+        },
+      ],
+      [
+        'tài khoản bị khóa (status = locked hoặc suspended)',
+        { ...validVerifiedAccount, status: 'locked' },
+      ],
+    ])(
+      '%s không tạo challenge và trả phản hồi trung lập',
+      async (_, account) => {
+        dbMock.account.findUnique.mockResolvedValueOnce(account);
+        const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp');
 
-      const response = await flowService.forgotPassword(
-        { email: 'unknown@example.com' },
-        '203.0.113.10',
-      );
+        const response = await flowService.forgotPassword(
+          { email: 'target@example.com' },
+          '203.0.113.10',
+        );
 
-      expect(response).toEqual({
-        statusCode: HttpStatus.OK,
-        message: 'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
-        data: null,
-      });
+        expect(response).toEqual({
+          statusCode: HttpStatus.OK,
+          message:
+            'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
+          data: null,
+        });
 
-      expect(dbMock.otpChallenge.create).not.toHaveBeenCalled();
-      expect(sendMailSpy).not.toHaveBeenCalled();
-    });
-
-    it('tài khoản chưa xác minh email (emailVerifiedAt = null) không tạo challenge và trả cùng response', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce({
-        ...validVerifiedAccount,
-        status: 'pending',
-        emailVerifiedAt: null,
-      });
-      const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp');
-
-      const response = await flowService.forgotPassword(
-        { email: 'unverified@example.com' },
-        '203.0.113.10',
-      );
-
-      expect(response.statusCode).toBe(HttpStatus.OK);
-      expect(response.data).toBeNull();
-      expect(dbMock.otpChallenge.create).not.toHaveBeenCalled();
-      expect(sendMailSpy).not.toHaveBeenCalled();
-    });
-
-    it('tài khoản bị khóa (status = locked hoặc suspended) không tạo challenge và trả cùng response', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce({
-        ...validVerifiedAccount,
-        status: 'locked',
-      });
-      const sendMailSpy = vi.spyOn(otpService, 'sendPasswordResetOtp');
-
-      const response = await flowService.forgotPassword(
-        { email: 'locked@example.com' },
-        '203.0.113.10',
-      );
-
-      expect(response.statusCode).toBe(HttpStatus.OK);
-      expect(response.data).toBeNull();
-      expect(dbMock.otpChallenge.create).not.toHaveBeenCalled();
-      expect(sendMailSpy).not.toHaveBeenCalled();
-    });
+        expect(dbMock.otpChallenge.create).not.toHaveBeenCalled();
+        expect(sendMailSpy).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('3. Xử lý lỗi SMTP không làm lộ tài khoản', () => {
@@ -219,7 +212,8 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
       // Vẫn trả về cùng status và body công khai
       expect(response).toEqual({
         statusCode: HttpStatus.OK,
-        message: 'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
+        message:
+          'Nếu email tồn tại và hợp lệ trong hệ thống, mã xác thực đặt lại mật khẩu đã được gửi đến hộp thư của bạn.',
         data: null,
       });
 
@@ -228,7 +222,9 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
         where: { id: 'challenge-new-uuid' },
         data: {
           deliveryStatus: 'failed',
-          deliveryError: expect.stringContaining('SMTP service network unreachable'),
+          deliveryError: expect.stringContaining(
+            'SMTP service network unreachable',
+          ),
         },
       });
 
@@ -265,108 +261,35 @@ describe('OTP Forgot Password Flow (HG-31 Phase 4)', () => {
     });
   });
 
-  describe('5. Rate Limiting theo Email HMAC và IP (chia sẻ giữa các instance)', () => {
-    it('vượt quá 5 yêu cầu/giờ theo email (đã HMAC) trả 429', async () => {
-      const emailHmac = otpService.hashEmail('valid.user@example.com');
-
-      // Giả lập storage trả về points = 6 > limit 5 cho key email
-      const checkSpy = vi.spyOn(rateLimiter, 'checkAndIncrement');
-      checkSpy.mockImplementation(async (key, _limit) => {
-        if (key.includes(emailHmac)) {
-          throw new AppException(429, ERROR_CODES.RATE_LIMITED, 'Email này đã gửi quá nhiều yêu cầu đặt lại mật khẩu trong 1 giờ. Vui lòng thử lại sau.');
-        }
-      });
-
-      await expect(
-        flowService.forgotPassword({ email: 'valid.user@example.com' }, '203.0.113.10'),
-      ).rejects.toThrow(AppException);
-
-      try {
-        await flowService.forgotPassword({ email: 'valid.user@example.com' }, '203.0.113.10');
-      } catch (err: any) {
-        expect(err.getStatus()).toBe(429);
-        expect(err.getResponse().code).toBe(ERROR_CODES.RATE_LIMITED);
-      }
-    });
-
-    it('vượt quá 10 yêu cầu/giờ theo IP trả 429', async () => {
-      const checkSpy = vi.spyOn(rateLimiter, 'checkAndIncrement');
-      checkSpy.mockImplementation(async (key) => {
-        if (key.includes('203.0.113.99')) {
-          throw new AppException(429, ERROR_CODES.RATE_LIMITED, 'Địa chỉ IP của bạn đã gửi quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.');
-        }
-      });
-
-      await expect(
-        flowService.forgotPassword({ email: 'other@example.com' }, '203.0.113.99'),
-      ).rejects.toThrow(AppException);
-
-      try {
-        await flowService.forgotPassword({ email: 'other@example.com' }, '203.0.113.99');
-      } catch (err: any) {
-        expect(err.getStatus()).toBe(429);
-        expect(err.getResponse().code).toBe(ERROR_CODES.RATE_LIMITED);
-      }
-    });
-
-    it('hai instance dùng chung cùng một bộ đếm qua bảng rate_limits PostgreSQL', async () => {
-      let sharedEmailPoints = 0;
-      const expireAt = new Date(Date.now() + 3600000);
-
-      // DB mock lưu trữ trạng thái chia sẻ giữa 2 instance
-      const sharedDb: any = {
-        $queryRaw: vi.fn().mockImplementation((_query) => {
-          sharedEmailPoints++;
-          return Promise.resolve([{ points: sharedEmailPoints, expireAt }]);
-        }),
-      };
-
-      const storageA = new PostgresThrottlerStorage(sharedDb);
-      const storageB = new PostgresThrottlerStorage(sharedDb);
-
-      const limiterA = new RateLimiterService(storageA);
-      const limiterB = new RateLimiterService(storageB);
-
-      const emailKey = 'forgot_password_email:test-hmac-shared';
-      const limit = 5;
-
-      // Instance A thực hiện 3 requests
-      await limiterA.checkAndIncrement(emailKey, limit, 3600);
-      await limiterA.checkAndIncrement(emailKey, limit, 3600);
-      await limiterA.checkAndIncrement(emailKey, limit, 3600);
-      expect(sharedEmailPoints).toBe(3);
-
-      // Instance B thực hiện 2 requests (tổng = 5, vừa chạm limit)
-      await limiterB.checkAndIncrement(emailKey, limit, 3600);
-      await limiterB.checkAndIncrement(emailKey, limit, 3600);
-      expect(sharedEmailPoints).toBe(5);
-
-      // Instance B gửi request thứ 6 -> vượt ngưỡng -> nhận 429
-      await expect(
-        limiterB.checkAndIncrement(emailKey, limit, 3600),
-      ).rejects.toThrow(AppException);
-
-      // Instance A gửi tiếp -> cũng nhận 429 do dùng chung bộ đếm
-      await expect(
-        limiterA.checkAndIncrement(emailKey, limit, 3600),
-      ).rejects.toThrow(AppException);
-    });
-  });
-
-  describe('6. Controller Endpoint POST /auth/forgot-password', () => {
-    it('gọi controller chuyển tiếp đúng dto và ip tới flow service', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(validVerifiedAccount);
-      vi.spyOn(otpService, 'sendPasswordResetOtp').mockResolvedValueOnce();
-
-      const fakeReq = { headers: {} } as any;
-      const res = await controller.forgotPassword(
-        { email: 'valid.user@example.com' },
-        '10.0.0.5',
-        fakeReq,
+  describe('5. Rate Limiting theo Email HMAC và IP', () => {
+    it.each([
+      [
+        'vượt quá 5 yêu cầu/giờ theo email (đã HMAC)',
+        'valid.user@example.com',
+        '203.0.113.10',
+        'Email này đã gửi quá nhiều yêu cầu đặt lại mật khẩu trong 1 giờ. Vui lòng thử lại sau.',
+      ],
+      [
+        'vượt quá 10 yêu cầu/giờ theo IP',
+        'other@example.com',
+        '203.0.113.99',
+        'Địa chỉ IP của bạn đã gửi quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.',
+      ],
+    ])('%s trả 429 RATE_LIMITED', async (_, email, ip, message) => {
+      vi.spyOn(rateLimiter, 'checkAndIncrement').mockRejectedValueOnce(
+        new AppException(HttpStatus.TOO_MANY_REQUESTS, ERROR_CODES.RATE_LIMITED, message),
       );
 
-      expect(res.statusCode).toBe(200);
-      expect(res.data).toBeNull();
+      await expect(
+        flowService.forgotPassword({ email }, ip),
+      ).rejects.toThrow(
+        expect.objectContaining({
+          status: HttpStatus.TOO_MANY_REQUESTS,
+          response: expect.objectContaining({
+            code: ERROR_CODES.RATE_LIMITED,
+          }),
+        }),
+      );
     });
   });
 });

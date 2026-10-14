@@ -1,10 +1,5 @@
 import { renderEmailTemplate } from '@app/common';
 
-export interface OtpEmailTemplateOptions {
-  otpCode: string;
-  expirationMinutes?: number;
-}
-
 export function buildOtpEmailHtml(
   otpCode: string,
   expirationMinutes = 10,

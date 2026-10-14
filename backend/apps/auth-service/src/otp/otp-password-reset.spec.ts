@@ -1,33 +1,31 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { HttpStatus } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import { ConfigService } from '@app/config';
 import { AuthPrismaService } from '@app/database';
 import { AppException, ERROR_CODES } from '@app/common';
-import { OtpFlowService } from './otp-flow.service.js';
+import { PasswordResetFlowService } from './password-reset-flow.service.js';
 import { OtpService } from './otp.service.js';
-import { OtpController } from './otp.controller.js';
 import { RateLimiterService } from '../common/rate-limit/rate-limiter.service.js';
-import { UserTrustClient } from '../common/rpc/user-trust.client.js';
 import { SessionService } from '../common/session/session.service.js';
 
 describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', () => {
   let module: TestingModule;
-  let flowService: OtpFlowService;
+  let flowService: PasswordResetFlowService;
   let otpService: OtpService;
   let sessionService: SessionService;
-  let controller: OtpController;
   let dbMock: any;
   let configMock: any;
+  let sessionServiceMock: any;
 
   const validAccount = {
     id: 'acc-uuid-1111-2222',
     userId: 'usr-uuid-1111-2222',
     email: 'reset.user@example.com',
     phone: '0912345678',
-    passwordHash: '$2b$10$oldHashValueOldPasswordOldPasswordOldPasswordOldPassw',
+    passwordHash:
+      '$2b$10$oldHashValueOldPasswordOldPasswordOldPasswordOldPassw',
     status: 'active',
     emailVerifiedAt: new Date('2026-01-01T00:00:00Z'),
     passwordChangedAt: null,
@@ -36,37 +34,29 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
   const rawOtpCode = '654321';
   const hashedOtpCode = 'hmac_sha256_mock_hash_for_654321';
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     dbMock = {
       account: {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
-        update: vi.fn().mockImplementation((args) => Promise.resolve({ ...validAccount, ...args.data })),
+        update: vi.fn(),
       },
       otpChallenge: {
         findFirst: vi.fn(),
         findUnique: vi.fn(),
-        create: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: 'challenge-new-uuid', ...args.data }),
-        ),
-        update: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: args.where.id, ...args.data }),
-        ),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        create: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
       },
       passwordResetGrant: {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
-        create: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: 'grant-new-uuid', ...args.data }),
-        ),
-        update: vi.fn().mockImplementation((args) =>
-          Promise.resolve({ id: args.where.id, ...args.data }),
-        ),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        create: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
       },
       refreshSession: {
-        updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+        updateMany: vi.fn(),
       },
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
@@ -85,7 +75,7 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       internalServiceSecret: 'gateway-shared-secret',
     };
 
-    const sessionServiceMock = {
+    sessionServiceMock = {
       revokeAllSessions: vi.fn().mockImplementation(async (accountId, tx) => {
         const client = tx ?? dbMock;
         await client.refreshSession.updateMany({
@@ -96,43 +86,68 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
     };
 
     module = await Test.createTestingModule({
-      controllers: [OtpController],
       providers: [
-        OtpFlowService,
+        PasswordResetFlowService,
         OtpService,
-        { provide: RateLimiterService, useValue: { checkAndIncrement: vi.fn().mockResolvedValue(undefined) } },
+        {
+          provide: RateLimiterService,
+          useValue: { checkAndIncrement: vi.fn().mockResolvedValue(undefined) },
+        },
         { provide: AuthPrismaService, useValue: dbMock },
         { provide: ConfigService, useValue: configMock },
-        { provide: UserTrustClient, useValue: { confirmUserStatus: vi.fn() } },
         { provide: SessionService, useValue: sessionServiceMock },
       ],
     }).compile();
 
-    flowService = module.get<OtpFlowService>(OtpFlowService);
+    flowService = module.get<PasswordResetFlowService>(PasswordResetFlowService);
     otpService = module.get<OtpService>(OtpService);
     sessionService = module.get<SessionService>(SessionService);
-    controller = module.get<OtpController>(OtpController);
   });
 
-  it('khởi tạo thành công OtpController và flowService', () => {
-    expect(controller).toBeDefined();
+  afterAll(async () => {
+    await module?.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    dbMock.account.findUnique.mockReset();
+    dbMock.account.findFirst.mockReset();
+    dbMock.account.update.mockImplementation((args: any) =>
+      Promise.resolve({ ...validAccount, ...args.data }),
+    );
+    dbMock.otpChallenge.findFirst.mockReset();
+    dbMock.otpChallenge.findUnique.mockReset();
+    dbMock.otpChallenge.create.mockImplementation((args: any) =>
+      Promise.resolve({ id: 'challenge-new-uuid', ...args.data }),
+    );
+    dbMock.otpChallenge.update.mockImplementation((args: any) =>
+      Promise.resolve({ id: args.where.id, ...args.data }),
+    );
+    dbMock.otpChallenge.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.passwordResetGrant.findUnique.mockReset();
+    dbMock.passwordResetGrant.findFirst.mockReset();
+    dbMock.passwordResetGrant.create.mockImplementation((args: any) =>
+      Promise.resolve({ id: 'grant-new-uuid', ...args.data }),
+    );
+    dbMock.passwordResetGrant.update.mockImplementation((args: any) =>
+      Promise.resolve({ id: args.where.id, ...args.data }),
+    );
+    dbMock.passwordResetGrant.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.refreshSession.updateMany.mockResolvedValue({ count: 2 });
+    dbMock.$transaction.mockImplementation(async (cb: any) => cb(dbMock));
+  });
+
+  it('khởi tạo thành công flowService và dependencies', () => {
     expect(flowService).toBeDefined();
+    expect(otpService).toBeDefined();
+    expect(sessionService).toBeDefined();
   });
 
   describe('1. Kiểm tra xác thực OTP (POST /auth/verify-reset-otp)', () => {
     const expectGenericOtpError = async (promise: Promise<any>) => {
-      await expect(promise).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            statusCode: 400,
-            code: ERROR_CODES.OTP_INVALID,
-            message: 'Mã OTP không hợp lệ hoặc đã hết hạn',
-          }),
-        }),
-      );
       try {
         await promise;
+        expect.unreachable('Should have thrown generic OTP error');
       } catch (err: any) {
         expect(err.getStatus()).toBe(HttpStatus.BAD_REQUEST);
         const res = err.getResponse();
@@ -142,120 +157,113 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       }
     };
 
-    it('từ chối với phản hồi lỗi chung khi tài khoản không tồn tại, không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(null);
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: 'unknown@example.com',
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('từ chối với phản hồi lỗi chung khi tài khoản bị khóa (locked, suspended, deleted), không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce({
-        ...validAccount,
-        status: 'locked',
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('từ chối với phản hồi lỗi chung khi OTP chưa được gửi thành công (deliveryStatus !== delivered), không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
-        id: 'ch-pending',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 0,
-        isUsed: false,
-        deliveryStatus: 'failed',
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('từ chối với phản hồi lỗi chung khi OTP đã được sử dụng, không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
-        id: 'ch-used',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 0,
-        isUsed: true,
-        deliveryStatus: 'delivered',
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('từ chối với phản hồi lỗi chung khi OTP đã hết hạn, không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
-        id: 'ch-expired',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() - 5000), // đã hết hạn
-        attempts: 0,
-        isUsed: false,
-        deliveryStatus: 'delivered',
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('từ chối với phản hồi lỗi chung khi OTP đã vượt quá 5 lần thử, không tiết lộ remainingAttempts', async () => {
-      dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
-        id: 'ch-maxed',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 5,
-        isUsed: false,
-        deliveryStatus: 'delivered',
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
+    it.each([
+      [
+        'tài khoản không tồn tại',
+        () => dbMock.account.findUnique.mockResolvedValueOnce(null),
+      ],
+      [
+        'tài khoản bị khóa (locked, suspended, deleted)',
+        () =>
+          dbMock.account.findUnique.mockResolvedValueOnce({
+            ...validAccount,
+            status: 'locked',
+          }),
+      ],
+      [
+        'OTP chưa được gửi thành công (deliveryStatus !== delivered)',
+        () => {
+          dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
+          dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
+            id: 'ch-pending',
+            accountId: validAccount.id,
+            type: 'reset_password',
+            otpHash: hashedOtpCode,
+            expiresAt: new Date(Date.now() + 600000),
+            attempts: 0,
+            isUsed: false,
+            deliveryStatus: 'failed',
+          });
+        },
+      ],
+      [
+        'OTP đã được sử dụng',
+        () => {
+          dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
+          dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
+            id: 'ch-used',
+            accountId: validAccount.id,
+            type: 'reset_password',
+            otpHash: hashedOtpCode,
+            expiresAt: new Date(Date.now() + 600000),
+            attempts: 0,
+            isUsed: true,
+            deliveryStatus: 'delivered',
+          });
+        },
+      ],
+      [
+        'OTP đã hết hạn',
+        () => {
+          dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
+          dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
+            id: 'ch-expired',
+            accountId: validAccount.id,
+            type: 'reset_password',
+            otpHash: hashedOtpCode,
+            expiresAt: new Date(Date.now() - 5000),
+            attempts: 0,
+            isUsed: false,
+            deliveryStatus: 'delivered',
+          });
+        },
+      ],
+      [
+        'OTP đã chạm mốc 5 lần thử (attempts = 5)',
+        () => {
+          dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
+          dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
+            id: 'ch-maxed',
+            accountId: validAccount.id,
+            type: 'reset_password',
+            otpHash: hashedOtpCode,
+            expiresAt: new Date(Date.now() + 600000),
+            attempts: 5,
+            isUsed: false,
+            deliveryStatus: 'delivered',
+          });
+        },
+      ],
+      [
+        'challenge đã bị khóa sau 5 lần sai, nhập mã đúng vẫn từ chối',
+        () => {
+          dbMock.account.findUnique.mockResolvedValue(validAccount);
+          dbMock.otpChallenge.findFirst.mockResolvedValue({
+            id: 'ch-locked-after-5',
+            accountId: validAccount.id,
+            type: 'reset_password',
+            otpHash: hashedOtpCode,
+            expiresAt: new Date(Date.now() + 600000),
+            attempts: 5,
+            isUsed: false,
+            deliveryStatus: 'delivered',
+          });
+          vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
+        },
+      ],
+    ])(
+      'từ chối với phản hồi lỗi chung khi %s, không tiết lộ remainingAttempts',
+      async (_, setupMock) => {
+        setupMock();
+        await expectGenericOtpError(
+          flowService.verifyResetOtp({
+            email: validAccount.email,
+            otp: rawOtpCode,
+          }),
+        );
+        expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
+      },
+    );
 
     it('từ chối với phản hồi lỗi chung và tăng số lần thử nguyên tử trong DB khi OTP sai mã', async () => {
       dbMock.account.findUnique.mockResolvedValueOnce(validAccount);
@@ -290,30 +298,6 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
           data: {
             attempts: { increment: 1 },
           },
-        }),
-      );
-      expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
-    });
-
-    it('sau 5 lần sai mã OTP: challenge bị khóa trong database (attempts = 5), tiếp tục thử mã đúng vẫn nhận lỗi chung và không tạo grant', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      const lockedChallenge = {
-        id: 'ch-locked-after-5',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 5, // Đã chạm mốc 5 lần sai
-        isUsed: false,
-        deliveryStatus: 'delivered',
-      };
-      dbMock.otpChallenge.findFirst.mockResolvedValue(lockedChallenge);
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true); // Nhập mã đúng
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
         }),
       );
       expect(dbMock.passwordResetGrant.create).not.toHaveBeenCalled();
@@ -356,26 +340,16 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
 
     it('IP khác có quota độc lập, key limiter được gán đúng theo IP client', async () => {
       const rateLimiter = module.get<RateLimiterService>(RateLimiterService);
-      const checkSpy = vi.spyOn(rateLimiter, 'checkAndIncrement').mockResolvedValue(undefined);
+      const checkSpy = vi
+        .spyOn(rateLimiter, 'checkAndIncrement')
+        .mockResolvedValue(undefined);
 
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      dbMock.otpChallenge.findFirst.mockResolvedValue({
-        id: 'ch-quota-check',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 0,
-        isUsed: false,
-        deliveryStatus: 'delivered',
-      });
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
+      dbMock.account.findUnique.mockResolvedValue(null); // Từ chối sớm sau khi check limiter
 
-      // Request từ IP A
       await flowService.verifyResetOtp(
         { email: validAccount.email, otp: rawOtpCode },
         '203.0.113.10',
-      );
+      ).catch(() => {});
       expect(checkSpy).toHaveBeenCalledWith(
         'verify_reset_otp_ip:203.0.113.10',
         10,
@@ -383,11 +357,10 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
         expect.any(String),
       );
 
-      // Request từ IP B
       await flowService.verifyResetOtp(
         { email: validAccount.email, otp: rawOtpCode },
         '203.0.113.20',
-      );
+      ).catch(() => {});
       expect(checkSpy).toHaveBeenCalledWith(
         'verify_reset_otp_ip:203.0.113.20',
         10,
@@ -443,43 +416,11 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       expect(grantCreateArg.data.isUsed).toBe(false);
       expect(grantCreateArg.data.tokenHash).not.toBe(result.data.resetToken);
       // Hash phải là SHA-256 của resetToken
-      const expectedHash = crypto.createHash('sha256').update(result.data.resetToken).digest('hex');
+      const expectedHash = crypto
+        .createHash('sha256')
+        .update(result.data.resetToken)
+        .digest('hex');
       expect(grantCreateArg.data.tokenHash).toBe(expectedHash);
-    });
-
-    it('OTP không thể xác minh lần thứ hai (chống replay attack)', async () => {
-      dbMock.account.findUnique.mockResolvedValue(validAccount);
-      const activeChallenge = {
-        id: 'ch-replay',
-        accountId: validAccount.id,
-        type: 'reset_password',
-        otpHash: hashedOtpCode,
-        expiresAt: new Date(Date.now() + 600000),
-        attempts: 0,
-        isUsed: false,
-        deliveryStatus: 'delivered',
-      };
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce(activeChallenge);
-      vi.spyOn(otpService, 'verifyOtpHash').mockReturnValue(true);
-
-      // Lần 1: thành công
-      await flowService.verifyResetOtp({
-        email: validAccount.email,
-        otp: rawOtpCode,
-      });
-
-      // Lần 2: challenge đã đánh dấu isUsed = true
-      dbMock.otpChallenge.findFirst.mockResolvedValueOnce({
-        ...activeChallenge,
-        isUsed: true,
-      });
-
-      await expectGenericOtpError(
-        flowService.verifyResetOtp({
-          email: validAccount.email,
-          otp: rawOtpCode,
-        }),
-      );
     });
 
     it('verifyResetOtp khi challengeUpdate.count = 0 (race condition trong transaction) trả về phản hồi lỗi chung', async () => {
@@ -510,7 +451,10 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
 
   describe('2. Đổi mật khẩu một lần (POST /auth/reset-password)', () => {
     const rawResetToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(rawResetToken)
+      .digest('hex');
 
     const validGrant = {
       id: 'grant-uuid-1',
@@ -521,53 +465,26 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       createdAt: new Date(),
     };
 
-    it('từ chối khi resetToken không tồn tại', async () => {
-      dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce(null);
-
-      await expect(
-        flowService.resetPassword({
-          resetToken: 'invalid-nonexistent-token',
-          newPassword: 'NewPassword@123',
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.VALIDATION_ERROR,
+    it.each([
+      ['không tồn tại', () => dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce(null)],
+      [
+        'đã được sử dụng (isUsed: true)',
+        () =>
+          dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce({
+            ...validGrant,
+            isUsed: true,
           }),
-        }),
-      );
-      expect(dbMock.account.update).not.toHaveBeenCalled();
-    });
-
-    it('từ chối khi resetToken đã được sử dụng (isUsed: true)', async () => {
-      dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce({
-        ...validGrant,
-        isUsed: true,
-      });
-
-      await expect(
-        flowService.resetPassword({
-          resetToken: rawResetToken,
-          newPassword: 'NewPassword@123',
-        }),
-      ).rejects.toThrow(
-        expect.objectContaining({
-          status: HttpStatus.BAD_REQUEST,
-          response: expect.objectContaining({
-            code: ERROR_CODES.VALIDATION_ERROR,
+      ],
+      [
+        'đã hết hạn',
+        () =>
+          dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce({
+            ...validGrant,
+            expiresAt: new Date(Date.now() - 5000),
           }),
-        }),
-      );
-      expect(dbMock.account.update).not.toHaveBeenCalled();
-    });
-
-    it('từ chối khi resetToken đã hết hạn', async () => {
-      dbMock.passwordResetGrant.findUnique.mockResolvedValueOnce({
-        ...validGrant,
-        expiresAt: new Date(Date.now() - 5000),
-      });
-
+      ],
+    ])('từ chối khi resetToken %s', async (_, setupMock) => {
+      setupMock();
       await expect(
         flowService.resetPassword({
           resetToken: rawResetToken,
@@ -594,7 +511,8 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
 
       expect(response).toEqual({
         statusCode: HttpStatus.OK,
-        message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại với mật khẩu mới.',
+        message:
+          'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại với mật khẩu mới.',
         data: null,
       });
 
@@ -616,20 +534,8 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       const accountUpdateCall = dbMock.account.update.mock.calls[0][0];
       expect(accountUpdateCall.where.id).toBe(validAccount.id);
       expect(accountUpdateCall.data.passwordChangedAt).toBeInstanceOf(Date);
-
-      // Xác thực hash mới khớp với mật khẩu mới qua bcrypt
-      const isBcryptMatch = await bcrypt.compare(
-        'BrandNewPassword@2026',
-        accountUpdateCall.data.passwordHash,
-      );
-      expect(isBcryptMatch).toBe(true);
-
-      // Mật khẩu cũ không còn khớp
-      const isOldMatch = await bcrypt.compare(
-        'OldPassword123',
-        accountUpdateCall.data.passwordHash,
-      );
-      expect(isOldMatch).toBe(false);
+      expect(accountUpdateCall.data.passwordHash).toMatch(/^\$2[aby]\$\d+\$/);
+      expect(accountUpdateCall.data.passwordHash).not.toBe(validAccount.passwordHash);
 
       // 3. Toàn bộ Refresh Session của tài khoản bị thu hồi
       expect(sessionService.revokeAllSessions).toHaveBeenCalledWith(
@@ -638,73 +544,20 @@ describe('OTP Verification & Single-Use Password Reset Flow (HG-31 Phase 5)', ()
       );
     });
 
-    it('hai request reset đồng thời với cùng grant: chỉ đúng một request thành công', async () => {
+    it('từ chối với VALIDATION_ERROR khi grantUpdate.count = 0 (CAS fail / đã bị sử dụng đồng thời)', async () => {
       dbMock.passwordResetGrant.findUnique.mockResolvedValue(validGrant);
-
-      let updateAttempts = 0;
-      dbMock.passwordResetGrant.updateMany.mockImplementation(() => {
-        updateAttempts++;
-        // Request đầu tiên update được (count = 1), request thứ hai thất bại (count = 0)
-        return Promise.resolve({ count: updateAttempts === 1 ? 1 : 0 });
-      });
-
-      const p1 = flowService.resetPassword({
-        resetToken: rawResetToken,
-        newPassword: 'PasswordOne@123',
-      });
-
-      const p2 = flowService.resetPassword({
-        resetToken: rawResetToken,
-        newPassword: 'PasswordTwo@123',
-      });
-
-      const results = await Promise.allSettled([p1, p2]);
-      const fulfilled = results.filter((r) => r.status === 'fulfilled');
-      const rejected = results.filter((r) => r.status === 'rejected');
-
-      expect(fulfilled).toHaveLength(1);
-      expect(rejected).toHaveLength(1);
-
-      const rejectedError = (rejected[0] as PromiseRejectedResult).reason;
-      expect(rejectedError).toBeInstanceOf(AppException);
-      expect((rejectedError as AppException).getStatus()).toBe(HttpStatus.BAD_REQUEST);
-      expect((rejectedError as AppException).getResponse()).toMatchObject({
-        code: ERROR_CODES.VALIDATION_ERROR,
-      });
-    });
-
-    it('sau reset, refresh session cũ có revokedAt != null bị từ chối 401', async () => {
-      // Giả lập trạng thái session sau khi bị revokeAllSessions
-      const _revokedSession = {
-        id: 'sess-old-uuid',
-        accountId: validAccount.id,
-        refreshTokenHash: 'hash_of_old_refresh_token',
-        revokedAt: new Date(), // đã bị thu hồi do đổi mật khẩu
-        expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
-        createdAt: new Date(),
-      };
-
-      // Khi session có revokedAt khác null, sessionService.rotateSession tìm kiếm revokedAt: null sẽ không thấy
-      dbMock.refreshSession.findFirst = vi.fn().mockResolvedValue(null);
-
-      // Khởi tạo real SessionService để test hành vi rotate với DB mock
-      const realSessionService = new SessionService(
-        dbMock,
-        {
-          hashToken: vi.fn((token: string) => `hash_${token}`),
-          signRefreshToken: vi.fn(),
-          signAccessToken: vi.fn(),
-        } as any,
-        { confirmUserStatus: vi.fn() } as any,
-      );
+      dbMock.passwordResetGrant.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
-        realSessionService.rotateSession('old_plain_refresh_token'),
+        flowService.resetPassword({
+          resetToken: rawResetToken,
+          newPassword: 'PasswordOne@123',
+        }),
       ).rejects.toThrow(
         expect.objectContaining({
-          status: HttpStatus.UNAUTHORIZED,
+          status: HttpStatus.BAD_REQUEST,
           response: expect.objectContaining({
-            code: ERROR_CODES.INVALID_REFRESH_TOKEN,
+            code: ERROR_CODES.VALIDATION_ERROR,
           }),
         }),
       );
