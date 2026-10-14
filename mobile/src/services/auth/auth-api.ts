@@ -50,6 +50,25 @@ export type LoginPayload = {
   password: string;
 };
 
+export type ForgotPasswordPayload = {
+  email: string;
+};
+
+export type VerifyResetOtpPayload = {
+  email: string;
+  otp: string;
+};
+
+export type VerifyResetOtpResult = {
+  resetToken: string;
+  expiresIn: number;
+};
+
+export type ResetPasswordPayload = {
+  resetToken: string;
+  newPassword: string;
+};
+
 export type AuthTokens = {
   accessToken: string;
   refreshToken: string;
@@ -122,6 +141,18 @@ export const AuthApi = {
 
   login: async (payload: LoginPayload): Promise<ApiResponse<AuthSessionData>> => {
     return ApiClient.post<ApiResponse<AuthSessionData>>('/auth/login', payload);
+  },
+
+  forgotPassword: async (payload: ForgotPasswordPayload): Promise<ApiResponse<null>> => {
+    return ApiClient.post<ApiResponse<null>>('/auth/forgot-password', payload);
+  },
+
+  verifyResetOtp: async (payload: VerifyResetOtpPayload): Promise<ApiResponse<VerifyResetOtpResult>> => {
+    return ApiClient.post<ApiResponse<VerifyResetOtpResult>>('/auth/verify-reset-otp', payload);
+  },
+
+  resetPassword: async (payload: ResetPasswordPayload): Promise<ApiResponse<null>> => {
+    return ApiClient.post<ApiResponse<null>>('/auth/reset-password', payload);
   },
 
   refresh: async (refreshToken: string): Promise<ApiResponse<AuthTokens>> => {

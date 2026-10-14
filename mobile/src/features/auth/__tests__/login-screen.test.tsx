@@ -17,6 +17,7 @@ jest.mock('expo-router', () => ({
   useRootNavigationState: () => ({
     key: 'root-test',
   }),
+  useFocusEffect: (callback: () => void) => callback(),
 }));
 
 afterEach(() => {
@@ -33,6 +34,7 @@ describe('loginScreen', () => {
     expect(screen.getByTestId('login-phone-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-password-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-submit-button')).toBeOnTheScreen();
+    expect(screen.getByTestId('login-forgot-password-btn')).toBeOnTheScreen();
     expect(screen.getByTestId('login-to-register-btn')).toBeOnTheScreen();
   });
 
@@ -110,5 +112,11 @@ describe('loginScreen', () => {
     render(<LoginScreen />);
     fireEvent.press(screen.getByTestId('login-to-register-btn'));
     expect(mockPush).toHaveBeenCalledWith('/(auth)/register');
+  });
+
+  it('navigates to forgot password when pressing the link', () => {
+    render(<LoginScreen />);
+    fireEvent.press(screen.getByTestId('login-forgot-password-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/forgot-password');
   });
 });

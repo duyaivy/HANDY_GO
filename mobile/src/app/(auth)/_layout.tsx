@@ -25,6 +25,9 @@ export default function AuthLayout() {
           headerShown: false,
         }}
       />
+      <Stack.Screen name="forgot-password" options={{ title: 'Quên mật khẩu', headerShown: false }} />
+      <Stack.Screen name="verify-reset-otp" options={{ title: 'Xác minh OTP', headerShown: false }} />
+      <Stack.Screen name="reset-password" options={{ title: 'Mật khẩu mới', headerShown: false }} />
     </Stack>
   );
 }
