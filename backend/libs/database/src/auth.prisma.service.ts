@@ -7,6 +7,8 @@ export class AuthPrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  public readonly schema: string;
+
   constructor() {
     const rawUrl =
       process.env.DATABASE_URL_AUTH ||
@@ -31,6 +33,8 @@ export class AuthPrismaService
 
     const adapter = new PrismaPg({ connectionString }, { schema });
     super({ adapter });
+
+    this.schema = schema;
   }
 
   async onModuleInit(): Promise<void> {

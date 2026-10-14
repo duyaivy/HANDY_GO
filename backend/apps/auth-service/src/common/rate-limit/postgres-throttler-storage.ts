@@ -1,4 +1,5 @@
 import type { ThrottlerStorage, ThrottlerStorageRecord } from '@nestjs/throttler';
+import { Prisma } from '@prisma/auth-client';
 import type { AuthPrismaService } from '@app/database';
 
 export class PostgresThrottlerStorage implements ThrottlerStorage {
@@ -21,11 +22,13 @@ export class PostgresThrottlerStorage implements ThrottlerStorage {
   ): Promise<ThrottlerStorageRecord> {
     const now = new Date();
     const expireAt = new Date(now.getTime() + ttl);
+    const schema = this.db?.schema || 'auth_service';
+    const tableName = Prisma.raw(`"${schema}"."rate_limits"`);
 
     const rows = await this.db.$queryRaw<
       Array<{ points: number | bigint; expireAt: Date | string }>
     >`
-      INSERT INTO "rate_limits" ("key", "points", "expireAt")
+      INSERT INTO ${tableName} ("key", "points", "expireAt")
       VALUES (${key}, 1, ${expireAt})
       ON CONFLICT ("key") DO UPDATE
       SET 
