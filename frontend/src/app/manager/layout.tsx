@@ -14,7 +14,6 @@ import {
   BarChart3,
   Settings,
   LogOut,
-  Zap,
   ChevronDown,
   ChevronRight,
   Search,
@@ -22,6 +21,8 @@ import {
   Moon,
   Sun,
   Languages,
+  Menu,
+  X,
 } from "lucide-react";
 
 export interface ManageLayoutProps {
@@ -32,7 +33,16 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
   const router = useRouter();
   const currentPath = usePathname();
 
+  const [isUsersOpen, setIsUsersOpen] = useState(true);
+  const [isServicesOpen, setIsServicesOpen] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [hasNotifications, setHasNotifications] = useState(true);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   const navigateTo = (path: string) => {
+    setIsMobileMenuOpen(false);
+    setIsProfileOpen(false);
     router.push(path);
   };
 
@@ -53,402 +63,363 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
 
   const activeItem = getActiveItem();
 
-  const [isUsersOpen, setIsUsersOpen] = useState(true);
-  const [isServicesOpen, setIsServicesOpen] = useState(true);
+  const menuClass = (active: boolean) =>
+    `flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-all ${
+      active
+        ? "bg-[#FF5E14] font-semibold text-white shadow-md shadow-orange-500/20"
+        : "text-slate-400 hover:bg-slate-800/60 hover:text-white"
+    }`;
 
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [hasNotifications, setHasNotifications] = useState(true);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const subMenuClass = (active: boolean) =>
+    `flex w-full items-center gap-2 rounded-xl px-3.5 py-2 text-left text-sm transition-all ${
+      active
+        ? "bg-[#FF5E14] font-semibold text-white shadow-md shadow-orange-500/20"
+        : "text-slate-400 hover:bg-slate-800/40 hover:text-white"
+    }`;
 
-  return (
-    <div className="min-h-screen w-full flex bg-[#F8FAFC] text-slate-800 font-sans selection:bg-[#FF5E14] selection:text-white">
-      <aside className="w-64 bg-[#111827] text-slate-300 flex flex-col justify-between shrink-0 h-screen sticky top-0 select-none z-30 border-r border-slate-800/80">
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-          {/* LOGO HEADER */}
-          <div className="h-20 flex items-center px-6 gap-3 border-b border-slate-800/60 shrink-0">
-            <Image
-              src="/handygo-logo-horizontal.svg"
-              alt="HandyGo Logo"
-              width={180}
-              height={56}
-              className="h-30 w-auto object-contain"
-              priority
-            />
+  const sidebar = (
+    <aside className="flex h-full w-64 shrink-0 flex-col justify-between border-r border-slate-800/80 bg-[#111827] text-slate-300">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div className="flex h-20 shrink-0 items-center justify-between gap-3 border-b border-slate-800/60 px-5 sm:px-6">
+          <Image
+            src="/handygo-logo-horizontal.svg"
+            alt="HandyGo Logo"
+            width={180}
+            height={56}
+            className="h-auto max-h-12 w-auto object-contain"
+            priority
+          />
 
-            {/* <div className="flex flex-col">
-              <span className="text-xl font-black text-white tracking-wider">
-                LOGO
-              </span>
-            </div> */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white lg:hidden"
+            aria-label="Đóng menu"
+          >
+            <X size={21} />
+          </button>
+        </div>
+
+        <nav className="flex-1 space-y-1.5 p-4">
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/dashboard")}
+            className={menuClass(activeItem === "dashboard")}
+          >
+            <LayoutDashboard size={17} />
+            <span>Dashboard</span>
+          </button>
+
+          <div className="space-y-1">
+            <button
+              type="button"
+              onClick={() => setIsUsersOpen(!isUsersOpen)}
+              className={menuClass(false)}
+            >
+              <Users size={17} />
+              <span className="flex-1">Người dùng</span>
+              {isUsersOpen ? (
+                <ChevronDown size={15} />
+              ) : (
+                <ChevronRight size={15} />
+              )}
+            </button>
+
+            {isUsersOpen && (
+              <div className="space-y-1 pl-6">
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/manager/customers")}
+                  className={subMenuClass(activeItem === "customers")}
+                >
+                  <span>└</span>
+                  <span>Khách hàng</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/manager/workers")}
+                  className={subMenuClass(activeItem === "workers")}
+                >
+                  <span>└</span>
+                  <span>Thợ</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* DANH SÁCH MENU */}
-          <nav className="p-4 space-y-1.5 flex-1">
-            {/* 1. Dashboard */}
+          <div className="space-y-1">
             <button
               type="button"
-              onClick={() => navigateTo("/manager/dashboard")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "dashboard"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
+              onClick={() => setIsServicesOpen(!isServicesOpen)}
+              className={menuClass(false)}
             >
-              <LayoutDashboard className="w-4 h-4 shrink-0" />
-              <span>Dashboard</span>
+              <Layers size={17} />
+              <span className="flex-1">Dịch vụ</span>
+              {isServicesOpen ? (
+                <ChevronDown size={15} />
+              ) : (
+                <ChevronRight size={15} />
+              )}
             </button>
 
-            {/* 2. Người dùng */}
-            <div className="space-y-1">
-              <button
-                type="button"
-                onClick={() => setIsUsersOpen(!isUsersOpen)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-all cursor-pointer"
-              >
-                <div className="flex items-center gap-3.5">
-                  <Users className="w-4 h-4 shrink-0" />
-                  <span>Người dùng</span>
-                </div>
+            {isServicesOpen && (
+              <div className="space-y-1 pl-6">
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigateTo("/manager/service-catalogs/Catalogs")
+                  }
+                  className={subMenuClass(
+                    currentPath.includes("/service-catalogs/Catalogs"),
+                  )}
+                >
+                  <span>└</span>
+                  <span>Danh mục</span>
+                </button>
 
-                {isUsersOpen ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-                )}
-              </button>
-
-              {isUsersOpen && (
-                <div className="pl-6 space-y-1 text-sm">
-                  {/* Khách hàng */}
-                  <button
-                    type="button"
-                    onClick={() => navigateTo("/manager/customers")}
-                    className={`w-full flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm transition-all cursor-pointer ${
-                      activeItem === "customers"
-                        ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <span className="text-slate-500 text-xs">└</span>
-                    <span>Khách hàng</span>
-                  </button>
-
-                  {/* Thợ */}
-                  <button
-                    type="button"
-                    onClick={() => navigateTo("/manager/workers")}
-                    className={`w-full flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm transition-all cursor-pointer ${
-                      activeItem === "workers"
-                        ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <span
-                      className={
-                        activeItem === "workers"
-                          ? "text-white/80 text-xs"
-                          : "text-slate-500 text-xs"
-                      }
-                    >
-                      └
-                    </span>
-
-                    <span>Thợ</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 3. Dịch vụ */}
-            <div className="space-y-1">
-              <button
-                type="button"
-                onClick={() => setIsServicesOpen(!isServicesOpen)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition-all cursor-pointer"
-              >
-                <div className="flex items-center gap-3.5">
-                  <Layers className="w-4 h-4 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigateTo("/manager/service-catalogs/services")
+                  }
+                  className={subMenuClass(
+                    currentPath.includes("/service-catalogs/services"),
+                  )}
+                >
+                  <span>└</span>
                   <span>Dịch vụ</span>
-                </div>
-
-                {isServicesOpen ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-                )}
-              </button>
-
-              {isServicesOpen && (
-                <div className="pl-6 space-y-1 text-sm">
-                  {/* Danh mục */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigateTo("/manager/service-catalogs/Catalogs")
-                    }
-                    className={`w-full flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm transition-all cursor-pointer ${
-                      currentPath.includes("/service-catalogs/Catalogs")
-                        ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <span className="text-slate-500 text-xs">└</span>
-                    <span>Danh mục</span>
-                  </button>
-
-                  {/* Dịch vụ */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigateTo("/manager/service-catalogs/services")
-                    }
-                    className={`w-full flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm transition-all cursor-pointer ${
-                      currentPath.includes("/service-catalogs/services")
-                        ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                        : "text-slate-400 hover:text-white hover:bg-slate-800/40"
-                    }`}
-                  >
-                    <span className="text-slate-500 text-xs">└</span>
-                    <span>Dịch vụ</span>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 4. Đơn hàng */}
-            <button
-              type="button"
-              onClick={() => navigateTo("/manager/orders")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "orders"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
-            >
-              <CalendarCheck className="w-4 h-4 shrink-0" />
-              <span>Đơn hàng</span>
-            </button>
-
-            {/* 5. Khiếu nại */}
-            <button
-              type="button"
-              onClick={() => navigateTo("/manager/complainits")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "complainits"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
-            >
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>Khiếu nại</span>
-            </button>
-
-            {/* 6. Đánh giá */}
-            <button
-              type="button"
-              onClick={() => navigateTo("/manager/reviews")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "reviews"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
-            >
-              <Star className="w-4 h-4 shrink-0" />
-              <span>Đánh giá</span>
-            </button>
-
-            {/* 7. Thanh toán */}
-            <button
-              type="button"
-              onClick={() => navigateTo("/manager/payments")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "payments"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
-            >
-              <CreditCard className="w-4 h-4 shrink-0" />
-              <span>Thanh toán</span>
-            </button>
-
-            {/* 8. Thống kê */}
-            <button
-              type="button"
-              onClick={() => navigateTo("/manager/analytics")}
-              className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                activeItem === "analytics"
-                  ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-              }`}
-            >
-              <BarChart3 className="w-4 h-4 shrink-0" />
-              <span>Thống kê</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* CHÂN SIDEBAR */}
-        <div className="p-4 border-t border-slate-800/80 space-y-1 shrink-0">
-          {/* Cài đặt */}
-          <button
-            type="button"
-            onClick={() => navigateTo("/manager/setting")}
-            className={`w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-              activeItem === "setting"
-                ? "bg-[#FF5E14] text-white font-semibold shadow-md shadow-orange-500/20"
-                : "text-slate-400 hover:text-white hover:bg-slate-800/60"
-            }`}
-          >
-            <Settings className="w-4 h-4 shrink-0" />
-            <span>Cài đặt</span>
-          </button>
-
-          {/* Đăng xuất */}
-          <button
-            type="button"
-            onClick={() => {
-              window.location.href = "/";
-            }}
-            className="w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-sm font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all cursor-pointer"
-          >
-            <LogOut className="w-4 h-4 shrink-0" />
-            <span>Đăng xuất</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* ========================================================================= */}
-      {/* 2. CỘT PHẢI: HEADER & CONTENT */}
-      {/* ========================================================================= */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-        <header className="h-16 sm:h-18 bg-[#FFF4EB] border-b border-orange-200/70 px-6 lg:px-8 flex items-center justify-between sticky top-0 z-20 shrink-0 shadow-2xs">
-          {/* Ô tìm kiếm */}
-          <div className="flex items-center flex-1 max-w-md">
-            <div className="relative w-full">
-              <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                <Search className="w-4 h-4" />
+                </button>
               </div>
+            )}
+          </div>
 
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/orders")}
+            className={menuClass(activeItem === "orders")}
+          >
+            <CalendarCheck size={17} />
+            <span>Đơn hàng</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/complainits")}
+            className={menuClass(activeItem === "complainits")}
+          >
+            <AlertTriangle size={17} />
+            <span>Khiếu nại</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/reviews")}
+            className={menuClass(activeItem === "reviews")}
+          >
+            <Star size={17} />
+            <span>Đánh giá</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/payments")}
+            className={menuClass(activeItem === "payments")}
+          >
+            <CreditCard size={17} />
+            <span>Thanh toán</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/analytics")}
+            className={menuClass(activeItem === "analytics")}
+          >
+            <BarChart3 size={17} />
+            <span>Thống kê</span>
+          </button>
+        </nav>
+      </div>
+
+      <div className="shrink-0 space-y-1 border-t border-slate-800/80 p-4">
+        <button
+          type="button"
+          onClick={() => navigateTo("/manager/setting")}
+          className={menuClass(activeItem === "setting")}
+        >
+          <Settings size={17} />
+          <span>Cài đặt</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = "/";
+          }}
+          className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300"
+        >
+          <LogOut size={17} />
+          <span>Đăng xuất</span>
+        </button>
+      </div>
+    </aside>
+  );
+
+  return (
+    <div className="flex min-h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#FF5E14] selection:text-white">
+      {/* SIDEBAR DESKTOP */}
+      <div className="sticky top-0 hidden h-screen shrink-0 lg:block">
+        {sidebar}
+      </div>
+
+      {/* SIDEBAR MOBILE */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            aria-label="Đóng menu"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
+          />
+
+          <div className="absolute inset-y-0 left-0 h-full shadow-2xl">
+            {sidebar}
+          </div>
+        </div>
+      )}
+
+      {/* CỘT NỘI DUNG */}
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-orange-200/70 bg-[#FFF4EB] px-3 shadow-sm sm:h-[72px] sm:px-6 lg:px-8">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="shrink-0 rounded-xl border border-orange-200 bg-white p-2 text-slate-700 hover:text-[#FF5E14] lg:hidden"
+              aria-label="Mở menu"
+            >
+              <Menu size={20} />
+            </button>
+
+            <div className="relative w-full max-w-md">
+              <Search
+                size={17}
+                className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+              />
               <input
                 type="text"
-                placeholder="Search..."
-                className="w-full pl-10 pr-4 py-2 sm:py-2.5 rounded-full border border-orange-200/80 bg-white text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-3 focus:ring-orange-500/15 transition-all shadow-2xs"
+                placeholder="Tìm kiếm..."
+                className="w-full rounded-full border border-orange-200/80 bg-white py-2 pl-10 pr-3 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 sm:py-2.5 sm:pr-4"
               />
             </div>
           </div>
 
-          {/* Header actions */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* Chuông */}
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
             <button
               type="button"
               onClick={() => setHasNotifications(false)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-orange-200/80 bg-white hover:bg-orange-50/60 flex items-center justify-center text-slate-700 hover:text-[#FF5E14] transition-all cursor-pointer relative shadow-2xs"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
               title="Thông báo"
             >
-              <Bell className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
-
+              <Bell size={17} />
               {hasNotifications && (
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white absolute top-2 right-2 animate-pulse" />
+                <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
               )}
             </button>
 
-            {/* Sáng / Tối */}
             <button
               type="button"
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-orange-200/80 bg-white hover:bg-orange-50/60 flex items-center justify-center text-slate-700 hover:text-[#FF5E14] transition-all cursor-pointer shadow-2xs"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
               title={isDarkMode ? "Chế độ sáng" : "Chế độ tối"}
             >
               {isDarkMode ? (
-                <Sun className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-amber-500" />
+                <Sun size={17} className="text-amber-500" />
               ) : (
-                <Moon className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+                <Moon size={17} />
               )}
             </button>
 
-            {/* Ngôn ngữ */}
             <button
               type="button"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border border-orange-200/80 bg-white hover:bg-orange-50/60 flex items-center justify-center text-slate-700 hover:text-[#FF5E14] transition-all cursor-pointer shadow-2xs"
+              className="hidden h-10 w-10 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:flex"
               title="Đổi ngôn ngữ"
             >
-              <Languages className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              <Languages size={17} />
             </button>
 
-            <div className="h-6 w-px bg-orange-200/80 mx-1 sm:mx-2" />
+            <div className="mx-1 hidden h-6 w-px bg-orange-200/80 sm:block" />
 
-            {/* Admin Profile Dropdown */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
-                className="flex items-center gap-2 sm:gap-2.5 p-1 pr-2 rounded-full bg-white/70 hover:bg-white border border-orange-200/80 transition-all cursor-pointer select-none shadow-2xs"
+                className="flex items-center gap-2 rounded-full border border-orange-200/80 bg-white/80 p-1 pr-1.5 transition hover:bg-white sm:gap-2.5 sm:pr-2"
               >
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-[#EA580C] text-white font-bold text-xs sm:text-sm flex items-center justify-center shadow-xs shrink-0">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EA580C] text-xs font-bold text-white sm:h-9 sm:w-9">
                   AD
-                </div>
-
-                <span className="text-sm font-semibold text-slate-800 hidden md:inline">
+                </span>
+                <span className="hidden text-sm font-semibold text-slate-800 md:inline">
                   Admin
                 </span>
-
                 <ChevronDown
-                  className={`w-4 h-4 text-slate-400 transition-transform ${
+                  size={15}
+                  className={`hidden text-slate-400 transition-transform sm:block ${
                     isProfileOpen ? "rotate-180" : ""
                   }`}
                 />
               </button>
 
               {isProfileOpen && (
-                <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-150 py-1.5 z-50">
-                  <div className="px-4 py-2.5 border-b border-slate-100">
-                    <p className="text-xs font-semibold text-slate-400">
-                      Tài khoản quản trị
-                    </p>
+                <>
+                  <button
+                    type="button"
+                    aria-label="Đóng menu tài khoản"
+                    onClick={() => setIsProfileOpen(false)}
+                    className="fixed inset-0 z-40 cursor-default"
+                  />
 
-                    <p className="text-sm font-bold text-slate-800">Admin</p>
+                  <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl">
+                    <div className="border-b border-slate-100 px-4 py-2.5">
+                      <p className="text-xs font-semibold text-slate-400">
+                        Tài khoản quản trị
+                      </p>
+                      <p className="text-sm font-bold text-slate-800">Admin</p>
+                      <p className="text-[11px] font-medium text-emerald-600">
+                        System manager
+                      </p>
+                    </div>
 
-                    <p className="text-[11px] text-emerald-600 font-medium">
-                      System manager
-                    </p>
-                  </div>
-
-                  <div className="py-1">
                     <button
                       type="button"
-                      onClick={() => {
-                        setIsProfileOpen(false);
-                        navigateTo("/manager/setting");
-                      }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2 text-xs sm:text-sm text-slate-600 hover:bg-slate-50 transition-colors text-left cursor-pointer"
+                      onClick={() => navigateTo("/manager/setting")}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
                     >
-                      <Settings className="w-4 h-4 text-slate-400" />
-                      <span>Cài đặt hệ thống</span>
+                      <Settings size={16} />
+                      Cài đặt hệ thống
                     </button>
-                  </div>
 
-                  <div className="border-t border-slate-100 pt-1">
                     <button
                       type="button"
                       onClick={() => {
                         window.location.href = "/";
                       }}
-                      className="w-full flex items-center gap-2.5 px-4 py-2 text-xs sm:text-sm text-rose-600 hover:bg-rose-50 transition-colors text-left cursor-pointer"
+                      className="flex w-full items-center gap-2.5 border-t border-slate-100 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
                     >
-                      <LogOut className="w-4 h-4" />
-                      <span>Đăng xuất</span>
+                      <LogOut size={16} />
+                      Đăng xuất
                     </button>
                   </div>
-                </div>
+                </>
               )}
             </div>
           </div>
         </header>
 
-        {/* CONTENT */}
-        <main className="flex-1 p-6 lg:p-8 overflow-y-auto">
-          <div className="max-w-[1600px] mx-auto w-full">{children}</div>
+        <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-5 lg:p-8">
+          <div className="mx-auto w-full max-w-[1600px] min-w-0">
+            {children}
+          </div>
         </main>
       </div>
     </div>

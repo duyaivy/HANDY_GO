@@ -1,5 +1,8 @@
-// src/app/manager/orders/page.tsx
+import OrderTable from '@/feature/orders/components/order-table';
+import React from 'react';
 
-export default function OrdersPage() {
-  return <h1>Order management Page</h1>;
+
+// Next.js Route: /manage/orders (Booking Management)
+export default function ManageOrdersPage() {
+  return <OrderTable />;
 }
