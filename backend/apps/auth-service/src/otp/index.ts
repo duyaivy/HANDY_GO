@@ -7,6 +7,8 @@ export * from './dto/otp-responses.dto.js';
 export * from './otp.service.js';
 export * from './otp-flow.service.js';
 export * from './password-reset-flow.service.js';
+export * from './repositories/password-reset.repository.js';
+export * from './services/reset-token.service.js';
+export * from './services/password-reset-email.dispatcher.js';
 export * from './otp.controller.js';
 export * from './otp.module.js';
-

@@ -12,6 +12,10 @@ import { SessionService } from './session/session.service.js';
 import { UserTrustClient } from './rpc/user-trust.client.js';
 import { AuthSeedService } from './seed/auth-seed.service.js';
 import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
+import {
+  BcryptPasswordHasher,
+  PASSWORD_HASHER,
+} from './security/password-hasher.js';
 
 @Global()
 @Module({
@@ -62,6 +66,11 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
     OutboxPublisherService,
     RateLimiterService,
     LoginLockoutService,
+    BcryptPasswordHasher,
+    {
+      provide: PASSWORD_HASHER,
+      useClass: BcryptPasswordHasher,
+    },
   ],
   exports: [
     RabbitMQModule,
@@ -76,6 +85,8 @@ import { AuthOutboxRepository } from './outbox/auth-outbox.repository.js';
     OutboxPublisherService,
     RateLimiterService,
     LoginLockoutService,
+    BcryptPasswordHasher,
+    PASSWORD_HASHER,
   ],
 })
 export class AuthCommonModule {}

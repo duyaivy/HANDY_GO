@@ -8,6 +8,7 @@ import { TokenVerifierService } from './token-verifier.service.js';
 import { TokenSignerService } from './token-signer.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { PermissionsGuard } from './permissions.guard.js';
+import { TokenType } from './auth.types.js';
 
 const alternateKeyPair = crypto.generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -63,7 +64,7 @@ describe('AuthModule & Token Architecture', () => {
     expect(payload.sid).toBe('sess-123');
     expect(payload.roles).toEqual(['Customer']);
     expect(payload.permissions).toEqual(['auth:me', 'profile:read']);
-    expect(payload.tokenType).toBe('access');
+    expect(payload.tokenType).toBe(TokenType.ACCESS);
     expect(payload.iss).toBe('handy-go-auth');
     expect(payload.aud).toBe('handy-go-api');
   });
@@ -95,7 +96,7 @@ describe('AuthModule & Token Architecture', () => {
       });
 
       const payload = await verifier.verifyAccessToken(token);
-      expect(payload.tokenType).toBe('access');
+      expect(payload.tokenType).toBe(TokenType.ACCESS);
       expect(payload.sub).toBe('acc-new');
     });
 
@@ -172,7 +173,7 @@ describe('AuthModule & Token Architecture', () => {
               sub: 'acc-fake',
               userId: 'user-fake',
               sid: 'sess-fake',
-              tokenType: 'access',
+              tokenType: TokenType.ACCESS,
               iss: 'handy-go-auth',
               aud: 'handy-go-api',
               jti: 'fake-jti',
@@ -259,7 +260,7 @@ describe('AuthModule & Token Architecture', () => {
       });
 
       const payload = await verifier.verifyRefreshToken(refreshToken);
-      expect(payload.tokenType).toBe('refresh');
+      expect(payload.tokenType).toBe(TokenType.REFRESH);
       expect(payload.sub).toBe('acc-rf-1');
       expect(payload.userId).toBe('user-rf-1');
       expect(payload.sid).toBe('sess-rf-1');

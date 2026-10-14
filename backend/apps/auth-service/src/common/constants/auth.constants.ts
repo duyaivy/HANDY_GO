@@ -16,7 +16,12 @@ export const FORGOT_PASSWORD_WINDOW_SECONDS = 3600;
 
 export const VERIFY_RESET_OTP_IP_LIMIT = 10;
 export const VERIFY_RESET_OTP_WINDOW_SECONDS = 3600;
+export const RESET_TOKEN_EXPIRES_IN_SECONDS = 900;
+export const PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS = RESET_TOKEN_EXPIRES_IN_SECONDS;
+export const DEFAULT_VERIFY_RESET_OTP_MESSAGE =
+  'Xác thực mã OTP thành công. Vui lòng đặt lại mật khẩu mới.';
 
 export const INTERNAL_GATEWAY_HEADER = 'x-internal-secret';
 export const FORWARDED_FOR_HEADER = 'x-forwarded-for';
 export const USER_AGENT_HEADER = 'user-agent';
+

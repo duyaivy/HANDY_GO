@@ -12,6 +12,10 @@ import type {
   UserSummaryDto,
   VerifyResetOtpResponse,
 } from '../dto/auth-responses.dto.js';
+import {
+  DEFAULT_VERIFY_RESET_OTP_MESSAGE,
+  RESET_TOKEN_EXPIRES_IN_SECONDS,
+} from '../constants/auth.constants.js';
 
 export class AuthResponseBuilder {
   static buildRegisterResponse(
@@ -92,8 +96,8 @@ export class AuthResponseBuilder {
 
   static buildVerifyResetOtpResponse(
     resetToken: string,
-    expiresIn = 900,
-    message = 'Xác thực mã OTP thành công. Vui lòng đặt lại mật khẩu mới.',
+    expiresIn = RESET_TOKEN_EXPIRES_IN_SECONDS,
+    message = DEFAULT_VERIFY_RESET_OTP_MESSAGE,
   ): VerifyResetOtpResponse {
     return {
       statusCode: HttpStatus.OK,

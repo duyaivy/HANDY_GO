@@ -2,10 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import crypto from 'node:crypto';
 import { JWT_AUDIENCE, JWT_ISSUER } from './auth.constants.js';
-import type {
-  JwtPayload,
-  RefreshTokenPayload,
-  SessionBinding,
+import {
+  TokenType,
+  type JwtPayload,
+  type RefreshTokenPayload,
+  type SessionBinding,
 } from './auth.types.js';
 import { resolvePublicKey } from './key-resolver.util.js';
 
@@ -49,7 +50,7 @@ export class TokenVerifierService {
 
       // Token có tokenType khác 'access' (nếu có khai báo) cũng bị từ chối
       // Trong giai đoạn chuyển tiếp, token cũ chưa có tokenType (undefined) vẫn được chấp nhận
-      if (payload.tokenType !== undefined && payload.tokenType !== 'access') {
+      if (payload.tokenType !== undefined && payload.tokenType !== TokenType.ACCESS) {
         throw new UnauthorizedException('Loại mã truy cập không hợp lệ');
       }
 
@@ -74,7 +75,7 @@ export class TokenVerifierService {
         audience: JWT_AUDIENCE,
       });
 
-      if (payload.tokenType !== 'refresh') {
+      if (payload.tokenType !== TokenType.REFRESH) {
         throw new UnauthorizedException('Token không phải là refresh token');
       }
 

@@ -2,6 +2,7 @@
 /* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { Text } from 'react-native';
+import { queryClient } from '@/lib/api/query-client';
 import { cleanup, render, screen } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -22,6 +23,8 @@ jest.mock('expo-router', () => ({
 }));
 
 afterEach(async () => {
+  queryClient.cancelQueries();
+  queryClient.clear();
   cleanup();
   jest.clearAllMocks();
   await removeToken();

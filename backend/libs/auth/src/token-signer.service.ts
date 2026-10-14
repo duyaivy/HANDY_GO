@@ -7,7 +7,7 @@ import {
   JWT_ISSUER,
   REFRESH_TOKEN_EXPIRATION_DAYS,
 } from './auth.constants.js';
-import type { JwtPayload } from './auth.types.js';
+import { TokenType, type JwtPayload } from './auth.types.js';
 import { resolvePrivateKey, resolvePublicKey } from './key-resolver.util.js';
 
 @Injectable()
@@ -83,7 +83,7 @@ export class TokenSignerService {
       sid: params.sessionId,
       roles: params.roles,
       permissions: params.permissions,
-      tokenType: 'access',
+      tokenType: TokenType.ACCESS,
       iss: JWT_ISSUER,
       aud: JWT_AUDIENCE,
       jti,
@@ -117,7 +117,7 @@ export class TokenSignerService {
       sub: params.accountId,
       userId: params.userId,
       sid: params.sessionId,
-      tokenType: 'refresh',
+      tokenType: TokenType.REFRESH,
       iss: JWT_ISSUER,
       aud: JWT_AUDIENCE,
       jti,
@@ -143,7 +143,7 @@ export class TokenSignerService {
       sub: params?.accountId || 'refresh-account',
       userId: params?.userId || 'refresh-user',
       sid: params?.sessionId || crypto.randomUUID(),
-      tokenType: 'refresh',
+      tokenType: TokenType.REFRESH,
       iss: JWT_ISSUER,
       aud: JWT_AUDIENCE,
       jti,

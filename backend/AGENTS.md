@@ -115,7 +115,7 @@ pnpm run lint
 | | `@CurrentUser()` | Parameter decorator resolving the authenticated user from the JWT payload: `@CurrentUser() user: AuthenticatedUser`. |
 | | `TokenSignerService` | **RS256 JWT Signer.** Generates access tokens, refresh tokens, and SHA-256 token hashes using RSA private keys. |
 | | `TokenVerifierService` | **RS256 JWT Verifier.** Validates tokens using public keys without requiring access to private keys. |
-| | `Role`, `RegisterRole`<br>`StandardPermissions` | Canonical enums for roles (`CUSTOMER`, `WORKER`, `ADMIN`) and permissions (`AUTH_ME`, `PROFILE_READ`, `PROFILE_UPDATE`, ...). |
+| | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
 | **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
@@ -131,7 +131,11 @@ pnpm run lint
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
 | `apps/api-gateway/src/dev/dev-video-upload.controller.ts` | `DevVideoUploadController` | **Development Video Upload Tester.** Serves HTML/JS tester page at `GET /dev/video-upload` in non-production environments (`NODE_ENV !== 'production'`) for direct-to-Cloudinary chunked video upload testing. Throws `404` in production. |
-| `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)` | **IP Spoofing Prevention.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from the API Gateway. Falls back to socket IP. |
+| `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)`<br>`normalizeClientIp(ip, fallback)` | **IP Spoofing Prevention & Normalization.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from API Gateway. Validates with `net.isIP`, strips IPv4-mapped IPv6 (`::ffff:`), and normalizes `::1` loopback. |
+| `common/security/password-hasher.ts` | `BcryptPasswordHasher`<br>`PASSWORD_HASHER` | **Decoupled Password Hashing Abstraction.** Implements `IPasswordHasher` with configurable salt rounds (default: 10), isolating password hashing/comparison from business flow services. |
+| `otp/repositories/password-reset.repository.ts` | `PasswordResetRepository`<br>`PASSWORD_RESET_REPOSITORY` | **Transactional Password Reset Repository.** Encapsulates all Prisma queries, atomic CAS consumption, row-level locking (`SELECT ... FOR UPDATE`), and transactional session revocation for password reset flows. |
+| `otp/services/reset-token.service.ts` | `ResetTokenService`<br>`RESET_TOKEN_SERVICE` | **Cryptographic Reset Token Manager.** Generates 32-byte hex reset tokens and SHA-256 hashes with configurable expiration (default: 900s). |
+| `otp/services/password-reset-email.dispatcher.ts` | `PasswordResetEmailDispatcher`<br>`PASSWORD_RESET_EMAIL_DISPATCHER` | **Password Reset Email Dispatcher & Anti-Enumeration Timing Equalizer.** Encapsulates reset email delivery and provides dummy cryptographic operations to eliminate timing side-channels against user enumeration. |
 | `common/utils/phone.util.ts` | `normalizeVietnamesePhone(rawPhone)` | **E.164 Vietnamese Mobile Phone Normalization.** Converts valid 10-digit mobile numbers (03, 05, 07, 08, 09) to `+84xxxxxxxxx`. Handles leading zeros (`840...`, `+840...`). Throws `BadRequestException` on invalid formats. |
 | `common/utils/phone.util.ts` | `isValidVietnamesePhone(rawPhone)` | Boolean validator checking if a string conforms to Vietnamese mobile standards. |
 | `common/utils/password.util.ts` | `@IsMaxByteLength(72)` | **UTF-8 Byte Length Validator.** Enforces strict 72-byte limit matching mobile and bcrypt boundary, preventing truncation vulnerabilities while preserving 8-64 char complexity rules. |

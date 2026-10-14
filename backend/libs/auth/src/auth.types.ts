@@ -26,7 +26,12 @@ export const StandardPermissions = {
   CATALOG_DELETE: 'catalog:delete',
 } as const;
 
-export type TokenType = 'access' | 'refresh';
+export const TokenType = {
+  ACCESS: 'access',
+  REFRESH: 'refresh',
+} as const;
+
+export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
 export interface JwtPayload {
   sub: string; // accountId
