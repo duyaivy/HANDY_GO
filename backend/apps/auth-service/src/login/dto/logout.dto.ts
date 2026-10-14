@@ -1,12 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsJWT, IsNotEmpty, IsString } from 'class-validator';
 
 export class LogoutDto {
   @ApiProperty({
     description: 'Refresh token của phiên cần thu hồi',
-    example: 'd8f1e4b2a3c7...',
+    example: 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   @IsNotEmpty({ message: 'Vui lòng cung cấp refreshToken' })
   @IsString({ message: 'refreshToken phải là chuỗi' })
+  @IsJWT({ message: 'refreshToken không đúng định dạng JWT' })
   refreshToken!: string;
 }

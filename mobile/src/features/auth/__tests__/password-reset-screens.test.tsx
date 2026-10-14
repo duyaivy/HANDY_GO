@@ -17,6 +17,7 @@ jest.mock('expo-router', () => ({
 
 afterEach(() => {
   cleanup();
+  jest.clearAllTimers();
   jest.useRealTimers();
   jest.restoreAllMocks();
   jest.clearAllMocks();

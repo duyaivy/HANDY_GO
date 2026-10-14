@@ -429,8 +429,10 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
     // ---------------------------------------------------------------------------------------------
     // STEP 5: Token Refresh
     // ---------------------------------------------------------------------------------------------
+    const createdSessionId =
+      authDbMock.refreshSession.create.mock.calls.at(-1)?.[0]?.data?.id ?? 'sess-1';
     authDbMock.refreshSession.findFirst.mockResolvedValue({
-      id: 'sess-1',
+      id: createdSessionId,
       accountId: createdAccountData.id,
       refreshTokenHash: 'mock_hash',
       expiresAt: new Date(Date.now() + 86400000),

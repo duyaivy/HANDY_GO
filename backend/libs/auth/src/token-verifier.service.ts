@@ -113,6 +113,9 @@ export class TokenVerifierService {
     }
   }
 
+  /**
+   * @deprecated Use TokenSignerService.generateRefreshToken or crypto.randomBytes directly.
+   */
   generateRefreshToken(): string {
     return crypto.randomBytes(32).toString('hex');
   }
