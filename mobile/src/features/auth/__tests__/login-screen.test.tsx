@@ -7,18 +7,25 @@ import { LoginScreen } from '../screens/login-screen';
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 
-jest.mock('expo-router', () => ({
-  useRouter: jest.fn(() => ({
-    push: mockPush,
-    replace: mockReplace,
-    back: jest.fn(),
-  })),
-  useLocalSearchParams: jest.fn(() => ({})),
-  useRootNavigationState: () => ({
-    key: 'root-test',
-  }),
-  useFocusEffect: (callback: () => void) => callback(),
-}));
+jest.mock('expo-router', () => {
+  const React = require('react');
+  return {
+    useRouter: jest.fn(() => ({
+      push: mockPush,
+      replace: mockReplace,
+      back: jest.fn(),
+    })),
+    useLocalSearchParams: jest.fn(() => ({})),
+    useRootNavigationState: () => ({
+      key: 'root-test',
+    }),
+    useFocusEffect: (cb: any) => {
+      React.useEffect(() => {
+        cb();
+      }, [cb]);
+    },
+  };
+});
 
 afterEach(() => {
   cleanup();
