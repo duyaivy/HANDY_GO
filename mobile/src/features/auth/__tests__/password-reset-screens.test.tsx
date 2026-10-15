@@ -86,7 +86,7 @@ describe('password reset screens', () => {
     jest.useFakeTimers();
     render(<VerifyResetOtpScreen />);
 
-    await React.act(async () => {
+    React.act(() => {
       jest.advanceTimersByTime(60_000);
     });
     jest.useRealTimers();
