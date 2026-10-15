@@ -147,12 +147,12 @@ jobs:
         run: pnpm run type-check
 
       - name: Run tests
-        run: pnpm run test
+        run: pnpm run test -- --maxWorkers=2
 
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !cancelled() }}
     needs:
       - detect-changes
       - backend-ci

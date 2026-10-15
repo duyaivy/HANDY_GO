@@ -89,11 +89,13 @@ describe('password reset screens', () => {
     await React.act(async () => {
       jest.advanceTimersByTime(60_000);
     });
+    jest.useRealTimers();
+
     fireEvent.press(screen.getByTestId('verify-reset-otp-resend-button'));
     expect(resend).toHaveBeenCalledWith({ email: 'user@example.com' });
-    await waitFor(() => {
-      expect(screen.getByText('Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.')).toBeOnTheScreen();
-    });
+    expect(
+      await screen.findByText('Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.'),
+    ).toBeOnTheScreen();
   });
 
   it('validates password strength and confirmation before submitting', async () => {
