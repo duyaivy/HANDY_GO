@@ -1,5 +1,7 @@
-// src/app/manager/customers/page.tsx
+import CustomerTable from '@/feature/customers/components/customer-table';
+import React from 'react';
 
-export default function CustomersPage() {
-  return <h1>Customer Management Page</h1>;
+export default function ManageCustomersPage() {
+ 
+  return <CustomerTable />;
 }
