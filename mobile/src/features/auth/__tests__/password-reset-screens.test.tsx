@@ -83,13 +83,17 @@ describe('password reset screens', () => {
   it('resends OTP through the generic forgot-password endpoint and handles rate limits', async () => {
     usePasswordResetStore.getState().setEmail('user@example.com');
     const resend = jest.spyOn(AuthApi, 'forgotPassword').mockRejectedValue({ statusCode: 429 });
-    jest.useFakeTimers();
-    render(<VerifyResetOtpScreen />);
+    try {
+      jest.useFakeTimers();
+      render(<VerifyResetOtpScreen />);
 
-    React.act(() => {
-      jest.advanceTimersByTime(60_000);
-    });
-    jest.useRealTimers();
+      React.act(() => {
+        jest.advanceTimersByTime(60_000);
+      });
+    }
+    finally {
+      jest.useRealTimers();
+    }
 
     fireEvent.press(screen.getByTestId('verify-reset-otp-resend-button'));
     expect(resend).toHaveBeenCalledWith({ email: 'user@example.com' });

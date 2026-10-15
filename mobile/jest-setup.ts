@@ -155,7 +155,7 @@ jest.mock('react-native-keyboard-controller', () => {
   };
 });
 
-// Teardown react-query cache and active queries after each test
+// Teardown react-query cache, active queries, and timers after each test
 afterEach(() => {
   try {
     const { queryClient } = require('@/lib/api/query-client');
@@ -165,4 +165,6 @@ afterEach(() => {
   catch {
     // ignore if module resolution fails in isolated test
   }
+  jest.clearAllTimers();
+  jest.useRealTimers();
 });

@@ -147,7 +147,9 @@ jobs:
         run: pnpm run type-check
 
       - name: Run tests
-        run: pnpm run test --runInBand
+        env:
+          CI: true
+        run: pnpm run test --runInBand --watchAll=false --detectOpenHandles
 
   ci-gate:
     name: CI Gate
