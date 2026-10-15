@@ -6,15 +6,13 @@ import { LoginScreen } from '../screens/login-screen';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, back: mockBack };
 
 jest.mock('expo-router', () => {
   const React = require('react');
   return {
-    useRouter: jest.fn(() => ({
-      push: mockPush,
-      replace: mockReplace,
-      back: jest.fn(),
-    })),
+    useRouter: jest.fn(() => mockRouter),
     useLocalSearchParams: jest.fn(() => ({})),
     useRootNavigationState: () => ({
       key: 'root-test',

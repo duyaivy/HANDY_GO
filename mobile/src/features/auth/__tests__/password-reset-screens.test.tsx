@@ -10,9 +10,11 @@ import { usePasswordResetStore } from '../use-password-reset-store';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, back: mockBack };
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
+  useRouter: () => mockRouter,
 }));
 
 afterEach(() => {
@@ -81,15 +83,17 @@ describe('password reset screens', () => {
   });
 
   it('resends OTP through the generic forgot-password endpoint and handles rate limits', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     usePasswordResetStore.getState().setEmail('user@example.com');
     const resend = jest.spyOn(AuthApi, 'forgotPassword').mockRejectedValue({ statusCode: 429 });
     try {
-      jest.useFakeTimers();
       render(<VerifyResetOtpScreen />);
 
-      React.act(() => {
-        jest.advanceTimersByTime(60_000);
-      });
+      for (let i = 0; i < 60; i++) {
+        React.act(() => {
+          jest.advanceTimersByTime(1000);
+        });
+      }
     }
     finally {
       jest.useRealTimers();
