@@ -1,0 +1,55 @@
+import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/user-trust-client';
+import { PrismaPg } from '@prisma/adapter-pg';
+
+@Injectable()
+export class UserTrustPrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
+  public readonly schema: string;
+
+  constructor() {
+    const rawUrl =
+      process.env.DATABASE_URL_USER_TRUST ||
+      process.env.DATABASE_URL ||
+      'postgresql://postgres:postgres@localhost:5432/handygo?schema=user_trust_service';
+
+    let connectionString = rawUrl;
+    let schema = 'user_trust_service';
+
+    try {
+      const url = new URL(rawUrl);
+      const urlSchema = url.searchParams.get('schema');
+      if (urlSchema) {
+        schema = urlSchema;
+      } else {
+        url.searchParams.set('schema', schema);
+        connectionString = url.toString();
+      }
+    } catch {
+      // ignore custom parsing error
+    }
+
+    const adapter = new PrismaPg({ connectionString }, { schema });
+    super({ adapter });
+
+    this.schema = schema;
+  }
+
+  async onModuleInit(): Promise<void> {
+    if (process.env.NODE_ENV !== 'test') {
+      try {
+        await this.$connect();
+      } catch (error) {
+        throw new Error(
+          `UserTrustPrismaService failed to connect to database: ${(error as Error).message}`,
+        );
+      }
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.$disconnect();
+  }
+}

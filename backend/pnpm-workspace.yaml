@@ -1,0 +1,10 @@
+onlyBuiltDependencies:
+  - '@prisma/engines'
+  - '@swc/core'
+  - bcrypt
+  - esbuild
+  - msgpackr-extract
+  - prisma
+  - workerd
+ignoredBuiltDependencies:
+  - '@scarf/scarf'

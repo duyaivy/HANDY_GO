@@ -1,0 +1,207 @@
+name: handy-go-backend
+
+x-app: &app
+  image: handy-go-backend-dev:local
+  pull_policy: never
+  init: true
+  restart: unless-stopped
+  working_dir: /app
+  command:
+    - sh
+    - -c
+    - >-
+      exec pnpm exec nodemon
+      --watch "apps/$$NEST_PROJECT"
+      --watch libs
+      --watch nest-cli.json
+      --watch tsconfig.json
+      --ext ts,json
+      --delay 300ms
+      --exec "pnpm exec nest start $$NEST_PROJECT"
+  volumes:
+    - ./apps:/app/apps
+    - ./libs:/app/libs
+    - ./nest-cli.json:/app/nest-cli.json:ro
+    - ./tsconfig.json:/app/tsconfig.json:ro
+    - ./tsconfig.build.json:/app/tsconfig.build.json:ro
+    - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - >-
+        const http=require('node:http');
+        const request=http.get({host:'127.0.0.1',port:process.env.PORT,path:'/health'},
+        response=>process.exit(response.statusCode===200?0:1));
+        request.on('error',()=>process.exit(1));
+        request.setTimeout(2000,()=>{request.destroy();process.exit(1)});
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 30s
+
+x-development-environment: &development-environment
+  NODE_ENV: development
+  LOG_LEVEL: debug
+  API_PREFIX: api/v1
+  CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+  CHOKIDAR_USEPOLLING: 'true'
+  CHOKIDAR_INTERVAL: '500'
+  WATCHPACK_POLLING: 'true'
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  RABBITMQ_URL: ${RABBITMQ_URL:-amqp://handygo:handygo@rabbitmq:5672}
+  INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
+  JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY}
+  JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY}
+  JWT_PUBLIC_KEY_PATH: ${JWT_PUBLIC_KEY_PATH:-/app/keys/jwt-public.pem}
+  JWT_PRIVATE_KEY_PATH: ${JWT_PRIVATE_KEY_PATH:-/app/keys/jwt-private.pem}
+  CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-dev-cloud}
+  CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-dev-key}
+  CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-dev-secret}
+  CLOUDINARY_IMAGE_FOLDER: ${CLOUDINARY_IMAGE_FOLDER:-handy-go/images}
+  CLOUDINARY_VIDEO_FOLDER: ${CLOUDINARY_VIDEO_FOLDER:-handy-go/videos}
+  CLOUDINARY_IMAGE_MAX_SIZE_MB: ${CLOUDINARY_IMAGE_MAX_SIZE_MB:-10}
+  CLOUDINARY_VIDEO_MAX_SIZE_MB: ${CLOUDINARY_VIDEO_MAX_SIZE_MB:-2048}
+  CLOUDINARY_VIDEO_CHUNK_SIZE_MB: ${CLOUDINARY_VIDEO_CHUNK_SIZE_MB:-20}
+
+services:
+  api-gateway:
+    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: api-gateway
+      PORT: '3000'
+      UPSTREAM_TIMEOUT_MS: '15000'
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      CATALOG_SERVICE_URL: http://catalog-service:3003
+      ORDER_SERVICE_URL: http://order-service:3004
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
+      PAYMENT_SERVICE_URL: http://payment-service:3007
+      NOTIFICATION_SERVICE_URL: http://notification-service:3008
+      WALLET_SERVICE_URL: http://wallet-service:3009
+      TRACKING_SERVICE_URL: http://tracking-service:3010
+    ports:
+      - '3000:3000'
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-trust-service:
+        condition: service_healthy
+
+  auth-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: auth-service
+      PORT: '3001'
+      DATABASE_URL_AUTH: ${DATABASE_URL_AUTH}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_FROM: ${SMTP_FROM:-HANDY GO <social.huynhducthinh@gmail.com>}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      OTP_SECRET: ${OTP_SECRET:-handy-go-otp-secret-key-development-32-chars-long}
+      OTP_EXPIRATION_MINUTES: ${OTP_EXPIRATION_MINUTES:-10}
+      OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./apps:/app/apps
+      - ./libs:/app/libs
+      - ./nest-cli.json:/app/nest-cli.json:ro
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./tsconfig.build.json:/app/tsconfig.build.json:ro
+      - ./keys/jwt-private.pem:/app/keys/jwt-private.pem:ro
+      - ./keys/jwt-public.pem:/app/keys/jwt-public.pem:ro
+
+  user-trust-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: user-trust-service
+      PORT: '3002'
+      DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
+    ports:
+      - '3002:3002'
+
+  catalog-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: catalog-service
+      PORT: '3003'
+    ports:
+      - '3003:3003'
+
+  order-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: order-service
+      PORT: '3004'
+    ports:
+      - '3004:3004'
+
+  bidding-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: bidding-service
+      PORT: '3005'
+    ports:
+      - '3005:3005'
+
+  matching-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: matching-service
+      PORT: '3006'
+    ports:
+      - '3006:3006'
+
+  payment-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: payment-service
+      PORT: '3007'
+    ports:
+      - '3007:3007'
+
+  notification-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: notification-service
+      PORT: '3008'
+    ports:
+      - '3008:3008'
+
+  wallet-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: wallet-service
+      PORT: '3009'
+    ports:
+      - '3009:3009'
+
+  tracking-service:
+    <<: *app
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: tracking-service
+      PORT: '3010'
+    ports:
+      - '3010:3010'
+

@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.git
+.agy-mcp
+.history
+.env
+.env.*
+!.env.example
+!apps/*/.env.example
+*.log
+.DS_Store
+keys
+*.pem

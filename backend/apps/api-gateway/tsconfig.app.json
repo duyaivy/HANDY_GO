@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "rootDir": "./src",
+    "outDir": "../../dist/apps/api-gateway",
+    "tsBuildInfoFile": "../../dist/apps/api-gateway.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../libs/common/tsconfig.lib.json" },
+    { "path": "../../libs/config/tsconfig.lib.json" },
+    { "path": "../../libs/logger/tsconfig.lib.json" },
+    { "path": "../../libs/auth/tsconfig.lib.json" },
+    { "path": "../../libs/cloudinary/tsconfig.lib.json" }
+  ],
+  "exclude": ["node_modules", "dist"]
+}
