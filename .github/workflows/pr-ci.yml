@@ -147,7 +147,7 @@ jobs:
         run: pnpm run type-check
 
       - name: Run tests
-        run: pnpm run test --maxWorkers=2
+        run: pnpm run test --runInBand
 
   ci-gate:
     name: CI Gate
