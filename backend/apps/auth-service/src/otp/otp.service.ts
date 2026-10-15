@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import nodemailer, { type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
 import { ConfigService } from '@app/config';
-import { buildOtpEmailHtml } from './templates/otp-email.template.js';
+import {
+  buildOtpEmailHtml,
+  buildPasswordResetEmailHtml,
+} from './templates/otp-email.template.js';
 
 export interface GeneratedOtp {
   code: string;
@@ -92,6 +95,13 @@ export class OtpService {
     return crypto.createHmac('sha256', this.secret).update(otp).digest('hex');
   }
 
+  hashEmail(email: string): string {
+    return crypto
+      .createHmac('sha256', this.secret)
+      .update(email.trim().toLowerCase())
+      .digest('hex');
+  }
+
   verifyOtpHash(plainOtp: string, expectedHash: string): boolean {
     const computedHash = this.hashOtp(plainOtp);
     if (computedHash.length !== expectedHash.length) {
@@ -104,26 +114,49 @@ export class OtpService {
   }
 
   async sendVerificationOtp(email: string, otpCode: string): Promise<void> {
-    const from = this.config.smtpFrom;
-    const maskedEmail = this.maskEmail(email);
+    await this.sendOtpEmail({
+      email,
+      subject: '[HANDY GO] Mã xác thực tài khoản của bạn',
+      text: `Chào bạn, mã xác thực tài khoản HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua.`,
+      html: buildOtpEmailHtml(otpCode, this.expirationMinutes),
+      logLabel: 'Verification OTP',
+    });
+  }
 
+  async sendPasswordResetOtp(email: string, otpCode: string): Promise<void> {
+    await this.sendOtpEmail({
+      email,
+      subject: '[HANDY GO] Mã xác thực đặt lại mật khẩu',
+      text: `Chào bạn, mã xác thực đặt lại mật khẩu HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua email.`,
+      html: buildPasswordResetEmailHtml(otpCode, this.expirationMinutes),
+      logLabel: 'Password reset OTP',
+    });
+  }
+
+  private async sendOtpEmail(params: {
+    email: string;
+    subject: string;
+    text: string;
+    html: string;
+    logLabel: string;
+  }): Promise<void> {
     if (!this.transporter) {
       this.initTransporter();
     }
 
+    const maskedEmail = this.maskEmail(params.email);
     try {
       await this.transporter!.sendMail({
-        from,
-        to: email,
-        subject: `[HANDY GO] Mã xác thực tài khoản của bạn`,
-        text: `Chào bạn, mã xác thực tài khoản HANDY GO của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không yêu cầu mã này, vui lòng bỏ qua.`,
-        html: buildOtpEmailHtml(otpCode, this.expirationMinutes),
+        from: this.config.smtpFrom,
+        to: params.email,
+        subject: params.subject,
+        text: params.text,
+        html: params.html,
       });
-
-      this.logger.log(`Verification OTP email sent to ${maskedEmail}`);
+      this.logger.log(`${params.logLabel} email sent to ${maskedEmail}`);
     } catch (error) {
       this.logger.error(
-        `Failed to deliver OTP email to ${maskedEmail}: ${(error as Error).message}`,
+        `Failed to deliver ${params.logLabel} email to ${maskedEmail}: ${(error as Error).message}`,
       );
       throw error;
     }

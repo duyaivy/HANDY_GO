@@ -7,7 +7,6 @@ import { AuthPrismaService } from '@app/database';
 import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
 import { AppException, ERROR_CODES, OutboxPublisherService } from '@app/common';
-import { AuthServiceService } from '../src/auth-service.service.js';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
 import { OtpFlowService } from '../src/otp/otp-flow.service.js';
 import { LoginFlowService } from '../src/login/login-flow.service.js';
@@ -19,7 +18,8 @@ import { OtpService } from '../src/otp/otp.service.js';
 
 describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
   let module: TestingModule;
-  let authService: AuthServiceService;
+  let registerFlow: RegisterFlowService;
+  let otpFlow: OtpFlowService;
   let prisma: AuthPrismaService;
   let otpServiceMock: {
     generateOtp: ReturnType<typeof vi.fn>;
@@ -48,7 +48,6 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     module = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
       providers: [
-        AuthServiceService,
         RegisterFlowService,
         OtpFlowService,
         LoginFlowService,
@@ -92,7 +91,8 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
       ],
     }).compile();
 
-    authService = module.get<AuthServiceService>(AuthServiceService);
+    registerFlow = module.get<RegisterFlowService>(RegisterFlowService);
+    otpFlow = module.get<OtpFlowService>(OtpFlowService);
     prisma = module.get<AuthPrismaService>(AuthPrismaService);
     try {
       await prisma.$connect();
@@ -149,7 +149,7 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     otpServiceMock.verifyOtpHash.mockImplementation((plain: string, hash: string) => hash === `hash_${plain}`);
 
     // Register user through real DB
-    const regRes = await authService.register(
+    const regRes = await registerFlow.execute(
       {
         fullName: `Test Concurrency ${ts}`,
         phone: phone.replace('+84', '0'),
@@ -164,11 +164,11 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
 
     // Concurrently fire 4 wrong attempts + 1 correct attempt
     const promises = [
-      authService.verifyEmail({ email, otp: '000001', challengeId }),
-      authService.verifyEmail({ email, otp: '000002', challengeId }),
-      authService.verifyEmail({ email, otp: '000003', challengeId }),
-      authService.verifyEmail({ email, otp: '000004', challengeId }),
-      authService.verifyEmail({ email, otp: correctCode, challengeId }),
+      otpFlow.verifyEmail({ email, otp: '000001', challengeId }),
+      otpFlow.verifyEmail({ email, otp: '000002', challengeId }),
+      otpFlow.verifyEmail({ email, otp: '000003', challengeId }),
+      otpFlow.verifyEmail({ email, otp: '000004', challengeId }),
+      otpFlow.verifyEmail({ email, otp: correctCode, challengeId }),
     ];
 
     const results = await Promise.allSettled(promises);
@@ -215,7 +215,7 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
       await new Promise((r) => setTimeout(r, 80));
     });
 
-    const _regRes = await authService.register(
+    const _regRes = await registerFlow.execute(
       {
         fullName: `Test Resend ${ts}`,
         phone: phone.replace('+84', '0'),
@@ -236,8 +236,8 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     otpServiceMock.sendVerificationOtp.mockClear();
 
     // Fire 2 concurrent resends for the same account
-    const resendPromise1 = authService.resendOtp({ email });
-    const resendPromise2 = authService.resendOtp({ email });
+    const resendPromise1 = otpFlow.resendOtp({ email });
+    const resendPromise2 = otpFlow.resendOtp({ email });
 
     const results = await Promise.allSettled([resendPromise1, resendPromise2]);
 
@@ -287,7 +287,7 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     });
     otpServiceMock.verifyOtpHash.mockImplementation((plain: string, hash: string) => hash === `hash_${plain}`);
 
-    const regRes = await authService.register(
+    const regRes = await registerFlow.execute(
       {
         fullName: `Test SMTP Fail ${ts}`,
         phone: phone.replace('+84', '0'),
@@ -315,7 +315,7 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
       resendAvailableAt: new Date(Date.now() + 60000),
     });
 
-    await expect(authService.resendOtp({ email })).rejects.toThrow(AppException);
+    await expect(otpFlow.resendOtp({ email })).rejects.toThrow(AppException);
 
     // Verify the failed challenge was marked failed
     const failedChallenge = await prisma.otpChallenge.findFirst({
@@ -335,7 +335,7 @@ describe('OTP Real Concurrency & Failure Resilience with PostgreSQL', () => {
     expect(oldChallenge.deliveryStatus).toBe('delivered');
 
     // User can still verify with the old code!
-    const verifyOldRes = await authService.verifyEmail({
+    const verifyOldRes = await otpFlow.verifyEmail({
       email,
       otp: initialCode,
       challengeId: initialChallengeId,

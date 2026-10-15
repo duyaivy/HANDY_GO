@@ -12,7 +12,7 @@ import type { Request } from 'express';
 import { Public } from '@app/auth';
 import { ConfigService } from '@app/config';
 import { ApiErrorResponseDto } from '@app/common';
-import { RegisterDto, type RegisterResponse } from './index.js';
+import { RegisterDto, RegisterResponseDto, type RegisterResponse } from './index.js';
 import { resolveClientIp } from '../common/utils/client-ip.util.js';
 import { RegisterFlowService } from './register-flow.service.js';
 
@@ -31,6 +31,7 @@ export class RegisterController {
   @ApiResponse({
     status: 201,
     description: 'Đăng ký thành công, cần xác thực OTP',
+    type: RegisterResponseDto,
   })
   @ApiResponse({
     status: 400,

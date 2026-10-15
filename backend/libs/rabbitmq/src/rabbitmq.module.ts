@@ -30,16 +30,4 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
 })
 export class RabbitMQModule {}
  
-export function createRabbitMQOptions(queue: string) {
-  return {
-    transport: Transport.RMQ,
-    options: {
-      urls: [process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672'],
-      queue,
-      noAck: false,
-      queueOptions: {
-        durable: true,
-      },
-    },
-  };
-}
+export { createRabbitMQOptions } from './rabbitmq.config.js';

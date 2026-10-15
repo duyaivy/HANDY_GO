@@ -6,7 +6,6 @@ import { ordersCustomerLocales } from '@/features/orders/customer/locales';
 import { ordersWorkerLocales } from '@/features/orders/worker/locales';
 import { profileCustomerLocales } from '@/features/profile/customer/locales';
 import { profileWorkerLocales } from '@/features/profile/worker/locales';
-import ar from '@/translations/ar.json';
 import en from '@/translations/en.json';
 import vi from '@/translations/vi.json';
 
@@ -32,17 +31,6 @@ export const resources = {
     ordersWorker: ordersWorkerLocales.vi,
     profileCustomer: profileCustomerLocales.vi,
     profileWorker: profileWorkerLocales.vi,
-  },
-  ar: {
-    translation: ar,
-    auth: authLocales.en,
-    devDemo: devDemoLocales.en,
-    homeCustomer: homeCustomerLocales.en,
-    homeWorker: homeWorkerLocales.en,
-    ordersCustomer: ordersCustomerLocales.en,
-    ordersWorker: ordersWorkerLocales.en,
-    profileCustomer: profileCustomerLocales.en,
-    profileWorker: profileWorkerLocales.en,
   },
 };
 

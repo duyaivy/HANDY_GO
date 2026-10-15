@@ -11,7 +11,7 @@ import { AuthSeedService } from '../src/common/seed/auth-seed.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { AuthServiceModule } from './../src/auth-service.module.js';
 
-describe('AuthServiceController (e2e)', () => {
+describe('AuthServiceModule (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {

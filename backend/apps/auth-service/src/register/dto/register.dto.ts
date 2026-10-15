@@ -36,8 +36,6 @@ export class RegisterDto {
   })
   @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
-  @MinLength(8, { message: 'Mật khẩu phải có tối thiểu 8 ký tự' })
-  @MaxLength(72, { message: 'Mật khẩu không được vượt quá 72 ký tự' })
   @IsByteLength(1, 72, { message: 'Mật khẩu không được vượt quá 72 byte UTF-8' })
   @IsStrongPassword(
     {

@@ -5,52 +5,7 @@ import { ConfigService } from '@app/config';
 import crypto from 'node:crypto';
 import { buildErrorResponse, ERROR_CODES } from '@app/common';
 
-/**
- * Public routes — các route này KHÔNG yêu cầu xác thực JWT.
- * Bao gồm tất cả phương thức (GET/POST/PATCH/DELETE...) trừ khi được chú thích rõ.
- */
-const PUBLIC_PREFIXES: ReadonlyArray<{ prefix: string; methods?: string[] }> = [
-  // Auth public routes
-  { prefix: '/api/v1/auth/login' },
-  { prefix: '/api/v1/auth/register' },
-  { prefix: '/api/v1/auth/verify-email' },
-  { prefix: '/api/v1/auth/resend-otp' },
-  { prefix: '/api/v1/auth/refresh' },
-  // Catalog & categories — chỉ GET là public, PUT/POST/DELETE yêu cầu xác thực
-  { prefix: '/api/v1/catalog', methods: ['GET', 'HEAD'] },
-  { prefix: '/api/v1/categories', methods: ['GET', 'HEAD'] },
-  { prefix: '/api/v1/services', methods: ['GET', 'HEAD'] },
-  // Infrastructure & Dev Tooling
-  { prefix: '/health' },
-  { prefix: '/docs' },
-  { prefix: '/docs-json' },
-  { prefix: '/favicon.ico' },
-  { prefix: '/dev' },
-];
-
-function isPublicRoute(pathname: string, method: string): boolean {
-  for (const { prefix, methods } of PUBLIC_PREFIXES) {
-    const matchesPath =
-      pathname === prefix ||
-      pathname.startsWith(`${prefix}/`) ||
-      pathname.startsWith(`${prefix}?`);
-
-    if (!matchesPath) {
-      continue;
-    }
-
-    // Nếu không khai báo giới hạn method => tất cả method đều public
-    if (!methods) {
-      return true;
-    }
-
-    // Nếu có khai báo method => chỉ public với method đó
-    if (methods.includes(method.toUpperCase())) {
-      return true;
-    }
-  }
-  return false;
-}
+import { isPublicRoute } from './gateway-auth-route.policy.js';
 
 function buildUnauthorizedResponse(
   res: Response,
@@ -84,7 +39,7 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     const method = req.method;
 
     // 1. Bỏ qua xác thực cho public routes
-    if (isPublicRoute(pathname.split('?')[0]!, method)) {
+    if (isPublicRoute(pathname, method)) {
       this.injectGatewayHeaders(req);
       return next();
     }
@@ -112,11 +67,13 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     let payload;
     try {
       payload = await this.tokenVerifier.verifyAccessToken(token);
-    } catch {
+    } catch (error: any) {
       return buildUnauthorizedResponse(
         res,
         req,
-        'Mã truy cập không hợp lệ hoặc đã hết hạn.',
+        error instanceof Error && error.message
+          ? error.message
+          : 'Mã truy cập không hợp lệ hoặc đã hết hạn.',
       );
     }
 

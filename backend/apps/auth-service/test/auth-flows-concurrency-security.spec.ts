@@ -12,8 +12,7 @@ import {
 import { RabbitMQService } from '@app/rabbitmq';
 import { ConfigService } from '@app/config';
 import { AppException, ERROR_CODES } from '@app/common';
-import { AuthServiceService } from '../src/auth-service.service.js';
-import { AuthServiceController } from '../src/auth-service.controller.js';
+import { RegisterController } from '../src/register/register.controller.js';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
@@ -30,8 +29,10 @@ import {
 
 describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
   let module: TestingModule;
-  let authService: AuthServiceService;
-  let controller: AuthServiceController;
+  let registerFlow: RegisterFlowService;
+  let otpFlow: OtpFlowService;
+  let loginFlow: LoginFlowService;
+  let registerController: RegisterController;
   let userTrustClient: UserTrustClient;
   let dbMock: any;
   let otpServiceMock: any;
@@ -118,9 +119,8 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
 
     module = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
-      controllers: [AuthServiceController],
+      controllers: [RegisterController],
       providers: [
-        AuthServiceService,
         RegisterFlowService,
         OtpFlowService,
         LoginFlowService,
@@ -146,8 +146,10 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       ],
     }).compile();
 
-    authService = module.get<AuthServiceService>(AuthServiceService);
-    controller = module.get<AuthServiceController>(AuthServiceController);
+    registerFlow = module.get<RegisterFlowService>(RegisterFlowService);
+    otpFlow = module.get<OtpFlowService>(OtpFlowService);
+    loginFlow = module.get<LoginFlowService>(LoginFlowService);
+    registerController = module.get<RegisterController>(RegisterController);
     userTrustClient = module.get<UserTrustClient>(UserTrustClient);
   });
 
@@ -183,8 +185,8 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       // Launch both verify calls concurrently
-      const verifyPromise1 = authService.verifyEmail({ phone: '0912345678', otp: '123456' });
-      const verifyPromise2 = authService.verifyEmail({ phone: '0912345678', otp: '123456' });
+      const verifyPromise1 = otpFlow.verifyEmail({ phone: '0912345678', otp: '123456' });
+      const verifyPromise2 = otpFlow.verifyEmail({ phone: '0912345678', otp: '123456' });
 
       const results = await Promise.allSettled([verifyPromise1, verifyPromise2]);
 
@@ -213,7 +215,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       await expect(
-        authService.verifyEmail({ phone: '0912345678', otp: '123456' }),
+        otpFlow.verifyEmail({ phone: '0912345678', otp: '123456' }),
       ).rejects.toThrow(AppException);
     });
 
@@ -239,7 +241,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       dbMock.otpChallenge.findUnique.mockResolvedValueOnce({ id: 'ch-attempt', attempts: 3 });
 
       await expect(
-        authService.verifyEmail({ phone: '0912345678', otp: '999999' }),
+        otpFlow.verifyEmail({ phone: '0912345678', otp: '999999' }),
       ).rejects.toThrow(AppException);
 
       expect(dbMock.otpChallenge.updateMany).toHaveBeenCalledWith(
@@ -275,7 +277,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       try {
-        await authService.verifyEmail({ phone: '0912345678', otp: '123456' });
+        await otpFlow.verifyEmail({ phone: '0912345678', otp: '123456' });
         expect.unreachable('Should have thrown 429');
       } catch (err: any) {
         expect(err).toBeInstanceOf(AppException);
@@ -308,7 +310,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       try {
-        await authService.resendOtp({ phone: '0912345678' });
+        await otpFlow.resendOtp({ phone: '0912345678' });
         expect.unreachable('Should have thrown 429');
       } catch (err: any) {
         expect(err).toBeInstanceOf(AppException);
@@ -337,7 +339,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       );
 
       await expect(
-        authService.resendOtp({ phone: '0912345678' }),
+        otpFlow.resendOtp({ phone: '0912345678' }),
       ).rejects.toThrow(AppException);
 
       // Pending placeholder was marked failed and used
@@ -371,7 +373,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         status: 'pending',
       });
 
-      const res = await authService.register(
+      const res = await registerFlow.execute(
         {
           fullName: 'Tran Van Unified',
           phone: '0987654321',
@@ -396,7 +398,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
       });
 
       await expect(
-        authService.register({
+        registerFlow.execute({
           fullName: 'Test User',
           phone: '0912345678',
           email: 'test@example.com',
@@ -462,7 +464,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         password: 'Password123',
       };
 
-      const spyRegister = vi.spyOn(authService, 'register').mockResolvedValueOnce({} as any);
+      const spyRegister = vi.spyOn(registerFlow, 'execute').mockResolvedValueOnce({} as any);
 
       const fakeReq = {
         headers: {
@@ -471,7 +473,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         socket: { remoteAddress: '10.0.0.99' },
       } as any;
 
-      await controller.register(dto as any, '10.0.0.99', fakeReq);
+      await registerController.register(dto as any, '10.0.0.99', fakeReq);
 
       // Must NOT use forged IP '198.51.100.1', must use socket remoteAddress '10.0.0.99'
       expect(spyRegister).toHaveBeenCalledWith(dto, '10.0.0.99');
@@ -485,7 +487,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         password: 'Password123',
       };
 
-      const spyRegister = vi.spyOn(authService, 'register').mockResolvedValueOnce({} as any);
+      const spyRegister = vi.spyOn(registerFlow, 'execute').mockResolvedValueOnce({} as any);
 
       const trustedReq = {
         headers: {
@@ -495,20 +497,40 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         socket: { remoteAddress: '10.0.0.1' },
       } as any;
 
-      await controller.register(dto as any, '10.0.0.1', trustedReq);
+      await registerController.register(dto as any, '10.0.0.1', trustedReq);
 
       expect(spyRegister).toHaveBeenCalledWith(dto, '203.0.113.55');
     });
   });
 
-  describe('6. Logout Response Normalization', () => {
+  describe('6. Logout Response Normalization & Idempotency (HG-31 Phase 3)', () => {
     it('standardizes logout response to { statusCode: 200, message, data: null }', async () => {
-      const res = await authService.logout({ refreshToken: 'mock-token' });
+      const res = await loginFlow.logout({ refreshToken: 'mock-token' });
       expect(res).toEqual({
         statusCode: 200,
         message: 'Đăng xuất thành công',
         data: null,
       });
+    });
+
+    it('logout với token không khớp hoặc đã thu hồi vẫn trả 200 idempotent không tiết lộ trạng thái session', async () => {
+      dbMock.refreshSession.updateMany.mockResolvedValueOnce({ count: 0 });
+      const res = await loginFlow.logout({ refreshToken: 'non-existent-token' });
+      expect(res).toEqual({
+        statusCode: 200,
+        message: 'Đăng xuất thành công',
+        data: null,
+      });
+      expect(dbMock.refreshSession.create).not.toHaveBeenCalled();
+    });
+
+    it('gọi lại logout nhiều lần liên tiếp không làm phát sinh lỗi và không tạo session mới', async () => {
+      dbMock.refreshSession.updateMany.mockResolvedValue({ count: 0 });
+      const res1 = await loginFlow.logout({ refreshToken: 'same-token' });
+      const res2 = await loginFlow.logout({ refreshToken: 'same-token' });
+      expect(res1.statusCode).toBe(200);
+      expect(res2.statusCode).toBe(200);
+      expect(dbMock.refreshSession.create).not.toHaveBeenCalled();
     });
   });
 

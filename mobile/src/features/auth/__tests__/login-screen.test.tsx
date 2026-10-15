@@ -6,21 +6,28 @@ import { LoginScreen } from '../screens/login-screen';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, back: mockBack };
 
-jest.mock('expo-router', () => ({
-  useRouter: jest.fn(() => ({
-    push: mockPush,
-    replace: mockReplace,
-    back: jest.fn(),
-  })),
-  useLocalSearchParams: jest.fn(() => ({})),
-  useRootNavigationState: () => ({
-    key: 'root-test',
-  }),
-}));
+jest.mock('expo-router', () => {
+  const React = require('react');
+  return {
+    useRouter: jest.fn(() => mockRouter),
+    useLocalSearchParams: jest.fn(() => ({})),
+    useRootNavigationState: () => ({
+      key: 'root-test',
+    }),
+    useFocusEffect: (cb: any) => {
+      React.useEffect(() => {
+        cb();
+      }, [cb]);
+    },
+  };
+});
 
 afterEach(() => {
   cleanup();
+  jest.clearAllTimers();
   jest.clearAllMocks();
   useAuthStore.getState().setUser(null);
   useAuthStore.getState().clearError();
@@ -33,6 +40,7 @@ describe('loginScreen', () => {
     expect(screen.getByTestId('login-phone-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-password-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-submit-button')).toBeOnTheScreen();
+    expect(screen.getByTestId('login-forgot-password-btn')).toBeOnTheScreen();
     expect(screen.getByTestId('login-to-register-btn')).toBeOnTheScreen();
   });
 
@@ -110,5 +118,11 @@ describe('loginScreen', () => {
     render(<LoginScreen />);
     fireEvent.press(screen.getByTestId('login-to-register-btn'));
     expect(mockPush).toHaveBeenCalledWith('/(auth)/register');
+  });
+
+  it('navigates to forgot password when pressing the link', () => {
+    render(<LoginScreen />);
+    fireEvent.press(screen.getByTestId('login-forgot-password-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/forgot-password');
   });
 });

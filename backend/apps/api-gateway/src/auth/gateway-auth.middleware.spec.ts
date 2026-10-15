@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
+import { UnauthorizedException } from '@nestjs/common';
 import { GatewayAuthMiddleware } from './gateway-auth.middleware.js';
-import type { TokenVerifierService } from '@app/auth';
+import type { TokenVerifierService, JwtPayload } from '@app/auth';
 import type { ConfigService } from '@app/config';
-import type { JwtPayload } from '@app/auth';
 
 const mockPayload: JwtPayload = {
   sub: 'account-uuid',
@@ -35,11 +35,14 @@ function buildRes(): {
 } {
   const json = vi.fn().mockReturnThis();
   const status = vi.fn().mockReturnValue({ json });
-  const res = { status, headersSent: false } as unknown as Response;
-  return { res, json, status };
+  return {
+    res: { status, headersSent: false } as unknown as Response,
+    json,
+    status,
+  };
 }
 
-describe('GatewayAuthMiddleware', () => {
+describe('GatewayAuthMiddleware (Unit)', () => {
   let middleware: GatewayAuthMiddleware;
   let tokenVerifier: { verifyAccessToken: ReturnType<typeof vi.fn> };
   let configService: { internalServiceSecret: string };
@@ -55,73 +58,42 @@ describe('GatewayAuthMiddleware', () => {
     next = vi.fn();
   });
 
-  describe('Public routes — bypass xác thực', () => {
-    const publicCases = [
-      { url: '/api/v1/auth/login', method: 'POST' },
-      { url: '/api/v1/auth/register', method: 'POST' },
-      { url: '/api/v1/auth/verify-email', method: 'POST' },
-      { url: '/api/v1/auth/resend-otp', method: 'POST' },
-      { url: '/api/v1/auth/refresh', method: 'POST' },
-      { url: '/api/v1/catalog', method: 'GET' },
-      { url: '/api/v1/catalog/123', method: 'GET' },
-      { url: '/api/v1/categories', method: 'GET' },
-      { url: '/health', method: 'GET' },
-      { url: '/docs', method: 'GET' },
-      { url: '/docs-json', method: 'GET' },
-    ];
-
-    it.each(publicCases)(
-      '$method $url không yêu cầu xác thực JWT',
-      async ({ url, method }) => {
-        const req = buildReq({ originalUrl: url, method });
-        const { res } = buildRes();
-
-        await middleware.use(req, res, next);
-
-        expect(next).toHaveBeenCalledOnce();
-        expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
-      },
-    );
-
-    it('GET /api/v1/catalog cần inject x-internal-secret', async () => {
+  describe('public route', () => {
+    it('bypasses verifier và inject internal headers cho public route', async () => {
       const req = buildReq({ originalUrl: '/api/v1/catalog', method: 'GET' });
       const { res } = buildRes();
 
       await middleware.use(req, res, next);
 
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
       expect(req.headers['x-internal-secret']).toBe(
         'super-secret-internal-key',
       );
-    });
-  });
-
-  describe('Catalog/Categories — chỉ GET là public, các method khác cần JWT', () => {
-    it('POST /api/v1/catalog yêu cầu xác thực', async () => {
-      const req = buildReq({ originalUrl: '/api/v1/catalog', method: 'POST' });
-      const { res, status } = buildRes();
-
-      await middleware.use(req, res, next);
-
-      expect(next).not.toHaveBeenCalled();
-      expect(status).toHaveBeenCalledWith(401);
+      expect(req.headers['x-forwarded-for']).toBe('127.0.0.1');
     });
 
-    it('DELETE /api/v1/categories/1 yêu cầu xác thực', async () => {
+    it('bỏ qua Authorization header dù token đã hết hạn đối với logout public route', async () => {
       const req = buildReq({
-        originalUrl: '/api/v1/categories/1',
-        method: 'DELETE',
+        originalUrl: '/api/v1/auth/logout',
+        method: 'POST',
+        headers: { authorization: 'Bearer expired.access.token' },
       });
-      const { res, status } = buildRes();
+      const { res } = buildRes();
 
       await middleware.use(req, res, next);
 
-      expect(next).not.toHaveBeenCalled();
-      expect(status).toHaveBeenCalledWith(401);
+      expect(next).toHaveBeenCalledOnce();
+      expect(tokenVerifier.verifyAccessToken).not.toHaveBeenCalled();
+      expect(req.headers['x-internal-secret']).toBe(
+        'super-secret-internal-key',
+      );
+      expect(req.headers['x-forwarded-for']).toBe('127.0.0.1');
     });
   });
 
-  describe('Protected routes — yêu cầu JWT hợp lệ', () => {
-    it('trả 401 khi không có Authorization header', async () => {
+  describe('authorization header', () => {
+    it('trả 401 khi thiếu Authorization header', async () => {
       const req = buildReq({ originalUrl: '/api/v1/orders', method: 'GET' });
       const { res, status, json } = buildRes();
 
@@ -142,21 +114,28 @@ describe('GatewayAuthMiddleware', () => {
       );
     });
 
-    it('trả 401 khi format sai (không phải Bearer)', async () => {
+    it('trả 401 khi invalid scheme (không phải Bearer <token>)', async () => {
       const req = buildReq({
         originalUrl: '/api/v1/orders',
         method: 'GET',
-        headers: { authorization: 'Basic sometoken' },
+        headers: { authorization: 'Basic credentials' },
       });
-      const { res, status } = buildRes();
+      const { res, status, json } = buildRes();
 
       await middleware.use(req, res, next);
 
       expect(next).not.toHaveBeenCalled();
       expect(status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: 'Mã truy cập không đúng định dạng Bearer <token>.',
+        }),
+      );
     });
 
-    it('trả 401 khi token không hợp lệ', async () => {
+    it('trả 401 khi tokenVerifier reject (token không hợp lệ hoặc đã hết hạn)', async () => {
       tokenVerifier.verifyAccessToken.mockRejectedValue(
         new Error('token expired'),
       );
@@ -165,15 +144,50 @@ describe('GatewayAuthMiddleware', () => {
         method: 'GET',
         headers: { authorization: 'Bearer invalid.token.here' },
       });
-      const { res, status } = buildRes();
+      const { res, status, json } = buildRes();
 
       await middleware.use(req, res, next);
 
       expect(next).not.toHaveBeenCalled();
       expect(status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: 'token expired',
+        }),
+      );
     });
 
-    it('inject đúng identity headers và gọi next() khi token hợp lệ', async () => {
+    it('trả 401 khi tokenVerifier reject Refresh Token', async () => {
+      tokenVerifier.verifyAccessToken.mockRejectedValue(
+        new UnauthorizedException(
+          'Refresh token không được phép sử dụng làm mã truy cập',
+        ),
+      );
+      const req = buildReq({
+        originalUrl: '/api/v1/orders',
+        method: 'GET',
+        headers: { authorization: 'Bearer refresh.token' },
+      });
+      const { res, status, json } = buildRes();
+
+      await middleware.use(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+          message: 'Refresh token không được phép sử dụng làm mã truy cập',
+        }),
+      );
+    });
+  });
+
+  describe('authenticated request', () => {
+    it('gọi verifier với Bearer token và inject identity headers', async () => {
       tokenVerifier.verifyAccessToken.mockResolvedValue(mockPayload);
       const req = buildReq({
         originalUrl: '/api/v1/orders',
@@ -184,6 +198,9 @@ describe('GatewayAuthMiddleware', () => {
 
       await middleware.use(req, res, next);
 
+      expect(tokenVerifier.verifyAccessToken).toHaveBeenCalledWith(
+        'valid.jwt.token',
+      );
       expect(next).toHaveBeenCalledOnce();
       expect(req.headers['x-user-id']).toBe('user-uuid');
       expect(req.headers['x-user-account-id']).toBe('account-uuid');
@@ -192,9 +209,10 @@ describe('GatewayAuthMiddleware', () => {
       expect(req.headers['x-internal-secret']).toBe(
         'super-secret-internal-key',
       );
+      expect(req.headers['x-forwarded-for']).toBe('127.0.0.1');
     });
 
-    it('strip x-user-* headers do client inject (chống spoofing)', async () => {
+    it('ghi đè (overwrite) các header x-user-* giả mạo từ client', async () => {
       tokenVerifier.verifyAccessToken.mockResolvedValue(mockPayload);
       const req = buildReq({
         originalUrl: '/api/v1/orders',
@@ -202,16 +220,20 @@ describe('GatewayAuthMiddleware', () => {
         headers: {
           authorization: 'Bearer valid.jwt.token',
           'x-user-id': 'hacker-id',
+          'x-user-account-id': 'hacker-acc',
           'x-user-roles': 'Admin',
+          'x-user-permissions': 'all:super',
         },
       });
       const { res } = buildRes();
 
       await middleware.use(req, res, next);
 
-      // Phải bị ghi đè bằng payload từ JWT, không phải giá trị client gửi lên
+      expect(next).toHaveBeenCalledOnce();
       expect(req.headers['x-user-id']).toBe('user-uuid');
+      expect(req.headers['x-user-account-id']).toBe('account-uuid');
       expect(req.headers['x-user-roles']).toBe('Customer');
+      expect(req.headers['x-user-permissions']).toBe('profile:read');
     });
   });
 });

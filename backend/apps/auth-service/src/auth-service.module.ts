@@ -6,7 +6,6 @@ import { HealthModule } from './health/health.module.js';
 import { RegisterModule } from './register/register.module.js';
 import { OtpModule } from './otp/otp.module.js';
 import { LoginModule } from './login/login.module.js';
-import { AuthServiceService } from './auth-service.service.js';
 
 @Module({
   imports: [
@@ -22,7 +21,5 @@ import { AuthServiceService } from './auth-service.service.js';
     RegisterModule,
     LoginModule,
   ],
-  providers: [AuthServiceService],
-  exports: [AuthServiceService],
 })
 export class AuthServiceModule {}

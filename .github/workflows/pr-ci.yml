@@ -42,6 +42,7 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -87,6 +88,7 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.frontend == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -115,6 +117,7 @@ jobs:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.mobile == 'true' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: mobile
@@ -144,12 +147,15 @@ jobs:
         run: pnpm run type-check
 
       - name: Run tests
-        run: pnpm run test
+        env:
+          CI: true
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm run test --runInBand --watchAll=false
 
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !cancelled() }}
     needs:
       - detect-changes
       - backend-ci
