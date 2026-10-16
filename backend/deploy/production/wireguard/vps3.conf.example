@@ -1,0 +1,17 @@
+# /etc/wireguard/wg0.conf on VPS 3; chmod 600.
+[Interface]
+Address = 10.77.0.3/24
+ListenPort = 51820
+PrivateKey = REPLACE_VPS3_PRIVATE_KEY
+
+[Peer]
+PublicKey = REPLACE_VPS1_PUBLIC_KEY
+Endpoint = REPLACE_VPS1_PUBLIC_IP:51820
+AllowedIPs = 10.77.0.1/32
+PersistentKeepalive = 25
+
+[Peer]
+PublicKey = REPLACE_VPS2_PUBLIC_KEY
+Endpoint = REPLACE_VPS2_PUBLIC_IP:51820
+AllowedIPs = 10.77.0.2/32
+PersistentKeepalive = 25

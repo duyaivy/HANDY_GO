@@ -222,3 +222,8 @@ Phản hồi chuẩn: `{"status":"ok","service":"<name>","timestamp":"..."}`.
   }
 }
 ```
+
+
+## Triển khai Backend production trên 3 VPS
+
+Xem [hướng dẫn triển khai](deploy/production/README.md) để setup Docker, WireGuard, Nginx/TLS, một ENV chung, Nginx container, cloud secrets, GitHub Actions nhánh release và rollback theo manifest cho 11 ứng dụng trên 3 VPS RAM 1 GB. Setup và SSH sử dụng tài khoản `azureuser` có sẵn trên cả ba VPS. Service health-only được bật theo phê duyệt nhưng chưa hoàn thiện nghiệp vụ. Workflow nằm ở `.github/workflows/backend-production.yml` tại root Git repository.
