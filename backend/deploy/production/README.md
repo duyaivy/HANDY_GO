@@ -177,10 +177,10 @@ Các biến được liệt kê đầy đủ không đồng nghĩa source đã s
 | --- | --- |
 | PORT_* | Thông tin tham chiếu; cổng thực tế là PORT do Compose đặt. Đổi cổng cần cập nhật Compose, services.json và upstream URL. |
 | RABBITMQ_QUEUE_* | Thông tin tham chiếu; queue hiện được truyền trong code, source chưa đọc các biến này. Muốn cấu hình queue qua ENV cần bổ sung code đọc biến. |
-| DATABASE_URL_CATALOG | Thông tin tham chiếu; runtime và migration Catalog hiện đọc DATABASE_URL ở PHẦN 1. Đổi DATABASE_URL_CATALOG riêng chưa đổi database thực tế. |
-| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Source đã đọc; production yêu cầu điền giá trị thật, không để trống. |
+| DATABASE_URL_CATALOG | Tùy chọn, chỉ để tham chiếu; runtime và migration Catalog hiện đọc DATABASE_URL ở PHẦN 1. Đổi DATABASE_URL_CATALOG riêng chưa đổi database thực tế. |
+| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Tùy chọn; bỏ qua hoặc để rỗng để runtime, migration và deployment probe dùng DATABASE_URL chung. Có giá trị thì ưu tiên URL riêng. |
 
-Không để DATABASE_URL_CATALOG hoặc key nào khác có giá trị rỗng trong bản production: validator raw ENV sẽ chặn. Dùng URL database thật cho các mục database trước khi lưu secret; Catalog vẫn kết nối bằng DATABASE_URL như bảng trên.
+DATABASE_URL_AUTH, DATABASE_URL_USER_TRUST và DATABASE_URL_CATALOG có thể bỏ qua hoặc để rỗng trong bản production. DATABASE_URL chung vẫn bắt buộc và phải dùng URL database thật; các key khác không được để rỗng. Khi dùng chung, DATABASE_URL nên không có tham số schema để Auth và User Trust tự chọn schema mặc định auth_service và user_trust_service.
 
 Khi thêm ENV cho service, thêm vào đúng mục ở cả hai template, triển khai code đọc/validate biến đó, rồi cập nhật secret BACKEND_PRODUCTION_ENV trước khi deploy. Nếu thêm service hoặc đổi vị trí/cổng, cập nhật thêm services.json, Compose và URL upstream trong mục Gateway cho đồng bộ. Sửa file example không tự thay đổi cấu hình đang chạy trên VPS.
 

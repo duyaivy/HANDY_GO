@@ -15,8 +15,8 @@ async function http(url, expected = 200, headers = {}) {
 try {
   await http(`http://127.0.0.1:${process.env.PORT}/health`);
   const database = {
-    'auth-service': [process.env.DATABASE_URL_AUTH, 'SELECT count(*) FROM auth_service.roles'],
-    'user-trust-service': [process.env.DATABASE_URL_USER_TRUST, 'SELECT 1 FROM user_trust_service.users LIMIT 1'],
+    'auth-service': [process.env.DATABASE_URL_AUTH || process.env.DATABASE_URL, 'SELECT count(*) FROM auth_service.roles'],
+    'user-trust-service': [process.env.DATABASE_URL_USER_TRUST || process.env.DATABASE_URL, 'SELECT 1 FROM user_trust_service.users LIMIT 1'],
     'catalog-service': [process.env.DATABASE_URL, 'SELECT 1 FROM catalog_service.outbox_events LIMIT 1'],
   }[service];
   if (database) {

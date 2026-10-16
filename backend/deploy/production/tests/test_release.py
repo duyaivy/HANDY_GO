@@ -42,6 +42,42 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 host.validate_env(path)
 
+    def test_env_accepts_shared_database_without_service_urls(self):
+        values = {
+            'NODE_ENV': 'production',
+            'DATABASE_URL': 'postgresql://user:password@db.example.com/postgres?sslmode=verify-full',
+            'RABBITMQ_URL': 'amqps://broker.example.com/vhost',
+            'REDIS_URL': 'rediss://cache.example.com',
+            'OTP_SECRET': 'a' * 32,
+            'INTERNAL_SERVICE_SECRET': 'b' * 32,
+            'JWT_PUBLIC_KEY': 'base64:test-public-key',
+            'JWT_PRIVATE_KEY': 'base64:test-private-key',
+            'SMTP_USER': 'test@example.com',
+            'SMTP_PASS': 'test-password',
+            'CLOUDINARY_CLOUD_NAME': 'test-cloud',
+            'CLOUDINARY_API_KEY': 'test-api-key',
+            'CLOUDINARY_API_SECRET': 'test-api-secret',
+        }
+        path = self.root / 'shared.env'
+        optional = ('DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG')
+        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, values['DATABASE_URL'])):
+            with self.subTest(overrides=overrides):
+                expected = {**values, **overrides}
+                path.write_text(''.join(f'{key}={value}\n' for key, value in expected.items()))
+                self.assertEqual(host.validate_env(path), expected)
+
+        for required in ('DATABASE_URL', 'SMTP_USER'):
+            for replacement in (None, ''):
+                with self.subTest(required=required, replacement=replacement):
+                    invalid = {**values}
+                    if replacement is None:
+                        invalid.pop(required)
+                    else:
+                        invalid[required] = replacement
+                    path.write_text(''.join(f'{key}={value}\n' for key, value in invalid.items()))
+                    with self.assertRaises(ValueError):
+                        host.validate_env(path)
+
     def make_coordinator(self, failure=None, unreachable=False, bootstrap=False):
         obj = coordinator.Coordinator.__new__(coordinator.Coordinator)
         obj.args = argparse.Namespace(rollback_release='', run_migrations=False, domain='api.example.com')

@@ -48,6 +48,7 @@ def run(argv, env=None, label=None):
 
 def validate_env(path):
     values = {}
+    optional_database_urls = {'DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG'}
     for line in path.read_text().splitlines():
         if not line or line.startswith('#'):
             continue
@@ -56,11 +57,10 @@ def validate_env(path):
             raise ValueError('Invalid or duplicate key in shared ENV')
         if value.startswith(('"', "'")) or 'REPLACE_' in value or '\r' in line:
             raise ValueError('ENV requires literal, unquoted values and real configuration')
-        if not value:
+        if not value and key not in optional_database_urls:
             raise ValueError(f'Empty ENV value: {key}')
         values[key] = value
-    required = ('DATABASE_URL', 'DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST',
-                'RABBITMQ_URL', 'REDIS_URL', 'OTP_SECRET', 'INTERNAL_SERVICE_SECRET',
+    required = ('DATABASE_URL', 'RABBITMQ_URL', 'REDIS_URL', 'OTP_SECRET', 'INTERNAL_SERVICE_SECRET',
                 'JWT_PUBLIC_KEY', 'JWT_PRIVATE_KEY', 'SMTP_USER', 'SMTP_PASS',
                 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
     if any(not values.get(key) for key in required) or values.get('NODE_ENV') != 'production':
