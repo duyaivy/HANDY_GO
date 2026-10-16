@@ -20,7 +20,8 @@ for name, item in registry.items():
     assert service['profiles'] == ([item['host']] if item['deploy'] else ['disabled'])
     assert service['env_file'] == [{'path': '${APP_ENV_FILE:?Shared application ENV required}', 'format': 'raw'}]
     assert service['environment']['PORT'] == str(item['port'])
-    assert service['mem_limit'] == service['memswap_limit'] == f'{item["memory_mib"]}m'
+    assert service['mem_limit'] == f'{item["memory_mib"]}m'
+    assert service['memswap_limit'] == f'{2 * item["memory_mib"]}m'
     assert service['read_only'] and service['cap_drop'] == ['ALL']
     assert service['logging']['options']['max-file'] == '3'
     assert 'build' not in service and 'depends_on' not in service
@@ -33,9 +34,13 @@ for name, item in registry.items():
 assert services['nginx']['profiles'] == ['vps1']
 assert 'env_file' not in services['nginx']
 assert services['nginx']['ports'] == ['80:8080', '443:8443']
+assert services['nginx']['mem_limit'] == '32m'
+assert services['nginx']['memswap_limit'] == '64m'
 for role, total in totals.items():
     assert total + 280 <= 1024, f'{role}: container caps plus host reserve exceed 1 GiB'
-    print(f'{role}: container cap {total} MiB; future workload must be benchmarked')
+    assert total * 2 + 280 <= 2048, f'{role}: RAM + swap caps plus host reserve exceed 2 GiB'
+    print(f'{role}: RAM cap {total} MiB, optional swap cap {total} MiB; '
+          'preflight checks actual RAM + active swap')
 example = (PROD / 'env/production.env.example').read_text()
 keys = [line.partition('=')[0] for line in example.splitlines() if line and not line.startswith('#')]
 assert len(keys) == len(set(keys))

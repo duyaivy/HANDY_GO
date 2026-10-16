@@ -24,4 +24,6 @@ for role in ('vps1', 'vps2', 'vps3'):
         assert services[name]['environment']['NODE_ENV'] == 'production'
         assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
+    for name in expected:
+        assert int(services[name]['memswap_limit']) == 2 * int(services[name]['mem_limit'])
     print(f'{role}: exact service set and shared raw ENV resolved correctly')

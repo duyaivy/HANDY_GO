@@ -282,6 +282,63 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, message):
                     obj.prepare(RELEASE)
 
+    def test_memory_budget_accepts_active_swap_or_sufficient_physical_ram(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.manifest = 'vps1', {'memory_mib': {'vps1': 704}}
+        for ram, swap in ((900, 1024), (984, 0), (1024, 1024), (900, 84)):
+            with self.subTest(ram=ram, swap=swap):
+                meminfo = f'MemTotal: {ram * 1024} kB\nSwapTotal: {swap * 1024} kB\n'
+                with patch.object(Path, 'read_text', return_value=meminfo), \
+                        patch.object(host, 'run', return_value='true') as run:
+                    result = obj.check_memory()
+                self.assertEqual(result, {'ram_mib': ram, 'swap_mib': swap, 'required_mib': 984})
+                if ram < 984:
+                    run.assert_called_once_with(['docker', 'info', '--format', '{{.SwapLimit}}'])
+                else:
+                    run.assert_not_called()
+
+    def test_memory_budget_rejects_inactive_insufficient_or_unsupported_swap(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.manifest = 'vps1', {'memory_mib': {'vps1': 704}}
+        for ram, swap, supported, message in (
+                (900, 0, 'true', 'RAM \\+ active swap'),
+                (900, 83, 'true', 'RAM \\+ active swap'),
+                (900, 1024, 'false', 'swap limit support'),
+                (279, 1024, 'true', 'physical RAM for host reserve')):
+            with self.subTest(ram=ram, swap=swap, supported=supported):
+                meminfo = f'MemTotal: {ram * 1024} kB\nSwapTotal: {swap * 1024} kB\n'
+                with patch.object(Path, 'read_text', return_value=meminfo), \
+                        patch.object(host, 'run', return_value=supported), self.assertRaisesRegex(RuntimeError, message):
+                    obj.check_memory()
+
+    def test_preflight_records_memory_capacity_before_pulling(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.names = 'vps2', ['order-service']
+        obj.metadata = {'private_ip': '10.77.0.2'}
+        obj.manifest = {'memory_mib': {'vps2': 528}, 'run_migrations': False}
+        obj.owner, obj.validate_bundle, obj.compose = Mock(), Mock(), Mock()
+        meminfo = 'MemTotal: 716800 kB\nSwapTotal: 1048576 kB\n'
+        with patch.object(Path, 'read_text', return_value=meminfo), \
+                patch.object(host, 'run', side_effect=['2.30.0', 'inet 10.77.0.2/24', 'x86_64', 'true']), \
+                patch.object(host.shutil, 'disk_usage', return_value=Mock(free=3 * 1024 ** 3)):
+            result = obj.prepare(RELEASE)
+        self.assertEqual(result['memory'], {'ram_mib': 700, 'swap_mib': 1024, 'required_mib': 808})
+        self.assertTrue(result['prepared'])
+        obj.compose.assert_any_call('pull', 'order-service')
+
+    def test_migration_container_has_bounded_swap(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.release_id, obj.bundle = 'vps3', RELEASE, self.root
+        obj.names = ['catalog-service']
+        obj.manifest = {'run_migrations': True, 'migration_image': 'test-migration-image'}
+        obj.owner = Mock(return_value={'previous': None})
+        obj.compose, obj.verify = Mock(), Mock()
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'run') as run:
+            obj.apply(RELEASE)
+        command = run.call_args.args[0]
+        self.assertIn('--memory=384m', command)
+        self.assertIn('--memory-swap=768m', command)
+
     def test_bundle_tampering_is_rejected_before_any_docker_command(self):
         import hashlib
         shared = self.root / 'shared.env'

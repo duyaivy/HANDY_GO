@@ -147,6 +147,27 @@ class Host:
             if hashlib.sha256((self.bundle / relative).read_bytes()).hexdigest() != digest:
                 raise ValueError(f'Bundle checksum mismatch: {name}')
 
+    def check_memory(self):
+        info = {}
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            key, _, value = line.partition(':')
+            if key in ('MemTotal', 'SwapTotal'):
+                info[key] = int(value.split()[0]) // 1024
+        memory, swap = info['MemTotal'], info.get('SwapTotal', 0)
+        required = self.manifest['memory_mib'][self.role] + 280
+        emit(self.role, f'Memory capacity: RAM={memory} MiB, active swap={swap} MiB, '
+                        f'required={required} MiB including 280 MiB host reserve')
+        if memory < 280:
+            raise RuntimeError(f'Insufficient physical RAM for host reserve: {memory} MiB < 280 MiB')
+        if memory + swap < required:
+            raise RuntimeError(f'Insufficient host RAM + active swap: {memory} + {swap} MiB < {required} MiB; '
+                               'enable swap before deployment')
+        if memory < required:
+            if run(['docker', 'info', '--format', '{{.SwapLimit}}']) != 'true':
+                raise RuntimeError('Host requires swap but Docker swap limit support is unavailable')
+            emit(self.role, 'Memory budget uses swap; disk paging can increase latency')
+        return {'ram_mib': memory, 'swap_mib': swap, 'required_mib': required}
+
     def prepare(self, transaction):
         self.owner(transaction)
         self.validate_bundle()
@@ -164,16 +185,14 @@ class Host:
                 if not (ROOT / 'tls' / filename).is_file():
                     raise RuntimeError(f'TLS file missing: {ROOT / "tls" / filename}; '
                                        'provision HTTPS on VPS1 before the first deploy (README section 7)')
-        memory = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:'))) // 1024
-        if memory < self.manifest['memory_mib'][self.role] + 280:
-            raise RuntimeError('Insufficient host RAM including OS reserve')
+        memory = self.check_memory()
         if shutil.disk_usage(ROOT).free < 2 * 1024 ** 3:
             raise RuntimeError('At least 2 GiB free disk is required before pulling a release')
         self.compose('config', '--quiet')
         self.compose('pull', *self.names)
         if self.manifest['run_migrations'] and self.release_id == transaction:
             run(['docker', 'pull', self.manifest['migration_image']])
-        return {'prepared': True}
+        return {'prepared': True, 'memory': memory}
 
     def apply(self, transaction):
         state = self.owner(transaction)
@@ -183,7 +202,7 @@ class Host:
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
             self.compose('stop', *self.names)
             for service in migrations:
-                run(['docker', 'run', '--rm', '--memory=384m', '--memory-swap=384m',
+                run(['docker', 'run', '--rm', '--memory=384m', '--memory-swap=768m',
                      '--pids-limit=100', '--cap-drop=ALL', '--security-opt=no-new-privileges',
                      '--env-file', str(self.bundle / 'shared.env'), '-e', 'NODE_OPTIONS=--max-old-space-size=192',
                      self.manifest['migration_image'], 'pnpm', 'run', f'prisma:migrate:{service}'],

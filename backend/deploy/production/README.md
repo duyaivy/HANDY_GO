@@ -27,7 +27,9 @@ Một Compose: `backend/deploy/production/compose.production.yml`. Một ENV ứ
 
 Notification chạy trên **VPS1 theo quyết định của chủ dự án**, giữ limit 128 MiB và heap 64 MiB. Gateway gọi bằng Docker DNS nội bộ `http://notification-service:3008`; không publish cổng 3008 lên host. VPS3 giữ nhóm Payment/Wallet/Catalog và dự kiến bổ sung Chat/AI sau này; Chat/AI chưa tồn tại trong registry/Compose và chưa được cấp ngân sách RAM.
 
-11 ứng dụng đều PARTIAL trong registry `services.json`; Nginx là infrastructure. Tổng container cap: **704 / 528 / 448 MiB**. Không có số đo Production. Script yêu cầu RAM thực tế ít nhất tổng cap + 280 MiB cho host: VPS1 tối thiểu **984 MiB MemTotal**, VPS2 808 MiB, VPS3 728 MiB. VPS quảng cáo 1 GB có thể không đạt ngưỡng VPS1: kiểm tra `free -m` trước khi chạy; preflight sẽ chặn nếu không đủ RAM. VPS1 rất chật, đặc biệt khi User Trust mở rộng review/complaint/KYC; phải benchmark và nâng tài nguyên hoặc phân bổ lại trước khi tăng tải. Không hạ heap/host reserve để che lỗi.
+11 ứng dụng đều PARTIAL trong registry `services.json`; Nginx là infrastructure. Tổng RAM cap container: **704 / 528 / 448 MiB**. Preflight đọc **MemTotal + SwapTotal** từ `/proc/meminfo`, yêu cầu tổng ít nhất cap + 280 MiB cho host: VPS1 **984 MiB**, VPS2 808 MiB, VPS3 728 MiB. Chỉ swap đã bật mới xuất hiện trong SwapTotal; file swap chưa `swapon` không được tính. Ví dụ VPS1 có 900 MiB RAM + 1024 MiB swap sẽ qua kiểm tra. Vẫn yêu cầu ít nhất 280 MiB RAM vật lý cho host; khi phải dựa vào swap, Docker phải báo `SwapLimit=true`. Log và kết quả prepare ghi riêng RAM, swap và ngân sách yêu cầu. Đây là kiểm tra dung lượng tổng, không phải số bộ nhớ đang rảnh hoặc bảo đảm hiệu năng.
+
+Compose giữ nguyên RAM cap/Node heap và đặt **memswap_limit = 2 × mem_limit** cho mỗi container: ví dụ Auth 208 MiB RAM + tối đa 208 MiB swap (416 MiB tổng). Migration dùng 384 MiB RAM + tối đa 384 MiB swap. Các giới hạn swap là trần, không đặt trước dung lượng; container cùng chia swap của host. Trước deploy, dùng `free -m`, `swapon --show` và `docker info --format '{{.SwapLimit}}'` để kiểm tra; bảo đảm swap được bật lại sau reboot. Swap trên đĩa chậm hơn RAM; cần theo dõi latency và OOM khi tăng tải.
 
 Linux/Docker/WireGuard cần phần dự phòng riêng; CPU quota không tạo thêm CPU. Buffer, Prisma/pg, TLS và native allocations nằm ngoài V8 old-space. Ảnh upload hiện được buffer trước khi kiểm tra dung lượng; Nginx giới hạn 12 MiB/request nhưng nhiều upload đồng thời vẫn gây spike. Video upload trực tiếp Cloudinary.
 
@@ -353,7 +355,7 @@ Migration image nạp sẵn pnpm trong cache Corepack dùng chung từ lúc buil
 
 Trước khi bấm Run workflow, hoàn tất checklist:
 
-- [ ] Cả ba VPS: x86_64, Python >= 3.10, Docker chạy được dưới azureuser không cần sudo, Compose >= 2.30; đủ RAM theo mục 2 và disk theo mục 4.
+- [ ] Cả ba VPS: x86_64, Python >= 3.10, Docker chạy được dưới azureuser không cần sudo, Compose >= 2.30; đủ RAM + swap đang bật theo mục 2 và disk theo mục 4.
 - [ ] Cả ba VPS: `/opt/handygo/releases` azureuser ghi được, `host.json` đúng role/IP; chưa có `pending.json` hoặc container handygo chưa được quản lý.
 - [ ] WireGuard handshake tới cả hai peer; thử cả host và container; firewall provider/host chỉ mở đúng cổng, không public application ports.
 - [ ] SSH bằng key riêng tương ứng vào azureuser thành công trên cả ba máy; đã nắm cách `accept-new` tin host ở mục 8; PAT GHCR có quyền đọc package của repository và Docker login dưới azureuser.
