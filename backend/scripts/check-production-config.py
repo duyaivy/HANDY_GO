@@ -45,6 +45,8 @@ assert set(trigger) == {'push', 'workflow_dispatch'}
 assert trigger['push']['branches'] == ['release']
 assert workflow['concurrency']['cancel-in-progress'] is False
 assert workflow['jobs']['deploy']['environment'] == 'production'
+assert trigger['workflow_dispatch']['inputs']['bypass_pr_ci']['type'] == 'boolean'
+assert trigger['workflow_dispatch']['inputs']['bypass_pr_ci']['default'] is False
 deploy_steps = workflow['jobs']['deploy']['steps']
 ssh_setup = next(step for step in deploy_steps if 'VPS1_SSH_KEY' in step.get('env', {}))
 for role in ('VPS1', 'VPS2', 'VPS3'):
@@ -57,6 +59,8 @@ assert cleanup['if'] == 'always()'
 assert all('~/.ssh/handygo_' + role in cleanup['run'] for role in ('vps1', 'vps2', 'vps3'))
 verification = workflow['jobs']['verify']['steps']
 assert any(step.get('run') == 'python3 scripts/verify-production-ci.py' for step in verification)
+proof_step = next(step for step in verification if step.get('run') == 'python3 scripts/verify-production-ci.py')
+assert proof_step['env']['BYPASS_PR_CI'] == '${{ inputs.bypass_pr_ci || false }}'
 assert not any('pnpm' in step.get('run', '') or step.get('uses', '').startswith('pnpm/') for step in verification)
 assert workflow['permissions']['actions'] == 'read'
 assert workflow['permissions']['pull-requests'] == 'read'

@@ -13,6 +13,10 @@ on:
         description: 'Reviewed backward-compatible migrations; backup/PITR checked (required on first deploy)'
         type: boolean
         default: false
+      bypass_pr_ci:
+        description: 'Admin only: deploy without merged PR CI proof'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -52,6 +56,7 @@ jobs:
         if: inputs.rollback_release == ''
         env:
           GH_TOKEN: ${{ github.token }}
+          BYPASS_PR_CI: ${{ inputs.bypass_pr_ci || false }}
         run: python3 scripts/verify-production-ci.py
       - name: Validate production automation
         run: |
