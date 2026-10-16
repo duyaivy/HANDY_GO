@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authorize release builds from successful merged PR CI proof; never rerun backend CI."""
+"""Authorize releases from merged PR CI proof or an explicit admin dispatch override."""
 import hashlib
 import io
 import json
@@ -142,10 +142,48 @@ def verify(repository):
     raise RuntimeError('No valid merged PR CI proof for this backend tree. Rerun PR CI and merge through main; production never reruns lint/test.')
 
 
+def admin_override(repository):
+    """Only a manual release dispatch by current repository admins can skip PR CI."""
+    if (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
+            or os.environ.get('GITHUB_REF') != 'refs/heads/release'):
+        raise PermissionError('Admin override requires a manual dispatch on release')
+    actor = os.environ.get('GITHUB_ACTOR', '')
+    triggering_actor = os.environ.get('GITHUB_TRIGGERING_ACTOR', '')
+    for username in dict.fromkeys((actor, triggering_actor)):
+        if not username:
+            raise PermissionError('Missing workflow actor identity')
+        permission = api(f'/repos/{repository}/collaborators/{urllib.parse.quote(username, safe="")}/permission')
+        if permission.get('permission') != 'admin':
+            raise PermissionError('Only repository admins may bypass PR CI')
+    return {
+        'method': 'admin-manual-override', 'repository': repository,
+        'actor': actor, 'triggering_actor': triggering_actor,
+        'run_id': int(os.environ['GITHUB_RUN_ID']),
+        'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
+        'commit_sha': git('rev-parse', 'HEAD'),
+        'tree_sha': git('rev-parse', 'HEAD^{tree}'),
+        'backend_tree_sha': git('rev-parse', 'HEAD:backend'),
+        'ci_workflow_blob': git('rev-parse', 'HEAD:' + WORKFLOW),
+        'production_workflow_blob': git('rev-parse', 'HEAD:' + PRODUCTION_WORKFLOW),
+    }
+
+
 def main():
-    evidence = verify(os.environ['GITHUB_REPOSITORY'])
+    bypass = os.environ.get('BYPASS_PR_CI', 'false')
+    if bypass not in ('true', 'false'):
+        raise ValueError('BYPASS_PR_CI must be true or false')
+    repository = os.environ['GITHUB_REPOSITORY']
+    evidence = admin_override(repository) if bypass == 'true' else verify(repository)
     Path('ci-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
-    print(f'Backend source verified by PR #{evidence["pr_number"]}, CI run {evidence["run_id"]}; no duplicate lint/test')
+    if bypass == 'true':
+        message = (f'PR CI proof bypassed by repository admin {evidence["triggering_actor"]} '
+                   f'for commit {evidence["commit_sha"]}; application lint/tests were not verified.')
+        print('::warning::' + message)
+        if os.environ.get('GITHUB_STEP_SUMMARY'):
+            with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+                summary.write('### Admin PR CI override\n\n' + message + '\n')
+    else:
+        print(f'Backend source verified by PR #{evidence["pr_number"]}, CI run {evidence["run_id"]}; no duplicate lint/test')
 
 
 if __name__ == '__main__':
@@ -154,5 +192,7 @@ if __name__ == '__main__':
     except Exception as error:
         # API credentials/signed URLs must not appear in Actions error output.
         print(f'::error::Deployment blocked: CI proof verification failed ({type(error).__name__}). '
-              'Check merged PR CI, artifacts/retention, Actions and Pull requests read permissions.', file=sys.stderr)
+              'Check merged PR CI, artifacts/retention and API read permissions. '
+              'Admin bypass requires a manual release dispatch and current admin permission '
+              'for both the original and rerun actors.', file=sys.stderr)
         sys.exit(1)

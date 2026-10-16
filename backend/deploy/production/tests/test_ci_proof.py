@@ -181,5 +181,100 @@ class ProofTests(unittest.TestCase):
             self.assertEqual(proof['run_attempt'], 2)
 
 
+class AdminOverrideTests(unittest.TestCase):
+    def setUp(self):
+        env = {
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/release',
+            'GITHUB_ACTOR': 'owner', 'GITHUB_TRIGGERING_ACTOR': 'owner',
+            'GITHUB_REPOSITORY': REPOSITORY, 'GITHUB_RUN_ID': '15', 'GITHUB_RUN_ATTEMPT': '1',
+            'BYPASS_PR_CI': 'true',
+        }
+        self.env = patch.dict(os.environ, env, clear=True)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.permission = patch.object(verify, 'api', return_value={'permission': 'admin'})
+        self.api = self.permission.start()
+        self.addCleanup(self.permission.stop)
+        values = {'HEAD': CHECKOUT, 'HEAD^{tree}': TREE, 'HEAD:backend': BACKEND,
+                  'HEAD:' + verify.WORKFLOW: WORKFLOW, 'HEAD:' + verify.PRODUCTION_WORKFLOW: WORKFLOW}
+        self.git = patch.object(verify, 'git', side_effect=lambda *args: values[args[1]])
+        self.git.start()
+        self.addCleanup(self.git.stop)
+
+    def test_admin_manual_dispatch_records_exact_source_and_identity(self):
+        evidence = verify.admin_override(REPOSITORY)
+        self.assertEqual(evidence['method'], 'admin-manual-override')
+        self.assertEqual(evidence['actor'], 'owner')
+        self.assertEqual(evidence['triggering_actor'], 'owner')
+        self.assertEqual(evidence['commit_sha'], CHECKOUT)
+        self.assertEqual(evidence['tree_sha'], TREE)
+        self.assertEqual(evidence['run_id'], 15)
+        self.api.assert_called_once_with(f'/repos/{REPOSITORY}/collaborators/owner/permission')
+
+    def test_push_and_other_refs_cannot_use_override(self):
+        for changes in ({'GITHUB_EVENT_NAME': 'push'}, {'GITHUB_REF': 'refs/heads/main'},
+                        {'GITHUB_REF': 'refs/tags/release'}):
+            with self.subTest(changes=changes), patch.dict(os.environ, changes):
+                with self.assertRaises(PermissionError):
+                    verify.admin_override(REPOSITORY)
+        self.api.assert_not_called()
+
+    def test_write_maintain_and_missing_permission_are_rejected(self):
+        for permission in ('write', 'maintain', 'read', 'none', None):
+            with self.subTest(permission=permission):
+                self.api.return_value = {'permission': permission}
+                with self.assertRaises(PermissionError):
+                    verify.admin_override(REPOSITORY)
+
+    def test_both_original_and_rerun_actors_must_currently_be_admins(self):
+        os.environ['GITHUB_TRIGGERING_ACTOR'] = 'other-admin'
+        for permissions in (['admin', 'write'], ['write', 'admin']):
+            with self.subTest(permissions=permissions):
+                self.api.side_effect = [{'permission': role} for role in permissions]
+                with self.assertRaises(PermissionError):
+                    verify.admin_override(REPOSITORY)
+        self.api.side_effect = [{'permission': 'admin'}, {'permission': 'admin'}]
+        evidence = verify.admin_override(REPOSITORY)
+        self.assertEqual(evidence['triggering_actor'], 'other-admin')
+
+    def test_missing_actor_identity_is_rejected(self):
+        for key in ('GITHUB_ACTOR', 'GITHUB_TRIGGERING_ACTOR'):
+            with self.subTest(key=key), patch.dict(os.environ, {key: ''}):
+                with self.assertRaises(PermissionError):
+                    verify.admin_override(REPOSITORY)
+
+    def test_permission_api_failure_blocks_override(self):
+        self.api.side_effect = PermissionError('Permission API denied')
+        with self.assertRaises(PermissionError):
+            verify.admin_override(REPOSITORY)
+
+    def test_manual_override_writes_evidence_without_claiming_ci_passed(self):
+        with patch.object(verify, 'verify') as normal, patch.object(Path, 'write_text') as write, \
+                patch('builtins.print') as output:
+            verify.main()
+        normal.assert_not_called()
+        evidence = json.loads(write.call_args.args[0])
+        self.assertEqual(evidence['method'], 'admin-manual-override')
+        self.assertTrue(output.call_args.args[0].startswith('::warning::'))
+
+    def test_default_flow_still_requires_pr_proof_without_automatic_bypass(self):
+        for bypass in (None, 'false'):
+            with self.subTest(bypass=bypass):
+                os.environ.pop('BYPASS_PR_CI', None)
+                if bypass is not None:
+                    os.environ['BYPASS_PR_CI'] = bypass
+                with patch.object(verify, 'verify', side_effect=RuntimeError('Missing PR proof')), \
+                        patch.object(Path, 'write_text') as write, self.assertRaises(RuntimeError):
+                    verify.main()
+                write.assert_not_called()
+        self.api.assert_not_called()
+
+    def test_invalid_override_flag_is_rejected(self):
+        os.environ['BYPASS_PR_CI'] = 'yes'
+        with self.assertRaises(ValueError):
+            verify.main()
+        self.api.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
