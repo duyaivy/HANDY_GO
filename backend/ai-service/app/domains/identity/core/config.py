@@ -2,13 +2,25 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
+PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
 
 class Settings(BaseSettings):
     app_name: str = "CCCD AI Service"
     app_version: str = "Version 14.1.0"
     debug: bool = True
+    ai_service_port: int = 8000
+    internal_service_secret: str | None = None
+    redis_url: str = ""
+    ai_redis_url: str | None = None
+    rabbitmq_url: str | None = None
+    rabbitmq_exchange: str = "handy-go.events"
+    identity_job_input_dir: str = "storage/identity_jobs"
+    identity_job_ttl_seconds: int = 86400
+
+    @property
+    def effective_redis_url(self) -> str:
+        return self.redis_url or self.ai_redis_url or ""
 
     upload_dir: str = "storage/uploads"
     output_dir: str = "storage/outputs"

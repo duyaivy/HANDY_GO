@@ -1,7 +1,11 @@
+import type { Request } from 'express';
+
 export interface ServiceRouteConfig {
   upstreamName: string;
   envKey: string;
   prefixes: readonly string[];
+  pathRewrite?: (path: string, req: Request) => string;
+  timeoutEnvKey?: string;
 }
 
 export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
@@ -14,6 +18,40 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     upstreamName: 'user-trust-service',
     envKey: 'USER_TRUST_SERVICE_URL',
     prefixes: ['/api/v1/users'],
+  },
+  {
+    upstreamName: 'ai-service',
+    envKey: 'AI_SERVICE_URL',
+    prefixes: ['/api/v1/identity', '/api/v1/admin/identity'],
+    timeoutEnvKey: 'AI_SERVICE_TIMEOUT_MS',
+    pathRewrite: (path, req) => {
+      const userId = req.headers['x-user-id'];
+      const queryIndex = path.indexOf('?');
+      const query = queryIndex >= 0 ? path.slice(queryIndex) : '';
+      const cleanPath = queryIndex >= 0 ? path.slice(0, queryIndex) : path;
+
+      if (cleanPath === '/api/v1/identity/verify') {
+        return typeof userId === 'string' && userId
+          ? `/api/identity/${encodeURIComponent(userId)}/verify${query}`
+          : `/api/identity/verify${query}`;
+      }
+
+      if (cleanPath.startsWith('/api/v1/identity/jobs')) {
+        const sub = cleanPath.replace('/api/v1/identity/jobs', '/api/identity/jobs');
+        return `${sub}${query}`;
+      }
+
+      if (cleanPath.startsWith('/api/v1/identity/verify/')) {
+        const sub = cleanPath.replace('/api/v1/identity/verify/', '/api/identity/verify/');
+        return `${sub}${query}`;
+      }
+
+      if (cleanPath.startsWith('/api/v1/admin/identity')) {
+        return `${cleanPath}${query}`;
+      }
+
+      return path.replace(/^\/api\/v1\/identity/, '/api/identity');
+    },
   },
   {
     upstreamName: 'catalog-service',

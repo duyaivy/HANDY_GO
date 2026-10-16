@@ -7,10 +7,11 @@ import {
   Logger,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
   CurrentUser,
   JwtAuthGuard,
@@ -25,6 +26,7 @@ import {
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { ReviewKycDto } from './dto/review-kyc.dto.js';
 
 @ApiTags('User & Trust')
 @Controller()
@@ -134,4 +136,128 @@ export class UserTrustServiceController {
   ): Promise<unknown> {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
   }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.submitted' (when AI verification succeeds).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_SUBMITTED)
+  async handleKycSubmitted(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycSubmitted(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.submitted event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.failed' (when AI verification fails or rejected).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_FAILED)
+  async handleKycFailed(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycFailed(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.failed event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * ADMIN API: List pending/processed KYC cases.
+   */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Get('users/admin/kyc-cases')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Danh sách các hồ sơ KYC chờ duyệt hoặc đã duyệt' })
+  @ApiQuery({ name: 'status', required: false, description: 'Lọc theo trạng thái (submitted, reviewing, approved, rejected)' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async listKycCases(
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ): Promise<unknown> {
+    return this.userTrustService.listKycCases(status, page, limit);
+  }
+
+  /**
+   * ADMIN API: Get details of a specific KYC case.
+   */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Get('users/admin/kyc-cases/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Chi tiết hồ sơ KYC (ảnh CCCD, selfie, điểm đối sánh AI)' })
+  async getKycCaseDetail(
+    @Param('id') id: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getKycCase(id);
+  }
+
+  /**
+   * ADMIN API: Approve or reject a KYC case.
+   */
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Patch('users/admin/kyc-cases/:id/review')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Admin: Phê duyệt hoặc từ chối hồ sơ KYC' })
+  async reviewKycCase(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: ReviewKycDto,
+  ): Promise<unknown> {
+    return this.userTrustService.reviewKycCase(
+      user.userId,
+      id,
+      dto.decision,
+      dto.note,
+    );
+  }
 }
+

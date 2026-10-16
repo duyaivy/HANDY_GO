@@ -3,12 +3,15 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+
+import { RabbitMQService } from '@app/rabbitmq';
 
 export interface UserRegisteredData {
   userId: string;
@@ -22,7 +25,11 @@ export interface UserRegisteredData {
 export class UserTrustServiceService {
   private readonly logger = new Logger(UserTrustServiceService.name);
 
-  constructor(private readonly db: UserTrustPrismaService) {}
+  constructor(
+    private readonly db: UserTrustPrismaService,
+    @Optional()
+    private readonly rabbitmq?: RabbitMQService,
+  ) {}
 
   async handleUserRegistered(
     event: DomainEvent<UserRegisteredData>,
@@ -272,4 +279,236 @@ export class UserTrustServiceService {
       },
     };
   }
+
+  async handleKycSubmitted(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const { eventId, producer, data } = event;
+    const eventType = 'kyc.submitted';
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true };
+      }
+    }
+
+    const userId = data?.userId;
+    if (!userId) {
+      return { processed: false };
+    }
+
+    await this.db.$transaction(async (tx: any) => {
+      if (eventId) {
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer: producer || 'ai-service',
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      const now = new Date();
+      if (!worker) {
+        worker = await tx.workerProfile.create({
+          data: {
+            id: crypto.randomUUID(),
+            userId,
+            status: 'under_review',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.workerProfile.update({
+          where: { id: worker.id },
+          data: { status: 'under_review', updatedAt: now },
+        });
+      }
+
+      const ocr = data.ocr || {};
+      const faceVerification = data.faceVerification || {};
+      const idNumber = ocr.id || ocr.card_id || ocr.id_number || 'CCCD';
+
+      await tx.kycCase.create({
+        data: {
+          id: crypto.randomUUID(),
+          workerProfileId: worker.id,
+          idDocumentType: 'CCCD',
+          idNumberMasked: String(idNumber),
+          documentFrontRef: faceVerification.cropfromCCCD || ocr.image_url || '',
+          selfieRef: faceVerification.selfie_image || '',
+          status: 'submitted',
+          aiSimilarityScore: faceVerification.similarity ? Number(faceVerification.similarity) : null,
+          submittedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    });
+
+    this.logger.log(`KYC submitted processed for user ${userId}`);
+    return { processed: true };
+  }
+
+  async handleKycFailed(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const { eventId, producer, data } = event;
+    const eventType = 'kyc.failed';
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true };
+      }
+
+      await this.db.eventInbox.create({
+        data: {
+          id: eventId,
+          producer: producer || 'ai-service',
+          eventType,
+          payload: JSON.parse(JSON.stringify(event)),
+          receivedAt: new Date(),
+          processedAt: new Date(),
+        },
+      });
+    }
+
+    this.logger.warn(`KYC failed event recorded for user ${data?.userId}: ${data?.reason}`);
+    return { processed: true };
+  }
+
+  async listKycCases(status?: string, page = 1, limit = 20) {
+    const take = Math.max(1, Math.min(100, Number(limit) || 20));
+    const skip = (Math.max(1, Number(page) || 1) - 1) * take;
+
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+
+    const [cases, total] = await Promise.all([
+      this.db.kycCase.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          workerProfile: {
+            include: {
+              user: true,
+            },
+          },
+          reviewer: true,
+        },
+      }),
+      this.db.kycCase.count({ where }),
+    ]);
+
+    return {
+      statusCode: 200,
+      data: cases,
+      pagination: {
+        page: Number(page) || 1,
+        limit: take,
+        total,
+        totalPages: Math.ceil(total / take),
+      },
+    };
+  }
+
+  async getKycCase(id: string) {
+    const kycCase = await this.db.kycCase.findUnique({
+      where: { id },
+      include: {
+        workerProfile: {
+          include: {
+            user: true,
+          },
+        },
+        reviewer: true,
+      },
+    });
+
+    if (!kycCase) {
+      throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
+    }
+
+    return {
+      statusCode: 200,
+      data: kycCase,
+    };
+  }
+
+  async reviewKycCase(
+    adminUserId: string,
+    kycCaseId: string,
+    decision: 'approved' | 'rejected',
+    note?: string,
+  ) {
+    const kycCase = await this.db.kycCase.findUnique({
+      where: { id: kycCaseId },
+      include: { workerProfile: true },
+    });
+
+    if (!kycCase) {
+      throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
+    }
+
+    const now = new Date();
+    const isApproved = decision === 'approved';
+
+    const updated = await this.db.$transaction(async (tx: any) => {
+      const updatedCase = await tx.kycCase.update({
+        where: { id: kycCaseId },
+        data: {
+          status: isApproved ? 'approved' : 'rejected',
+          reviewedByUserId: adminUserId,
+          reviewedAt: now,
+          reviewNote: note || null,
+          updatedAt: now,
+        },
+      });
+
+      await tx.workerProfile.update({
+        where: { id: kycCase.workerProfileId },
+        data: {
+          status: isApproved ? 'verified' : 'rejected',
+          verifiedAt: isApproved ? now : undefined,
+          approvedAt: isApproved ? now : undefined,
+          updatedAt: now,
+        },
+      });
+
+      return updatedCase;
+    });
+
+    if (this.rabbitmq) {
+      const pattern = isApproved ? 'kyc.completed' : 'kyc.failed';
+      await this.rabbitmq.emit(pattern, {
+        kycCaseId,
+        workerProfileId: kycCase.workerProfileId,
+        decision,
+        reviewedBy: adminUserId,
+        reviewedAt: now.toISOString(),
+        note,
+      });
+    }
+
+    return {
+      statusCode: 200,
+      message: isApproved ? 'Đã phê duyệt KYC thành công' : 'Đã từ chối KYC',
+      data: updated,
+    };
+  }
 }
+

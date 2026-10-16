@@ -11,7 +11,7 @@ NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư 
 >
 > - Gateway, Auth và User & Trust đã có luồng đăng ký, OTP, JWT, session và hồ sơ; các domain còn lại có phần scaffold.
 > - Auth/User & Trust đang dùng PostgreSQL riêng, Prisma, RabbitMQ và RS256; luồng OTP gửi trực tiếp qua Gmail SMTP.
-> - Docker Compose hiện có hai PostgreSQL, RabbitMQ và các ứng dụng NestJS. Các app scaffold bổ sung dùng profile `all`.
+> - Docker Compose có hai PostgreSQL, RabbitMQ, các ứng dụng NestJS và AI identity service (FastAPI).
 > - Luồng Customer đã chạy trên điện thoại thật; các ca OTP đồng thời, trạng thái deleted và validation backend còn có lỗi đã ghi nhận trong lần kiểm tra trước.
 
 ---
@@ -35,6 +35,8 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 | **`notification-service`** | `apps/notification-service` | `3008` | HTTP scaffold cho domain thông báo (notification) |
 | **`wallet-service`** | `apps/wallet-service` | `3009` | HTTP scaffold cho domain ví điện tử (wallet - scaffold mở rộng) |
 | **`tracking-service`** | `apps/tracking-service` | `3010` | HTTP scaffold cho domain theo dõi lộ trình (tracking - scaffold mở rộng) |
+
+AI identity service (FastAPI, `backend/ai-service`) chạy trong Docker Compose, lắng nghe tại port `8000` theo `AI_SERVICE_PORT`; API Gateway truy cập qua `http://ai-service:8000`.
 
 ### 1.2. Thư viện dùng chung (`libs/`)
 
@@ -104,7 +106,7 @@ cp .env.example .env
 ### 4.1. Khởi động và vận hành
 
 ```bash
-# Khởi dựng image và chạy toàn bộ 11 container ở chế độ nền
+# Khởi dựng image và chạy toàn bộ stack (NestJS, AI-service và hạ tầng)
 docker compose up --build -d
 
 # Xem trạng thái và healthcheck của các container
@@ -122,6 +124,7 @@ docker compose down
 ### 4.2. Cơ chế tự động reload mã nguồn
 
 - Thư mục `apps/`, `libs/`, `nest-cli.json` và `tsconfig*.json` được bind-mount vào container. Khi file `.ts`/`.json` thay đổi, `nodemon` sẽ tự động trigger NestJS restart ứng dụng tương ứng (delay 300ms).
+- AI-service được build riêng từ `ai-service/Dockerfile`, không chạy Python trên host; khi thay đổi source hoặc dependencies của AI, chạy `docker compose up --build -d ai-service api-gateway`.
 - Thư mục `node_modules` nằm hoàn toàn trong image. Khi thay đổi `package.json` hoặc `pnpm-lock.yaml`, bắt buộc phải rebuild lại image:
 
   ```bash
@@ -132,6 +135,8 @@ docker compose down
 ---
 
 ## 5. Chạy trực tiếp trên máy host (Local Development)
+
+API Gateway/NestJS có thể chạy trên host theo các bước bên dưới; AI identity service vẫn chạy trong Docker bằng `docker compose up --build -d ai-service`.
 
 ```bash
 # 1. Cài đặt dependencies

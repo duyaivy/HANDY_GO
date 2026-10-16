@@ -142,3 +142,45 @@ export function CheckCircleIcon({ color = '#10B981', size = 24, ...props }: SvgP
     </Svg>
   );
 }
+
+export function FlashIcon({ color = '#FBBF24', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+    </Svg>
+  );
+}
+
+export function FlashOffIcon({ color = '#9CA3AF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+      <Path d="m2 2 20 20" />
+    </Svg>
+  );
+}
+
+export function SwitchCameraIcon({ color = '#FFFFFF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+      <Path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="m18 22-3-3 3-3" />
+      <Path d="m6 2 3 3-3 3" />
+    </Svg>
+  );
+}
+
+export function FocusIcon({ color = '#FFFFFF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <Path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <Path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <Path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+    </Svg>
+  );
+}
+

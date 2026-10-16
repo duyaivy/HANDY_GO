@@ -185,6 +185,12 @@ class CCCDFieldCropper:
             exist_ok=True,
         )
 
+        card = image.copy()
+        card_h, card_w = card.shape[:2]
+        if card_h > card_w:
+            card = cv2.rotate(card, cv2.ROTATE_90_CLOCKWISE)
+            card_h, card_w = card.shape[:2]
+
         normalized_card = self.normalize_card_image(image)
         normalized_card_path = (
             output_path / "00_normalized_card.jpg"
@@ -212,10 +218,20 @@ class CCCDFieldCropper:
             )
             self.validate_region(region)
 
-            cropped_image = normalized_card[
-                region.y1:region.y2,
-                region.x1:region.x2,
-            ].copy()
+            if field_name == "portrait":
+                # Crop chân dung từ ảnh thẻ độ nét cao gốc để giữ trọn vẹn chi tiết khuôn mặt cho InsightFace
+                scale_x = card_w / float(self.CANONICAL_WIDTH)
+                scale_y = card_h / float(self.CANONICAL_HEIGHT)
+                py1 = max(0, int(round(region.y1 * scale_y)))
+                py2 = min(card_h, int(round(region.y2 * scale_y)))
+                px1 = max(0, int(round(region.x1 * scale_x)))
+                px2 = min(card_w, int(round(region.x2 * scale_x)))
+                cropped_image = card[py1:py2, px1:px2].copy()
+            else:
+                cropped_image = normalized_card[
+                    region.y1:region.y2,
+                    region.x1:region.x2,
+                ].copy()
 
             if cropped_image.size == 0:
                 raise ValueError(
@@ -546,7 +562,16 @@ class CCCDFieldCropper:
         image: np.ndarray,
     ) -> np.ndarray:
         if field_name == "portrait":
-            return image.copy()
+            # Tăng cường độ nét cho ảnh chân dung CCCD giúp InsightFace nhận diện đặc trưng khuôn mặt sắc nét
+            lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8, 8))
+            l = clahe.apply(l)
+            enhanced = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+            # Unsharp mask làm sắc nét các đường viền mắt, sống mũi, khóe miệng
+            blurred = cv2.GaussianBlur(enhanced, (0, 0), sigmaX=1.0)
+            sharpened = cv2.addWeighted(enhanced, 1.3, blurred, -0.3, 0)
+            return np.clip(sharpened, 0, 255).astype(np.uint8)
 
         scale_factor = self.get_scale_factor(field_name)
 

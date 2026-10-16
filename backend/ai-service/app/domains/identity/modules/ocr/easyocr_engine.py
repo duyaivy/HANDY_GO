@@ -89,10 +89,10 @@ class EasyOCREngine(BaseOCREngine):
         long_edge = max(width, height)
         short_edge = min(width, height)
         if long_edge >= 1500 and short_edge >= 850:
-            return 1920, 1.08
+            return 1600, 1.0
         if long_edge >= 1150 and short_edge >= 650:
-            return 2112, 1.20
-        return 2304, 1.35
+            return 1600, 1.0
+        return 1600, 1.0
 
     def _recognize(
         self,
@@ -117,11 +117,12 @@ class EasyOCREngine(BaseOCREngine):
                 field_mode
                 and "_raw" in Path(image_path).stem.casefold()
             )
-            field_mag_ratio = 1.60 if raw_field_variant else 1.00
+            field_mag_ratio = 1.30 if raw_field_variant else 1.00
+            field_canvas = 960 if raw_field_variant else 800
             full_card_canvas, full_card_mag_ratio = (
                 self._full_card_runtime_settings(image_path)
                 if not field_mode
-                else (2304, 1.35)
+                else (field_canvas, 1.00)
             )
             # Torch mới cảnh báo pin_memory ở mỗi lần EasyOCR chạy CPU.
             # Đây không phải lỗi và gây ngập log khi OCR nhiều field.
@@ -133,37 +134,36 @@ class EasyOCREngine(BaseOCREngine):
                     ),
                     category=UserWarning,
                 )
-                results = self.reader.readtext(
-                    image_path,
-                    detail=1,
-                    paragraph=False,
-                    # Beam search của EasyOCR có thể phát sinh overflow
-                    # trên các dòng dài. Greedy ổn định hơn và các nguồn
-                    # ảnh khác nhau được hợp nhất ở tầng field/fuser.
-                    decoder="greedy",
-                    batch_size=4,
-                    workers=0,
-                    allowlist=allowlist,
-                    min_size=3 if field_mode else 5,
-                    text_threshold=0.35 if field_mode else 0.55,
-                    low_text=0.15 if field_mode else 0.30,
-                    link_threshold=0.20 if field_mode else 0.30,
-                    canvas_size=(
-                        2048 if field_mode else full_card_canvas
-                    ),
-                    mag_ratio=(
-                        field_mag_ratio
-                        if field_mode
-                        else full_card_mag_ratio
-                    ),
-                    slope_ths=0.20 if field_mode else 0.15,
-                    ycenter_ths=0.55 if field_mode else 0.50,
-                    height_ths=0.60 if field_mode else 0.50,
-                    width_ths=1.00 if field_mode else 0.80,
-                    add_margin=0.12 if field_mode else 0.08,
-                    contrast_ths=0.10 if field_mode else 0.05,
-                    adjust_contrast=0.65 if field_mode else 0.70,
-                )
+                import torch
+                with torch.inference_mode():
+                    results = self.reader.readtext(
+                        image_path,
+                        detail=1,
+                        paragraph=False,
+                        decoder="greedy",
+                        batch_size=1 if field_mode else 2,
+                        workers=0,
+                        allowlist=allowlist,
+                        min_size=3 if field_mode else 5,
+                        text_threshold=0.35 if field_mode else 0.55,
+                        low_text=0.15 if field_mode else 0.30,
+                        link_threshold=0.20 if field_mode else 0.30,
+                        canvas_size=(
+                            field_canvas if field_mode else full_card_canvas
+                        ),
+                        mag_ratio=(
+                            field_mag_ratio
+                            if field_mode
+                            else full_card_mag_ratio
+                        ),
+                        slope_ths=0.20 if field_mode else 0.15,
+                        ycenter_ths=0.55 if field_mode else 0.50,
+                        height_ths=0.60 if field_mode else 0.50,
+                        width_ths=1.00 if field_mode else 0.80,
+                        add_margin=0.12 if field_mode else 0.08,
+                        contrast_ths=0.10 if field_mode else 0.05,
+                        adjust_contrast=0.65 if field_mode else 0.70,
+                    )
         except Exception as error:
             return OCRResult(
                 success=False,

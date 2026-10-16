@@ -5,22 +5,17 @@ x-app: &app
   pull_policy: never
   init: true
   restart: unless-stopped
+  mem_limit: 350m
+  mem_reservation: 100m
   working_dir: /app
   command:
     - sh
     - -c
-    - >-
-      exec pnpm exec nodemon
-      --watch "apps/$$NEST_PROJECT"
-      --watch libs
-      --watch nest-cli.json
-      --watch tsconfig.json
-      --ext ts,json
-      --delay 300ms
-      --exec "pnpm exec nest start $$NEST_PROJECT"
+    - "exec node --enable-source-maps /app/dist/apps/$$NEST_PROJECT/main.js"
   volumes:
     - ./apps:/app/apps
     - ./libs:/app/libs
+    - ./dist:/app/dist
     - ./nest-cli.json:/app/nest-cli.json:ro
     - ./tsconfig.json:/app/tsconfig.json:ro
     - ./tsconfig.build.json:/app/tsconfig.build.json:ro
@@ -43,6 +38,7 @@ x-app: &app
 
 x-development-environment: &development-environment
   NODE_ENV: development
+  NODE_OPTIONS: '--max-old-space-size=256'
   LOG_LEVEL: debug
   API_PREFIX: api/v1
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
@@ -79,6 +75,8 @@ services:
       UPSTREAM_TIMEOUT_MS: '15000'
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      AI_SERVICE_URL: http://ai-service:${AI_SERVICE_PORT:-8000}
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-120000}
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004
       BIDDING_SERVICE_URL: http://bidding-service:3005
@@ -94,6 +92,99 @@ services:
         condition: service_healthy
       user-trust-service:
         condition: service_healthy
+      ai-service:
+        condition: service_healthy
+
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    mem_limit: 650m
+    mem_reservation: 300m
+    environment:
+      AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8000}
+      AI_REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://handygo:handygo@rabbitmq:5672}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-handy-go.events}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-handy-go-admin-secret-key-12345}
+      DEBUG: ${AI_SERVICE_DEBUG:-false}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
+      CLOUDINARY_URL: ${CLOUDINARY_URL:-}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-identity_verifications}
+      CLOUDINARY_DELIVERY_TYPE: ${CLOUDINARY_DELIVERY_TYPE:-upload}
+    ports:
+      - '${AI_SERVICE_PORT:-8000}:${AI_SERVICE_PORT:-8000}'
+    volumes:
+      - ai-service-storage:/app/storage
+      - ai-service-face-models:/home/app/.insightface
+      - ai-service-ocr-models:/home/app/.EasyOCR
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AI_SERVICE_PORT','8000')+'/health',timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  ai-worker:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "app.domains.identity.tasks.identity_tasks:celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
+    init: true
+    restart: unless-stopped
+    mem_limit: 2000m
+    memswap_limit: 3500m
+    mem_reservation: 500m
+    environment:
+      MALLOC_TRIM_THRESHOLD_: "65536"
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      VECLIB_MAXIMUM_THREADS: "2"
+      NUMEXPR_NUM_THREADS: "2"
+      AI_SERVICE_PORT: ${AI_SERVICE_PORT:-8000}
+      AI_REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://handygo:handygo@rabbitmq:5672}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-handy-go.events}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-handy-go-admin-secret-key-12345}
+      DEBUG: ${AI_SERVICE_DEBUG:-false}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:-handy-go-internal-service-secret-key-12345}
+      CLOUDINARY_URL: ${CLOUDINARY_URL:-}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-identity_verifications}
+      CLOUDINARY_DELIVERY_TYPE: ${CLOUDINARY_DELIVERY_TYPE:-upload}
+    volumes:
+      - ai-service-storage:/app/storage
+      - ai-service-face-models:/home/app/.insightface
+      - ai-service-ocr-models:/home/app/.EasyOCR
+    depends_on:
+      ai-service:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - celery
+        - -A
+        - app.domains.identity.tasks.identity_tasks:celery_app
+        - inspect
+        - ping
+      interval: 45s
+      timeout: 15s
+      retries: 4
+      start_period: 40s
 
   auth-service:
     <<: *app
@@ -114,9 +205,13 @@ services:
       OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
     ports:
       - '3001:3001'
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     volumes:
       - ./apps:/app/apps
       - ./libs:/app/libs
+      - ./dist:/app/dist
       - ./nest-cli.json:/app/nest-cli.json:ro
       - ./tsconfig.json:/app/tsconfig.json:ro
       - ./tsconfig.build.json:/app/tsconfig.build.json:ro
@@ -212,6 +307,7 @@ services:
   postgres-auth:
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: 150m
     environment:
       POSTGRES_DB: handy_auth
       POSTGRES_USER: postgres
@@ -229,6 +325,7 @@ services:
   postgres-user-trust:
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: 150m
     environment:
       POSTGRES_DB: handy_user_trust
       POSTGRES_USER: postgres
@@ -246,6 +343,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     restart: unless-stopped
+    mem_limit: 250m
     environment:
       RABBITMQ_DEFAULT_USER: handygo
       RABBITMQ_DEFAULT_PASS: handygo
@@ -261,6 +359,9 @@ services:
       retries: 10
 
 volumes:
+  ai-service-storage:
+  ai-service-face-models:
+  ai-service-ocr-models:
   postgres-auth-data:
   postgres-user-trust-data:
   rabbitmq-data:

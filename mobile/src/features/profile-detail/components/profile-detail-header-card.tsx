@@ -17,7 +17,8 @@ export type ProfileDetailHeaderCardProps = {
 const workerStatusLabels: Record<string, string> = {
   draft: 'Chưa xác minh',
   pending_kyc: 'Chờ gửi KYC',
-  under_review: 'Đang xét duyệt',
+  pending: 'Đang chờ duyệt (Pending)',
+  under_review: 'Đang chờ duyệt (Pending)',
   verified: 'Đã xác minh',
   rejected: 'Bị từ chối',
   suspended: 'Tạm khóa',
@@ -99,13 +100,14 @@ export function ProfileDetailHeaderCard({
 }: ProfileDetailHeaderCardProps) {
   const status = workerStatus?.toLowerCase() || '';
   const isVerified = status === 'verified';
+  const isPending = status === 'under_review' || status === 'pending';
   const canStartVerification = status === 'draft' || status === 'pending_kyc';
   const statusLabel = workerStatusLabels[status] || 'Chưa có hồ sơ thợ';
   const accountStatusKey = accountStatus?.toLowerCase() || '';
   const accountStatusLabel = accountStatusLabels[accountStatusKey] || accountStatus;
 
   return (
-    <View testID="profile-detail-header-card" className="ml-3 h-[282px] w-[370px] rounded-2xl border border-neutral-200 bg-white p-2.5 dark:border-neutral-800 dark:bg-neutral-900">
+    <View testID="profile-detail-header-card" className="ml-3 min-h-[282px] w-[370px] rounded-2xl border border-neutral-200 bg-white p-2.5 pb-3.5 dark:border-neutral-800 dark:bg-neutral-900">
       <View className="flex-row items-center">
         <View className="relative size-[64px] shrink-0">
           {avatarUrl
@@ -140,21 +142,21 @@ export function ProfileDetailHeaderCard({
             className={`mt-1 self-start rounded-full border px-2.5 py-0.5 ${
               isVerified
                 ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/50'
-                : status === 'under_review' || status === 'pending_kyc'
-                  ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50'
+                : isPending
+                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
                   : status === 'rejected' || status === 'suspended'
                     ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50'
-                    : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
+                    : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50'
             }`}
           >
             <Text className={`text-[10px] font-semibold ${
               isVerified
                 ? 'text-emerald-700 dark:text-emerald-300'
-                : status === 'under_review' || status === 'pending_kyc'
-                  ? 'text-blue-700 dark:text-blue-300'
+                : isPending
+                  ? 'text-amber-700 dark:text-amber-300'
                   : status === 'rejected' || status === 'suspended'
                     ? 'text-red-700 dark:text-red-300'
-                    : 'text-amber-700 dark:text-amber-300'
+                    : 'text-blue-700 dark:text-blue-300'
             }`}
             >
               {statusLabel}
@@ -175,7 +177,16 @@ export function ProfileDetailHeaderCard({
         />
       </View>
 
-      {canStartVerification && (
+      {isPending && (
+        <View className="mt-2.5 flex-row items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 py-2 px-3 dark:border-amber-900/60 dark:bg-amber-950/40">
+          <ShieldCheckIcon color="#D97706" size={16} />
+          <Text className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+            Hồ sơ đang chờ Admin phê duyệt (Pending)
+          </Text>
+        </View>
+      )}
+
+      {canStartVerification && !isPending && (
         <Button
           testID="profile-detail-start-verification"
           accessibilityLabel="Xác minh tài khoản"

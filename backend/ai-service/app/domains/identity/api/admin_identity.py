@@ -9,7 +9,7 @@ from app.domains.identity.core.config import settings
 from app.domains.identity.services.cloudinary_image_store import cloudinary_image_store
 from app.domains.identity.services.identity_result_store import identity_result_store
 
-router = APIRouter(prefix="/api/admin/identity", tags=["Identity Admin"])
+router = APIRouter(prefix="/api/v1/admin/identity", tags=["Identity Admin"])
 
 
 class ReviewRequest(BaseModel):
