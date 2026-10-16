@@ -10,6 +10,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import tempfile
 
 from release_log import emit, load_secrets, redact
 
@@ -17,6 +18,26 @@ ROOT = Path('/opt/handygo')
 RELEASE_ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 DIGEST = r'(?:ghcr\.io/[a-z0-9._/-]+|nginx)@sha256:[a-f0-9]{64}'
 ROLES = ('vps1', 'vps2', 'vps3')
+NGINX_PREFLIGHT = '''\
+for directory in /etc/nginx/tls /var/www/certbot; do
+    if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
+        echo "Nginx preflight: directory not traversable: $directory" >&2
+        exit 1
+    fi
+done
+for file in /etc/nginx/nginx.conf /etc/nginx/conf.d/handygo.conf /etc/nginx/tls/fullchain.pem /etc/nginx/tls/privkey.pem; do
+    if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+        echo "Nginx preflight: file missing or unreadable as $(id -u):$(id -g): $file" >&2
+        exit 1
+    fi
+done
+mode=$(stat -L -c %a /etc/nginx/tls/privkey.pem)
+if [ "$((0$mode & 4))" -ne 0 ]; then
+    echo "Nginx preflight: private key must not be world-readable" >&2
+    exit 1
+fi
+exec nginx -t
+'''
 
 
 def read(path, default=None):
@@ -106,8 +127,8 @@ class Host:
         self.command = ['docker', 'compose', '--project-name', 'handygo', '--env-file', '/dev/null',
                         '-f', str(self.bundle / 'compose.production.yml'), '--profile', role]
 
-    def compose(self, *args):
-        return run([*self.command, *args], self.env, label=f'{self.role} compose {shlex.join(args)}')
+    def compose(self, *args, label=None):
+        return run([*self.command, *args], self.env, label=label or f'{self.role} compose {shlex.join(args)}')
 
     def owner(self, transaction):
         state = read(ROOT / 'pending.json')
@@ -168,6 +189,51 @@ class Host:
             emit(self.role, 'Memory budget uses swap; disk paging can increase latency')
         return {'ram_mib': memory, 'swap_mib': swap, 'required_mib': required}
 
+    def prepare_nginx_files(self):
+        # Archives are deliberately 0600. Only these non-secret bind mounts need
+        # to be readable by Nginx, which runs as a different UID from the deployer.
+        for filename in ('nginx.conf', 'handygo.conf'):
+            path = self.bundle / 'nginx' / filename
+            if not path.is_file():
+                raise RuntimeError(f'Nginx configuration missing: {path}')
+            path.chmod(0o644)
+        for filename in ('fullchain.pem', 'privkey.pem'):
+            if not (ROOT / 'tls' / filename).is_file():
+                raise RuntimeError(f'TLS file missing: {ROOT / "tls" / filename}; '
+                                   'provision HTTPS on VPS1 before the first deploy (README section 7)')
+        if not (ROOT / 'acme').is_dir():
+            raise RuntimeError(f'ACME directory missing: {ROOT / "acme"}')
+
+    def check_nginx(self):
+        # Inspect resolved paths without printing Compose's application ENV.
+        service = json.loads(self.compose('config', '--format', 'json'))['services']['nginx']
+        if service.get('user') != '101:101' or service.get('image') != self.manifest['nginx_image']:
+            raise RuntimeError('Unexpected Nginx image or UID:GID in Compose')
+        expected = {
+            '/etc/nginx/nginx.conf': self.bundle / 'nginx/nginx.conf',
+            '/etc/nginx/conf.d/handygo.conf': self.bundle / 'nginx/handygo.conf',
+            '/etc/nginx/tls': ROOT / 'tls',
+            '/var/www/certbot': ROOT / 'acme',
+        }
+        mounts = service.get('volumes', [])
+        if len(mounts) != len(expected) or any(
+                mount.get('type') != 'bind' or not mount.get('read_only')
+                or mount.get('source') != str(expected.get(mount.get('target'), ''))
+                for mount in mounts) or {mount.get('target') for mount in mounts} != set(expected):
+            raise RuntimeError('Unexpected Nginx bind mounts; expected release configs and host TLS/ACME read-only')
+        # Inherit image, user, mounts, read-only rootfs, tmpfs, resource limits and
+        # security settings. No dependencies or published ports; nginx -t exits.
+        # The upstream uses runtime DNS, so api-gateway need not be running.
+        # A live edge may already own the static IP. Reset only the one-off IP;
+        # keep the production network and never modify the release Compose file.
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml') as override:
+            override.write('services:\n  nginx:\n    networks:\n      default:\n'
+                           '        ipv4_address: !reset null\n')
+            override.flush()
+            self.compose('-f', override.name, 'run', '--rm', '--no-deps', '-T', '--pull', 'never',
+                         '--entrypoint', '/bin/sh', 'nginx', '-ec', NGINX_PREFLIGHT,
+                         label=f'{self.role} Nginx preflight (readability and nginx -t)')
+
     def prepare(self, transaction):
         self.owner(transaction)
         self.validate_bundle()
@@ -181,10 +247,7 @@ class Host:
         if run(['uname', '-m']) != 'x86_64':
             raise RuntimeError('This release requires an amd64/x86_64 VPS')
         if self.role == 'vps1':
-            for filename in ('fullchain.pem', 'privkey.pem'):
-                if not (ROOT / 'tls' / filename).is_file():
-                    raise RuntimeError(f'TLS file missing: {ROOT / "tls" / filename}; '
-                                       'provision HTTPS on VPS1 before the first deploy (README section 7)')
+            self.prepare_nginx_files()
         memory = self.check_memory()
         if shutil.disk_usage(ROOT).free < 2 * 1024 ** 3:
             raise RuntimeError('At least 2 GiB free disk is required before pulling a release')
@@ -192,6 +255,8 @@ class Host:
         self.compose('pull', *self.names)
         if self.manifest['run_migrations'] and self.release_id == transaction:
             run(['docker', 'pull', self.manifest['migration_image']])
+        if self.role == 'vps1':
+            self.check_nginx()
         return {'prepared': True, 'memory': memory}
 
     def apply(self, transaction):
