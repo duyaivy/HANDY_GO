@@ -224,6 +224,21 @@ Nginx chính được CI/CD triển khai tự động:
 - Request `/api/v1/...` được chuyển nguyên đường dẫn tới Gateway; không thêm hoặc cắt prefix tại Nginx. Ví dụ: `https://handygo.duyaivy.id.vn/api/v1/categories`.
 - Workflow **chưa tự cấp/gia hạn certificate HTTPS**. Trước deploy đầu, phải có certificate/key đúng domain ở `/opt/handygo/tls/fullchain.pem` và `privkey.pem`. Host preflight sẽ chặn nếu thiếu.
 
+Release archive dùng mode 0600 cho mọi file. Trong **prepare của VPS1**, sau khi xác minh checksum, executor tự `chmod 0644` đúng `nginx/nginx.conf` và `nginx/handygo.conf` của release đang xử lý. Thao tác idempotent, không đổi mode thư mục cha hoặc shared ENV (0600); không cần SSH sửa từng release. Docker daemon rootful truy cập đường dẫn host để bind-mount hai file riêng lẻ, nên không cần mở quyền toàn bộ `/opt/handygo` cho UID 101.
+
+Sau pull, prepare đọc Compose JSON trong bộ nhớ để kiểm tra image digest, user `101:101` và đủ bốn bind mount read-only đúng nguồn/đích. Sau đó `docker compose run --rm --no-deps -T --pull never --entrypoint /bin/sh nginx ...` kế thừa user, mounts, read-only rootfs, tmpfs và resource/security limits. Container tạm kiểm tra hai config, certificate/key đều đọc được, thư mục TLS/ACME có quyền traverse, private key không world-readable, rồi chạy `nginx -t`. Không publish cổng, không chạy dependency; upstream dùng runtime DNS nên không cần bật Gateway. Xem [hành vi Compose run](https://docs.docker.com/reference/cli/docker/compose/run/). Override tạm chỉ bỏ IP tĩnh cho container kiểm tra để không tranh `172.30.1.10` với Nginx đang chạy; vẫn dùng network production. Có thể tạo network Compose nếu chưa tồn tại. Lỗi dừng ở prepare, trước migration/apply của cả ba host; các snapshot chưa touched được restore `NOT_NEEDED` rồi unlock. VPS2/VPS3 không chạy các thao tác Nginx này.
+
+Preflight **không tự chmod/chown TLS**. Trước khi sửa TLS hiện có, kiểm tra metadata và mapping, không in nội dung key:
+
+```bash
+docker info --format '{{json .SecurityOptions}}'
+docker inspect --format '{{.Config.User}} {{json .HostConfig.UsernsMode}} {{json .Mounts}}' handygo-nginx-1
+sudo namei -l /opt/handygo/tls/privkey.pem
+sudo stat -Lc '%a %u:%g %n' /opt/handygo/tls /opt/handygo/tls/fullchain.pem /opt/handygo/tls/privkey.pem
+```
+
+Với Docker rootful **đã xác nhận không user namespace remapping**, UID/GID container `101:101` tương ứng host 101:101. Phương án tối thiểu khi quyền sai là cho group 101 traverse thư mục TLS và đọc key: thư mục `azureuser:101` mode 0750, key `root:101` mode 0640 như cách provision dưới đây; fullchain mode 0640 cùng group hoặc 0644 đều được. Chỉ đổi metadata đúng các đường dẫn này nếu cần, sau khi kiểm tra owner/group/ACL hiện tại; không chown/chmod đệ quy, không đổi group hệ thống 101, không thêm azureuser vào group đó. Nếu rootless/userns/ACL khác, xác định mapping thực tế trước; container preflight là phép thử quyền cuối cùng. Quyền host ancestor và quyền bên trong mount là hai việc riêng: trong container, `/etc/nginx/tls` vẫn phải traverse được.
+
 Nếu đã có certificate hợp lệ cho domain này, cài hai file vào đúng đường dẫn/mode như dưới. Nếu chưa có, cấp một lần bằng [Certbot standalone](https://eff-certbot.readthedocs.io/en/stable/using.html#standalone), không cần Nginx bootstrap hoặc tạo config thủ công. Thực hiện trên VPS1 dưới azureuser; thay admin@example.com bằng email thật. TCP 80 phải truy cập được từ Internet và đang trống khi chạy standalone. Nếu đã có Nginx/Apache/container chiếm 80/443, xử lý trong maintenance window trước.
 
 ```bash
@@ -260,6 +275,8 @@ sudo docker run --rm \
 ```
 
 Sau renew thành công, copy certificate/key từ thư mục live/handygo.duyaivy.id.vn như trên rồi `docker kill --signal=HUP handygo-nginx-1`. Kiểm tra renewal bằng lệnh trên thêm `--dry-run` trước khi bật timer. Mount cả thư mục TLS để thay file/renew không bị bind-mount inode cũ. Không ghi private key vào repository. Theo dõi ngày hết hạn certificate.
+
+Timer/wrapper hoặc deploy hook chạy bằng root phải cài lại **owner/group/mode ở mỗi lần copy** (`install -o root -g 101 -m 640` với mapping đã xác minh), không dùng `cp` theo umask rồi giả định mode cũ được giữ. Nên cài vào file tạm bảo mật trong cùng thư mục TLS rồi rename từng file, chạy `docker exec handygo-nginx-1 nginx -t` trước HUP; chỉ reload khi cả hai file đã cập nhật thành công. Không deploy đồng thời lúc thay cặp cert/key. Giữ bản cũ an toàn để phục hồi nếu kiểm tra thất bại. Không thay các bản copy bằng symlink `live/` trỏ ra ngoài mount TLS: container không thấy cây Let's Encrypt đó. Chạy `renew --dry-run` kiểm tra challenge và kiểm tra riêng bước copy/permissions/test/reload với production lineage; dry-run không mặc định chạy deploy hooks. Xem [Certbot renewal hooks và certificate permissions](https://eff-certbot.readthedocs.io/en/stable/using.html#renewing-certificates). Workflow không cài timer/hook lên VPS, vì cấu hình hiện tại chưa được kiểm tra từ xa.
 
 ## 8. GHCR và SSH
 
@@ -430,6 +447,16 @@ python3 /opt/handygo/releases/TARGET_ID/host.py restore vps1 TARGET_ID TRANSACTI
 Đổi role theo host. Restore tất cả participant trước; sau đó chạy `verify ROLE PREVIOUS_ID TRANSACTION_ID` từ host.py của previous bundle cho từng máy, kiểm tra public HTTPS và business smoke. Chỉ sau khi xác minh đồng bộ mới gọi `finish ROLE TARGET_ID TRANSACTION_ID` từ target bundle trên các máy có phase RESTORED/SNAPSHOT/COMMITTED.
 
 Bootstrap thất bại phase BOOTSTRAP_FAILED không được tự unlock: dừng các target containers, xác minh không có giao dịch đang chạy, ghi nhận incident/backup execution.json trước khi operator gỡ pending.json và bootstrap một release ID mới. Không có stable release trước để tuyên bố rollback thành công.
+
+Khi `touched=true` và `previous=null`, `restore` gọi Compose `stop` đúng danh sách service của target, gỡ stable.json nếu nó trỏ vào target đã commit dở, ghi phase `BOOTSTRAP_FAILED` và trả `NO_PREVIOUS_RELEASE`. Không khôi phục container/image cũ, không undo migration, không xóa container hoặc dữ liệu. Coordinator coi kết quả đó là `FAILED_NEEDS_INTERVENTION` và giữ pending.json trên các participant. Container đã bị `stop` không tự hồi phục nhờ `restart: unless-stopped`; downtime tiếp tục cho tới khi operator reconcile và bootstrap lại. Khi có previous, lỗi restore, host không truy cập, verify release cũ hoặc public smoke thất bại cũng dẫn tới trạng thái này.
+
+Trước khi chạy lại sau incident Nginx, trên **cả ba VPS**:
+
+1. Bảo đảm Actions cũ đã kết thúc, không có operator/deploy khác đang chạy. Giữ execution.json/summary/deploy.log của run lỗi trong nơi quản trị được bảo vệ.
+2. Đọc `pending.json` và `stable.json` (nếu có), xác định transaction/target/previous/touched/phase; kiểm tra trạng thái, image và mounts container đúng project bằng `docker ps -a --filter label=com.docker.compose.project=handygo` và `docker inspect` chỉ các trường cần thiết (không xuất toàn bộ ENV).
+3. Nếu có previous, restore mọi participant, verify từng host và HTTPS theo hướng dẫn trên, rồi finish. Không xóa pending để bỏ qua restore lỗi. Bundle cũ chạy host.py cũ; bản sửa này không tự sửa các release đã lưu trước đó.
+4. Nếu bootstrap thất bại, xác nhận mọi target container đã stop, không có stable cần cứu, migration đã chạy tới đâu và schema còn tương thích. Chỉ sau khi ghi nhận incident, operator mới gỡ pending.json của đúng transaction. `begin` còn chặn **cả container đã stop** khi không có stable: ghi lại metadata rồi xóa đúng container target thất bại bằng Compose `rm -f <service...>` hoặc container ID đã kiểm tra, không xóa volume/DB. Nếu là container ngoài transaction thì làm adoption/maintenance riêng, không xóa theo project hàng loạt.
+5. Trên VPS1 xác minh TLS mapping/mode/mount và renewal; trên mọi host kiểm tra disk, WireGuard, RAM/swap, registry access. Đưa bản sửa qua PR CI vào main rồi promotion giữ ancestry sang release. Chạy **workflow mới ở commit đã có bản sửa** (không Re-run jobs của commit cũ), rollback_release để trống; bật run_migrations chỉ khi đã review migration và backup/PITR, kể cả bootstrap lại không có stable. Theo dõi prepare cả ba host thành công trước apply; kết quả cuối phải STABLE và không còn pending/unlock_pending.
 
 Giữ image/bundle của stable hiện tại và ít nhất hai stable trước còn trong rollback window. Không `docker image prune -a` chung; cleanup theo digests được manifests tham chiếu, chỉ xóa bundle đã xác minh không còn là stable/previous/pending. Không backup ENV plaintext vào artifact/Git; nếu backup host thì mã hóa và giới hạn truy cập.
 

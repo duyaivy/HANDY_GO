@@ -130,6 +130,20 @@ class ReleaseTests(unittest.TestCase):
             obj.execute()
         self.assertTrue(all(v == 'NO_PREVIOUS_RELEASE' for v in obj.journal['rollback'].values()))
 
+    def test_prepare_failure_never_applies_and_unlocks_untouched_hosts(self):
+        obj, calls = self.make_coordinator(('vps1', 'prepare'), bootstrap=True)
+        remote = obj.remote
+        def untouched_restore(role, action, target=None):
+            result = remote(role, action, target)
+            if action == 'restore':
+                result['rollback'] = 'NOT_NEEDED'
+            return result
+        obj.remote = untouched_restore
+        with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
+            obj.execute()
+        self.assertFalse(any(a == 'apply' for _, a, _ in calls))
+        self.assertEqual({r for r, a, _ in calls if a == 'finish'}, set(coordinator.ROLES))
+
     def test_uncertain_begin_is_included_in_compensation(self):
         obj, calls = self.make_coordinator(('vps2', 'begin'))
         with self.assertRaises(RuntimeError):
@@ -163,6 +177,10 @@ class ReleaseTests(unittest.TestCase):
         manifest, data = coordinator.Coordinator.bundle(obj)
         with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
             self.assertIn('release_log.py', archive.getnames())
+            self.assertFalse(any(name.endswith(('.pem', '.key')) for name in archive.getnames()))
+            self.assertEqual(archive.getmember('shared.env').mode, 0o600)
+            # Host prepare normalizes only the two public Nginx configs on VPS1.
+            self.assertEqual(archive.getmember('nginx/nginx.conf').mode, 0o600)
             self.assertEqual(archive.extractfile('shared.env').read(), env_path.read_bytes())
             nginx = archive.extractfile('nginx/handygo.conf').read().decode()
             self.assertEqual(nginx.count('server_name handygo.duyaivy.id.vn;'), 2)
