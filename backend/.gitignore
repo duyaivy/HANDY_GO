@@ -64,4 +64,11 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # RSA JWT Keys
 keys/
-*.pem
+*.pem
+
+# Production secrets and local execution artifacts
+**/shared.env
+**/production.env
+/release-output/
+/ci-evidence.json
+**/__pycache__/
