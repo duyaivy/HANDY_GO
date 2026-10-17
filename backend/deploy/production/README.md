@@ -475,7 +475,18 @@ curl -i https://handygo.duyaivy.id.vn/api/v1/categories
 curl -i https://handygo.duyaivy.id.vn/api/v1/users/me
 ```
 
-Lệnh thứ ba HTTP không có token phải 401. `/docs` và `/dev` bị Nginx chặn. Không coi GET /health 200 là DB/consumer nghiệp vụ đạt; bảy service khung chỉ có liveness. Các probes chưa thay thế business acceptance/payment/webhook/realtime/load test.
+Lệnh thứ ba HTTP không có token phải 401. Swagger công khai tại `https://handygo.duyaivy.id.vn/docs`, giống đường dẫn `/docs` ở local. Nginx chuyển tiếp nguyên URI đến Gateway, bao gồm `/docs/` (UI/assets), `/docs-json` và `/docs/specs/:serviceName`; `/dev` vẫn bị chặn. Swagger được loại khỏi global prefix `/api/v1`, vì vậy `/api/v1/docs` không phải URL tài liệu và sẽ bị Gateway trả 401 khi không có token. Các API được bảo vệ vẫn cần Bearer token khi dùng "Try it out".
+
+Sau deploy, kiểm tra UI, JavaScript và spec đều trả 200:
+
+```bash
+curl -I https://handygo.duyaivy.id.vn/docs
+curl -I https://handygo.duyaivy.id.vn/docs/swagger-ui-init.js
+curl -i https://handygo.duyaivy.id.vn/docs-json
+curl -i https://handygo.duyaivy.id.vn/docs/specs/auth-service
+```
+
+Spec downstream phải có các endpoint nghiệp vụ; HTTP 200 với tiêu đề `(Offline)` nghĩa là Gateway chưa lấy được `/docs-json` từ service đó. Không coi GET /health 200 là DB/consumer nghiệp vụ đạt; bảy service khung chỉ có liveness. Các probes chưa thay thế business acceptance/payment/webhook/realtime/load test.
 
 Trong Actions → Backend production → deploy → **Coordinate production release or manual rollback**, log ghi SSH start/complete/failed cho từng VPS và stage/begin/prepare/apply/verify/commit/restore/finish. Remote stderr được truyền trực tiếp; Docker command và migration có log start/complete, exit code và 40 dòng cuối khi lỗi. Lỗi apply/verify/restore còn thu container State/health và 40 dòng log gần nhất trước khi rollback. JSON stdout dành cho coordinator, không bị trộn với log.
 
