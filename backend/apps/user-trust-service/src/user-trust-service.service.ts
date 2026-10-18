@@ -10,8 +10,19 @@ import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { SubmitKycDto } from './dto/submit-kyc.dto.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
+
+function maskIdNumber(idStr?: string | null): string {
+  if (!idStr) return '';
+  const clean = idStr.trim();
+  if (clean.length <= 6) return clean;
+  const start = clean.slice(0, 3);
+  const end = clean.slice(-3);
+  const stars = '*'.repeat(Math.max(3, clean.length - 6));
+  return `${start}${stars}${end}`;
+}
 
 export interface UserRegisteredData {
   userId: string;
@@ -209,7 +220,17 @@ export class UserTrustServiceService {
 
     const user = await this.db.user.findUnique({
       where: { id: targetUserId },
-      include: { customerProfile: true, workerProfile: true },
+      include: {
+        customerProfile: true,
+        workerProfile: {
+          include: {
+            kycCases: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
     });
 
     if (!user) {
@@ -280,9 +301,110 @@ export class UserTrustServiceService {
     };
   }
 
-  async handleKycSubmitted(event: DomainEvent<any>): Promise<{ processed: boolean }> {
-    const { eventId, producer, data } = event;
-    const eventType = 'kyc.submitted';
+  async submitKyc(
+    userId: string,
+    dto?: SubmitKycDto,
+  ): Promise<unknown> {
+    const now = new Date();
+    return this.db.$transaction(async (tx: any) => {
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      if (!worker) {
+        let user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              id: userId,
+              fullName: 'HandyGo Worker',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+        worker = await tx.workerProfile.create({
+          data: {
+            id: crypto.randomUUID(),
+            userId,
+            status: 'pending_kyc',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        worker = await tx.workerProfile.update({
+          where: { id: worker.id },
+          data: {
+            status: 'pending_kyc',
+            updatedAt: now,
+          },
+        });
+      }
+
+      const maskedId = dto?.idNumber ? maskIdNumber(dto.idNumber) : null;
+      const kycCase = await tx.kycCase.create({
+        data: {
+          id: crypto.randomUUID(),
+          workerProfileId: worker.id,
+          idDocumentType: dto?.idDocumentType || 'CCCD',
+          idNumberMasked: maskedId,
+          documentFrontRef: dto?.documentFrontRef || '',
+          documentBackRef: dto?.documentBackRef || null,
+          selfieRef: dto?.selfieRef || '',
+          status: 'submitted',
+          submittedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      return {
+        statusCode: 201,
+        message: 'Hồ sơ xác minh danh tính đã được tiếp nhận (đang chờ xử lý)',
+        data: {
+          workerProfile: worker,
+          kycCase,
+        },
+      };
+    });
+  }
+
+  async getMyKycStatus(userId: string): Promise<unknown> {
+    const worker = await this.db.workerProfile.findUnique({
+      where: { userId },
+      include: {
+        kycCases: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!worker) {
+      return {
+        statusCode: 200,
+        data: {
+          workerStatus: 'draft',
+          latestKycCase: null,
+        },
+      };
+    }
+
+    return {
+      statusCode: 200,
+      data: {
+        workerStatus: worker.status,
+        latestKycCase: worker.kycCases[0] || null,
+      },
+    };
+  }
+
+  async handleKycPending(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const { eventId, producer } = event;
+    const payload = (event as any).data || event;
+    const eventType = 'kyc.pending';
 
     if (eventId) {
       const existing = await this.db.eventInbox.findUnique({
@@ -293,7 +415,7 @@ export class UserTrustServiceService {
       }
     }
 
-    const userId = data?.userId;
+    const userId = payload?.userId;
     if (!userId) {
       return { processed: false };
     }
@@ -312,12 +434,231 @@ export class UserTrustServiceService {
         });
       }
 
+      const now = new Date();
       let worker = await tx.workerProfile.findUnique({
         where: { userId },
       });
 
-      const now = new Date();
       if (!worker) {
+        let user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              id: userId,
+              fullName: 'HandyGo Worker',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+        worker = await tx.workerProfile.create({
+          data: {
+            id: crypto.randomUUID(),
+            userId,
+            status: 'pending_kyc',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.workerProfile.update({
+          where: { id: worker.id },
+          data: { status: 'pending_kyc', updatedAt: now },
+        });
+      }
+
+      const activeCase = await tx.kycCase.findFirst({
+        where: {
+          workerProfileId: worker.id,
+          status: { in: ['draft', 'submitted'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (activeCase) {
+        await tx.kycCase.update({
+          where: { id: activeCase.id },
+          data: {
+            status: 'draft',
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.kycCase.create({
+          data: {
+            id: crypto.randomUUID(),
+            workerProfileId: worker.id,
+            idDocumentType: 'CCCD',
+            documentFrontRef: '',
+            selfieRef: '',
+            status: 'draft',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    });
+
+    this.logger.log(`KYC pending recorded for user ${userId}`);
+    return { processed: true };
+  }
+
+  async handleKycSubmitted(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const payload = (event as any).data || event;
+    if (payload.ocr || payload.faceVerification) {
+      return this.handleKycReviewing(event);
+    }
+
+    const { eventId, producer } = event;
+    const eventType = 'kyc.submitted';
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true };
+      }
+    }
+
+    const userId = payload?.userId;
+    if (!userId) {
+      return { processed: false };
+    }
+
+    await this.db.$transaction(async (tx: any) => {
+      if (eventId) {
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer: producer || 'ai-service',
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const now = new Date();
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      if (!worker) {
+        let user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              id: userId,
+              fullName: 'HandyGo Worker',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+        worker = await tx.workerProfile.create({
+          data: {
+            id: crypto.randomUUID(),
+            userId,
+            status: 'pending_kyc',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+
+      const activeCase = await tx.kycCase.findFirst({
+        where: {
+          workerProfileId: worker.id,
+          status: { in: ['draft', 'submitted'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (activeCase) {
+        await tx.kycCase.update({
+          where: { id: activeCase.id },
+          data: {
+            status: 'submitted',
+            submittedAt: activeCase.submittedAt || now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.kycCase.create({
+          data: {
+            id: crypto.randomUUID(),
+            workerProfileId: worker.id,
+            idDocumentType: 'CCCD',
+            documentFrontRef: '',
+            selfieRef: '',
+            status: 'submitted',
+            submittedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    });
+
+    this.logger.log(`KYC submitted recorded for user ${userId}`);
+    return { processed: true };
+  }
+
+  async handleKycReviewing(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const { eventId, producer } = event;
+    const payload = (event as any).data || event;
+    const eventType = 'kyc.reviewing';
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true };
+      }
+    }
+
+    const userId = payload?.userId;
+    if (!userId) {
+      return { processed: false };
+    }
+
+    await this.db.$transaction(async (tx: any) => {
+      if (eventId) {
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer: producer || 'ai-service',
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const now = new Date();
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      if (!worker) {
+        let user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              id: userId,
+              fullName: 'HandyGo Worker',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
         worker = await tx.workerProfile.create({
           data: {
             id: crypto.randomUUID(),
@@ -334,33 +675,142 @@ export class UserTrustServiceService {
         });
       }
 
-      const ocr = data.ocr || {};
-      const faceVerification = data.faceVerification || {};
-      const idNumber = ocr.id || ocr.card_id || ocr.id_number || 'CCCD';
+      const ocr = payload.ocr || {};
+      const faceVerification = payload.faceVerification || {};
+      const rawIdNumber = ocr.id || ocr.card_id || ocr.id_number || 'CCCD';
+      const maskedId = maskIdNumber(rawIdNumber) || 'CCCD';
+      const frontRef = faceVerification.cropfromCCCD || ocr.image_url || '';
+      const selfieRef = faceVerification.selfie_image || '';
+      const similarity = faceVerification.similarity ? Number(faceVerification.similarity) : null;
 
-      await tx.kycCase.create({
-        data: {
-          id: crypto.randomUUID(),
+      const activeCase = await tx.kycCase.findFirst({
+        where: {
           workerProfileId: worker.id,
-          idDocumentType: 'CCCD',
-          idNumberMasked: String(idNumber),
-          documentFrontRef: faceVerification.cropfromCCCD || ocr.image_url || '',
-          selfieRef: faceVerification.selfie_image || '',
-          status: 'submitted',
-          aiSimilarityScore: faceVerification.similarity ? Number(faceVerification.similarity) : null,
-          submittedAt: now,
-          createdAt: now,
-          updatedAt: now,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
         },
+        orderBy: { createdAt: 'desc' },
       });
+
+      const defaultNote =
+        payload.reviewNote ||
+        'Đã hoàn thành đối sánh AI, đang chờ quản trị viên xem xét';
+
+      if (activeCase) {
+        await tx.kycCase.update({
+          where: { id: activeCase.id },
+          data: {
+            status: 'reviewing',
+            idDocumentType: 'CCCD',
+            idNumberMasked: maskedId,
+            documentFrontRef: frontRef || activeCase.documentFrontRef,
+            selfieRef: selfieRef || activeCase.selfieRef,
+            aiSimilarityScore: similarity ?? activeCase.aiSimilarityScore,
+            reviewNote: defaultNote,
+            submittedAt: activeCase.submittedAt || now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.kycCase.create({
+          data: {
+            id: crypto.randomUUID(),
+            workerProfileId: worker.id,
+            idDocumentType: 'CCCD',
+            idNumberMasked: maskedId,
+            documentFrontRef: frontRef,
+            selfieRef: selfieRef,
+            status: 'reviewing',
+            aiSimilarityScore: similarity,
+            reviewNote: defaultNote,
+            submittedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
     });
 
-    this.logger.log(`KYC submitted processed for user ${userId}`);
+    this.logger.log(`KYC reviewing processed for user ${userId}`);
+    return { processed: true };
+  }
+
+  async handleKycCompleted(event: DomainEvent<any>): Promise<{ processed: boolean }> {
+    const { eventId, producer } = event;
+    const payload = (event as any).data || event;
+    const eventType = 'kyc.completed';
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true };
+      }
+    }
+
+    const userId = payload?.userId;
+    if (!userId) {
+      return { processed: false };
+    }
+
+    await this.db.$transaction(async (tx: any) => {
+      if (eventId) {
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer: producer || 'ai-service',
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const now = new Date();
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      if (worker) {
+        await tx.workerProfile.update({
+          where: { id: worker.id },
+          data: {
+            status: 'verified',
+            verifiedAt: now,
+            approvedAt: now,
+            updatedAt: now,
+          },
+        });
+
+        const activeCase = await tx.kycCase.findFirst({
+          where: {
+            workerProfileId: worker.id,
+            status: { in: ['draft', 'submitted', 'reviewing'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (activeCase) {
+          await tx.kycCase.update({
+            where: { id: activeCase.id },
+            data: {
+              status: 'approved',
+              reviewedAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+      }
+    });
+
+    this.logger.log(`KYC completed (approved) processed for user ${userId}`);
     return { processed: true };
   }
 
   async handleKycFailed(event: DomainEvent<any>): Promise<{ processed: boolean }> {
-    const { eventId, producer, data } = event;
+    const { eventId, producer } = event;
+    const payload = (event as any).data || event;
     const eventType = 'kyc.failed';
 
     if (eventId) {
@@ -370,20 +820,104 @@ export class UserTrustServiceService {
       if (existing) {
         return { processed: true };
       }
-
-      await this.db.eventInbox.create({
-        data: {
-          id: eventId,
-          producer: producer || 'ai-service',
-          eventType,
-          payload: JSON.parse(JSON.stringify(event)),
-          receivedAt: new Date(),
-          processedAt: new Date(),
-        },
-      });
     }
 
-    this.logger.warn(`KYC failed event recorded for user ${data?.userId}: ${data?.reason}`);
+    const userId = payload?.userId;
+    if (!userId) {
+      return { processed: false };
+    }
+
+    await this.db.$transaction(async (tx: any) => {
+      if (eventId) {
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer: producer || 'ai-service',
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const now = new Date();
+      let worker = await tx.workerProfile.findUnique({
+        where: { userId },
+      });
+
+      if (!worker) {
+        let user = await tx.user.findUnique({ where: { id: userId } });
+        if (!user) {
+          user = await tx.user.create({
+            data: {
+              id: userId,
+              fullName: 'HandyGo Worker',
+              status: 'active',
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+        worker = await tx.workerProfile.create({
+          data: {
+            id: crypto.randomUUID(),
+            userId,
+            status: 'rejected',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.workerProfile.update({
+          where: { id: worker.id },
+          data: { status: 'rejected', updatedAt: now },
+        });
+      }
+
+      const reason = payload?.reason || payload?.message || 'Xác minh AI không thành công';
+      const similarity = payload?.similarity ? Number(payload.similarity) : null;
+
+      const activeCase = await tx.kycCase.findFirst({
+        where: {
+          workerProfileId: worker.id,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (activeCase) {
+        await tx.kycCase.update({
+          where: { id: activeCase.id },
+          data: {
+            status: 'rejected',
+            reviewNote: reason,
+            aiSimilarityScore: similarity ?? activeCase.aiSimilarityScore,
+            reviewedAt: now,
+            updatedAt: now,
+          },
+        });
+      } else {
+        await tx.kycCase.create({
+          data: {
+            id: crypto.randomUUID(),
+            workerProfileId: worker.id,
+            idDocumentType: 'CCCD',
+            documentFrontRef: '',
+            selfieRef: '',
+            status: 'rejected',
+            reviewNote: reason,
+            aiSimilarityScore: similarity,
+            submittedAt: now,
+            reviewedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    });
+
+    this.logger.log(`KYC failed processed for user ${userId}: ${payload?.reason || 'unspecified'}`);
     return { processed: true };
   }
 

@@ -121,6 +121,7 @@ services:
     ports:
       - '${AI_SERVICE_PORT:-8000}:${AI_SERVICE_PORT:-8000}'
     volumes:
+      - ./ai-service/app:/app/app
       - ai-service-storage:/app/storage
       - ai-service-face-models:/home/app/.insightface
       - ai-service-ocr-models:/home/app/.EasyOCR
@@ -167,6 +168,7 @@ services:
       CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-identity_verifications}
       CLOUDINARY_DELIVERY_TYPE: ${CLOUDINARY_DELIVERY_TYPE:-upload}
     volumes:
+      - ./ai-service/app:/app/app
       - ai-service-storage:/app/storage
       - ai-service-face-models:/home/app/.insightface
       - ai-service-ocr-models:/home/app/.EasyOCR

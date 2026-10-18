@@ -34,6 +34,7 @@ def publish_kyc_event(pattern: str, payload: dict[str, Any]) -> bool:
         "eventType": pattern,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "producer": "ai-service",
+        "data": payload,
         **payload,
     }
 
@@ -43,33 +44,7 @@ def publish_kyc_event(pattern: str, payload: dict[str, Any]) -> bool:
         "data": event_data,
     }
 
-    # 1. Try Kombu (available in Celery environment)
-    try:
-        from kombu import Connection, Exchange, Producer
-
-        use_ssl = rabbitmq_url.startswith("amqps://")
-        ssl_options = {"cert_reqs": ssl.CERT_NONE} if use_ssl else None
-
-        with Connection(rabbitmq_url, ssl=ssl_options, connect_timeout=5) as conn:
-            exchange = Exchange(exchange_name, type="topic", durable=True)
-            with Producer(conn) as producer:
-                producer.publish(
-                    envelope,
-                    exchange=exchange,
-                    routing_key=pattern,
-                    serializer="json",
-                    content_type="application/json",
-                    delivery_mode=2,
-                    declare=[exchange],
-                )
-                logger.info("Đã gửi event RabbitMQ: %s cho user %s", pattern, payload.get("userId"))
-                return True
-    except ImportError:
-        pass
-    except Exception as exc:
-        logger.error("Lỗi gửi RabbitMQ qua kombu (%s): %s", pattern, exc)
-
-    # 2. Try Pika fallback
+    # 1. Try Pika first (robust SSL and cloud AMQP support)
     try:
         import pika
 
@@ -93,11 +68,34 @@ def publish_kyc_event(pattern: str, payload: dict[str, Any]) -> bool:
             ),
         )
         connection.close()
-        logger.info("Đã gửi event RabbitMQ qua pika: %s cho user %s", pattern, payload.get("userId"))
+        logger.info("Đã gửi event RabbitMQ: %s cho user %s", pattern, payload.get("userId"))
         return True
     except ImportError:
-        logger.warning("Cả kombu và pika đều không khả dụng để publish RabbitMQ.")
-        return False
+        pass
     except Exception as exc:
-        logger.error("Lỗi gửi RabbitMQ qua pika (%s): %s", pattern, exc)
+        logger.warning("Lỗi gửi RabbitMQ qua pika (%s): %s. Thử Kombu fallback...", pattern, exc)
+
+    # 2. Try Kombu fallback
+    try:
+        from kombu import Connection, Exchange, Producer
+
+        use_ssl = rabbitmq_url.startswith("amqps://")
+        ssl_options = {"cert_reqs": ssl.CERT_NONE} if use_ssl else None
+
+        with Connection(rabbitmq_url, ssl=ssl_options, connect_timeout=5) as conn:
+            exchange = Exchange(exchange_name, type="topic", durable=True)
+            with Producer(conn) as producer:
+                producer.publish(
+                    envelope,
+                    exchange=exchange,
+                    routing_key=pattern,
+                    serializer="json",
+                    content_type="application/json",
+                    delivery_mode=2,
+                    declare=[exchange],
+                )
+                logger.info("Đã gửi event RabbitMQ qua kombu: %s cho user %s", pattern, payload.get("userId"))
+                return True
+    except Exception as exc:
+        logger.error("Lỗi gửi RabbitMQ qua kombu (%s): %s", pattern, exc)
         return False

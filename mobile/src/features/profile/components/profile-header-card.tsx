@@ -98,39 +98,57 @@ export function ProfileHeaderCard({
               {/* Badges Row */}
               <View className="mt-1 flex-row flex-wrap items-center justify-between gap-1.5">
                 {/* Worker Verification Status Badge */}
-                {workerStatus && (
-                  <View
-                    testID="worker-verification-badge"
-                    className={`rounded-full border px-2.5 py-0.5 ${
-                      workerStatus === 'verified'
-                        ? 'border-emerald-300 bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/50'
-                        : workerStatus === 'under_review' || workerStatus === 'pending_kyc'
-                          ? 'border-blue-300 bg-blue-100 dark:border-blue-700 dark:bg-blue-900/50'
-                          : workerStatus === 'rejected' || workerStatus === 'suspended'
-                            ? 'border-red-300 bg-red-100 dark:border-red-700 dark:bg-red-900/50'
-                            : 'border-amber-300 bg-amber-100 dark:border-amber-700 dark:bg-amber-900/50'
-                    }`}
-                  >
-                    <Text
-                      className={`text-[10px] font-semibold ${
-                        workerStatus === 'verified'
-                          ? 'text-emerald-800 dark:text-emerald-200'
-                          : workerStatus === 'under_review' || workerStatus === 'pending_kyc'
-                            ? 'text-blue-800 dark:text-blue-200'
-                            : workerStatus === 'rejected' || workerStatus === 'suspended'
-                              ? 'text-red-800 dark:text-red-200'
-                              : 'text-amber-800 dark:text-amber-200'
+                {workerStatus && (() => {
+                  const normalizedWorkerStatus = (workerStatus || '').toLowerCase().trim();
+                  const isVerified = normalizedWorkerStatus === 'verified';
+                  const isPending =
+                    normalizedWorkerStatus === 'pending_kyc' ||
+                    normalizedWorkerStatus === 'under_review' ||
+                    normalizedWorkerStatus === 'pending';
+                  const isRejected =
+                    normalizedWorkerStatus === 'rejected' ||
+                    normalizedWorkerStatus === 'suspended';
+
+                  const statusLabel =
+                    isVerified
+                      ? 'Đã xác minh'
+                      : isPending
+                        ? 'Đang chờ xác minh'
+                        : normalizedWorkerStatus === 'rejected'
+                          ? 'Bị từ chối'
+                          : normalizedWorkerStatus === 'suspended'
+                            ? 'Tạm khóa'
+                            : 'Chưa xác minh';
+
+                  return (
+                    <View
+                      testID="worker-verification-badge"
+                      className={`rounded-full border px-2.5 py-0.5 ${
+                        isVerified
+                          ? 'border-emerald-300 bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/50'
+                          : isPending
+                            ? 'border-blue-300 bg-blue-100 dark:border-blue-700 dark:bg-blue-900/50'
+                            : isRejected
+                              ? 'border-red-300 bg-red-100 dark:border-red-700 dark:bg-red-900/50'
+                              : 'border-amber-300 bg-amber-100 dark:border-amber-700 dark:bg-amber-900/50'
                       }`}
                     >
-                      {workerStatus === 'draft' && 'Chưa xác minh'}
-                      {workerStatus === 'pending_kyc' && 'Chờ gửi KYC'}
-                      {workerStatus === 'under_review' && 'Đang xét duyệt'}
-                      {workerStatus === 'verified' && 'Đã xác minh'}
-                      {workerStatus === 'rejected' && 'Bị từ chối'}
-                      {workerStatus === 'suspended' && 'Tạm khóa'}
-                    </Text>
-                  </View>
-                )}
+                      <Text
+                        className={`text-[10px] font-semibold ${
+                          isVerified
+                            ? 'text-emerald-800 dark:text-emerald-200'
+                            : isPending
+                              ? 'text-blue-800 dark:text-blue-200'
+                              : isRejected
+                                ? 'text-red-800 dark:text-red-200'
+                                : 'text-amber-800 dark:text-amber-200'
+                        }`}
+                      >
+                        {statusLabel}
+                      </Text>
+                    </View>
+                  );
+                })()}
 
                 {/* App Mode Badge */}
                 <View

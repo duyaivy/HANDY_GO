@@ -12,10 +12,12 @@ from app.domains.identity.utils.image_validator import (
 )
 from app.domains.identity.utils.ocr_error_detail import build_ocr_error_detail
 
-router = APIRouter(prefix="/ocr", tags=["OCR"])
+router = APIRouter(prefix="/api/v1/ocr", tags=["OCR"])
+legacy_router = APIRouter(prefix="/ocr", tags=["OCR (Legacy)"], include_in_schema=False)
 
 
 @router.post("/cccd", response_model=ApiResponse)
+@legacy_router.post("/cccd", response_model=ApiResponse)
 async def ocr_cccd(file: UploadFile = File(...)) -> ApiResponse:
     # 1. Lưu file ảnh vào hệ thống (giữ nguyên logic cũ)
     image_path = await save_upload_file(file)

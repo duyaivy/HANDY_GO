@@ -1,7 +1,7 @@
 /* eslint-disable style/indent */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { BackHandler, Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from '@/components/ui/icons/arrow-left';
 import { Screen } from '@/components/ui/screen';
@@ -23,6 +23,19 @@ export function CustomerProfileDetailScreen() {
 
   const handleStartVerification = () => router.push(RouteNames.ACCOUNT_VERIFICATION_INTRO as any);
 
+  const handleBack = React.useCallback(() => {
+    router.replace(RouteNames.CUSTOMER_PROFILE as any);
+  }, [router]);
+
+  React.useEffect(() => {
+    const onBackPress = () => {
+      handleBack();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => subscription.remove();
+  }, [handleBack]);
+
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <View testID="customer-profile-detail-screen" className="flex-1">
@@ -30,7 +43,7 @@ export function CustomerProfileDetailScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Quay lại"
-            onPress={() => router.back()}
+            onPress={handleBack}
             className="absolute top-1 left-4 size-10 items-center justify-center rounded-full active:bg-neutral-200 dark:active:bg-neutral-800"
           >
             <ArrowLeft width={10} height={20} color="#374151" />

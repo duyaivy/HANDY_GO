@@ -41,35 +41,28 @@ def process_identity_job(self, job_id: str, user_id: str) -> None:
 
         face_verification = res_data.get("face_verification") or {}
         face_status = face_verification.get("status") # "match", "review", or "not_match"
+        similarity = face_verification.get("similarity")
 
+        sim_str = f"{similarity:.2f}" if isinstance(similarity, (int, float)) else str(similarity or "N/A")
         if face_status == "not_match":
-            error_data = {
-                "message": "Khuôn mặt không khớp với ảnh trên thẻ CCCD.",
-                "code": "FACE_VERIFICATION_NOT_MATCH",
-                "similarity": face_verification.get("similarity"),
-            }
-            identity_job_store.update(job_id, status="failed", error=error_data)
-            publish_kyc_event("kyc.failed", {
-                "userId": user_id,
-                "jobId": job_id,
-                "status": "failed",
-                "reason": error_data["message"],
-                "errorCode": error_data["code"],
-                "similarity": face_verification.get("similarity"),
-            })
-            logger.warning("Job %s failed face matching for user %s", job_id, user_id)
+            note = f"AI cảnh báo: Khuôn mặt có độ tương đồng thấp ({sim_str}). Chờ Admin xem xét kỹ và quyết định."
+        elif face_status == "review":
+            note = f"AI đối sánh cần xem xét (độ tương đồng: {sim_str}). Chờ Admin xem xét và quyết định."
         else:
-            identity_job_store.update(job_id, status="completed", result_id=result_id, result=data, error=None)
-            publish_kyc_event("kyc.submitted", {
-                "userId": user_id,
-                "jobId": job_id,
-                "resultId": result_id,
-                "status": "completed",
-                "aiStatus": face_status,
-                "ocr": res_data.get("ocr"),
-                "faceVerification": face_verification,
-            })
-            logger.info("Job %s passed AI verification for user %s (status: %s)", job_id, user_id, face_status)
+            note = f"AI đối sánh khuôn mặt khớp (độ tương đồng: {sim_str}). Chờ Admin xem xét và phê duyệt."
+
+        identity_job_store.update(job_id, status="completed", result_id=result_id, result=data, error=None)
+        publish_kyc_event("kyc.reviewing", {
+            "userId": user_id,
+            "jobId": job_id,
+            "resultId": result_id,
+            "status": "completed",
+            "aiStatus": face_status,
+            "reviewNote": note,
+            "ocr": res_data.get("ocr"),
+            "faceVerification": face_verification,
+        })
+        logger.info("Job %s AI comparison completed for user %s (status: %s, note: %s)", job_id, user_id, face_status, note)
 
     except Exception as exc:
         logger.exception("Identity job failed: %s", job_id)

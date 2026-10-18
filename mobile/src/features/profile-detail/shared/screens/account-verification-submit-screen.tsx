@@ -9,6 +9,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { queryClient } from '@/lib/api/query-client';
+import { ApiClient } from '@/services/api/api-client';
 import { IdentityApi } from '@/services/identity/identity-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 
@@ -72,6 +73,7 @@ export function AccountVerificationSubmitScreen() {
     setIsSubmitting(true);
     setStatusMessage('Đang gửi hồ sơ xác minh...');
     try {
+      // 1. Đưa ảnh vào hàng đợi AI verification
       const response = await IdentityApi.verify({ idFrontUri: idFront, selfieUri: selfie });
       const jobId = response.data?.jobId;
 
@@ -79,19 +81,35 @@ export function AccountVerificationSubmitScreen() {
         throw new Error('Hệ thống chưa tạo được mã tiến trình xác minh.');
       }
 
-      // Cập nhật trạng thái 'under_review' (Pending) vào React Query cache ngay lập tức
+      // 2. Lưu trực tiếp trạng thái pending_kyc vào PostgreSQL CSDL của User-Trust-Service
+      try {
+        await ApiClient.post('/users/me/kyc', {
+          idDocumentType: 'CCCD',
+        });
+      } catch (err) {
+        console.warn('Lỗi ghi nhận KYC vào CSDL:', err);
+      }
+
+      // 3. Cập nhật trạng thái 'pending_kyc' (Đang chờ xác minh) vào React Query cache
       if (user?.id) {
         queryClient.setQueryData(['user-profile', user.id], (old: any) => {
-          if (!old) return old;
+          if (!old) {
+            return {
+              status: 'active',
+              workerProfile: {
+                status: 'pending_kyc',
+              },
+            };
+          }
           return {
             ...old,
             workerProfile: {
-              ...old.workerProfile,
-              status: 'under_review',
+              ...(old.workerProfile || {}),
+              status: 'pending_kyc',
             },
           };
         });
-        queryClient.invalidateQueries({ queryKey: ['user-profile', user.id] });
+        await queryClient.invalidateQueries({ queryKey: ['user-profile', user.id] });
       }
 
       const targetRoute =
@@ -99,7 +117,10 @@ export function AccountVerificationSubmitScreen() {
           ? RouteNames.CUSTOMER_PROFILE_DETAIL
           : RouteNames.WORKER_PROFILE_DETAIL;
 
-      // Nhảy ngay về màn hình Profile Detail không đứng ở trang gửi nữa
+      // Xóa bỏ toàn bộ stack verification để tránh back lại các bước chụp ảnh
+      if (router.canDismiss()) {
+        router.dismissAll();
+      }
       router.replace(targetRoute as any);
 
       Alert.alert(

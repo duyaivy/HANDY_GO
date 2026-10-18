@@ -16,9 +16,9 @@ export type ProfileDetailHeaderCardProps = {
 
 const workerStatusLabels: Record<string, string> = {
   draft: 'Chưa xác minh',
-  pending_kyc: 'Chờ gửi KYC',
-  pending: 'Đang chờ duyệt (Pending)',
-  under_review: 'Đang chờ duyệt (Pending)',
+  pending_kyc: 'Đang chờ xác minh',
+  pending: 'Đang chờ xác minh',
+  under_review: 'Đang chờ xác minh',
   verified: 'Đã xác minh',
   rejected: 'Bị từ chối',
   suspended: 'Tạm khóa',
@@ -98,11 +98,11 @@ export function ProfileDetailHeaderCard({
   workerStatus,
   onStartVerification,
 }: ProfileDetailHeaderCardProps) {
-  const status = workerStatus?.toLowerCase() || '';
+  const status = (workerStatus || accountStatus || '').toLowerCase();
   const isVerified = status === 'verified';
-  const isPending = status === 'under_review' || status === 'pending';
-  const canStartVerification = status === 'draft' || status === 'pending_kyc';
-  const statusLabel = workerStatusLabels[status] || 'Chưa có hồ sơ thợ';
+  const isPending = status === 'under_review' || status === 'pending' || status === 'pending_kyc';
+  const canStartVerification = status === 'draft' || status === 'rejected';
+  const statusLabel = workerStatusLabels[status] || (isVerified ? 'Đã xác minh' : (isPending ? 'Đang chờ xác minh' : 'Chưa xác minh'));
   const accountStatusKey = accountStatus?.toLowerCase() || '';
   const accountStatusLabel = accountStatusLabels[accountStatusKey] || accountStatus;
 
@@ -181,7 +181,7 @@ export function ProfileDetailHeaderCard({
         <View className="mt-2.5 flex-row items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 py-2 px-3 dark:border-amber-900/60 dark:bg-amber-950/40">
           <ShieldCheckIcon color="#D97706" size={16} />
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-            Hồ sơ đang chờ Admin phê duyệt (Pending)
+            Hồ sơ đang chờ xác minh
           </Text>
         </View>
       )}

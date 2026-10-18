@@ -26,18 +26,22 @@ def create_app() -> FastAPI:
     ensure_storage_dirs()
 
     application = FastAPI(
-        title=settings.app_name,
+        title="HANDY GO — AI Identity Service",
         version=settings.app_version,
         debug=settings.debug,
         description=(
-            "AI Service xử lý CCCD gồm Card Detection, OCR và "
+            "AI Service xử lý định danh CCCD gồm Card Detection, OCR và "
             "Face Verification.\n\n"
-            "Luồng xác minh mới nhận CCCD và selfie trong một request."
+            "Tất cả các API được chuẩn hóa dạng /api/v1/..."
         ),
+        openapi_url="/docs-json",
+        docs_url="/docs",
+        redoc_url="/redoc",
         openapi_tags=[
-            {
-                "name": "Face Verification"
-            }
+            {"name": "Identity", "description": "Endpoints xác minh CCCD và khuôn mặt người dùng"},
+            {"name": "Identity Admin", "description": "Endpoints quản trị viên duyệt kết quả định danh"},
+            {"name": "OCR", "description": "Endpoints OCR trích xuất thông tin thẻ"},
+            {"name": "Health", "description": "Health check service"},
         ],
     )
 
@@ -49,16 +53,25 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Health router
     application.include_router(health.router)
+
+    # Versioned API routers (api/v1/...)
     application.include_router(identity.router)
     application.include_router(admin_identity.router)
+    application.include_router(ocr.router)
 
+    # Legacy routers (for backward compatibility)
+    application.include_router(identity.legacy_router)
+    application.include_router(ocr.legacy_router)
+
+    @application.get("/openapi.json", include_in_schema=False)
+    def openapi_endpoint():
+        return application.openapi()
 
     register_exception_handlers(application)
 
-    logger.info(
-        "CCCD AI Service started successfully"
-    )
+    logger.info("CCCD AI Service started successfully")
 
     return application
 
