@@ -1,5 +1,6 @@
-import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
-import { RabbitMQService } from '@app/rabbitmq';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
+import { lastValueFrom } from 'rxjs';
 import { AppException, ERROR_CODES } from '@app/common';
 
 export interface UserAuthStatusRpcResponse {
@@ -13,25 +14,18 @@ export class UserTrustClient {
   private readonly logger = new Logger(UserTrustClient.name);
 
   constructor(
-    @Optional()
-    private readonly rabbitmq?: RabbitMQService,
+    @Inject('USER_TRUST_RPC_CLIENT')
+    private readonly rpcClient: ClientProxy,
   ) {}
 
   async confirmUserStatus(userId: string, roles: string[]): Promise<void> {
-    if (!this.rabbitmq) {
-      this.logger.error('RabbitMQService is not available for User & Trust RPC');
-      throw new AppException(
-        HttpStatus.SERVICE_UNAVAILABLE,
-        ERROR_CODES.DEPENDENCY_UNAVAILABLE,
-        'Dịch vụ quản lý hồ sơ tạm thời không phản hồi. Vui lòng thử lại sau.',
-      );
-    }
-
     try {
-      const statusPromise = this.rabbitmq.send<
-        { userId: string; roles: string[] },
-        UserAuthStatusRpcResponse
-      >('user.auth-status', { userId, roles });
+      const statusPromise = lastValueFrom(
+        this.rpcClient.send<
+          UserAuthStatusRpcResponse,
+          { userId: string; roles: string[] }
+        >('user.auth-status', { userId, roles }),
+      );
 
       const timeoutPromise = new Promise<never>((_, reject) => {
         const timer = setTimeout(

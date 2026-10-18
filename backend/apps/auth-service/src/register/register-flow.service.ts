@@ -3,7 +3,12 @@ import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import type { Account } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
-import { AppException, ERROR_CODES, EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
+import {
+  AppException,
+  ERROR_CODES,
+  EVENT_PATTERNS,
+  OutboxPublisherService,
+} from '@app/common';
 import { RegisterRole, Role } from '@app/auth';
 import { RegisterDto } from './dto/register.dto.js';
 import type { RegisterResponse } from './dto/register-response.dto.js';
@@ -27,7 +32,10 @@ export class RegisterFlowService {
     private readonly rateLimiter: RateLimiterService,
   ) {}
 
-  async execute(dto: RegisterDto, clientIp = '127.0.0.1'): Promise<RegisterResponse> {
+  async execute(
+    dto: RegisterDto,
+    clientIp = '127.0.0.1',
+  ): Promise<RegisterResponse> {
     // 1. IP rate limiting
     await this.rateLimiter.checkAndIncrement(
       `register_ip:${clientIp}`,
@@ -60,7 +68,7 @@ export class RegisterFlowService {
           ERROR_CODES.PHONE_ALREADY_EXISTS,
           'Số điện thoại đã được đăng ký nhưng chưa xác thực. Vui lòng đăng nhập để tiếp tục xác thực OTP.',
           {
-            details: {
+            data: {
               verification: {
                 phone: existingPhone.phone,
                 emailMasked: existingPhone.email
@@ -102,7 +110,7 @@ export class RegisterFlowService {
           ERROR_CODES.EMAIL_ALREADY_EXISTS,
           'Email đã được đăng ký nhưng chưa xác thực. Vui lòng đăng nhập để tiếp tục xác thực OTP.',
           {
-            details: {
+            data: {
               verification: {
                 phone: existingEmail.phone,
                 emailMasked: this.otpService.maskEmail(normalizedEmail),
@@ -206,7 +214,10 @@ export class RegisterFlowService {
         return newAccount;
       });
     } catch (error: unknown) {
-      const prismaError = error as { code?: string; meta?: { target?: string[] } };
+      const prismaError = error as {
+        code?: string;
+        meta?: { target?: string[] };
+      };
       if (prismaError?.code === 'P2002') {
         const target = prismaError?.meta?.target;
         if (Array.isArray(target) && target.includes('phone')) {
@@ -258,7 +269,7 @@ export class RegisterFlowService {
         ERROR_CODES.OTP_DELIVERY_FAILED,
         'Tạo tài khoản thành công nhưng gửi mã OTP qua email thất bại. Vui lòng bấm gửi lại mã để tiếp tục.',
         {
-          details: {
+          data: {
             verification: {
               challengeId,
               phone: normalizedPhone,

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines-per-function */
-import { useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
@@ -11,16 +11,18 @@ import { RouteNames } from '@/constants/route-names';
 import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { usePasswordResetStore } from '../use-password-reset-store';
 
 export function LoginScreen() {
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
-  const params = useLocalSearchParams<{ phone?: string; verified?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; verified?: string; reset?: string }>();
   const login = useAuthStore.use.login();
   const isLoading = useAuthStore.use.isLoading();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const clearError = useAuthStore.use.clearError();
+  const clearPasswordReset = usePasswordResetStore(state => state.clear);
 
   const [phone, setPhone] = React.useState(params?.phone || '');
   const [password, setPassword] = React.useState('');
@@ -29,7 +31,9 @@ export function LoginScreen() {
   const [successMessage, setSuccessMessage] = React.useState<string | null>(
     params?.verified === 'true'
       ? 'Xác thực tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.'
-      : null,
+      : params?.reset === 'true'
+        ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.'
+        : null,
   );
   const [localErrors, setLocalErrors] = React.useState<{
     phone?: string;
@@ -54,6 +58,12 @@ export function LoginScreen() {
   React.useEffect(() => {
     clearError();
   }, [clearError]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      clearPasswordReset();
+    }, [clearPasswordReset]),
+  );
 
   const validate = (): boolean => {
     const errors: { phone?: string; password?: string } = {};
@@ -159,20 +169,20 @@ export function LoginScreen() {
     >
       <View testID="auth-login-screen" className="px-6 py-8">
         {/* Header / Brand */}
-        <View className="mb-8 items-center">
-          <View className="mb-4">
-            <BrandLogo />
+        <View className="mb-7 items-center">
+          <View className="mb-4 rounded-[30px] bg-primary-50 p-2 dark:bg-neutral-900">
+            <BrandLogo size={92} />
           </View>
-          <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+          <Text className="text-center text-3xl font-bold tracking-tight text-neutral-900 dark:text-white">
             Chào mừng trở lại!
           </Text>
-          <Text className="mt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
-            Đăng nhập tài khoản HANDY GO của bạn
+          <Text className="mt-2 text-center text-sm/5 text-neutral-500 dark:text-neutral-400">
+            Đăng nhập để tiếp tục hành trình cùng HANDY GO
           </Text>
         </View>
 
         {/* Form Card */}
-        <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <View className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
           {successMessage
             ? (
                 <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
@@ -239,11 +249,26 @@ export function LoginScreen() {
             />
           </View>
 
-          <View className="mt-6">
+          <View className="mt-1 items-end">
+            <Pressable
+              testID="login-forgot-password-btn"
+              accessibilityRole="button"
+              onPress={() => router.push(RouteNames.AUTH_FORGOT_PASSWORD as any)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              className="py-2"
+            >
+              <Text className="text-sm font-semibold text-primary-700 dark:text-primary-300">
+                Quên mật khẩu?
+              </Text>
+            </Pressable>
+          </View>
+
+          <View className="mt-2">
             <Button
               testID="login-submit-button"
               label="Đăng nhập"
               variant="default"
+              className="h-12 rounded-xl bg-primary-600"
               loading={isLoading}
               disabled={isLoading}
               onPress={handleLogin}
@@ -252,7 +277,7 @@ export function LoginScreen() {
         </View>
 
         {/* Footer Actions */}
-        <View className="mt-8 items-center space-y-3">
+        <View className="mt-7 items-center space-y-3">
           <View className="flex-row items-center justify-center">
             <Text className="text-sm text-neutral-600 dark:text-neutral-400">
               Chưa có tài khoản?
@@ -262,7 +287,7 @@ export function LoginScreen() {
               testID="login-to-register-btn"
               onPress={() => router.push(RouteNames.AUTH_REGISTER as any)}
             >
-              <Text className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+              <Text className="text-sm font-semibold text-primary-700 dark:text-primary-300">
                 Đăng ký ngay
               </Text>
             </Pressable>

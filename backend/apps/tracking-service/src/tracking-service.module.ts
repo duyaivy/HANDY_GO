@@ -14,7 +14,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     }),
     LoggerModule.forRoot('tracking-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [TrackingServiceController],
   providers: [TrackingServiceService],

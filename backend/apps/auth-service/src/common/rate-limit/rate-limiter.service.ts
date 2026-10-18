@@ -10,6 +10,8 @@ import {
   type ThrottlerStorage,
 } from '@nestjs/throttler';
 import { AppException, ERROR_CODES } from '@app/common';
+import { AuthPrismaService } from '@app/database';
+import { PostgresThrottlerStorage } from './postgres-throttler-storage.js';
 
 @Injectable()
 export class RateLimiterService implements OnModuleDestroy {
@@ -19,11 +21,16 @@ export class RateLimiterService implements OnModuleDestroy {
     @Optional()
     @Inject(getStorageToken())
     storage?: ThrottlerStorage,
+    @Optional()
+    private readonly db?: AuthPrismaService,
   ) {
-    this.storage =
-      storage && typeof storage.increment === 'function'
-        ? storage
-        : new ThrottlerStorageService();
+    if (storage && typeof storage.increment === 'function') {
+      this.storage = storage;
+    } else if (db) {
+      this.storage = new PostgresThrottlerStorage(db);
+    } else {
+      this.storage = new ThrottlerStorageService();
+    }
   }
 
   onModuleDestroy(): void {
@@ -61,7 +68,7 @@ export class RateLimiterService implements OnModuleDestroy {
           : record.timeToExpire,
       );
       throw new AppException(429, ERROR_CODES.RATE_LIMITED, errorMessage, {
-        details: { retryAfterSeconds },
+        data: { retryAfterSeconds },
       });
     }
   }

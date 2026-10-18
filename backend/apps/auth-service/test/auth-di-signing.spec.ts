@@ -9,12 +9,11 @@ import {
 } from '@app/auth';
 import { AuthPrismaService } from '@app/database';
 import { RabbitMQService } from '@app/rabbitmq';
-import { AuthServiceService } from '../src/auth-service.service.js';
+import { of } from 'rxjs';
 import { OtpService } from '../src/otp/otp.service.js';
 import { OutboxPublisherService } from '@app/common';
 import { RateLimiterService } from '../src/common/rate-limit/rate-limiter.service.js';
 import { LoginLockoutService } from '../src/common/security/login-lockout.service.js';
-import { AuthServiceController } from '../src/auth-service.controller.js';
 import { ConfigService } from '@app/config';
 import { RegisterFlowService } from '../src/register/register-flow.service.js';
 import { OtpFlowService } from '../src/otp/otp-flow.service.js';
@@ -24,13 +23,16 @@ import { UserTrustClient } from '../src/common/rpc/user-trust.client.js';
 
 describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
   let module: TestingModule;
-  let authService: AuthServiceService;
+  let otpFlow: OtpFlowService;
+  let loginFlow: LoginFlowService;
+  let sessionService: SessionService;
   let verifier: TokenVerifierService;
   let dbMock: any;
   let otpServiceMock: any;
   let outboxPublisherMock: any;
   let rateLimiterMock: any;
   let rabbitmqMock: any;
+  let userTrustRpcClientMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -106,12 +108,20 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       }),
     };
 
+    userTrustRpcClientMock = {
+      send: vi.fn().mockReturnValue(
+        of({
+          exists: true,
+          status: 'active',
+          isProvisioned: true,
+        }),
+      ),
+    };
+
     // Build real module graph: imports AuthModule & AuthSignerModule with REAL TokenSignerService
     module = await Test.createTestingModule({
       imports: [AuthModule, AuthSignerModule],
-      controllers: [AuthServiceController],
       providers: [
-        AuthServiceService,
         RegisterFlowService,
         OtpFlowService,
         LoginFlowService,
@@ -123,6 +133,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
         { provide: RateLimiterService, useValue: rateLimiterMock },
         LoginLockoutService,
         { provide: RabbitMQService, useValue: rabbitmqMock },
+        { provide: 'USER_TRUST_RPC_CLIENT', useValue: userTrustRpcClientMock },
         {
           provide: ConfigService,
           useValue: {
@@ -134,15 +145,16 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     }).compile();
 
 
-    authService = module.get<AuthServiceService>(AuthServiceService);
+    otpFlow = module.get<OtpFlowService>(OtpFlowService);
+    loginFlow = module.get<LoginFlowService>(LoginFlowService);
+    sessionService = module.get<SessionService>(SessionService);
     verifier = module.get<TokenVerifierService>(TokenVerifierService);
   });
 
-  it('1. Dependency Injection: AuthServiceService directly receives real TokenSignerService with valid private key', () => {
-    expect(authService).toBeDefined();
+  it('1. Dependency Injection: SessionService receives real TokenSignerService with valid private key', () => {
+    expect(sessionService).toBeDefined();
 
-    // Check the actual injected dependency on AuthServiceService instance
-    const injectedSigner = (authService as any).tokenSigner;
+    const injectedSigner = sessionService.tokenSigner;
     expect(injectedSigner).toBeDefined();
     expect(injectedSigner).toBeInstanceOf(TokenSignerService);
 
@@ -175,7 +187,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
 
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
 
-    const result: any = await authService.login({
+    const result: any = await loginFlow.login({
       phone: '0912345678',
       password: rawPassword,
     });
@@ -225,7 +237,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     });
 
 
-    const result: any = await authService.verifyEmail({
+    const result: any = await otpFlow.verifyEmail({
       phone: '0912345678',
       otp: '123456',
     });
@@ -240,7 +252,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
 
   it('4. Refresh with real signer produces new RS256 JWT that TokenVerifierService successfully verifies', async () => {
     const rawOldRefreshToken = 'old-plain-refresh-token';
-    const hashed = (authService as any).tokenSigner.hashToken(rawOldRefreshToken);
+    const hashed = sessionService.tokenSigner.hashToken(rawOldRefreshToken);
     const mockAccount = {
       id: 'acc-refresh-1',
       userId: 'user-refresh-1',
@@ -262,7 +274,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
     dbMock.refreshSession.updateMany.mockResolvedValue({ count: 1 });
 
-    const result: any = await authService.refresh({
+    const result: any = await loginFlow.refresh({
       refreshToken: rawOldRefreshToken,
     });
 
@@ -315,12 +327,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
 
 
     // Simulate signing failure
-    vi.spyOn((authService as any).tokenSigner, 'signAccessToken').mockRejectedValueOnce(
+    vi.spyOn(sessionService.tokenSigner, 'signAccessToken').mockRejectedValueOnce(
       new Error('Simulated JWT Signing Failure'),
     );
 
     await expect(
-      authService.verifyEmail({ phone: '0912345678', otp: '123456' }),
+      otpFlow.verifyEmail({ phone: '0912345678', otp: '123456' }),
     ).rejects.toThrow('Simulated JWT Signing Failure');
 
     // Confirm DB transaction was never executed: OTP was not consumed, account not updated, session not created
@@ -347,12 +359,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
 
     // Simulate signing failure
-    vi.spyOn((authService as any).tokenSigner, 'signAccessToken').mockRejectedValueOnce(
+    vi.spyOn(sessionService.tokenSigner, 'signAccessToken').mockRejectedValueOnce(
       new Error('Simulated JWT Signing Failure in Login'),
     );
 
     await expect(
-      authService.login({ phone: '0912345678', password: rawPassword }),
+      loginFlow.login({ phone: '0912345678', password: rawPassword }),
     ).rejects.toThrow('Simulated JWT Signing Failure in Login');
 
     // Confirm no session was created in DB
@@ -361,7 +373,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
 
   it('8. Atomicity: If token signing fails in refresh, refresh token is NOT rotated in database', async () => {
     const rawOldRefreshToken = 'old-plain-refresh-token';
-    const hashed = (authService as any).tokenSigner.hashToken(rawOldRefreshToken);
+    const hashed = sessionService.tokenSigner.hashToken(rawOldRefreshToken);
     const mockAccount = {
       id: 'acc-refresh-fail-1',
       userId: 'user-refresh-fail-1',
@@ -383,12 +395,12 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
 
     // Simulate signing failure
-    vi.spyOn((authService as any).tokenSigner, 'signAccessToken').mockRejectedValueOnce(
+    vi.spyOn(sessionService.tokenSigner, 'signAccessToken').mockRejectedValueOnce(
       new Error('Simulated JWT Signing Failure in Refresh'),
     );
 
     await expect(
-      authService.refresh({ refreshToken: rawOldRefreshToken }),
+      loginFlow.refresh({ refreshToken: rawOldRefreshToken }),
     ).rejects.toThrow('Simulated JWT Signing Failure in Refresh');
 
     // Confirm updateMany was NOT called to rotate the session

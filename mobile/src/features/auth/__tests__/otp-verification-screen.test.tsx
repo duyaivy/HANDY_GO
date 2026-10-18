@@ -23,6 +23,7 @@ jest.mock('expo-router', () => ({
 
 afterEach(() => {
   cleanup();
+  jest.clearAllTimers();
   jest.clearAllMocks();
   useAuthStore.setState({
     isLoading: false,

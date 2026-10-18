@@ -88,8 +88,10 @@ export class ApiError extends Error {
     const status = error.response.status;
     const data = error.response.data;
     const code = data?.code as ErrorCode | undefined;
-    const fieldErrors = (data?.fieldErrors || data?.errors) as Record<string, string[]> | undefined;
-    const details = data?.details as ApiErrorDetails | undefined;
+    const errorData = data?.data as ApiErrorDetails | null | undefined;
+    const fieldErrors = (errorData?.fieldErrors || data?.fieldErrors || data?.errors) as Record<string, string[]> | undefined;
+    // Keep compatibility while older backend instances are rolling out.
+    const details = (errorData || data?.details) as ApiErrorDetails | undefined;
     const message = data?.message || data?.error || 'Đã có lỗi xảy ra. Vui lòng thử lại.';
 
     if (code === ERROR_CODES.RATE_LIMITED || status === 429) {

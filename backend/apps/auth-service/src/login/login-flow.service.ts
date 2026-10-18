@@ -116,7 +116,7 @@ export class LoginFlowService {
         ERROR_CODES.ACCOUNT_PENDING,
         'Tài khoản chưa được kích hoạt. Vui lòng xác thực mã OTP.',
         {
-          details: {
+          data: {
             verification: {
               challengeId: challenge?.id,
               phone: account.phone,
@@ -126,8 +126,8 @@ export class LoginFlowService {
               expiresAt: challenge?.expiresAt?.toISOString(),
               resendAvailableAt: isFailedDelivery
                 ? new Date().toISOString()
-                : (challenge?.resendAvailableAt?.toISOString() ||
-                  new Date().toISOString()),
+                : challenge?.resendAvailableAt?.toISOString() ||
+                  new Date().toISOString(),
             },
           },
         },

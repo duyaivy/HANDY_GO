@@ -1,4 +1,5 @@
 /* eslint-disable max-lines-per-function */
+import { queryClient } from '@/lib/api/query-client';
 import { getDestination } from '@/lib/auth/navigation';
 import { storage } from '@/lib/storage';
 import { AuthApi } from '@/services/auth/auth-api';
@@ -11,6 +12,8 @@ import {
 } from '@/stores/use-auth-store';
 
 afterEach(() => {
+  queryClient.cancelQueries();
+  queryClient.clear();
   storage.clearAll();
   useAuthStore.setState({
     user: null,
@@ -32,6 +35,22 @@ describe('app Mode Switch & Persistence Lifecycle Integration', () => {
     roles: ['Customer', 'Worker'],
     permissions: [],
   };
+
+  beforeEach(() => {
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: dualRoleUser.id,
+        phone: dualRoleUser.phone,
+        email: dualRoleUser.email,
+        fullName: 'Dual Role User',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as any);
+  });
 
   it('new account with both roles defaults to Customer App', () => {
     // No prior mode in MMKV

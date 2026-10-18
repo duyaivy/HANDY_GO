@@ -8,5 +8,8 @@
     "tsBuildInfoFile": "../../dist/libs/redis.tsbuildinfo"
   },
   "include": ["src/**/*"],
+  "references": [
+    { "path": "../config/tsconfig.lib.json" }
+  ],
   "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }

@@ -1,0 +1,60 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["catalog_service"]
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  parentId    String?  @map("parent_id") @db.Uuid
+  name        String   @db.VarChar(150)
+  description String?  @db.Text
+  imageUrl    String?  @map("image_url") @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryHierarchy")
+  services Service[]
+
+  @@map("categories")
+  @@schema("catalog_service")
+}
+
+model Service {
+  id          String   @id @default(uuid()) @db.Uuid
+  categoryId  String   @map("category_id") @db.Uuid
+  name        String   @db.VarChar(180)
+  description String?  @db.Text
+  iconUrl     String?  @map("icon_url") @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@map("services")
+  @@schema("catalog_service")
+}
+
+model OutboxEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  eventType    String    @map("event_type") @db.VarChar(100)
+  eventVersion Int       @default(1) @map("event_version")
+  payload      Json
+  status       String    @default("pending") @db.VarChar(30)
+  retryCount   Int       @default(0) @map("retry_count")
+  lastError    String?   @map("last_error") @db.Text
+  nextRetryAt  DateTime  @default(now()) @map("next_retry_at") @db.Timestamp(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  publishedAt  DateTime? @map("published_at") @db.Timestamp(6)
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+  @@schema("catalog_service")
+}
+

@@ -5,9 +5,9 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@app/config';
 import { Logger } from 'nestjs-pino';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HttpExceptionFilter } from './filters/http-exception.filter.js';
 import { AppException, ERROR_CODES } from './errors/app-error.js';
 
@@ -18,6 +18,15 @@ export interface BootstrapOptions {
 
 export type SetupAppCallback = (app: INestApplication) => Promise<void> | void;
 
+export interface BootstrapOptions {
+  enableSwagger?: boolean;
+  swaggerTitle?: string;
+  swaggerDescription?: string;
+  swaggerVersion?: string;
+  swaggerPath?: string;
+  configure?: (app: INestApplication) => Promise<void> | void;
+}
+
 export async function bootstrapApplication(
   rootModule: Type<unknown>,
   optionsOrSetup?: BootstrapOptions | SetupAppCallback,
@@ -27,6 +36,7 @@ export async function bootstrapApplication(
   const logger = app.get(Logger);
 
   app.useLogger(logger);
+  app.enableShutdownHooks();
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({

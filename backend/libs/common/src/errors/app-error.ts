@@ -1,4 +1,8 @@
 import { HttpException } from '@nestjs/common';
+import {
+  buildErrorResponse,
+  type ApiErrorResponseEnvelope,
+} from '../dto/api-response.dto.js';
 
 export const ERROR_CODES = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -27,9 +31,10 @@ export const ERROR_CODES = {
 
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES] | string;
 
-export interface AppErrorDetails {
+export interface AppErrorData {
   retryAfterSeconds?: number;
   remainingAttempts?: number;
+  fieldErrors?: Record<string, string[]>;
   verification?: {
     challengeId?: string;
     phone: string | null;
@@ -39,13 +44,9 @@ export interface AppErrorDetails {
   };
 }
 
-export interface AppErrorResponseBody {
-  statusCode: number;
-  code: string;
-  message: string;
-  fieldErrors?: Record<string, string[]>;
-  details?: AppErrorDetails;
-}
+export type AppErrorDetails = AppErrorData;
+
+export type AppErrorResponseBody = ApiErrorResponseEnvelope<AppErrorData>;
 
 export class AppException extends HttpException {
   constructor(
@@ -54,16 +55,22 @@ export class AppException extends HttpException {
     message: string,
     options?: {
       fieldErrors?: Record<string, string[]>;
-      details?: AppErrorDetails;
+      data?: AppErrorData;
     },
   ) {
-    const body: AppErrorResponseBody = {
+    const data =
+      options?.data || options?.fieldErrors
+        ? {
+            ...options?.data,
+            fieldErrors: options?.fieldErrors ?? options?.data?.fieldErrors,
+          }
+        : null;
+    const body: AppErrorResponseBody = buildErrorResponse(
       statusCode,
       code,
       message,
-      fieldErrors: options?.fieldErrors,
-      details: options?.details,
-    };
+      data,
+    );
     super(body, statusCode);
   }
 }

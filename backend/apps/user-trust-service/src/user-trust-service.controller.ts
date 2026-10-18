@@ -79,8 +79,19 @@ export class UserTrustServiceController {
   @MessagePattern('user.auth-status')
   async getUserAuthStatus(
     @Payload() data: { userId: string; roles: string[] },
+    @Ctx() context?: any,
   ): Promise<{ exists: boolean; status: string; isProvisioned: boolean }> {
-    return this.userTrustService.getUserAuthStatus(data.userId, data.roles);
+    try {
+      return await this.userTrustService.getUserAuthStatus(data.userId, data.roles);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+    }
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

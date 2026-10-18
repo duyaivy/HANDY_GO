@@ -14,7 +14,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     }),
     LoggerModule.forRoot('matching-service'),
     HealthModule,
-    RabbitMQModule
+    RabbitMQModule,
   ],
   controllers: [MatchingServiceController],
   providers: [MatchingServiceService],

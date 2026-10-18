@@ -1,5 +1,7 @@
+"use client";
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Menu,
   X,
@@ -14,6 +16,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLenis } from "lenis/react";
+import { useRouter } from "next/navigation";
 declare global {
   interface Window {
     __handyGoLenis?: ReturnType<typeof useLenis>;
@@ -21,13 +24,9 @@ declare global {
 }
 interface NavbarProps {
   onOpenDownload: () => void;
-  onOpenAuth: (mode: "login" | "register") => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
-  onOpenDownload,
-  onOpenAuth,
-}) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<string>("");
@@ -137,7 +136,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: "reviews", label: "Đánh giá", icon: Star },
     { id: "download", label: "Download App", icon: Smartphone, isBadge: true },
   ];
-
+  const router = useRouter();
   return (
     <>
       <header
@@ -203,16 +202,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* DESKTOP ONLY: Auth Action Button (>= 1024px) */}
             <div className="hidden lg:flex items-center gap-3">
-              <motion.button
-                type="button"
-                onClick={() => onOpenAuth("login")}
+              <motion.div
                 whileHover={{ scale: 1.04, y: -1 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                className="px-6 py-2.5 rounded-2xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white font-bold text-sm lg:text-base shadow-md shadow-orange-500/25 hover:shadow-orange-500/40 transition-all cursor-pointer"
               >
-                Đăng nhập
-              </motion.button>
+                <Link
+                  href="/login"
+                  className="block px-6 py-2.5 rounded-2xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white font-bold text-sm lg:text-base shadow-md shadow-orange-500/25 hover:shadow-orange-500/40 transition-all cursor-pointer"
+                >
+                  Đăng nhập
+                </Link>
+              </motion.div>
             </div>
 
             {/* MOBILE & TABLET (< 1024px): Có nút Đăng nhập cho Tablet + Nút Dấu 3 gạch */}
@@ -220,7 +221,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {/* Nút Đăng nhập cho Tablet (không logo) */}
               <button
                 type="button"
-                onClick={() => onOpenAuth("login")}
+                onClick={() => router.push("/login")}
                 className="hidden sm:inline-flex px-4 py-2 rounded-xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white font-bold text-sm shadow-xs hover:opacity-95 transition-all cursor-pointer"
               >
                 Đăng nhập
@@ -342,7 +343,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   type="button"
                   onClick={() => {
                     setIsMobileMenuOpen(false);
-                    onOpenAuth("login");
+                    router.push("/login");
                   }}
                   className="w-full py-2.5 sm:py-3 px-3 rounded-xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white text-xs sm:text-sm font-bold text-center shadow-md shadow-orange-500/20 cursor-pointer hover:opacity-95"
                 >

@@ -20,7 +20,18 @@ export const StandardPermissions = {
   PROFILE_UPDATE: 'profile:update',
   USER_READ: 'user:read',
   USER_MANAGE: 'user:manage',
+  CATALOG_READ: 'catalog:read',
+  CATALOG_CREATE: 'catalog:create',
+  CATALOG_UPDATE: 'catalog:update',
+  CATALOG_DELETE: 'catalog:delete',
 } as const;
+
+export const TokenType = {
+  ACCESS: 'access',
+  REFRESH: 'refresh',
+} as const;
+
+export type TokenType = (typeof TokenType)[keyof typeof TokenType];
 
 export interface JwtPayload {
   sub: string; // accountId
@@ -31,8 +42,29 @@ export interface JwtPayload {
   iss: string;
   aud: string;
   jti: string;
+  tokenType?: TokenType;
   iat?: number;
   exp?: number;
+}
+
+export interface RefreshTokenPayload {
+  sub: string;
+  userId: string;
+  sid: string;
+  tokenType: 'refresh';
+  jti: string;
+  iss?: string;
+  aud?: string;
+  iat?: number;
+  exp?: number;
+}
+
+export interface SessionBinding {
+  id?: string;
+  sid?: string;
+  accountId?: string;
+  sub?: string;
+  userId?: string;
 }
 
 export interface AuthenticatedUser {

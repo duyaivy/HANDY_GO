@@ -14,6 +14,7 @@ export default function CustomerTabsLayout() {
         name="index"
         options={{
           title: 'Trang chủ',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <HomeIcon color={color} size={size} />,
         }}
       />

@@ -16,6 +16,13 @@ export default function CustomerLayout() {
             headerBackTitle: 'Quay lại',
           }}
         />
+        <Stack.Screen
+          name="category"
+          options={{
+            title: 'Danh mục dịch vụ',
+            headerShown: false,
+          }}
+        />
       </Stack>
     </RoleGuard>
   );

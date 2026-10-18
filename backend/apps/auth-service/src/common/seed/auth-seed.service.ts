@@ -44,6 +44,10 @@ export class AuthSeedService implements OnModuleInit {
       { code: StandardPermissions.PROFILE_UPDATE, name: 'Cập nhật hồ sơ cá nhân', resource: 'profile', action: 'update' },
       { code: StandardPermissions.USER_READ, name: 'Xem người dùng hệ thống', resource: 'user', action: 'read' },
       { code: StandardPermissions.USER_MANAGE, name: 'Quản lý người dùng hệ thống', resource: 'user', action: 'manage' },
+      { code: StandardPermissions.CATALOG_READ, name: 'Xem danh mục và dịch vụ', resource: 'catalog', action: 'read' },
+      { code: StandardPermissions.CATALOG_CREATE, name: 'Tạo mới danh mục và dịch vụ', resource: 'catalog', action: 'create' },
+      { code: StandardPermissions.CATALOG_UPDATE, name: 'Cập nhật danh mục và dịch vụ', resource: 'catalog', action: 'update' },
+      { code: StandardPermissions.CATALOG_DELETE, name: 'Xóa danh mục và dịch vụ', resource: 'catalog', action: 'delete' },
     ];
 
     // Seed permissions
@@ -86,11 +90,13 @@ export class AuthSeedService implements OnModuleInit {
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
+        StandardPermissions.CATALOG_READ,
       ],
       [Role.WORKER.toUpperCase()]: [
         StandardPermissions.AUTH_ME,
         StandardPermissions.PROFILE_READ,
         StandardPermissions.PROFILE_UPDATE,
+        StandardPermissions.CATALOG_READ,
       ],
       [Role.ADMIN.toUpperCase()]: [
         StandardPermissions.AUTH_ME,
@@ -98,6 +104,10 @@ export class AuthSeedService implements OnModuleInit {
         StandardPermissions.PROFILE_UPDATE,
         StandardPermissions.USER_READ,
         StandardPermissions.USER_MANAGE,
+        StandardPermissions.CATALOG_READ,
+        StandardPermissions.CATALOG_CREATE,
+        StandardPermissions.CATALOG_UPDATE,
+        StandardPermissions.CATALOG_DELETE,
       ],
     };
 

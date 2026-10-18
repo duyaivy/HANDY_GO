@@ -2,7 +2,6 @@
 
 > **Chạy cùng mobile qua Metro:** đọc [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Phần 1 là chạy hằng ngày; phần 2 là chuẩn bị env, keys, DB và build lần đầu. Các mô tả scaffold/lệnh cũ ở những phần chưa cập nhật của README này cần đối chiếu với source.
 
-> **HG-23 schema:** xem [quy trình đồng bộ Auth và User & Trust](../docs/HG23_DB_ALIGNMENT.md) trước khi chạy migration. Migration mới chỉ dành cho DB rỗng; không tự xóa/chuyển dữ liệu cũ.
 
 NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư viện dùng chung (**shared libraries**).
 
@@ -228,3 +227,8 @@ Phản hồi chuẩn: `{"status":"ok","service":"<name>","timestamp":"..."}`.
   }
 }
 ```
+
+
+## Triển khai Backend production trên 3 VPS
+
+Xem [hướng dẫn triển khai](deploy/production/README.md) để setup Docker, WireGuard, Nginx/TLS, một ENV chung, Nginx container, cloud secrets, GitHub Actions nhánh release và rollback theo manifest cho 11 ứng dụng trên 3 VPS RAM 1 GB. Setup và SSH sử dụng tài khoản `azureuser` có sẵn trên cả ba VPS. Service health-only được bật theo phê duyệt nhưng chưa hoàn thiện nghiệp vụ. Workflow nằm ở `.github/workflows/backend-production.yml` tại root Git repository.

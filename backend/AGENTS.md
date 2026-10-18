@@ -10,7 +10,7 @@
 
 > [!IMPORTANT]
 > **MANDATORY FOR ALL AGENTS:**
-> Whenever you implement, extend, or optimize:
+> Whenever you implement, extend, or optimize reusable application code in `apps/` or `libs/`:
 > 1. A shared library, utility function, or helper.
 > 2. A cross-cutting service, repository, messaging client, or RPC contract.
 > 3. A reusable decorator, guard, filter, or interceptor.
@@ -103,35 +103,40 @@ pnpm run lint
 
 | Library (`libs/`) | Exported Asset | Purpose & Usage Contract |
 | :--- | :--- | :--- |
-| **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES`<br>`AppErrorDetails` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { details });`<br>Supports `details.verification` containing `challengeId`, `phone`, `emailMasked`, `expiresAt`, `resendAvailableAt` for pending account and delivery failure flows. |
-| | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Used in `main.ts`. |
+| **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES`<br>`AppErrorData` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { data });`<br>Supports `data.verification` containing `challengeId`, `phone`, `emailMasked`, `expiresAt`, `resendAvailableAt` for pending account and delivery failure flows. |
+| | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Enables shutdown hooks. Used in `main.ts`. |
 | | `HttpExceptionFilter` | **Global Exception Filter & Detailed Error Logger.** Catches all exceptions, formats standardized JSON error responses, logs full 5xx/4xx error context with method, URL, message & stack traces, and injects error details into `pino-http`. |
 | | `OutboxPublisherService`<br>`OutboxRepository` | **Reliable Transactional Outbox Pattern.** Persists domain events into the database within the same transaction and asynchronously dispatches to RabbitMQ with DLQ & retry support. |
 | | `renderEmailTemplate(template, vars)` | **HTML Email Template Renderer.** Injects dynamic placeholders `{{variable}}` into branded HANDY GO responsive HTML email layouts. |
 | | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.USER_REGISTERED` (eventVersion: 3, unified payload containing `roles: ["Customer", "Worker"]`). |
-| | `ApiResponseEnvelope`<br>`ApiResponseDto`<br>`buildSuccessResponse(data, message, statusCode)` | **Standardized API Response Envelope Engine.** Wraps all HTTP responses across microservices in `{ statusCode: 200, message: '...', data: T }` structure. |
+| | `ApiResponseEnvelope`<br>`ApiErrorResponseEnvelope`<br>`ApiResponseDto`<br>`ApiErrorResponseDto`<br>`buildSuccessResponse(data, message, statusCode)`<br>`buildErrorResponse(statusCode, code, message, data)` | **Standardized API Response Envelope Engine.** Wraps every HTTP response in `{ statusCode, message, data }`; errors additionally expose a stable `code`. Error `data` is always present (`null` when empty) and contains business metadata such as `verification` or `fieldErrors`. |
 | **`@app/auth`**<br>`libs/auth/src/` | `@Public()` | Disables default JWT authentication guard for open endpoints (e.g., login, register, health). |
 | | `@RequirePermissions(...)` | Enforces declarative RBAC permission codes on routes. E.g., `@RequirePermissions(StandardPermissions.AUTH_ME)`. |
 | | `@CurrentUser()` | Parameter decorator resolving the authenticated user from the JWT payload: `@CurrentUser() user: AuthenticatedUser`. |
 | | `TokenSignerService` | **RS256 JWT Signer.** Generates access tokens, refresh tokens, and SHA-256 token hashes using RSA private keys. |
 | | `TokenVerifierService` | **RS256 JWT Verifier.** Validates tokens using public keys without requiring access to private keys. |
-| | `Role`, `RegisterRole`<br>`StandardPermissions` | Canonical enums for roles (`CUSTOMER`, `WORKER`, `ADMIN`) and permissions (`AUTH_ME`, `PROFILE_READ`, `PROFILE_UPDATE`, ...). |
+| | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
 | **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
-| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)` | High-performance Pino structured JSON logging module. |
+| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret`. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
 | **`@app/cloudinary`**<br>`libs/cloudinary/src/` | `CloudinaryModule`<br>`CloudinaryService` | **Cloudinary Media Storage Integration.** Streaming image upload (`uploadImage`) and signed direct big-video chunk upload initialization (`createVideoUploadSignature`). |
 
 ---
 
-### 4.2. Service-Internal Utilities & Infrastructure
+### 4.2. Service-Internal Utilities
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
+| `apps/api-gateway/src/auth/gateway-auth.middleware.ts` | `GatewayAuthMiddleware` | Removes client-supplied `x-user-*` and `x-internal-secret` headers on all routes, verifies access tokens on protected routes, and injects trusted gateway headers. Usage: register as middleware before proxying requests to downstream services. |
 | `apps/api-gateway/src/dev/dev-video-upload.controller.ts` | `DevVideoUploadController` | **Development Video Upload Tester.** Serves HTML/JS tester page at `GET /dev/video-upload` in non-production environments (`NODE_ENV !== 'production'`) for direct-to-Cloudinary chunked video upload testing. Throws `404` in production. |
-| `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)` | **IP Spoofing Prevention.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from the API Gateway. Falls back to socket IP. |
+| `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)`<br>`normalizeClientIp(ip, fallback)` | **IP Spoofing Prevention & Normalization.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from API Gateway. Validates with `net.isIP`, strips IPv4-mapped IPv6 (`::ffff:`), and normalizes `::1` loopback. |
+| `common/security/password-hasher.ts` | `BcryptPasswordHasher`<br>`PASSWORD_HASHER` | **Decoupled Password Hashing Abstraction.** Implements `IPasswordHasher` with configurable salt rounds (default: 10), isolating password hashing/comparison from business flow services. |
+| `otp/repositories/password-reset.repository.ts` | `PasswordResetRepository`<br>`PASSWORD_RESET_REPOSITORY` | **Transactional Password Reset Repository.** Encapsulates all Prisma queries, atomic CAS consumption, row-level locking (`SELECT ... FOR UPDATE`), and transactional session revocation for password reset flows. |
+| `otp/services/reset-token.service.ts` | `ResetTokenService`<br>`RESET_TOKEN_SERVICE` | **Cryptographic Reset Token Manager.** Generates 32-byte hex reset tokens and SHA-256 hashes with configurable expiration (default: 900s). |
+| `otp/services/password-reset-email.dispatcher.ts` | `PasswordResetEmailDispatcher`<br>`PASSWORD_RESET_EMAIL_DISPATCHER` | **Password Reset Email Dispatcher & Anti-Enumeration Timing Equalizer.** Encapsulates reset email delivery and provides dummy cryptographic operations to eliminate timing side-channels against user enumeration. |
 | `common/utils/phone.util.ts` | `normalizeVietnamesePhone(rawPhone)` | **E.164 Vietnamese Mobile Phone Normalization.** Converts valid 10-digit mobile numbers (03, 05, 07, 08, 09) to `+84xxxxxxxxx`. Handles leading zeros (`840...`, `+840...`). Throws `BadRequestException` on invalid formats. |
 | `common/utils/phone.util.ts` | `isValidVietnamesePhone(rawPhone)` | Boolean validator checking if a string conforms to Vietnamese mobile standards. |
 | `common/utils/password.util.ts` | `@IsMaxByteLength(72)` | **UTF-8 Byte Length Validator.** Enforces strict 72-byte limit matching mobile and bcrypt boundary, preventing truncation vulnerabilities while preserving 8-64 char complexity rules. |
@@ -139,6 +144,7 @@ pnpm run lint
 | `common/rate-limit/rate-limiter.service.ts` | `RateLimiterService` | **Multi-Tier Rate Limiting & Brute-Force Lockout:**<br>- `checkAndIncrement(key, limit, windowSecs, message)`: Throttler sliding window.<br>- `checkFailedLogins(phone)`: Lockout check (5 failed attempts locks for 15 minutes).<br>- `recordFailedLogin(phone)` & `resetFailedLogins(phone)`: Counter management. |
 | `common/session/session.service.ts` | `SessionService` | **Session & Refresh Token Lifecycle:**<br>- `prepareSession()`: Pre-signs JWT prior to database transaction.<br>- `createSession()`: Stores session atomically.<br>- `rotateSession(refreshToken)`: Refresh token rotation with strict 7-day absolute lifetime.<br>- `revokeSession(refreshToken)`: Immediate invalidation on logout. |
 | `common/rpc/user-trust.client.ts` | `UserTrustClient` | **Fail-Close RPC Client.** Communicates via RabbitMQ to verify user status and KYC profile provisioning in `user-trust-service`. |
+| `apps/catalog-service/src/common/outbox/catalog-outbox.repository.ts` | `CatalogOutboxRepository` | **Catalog Service Outbox Repository.** Implements `OutboxRepository` interface to query/update pending events in `catalog_service.outbox_events` table. |
 | `common/constants/auth.constants.ts` | Configuration Constants | Rate limits, lockout durations (`FAILED_LOGIN_LOCKOUT_SECONDS = 900`), and internal header names (`INTERNAL_GATEWAY_HEADER = 'x-internal-secret'`). |
 | `apps/api-gateway/src/proxy/proxy.constants.ts` | `ServiceRouteConfig.pathRewrite` | **Identity-aware upstream path rewriting.** Use for routes whose downstream path must be derived from gateway-verified headers; e.g. identity verification maps `/api/v1/identity/verify` to the authenticated user's AI endpoint. |
 | `otp/otp.service.ts` | `OtpService` | **Cryptographic OTP & SMTP Service:** Generates 6-digit codes, HMAC-SHA256 hashing, timing-safe equality verification. Supports Gmail SMTP (`smtp.gmail.com:465` SSL with App Password) with fail-fast missing credentials check and delivery failure handling. |

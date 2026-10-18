@@ -1,17 +1,11 @@
-import {
-  Transport,
-  type RmqOptions,
-} from '@nestjs/microservices';
+import { Transport, type RmqOptions } from '@nestjs/microservices';
 
-export function createRabbitMQOptions(
-  queue: string,
-): RmqOptions {
+export function createRabbitMQOptions(queue: string): RmqOptions {
   return {
     transport: Transport.RMQ,
     options: {
       urls: [
-        process.env.RABBITMQ_URL ??
-          'amqp://handygo:handygo@localhost:5672',
+        process.env.RABBITMQ_URL ?? 'amqp://handygo:handygo@localhost:5672',
       ],
 
       queue,
@@ -24,9 +18,7 @@ export function createRabbitMQOptions(
 
       prefetchCount: 10, // giới hạn tối đa lượng message chưa ACK đang được giao, để kiểm soát reliability và overload
 
-      exchange:
-        process.env.RABBITMQ_EXCHANGE ??
-        'handy-go.events',
+      exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
 
       exchangeType: 'topic',
 

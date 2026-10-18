@@ -39,6 +39,7 @@ model Account {
   roles             AccountRole[]
   refreshSessions   RefreshSession[]
   otpChallenges     OtpChallenge[]
+  passwordResetGrants PasswordResetGrant[]
 
   @@map("accounts")
 }
@@ -150,3 +151,20 @@ model RateLimit {
   @@index([expireAt])
   @@map("rate_limits")
 }
+
+// Operational table: Single-use password reset authorization grants.
+model PasswordResetGrant {
+  id        String    @id @default(uuid()) @db.Uuid
+  accountId String    @map("account_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime  @map("expires_at") @db.Timestamp(6)
+  isUsed    Boolean   @default(false) @map("is_used")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamp(6)
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, isUsed])
+  @@index([expiresAt])
+  @@map("password_reset_grants")
+}
+

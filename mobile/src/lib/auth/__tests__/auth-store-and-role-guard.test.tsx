@@ -2,6 +2,7 @@
 /* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { Text } from 'react-native';
+import { queryClient } from '@/lib/api/query-client';
 import { cleanup, render, screen } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -22,6 +23,8 @@ jest.mock('expo-router', () => ({
 }));
 
 afterEach(async () => {
+  queryClient.cancelQueries();
+  queryClient.clear();
   cleanup();
   jest.clearAllMocks();
   await removeToken();
@@ -144,6 +147,7 @@ describe('secure Token Storage & Auth Store', () => {
   });
 
   it('does not store tokens in RAM if SecureStore write fails', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const SecureStore = require('expo-secure-store');
     SecureStore.setItemAsync.mockRejectedValueOnce(new Error('Disk write failure'));
 
@@ -152,9 +156,11 @@ describe('secure Token Storage & Auth Store', () => {
     ).rejects.toThrow('Không thể lưu trữ phiên đăng nhập an toàn trên thiết bị.');
 
     expect(getToken()).toBeNull();
+    errorSpy.mockRestore();
   });
 
   it('does not store tokens in RAM if SecureStore is not available', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const SecureStore = require('expo-secure-store');
     SecureStore.isAvailableAsync.mockResolvedValueOnce(false);
 
@@ -163,6 +169,7 @@ describe('secure Token Storage & Auth Store', () => {
     ).rejects.toThrow('Không thể lưu trữ phiên đăng nhập an toàn trên thiết bị.');
 
     expect(getToken()).toBeNull();
+    errorSpy.mockRestore();
   });
 
   it('handles login with dual roles, defaults activeMode to Customer, and triggers getMyProfile prefetch', async () => {

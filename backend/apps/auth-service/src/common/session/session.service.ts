@@ -1,8 +1,12 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import crypto from 'node:crypto';
 import type { Prisma } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
-import { REFRESH_TOKEN_EXPIRATION_DAYS, TokenSignerService } from '@app/auth';
+import {
+  REFRESH_TOKEN_EXPIRATION_DAYS,
+  TokenSignerService,
+  TokenVerifierService,
+} from '@app/auth';
 import { AppException, ERROR_CODES } from '@app/common';
 import type { UserSummaryDto } from '../dto/auth-responses.dto.js';
 import { UserTrustClient } from '../rpc/user-trust.client.js';
@@ -54,6 +58,7 @@ export class SessionService {
     private readonly db: AuthPrismaService,
     public readonly tokenSigner: TokenSignerService,
     private readonly userTrustClient: UserTrustClient,
+    @Optional() private readonly tokenVerifier?: TokenVerifierService,
   ) {}
 
   extractRolesAndPermissions(account: AccountWithRolesAndPermissions): {
@@ -228,6 +233,22 @@ export class SessionService {
       );
     }
 
+    // Cryptographic verification: verify RS256 signature, issuer, audience, and claim tokenType = 'refresh'
+    if (this.tokenVerifier && refreshToken.split('.').length === 3) {
+      try {
+        await this.tokenVerifier.verifyRefreshToken(refreshToken, {
+          sid: session.id,
+          sub: session.accountId,
+        });
+      } catch {
+        throw new AppException(
+          HttpStatus.UNAUTHORIZED,
+          ERROR_CODES.INVALID_REFRESH_TOKEN,
+          'Refresh token không hợp lệ hoặc đã hết hạn',
+        );
+      }
+    }
+
     const account = await this.db.account.findUnique({
       where: { id: session.accountId },
       include: {
@@ -336,4 +357,18 @@ export class SessionService {
       data: { revokedAt: new Date() },
     });
   }
+
+  /**
+   * Revokes all active refresh sessions for an account.
+   */
+  async revokeAllSessions(
+    accountId: string,
+    client: Prisma.TransactionClient | AuthPrismaService = this.db,
+  ): Promise<void> {
+    await client.refreshSession.updateMany({
+      where: { accountId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 }
+
