@@ -458,12 +458,12 @@ describe('UserTrustServiceService', () => {
     });
 
     describe('handleKycPending', () => {
-      it('should transition workerProfile to pending_kyc and record submitted kycCase', async () => {
+      it('should transition workerProfile to pending_kyc and record draft kycCase', async () => {
         dbMock.eventInbox.findUnique.mockResolvedValue(null);
         dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-001', status: 'draft' });
         dbMock.workerProfile.update.mockResolvedValue({ id: 'wp-001', status: 'pending_kyc' });
         dbMock.kycCase.findFirst.mockResolvedValue(null);
-        dbMock.kycCase.create.mockResolvedValue({ id: 'kyc-001', status: 'submitted' });
+        dbMock.kycCase.create.mockResolvedValue({ id: 'kyc-001', status: 'draft' });
 
         const result = await service.handleKycPending({
           eventId: 'evt-pend-1',
@@ -479,7 +479,7 @@ describe('UserTrustServiceService', () => {
         );
         expect(dbMock.kycCase.create).toHaveBeenCalledWith(
           expect.objectContaining({
-            data: expect.objectContaining({ status: 'submitted' }),
+            data: expect.objectContaining({ status: 'draft' }),
           }),
         );
       });
