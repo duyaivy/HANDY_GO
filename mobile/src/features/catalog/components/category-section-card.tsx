@@ -43,7 +43,7 @@ export const CategorySectionCard = React.memo(
         {/* Category Header */}
         <View className="flex-row items-center gap-3 border-b border-neutral-100 pb-3">
           {/* Category Thumbnail / Illustration */}
-          <View className="size-20 shrink-0 items-center justify-center  rounded-full bg-primary-100 overflow-hidden">
+          <View className="size-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100">
             <Image
               source={thumbnailSource}
               className="size-18 scale-130"

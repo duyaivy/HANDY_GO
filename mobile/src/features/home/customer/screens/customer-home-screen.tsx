@@ -56,13 +56,6 @@ export function CustomerHomeScreen() {
     router.push('/customer/category' as never);
   }, [router]);
 
-  const handleQuickAction = React.useCallback(
-    (_actionId: string) => {
-      router.push('/customer/category' as never);
-    },
-    [router],
-  );
-
   const handleServiceSelect = React.useCallback(
     (_serviceId: string, service: ServiceResponseDto) => {
       showMessage({

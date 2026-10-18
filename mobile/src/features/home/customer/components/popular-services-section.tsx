@@ -99,7 +99,6 @@ export const PopularServicesSection = React.memo(({
             );
           })}
 
-          
         </View>
       )}
     </View>

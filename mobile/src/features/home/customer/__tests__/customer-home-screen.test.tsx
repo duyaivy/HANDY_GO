@@ -14,9 +14,10 @@ describe('customerHomeScreen', () => {
     expect(screen.getByText('Xem tất cả ›')).toBeOnTheScreen();
   });
 
-  it('renders quick action buttons', () => {
+  it('renders utility action buttons', () => {
     render(<CustomerHomeScreen />);
-    expect(screen.getByText('Đặt thợ')).toBeOnTheScreen();
+    expect(screen.getByText('Lịch sử')).toBeOnTheScreen();
+    expect(screen.getByText('Yêu thích')).toBeOnTheScreen();
     expect(screen.getByText('Giới thiệu')).toBeOnTheScreen();
     expect(screen.getByText('Hỗ trợ 24/7')).toBeOnTheScreen();
   });
