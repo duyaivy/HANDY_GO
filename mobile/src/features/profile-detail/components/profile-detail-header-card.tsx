@@ -89,6 +89,45 @@ function ProfileInfoRow({
   );
 }
 
+function WorkerStatusBadge({
+  isVerified,
+  isPending,
+  status,
+  statusLabel,
+}: {
+  isVerified: boolean;
+  isPending: boolean;
+  status: string;
+  statusLabel: string;
+}) {
+  const badgeBorderBg = isVerified
+    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/50'
+    : isPending
+      ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
+      : status === 'rejected' || status === 'suspended'
+        ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50'
+        : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50';
+
+  const textColor = isVerified
+    ? 'text-emerald-700 dark:text-emerald-300'
+    : isPending
+      ? 'text-amber-700 dark:text-amber-300'
+      : status === 'rejected' || status === 'suspended'
+        ? 'text-red-700 dark:text-red-300'
+        : 'text-blue-700 dark:text-blue-300';
+
+  return (
+    <View
+      testID="profile-detail-worker-status"
+      className={`mt-1 self-start rounded-full border px-2.5 py-0.5 ${badgeBorderBg}`}
+    >
+      <Text className={`text-[10px] font-semibold ${textColor}`}>
+        {statusLabel}
+      </Text>
+    </View>
+  );
+}
+
 export function ProfileDetailHeaderCard({
   fullName,
   avatarUrl,
@@ -137,31 +176,12 @@ export function ProfileDetailHeaderCard({
           <Text testID="profile-detail-name" className="text-[16px] font-bold text-neutral-900 dark:text-white">
             {fullName || 'Chưa cập nhật tên'}
           </Text>
-          <View
-            testID="profile-detail-worker-status"
-            className={`mt-1 self-start rounded-full border px-2.5 py-0.5 ${
-              isVerified
-                ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/50'
-                : isPending
-                  ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
-                  : status === 'rejected' || status === 'suspended'
-                    ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/50'
-                    : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50'
-            }`}
-          >
-            <Text className={`text-[10px] font-semibold ${
-              isVerified
-                ? 'text-emerald-700 dark:text-emerald-300'
-                : isPending
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : status === 'rejected' || status === 'suspended'
-                    ? 'text-red-700 dark:text-red-300'
-                    : 'text-blue-700 dark:text-blue-300'
-            }`}
-            >
-              {statusLabel}
-            </Text>
-          </View>
+          <WorkerStatusBadge
+            isVerified={isVerified}
+            isPending={isPending}
+            status={status}
+            statusLabel={statusLabel}
+          />
         </View>
       </View>
 
@@ -178,7 +198,7 @@ export function ProfileDetailHeaderCard({
       </View>
 
       {isPending && (
-        <View className="mt-2.5 flex-row items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 py-2 px-3 dark:border-amber-900/60 dark:bg-amber-950/40">
+        <View className="mt-2.5 flex-row items-center justify-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900/60 dark:bg-amber-950/40">
           <ShieldCheckIcon color="#D97706" size={16} />
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-200">
             Hồ sơ đang chờ xác minh

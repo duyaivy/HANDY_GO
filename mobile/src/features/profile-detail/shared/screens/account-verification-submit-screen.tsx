@@ -50,11 +50,8 @@ function ReviewSection({
   );
 }
 
-export function AccountVerificationSubmitScreen() {
+function useSubmitKyc(idFront?: string, selfie?: string) {
   const router = useRouter();
-  const params = useLocalSearchParams<{ idFront?: string; selfie?: string }>();
-  const idFront = typeof params.idFront === 'string' ? params.idFront : undefined;
-  const selfie = typeof params.selfie === 'string' ? params.selfie : undefined;
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
 
@@ -86,7 +83,8 @@ export function AccountVerificationSubmitScreen() {
         await ApiClient.post('/users/me/kyc', {
           idDocumentType: 'CCCD',
         });
-      } catch (err) {
+      }
+      catch (err) {
         console.warn('Lỗi ghi nhận KYC vào CSDL:', err);
       }
 
@@ -112,8 +110,8 @@ export function AccountVerificationSubmitScreen() {
         await queryClient.invalidateQueries({ queryKey: ['user-profile', user.id] });
       }
 
-      const targetRoute =
-        activeMode === 'Customer'
+      const targetRoute
+        = activeMode === 'Customer'
           ? RouteNames.CUSTOMER_PROFILE_DETAIL
           : RouteNames.WORKER_PROFILE_DETAIL;
 
@@ -140,6 +138,17 @@ export function AccountVerificationSubmitScreen() {
     }
   };
 
+  return { isSubmitting, statusMessage, handleSubmit };
+}
+
+export function AccountVerificationSubmitScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ idFront?: string; selfie?: string }>();
+  const idFront = typeof params.idFront === 'string' ? params.idFront : undefined;
+  const selfie = typeof params.selfie === 'string' ? params.selfie : undefined;
+
+  const { isSubmitting, statusMessage, handleSubmit } = useSubmitKyc(idFront, selfie);
+
   return (
     <Screen safeArea className="bg-neutral-50 dark:bg-neutral-950">
       <View className="flex-1">
@@ -163,14 +172,16 @@ export function AccountVerificationSubmitScreen() {
             Hệ thống AI sẽ tự động phân tích CCCD và đối chiếu khuôn mặt trong hàng đợi ngầm.
           </Text>
 
-          {isSubmitting && statusMessage ? (
-            <View className="mt-4 flex-row items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
-              <ActivityIndicator color="#1d4ed8" />
-              <Text className="flex-1 text-xs font-medium text-blue-800 dark:text-blue-200">
-                {statusMessage}
-              </Text>
-            </View>
-          ) : null}
+          {isSubmitting && statusMessage
+            ? (
+                <View className="mt-4 flex-row items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+                  <ActivityIndicator color="#1d4ed8" />
+                  <Text className="flex-1 text-xs font-medium text-blue-800 dark:text-blue-200">
+                    {statusMessage}
+                  </Text>
+                </View>
+              )
+            : null}
 
           <ReviewSection
             number="1"

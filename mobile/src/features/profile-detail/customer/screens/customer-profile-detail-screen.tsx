@@ -1,4 +1,3 @@
-/* eslint-disable style/indent */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { BackHandler, Pressable, View } from 'react-native';

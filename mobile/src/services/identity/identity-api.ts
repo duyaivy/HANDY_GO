@@ -89,11 +89,12 @@ export const IdentityApi = {
   pollJob: async (
     jobId: string,
     onProgress?: (status: IdentityJobStatus) => void,
-    maxAttempts = 40,
-    intervalMs = 2000,
+    options?: { maxAttempts?: number; intervalMs?: number },
   ): Promise<IdentityJobStatusResponse['data']> => {
+    const maxAttempts = options?.maxAttempts ?? 40;
+    const intervalMs = options?.intervalMs ?? 2000;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
       const res = await IdentityApi.getJobStatus(jobId);
       const job = res.data;
       onProgress?.(job.status);

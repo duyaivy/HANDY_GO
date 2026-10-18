@@ -52,7 +52,7 @@ type FrameCoordinates = {
 async function cropToIdFrame(
   image: CapturedImage,
   cameraLayout: ViewportLayout,
-  frame: FrameCoordinates
+  frame: FrameCoordinates,
 ): Promise<string> {
   const viewW = cameraLayout.width;
   const viewH = cameraLayout.height;
@@ -70,7 +70,7 @@ async function cropToIdFrame(
     const rotated = await manipulateAsync(
       currentUri,
       [{ rotate: 90 }],
-      { compress: 1.0, format: SaveFormat.JPEG }
+      { compress: 1.0, format: SaveFormat.JPEG },
     );
     currentUri = rotated.uri;
     pw = rotated.width;
@@ -89,7 +89,7 @@ async function cropToIdFrame(
   const rawCropX = (frame.x + offsetX) / scale;
   const rawCropY = (frame.y + offsetY) / scale;
   const rawCropW = frame.width / scale;
-  const rawCropH = frame.height / scale;
+  const _rawCropH = frame.height / scale;
 
   // Biên đệm an toàn 2.5% cân đối 4 phía để thẻ không bị chạm sát mép
   const padX = rawCropW * 0.025;
@@ -122,7 +122,7 @@ async function cropToIdFrame(
         },
       },
     ],
-    { compress: 1.0, format: SaveFormat.JPEG }
+    { compress: 1.0, format: SaveFormat.JPEG },
   );
 
   return result.uri;
@@ -190,17 +190,20 @@ export function AccountVerificationIdFrontScreen() {
                 height: photo.height,
               },
               currentCameraLayout,
-              currentFrameLayout
+              currentFrameLayout,
             );
-          } catch {
+          }
+          catch {
             finalUri = photo.uri;
           }
         }
         setCapturedImageUri(finalUri);
       }
-    } catch {
+    }
+    catch {
       Alert.alert('Không thể chụp ảnh', 'Vui lòng thử lại và giữ CCCD trọn trong khung.');
-    } finally {
+    }
+    finally {
       setIsCapturing(false);
     }
   };
@@ -210,7 +213,7 @@ export function AccountVerificationIdFrontScreen() {
     if (!result.granted && !result.canAskAgain) {
       Alert.alert(
         'Cần quyền camera',
-        'Hãy bật quyền camera cho HANDY GO trong phần Cài đặt của điện thoại.'
+        'Hãy bật quyền camera cho HANDY GO trong phần Cài đặt của điện thoại.',
       );
     }
   };
@@ -250,177 +253,183 @@ export function AccountVerificationIdFrontScreen() {
           </View>
 
           {/* Nút bật/tắt Đèn Flash / Trợ sáng */}
-          {!capturedImageUri && permission?.granted ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={isTorchOn ? 'Tắt đèn trợ sáng' : 'Bật đèn trợ sáng'}
-              onPress={() => setIsTorchOn((prev) => !prev)}
-              className={`size-10 items-center justify-center rounded-full border transition-colors ${
-                isTorchOn
-                  ? 'border-amber-400/80 bg-amber-400/20 active:bg-amber-400/30'
-                  : 'border-white/15 bg-white/5 active:bg-white/10'
-              }`}
-            >
-              {isTorchOn ? <FlashIcon color="#FBBF24" size={20} /> : <FlashOffIcon color="#9CA3AF" size={20} />}
-            </Pressable>
-          ) : (
-            <View className="size-10" />
-          )}
-        </View>
-
-        {capturedImageUri ? (
-          /* Màn hình xem lại ảnh đã chụp: vừa vặn và cân đối hoàn hảo */
-          <View className="flex-1 justify-between px-5 pt-5 pb-4">
-            <View className="flex-row items-center gap-3">
-              <View className="size-11 items-center justify-center rounded-full bg-emerald-400/15">
-                <CheckCircleIcon color="#34D399" size={24} />
-              </View>
-              <View className="flex-1">
-                <Text className="text-base font-bold text-white">Ảnh CCCD mặt trước</Text>
-                <Text className="mt-0.5 text-xs/4 text-neutral-300">
-                  Kiểm tra thông tin họ tên, số thẻ và mã QR rõ ràng
-                </Text>
-              </View>
-            </View>
-
-            <View
-              testID="kyc-id-front-preview-frame"
-              className="w-full overflow-hidden rounded-2xl border border-white/20 bg-black shadow-2xl"
-              style={{ aspectRatio: ID_CARD_ASPECT_RATIO }}
-            >
-              <Image
-                testID="kyc-id-front-preview"
-                source={{ uri: capturedImageUri }}
-                contentFit="cover"
-                className="size-full"
-              />
-            </View>
-
-            <View className="gap-2.5">
-              <Button
-                testID="kyc-id-front-confirm"
-                label="Dùng ảnh này"
-                size="lg"
-                className="h-12 rounded-xl bg-blue-600 active:bg-blue-700"
-                onPress={handleConfirm}
-              />
-              <Button
-                testID="kyc-id-front-retake"
-                label="Chụp lại"
-                variant="outline"
-                size="lg"
-                className="h-12 rounded-xl border-white/30 bg-white/5"
-                textClassName="text-white"
-                onPress={handleRetake}
-              />
-            </View>
-          </View>
-        ) : permission?.granted ? (
-          /* Màn hình Camera Full Screen kèm Khung ngắm cân đối */
-          <View
-            className="relative flex-1 overflow-hidden"
-            onLayout={(e) => {
-              const { width: w, height: h } = e.nativeEvent.layout;
-              setCameraLayout({ width: w, height: h });
-            }}
-          >
-            {/* Native Camera View */}
-            <CameraView
-              ref={cameraRef}
-              testID="kyc-id-front-camera"
-              facing="back"
-              mode="picture"
-              enableTorch={isTorchOn}
-              onCameraReady={() => setCameraReady(true)}
-              onMountError={() => Alert.alert('Không thể mở camera', 'Hãy thử lại sau.')}
-              style={StyleSheet.absoluteFillObject}
-            />
-
-            {/* Khung ngắm và bảng điều khiển cân đối */}
-            <View className="flex-1">
-              {/* Header tips bar: cố định chiều cao 56px */}
-              <View
-                style={{ height: TOP_TIPS_HEIGHT }}
-                className="items-center justify-center px-6"
-              >
-                <Text className="text-center text-xs font-medium text-white/90">
-                  Đặt thẻ nằm ngang, đủ ánh sáng, tránh chói lóa
-                </Text>
-              </View>
-
-              {/* Vùng giữa chứa Khung căn chỉnh: Căn giữa chính xác tuyệt đối */}
-              <View className="flex-1 items-center justify-center" pointerEvents="none">
-                <View
-                  testID="kyc-id-front-frame"
-                  accessibilityLabel="Khung căn chỉnh CCCD tỷ lệ 1.586 trên 1"
-                  className="relative overflow-hidden rounded-2xl border-2 border-white/80 bg-transparent shadow-2xl"
-                  style={{ width: frameWidth, height: frameHeight }}
-                >
-                  {/* 4 Góc bo phản quang nổi bật */}
-                  <View className="absolute top-2 left-2 size-6 rounded-tl-lg border-t-[3.5px] border-l-[3.5px] border-sky-400" />
-                  <View className="absolute top-2 right-2 size-6 rounded-tr-lg border-t-[3.5px] border-r-[3.5px] border-sky-400" />
-                  <View className="absolute bottom-2 left-2 size-6 rounded-bl-lg border-b-[3.5px] border-l-[3.5px] border-sky-400" />
-                  <View className="absolute right-2 bottom-2 size-6 rounded-br-lg border-r-[3.5px] border-b-[3.5px] border-sky-400" />
-
-                  {/* Vạch kẻ chỉ dẫn mờ ở giữa */}
-                  <View className="absolute inset-x-8 top-1/2 h-[1px] bg-white/20" />
-                </View>
-
-                <Text className="mt-3 text-center text-[11px] font-medium text-sky-200">
-                  Giữ thẻ nằm trọn bên trong khung màu xanh
-                </Text>
-              </View>
-
-              {/* Bottom Action Bar: cố định chiều cao 140px */}
-              <View
-                style={{ height: BOTTOM_BAR_HEIGHT }}
-                className="items-center justify-center border-t border-white/10 bg-black/60 px-5 pt-2 pb-4 backdrop-blur-md"
-              >
+          {!capturedImageUri && permission?.granted
+            ? (
                 <Pressable
-                  testID="kyc-id-front-capture"
                   accessibilityRole="button"
-                  accessibilityLabel="Chụp CCCD mặt trước"
-                  disabled={!cameraReady || isCapturing}
-                  onPress={() => void handleCapture()}
-                  className={`size-[76px] items-center justify-center rounded-full border-[3px] border-white bg-white/20 active:scale-95 ${
-                    !cameraReady || isCapturing ? 'opacity-50' : 'opacity-100'
+                  accessibilityLabel={isTorchOn ? 'Tắt đèn trợ sáng' : 'Bật đèn trợ sáng'}
+                  onPress={() => setIsTorchOn(prev => !prev)}
+                  className={`size-10 items-center justify-center rounded-full border transition-colors ${
+                    isTorchOn
+                      ? 'border-amber-400/80 bg-amber-400/20 active:bg-amber-400/30'
+                      : 'border-white/15 bg-white/5 active:bg-white/10'
                   }`}
                 >
-                  <View className="size-[60px] items-center justify-center rounded-full bg-white shadow-lg">
-                    {isCapturing ? <ActivityIndicator color="#0284C7" size="small" /> : null}
-                  </View>
+                  {isTorchOn ? <FlashIcon color="#FBBF24" size={20} /> : <FlashOffIcon color="#9CA3AF" size={20} />}
                 </Pressable>
-                <Text className="mt-2 text-xs text-white/80">
-                  {isCapturing ? 'Đang căn nét và lưu ảnh...' : 'Nhấn nút để chụp thẻ'}
-                </Text>
+              )
+            : (
+                <View className="size-10" />
+              )}
+        </View>
+
+        {capturedImageUri
+          ? (
+              /* Màn hình xem lại ảnh đã chụp: vừa vặn và cân đối hoàn hảo */
+              <View className="flex-1 justify-between px-5 pt-5 pb-4">
+                <View className="flex-row items-center gap-3">
+                  <View className="size-11 items-center justify-center rounded-full bg-emerald-400/15">
+                    <CheckCircleIcon color="#34D399" size={24} />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-base font-bold text-white">Ảnh CCCD mặt trước</Text>
+                    <Text className="mt-0.5 text-xs/4 text-neutral-300">
+                      Kiểm tra thông tin họ tên, số thẻ và mã QR rõ ràng
+                    </Text>
+                  </View>
+                </View>
+
+                <View
+                  testID="kyc-id-front-preview-frame"
+                  className="w-full overflow-hidden rounded-2xl border border-white/20 bg-black shadow-2xl"
+                  style={{ aspectRatio: ID_CARD_ASPECT_RATIO }}
+                >
+                  <Image
+                    testID="kyc-id-front-preview"
+                    source={{ uri: capturedImageUri }}
+                    contentFit="cover"
+                    className="size-full"
+                  />
+                </View>
+
+                <View className="gap-2.5">
+                  <Button
+                    testID="kyc-id-front-confirm"
+                    label="Dùng ảnh này"
+                    size="lg"
+                    className="h-12 rounded-xl bg-blue-600 active:bg-blue-700"
+                    onPress={handleConfirm}
+                  />
+                  <Button
+                    testID="kyc-id-front-retake"
+                    label="Chụp lại"
+                    variant="outline"
+                    size="lg"
+                    className="h-12 rounded-xl border-white/30 bg-white/5"
+                    textClassName="text-white"
+                    onPress={handleRetake}
+                  />
+                </View>
               </View>
-            </View>
-          </View>
-        ) : (
-          /* Trạng thái chưa cấp quyền */
-          <View className="flex-1 items-center justify-center px-8">
-            <View className="size-20 items-center justify-center rounded-full border border-white/10 bg-white/5">
-              <CameraIcon color="#BAE6FD" size={32} />
-            </View>
-            <Text className="mt-5 text-center text-lg font-bold text-white">
-              {permission ? 'Cần quyền truy cập camera' : 'Đang kiểm tra camera'}
-            </Text>
-            <Text className="mt-2 text-center text-sm/5 text-neutral-300">
-              {permission
-                ? 'Cho phép camera để chụp trực tiếp CCCD mặt trước với chất lượng cao.'
-                : 'Vui lòng đợi trong giây lát.'}
-            </Text>
-            {permission?.canAskAgain && (
-              <Button
-                testID="kyc-id-front-grant-permission"
-                label="Bật camera"
-                size="lg"
-                className="mt-6 h-12 rounded-xl bg-blue-600"
-                onPress={() => void handleRequestPermission()}
-              />
-            )}
-          </View>
-        )}
+            )
+          : permission?.granted
+            ? (
+                /* Màn hình Camera Full Screen kèm Khung ngắm cân đối */
+                <View
+                  className="relative flex-1 overflow-hidden"
+                  onLayout={(e) => {
+                    const { width: w, height: h } = e.nativeEvent.layout;
+                    setCameraLayout({ width: w, height: h });
+                  }}
+                >
+                  {/* Native Camera View */}
+                  <CameraView
+                    ref={cameraRef}
+                    testID="kyc-id-front-camera"
+                    facing="back"
+                    mode="picture"
+                    enableTorch={isTorchOn}
+                    onCameraReady={() => setCameraReady(true)}
+                    onMountError={() => Alert.alert('Không thể mở camera', 'Hãy thử lại sau.')}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+
+                  {/* Khung ngắm và bảng điều khiển cân đối */}
+                  <View className="flex-1">
+                    {/* Header tips bar: cố định chiều cao 56px */}
+                    <View
+                      style={{ height: TOP_TIPS_HEIGHT }}
+                      className="items-center justify-center px-6"
+                    >
+                      <Text className="text-center text-xs font-medium text-white/90">
+                        Đặt thẻ nằm ngang, đủ ánh sáng, tránh chói lóa
+                      </Text>
+                    </View>
+
+                    {/* Vùng giữa chứa Khung căn chỉnh: Căn giữa chính xác tuyệt đối */}
+                    <View className="flex-1 items-center justify-center" pointerEvents="none">
+                      <View
+                        testID="kyc-id-front-frame"
+                        accessibilityLabel="Khung căn chỉnh CCCD tỷ lệ 1.586 trên 1"
+                        className="relative overflow-hidden rounded-2xl border-2 border-white/80 bg-transparent shadow-2xl"
+                        style={{ width: frameWidth, height: frameHeight }}
+                      >
+                        {/* 4 Góc bo phản quang nổi bật */}
+                        <View className="absolute top-2 left-2 size-6 rounded-tl-lg border-t-[3.5px] border-l-[3.5px] border-sky-400" />
+                        <View className="absolute top-2 right-2 size-6 rounded-tr-lg border-t-[3.5px] border-r-[3.5px] border-sky-400" />
+                        <View className="absolute bottom-2 left-2 size-6 rounded-bl-lg border-b-[3.5px] border-l-[3.5px] border-sky-400" />
+                        <View className="absolute right-2 bottom-2 size-6 rounded-br-lg border-r-[3.5px] border-b-[3.5px] border-sky-400" />
+
+                        {/* Vạch kẻ chỉ dẫn mờ ở giữa */}
+                        <View className="absolute inset-x-8 top-1/2 h-px bg-white/20" />
+                      </View>
+
+                      <Text className="mt-3 text-center text-[11px] font-medium text-sky-200">
+                        Giữ thẻ nằm trọn bên trong khung màu xanh
+                      </Text>
+                    </View>
+
+                    {/* Bottom Action Bar: cố định chiều cao 140px */}
+                    <View
+                      style={{ height: BOTTOM_BAR_HEIGHT }}
+                      className="items-center justify-center border-t border-white/10 bg-black/60 px-5 pt-2 pb-4 backdrop-blur-md"
+                    >
+                      <Pressable
+                        testID="kyc-id-front-capture"
+                        accessibilityRole="button"
+                        accessibilityLabel="Chụp CCCD mặt trước"
+                        disabled={!cameraReady || isCapturing}
+                        onPress={() => void handleCapture()}
+                        className={`size-[76px] items-center justify-center rounded-full border-[3px] border-white bg-white/20 active:scale-95 ${
+                          !cameraReady || isCapturing ? 'opacity-50' : 'opacity-100'
+                        }`}
+                      >
+                        <View className="size-[60px] items-center justify-center rounded-full bg-white shadow-lg">
+                          {isCapturing ? <ActivityIndicator color="#0284C7" size="small" /> : null}
+                        </View>
+                      </Pressable>
+                      <Text className="mt-2 text-xs text-white/80">
+                        {isCapturing ? 'Đang căn nét và lưu ảnh...' : 'Nhấn nút để chụp thẻ'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              )
+            : (
+                /* Trạng thái chưa cấp quyền */
+                <View className="flex-1 items-center justify-center px-8">
+                  <View className="size-20 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                    <CameraIcon color="#BAE6FD" size={32} />
+                  </View>
+                  <Text className="mt-5 text-center text-lg font-bold text-white">
+                    {permission ? 'Cần quyền truy cập camera' : 'Đang kiểm tra camera'}
+                  </Text>
+                  <Text className="mt-2 text-center text-sm/5 text-neutral-300">
+                    {permission
+                      ? 'Cho phép camera để chụp trực tiếp CCCD mặt trước với chất lượng cao.'
+                      : 'Vui lòng đợi trong giây lát.'}
+                  </Text>
+                  {permission?.canAskAgain && (
+                    <Button
+                      testID="kyc-id-front-grant-permission"
+                      label="Bật camera"
+                      size="lg"
+                      className="mt-6 h-12 rounded-xl bg-blue-600"
+                      onPress={() => void handleRequestPermission()}
+                    />
+                  )}
+                </View>
+              )}
       </View>
     </Screen>
   );

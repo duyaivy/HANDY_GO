@@ -183,4 +183,3 @@ export function FocusIcon({ color = '#FFFFFF', size = 20, ...props }: SvgProps &
     </Svg>
   );
 }
-

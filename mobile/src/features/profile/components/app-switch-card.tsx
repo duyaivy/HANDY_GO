@@ -17,7 +17,7 @@ export type AppSwitchCardProps = {
 export function AppSwitchCard({
   currentMode,
   roles = [],
-  workerStatus,
+  workerStatus: _workerStatus,
   onSwitch,
 }: AppSwitchCardProps) {
   const router = useRouter();

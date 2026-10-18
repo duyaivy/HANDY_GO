@@ -101,16 +101,16 @@ export function ProfileHeaderCard({
                 {workerStatus && (() => {
                   const normalizedWorkerStatus = (workerStatus || '').toLowerCase().trim();
                   const isVerified = normalizedWorkerStatus === 'verified';
-                  const isPending =
-                    normalizedWorkerStatus === 'pending_kyc' ||
-                    normalizedWorkerStatus === 'under_review' ||
-                    normalizedWorkerStatus === 'pending';
-                  const isRejected =
-                    normalizedWorkerStatus === 'rejected' ||
-                    normalizedWorkerStatus === 'suspended';
+                  const isPending
+                    = normalizedWorkerStatus === 'pending_kyc'
+                      || normalizedWorkerStatus === 'under_review'
+                      || normalizedWorkerStatus === 'pending';
+                  const isRejected
+                    = normalizedWorkerStatus === 'rejected'
+                      || normalizedWorkerStatus === 'suspended';
 
-                  const statusLabel =
-                    isVerified
+                  const statusLabel
+                    = isVerified
                       ? 'Đã xác minh'
                       : isPending
                         ? 'Đang chờ xác minh'
