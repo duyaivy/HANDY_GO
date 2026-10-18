@@ -41,6 +41,7 @@ export default antfu(
       'uniwind-types.d.ts',
       'nativewind-env.d.ts',
       'migration/*',
+      '.agents/**',
       'SOURCE_BASE_CHECKLIST.md',
       'SOURCE_BASE_IMPLEMENTATION_PLAN.md',
       'ANTIGRAVITY_SOURCE_BASE_PROMPT.md',
