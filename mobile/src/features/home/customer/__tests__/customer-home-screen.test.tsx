@@ -6,10 +6,19 @@ import { CustomerHomeScreen } from '../screens/customer-home-screen';
 afterEach(cleanup);
 
 describe('customerHomeScreen', () => {
-  it('renders screen title, route and responsible owner', () => {
+  it('renders greeting, search bar, and popular services section', () => {
     render(<CustomerHomeScreen />);
-    expect(screen.getByText('Trang chủ Khách')).toBeOnTheScreen();
-    expect(screen.getByText('Route: /customer')).toBeOnTheScreen();
-    expect(screen.getByText('Customer Home Owner')).toBeOnTheScreen();
+    expect(screen.getByText('Xin chào, bạn cần thợ gì hôm nay?')).toBeOnTheScreen();
+    expect(screen.getByPlaceholderText('Tìm thợ sửa máy lạnh, điện nước...')).toBeOnTheScreen();
+    expect(screen.getByText('Dịch vụ phổ biến')).toBeOnTheScreen();
+    expect(screen.getByText('Xem tất cả ›')).toBeOnTheScreen();
+  });
+
+  it('renders utility action buttons', () => {
+    render(<CustomerHomeScreen />);
+    expect(screen.getByText('Lịch sử')).toBeOnTheScreen();
+    expect(screen.getByText('Yêu thích')).toBeOnTheScreen();
+    expect(screen.getByText('Giới thiệu')).toBeOnTheScreen();
+    expect(screen.getByText('Hỗ trợ 24/7')).toBeOnTheScreen();
   });
 });
