@@ -1,4 +1,3 @@
-import type { Request } from 'express';
 import { describe, expect, it } from 'vitest';
 import { SERVICE_ROUTES } from './proxy.constants.js';
 
