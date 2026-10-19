@@ -1,3 +1,9 @@
+# ==============================================================================
+# HandyGo AI Service Dockerfile
+# Supports:
+#   - FastAPI HTTP Server (Default CMD)
+#   - Celery Async Worker (override CMD with celery command)
+# ==============================================================================
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -5,6 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     AI_SERVICE_PORT=8000
 
+# Install system dependencies required by OpenCV, InsightFace, EasyOCR
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -18,14 +25,21 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY requirements.txt ./requirements.txt
+# Pre-install CPU-only PyTorch and Torchvision
+# Prevents EasyOCR from pulling 2.5GB+ CUDA binaries on CPU instances
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
+# Install application dependencies
+COPY requirements.txt ./requirements.txt
+RUN pip install -r requirements.txt
+
+# Create non-root user and prepare persistent cache directories for models
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /app/storage /home/app/.insightface /home/app/.EasyOCR \
     && chown -R app:app /app /home/app/.insightface /home/app/.EasyOCR
 
+# Copy application source
 COPY --chown=app:app app ./app
 
 USER app

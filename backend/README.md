@@ -35,7 +35,7 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 | **`wallet-service`** | `apps/wallet-service` | `3009` | HTTP scaffold cho domain ví điện tử (wallet - scaffold mở rộng) |
 | **`tracking-service`** | `apps/tracking-service` | `3010` | HTTP scaffold cho domain theo dõi lộ trình (tracking - scaffold mở rộng) |
 
-AI identity service (FastAPI, `backend/ai-service`) chạy trong Docker Compose, lắng nghe tại port `8000` theo `AI_SERVICE_PORT`; API Gateway truy cập qua `http://ai-service:8000`.
+AI identity service (FastAPI, thư mục `ai/` tại root repository) chạy trong Docker Compose, lắng nghe tại port `8000` theo `AI_SERVICE_PORT`; API Gateway truy cập qua `http://ai-service:8000`.
 
 ### 1.2. Thư viện dùng chung (`libs/`)
 
@@ -123,7 +123,7 @@ docker compose down
 ### 4.2. Cơ chế tự động reload mã nguồn
 
 - Thư mục `apps/`, `libs/`, `nest-cli.json` và `tsconfig*.json` được bind-mount vào container. Khi file `.ts`/`.json` thay đổi, `nodemon` sẽ tự động trigger NestJS restart ứng dụng tương ứng (delay 300ms).
-- AI-service được build riêng từ `ai-service/Dockerfile`, không chạy Python trên host; khi thay đổi source hoặc dependencies của AI, chạy `docker compose up --build -d ai-service api-gateway`.
+- AI-service được build riêng từ `ai/Dockerfile`, không chạy Python trên host; khi thay đổi source hoặc dependencies của AI, chạy `docker compose up --build -d ai-service api-gateway`.
 - Thư mục `node_modules` nằm hoàn toàn trong image. Khi thay đổi `package.json` hoặc `pnpm-lock.yaml`, bắt buộc phải rebuild lại image:
 
   ```bash

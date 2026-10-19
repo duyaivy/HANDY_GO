@@ -97,7 +97,7 @@ services:
 
   ai-service:
     build:
-      context: ./ai-service
+      context: ../ai
       dockerfile: Dockerfile
     init: true
     restart: unless-stopped
@@ -121,7 +121,7 @@ services:
     ports:
       - '${AI_SERVICE_PORT:-8000}:${AI_SERVICE_PORT:-8000}'
     volumes:
-      - ./ai-service/app:/app/app
+      - ../ai/app:/app/app
       - ai-service-storage:/app/storage
       - ai-service-face-models:/home/app/.insightface
       - ai-service-ocr-models:/home/app/.EasyOCR
@@ -138,7 +138,7 @@ services:
 
   ai-worker:
     build:
-      context: ./ai-service
+      context: ../ai
       dockerfile: Dockerfile
     command: ["celery", "-A", "app.domains.identity.tasks.identity_tasks:celery_app", "worker", "--loglevel=INFO", "--pool=solo"]
     init: true
@@ -168,7 +168,7 @@ services:
       CLOUDINARY_FOLDER: ${CLOUDINARY_FOLDER:-identity_verifications}
       CLOUDINARY_DELIVERY_TYPE: ${CLOUDINARY_DELIVERY_TYPE:-upload}
     volumes:
-      - ./ai-service/app:/app/app
+      - ../ai/app:/app/app
       - ai-service-storage:/app/storage
       - ai-service-face-models:/home/app/.insightface
       - ai-service-ocr-models:/home/app/.EasyOCR
@@ -207,9 +207,6 @@ services:
       OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
     ports:
       - '3001:3001'
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     volumes:
       - ./apps:/app/apps
       - ./libs:/app/libs
@@ -301,3 +298,8 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
+
+volumes:
+  ai-service-storage:
+  ai-service-face-models:
+  ai-service-ocr-models:
