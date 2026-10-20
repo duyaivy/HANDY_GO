@@ -1,0 +1,18 @@
+import { NotificationsController } from './notifications.controller.js';
+import type { NotificationsService } from './notifications.service.js';
+
+describe('NotificationsController', () => {
+  it('uses the trusted user identity and the standard response envelope', async () => {
+    const userId = '873ee38a-3142-49fe-a191-d25b7de40d94';
+    const data = { count: 2 };
+    const service = { unreadCount: vi.fn().mockResolvedValue(data) };
+    const controller = new NotificationsController(
+      service as unknown as NotificationsService,
+    );
+    expect(await controller.unreadCount(userId)).toMatchObject({
+      statusCode: 200,
+      data,
+    });
+    expect(service.unreadCount).toHaveBeenCalledWith(userId);
+  });
+});

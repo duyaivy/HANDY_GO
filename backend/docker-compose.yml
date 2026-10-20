@@ -182,10 +182,26 @@ services:
 
   notification-service:
     <<: *app
+    # Source is bind-mounted but generated clients live inside the image/container.
+    # Generate before each build so existing dev images and schema edits work too.
+    command:
+      - sh
+      - -c
+      - >-
+        exec pnpm exec nodemon
+        --watch apps/notification-service
+        --watch libs
+        --watch nest-cli.json
+        --watch tsconfig.json
+        --ext ts,json,prisma
+        --delay 300ms
+        --signal SIGTERM
+        --exec "pnpm exec prisma generate --schema=apps/notification-service/prisma/schema.prisma && pnpm exec nest build notification-service && exec node --enable-source-maps dist/apps/notification-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: notification-service
       PORT: '3008'
+      DATABASE_URL_NOTIFICATION: ${DATABASE_URL_NOTIFICATION:-}
     ports:
       - '3008:3008'
 

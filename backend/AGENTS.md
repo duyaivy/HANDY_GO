@@ -121,7 +121,7 @@ pnpm run lint
 | **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
-| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret`. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
+| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret` and notification `pushToken` fields. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
 | **`@app/cloudinary`**<br>`libs/cloudinary/src/` | `CloudinaryModule`<br>`CloudinaryService` | **Cloudinary Media Storage Integration.** Streaming image upload (`uploadImage`) and signed direct big-video chunk upload initialization (`createVideoUploadSignature`). |
 
 ---
@@ -142,6 +142,7 @@ pnpm run lint
 | `common/utils/password.util.ts` | `@IsMaxByteLength(72)` | **UTF-8 Byte Length Validator.** Enforces strict 72-byte limit matching mobile and bcrypt boundary, preventing truncation vulnerabilities while preserving 8-64 char complexity rules. |
 | `common/utils/auth-response.builder.ts` | `AuthResponseBuilder` | **Standardized API Response Envelopes.** Factory methods: `buildRegisterResponse` (includes `challengeId`), `buildAuthSuccessResponse`, `buildResendOtpResponse` (includes `challengeId`), `buildLogoutResponse`, `buildMeResponse`. |
 | `common/rate-limit/rate-limiter.service.ts` | `RateLimiterService` | **Multi-Tier Rate Limiting & Brute-Force Lockout:**<br>- `checkAndIncrement(key, limit, windowSecs, message)`: Throttler sliding window.<br>- `checkFailedLogins(phone)`: Lockout check (5 failed attempts locks for 15 minutes).<br>- `recordFailedLogin(phone)` & `resetFailedLogins(phone)`: Counter management. |
+| `apps/auth-service/src/common/rate-limit/postgres-throttler-storage.ts` | `PostgresThrottlerStorage` | Atomic PostgreSQL-backed Nest throttler storage. `new PostgresThrottlerStorage(db)`; `increment(key, ttl, limit, blockDuration, throttlerName)` uses a single upsert and returns the installed throttler storage-record contract. |
 | `common/session/session.service.ts` | `SessionService` | **Session & Refresh Token Lifecycle:**<br>- `prepareSession()`: Pre-signs JWT prior to database transaction.<br>- `createSession()`: Stores session atomically.<br>- `rotateSession(refreshToken)`: Refresh token rotation with strict 7-day absolute lifetime.<br>- `revokeSession(refreshToken)`: Immediate invalidation on logout. |
 | `common/rpc/user-trust.client.ts` | `UserTrustClient` | **Fail-Close RPC Client.** Communicates via RabbitMQ to verify user status and KYC profile provisioning in `user-trust-service`. |
 | `apps/catalog-service/src/common/outbox/catalog-outbox.repository.ts` | `CatalogOutboxRepository` | **Catalog Service Outbox Repository.** Implements `OutboxRepository` interface to query/update pending events in `catalog_service.outbox_events` table. |
@@ -151,6 +152,21 @@ pnpm run lint
 | `otp/otp-flow.service.ts` | `OtpFlowService` | **Atomic OTP Concurrency & Lockout:**<br>- `verifyEmail`: Transaction-level conditional updates (`isUsed = false`, `deliveryStatus = 'delivered'`, not expired, `attempts < 5`) for both failed and valid codes; 5 failed attempts completely locks verification until new challenge requested.<br>- `resendOtp`: Account row-level lock (`SELECT ... FOR UPDATE`), active pending challenge (15s timeout) / cooldown check returning 429 without sending 2nd email; SMTP dispatch outside transaction with timeout; on SMTP failure old delivered code remains valid and immediate resend allowed. |
 
 ---
+
+### 4.3. Notification Service Phase 1
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `NotificationPrismaService` | `apps/notification-service/src/common/notification-prisma.service.ts` | Supabase PostgreSQL pool and lifecycle: prefers `DATABASE_URL_NOTIFICATION`, otherwise uses `DATABASE_URL` with `schema=notification_service`. Inject into repositories; `db.notification.count({ where: { recipientUserId, readAt: null } })`. Queries only the Notification-owned schema. |
+| `resolveNotificationDatabaseUrl` | `apps/notification-service/src/common/notification-database.config.ts` | Shared runtime/migration URL resolution. `resolveNotificationDatabaseUrl(override, sharedUrl)` preserves URL options and adds `notification_service` when no override schema is supplied; replaces any shared-URL schema on fallback. |
+| `NotificationCommonModule` | `apps/notification-service/src/common/notification-common.module.ts` | Shared service configuration, logging, persistence and gateway guard. Import once in `NotificationServiceModule`; no messaging or delivery dependencies. |
+| `TrustedGatewayGuard` | `apps/notification-service/src/common/trusted-gateway.guard.ts` | Timing-safe internal secret validation followed by UUID identity validation; no JWT verification. `@UseGuards(TrustedGatewayGuard)` before reading `@GatewayUserId()`. |
+| `GatewayUserId` | `apps/notification-service/src/common/gateway-user-id.decorator.ts` | Extracts the gateway-injected user ID after `TrustedGatewayGuard` validates the request. Use `@GatewayUserId() userId: string`; Swagger exposes Bearer authentication without asking clients for internal identity headers. |
+| `PersistenceErrorsInterceptor` | `apps/notification-service/src/common/persistence-errors.interceptor.ts` | Sanitizes storage diagnostics before shared logging/responses; maps conflicts to 409, missing rows to 404, unavailable storage to 503. Registered with `APP_INTERCEPTOR`. |
+| `DevicesRepository` | `apps/notification-service/src/devices/devices.repository.ts` | Atomic registration/rotation with user advisory lock, unique token/device constraints and token-free projections. `repository.register(userId, dto)`; `repository.deactivate(userId, id)`. |
+| `NotificationsRepository` | `apps/notification-service/src/notifications/notifications.repository.ts` | Owned keyset queries, unread counts, conditional read updates and bulk read-all. `repository.markAllRead(userId)`. |
+| `encodeNotificationCursor`, `decodeNotificationCursor` | `apps/notification-service/src/notifications/notification-cursor.ts` | Versioned date/UUID cursor bound to user and read filter; database queries always enforce ownership. `decodeNotificationCursor(cursor, userId, false)`. |
+| `PreferencesRepository` | `apps/notification-service/src/preferences/preferences.repository.ts` | Atomic per-user preference upsert and safe channel projection. `repository.update(userId, { pushEnabled: false })`. |
 
 ## 5. Feature Blueprint & Implementation Template
 
