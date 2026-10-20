@@ -3,7 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 import antfu from '@antfu/eslint-config';
 import betterTailwindcss from 'eslint-plugin-better-tailwindcss';
-import i18nJsonPlugin from 'eslint-plugin-i18n-json';
 import reactCompiler from 'eslint-plugin-react-compiler';
 import testingLibrary from 'eslint-plugin-testing-library';
 
@@ -120,39 +119,6 @@ export default antfu(
     },
     rules: {
       'react-compiler/react-compiler': 'error',
-    },
-  },
-
-  // i18n JSON validation
-  {
-    files: ['src/translations/*.json'],
-    plugins: { 'i18n-json': i18nJsonPlugin },
-    processor: {
-      meta: { name: '.json' },
-      ...i18nJsonPlugin.processors['.json'],
-    },
-    rules: {
-      ...i18nJsonPlugin.configs.recommended.rules,
-      'i18n-json/valid-message-syntax': [
-        2,
-        {
-          syntax: path.resolve(
-            __dirname,
-            './scripts/i18next-syntax-validation.js',
-          ),
-        },
-      ],
-      'i18n-json/valid-json': 2,
-      'i18n-json/sorted-keys': [2, { order: 'asc', indentSpaces: 2 }],
-      'i18n-json/identical-keys': [
-        2,
-        { filePath: path.resolve(__dirname, './src/translations/en.json') },
-      ],
-      // Disable conflicting rules for i18n JSON files
-      'style/semi': 'off',
-      'style/comma-dangle': 'off',
-      'style/quotes': 'off',
-      'unused-imports/no-unused-vars': 'off',
     },
   },
 

@@ -2,6 +2,15 @@ import type { SvgProps } from 'react-native-svg';
 import * as React from 'react';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
+export function CompassIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Circle cx="12" cy="12" r="10" />
+      <Path d="m16.24 7.76-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z" />
+    </Svg>
+  );
+}
+
 export function WrenchIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -104,6 +113,69 @@ export function CheckCircleIcon({ color = '#10B981', size = 24, ...props }: SvgP
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <Circle cx="12" cy="12" r="10" />
       <Path d="m9 12 2 2 4-4" />
+    </Svg>
+  );
+}
+
+export function CloseIcon({ color = '#6B7280', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M18 6 6 18M6 6l12 12" />
+    </Svg>
+  );
+}
+
+export function BackspaceIcon({ color = '#1F2937', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+      <Path d="m18 9-6 6M12 9l6 6" />
+    </Svg>
+  );
+}
+
+export function LockIcon({ color = '#F5A524', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </Svg>
+  );
+}
+
+export function BellIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <Path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </Svg>
+  );
+}
+
+export function ChevronLeftIcon({ color = '#1F2937', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="m15 18-6-6 6-6" />
+    </Svg>
+  );
+}
+
+export function SwitchIcon({ color = '#FFFFFF', size = 14, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="m16 3 4 4-4 4" />
+      <Path d="M20 7H4" />
+      <Path d="m8 21-4-4 4-4" />
+      <Path d="M4 17h16" />
+    </Svg>
+  );
+}
+
+export function HeadsetIcon({ color = '#1F2937', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+      <Path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
     </Svg>
   );
 }

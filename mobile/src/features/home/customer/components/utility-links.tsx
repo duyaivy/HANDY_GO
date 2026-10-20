@@ -1,8 +1,9 @@
+import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Text } from '@/components/ui';
+import { RouteNames } from '@/constants/route-names';
 
 // ─── Utility Vector Icons ─────────────────────────────────────────────────────
 function HistoryTicketIcon() {
@@ -61,6 +62,7 @@ type UtilityLinkItem = {
   iconBgClass: string;
   badge?: string;
   icon: React.ComponentType;
+  route: string;
 };
 
 const UTILITY_LINKS: UtilityLinkItem[] = [
@@ -70,6 +72,7 @@ const UTILITY_LINKS: UtilityLinkItem[] = [
     sublabel: 'Đặt lại dịch vụ',
     iconBgClass: 'bg-orange-50',
     icon: HistoryTicketIcon,
+    route: RouteNames.CUSTOMER_HISTORY,
   },
   {
     id: 'favorites',
@@ -77,6 +80,7 @@ const UTILITY_LINKS: UtilityLinkItem[] = [
     sublabel: 'Thợ đã lưu',
     iconBgClass: 'bg-rose-50',
     icon: FavoriteHeartIcon,
+    route: RouteNames.CUSTOMER_FAVORITES,
   },
   {
     id: 'referral',
@@ -85,6 +89,7 @@ const UTILITY_LINKS: UtilityLinkItem[] = [
     iconBgClass: 'bg-amber-100/70',
     badge: 'HOT',
     icon: ReferralGiftIcon,
+    route: RouteNames.CUSTOMER_REFERRAL,
   },
   {
     id: 'support',
@@ -92,17 +97,16 @@ const UTILITY_LINKS: UtilityLinkItem[] = [
     sublabel: 'Kỹ thuật viên trực',
     iconBgClass: 'bg-emerald-50',
     icon: SupportHeadsetIcon,
+    route: RouteNames.CUSTOMER_SUPPORT,
   },
 ];
 
 export const UtilityLinks = React.memo(() => {
-  const handleItemPress = React.useCallback((label: string) => {
-    showMessage({
-      message: label,
-      description: 'Tính năng sẽ sớm ra mắt!',
-      type: 'info',
-    });
-  }, []);
+  const router = useRouter();
+
+  const handleItemPress = React.useCallback((route: string) => {
+    router.push(route as any);
+  }, [router]);
 
   return (
     <View className="flex-row flex-wrap justify-between gap-y-2.5">
@@ -111,8 +115,9 @@ export const UtilityLinks = React.memo(() => {
         return (
           <Pressable
             key={item.id}
+            testID={`utility-link-${item.id}`}
             className="w-[48.5%] flex-row items-center gap-2 rounded-2xl bg-white p-2.5 shadow-sm active:opacity-85"
-            onPress={() => handleItemPress(item.label)}
+            onPress={() => handleItemPress(item.route)}
             accessibilityRole="button"
             accessibilityLabel={item.label}
           >

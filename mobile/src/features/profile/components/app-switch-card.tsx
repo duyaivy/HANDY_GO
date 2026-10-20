@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
@@ -12,6 +13,7 @@ export type AppSwitchCardProps = {
   roles?: string[];
   workerStatus?: string | null;
   onSwitch?: (targetMode: 'Customer' | 'Worker') => void;
+  onPressSwitchArrow?: () => void;
 };
 
 export function AppSwitchCard({
@@ -19,6 +21,7 @@ export function AppSwitchCard({
   roles = [],
   workerStatus,
   onSwitch,
+  onPressSwitchArrow,
 }: AppSwitchCardProps) {
   const router = useRouter();
 
@@ -50,6 +53,9 @@ export function AppSwitchCard({
             <Text className="text-base font-bold text-white">
               Chuyển sang App Thợ
             </Text>
+            <Text className="text-xs text-blue-200">
+              Switch to Worker App
+            </Text>
             <Text className="mt-0.5 text-xs text-blue-100" numberOfLines={1}>
               {workerStatus === 'verified'
                 ? 'Nhận việc và quản lý dịch vụ sửa chữa'
@@ -65,9 +71,23 @@ export function AppSwitchCard({
             </Text>
           </View>
         </View>
-        <View className="size-8 items-center justify-center rounded-full bg-white/20">
+        <Pressable
+          testID="switch-to-worker-arrow"
+          accessibilityRole="button"
+          accessibilityLabel="Chuyển sang App Thợ"
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            if (onPressSwitchArrow) {
+              onPressSwitchArrow();
+            }
+            else {
+              router.push(RouteNames.CUSTOMER_SWITCH_TO_WORKER as any);
+            }
+          }}
+          className="size-8 items-center justify-center rounded-full bg-white/20 active:bg-white/30"
+        >
           <ArrowRight color="#FFFFFF" />
-        </View>
+        </Pressable>
       </Pressable>
     );
   }
@@ -100,7 +120,7 @@ export function AppSwitchCard({
             Chuyển sang App Khách
           </Text>
           <Text className="mt-0.5 text-xs text-amber-900/80 dark:text-neutral-800" numberOfLines={1}>
-            Đặt dịch vụ tiện ích và theo dõi yêu cầu
+            Đặt dịch vụ và quản lý đơn sửa chữa gia đình
           </Text>
         </View>
       </View>

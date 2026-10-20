@@ -1,17 +1,16 @@
+import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Text } from '@/components/ui';
+import { RouteNames } from '@/constants/route-names';
 
 export const AiDiagnosisBanner = React.memo(() => {
+  const router = useRouter();
+
   const handlePress = React.useCallback(() => {
-    showMessage({
-      message: 'AI Chẩn đoán sự cố',
-      description: 'Tính năng AI sẽ sớm ra mắt để phục vụ bạn!',
-      type: 'info',
-    });
-  }, []);
+    router.push(RouteNames.CUSTOMER_AI_DIAGNOSIS as any);
+  }, [router]);
 
   return (
     <Pressable
@@ -52,3 +51,5 @@ export const AiDiagnosisBanner = React.memo(() => {
     </Pressable>
   );
 });
+
+AiDiagnosisBanner.displayName = 'AiDiagnosisBanner';

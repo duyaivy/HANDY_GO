@@ -7,13 +7,14 @@ import { useAuthStore } from '@/stores/use-auth-store';
 import { CustomerProfileScreen } from '../screens/customer-profile-screen';
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 
 jest.mock('expo-router', () => {
   const React = require('react');
   return {
     useRouter: () => ({
       replace: mockReplace,
-      push: jest.fn(),
+      push: mockPush,
       back: jest.fn(),
     }),
     useFocusEffect: (cb: any) => {
@@ -122,7 +123,7 @@ describe('customerProfileScreen', () => {
 
     const switchBtn = await screen.findByTestId('switch-to-worker-btn');
     expect(switchBtn).toBeOnTheScreen();
-    expect(screen.getByText('Chuyển sang App Thợ')).toBeOnTheScreen();
+    expect(screen.getAllByText('Chuyển sang App Thợ').length).toBeGreaterThanOrEqual(1);
     // Worker status is draft, so notice is displayed
     expect(await screen.findByText(/Chưa xác minh/)).toBeOnTheScreen();
 
@@ -243,5 +244,28 @@ describe('customerProfileScreen', () => {
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
     });
+  });
+
+  it('renders change password button next to logout and removes settings navigation item', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'cust-123',
+        phone: '0912345678',
+        email: 'customer@example.com',
+        roles: ['Customer'],
+        permissions: [],
+      },
+    });
+
+    render(<CustomerProfileScreen />);
+
+    expect(screen.getByTestId('profile-change-password-btn')).toBeOnTheScreen();
+    expect(screen.getByText('Đổi mật khẩu')).toBeOnTheScreen();
+    expect(screen.getByTestId('customer-logout-btn')).toBeOnTheScreen();
+    expect(screen.queryByTestId('profile-settings-nav-btn')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('profile-change-password-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/change-password');
   });
 });

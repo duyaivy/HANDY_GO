@@ -12,6 +12,7 @@ export const StorageKeys = {
   FIRST_TIME_OPEN: 'handy_go_first_time_open',
   DEVICE_NOTIFICATION_TOKEN: 'handy_go_device_push_token',
   SAVED_FAVORITE_WORKERS: 'handy_go_favorite_workers',
+  GUEST_SELECTED_ROLE: 'handy_go_guest_selected_role',
 } as const;
 
 export type StorageKey = typeof StorageKeys[keyof typeof StorageKeys];

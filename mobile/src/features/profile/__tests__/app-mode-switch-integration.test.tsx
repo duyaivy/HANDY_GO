@@ -215,4 +215,23 @@ describe('app Mode Switch & Persistence Lifecycle Integration', () => {
     expect(useAuthStore.getState().activeMode).toBe('Customer');
     expect(storage.getString(getActiveModeKey(customerOnlyUser.id))).toBeUndefined();
   });
+
+  it('allows unauthenticated guests to switch between Customer and Worker modes seamlessly', () => {
+    useAuthStore.setState({
+      user: null,
+      isAuthenticated: false,
+      guestRole: 'Worker',
+      activeMode: 'Worker',
+    });
+
+    // 1. Guest switches to Customer
+    useAuthStore.getState().setActiveMode('Customer');
+    expect(useAuthStore.getState().guestRole).toBe('Customer');
+    expect(useAuthStore.getState().activeMode).toBe('Customer');
+
+    // 2. Guest switches back to Worker via switchRole
+    useAuthStore.getState().switchRole();
+    expect(useAuthStore.getState().guestRole).toBe('Worker');
+    expect(useAuthStore.getState().activeMode).toBe('Worker');
+  });
 });

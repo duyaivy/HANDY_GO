@@ -1,21 +1,20 @@
+import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import Svg, { Path } from 'react-native-svg';
 import { Text } from '@/components/ui';
+import { RouteNames } from '@/constants/route-names';
 
 export const CategoryAiBanner = React.memo(() => {
+  const router = useRouter();
+
   const handleAiChat = React.useCallback(() => {
-    showMessage({
-      message: 'Chat với AI Vua Thợ',
-      description: 'Trợ lý AI đang được chuẩn bị để sớm hỗ trợ bạn!',
-      type: 'info',
-      icon: 'info',
-    });
-  }, []);
+    router.push(RouteNames.CUSTOMER_ASK_ME as any);
+  }, [router]);
 
   return (
     <Pressable
+      testID="category-ai-chat-banner"
       className="relative mx-4 mt-2 mb-3 flex-row items-center justify-between overflow-hidden rounded-2xl border border-neutral-100 bg-white p-3 shadow-sm active:opacity-85"
       onPress={handleAiChat}
       accessibilityRole="button"
