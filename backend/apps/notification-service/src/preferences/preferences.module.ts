@@ -6,6 +6,6 @@ import { PreferencesRepository } from './preferences.repository.js';
 @Module({
   controllers: [PreferencesController],
   providers: [PreferencesService, PreferencesRepository],
-  exports: [PreferencesService],
+  exports: [PreferencesService, PreferencesRepository],
 })
 export class PreferencesModule {}

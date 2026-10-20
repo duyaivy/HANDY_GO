@@ -63,6 +63,7 @@ describe.skipIf(!databaseUrl)(
       }
       url.searchParams.set('schema', schema);
       vi.stubEnv('DATABASE_URL_NOTIFICATION', url.toString());
+      vi.stubEnv('NOTIFICATION_EVENTS_ENABLED', 'false');
       vi.stubEnv('INTERNAL_SERVICE_SECRET', secret);
       vi.stubEnv('LOG_LEVEL', 'silent');
       const { NotificationServiceModule } =

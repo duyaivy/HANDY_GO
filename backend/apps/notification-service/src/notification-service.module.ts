@@ -4,6 +4,7 @@ import { DevicesModule } from './devices/index.js';
 import { NotificationsModule } from './notifications/index.js';
 import { PreferencesModule } from './preferences/index.js';
 import { HealthModule } from './health/health.module.js';
+import { EventsModule } from './events/index.js';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { HealthModule } from './health/health.module.js';
     PreferencesModule,
     NotificationsModule,
     HealthModule,
+    EventsModule,
   ],
 })
 export class NotificationServiceModule {}

@@ -168,6 +168,20 @@ pnpm run lint
 | `encodeNotificationCursor`, `decodeNotificationCursor` | `apps/notification-service/src/notifications/notification-cursor.ts` | Versioned date/UUID cursor bound to user and read filter; database queries always enforce ownership. `decodeNotificationCursor(cursor, userId, false)`. |
 | `PreferencesRepository` | `apps/notification-service/src/preferences/preferences.repository.ts` | Atomic per-user preference upsert and safe channel projection. `repository.update(userId, { pushEnabled: false })`. |
 
+### 4.4. Notification Service Phase 2
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `NOTIFICATION_EVENTS`, `EventDataMap`, `validateNotificationEvent` | `apps/notification-service/src/events/event-contracts.ts` | Provisional typed contracts for 16 events; validates UUIDs, version, source, routing and bounded fan-out, strips unknown fields. `validateNotificationEvent(packet, routingKey)`. |
+| `NotificationRouter` | `apps/notification-service/src/events/notification-router.ts` | Typed recipient/category/entity strategies with no foreign database access. `router.resolve(event)`. |
+| `renderNotificationTemplate` | `apps/notification-service/src/events/notification-templates.ts` | Vietnamese templates and controlled role placeholders, with reviewed transition-specific templates. `renderNotificationTemplate(event.eventType, 'worker', policy.template)`. |
+| `NotificationPolicy` | `apps/notification-service/src/events/notification-policy.ts` | Central reviewed optional/mandatory/disabled policies and transition/template allowlist; provisional simulation restricted to test/development. `policies.resolve(event)`. |
+| `EventProcessorService` | `apps/notification-service/src/events/event-processor.service.ts` | Atomic inbox claim, bounded fan-out and notification persistence; no delivery jobs. `processor.process(validatedEvent)`. |
+| `NotificationsRepository.createInAppBatch` | `apps/notification-service/src/notifications/notifications.repository.ts` | Inserts at most 100 rows per statement in caller's transaction. `repository.createInAppBatch(tx, rows)`. |
+| `PreferencesRepository.findInAppOptOuts` | `apps/notification-service/src/preferences/preferences.repository.ts` | One batched query for optional in-app preferences; absent preferences mean enabled. `repository.findInAppOptOuts(tx, userIds)`. |
+| `assertEventTopology`, `eventTransportOptions` | `apps/notification-service/src/events/event-topology.ts` | Reuses shared topic exchange configuration; dedicated quorum consumer/retry/DLQ queues with bounded prefetch and reliable dead lettering. `await assertEventTopology(channel, options)`. |
+| `EventConsumerService`, `transferEvent` | `apps/notification-service/src/events/event-consumer.service.ts` | Manual acknowledgement after commit or confirmed mandatory retry/DLQ transfer; safe channel-close redelivery and structured diagnostics. Nest lifecycle starts the consumer; `transferEvent(channel, queue, message, headers)`. |
+
 ## 5. Feature Blueprint & Implementation Template
 
 When creating a new business feature, agents must replicate this pattern:

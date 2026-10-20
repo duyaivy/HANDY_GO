@@ -35,6 +35,8 @@
     "start:prod": "node dist/apps/api-gateway/main.js",
     "lint": "oxlint apps/ libs/ *.ts",
     "test": "vitest run",
+    "test:notification:events": "node scripts/test-notification-events.mjs",
+    "test:notification:cloud-event": "node scripts/test-notification-cloud-event.mjs",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",

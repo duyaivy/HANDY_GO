@@ -17,6 +17,20 @@ const notificationSelect = {
 export class NotificationsRepository {
   constructor(private readonly db: NotificationPrismaService) {}
 
+  async createInAppBatch(
+    tx: Prisma.TransactionClient,
+    rows: Prisma.NotificationCreateManyInput[],
+  ): Promise<number> {
+    let count = 0;
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const result = await tx.notification.createMany({
+        data: rows.slice(offset, offset + 100),
+      });
+      count += result.count;
+    }
+    return count;
+  }
+
   list(
     userId: string,
     limit: number,

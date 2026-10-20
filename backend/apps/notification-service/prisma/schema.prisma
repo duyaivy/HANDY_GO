@@ -116,7 +116,7 @@ model Notification {
   @@map("notifications")
 }
 
-// Schema compatibility only: no delivery, inbox or outbox processing in Phase 1.
+// Delivery attempts remain reserved for a later phase; Phase 2 uses only the inbox.
 model NotificationDeliveryAttempt {
   id                 String              @id @default(uuid()) @db.Uuid
   notificationId     String              @map("notification_id") @db.Uuid
