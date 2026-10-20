@@ -34,16 +34,43 @@ describe('indexScreen Session Restoration & Gatekeeper', () => {
     expect(screen.getByText('Đang khôi phục phiên đăng nhập...')).toBeOnTheScreen();
   });
 
-  it('redirects to login when user is unauthenticated after hydration', () => {
+  it('redirects to welcome screen when user is unauthenticated and has no guest role', () => {
     useAuthStore.setState({
       isHydrated: true,
       isAuthenticated: false,
       user: null,
+      guestRole: null,
       hydrationError: null,
     });
 
     render(<IndexScreen />);
-    expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
+    expect(mockReplace).toHaveBeenCalledWith('/welcome');
+  });
+
+  it('redirects to welcome screen when user is unauthenticated even if guest role was set', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: false,
+      user: null,
+      guestRole: 'Customer',
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(mockReplace).toHaveBeenCalledWith('/welcome');
+  });
+
+  it('redirects to welcome screen when user is unauthenticated with worker guest role', () => {
+    useAuthStore.setState({
+      isHydrated: true,
+      isAuthenticated: false,
+      user: null,
+      guestRole: 'Worker',
+      hydrationError: null,
+    });
+
+    render(<IndexScreen />);
+    expect(mockReplace).toHaveBeenCalledWith('/welcome');
   });
 
   it('redirects to customer home when user has Customer role', () => {

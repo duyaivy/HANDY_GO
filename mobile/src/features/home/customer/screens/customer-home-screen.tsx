@@ -1,10 +1,14 @@
+/* eslint-disable max-lines-per-function */
 import type { ServiceResponseDto } from '@/features/catalog/types';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { ScrollView } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
+import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
+import { Button } from '@/components/ui/button';
+import { MapPinIcon, SparklesIcon } from '@/components/ui/icons';
+import { Text } from '@/components/ui/text';
+import { RouteNames } from '@/constants/route-names';
 import { usePopularServices } from '@/features/catalog/hooks/use-services';
 import { useAuthStore } from '@/stores/use-auth-store';
 import {
@@ -16,12 +20,14 @@ import {
   PromoBanner,
   UtilityLinks,
 } from '../components';
+import { CustomerGuestOverview } from '../components/customer-guest-overview';
 
 const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 export function CustomerHomeScreen() {
   const router = useRouter();
   const user = useAuthStore.use.user();
+  const isAuthenticated = useAuthStore.use.isAuthenticated();
 
   const {
     data: servicesData,
@@ -32,8 +38,8 @@ export function CustomerHomeScreen() {
 
   const services = React.useMemo(() => servicesData?.data ?? [], [servicesData?.data]);
   const displayName = React.useMemo(
-    () => user?.email?.split('@')[0] ?? 'Nguyênnx Quốc Duy',
-    [user?.email],
+    () => (user as any)?.fullName || user?.email?.split('@')[0] || 'Khách hàng',
+    [user],
   );
 
   const handleSearch = React.useCallback(
@@ -57,17 +63,32 @@ export function CustomerHomeScreen() {
   }, [router]);
 
   const handleServiceSelect = React.useCallback(
-    (_serviceId: string, service: ServiceResponseDto) => {
-      showMessage({
-        message: `${service.name}`,
-        description: 'Tính năng đặt thợ sẽ sớm ra mắt!',
-        type: 'info',
-        icon: 'info',
-        duration: 2500,
-      });
+    (serviceId: string, service?: ServiceResponseDto) => {
+      router.push({
+        pathname: RouteNames.CUSTOMER_BOOKING,
+        params: {
+          serviceId: serviceId || 'srv-01',
+          serviceName: service?.name || 'Sửa ống nước',
+        },
+      } as any);
     },
-    [],
+    [router],
   );
+
+  const handleSwitchToWorker = () => {
+    const { isAuthenticated: isAuth, user: currentUser } = useAuthStore.getState();
+    if (isAuth && currentUser) {
+      useAuthStore.getState().setActiveMode('Worker');
+    }
+    else {
+      useAuthStore.getState().setGuestRole('Worker');
+    }
+    router.replace(RouteNames.WORKER_HOME as any);
+  };
+
+  if (!isAuthenticated || !user) {
+    return <CustomerGuestOverview />;
+  }
 
   return (
     <StyledSafeAreaView
@@ -82,7 +103,64 @@ export function CustomerHomeScreen() {
         showsVerticalScrollIndicator={false}
         testID="home-customer-screen"
       >
-        {/* Header */}
+        {/* Top Location & Role Switcher Bar */}
+        <View className="flex-row items-center justify-between pt-1">
+          <Pressable
+            testID="home-location-selector"
+            className="flex-row items-center active:opacity-75"
+            onPress={() => router.push(RouteNames.CUSTOMER_SEARCH_ADDRESS as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Chọn vị trí Hải Châu, Đà Nẵng"
+          >
+            <MapPinIcon size={16} color="#EF4444" />
+            <Text className="ml-1 text-xs font-semibold text-neutral-800">
+              Hải Châu, Đà Nẵng
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="home-role-switch-chip"
+            onPress={handleSwitchToWorker}
+            accessibilityRole="button"
+            accessibilityLabel="Đổi sang App Thợ"
+            className="flex-row items-center rounded-full bg-[#F5A524] px-2.5 py-1 shadow-xs active:opacity-80"
+          >
+            <Text className="text-xs font-bold text-white">
+              App Thợ ⇄
+            </Text>
+          </Pressable>
+        </View>
+
+        {/* Guest Mode Banner (Ảnh 3) */}
+        {!isAuthenticated && (
+          <View
+            testID="guest-banner"
+            className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-xs"
+          >
+            <View className="flex-row items-start justify-between">
+              <View className="flex-1 pr-3">
+                <View className="flex-row items-center">
+                  <SparklesIcon size={16} color="#D97706" />
+                  <Text className="ml-1 text-sm font-bold text-amber-900">
+                    Chào mừng bạn đến với HandyGo!
+                  </Text>
+                </View>
+                <Text className="mt-1 text-xs text-amber-800">
+                  Đăng nhập ngay để nhận ưu đãi và đặt thợ nhanh nhất
+                </Text>
+              </View>
+              <Button
+                testID="guest-login-btn"
+                label="Đăng nhập"
+                variant="default"
+                className="h-8 rounded-xl bg-[#F5A524] px-3.5"
+                textClassName="text-xs font-bold"
+                onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Header (Ảnh 9) */}
         <HomeHeader displayName={displayName} />
 
         {/* Hero Banner with Search */}

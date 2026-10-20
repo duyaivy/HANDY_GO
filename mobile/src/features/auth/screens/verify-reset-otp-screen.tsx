@@ -32,8 +32,10 @@ export function VerifyResetOtpScreen() {
     return () => clearInterval(timer);
   }, [cooldown]);
 
+  const isNavigatingAway = React.useRef(false);
+
   React.useEffect(() => {
-    if (!email) {
+    if (!email && !isNavigatingAway.current) {
       router.replace(RouteNames.AUTH_FORGOT_PASSWORD as any);
     }
   }, [email, router]);
@@ -92,6 +94,7 @@ export function VerifyResetOtpScreen() {
   };
 
   const handleCancel = () => {
+    isNavigatingAway.current = true;
     clearFlow();
     router.replace(RouteNames.AUTH_LOGIN as any);
   };

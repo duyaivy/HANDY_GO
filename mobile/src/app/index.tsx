@@ -17,18 +17,29 @@ export default function IndexScreen() {
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const activeMode = useAuthStore.use.activeMode?.() ?? null;
+
   const hydrationError = useAuthStore.use.hydrationError();
   const hydrate = useAuthStore.use.hydrate();
   const logout = useAuthStore.use.logout();
+  const isMountedRef = React.useRef(true);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const destination = React.useMemo(() => {
     if (!isAuthenticated || !user) {
-      return { type: 'UNAUTHENTICATED' as const };
+      return { type: 'WELCOME' as const };
     }
     return getDestinationByRoles(user.roles, activeMode);
   }, [isAuthenticated, user, activeMode]);
 
   React.useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
     // Guard: ensure Expo Router navigation container has mounted before navigating
     if (!rootNavigationState?.key) {
       return;
@@ -42,12 +53,33 @@ export default function IndexScreen() {
       return;
     }
 
+    const safeReplace = (target: string) => {
+      if (!isMountedRef.current) {
+        return;
+      }
+      try {
+        router.replace(target as any);
+      }
+      catch {
+        timer = setTimeout(() => safeReplace(target), 50);
+      }
+    };
+
     if (destination.type === 'ROUTE') {
-      router.replace(destination.path as any);
+      safeReplace(destination.path);
+    }
+    else if (destination.type === 'WELCOME') {
+      safeReplace(RouteNames.WELCOME);
     }
     else if (destination.type === 'UNAUTHENTICATED') {
-      router.replace(RouteNames.AUTH_LOGIN as any);
+      safeReplace(RouteNames.AUTH_LOGIN);
     }
+
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
   }, [rootNavigationState?.key, isHydrated, hydrationError, destination, router]);
 
   // If session couldn't be verified due to network outage, offer Retry or Go to Login

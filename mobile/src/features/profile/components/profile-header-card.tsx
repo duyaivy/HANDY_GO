@@ -1,10 +1,11 @@
 /* eslint-disable max-lines-per-function */
 import * as React from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { UserIcon, WrenchIcon } from '@/components/ui/icons/handy-icons';
 import { Image } from '@/components/ui/image';
 import { Text } from '@/components/ui/text';
+import { PRIMARY_COLOR, SECONDARY_COLOR } from '@/constants/colors';
 import { AppSwitchCard } from './app-switch-card';
 
 export type ProfileHeaderCardProps = {
@@ -18,6 +19,8 @@ export type ProfileHeaderCardProps = {
   error?: string | null;
   onRetry?: () => void;
   onSwitch?: (targetMode: 'Customer' | 'Worker') => void;
+  onPressUserCard?: () => void;
+  onPressSwitchArrow?: () => void;
 };
 
 export function ProfileHeaderCard({
@@ -30,14 +33,25 @@ export function ProfileHeaderCard({
   error,
   onRetry,
   onSwitch,
+  onPressUserCard,
+  onPressSwitchArrow,
 }: ProfileHeaderCardProps) {
-  const displayName = fullName || (phone ? `Tài khoản ${phone}` : 'Người dùng');
+  const isGuest = !fullName && !phone && roles.length === 0;
+  const displayName = fullName || (phone ? `Tài khoản ${phone}` : (isGuest ? 'Khách vãng lai' : 'Người dùng'));
+  const displayPhone = phone || (isGuest ? 'Chưa đăng nhập' : 'Chưa cập nhật SĐT');
   const isWorkerMode = mode === 'Worker';
 
   return (
     <View testID="profile-header-card" className="w-full">
       {/* Profile Info Container */}
-      <View className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      <Pressable
+        testID="profile-user-card"
+        accessibilityRole="button"
+        accessibilityLabel="Xem chi tiết hồ sơ cá nhân"
+        disabled={!onPressUserCard}
+        onPress={onPressUserCard}
+        className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm active:opacity-90 dark:border-neutral-800 dark:bg-neutral-900"
+      >
         <View className="flex-row items-center">
           {/* Avatar Area */}
           <View className="mr-4">
@@ -54,16 +68,16 @@ export function ProfileHeaderCard({
                     testID="profile-avatar-fallback"
                     className={`size-16 items-center justify-center rounded-full ${
                       isWorkerMode
-                        ? 'bg-amber-100 dark:bg-amber-950/60'
-                        : 'bg-blue-100 dark:bg-blue-950/60'
+                        ? 'bg-blue-100 dark:bg-blue-950/60'
+                        : 'bg-amber-100 dark:bg-amber-950/60'
                     }`}
                   >
                     {isWorkerMode
                       ? (
-                          <WrenchIcon color="#D97706" size={28} />
+                          <WrenchIcon color={SECONDARY_COLOR} size={28} />
                         )
                       : (
-                          <UserIcon color="#2563EB" size={28} />
+                          <UserIcon color={PRIMARY_COLOR} size={28} />
                         )}
                   </View>
                 )}
@@ -82,7 +96,7 @@ export function ProfileHeaderCard({
               testID="profile-phone"
               className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400"
             >
-              {phone || 'Chưa cập nhật SĐT'}
+              {displayPhone}
             </Text>
 
             {/* Badges Row */}
@@ -92,15 +106,15 @@ export function ProfileHeaderCard({
                 testID="profile-mode-badge"
                 className={`rounded-full border px-2.5 py-0.5 ${
                   isWorkerMode
-                    ? 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
-                    : 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50'
+                    ? 'border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50'
+                    : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/50'
                 }`}
               >
                 <Text
                   className={`text-xs font-semibold ${
                     isWorkerMode
-                      ? 'text-amber-700 dark:text-amber-300'
-                      : 'text-blue-700 dark:text-blue-300'
+                      ? 'text-blue-700 dark:text-blue-300'
+                      : 'text-amber-700 dark:text-amber-300'
                   }`}
                 >
                   {isWorkerMode ? 'App Thợ' : 'App Khách'}
@@ -167,7 +181,7 @@ export function ProfileHeaderCard({
               </View>
             )
           : null}
-      </View>
+      </Pressable>
 
       {/* Switch Mode Card */}
       <AppSwitchCard
@@ -175,6 +189,7 @@ export function ProfileHeaderCard({
         roles={roles}
         workerStatus={workerStatus}
         onSwitch={onSwitch}
+        onPressSwitchArrow={onPressSwitchArrow}
       />
     </View>
   );

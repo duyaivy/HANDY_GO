@@ -67,7 +67,7 @@ Những điểm dùng chung như `src/app`, `src/components/ui`, `src/services`,
 | HTTP               | Axios thông qua shared `ApiClient` |
 | Local storage      | react-native-mmkv                  |
 | Form và validation | TanStack Form, Zod                 |
-| Localization       | i18next, react-i18next             |
+| Localization       | Tiếng Việt 100% (Single Language)  |
 | Test               | Jest, React Native Testing Library |
 | Code quality       | ESLint, TypeScript                 |
 
@@ -373,7 +373,6 @@ Mỗi role submodule có thể tự sở hữu:
 ├── api/                         # API functions, tạo khi cần
 ├── components/                  # Component chỉ dùng trong module
 ├── hooks/                       # Query/mutation/business hooks
-├── locales/                     # vi.ts, en.ts, index.ts
 ├── screens/                     # Các screen của module
 ├── types/                       # Type riêng của module
 ├── __tests__/                   # Test của module
@@ -498,40 +497,9 @@ export const customerOrdersApi = {
 - Contract thực sự dùng chung giữa Customer và Worker mới được chuyển vào domain `shared/` sau khi thống nhất với Domain owner.
 - Token được shared API interceptor gắn tự động; feature không tự đọc và gắn token cho từng request.
 
-## 12. Localization
+## 12. Ngôn ngữ & Bản địa hóa (Localization)
 
-Locale riêng của feature đặt trong module sở hữu:
-
-```text
-src/features/orders/customer/locales/
-├── en.ts
-├── vi.ts
-└── index.ts
-```
-
-Namespace hiện có:
-
-- `auth`
-- `devDemo`
-- `homeCustomer`
-- `homeWorker`
-- `ordersCustomer`
-- `ordersWorker`
-- `profileCustomer`
-- `profileWorker`
-
-Ví dụ sử dụng trong screen:
-
-```tsx
-import { useTranslation } from 'react-i18next';
-
-export function CustomerOrdersScreen() {
-  const { t } = useTranslation('ordersCustomer');
-  return <Text>{t('title')}</Text>;
-}
-```
-
-Feature owner chỉ sửa locale thuộc module của mình. Khi tạo namespace mới hoặc thay đổi registry tại `src/lib/i18n/resources.ts`, cần phối hợp với Foundation owner vì đây là file dùng chung.
+Ứng dụng HandyGo Mobile hoạt động với **100% tiếng Việt bản địa** (Single Language). Toàn bộ nhãn, thông báo và văn bản giao diện được hiển thị trực tiếp bằng tiếng Việt chuẩn ngữ nghĩa trong các component/screen. Hệ thống không sử dụng thư viện đa ngôn ngữ phức tạp (như i18next hay expo-localization) nhằm tối ưu hiệu năng, giảm dung lượng bundle và đơn giản hóa kiến trúc mã nguồn.
 
 ## 13. Quy trình phát triển một tính năng
 
