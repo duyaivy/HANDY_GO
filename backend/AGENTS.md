@@ -151,6 +151,11 @@ pnpm run lint
 
 ---
 
+| `apps/wallet-service/src/wallet-query/wallet-query.service.ts` | `WalletQueryService`, `WalletQueryRepository`, `WALLET_QUERY_REPOSITORY` | **Wallet Query Repository Contract and Service.** `WalletQueryRepository` defines owner wallet, transaction-detail, and paginated/filterable transaction reads. Bind an implementation to `WALLET_QUERY_REPOSITORY` in the feature module; the service serializes bigint balances as decimal strings, computes `availableBalance`, applies owner scoping, and raises standardized `AppException` errors. Example injection: `{ provide: WALLET_QUERY_REPOSITORY, useClass: WalletPrismaQueryRepository }`. The current wallet module has no database adapter, so endpoints are not operational until one is supplied. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-query.dto.ts` | `WalletTransactionQueryDto` | **Wallet Transaction Query Validation Contract.** Validates page (minimum 1), limit (1–100), optional type/status, and ISO date filters `from`/`to`; use as the `@Query()` DTO for wallet transaction listing. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-response.dto.ts` | `WalletResponseDto` | **Wallet Balance Response Contract.** Documents wallet identity/status and decimal-string `balance`, `reservedBalance`, and `availableBalance`; use for wallet summary and internal balance endpoints. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-response.dto.ts` | `WalletTransactionResponseDto`, `PaginatedWalletTransactionsResponseDto` | **Wallet Transaction Response Contracts.** Documents transaction detail and paginated list (`items`, `page`, `limit`, `total`, `totalPages`); use for wallet transaction query responses. |
+
 ## 5. Feature Blueprint & Implementation Template
 
 When creating a new business feature, agents must replicate this pattern:
