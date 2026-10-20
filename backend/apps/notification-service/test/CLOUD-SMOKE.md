@@ -1,6 +1,6 @@
 # Kiểm thử nhanh sự kiện Notification trên cloud/staging
 
-Chạy sự kiện mô phỏng `order.created` từ thư mục gốc repository:
+Chạy sự kiện mô phỏng `order.created` từ thư mục gốc repository. Lệnh tự nạp các biến từ file `.env` ở thư mục gốc; biến đã export trong shell sẽ được ưu tiên:
 
 ```bash
 pnpm run test:notification:cloud-event
