@@ -179,4 +179,3 @@ export function HeadsetIcon({ color = '#1F2937', size = 20, ...props }: SvgProps
     </Svg>
   );
 }
-

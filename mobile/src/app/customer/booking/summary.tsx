@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { View } from 'react-native';
-import { Button } from '@/components/ui/button';
 import { PlaceholderScreen } from '@/components/placeholder-screen';
+import { Button } from '@/components/ui/button';
 import { RouteNames } from '@/constants/route-names';
 
 export default function CustomerBookingSummaryRoute() {

@@ -195,7 +195,7 @@ export function RegisterScreen() {
       className="bg-neutral-50 dark:bg-neutral-950"
       contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
     >
-      <View testID="auth-register-screen" className="px-6 py-6">
+      <View testID="auth-register-screen" className="p-6">
         {/* Navigation back button */}
         <View className="mb-2 w-full flex-row items-center">
           <Pressable
@@ -308,7 +308,7 @@ export function RegisterScreen() {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   className="py-1"
                 >
-                  <Text className="text-xs font-bold text-[#D9820A] dark:text-[#FBAF2B]">
+                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
                     {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   </Text>
                 </Pressable>
@@ -338,7 +338,7 @@ export function RegisterScreen() {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   className="py-1"
                 >
-                  <Text className="text-xs font-bold text-[#D9820A] dark:text-[#FBAF2B]">
+                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
                     {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   </Text>
                 </Pressable>
@@ -354,7 +354,7 @@ export function RegisterScreen() {
               variant="default"
               loading={isLoading}
               disabled={isLoading}
-              className="h-12 rounded-2xl bg-[#F5A524] active:bg-[#D9820A] shadow-md shadow-amber-500/25"
+              className="h-12 rounded-2xl bg-[#F5A524] shadow-md shadow-amber-500/25 active:bg-primary-600"
               textClassName="text-base font-bold text-neutral-950"
               onPress={handleRegister}
             />
@@ -372,7 +372,7 @@ export function RegisterScreen() {
               testID="register-to-login-btn"
               onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
             >
-              <Text className="text-sm font-bold text-[#D9820A] dark:text-[#F5A524]">
+              <Text className="text-sm font-bold text-primary-600 dark:text-[#F5A524]">
                 Đăng nhập
               </Text>
             </Pressable>

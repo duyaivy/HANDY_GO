@@ -8,7 +8,6 @@ import { BellIcon, ChevronLeftIcon, HeadsetIcon, SwitchIcon } from '@/components
 import { PRIMARY_COLOR, SECONDARY_COLOR } from '@/constants/colors';
 import { Text } from './text';
 
-
 export type AppBarProps = {
   /** Mode của AppBar: 'home' (Trang chủ) hoặc 'stack' (Trang con có nút Back) */
   mode?: 'home' | 'stack';

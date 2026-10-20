@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';

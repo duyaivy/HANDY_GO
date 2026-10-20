@@ -1,8 +1,8 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import { View } from 'react-native';
-import { Button } from '@/components/ui/button';
 import { PlaceholderScreen } from '@/components/placeholder-screen';
+import { Button } from '@/components/ui/button';
 import { RouteNames } from '@/constants/route-names';
 
 export type ServiceDetailScreenProps = {
@@ -11,7 +11,7 @@ export type ServiceDetailScreenProps = {
 
 export function ServiceDetailScreen({ serviceId: propServiceId }: ServiceDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = typeof useLocalSearchParams === 'function' ? useLocalSearchParams<{ id?: string }>() : {};
+  const searchParams = useLocalSearchParams<{ id?: string }>();
   const serviceId = propServiceId || searchParams?.id || 'srv-01';
 
   return (

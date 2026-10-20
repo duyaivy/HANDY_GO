@@ -3,8 +3,8 @@ import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { Image, Text } from '@/components/ui';
-import { ClockIcon, MapPinIcon, ShieldCheckIcon, SparklesIcon, WrenchIcon } from '@/components/ui/icons';
+import { Text } from '@/components/ui';
+import { ClockIcon, ShieldCheckIcon, SparklesIcon } from '@/components/ui/icons';
 import { RouteNames } from '@/constants/route-names';
 import { useAuthStore } from '@/stores/use-auth-store';
 
@@ -94,17 +94,6 @@ function LocksmithIcon() {
   );
 }
 
-function CleaningIcon() {
-  return (
-    <View className="size-12 items-center justify-center rounded-2xl bg-rose-100 dark:bg-rose-950/50">
-      <Svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="#E11D48" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <Path d="m3 11 18-5v12L3 14v-3z" />
-        <Path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
-      </Svg>
-    </View>
-  );
-}
-
 const POPULAR_SERVICES = [
   { id: 'srv-ac', title: 'Sửa máy lạnh', icon: AcServiceIcon },
   { id: 'srv-plumb', title: 'Thợ ống nước', icon: PlumbingIcon },
@@ -179,7 +168,7 @@ export function CustomerGuestOverview() {
           />
           <Pressable
             onPress={handleSearch}
-            className="size-9 items-center justify-center rounded-xl bg-[#F5A524] shadow-xs active:bg-[#D9820A]"
+            className="size-9 items-center justify-center rounded-xl bg-[#F5A524] shadow-xs active:bg-primary-600"
           >
             <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <Circle cx="11" cy="11" r="8" />
@@ -200,7 +189,7 @@ export function CustomerGuestOverview() {
             <Pressable
               testID="customer-guest-start-btn"
               onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
-              className="mt-3.5 self-start flex-row items-center rounded-full bg-[#F5A524] px-4 py-2 shadow-xs active:bg-amber-600"
+              className="mt-3.5 flex-row items-center self-start rounded-full bg-[#F5A524] px-4 py-2 shadow-xs active:bg-amber-600"
             >
               <Text className="mr-1 text-xs font-bold text-neutral-900">Bắt đầu</Text>
               <Text className="text-xs font-bold text-neutral-900">→</Text>
@@ -258,14 +247,14 @@ export function CustomerGuestOverview() {
         </View>
 
         {/* ── PROMOTIONAL BANNER CARD (Ảnh 2) ── */}
-        <View className="mt-6 overflow-hidden rounded-3xl border border-amber-200 bg-gradient-to-r from-amber-500 to-orange-600 p-5 shadow-sm dark:border-amber-900">
+        <View className="mt-6 overflow-hidden rounded-3xl border border-amber-200 bg-linear-to-r from-amber-500 to-orange-600 p-5 shadow-sm dark:border-amber-900">
           <View className="flex-row items-center justify-between">
             <View className="rounded-full bg-white/20 px-2.5 py-0.5">
-              <Text className="text-2xs font-extrabold tracking-wider text-white">
+              <Text className="text-[10px] font-extrabold tracking-wider text-white">
                 HANDYGO DỊCH VỤ
               </Text>
             </View>
-            <Text className="text-2xs font-semibold text-white/90">
+            <Text className="text-[10px] font-semibold text-white/90">
               Cam kết chất lượng
             </Text>
           </View>
@@ -280,11 +269,11 @@ export function CustomerGuestOverview() {
           <View className="mt-3.5 flex-row space-x-3">
             <View className="flex-row items-center">
               <ShieldCheckIcon size={14} color="#FDE68A" />
-              <Text className="ml-1 text-2xs font-bold text-white">Thợ đã xác thực</Text>
+              <Text className="ml-1 text-[10px] font-bold text-white">Thợ đã xác thực</Text>
             </View>
             <View className="flex-row items-center">
               <ClockIcon size={14} color="#FDE68A" />
-              <Text className="ml-1 text-2xs font-bold text-white">Báo giá minh bạch</Text>
+              <Text className="ml-1 text-[10px] font-bold text-white">Báo giá minh bạch</Text>
             </View>
           </View>
         </View>

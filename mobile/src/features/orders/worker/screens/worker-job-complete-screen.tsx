@@ -7,7 +7,7 @@ export type WorkerJobCompleteScreenProps = {
 };
 
 export function WorkerJobCompleteScreen({ jobId: propJobId }: WorkerJobCompleteScreenProps = {}) {
-  const searchParams = typeof useLocalSearchParams === 'function' ? useLocalSearchParams<{ id?: string }>() : {};
+  const searchParams = useLocalSearchParams<{ id?: string }>();
   const jobId = propJobId || searchParams?.id || 'JOB-1020';
 
   return (

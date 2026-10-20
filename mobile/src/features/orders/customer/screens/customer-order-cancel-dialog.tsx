@@ -11,7 +11,7 @@ export type CustomerOrderCancelDialogProps = {
 
 export function CustomerOrderCancelDialog({ orderId: propOrderId }: CustomerOrderCancelDialogProps = {}) {
   const router = useRouter();
-  const searchParams = typeof useLocalSearchParams === 'function' ? useLocalSearchParams<{ id?: string }>() : {};
+  const searchParams = useLocalSearchParams<{ id?: string }>();
   const orderId = propOrderId || searchParams?.id || 'demo-001';
 
   return (

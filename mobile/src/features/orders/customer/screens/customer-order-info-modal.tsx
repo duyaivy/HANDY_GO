@@ -7,7 +7,7 @@ export type CustomerOrderInfoModalProps = {
 };
 
 export function CustomerOrderInfoModal({ orderId: propOrderId }: CustomerOrderInfoModalProps = {}) {
-  const searchParams = typeof useLocalSearchParams === 'function' ? useLocalSearchParams<{ id?: string }>() : {};
+  const searchParams = useLocalSearchParams<{ id?: string }>();
   const orderId = propOrderId || searchParams?.id || 'demo-001';
 
   return (

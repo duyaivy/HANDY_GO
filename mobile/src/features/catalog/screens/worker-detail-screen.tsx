@@ -61,8 +61,9 @@ export function WorkerDetailScreen({
             >
               {workerName}
             </Text>
-            <Text className="mt-1 text-2xs text-neutral-400">
-              Mã thợ: #{workerId}
+            <Text className="mt-1 text-xs text-neutral-400">
+              Mã thợ: #
+              {workerId}
             </Text>
           </View>
         )}

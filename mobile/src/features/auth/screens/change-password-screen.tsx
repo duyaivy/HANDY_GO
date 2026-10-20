@@ -132,28 +132,32 @@ export function ChangePasswordScreen() {
         </View>
 
         {/* Error Notification */}
-        {error ? (
-          <View
-            testID="change-password-error"
-            className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 shadow-xs dark:border-red-900 dark:bg-red-950/50"
-          >
-            <Text className="text-sm font-medium text-red-700 dark:text-red-300">
-              {error}
-            </Text>
-          </View>
-        ) : null}
+        {error
+          ? (
+              <View
+                testID="change-password-error"
+                className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 shadow-xs dark:border-red-900 dark:bg-red-950/50"
+              >
+                <Text className="text-sm font-medium text-red-700 dark:text-red-300">
+                  {error}
+                </Text>
+              </View>
+            )
+          : null}
 
         {/* Success Notification */}
-        {successMessage ? (
-          <View
-            testID="change-password-success"
-            className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-xs dark:border-emerald-900 dark:bg-emerald-950/50"
-          >
-            <Text className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
-              {successMessage}
-            </Text>
-          </View>
-        ) : null}
+        {successMessage
+          ? (
+              <View
+                testID="change-password-success"
+                className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 shadow-xs dark:border-emerald-900 dark:bg-emerald-950/50"
+              >
+                <Text className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                  {successMessage}
+                </Text>
+              </View>
+            )
+          : null}
 
         {/* Inputs Card */}
         <View className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
