@@ -10,6 +10,7 @@ import { WalletResponseDto } from './dto/wallet-response.dto.js';
 import { PaginatedWalletTransactionsResponseDto, WalletTransactionResponseDto } from './dto/wallet-transaction-response.dto.js';
 import type { Request } from 'express';
 import crypto from 'node:crypto';
+import { resolveClientIp } from '../common/utils/client-ip.util.js';
 
 @ApiTags('Wallet Query')
 @ApiBearerAuth()
@@ -28,8 +29,8 @@ export class WalletQueryController {
     @Ip() clientIp: string,
   ) {
     this.assertGateway(secret);
-    this.resolveRequestIp(req, clientIp);
-    this.assertOwnerOrAdmin(userId, userId, roles);
+    resolveClientIp(this.config, req, clientIp);
+    this.assertOwnerOrAdmin(userId, userId ?? '', roles);
     return buildSuccessResponse(await this.service.getWallet(userId ?? ''), 'Wallet retrieved');
   }
 
@@ -45,8 +46,8 @@ export class WalletQueryController {
     @Ip() clientIp: string,
   ) {
     this.assertGateway(secret);
-    this.resolveRequestIp(req, clientIp);
-    this.assertOwnerOrAdmin(userId, userId, roles);
+    resolveClientIp(this.config, req, clientIp);
+    this.assertOwnerOrAdmin(userId, userId ?? '', roles);
     return buildSuccessResponse(await this.service.getTransactions(userId ?? '', query), 'Wallet transactions retrieved');
   }
 
@@ -62,8 +63,8 @@ export class WalletQueryController {
     @Ip() clientIp: string,
   ) {
     this.assertGateway(secret);
-    this.resolveRequestIp(req, clientIp);
-    this.assertOwnerOrAdmin(userId, userId, roles);
+    resolveClientIp(this.config, req, clientIp);
+    this.assertOwnerOrAdmin(userId, userId ?? '', roles);
     return buildSuccessResponse(await this.service.getTransaction(userId ?? '', transactionId), 'Wallet transaction retrieved');
   }
 
@@ -77,7 +78,7 @@ export class WalletQueryController {
     @Ip() clientIp: string,
   ) {
     this.assertGateway(secret);
-    this.resolveRequestIp(req, clientIp);
+    resolveClientIp(this.config, req, clientIp);
     return buildSuccessResponse(await this.service.getInternalBalance(userId), 'Wallet balance retrieved');
   }
 
@@ -86,21 +87,6 @@ export class WalletQueryController {
     const valid = !!expected && !!secret && secret.length === expected.length &&
       crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(expected));
     if (!valid) throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Request must originate from the trusted API Gateway');
-  }
-
-  private resolveRequestIp(req: Request, clientIp: string): string {
-    // Reuse the same gateway-secret validation contract as resolveClientIp.
-    // The utility currently lives inside auth-service and importing it here
-    // would create a cross-service dependency.
-    const secret = req?.headers?.['x-internal-secret'];
-    const expected = this.config.internalServiceSecret;
-    const trusted = !!expected && typeof secret === 'string' &&
-      secret.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(expected));
-    const forwarded = req?.headers?.['x-forwarded-for'];
-    return trusted && typeof forwarded === 'string' && forwarded.trim()
-      ? forwarded.split(',')[0].trim()
-      : clientIp || req?.socket?.remoteAddress || '127.0.0.1';
   }
 
   private assertOwnerOrAdmin(userId: string | undefined, targetUserId: string, roles: string | undefined): void {

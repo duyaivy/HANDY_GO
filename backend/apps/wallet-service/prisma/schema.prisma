@@ -1,0 +1,133 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/wallet-client"
+}
+
+enum WalletStatus {
+  active
+  frozen
+  closed
+  @@map("wallet_status")
+}
+enum LedgerStatus {
+  pending
+  completed
+  reversed
+  failed
+  @@map("ledger_status")
+}
+enum HoldStatus {
+  active
+  captured
+  released
+  @@map("hold_status")
+}
+enum WithdrawalStatus {
+  requested
+  processing
+  succeeded
+  failed
+  cancelled
+  needs_review
+  @@map("withdrawal_status")
+}
+
+model Wallet {
+  id String @id @default(uuid()) @db.Uuid
+  userId String? @unique @map("user_id") @db.Uuid
+  systemKey String? @unique @map("system_key") @db.VarChar(80)
+  balance BigInt @default(0)
+  reservedBalance BigInt @default(0) @map("reserved_balance")
+  status WalletStatus @default(active)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  transactions WalletTransaction[]
+  holds WalletHold[]
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  walletId String @map("wallet_id") @db.Uuid
+  transferId String? @map("transfer_id") @db.Uuid
+  type String @db.VarChar(40)
+  direction String @db.VarChar(8)
+  amount BigInt
+  status LedgerStatus @default(completed)
+  operationId String? @map("operation_id") @db.VarChar(160)
+  idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(200)
+  referenceId String? @map("reference_id") @db.VarChar(160)
+  description String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  wallet Wallet @relation(fields: [walletId], references: [id])
+  @@index([walletId, createdAt(sort: Desc)])
+  @@index([operationId])
+  @@index([referenceId])
+  @@map("wallet_transactions")
+}
+
+model WalletTransfer {
+  id String @id @default(uuid()) @db.Uuid
+  operationId String @unique @map("operation_id") @db.VarChar(160)
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(200)
+  kind String @db.VarChar(40)
+  totalAmount BigInt @map("total_amount")
+  status LedgerStatus @default(completed)
+  metadata Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@map("wallet_transfers")
+}
+
+model WalletHold {
+  id String @id @default(uuid()) @db.Uuid
+  walletId String @map("wallet_id") @db.Uuid
+  withdrawalId String @unique @map("withdrawal_id") @db.Uuid
+  amount BigInt
+  status HoldStatus @default(active)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  wallet Wallet @relation(fields: [walletId], references: [id])
+  @@index([walletId, status])
+  @@map("wallet_holds")
+}
+
+model Withdrawal {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  walletId String @map("wallet_id") @db.Uuid
+  bankAccountId String @map("bank_account_id") @db.Uuid
+  amount BigInt
+  status WithdrawalStatus @default(requested)
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(200)
+  payoutReference String? @unique @map("payout_reference") @db.VarChar(160)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("withdrawals")
+}
+
+model OutboxEvent {
+  id String @id @default(uuid()) @db.Uuid
+  eventType String @map("event_type") @db.VarChar(120)
+  eventVersion Int @default(1) @map("event_version")
+  payload Json
+  status String @default("pending") @db.VarChar(24)
+  retryCount Int @default(0) @map("retry_count")
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  lastError String? @map("last_error")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+}
+
+model InboxEvent {
+  eventId String @id @map("event_id") @db.VarChar(200)
+  eventType String @map("event_type") @db.VarChar(120)
+  processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+  @@map("inbox_events")
+}
