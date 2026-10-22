@@ -2,6 +2,41 @@ import type { SvgProps } from 'react-native-svg';
 import * as React from 'react';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
+export function EditIcon({ color = '#FFFFFF', size = 16, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M12 20h9" />
+      <Path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </Svg>
+  );
+}
+
+export function PhoneIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.2 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.96.36 1.9.7 2.8a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.84.58 2.8.7a2 2 0 0 1 1.73 2.03Z" />
+    </Svg>
+  );
+}
+
+export function MailIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Rect x="3" y="5" width="18" height="14" rx="2" />
+      <Path d="m3 7 9 6 9-6" />
+    </Svg>
+  );
+}
+
+export function CameraIcon({ color = '#FFFFFF', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
+      <Circle cx="12" cy="13" r="3" />
+    </Svg>
+  );
+}
+
 export function WrenchIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
@@ -104,6 +139,110 @@ export function CheckCircleIcon({ color = '#10B981', size = 24, ...props }: SvgP
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <Circle cx="12" cy="12" r="10" />
       <Path d="m9 12 2 2 4-4" />
+    </Svg>
+  );
+}
+
+export function FlashIcon({ color = '#FBBF24', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+    </Svg>
+  );
+}
+
+export function FlashOffIcon({ color = '#9CA3AF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+      <Path d="m2 2 20 20" />
+    </Svg>
+  );
+}
+
+export function SwitchCameraIcon({ color = '#FFFFFF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M11 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5" />
+      <Path d="M13 5h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-5" />
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="m18 22-3-3 3-3" />
+      <Path d="m6 2 3 3-3 3" />
+    </Svg>
+  );
+}
+
+export function FocusIcon({ color = '#FFFFFF', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <Path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <Path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <Path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+    </Svg>
+  );
+}
+
+export function BellIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <Path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </Svg>
+  );
+}
+
+export function ChevronLeftIcon({ color = '#171717', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="m15 18-6-6 6-6" />
+    </Svg>
+  );
+}
+
+export function HeadsetIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M3 18v-6a9 9 0 0 1 18 0v6" />
+      <Path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" />
+    </Svg>
+  );
+}
+
+export function SwitchIcon({ color = '#FFFFFF', size = 16, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="m16 3 4 4-4 4" />
+      <Path d="M20 7H4" />
+      <Path d="m8 21-4-4 4-4" />
+      <Path d="M4 17h16" />
+    </Svg>
+  );
+}
+
+export function CloseIcon({ color = '#6B7280', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M18 6 6 18M6 6l12 12" />
+    </Svg>
+  );
+}
+
+export function LockIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <Path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </Svg>
+  );
+}
+
+export function BackspaceIcon({ color = '#6B7280', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+      <Path d="m18 9-6 6M12 9l6 6" />
     </Svg>
   );
 }

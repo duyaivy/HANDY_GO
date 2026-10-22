@@ -15,6 +15,7 @@ describe('LoginController', () => {
       refresh: vi.fn().mockResolvedValue({ statusCode: 200 }),
       logout: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Đăng xuất thành công', data: null }),
       getMe: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      changePassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Đổi mật khẩu thành công', data: null }),
     };
 
     configMock = {
@@ -60,5 +61,12 @@ describe('LoginController', () => {
     const user = { accountId: 'acc-123' };
     await controller.getMe(user as any);
     expect(loginFlowMock.getMe).toHaveBeenCalledWith('acc-123');
+  });
+
+  it('should call changePassword on flow service', async () => {
+    const user = { accountId: 'acc-123' };
+    const dto = { oldPassword: 'OldP@ssword123', newPassword: 'NewP@ssword123' };
+    await controller.changePassword(user as any, dto as any);
+    expect(loginFlowMock.changePassword).toHaveBeenCalledWith('acc-123', dto);
   });
 });

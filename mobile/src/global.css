@@ -43,17 +43,32 @@
   --color-neutral-800: #262626;
   --color-neutral-900: #171717;
 
-  /* Primary palette */
-  --color-primary-50: #FFE2CC;
-  --color-primary-100: #FFC499;
-  --color-primary-200: #FFA766;
-  --color-primary-300: #FF984C;
-  --color-primary-400: #FF8933;
-  --color-primary-500: #FF7B1A;
-  --color-primary-600: #FF6C00;
-  --color-primary-700: #E56100;
-  --color-primary-800: #CC5600;
-  --color-primary-900: #B24C00;
+  /* Primary palette (Vàng Hổ Phách / Nghệ Vua Thợ #F5A524) */
+  --color-primary: #F5A524;
+  --color-primary-50: #FFF9EB;
+  --color-primary-100: #FEEEC8;
+  --color-primary-200: #FDDC8E;
+  --color-primary-300: #FCC554;
+  --color-primary-400: #FBAF2B;
+  --color-primary-500: #F5A524;
+  --color-primary-600: #D9820A;
+  --color-primary-700: #B26006;
+  --color-primary-800: #8E4B09;
+  --color-primary-900: #743E0B;
+
+  /* Secondary palette (Xanh Kỹ Thuật #2563EB) */
+  --color-secondary: #2563EB;
+  --color-secondary-50: #EFF6FF;
+  --color-secondary-100: #DBEAFE;
+  --color-secondary-200: #BFDBFE;
+  --color-secondary-300: #93C5FD;
+  --color-secondary-400: #60A5FA;
+  --color-secondary-500: #3B82F6;
+  --color-secondary-600: #2563EB;
+  --color-secondary-700: #1D4ED8;
+  --color-secondary-800: #1E40AF;
+  --color-secondary-900: #1E3A8A;
+
 
   /* Success palette */
   --color-success-50: #F0FDF4;
@@ -91,19 +106,30 @@
   --color-danger-800: #991B1B;
   --color-danger-900: #7F1D1D;
 
-  /* Semantic colors - using primary for main brand color */
+  /* Semantic colors - Vua Thợ Brand & System Tokens */
+  --color-primary: #F5A524;
+  --color-secondary: #2563EB;
   --color-background: #ffffff;
-  --color-foreground: #0a0a0a;
+  --color-surface: #ffffff;
+  --color-surface-foreground: #0a0a0a;
+  --color-text: #0a0a0a;
+  --color-text-primary: #0a0a0a;
+  --color-text-secondary: #737373;
+  --color-border: #e5e5e5;
+  --color-error: #ef4444;
+  --color-error-foreground: #ffffff;
+  --color-success: #22C55E;
+  --color-success-foreground: #ffffff;
 
+  --color-foreground: #0a0a0a;
   --color-card: #ffffff;
   --color-card-foreground: #0a0a0a;
 
   --color-muted: #f5f5f5;
   --color-muted-foreground: #737373;
 
-  --color-border: #e5e5e5;
   --color-input: #e5e5e5;
-  --color-ring: #FF6C00;
+  --color-ring: #F5A524;
 
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
@@ -113,16 +139,20 @@
 @media (prefers-color-scheme: dark) {
   @theme {
     --color-background: #0a0a0a;
-    --color-foreground: #fafafa;
+    --color-surface: #171717;
+    --color-surface-foreground: #fafafa;
+    --color-text: #fafafa;
+    --color-text-primary: #fafafa;
+    --color-text-secondary: #a3a3a3;
+    --color-border: #404040;
+    --color-input: #404040;
 
+    --color-foreground: #fafafa;
     --color-card: #171717;
     --color-card-foreground: #fafafa;
 
     --color-muted: #262626;
     --color-muted-foreground: #a3a3a3;
-
-    --color-border: #404040;
-    --color-input: #404040;
   }
 }
 

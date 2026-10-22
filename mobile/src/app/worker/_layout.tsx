@@ -4,10 +4,12 @@ import { RoleGuard } from '@/lib/auth/role-guard';
 
 export default function WorkerLayout() {
   return (
-    <RoleGuard allowedRoles={['Worker']}>
-      <Stack>
+    <>
+      <RoleGuard allowedRoles={['Worker']} allowGuest />
+      <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/detail" options={{ headerShown: false }} />
       </Stack>
-    </RoleGuard>
+    </>
   );
 }

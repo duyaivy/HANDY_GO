@@ -5,6 +5,7 @@ import type { RegisterResponse } from '../../register/dto/register-response.dto.
 import type { ResendOtpResponse } from '../../otp/dto/otp-responses.dto.js';
 import type {
   AuthSuccessResponse,
+  ChangePasswordResponse,
   ForgotPasswordResponse,
   LogoutResponse,
   MeResponse,
@@ -119,6 +120,15 @@ export class AuthResponseBuilder {
     };
   }
 
+  static buildChangePasswordResponse(
+    message = 'Đổi mật khẩu thành công.',
+  ): ChangePasswordResponse {
+    return {
+      statusCode: HttpStatus.OK,
+      message,
+      data: null,
+    };
+  }
 
   static buildMeResponse(
     account: Pick<Account, 'userId' | 'phone' | 'email' | 'emailVerifiedAt' | 'status' | 'createdAt'>,

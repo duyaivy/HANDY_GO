@@ -1,9 +1,11 @@
 /* eslint-disable max-lines-per-function */
 import { useFocusEffect, useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
+import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
+import { CloseIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
@@ -27,18 +29,34 @@ export function LoginScreen() {
   const [phone, setPhone] = React.useState(params?.phone || '');
   const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
+
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [successMessage, setSuccessMessage] = React.useState<string | null>(
     params?.verified === 'true'
-      ? 'Xác thực tài khoản thành công! Vui lòng nhập mật khẩu để đăng nhập.'
+      ? 'Xác thực tài khoản thành công! Vui lòng tiếp tục.'
       : params?.reset === 'true'
-        ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập bằng mật khẩu mới.'
+        ? 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.'
         : null,
   );
   const [localErrors, setLocalErrors] = React.useState<{
     phone?: string;
     password?: string;
   }>({});
+
+  const [prevParams, setPrevParams] = React.useState({
+    reset: params?.reset,
+    verified: params?.verified,
+  });
+
+  if (params?.reset !== prevParams.reset || params?.verified !== prevParams.verified) {
+    setPrevParams({ reset: params?.reset, verified: params?.verified });
+    if (params?.reset === 'true') {
+      setSuccessMessage('Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
+    }
+    else if (params?.verified === 'true') {
+      setSuccessMessage('Xác thực tài khoản thành công! Vui lòng tiếp tục.');
+    }
+  }
 
   // Auth guard: already logged in users cannot re-enter login screen via back navigation
   React.useEffect(() => {
@@ -50,7 +68,12 @@ export function LoginScreen() {
       const activeMode = useAuthStore.getState().activeMode;
       const dest = getDestinationByRoles(user.roles, activeMode);
       if (dest.type === 'ROUTE') {
-        router.replace(dest.path as any);
+        try {
+          router.replace(dest.path as any);
+        }
+        catch {
+          // Ignore if navigator is transitionary
+        }
       }
     }
   }, [rootNavigationState?.key, isAuthenticated, user, router]);
@@ -91,7 +114,7 @@ export function LoginScreen() {
     return Object.keys(errors).length === 0;
   };
 
-  const handleLogin = async () => {
+  const handleSubmit = async () => {
     if (!validate()) {
       return;
     }
@@ -99,10 +122,12 @@ export function LoginScreen() {
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const cleanPhone = phone.trim();
+
     try {
       const session = await login({
-        phone: phone.trim(),
-        password, // DO NOT TRIM PASSWORD
+        phone: cleanPhone,
+        password,
       });
 
       const currentMode = useAuthStore.getState().activeMode;
@@ -117,46 +142,43 @@ export function LoginScreen() {
     catch (err: any) {
       const code = err?.code;
 
-      if (
-        code === ERROR_CODES.ACCOUNT_PENDING
-        || (err?.statusCode === 403 && (err?.message?.includes('xác thực') || err?.message?.includes('kích hoạt') || err?.message?.includes('chưa')))
-      ) {
-        // Pending account: guide user to continue OTP verification
-        router.push({
-          pathname: RouteNames.AUTH_OTP,
-          params: {
-            phone: phone.trim(),
-            ...(err?.details?.verification?.challengeId ? { challengeId: err.details.verification.challengeId } : {}),
-            ...(err?.details?.verification?.emailMasked ? { emailMasked: err.details.verification.emailMasked } : {}),
-            ...(err?.details?.verification?.resendAvailableAt ? { resendAvailableAt: err.details.verification.resendAvailableAt } : {}),
-          },
-        } as any);
-        return;
-      }
-
       if (code === ERROR_CODES.INVALID_CREDENTIALS) {
         setErrorMessage('Số điện thoại hoặc mật khẩu không chính xác.');
-        return;
       }
-
-      if (code === ERROR_CODES.ACCOUNT_BLOCKED) {
+      else if (code === ERROR_CODES.ACCOUNT_BLOCKED) {
         setErrorMessage('Tài khoản đã bị tạm khóa hoặc ngừng hoạt động. Vui lòng liên hệ bộ phận hỗ trợ.');
-        return;
       }
-
-      if (code === ERROR_CODES.RATE_LIMITED) {
+      else if (code === ERROR_CODES.RATE_LIMITED) {
         const retryAfter = err?.details?.retryAfterSeconds;
         setErrorMessage(
           retryAfter
             ? `Bạn đã thử đăng nhập sai quá số lần cho phép. Vui lòng thử lại sau ${Math.ceil(retryAfter / 60)} phút.`
             : 'Quá nhiều yêu cầu đăng nhập. Vui lòng thử lại sau giây lát.',
         );
-        return;
       }
-
-      setErrorMessage(err?.message || 'Đăng nhập không thành công. Vui lòng thử lại.');
+      else {
+        setErrorMessage(err?.message || 'Đăng nhập không thành công. Vui lòng thử lại.');
+      }
     }
   };
+
+  const handleBack = React.useCallback(() => {
+    if (router.canGoBack ? router.canGoBack() : false) {
+      router.back();
+    }
+    else {
+      const guestRole = useAuthStore.getState().guestRole;
+      if (guestRole === 'Worker') {
+        router.replace(RouteNames.WORKER_HOME as any);
+      }
+      else if (guestRole === 'Customer') {
+        router.replace(RouteNames.CUSTOMER_HOME as any);
+      }
+      else {
+        router.replace(RouteNames.WELCOME as any);
+      }
+    }
+  }, [router]);
 
   return (
     <Screen
@@ -165,119 +187,162 @@ export function LoginScreen() {
       keyboardAware
       bottomOffset={70}
       className="bg-neutral-50 dark:bg-neutral-950"
-      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+      contentContainerStyle={{ flexGrow: 1 }}
     >
-      <View testID="auth-login-screen" className="px-6 py-8">
-        {/* Header / Brand */}
-        <View className="mb-7 items-center">
-          <View className="mb-4 rounded-[30px] bg-primary-50 p-2 dark:bg-neutral-900">
-            <BrandLogo size={92} />
+      <AppBar
+        mode="stack"
+        title="Đăng nhập"
+        onBack={handleBack}
+        testID="login-app-bar"
+      />
+
+      <View testID="auth-login-screen" className="flex-1 justify-between p-6">
+        <View>
+          {/* Header / Brand */}
+          <View className="mb-6 items-center">
+            <View className="mb-3 rounded-3xl bg-amber-50 p-2 dark:bg-neutral-900">
+              <BrandLogo size={84} />
+            </View>
+            <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+              Chào mừng bạn đến với HandyGo
+            </Text>
+            <Text className="mt-2 text-center text-sm text-neutral-500 dark:text-neutral-400">
+              Nhập số điện thoại và mật khẩu để tiếp tục
+            </Text>
           </View>
-          <Text className="text-center text-3xl font-bold tracking-tight text-neutral-900 dark:text-white">
-            Chào mừng trở lại!
-          </Text>
-          <Text className="mt-2 text-center text-sm/5 text-neutral-500 dark:text-neutral-400">
-            Đăng nhập để tiếp tục hành trình cùng HANDY GO
-          </Text>
-        </View>
 
-        {/* Form Card */}
-        <View className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          {successMessage
-            ? (
-                <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
-                  <Text className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    {successMessage}
-                  </Text>
-                </View>
-              )
-            : null}
+          {/* Form Card */}
+          <View className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            {successMessage && (
+              <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
+                <Text className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                  {successMessage}
+                </Text>
+              </View>
+            )}
 
-          {errorMessage
-            ? (
-                <View testID="auth-login-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
-                  <Text className="text-sm font-medium text-red-700 dark:text-red-300">
-                    {errorMessage}
-                  </Text>
-                </View>
-              )
-            : null}
+            {errorMessage && (
+              <View testID="auth-login-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
+                <Text className="text-xs font-medium text-red-700 dark:text-red-300">
+                  {errorMessage}
+                </Text>
+              </View>
+            )}
 
-          <Input
-            testID="login-phone-input"
-            label="Số điện thoại"
-            placeholder="Ví dụ: 0912345678"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={(text) => {
-              setPhone(text);
-              if (localErrors.phone)
-                setLocalErrors(prev => ({ ...prev, phone: undefined }));
-              if (errorMessage)
-                setErrorMessage(null);
-            }}
-            error={localErrors.phone}
-          />
+            {/* Phone Number Field */}
+            <View className="mb-3">
+              <Text className="mb-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                Số điện thoại
+              </Text>
+              <View className="flex-row items-center rounded-2xl border border-neutral-300 bg-neutral-100 px-4 py-1 dark:border-neutral-700 dark:bg-neutral-800">
+                {/* Phone Input */}
+                <TextInput
+                  testID="login-phone-input"
+                  placeholder="0912 345 678"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="phone-pad"
+                  value={phone}
+                  onChangeText={(text) => {
+                    setPhone(text);
+                    if (localErrors.phone) {
+                      setLocalErrors(prev => ({ ...prev, phone: undefined }));
+                    }
+                    if (errorMessage) {
+                      setErrorMessage(null);
+                    }
+                  }}
+                  className="flex-1 py-2.5 text-base font-semibold text-neutral-900 dark:text-white"
+                />
 
-          <View className="mt-3">
-            <Input
-              testID="login-password-input"
-              label="Mật khẩu"
-              placeholder="Nhập mật khẩu"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                if (localErrors.password)
-                  setLocalErrors(prev => ({ ...prev, password: undefined }));
-                if (errorMessage)
-                  setErrorMessage(null);
-              }}
-              error={localErrors.password}
-              rightAccessory={(
+                {/* Clear Button ✕ */}
+                {phone.length > 0 && (
+                  <Pressable
+                    testID="login-clear-phone-btn"
+                    accessibilityRole="button"
+                    accessibilityLabel="Xóa số điện thoại"
+                    onPress={() => {
+                      setPhone('');
+                      if (localErrors.phone) {
+                        setLocalErrors(prev => ({ ...prev, phone: undefined }));
+                      }
+                    }}
+                    className="size-7 items-center justify-center rounded-full bg-neutral-200 active:bg-neutral-300 dark:bg-neutral-700 dark:active:bg-neutral-600"
+                  >
+                    <CloseIcon size={14} color="#6B7280" />
+                  </Pressable>
+                )}
+              </View>
+
+              {localErrors.phone && (
+                <Text testID="login-phone-error" className="mt-1 text-xs font-medium text-red-500">
+                  {localErrors.phone}
+                </Text>
+              )}
+            </View>
+
+            {/* Password Section */}
+            <View className="mt-2">
+              <Input
+                testID="login-password-input"
+                label="Mật khẩu"
+                placeholder="Nhập mật khẩu"
+                secureTextEntry={!showPassword}
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (localErrors.password) {
+                    setLocalErrors(prev => ({ ...prev, password: undefined }));
+                  }
+                  if (errorMessage) {
+                    setErrorMessage(null);
+                  }
+                }}
+                error={localErrors.password}
+                rightAccessory={(
+                  <Pressable
+                    testID="login-toggle-password-btn"
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    className="py-1"
+                  >
+                    <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                      {showPassword ? 'Ẩn' : 'Hiện'}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+
+              <View className="mt-1 items-end">
                 <Pressable
-                  testID="login-toggle-password-btn"
-                  onPress={() => setShowPassword(!showPassword)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  testID="login-forgot-password-btn"
+                  accessibilityRole="button"
+                  onPress={() => router.push(RouteNames.AUTH_FORGOT_PASSWORD as any)}
                   className="py-1"
                 >
-                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                    {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  <Text className="text-xs font-semibold text-primary-700 dark:text-primary-300">
+                    Quên mật khẩu?
                   </Text>
                 </Pressable>
-              )}
-            />
-          </View>
+              </View>
+            </View>
 
-          <View className="mt-1 items-end">
-            <Pressable
-              testID="login-forgot-password-btn"
-              accessibilityRole="button"
-              onPress={() => router.push(RouteNames.AUTH_FORGOT_PASSWORD as any)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              className="py-2"
-            >
-              <Text className="text-sm font-semibold text-primary-700 dark:text-primary-300">
-                Quên mật khẩu?
-              </Text>
-            </Pressable>
-          </View>
-
-          <View className="mt-2">
-            <Button
-              testID="login-submit-button"
-              label="Đăng nhập"
-              variant="default"
-              className="h-12 rounded-xl bg-primary-600"
-              loading={isLoading}
-              disabled={isLoading}
-              onPress={handleLogin}
-            />
+            {/* Submit Button */}
+            <View className="mt-4">
+              <Button
+                testID="login-submit-button"
+                label="Đăng nhập"
+                variant="default"
+                loading={isLoading}
+                disabled={isLoading}
+                className="h-12 rounded-2xl bg-[#F5A524]"
+                onPress={handleSubmit}
+              />
+            </View>
           </View>
         </View>
 
         {/* Footer Actions */}
-        <View className="mt-7 items-center space-y-3">
+        <View className="mt-6 items-center">
           <View className="flex-row items-center justify-center">
             <Text className="text-sm text-neutral-600 dark:text-neutral-400">
               Chưa có tài khoản?

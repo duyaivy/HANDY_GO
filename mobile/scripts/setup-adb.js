@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 const { execSync } = require('node:child_process');
 
-function runCommand(cmd) {
+function runCommand(cmd, timeout = 5000) {
   try {
-    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execSync(cmd, { encoding: 'utf8', timeout, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   }
   catch {
     return null;

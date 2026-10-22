@@ -46,10 +46,17 @@ export class SwaggerSpecsController {
     }
 
     try {
-      const specUrl = new URL('/docs-json', serviceUrl);
-      const response = await fetch(specUrl, {
+      let specUrl = new URL('/docs-json', serviceUrl);
+      let response = await fetch(specUrl, {
         signal: AbortSignal.timeout(5000),
       });
+
+      if (!response.ok) {
+        specUrl = new URL('/openapi.json', serviceUrl);
+        response = await fetch(specUrl, {
+          signal: AbortSignal.timeout(5000),
+        });
+      }
 
       if (!response.ok) {
         return this.buildOfflineSpec(serviceName);
@@ -62,6 +69,13 @@ export class SwaggerSpecsController {
       if (spec.paths && typeof spec.paths === 'object') {
         const pathsObj = spec.paths as Record<string, unknown>;
         delete pathsObj['/health'];
+
+        // Lọc bỏ các legacy endpoints (nếu có) để chuẩn hóa 100% Swagger về /api/v1/...
+        for (const pathKey of Object.keys(pathsObj)) {
+          if (pathKey.startsWith('/api/identity') || pathKey.startsWith('/ocr/')) {
+            delete pathsObj[pathKey];
+          }
+        }
       }
 
       // Chuẩn hóa servers: thay thế bằng "/" để Swagger UI dùng cổng Gateway

@@ -22,12 +22,15 @@ import {
   LoginDto,
   RefreshTokenDto,
   LogoutDto,
+  ChangePasswordDto,
 } from './index.js';
 import {
   AuthSuccessResponseDto,
+  ChangePasswordResponseDto,
   LogoutResponseDto,
   MeResponseDto,
   type AuthSuccessResponse,
+  type ChangePasswordResponse,
   type LogoutResponse,
   type MeResponse,
 } from '../common/dto/auth-responses.dto.js';
@@ -110,5 +113,22 @@ export class LoginController {
   @ApiResponse({ status: 500, description: 'Lỗi máy chủ nội bộ', type: ApiErrorResponseDto })
   async getMe(@CurrentUser() user: AuthenticatedUser): Promise<MeResponse> {
     return this.loginFlow.getMe(user.accountId);
+  }
+
+  @RequirePermissions(StandardPermissions.AUTH_ME)
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Đổi mật khẩu tài khoản đang đăng nhập' })
+  @ApiResponse({ status: 200, description: 'Đổi mật khẩu thành công', type: ChangePasswordResponseDto })
+  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 422, description: 'Mật khẩu hiện tại không chính xác', type: ApiErrorResponseDto })
+  @ApiResponse({ status: 500, description: 'Lỗi máy chủ nội bộ', type: ApiErrorResponseDto })
+  async changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<ChangePasswordResponse> {
+    return this.loginFlow.changePassword(user.accountId, dto);
   }
 }

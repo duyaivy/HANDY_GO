@@ -56,6 +56,10 @@ export function setupSwagger(app: INestApplication): void {
           url: '/docs/specs/user-trust-service',
         },
         {
+          name: 'AI Identity Service',
+          url: '/docs/specs/ai-service',
+        },
+        {
           name: 'Catalog Service',
           url: '/docs/specs/catalog-service',
         },

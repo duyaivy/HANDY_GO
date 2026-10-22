@@ -3,10 +3,22 @@ import path from 'node:path';
 
 function normalizeKeyContent(key: string): string {
   let trimmed = key.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
   if (trimmed.startsWith('base64:')) {
     trimmed = Buffer.from(trimmed.slice(7), 'base64').toString('utf-8').trim();
   } else if (trimmed.includes('\\n')) {
     trimmed = trimmed.replace(/\\n/g, '\n').trim();
+  }
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
   }
   return trimmed;
 }
