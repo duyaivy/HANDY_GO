@@ -147,6 +147,21 @@ export class ResetPasswordResponseDto extends ApiResponseDto<null> {
 
 export type ResetPasswordResponse = ApiResponseEnvelope<null>;
 
+export class ChangePasswordResponseDto extends ApiResponseDto<null> {
+  @ApiProperty({ example: 200 })
+  declare statusCode: number;
+
+  @ApiProperty({
+    example: 'Đổi mật khẩu thành công.',
+  })
+  declare message: string;
+
+  @ApiProperty({ example: null, nullable: true })
+  declare data: null;
+}
+
+export type ChangePasswordResponse = ApiResponseEnvelope<null>;
+
 export class MeResponseDataDto {
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
   id!: string;
@@ -186,4 +201,3 @@ export class MeResponseDto extends ApiResponseDto<MeResponseDataDto> {
 
 export type MeResponseData = MeResponseDataDto;
 export type MeResponse = ApiResponseEnvelope<MeResponseData>;
-

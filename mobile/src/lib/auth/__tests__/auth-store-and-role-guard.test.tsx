@@ -303,4 +303,71 @@ describe('roleGuard', () => {
     expect(screen.queryByText('Customer Only Content')).toBeNull();
     expect(mockReplace).toHaveBeenCalledWith('/worker');
   });
+
+  it('renders content for unauthenticated guest when allowGuest is true and guestRole is allowed', () => {
+    useAuthStore.setState({
+      isAuthenticated: false,
+      user: null,
+      isHydrated: true,
+      guestRole: 'Customer',
+    });
+
+    render(
+      <RoleGuard allowedRoles={['Customer']} allowGuest>
+        <Text>Guest Customer Content</Text>
+      </RoleGuard>,
+    );
+
+    expect(screen.getByText('Guest Customer Content')).toBeOnTheScreen();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('redirects to welcome screen when allowGuest is true but guest has not selected a role', () => {
+    useAuthStore.setState({
+      isAuthenticated: false,
+      user: null,
+      isHydrated: true,
+      guestRole: null,
+    });
+
+    render(
+      <RoleGuard allowedRoles={['Customer']} allowGuest>
+        <Text>Guest Content</Text>
+      </RoleGuard>,
+    );
+
+    expect(screen.queryByText('Guest Content')).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith('/welcome');
+  });
+
+  it('redirects to worker home when guest has Worker role but route is Customer only', () => {
+    useAuthStore.setState({
+      isAuthenticated: false,
+      user: null,
+      isHydrated: true,
+      guestRole: 'Worker',
+    });
+
+    render(
+      <RoleGuard allowedRoles={['Customer']} allowGuest>
+        <Text>Customer Only</Text>
+      </RoleGuard>,
+    );
+
+    expect(screen.queryByText('Customer Only')).toBeNull();
+    expect(mockReplace).toHaveBeenCalledWith('/worker');
+  });
+
+  it('supports setting guest role and switching roles seamlessly in auth store', () => {
+    useAuthStore.setState({ isAuthenticated: false, user: null, guestRole: null });
+
+    useAuthStore.getState().setGuestRole('Customer');
+    expect(useAuthStore.getState().guestRole).toBe('Customer');
+
+    useAuthStore.getState().switchRole();
+    expect(useAuthStore.getState().guestRole).toBe('Worker');
+
+    useAuthStore.getState().switchRole();
+    expect(useAuthStore.getState().guestRole).toBe('Customer');
+  });
 });

@@ -4,24 +4,34 @@
  */
 export const RouteNames = {
   ROOT: '/',
+  WELCOME: '/welcome',
   AUTH_LOGIN: '/(auth)/login',
+
   LOGIN: '/login',
   AUTH_REGISTER: '/(auth)/register',
   REGISTER: '/register',
   AUTH_OTP: '/(auth)/otp',
   OTP: '/otp',
+  AUTH_CREATE_PIN: '/(auth)/create-pin',
+  CREATE_PIN: '/create-pin',
+  AUTH_COMPLETE_PROFILE: '/(auth)/complete-profile',
+  COMPLETE_PROFILE: '/complete-profile',
   AUTH_FORGOT_PASSWORD: '/(auth)/forgot-password',
   AUTH_VERIFY_RESET_OTP: '/(auth)/verify-reset-otp',
   AUTH_RESET_PASSWORD: '/(auth)/reset-password',
+  AUTH_CHANGE_PASSWORD: '/(auth)/change-password',
+  CHANGE_PASSWORD: '/(auth)/change-password',
   CUSTOMER: '/customer',
   CUSTOMER_HOME: '/customer',
   CUSTOMER_ORDERS: '/customer/orders',
-  CUSTOMER_ORDER_DETAIL: (id: string) => `/customer/orders/${id}` as const,
+  CUSTOMER_ACTIVITIES: '/customer/orders',
+  CUSTOMER_NOTIFICATIONS: '/customer/notifications',
   CUSTOMER_PROFILE: '/customer/profile',
   CUSTOMER_PROFILE_DETAIL: '/customer/profile/detail',
   WORKER: '/worker',
   WORKER_HOME: '/worker',
   WORKER_JOBS: '/worker/jobs',
+  WORKER_WALLET: '/worker/wallet',
   WORKER_PROFILE: '/worker/profile',
   WORKER_PROFILE_DETAIL: '/worker/profile/detail',
   ACCOUNT_VERIFICATION_INTRO: '/verification/intro',
@@ -32,4 +42,5 @@ export const RouteNames = {
 
 export type RoutePath
   = | Exclude<typeof RouteNames[keyof typeof RouteNames], (...args: any[]) => any>
-    | ReturnType<typeof RouteNames.CUSTOMER_ORDER_DETAIL>;
+    | ReturnType<typeof RouteNames.CUSTOMER_ORDER_DETAIL>
+    | ReturnType<typeof RouteNames.WORKER_JOB_DETAIL>;

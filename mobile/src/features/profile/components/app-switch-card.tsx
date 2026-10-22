@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
@@ -12,6 +13,7 @@ export type AppSwitchCardProps = {
   roles?: string[];
   workerStatus?: string | null;
   onSwitch?: (targetMode: 'Customer' | 'Worker') => void;
+  onPressSwitchArrow?: () => void;
 };
 
 export function AppSwitchCard({
@@ -19,6 +21,7 @@ export function AppSwitchCard({
   roles = [],
   workerStatus: _workerStatus,
   onSwitch,
+  onPressSwitchArrow,
 }: AppSwitchCardProps) {
   const router = useRouter();
 
@@ -55,9 +58,23 @@ export function AppSwitchCard({
             </Text>
           </View>
         </View>
-        <View className="size-8 items-center justify-center rounded-full bg-white/20">
+        <Pressable
+          testID="switch-to-worker-arrow"
+          accessibilityRole="button"
+          accessibilityLabel="Chuyển sang App Thợ"
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            if (onPressSwitchArrow) {
+              onPressSwitchArrow();
+            }
+            else {
+              router.push(RouteNames.CUSTOMER_SWITCH_TO_WORKER as any);
+            }
+          }}
+          className="size-8 items-center justify-center rounded-full bg-white/20 active:bg-white/30"
+        >
           <ArrowRight color="#FFFFFF" />
-        </View>
+        </Pressable>
       </Pressable>
     );
   }

@@ -1,12 +1,16 @@
+import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { TouchableOpacity, View } from 'react-native';
 import { showMessage } from 'react-native-flash-message';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Image, Text } from '@/components/ui';
+import { RouteNames } from '@/constants/route-names';
 
 const TECH_AVATAR_URI = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
 
 export const NearbyTechnicians = React.memo(() => {
+  const router = useRouter();
+
   const handleCall = React.useCallback(() => {
     showMessage({
       message: 'Gọi thợ',
@@ -16,12 +20,12 @@ export const NearbyTechnicians = React.memo(() => {
   }, []);
 
   const handleAiAssistant = React.useCallback(() => {
-    showMessage({
-      message: 'Trợ lý AI',
-      description: 'Trợ lý AI đang hỗ trợ kết nối!',
-      type: 'info',
-    });
-  }, []);
+    router.push(RouteNames.CUSTOMER_ASK_ME as any);
+  }, [router]);
+
+  const handleWorkerProfile = React.useCallback(() => {
+    router.push(RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any);
+  }, [router]);
 
   return (
     <View className="gap-3">
@@ -45,7 +49,13 @@ export const NearbyTechnicians = React.memo(() => {
       </View>
 
       {/* Technician Card */}
-      <View className="flex-row items-center gap-2.5 rounded-2xl bg-white p-3 shadow-sm">
+      <TouchableOpacity
+        testID="nearby-technician-card"
+        className="flex-row items-center gap-2.5 rounded-2xl bg-white p-3 shadow-sm active:opacity-90"
+        onPress={handleWorkerProfile}
+        accessibilityRole="button"
+        accessibilityLabel="Hồ sơ thợ Hoàng Văn Minh"
+      >
         <View className="relative">
           <Image
             source={{ uri: TECH_AVATAR_URI }}
@@ -73,15 +83,22 @@ export const NearbyTechnicians = React.memo(() => {
         <View className="items-end gap-1.5">
           <TouchableOpacity
             className="rounded-full bg-orange-100 px-3.5 py-1.5 active:opacity-80"
-            onPress={handleCall}
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              handleCall();
+            }}
             accessibilityRole="button"
             accessibilityLabel="Gọi thợ"
           >
             <Text className="text-xs font-bold text-orange-600">Gọi</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            testID="nearby-ai-assistant-btn"
             className="flex-row items-center gap-1 rounded-full bg-primary-600 px-2.5 py-1.5 active:opacity-85"
-            onPress={handleAiAssistant}
+            onPress={(e) => {
+              e?.stopPropagation?.();
+              handleAiAssistant();
+            }}
             accessibilityRole="button"
             accessibilityLabel="Trợ lý AI"
           >
@@ -97,7 +114,7 @@ export const NearbyTechnicians = React.memo(() => {
             <Text className="text-[11px] font-bold text-white">Trợ lý AI</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 });

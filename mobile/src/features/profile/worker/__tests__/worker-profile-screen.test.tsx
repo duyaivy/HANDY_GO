@@ -132,7 +132,7 @@ describe('workerProfileScreen', () => {
 
     const switchBtn = await screen.findByTestId('switch-to-customer-btn');
     expect(switchBtn).toBeOnTheScreen();
-    expect(screen.getByText('Chuyển sang App Khách')).toBeOnTheScreen();
+    expect(screen.getAllByText('Chuyển sang App Khách').length).toBeGreaterThanOrEqual(1);
     expect(await screen.findByText('Đã xác minh')).toBeOnTheScreen();
 
     // Press switch button
@@ -213,5 +213,93 @@ describe('workerProfileScreen', () => {
     await waitFor(() => {
       expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
     });
+  });
+
+  it('renders change password button next to logout button', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    expect(screen.getByTestId('worker-change-password-btn')).toBeOnTheScreen();
+    expect(screen.getByText('Đổi mật khẩu')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-logout-btn')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('worker-change-password-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/change-password');
+  });
+
+  it('navigates to HANDY_GO balance screen when balance card is pressed', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    const balanceCard = screen.getByTestId('profile-balance-card');
+    expect(balanceCard).toBeOnTheScreen();
+    expect(screen.getByText('HANDY_GO balance')).toBeOnTheScreen();
+
+    fireEvent.press(balanceCard);
+    expect(mockPush).toHaveBeenCalledWith('/worker/balance');
+  });
+
+  it('navigates to Professional skills screen when skills item is pressed', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    const skillsItem = screen.getByTestId('profile-skills-item');
+    expect(skillsItem).toBeOnTheScreen();
+    expect(screen.getByText('Professional skills')).toBeOnTheScreen();
+
+    fireEvent.press(skillsItem);
+    expect(mockPush).toHaveBeenCalledWith('/worker/skills');
+  });
+
+  it('navigates to Setting screen when setting item is pressed', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    const settingItem = screen.getByTestId('profile-setting-item');
+    expect(settingItem).toBeOnTheScreen();
+    expect(screen.getByText('Setting')).toBeOnTheScreen();
+
+    fireEvent.press(settingItem);
+    expect(mockPush).toHaveBeenCalledWith('/worker/settings');
   });
 });

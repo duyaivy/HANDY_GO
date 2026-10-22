@@ -20,6 +20,8 @@ export type ProfileHeaderCardProps = {
   error?: string | null;
   onRetry?: () => void;
   onSwitch?: (targetMode: 'Customer' | 'Worker') => void;
+  onPressUserCard?: () => void;
+  onPressSwitchArrow?: () => void;
 };
 
 export function ProfileHeaderCard({
@@ -32,8 +34,12 @@ export function ProfileHeaderCard({
   error,
   onRetry,
   onSwitch,
+  onPressUserCard,
+  onPressSwitchArrow,
 }: ProfileHeaderCardProps) {
-  const displayName = fullName || (phone ? `Tài khoản ${phone}` : 'Người dùng');
+  const isGuest = !fullName && !phone && roles.length === 0;
+  const displayName = fullName || (phone ? `Tài khoản ${phone}` : (isGuest ? 'Khách vãng lai' : 'Người dùng'));
+  const displayPhone = phone || (isGuest ? 'Chưa đăng nhập' : 'Chưa cập nhật SĐT');
   const isWorkerMode = mode === 'Worker';
   const router = useRouter();
 

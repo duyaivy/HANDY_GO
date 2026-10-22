@@ -1,6 +1,8 @@
+/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { RouteNames } from '@/constants/route-names';
@@ -30,13 +32,32 @@ export function CustomerProfileScreen() {
     }
   };
 
+  const handleSwitchToWorker = () => {
+    const { isAuthenticated, user: currentUser } = useAuthStore.getState();
+    if (isAuthenticated && currentUser) {
+      useAuthStore.getState().setActiveMode('Worker');
+    }
+    else {
+      useAuthStore.getState().setGuestRole('Worker');
+    }
+    router.replace(RouteNames.WORKER_HOME as any);
+  };
+
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+      <AppBar
+        mode="stack"
+        hideBackButton
+        title="Tài khoản cá nhân"
+        subtitle="Account"
+        testID="profile-app-bar"
+      />
+
       <View testID="profile-customer-screen" className="flex-1 p-6">
         {/* Profile Header & Mode Switcher */}
         <ProfileHeaderCard
           mode="Customer"
-          fullName={profile?.fullName}
+          fullName={profile?.fullName || (user as any)?.fullName}
           avatarUrl={profile?.avatarUrl}
           phone={user?.phone}
           roles={user?.roles}
@@ -44,6 +65,9 @@ export function CustomerProfileScreen() {
           isLoading={isProfileLoading}
           error={profileError}
           onRetry={refetchProfile}
+          onSwitch={handleSwitchToWorker}
+          onPressUserCard={() => router.push(RouteNames.CUSTOMER_PROFILE_DETAIL as any)}
+          onPressSwitchArrow={() => router.push(RouteNames.CUSTOMER_SWITCH_TO_WORKER as any)}
         />
 
         {/* Logout Action */}

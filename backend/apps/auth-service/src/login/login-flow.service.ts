@@ -5,8 +5,10 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { LogoutDto } from './dto/logout.dto.js';
+import { ChangePasswordDto } from './dto/change-password.dto.js';
 import type {
   AuthSuccessResponse,
+  ChangePasswordResponse,
   LogoutResponse,
   MeResponse,
 } from '../common/dto/auth-responses.dto.js';
@@ -217,6 +219,68 @@ export class LoginFlowService {
       this.sessionService.extractRolesAndPermissions(account);
 
     return AuthResponseBuilder.buildMeResponse(account, roleNames, permissions);
+  }
+
+  async changePassword(
+    accountId: string,
+    dto: ChangePasswordDto,
+  ): Promise<ChangePasswordResponse> {
+    const account = await this.db.account.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!account) {
+      throw new AppException(
+        HttpStatus.UNAUTHORIZED,
+        ERROR_CODES.UNAUTHORIZED,
+        'Tài khoản không tồn tại',
+      );
+    }
+
+    if (['suspended', 'locked', 'deleted'].includes(account.status)) {
+      throw new AppException(
+        HttpStatus.FORBIDDEN,
+        ERROR_CODES.ACCOUNT_LOCKED,
+        'Tài khoản đang bị khóa hoặc vô hiệu hóa',
+      );
+    }
+
+    const isOldPasswordValid = await bcrypt.compare(
+      dto.oldPassword,
+      account.passwordHash,
+    );
+    if (!isOldPasswordValid) {
+      throw new AppException(
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        ERROR_CODES.INVALID_CREDENTIALS,
+        'Mật khẩu hiện tại không chính xác',
+      );
+    }
+
+    if (dto.newPassword === dto.oldPassword) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ERROR_CODES.VALIDATION_ERROR,
+        'Mật khẩu mới không được trùng với mật khẩu cũ',
+      );
+    }
+
+    const newPasswordHash = await bcrypt.hash(dto.newPassword, 10);
+    const now = new Date();
+
+    await this.db.$transaction(async (tx) => {
+      await tx.account.update({
+        where: { id: accountId },
+        data: {
+          passwordHash: newPasswordHash,
+          passwordChangedAt: now,
+        },
+      });
+
+      await this.sessionService.revokeAllSessions(accountId, tx);
+    });
+
+    return AuthResponseBuilder.buildChangePasswordResponse();
   }
 }
 

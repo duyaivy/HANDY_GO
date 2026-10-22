@@ -8,10 +8,10 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { withUniwind } from 'uniwind';
 import { ErrorState, LoadingState } from '@/components/ui';
+import { RouteNames } from '@/constants/route-names';
 import { useCategories } from '@/features/catalog/hooks/use-categories';
 import { useServices } from '@/features/catalog/hooks/use-services';
 import {
@@ -135,15 +135,12 @@ export function CategoryScreen() {
     setDebouncedQuery('');
   }, []);
 
-  const handleServiceSelect = React.useCallback((_serviceId: string, service: ServiceResponseDto) => {
-    showMessage({
-      message: `${service.name}`,
-      description: 'Tính năng đặt thợ sẽ sớm ra mắt!',
-      type: 'info',
-      icon: 'info',
-      duration: 2500,
-    });
-  }, []);
+  const handleServiceSelect = React.useCallback((serviceId: string, service: ServiceResponseDto) => {
+    router.push({
+      pathname: RouteNames.CUSTOMER_BOOKING,
+      params: { serviceId: serviceId || service?.id, serviceName: service?.name },
+    } as any);
+  }, [router]);
 
   const renderItem = React.useCallback(
     ({ item }: { item: CategoryWithServices }) => (
