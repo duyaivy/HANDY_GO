@@ -27,7 +27,7 @@ export const RouteNames = {
   CUSTOMER_ACTIVITIES: '/customer/orders',
   CUSTOMER_NOTIFICATIONS: '/customer/notifications',
   CUSTOMER_PROFILE: '/customer/profile',
-  CUSTOMER_PROFILE_DETAIL: '/customer/profile/detail',
+  CUSTOMER_PROFILE_DETAIL: '/customer/profile-detail',
   CUSTOMER_PAYMENT: '/customer/payment',
   CUSTOMER_PAYMENT_LINK_ACCOUNT: '/customer/payment/link-account',
   CUSTOMER_PAYMENT_TRANSACTION_HISTORY: '/customer/payment/transaction-history',

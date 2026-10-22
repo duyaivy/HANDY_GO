@@ -44,27 +44,29 @@ export function ProfileHeaderCard({
   const router = useRouter();
 
   const handleProfileDetail = () => {
-    if (onPressUserCard) {
-      onPressUserCard();
-      return;
-    }
     const profileDetailRoute = isWorkerMode
       ? RouteNames.WORKER_PROFILE_DETAIL
-      : RouteNames.CUSTOMER_PROFILE_DETAIL;
+      : '/customer/profile/detail';
     router.push(profileDetailRoute as any);
   };
 
   return (
-    <Pressable
-      testID="profile-header-card-pressable"
-      accessibilityRole="button"
-      accessibilityLabel="Thông tin hồ sơ"
-      onPress={handleProfileDetail}
-      className="mb-4 w-full"
-    >
-      <View testID="profile-header-card" className="w-full">
-        {/* Profile Info Container */}
-        <View className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+    <View testID="profile-header-card" className="w-full">
+      {/* Profile Info Container */}
+      <Pressable
+        testID="profile-header-card-pressable"
+        accessibilityRole="button"
+        accessibilityLabel="Thông tin hồ sơ"
+        onPress={handleProfileDetail}
+        className="mb-4 w-full"
+      >
+        <Pressable
+          testID="profile-user-card"
+          accessibilityRole="button"
+          accessibilityLabel="Xem chi tiết hồ sơ cá nhân"
+          onPress={onPressUserCard || handleProfileDetail}
+          className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
+        >
           <View className="h-[50px] flex-row items-center">
             {/* Avatar Area */}
             <View className="mr-4">
@@ -214,17 +216,17 @@ export function ProfileHeaderCard({
                 </View>
               )
             : null}
-        </View>
+        </Pressable>
+      </Pressable>
 
-        {/* Switch Mode Card */}
-        <AppSwitchCard
-          currentMode={mode}
-          roles={roles}
-          workerStatus={workerStatus}
-          onSwitch={onSwitch}
-          onPressSwitchArrow={onPressSwitchArrow}
-        />
-      </View>
-    </Pressable>
+      {/* Switch Mode Card */}
+      <AppSwitchCard
+        currentMode={mode}
+        roles={roles}
+        workerStatus={workerStatus}
+        onSwitch={onSwitch}
+        onPressSwitchArrow={onPressSwitchArrow}
+      />
+    </View>
   );
 }
