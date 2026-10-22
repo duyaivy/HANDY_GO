@@ -38,8 +38,4 @@ services:
 
 volumes:
   ai-face-models:
-    name: handy-go-backend_ai-service-face-models
-    external: true
   ai-ocr-models:
-    name: handy-go-backend_ai-service-ocr-models
-    external: true
