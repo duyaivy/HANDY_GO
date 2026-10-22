@@ -17,16 +17,13 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'user-trust-service',
     envKey: 'USER_TRUST_SERVICE_URL',
-    prefixes: ['/api/v1/users'],
+    prefixes: ['/api/v1/users', '/api/v1/admin/kyc-cases'],
   },
   {
     upstreamName: 'ai-service',
     envKey: 'AI_SERVICE_URL',
     prefixes: [
-      '/api/v1/identity',
-      '/api/v1/admin/identity',
       '/api/v1/ocr',
-      '/api/identity',
       '/ocr',
     ],
     timeoutEnvKey: 'AI_SERVICE_TIMEOUT_MS',

@@ -7,7 +7,6 @@ import {
   Logger,
   Param,
   Patch,
-  Post,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
@@ -26,8 +25,6 @@ import {
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
-
-import { SubmitKycDto } from './dto/submit-kyc.dto.js';
 
 @ApiTags('User & Trust')
 @Controller()
@@ -132,33 +129,6 @@ export class UserTrustServiceController {
       dto,
       user.permissions,
     );
-  }
-
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @RequirePermissions(StandardPermissions.PROFILE_READ)
-  @Get('users/me/kyc')
-  @HttpCode(HttpStatus.OK)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Lấy trạng thái xác minh KYC hiện tại của tài khoản' })
-  @ApiResponse({ status: 200, description: 'Lấy trạng thái KYC thành công' })
-  async getMyKycStatus(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<unknown> {
-    return this.userTrustService.getMyKycStatus(user.userId);
-  }
-
-  @UseGuards(JwtAuthGuard, PermissionsGuard)
-  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
-  @Post('users/me/kyc')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Gửi hồ sơ xác minh KYC (Worker nộp giấy tờ)' })
-  @ApiResponse({ status: 201, description: 'Hồ sơ KYC đã được tiếp nhận' })
-  async submitMyKyc(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: SubmitKycDto,
-  ): Promise<unknown> {
-    return this.userTrustService.submitKyc(user.userId, dto);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

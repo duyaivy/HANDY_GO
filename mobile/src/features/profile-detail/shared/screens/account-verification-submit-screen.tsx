@@ -68,27 +68,21 @@ function useSubmitKyc(idFront?: string, selfie?: string) {
     }
 
     setIsSubmitting(true);
-    setStatusMessage('Đang gửi hồ sơ xác minh...');
+    setStatusMessage('Đang chuẩn bị gửi hồ sơ...');
     try {
-      // 1. Đưa ảnh vào hàng đợi AI verification
-      const response = await IdentityApi.verify({ idFrontUri: idFront, selfieUri: selfie });
-      const jobId = response.data?.jobId;
+      // 1. Gửi hồ sơ KYC qua Backend (User Trust Service tiếp nhận, lưu CSDL và đưa job vào RabbitMQ)
+      const response = await IdentityApi.submitKycVerification({
+        idFrontUri: idFront,
+        selfieUri: selfie,
+        onProgress: (msg) => setStatusMessage(msg),
+      });
 
+      const jobId = response.data?.jobId;
       if (!jobId) {
         throw new Error('Hệ thống chưa tạo được mã tiến trình xác minh.');
       }
 
-      // 2. Lưu trực tiếp trạng thái pending_kyc vào PostgreSQL CSDL của User-Trust-Service
-      try {
-        await ApiClient.post('/users/me/kyc', {
-          idDocumentType: 'CCCD',
-        });
-      }
-      catch (err) {
-        console.warn('Lỗi ghi nhận KYC vào CSDL:', err);
-      }
-
-      // 3. Cập nhật trạng thái 'pending_kyc' (Đang chờ xác minh) vào React Query cache
+      // 2. Cập nhật trạng thái 'pending_kyc' (Đang chờ xác minh) vào React Query cache
       if (user?.id) {
         queryClient.setQueryData(['user-profile', user.id], (old: any) => {
           if (!old) {
@@ -123,7 +117,7 @@ function useSubmitKyc(idFront?: string, selfie?: string) {
 
       Alert.alert(
         'Gửi hồ sơ thành công',
-        'Hồ sơ của bạn đã được gửi vào hàng đợi xử lý ngầm và chuyển sang trạng thái chờ duyệt (Pending).',
+        'Hồ sơ của bạn đã được tiếp nhận và đưa vào hàng đợi phân tích AI. Kết quả sẽ được chuyển sang trạng thái chờ admin xem xét.',
       );
     }
     catch (error) {

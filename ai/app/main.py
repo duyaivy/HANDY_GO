@@ -5,9 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.domains.identity.api import (
-    admin_identity,
     health,
-    identity,
+    internal_identity,
     ocr,
 )
 from app.domains.identity.core.config import settings
@@ -20,26 +19,24 @@ from app.domains.identity.utils.file_utils import ensure_storage_dirs
 
 def create_app() -> FastAPI:
     """
-    Khởi tạo và cấu hình ứng dụng FastAPI.
+    Khởi tạo và cấu hình ứng dụng FastAPI cho AI Inference Service.
     """
 
     ensure_storage_dirs()
 
     application = FastAPI(
-        title="HANDY GO — AI Identity Service",
+        title="HANDY GO — AI Identity Inference Service",
         version=settings.app_version,
         debug=settings.debug,
         description=(
-            "AI Service xử lý định danh CCCD gồm Card Detection, OCR và "
-            "Face Verification.\n\n"
-            "Tất cả các API được chuẩn hóa dạng /api/v1/..."
+            "AI Service cung cấp API inference trích xuất OCR CCCD và so khớp khuôn mặt.\n\n"
+            "Nghiệp vụ xác minh và quản lý trạng thái KYC được quản lý tập trung tại Backend."
         ),
         openapi_url="/docs-json",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_tags=[
-            {"name": "Identity", "description": "Endpoints xác minh CCCD và khuôn mặt người dùng"},
-            {"name": "Identity Admin", "description": "Endpoints quản trị viên duyệt kết quả định danh"},
+            {"name": "Internal Identity", "description": "Endpoints inference nội bộ cho Backend Worker"},
             {"name": "OCR", "description": "Endpoints OCR trích xuất thông tin thẻ"},
             {"name": "Health", "description": "Health check service"},
         ],
@@ -56,13 +53,11 @@ def create_app() -> FastAPI:
     # Health router
     application.include_router(health.router)
 
-    # Versioned API routers (api/v1/...)
-    application.include_router(identity.router)
-    application.include_router(admin_identity.router)
-    application.include_router(ocr.router)
+    # Internal inference router (cho Backend KYC Worker)
+    application.include_router(internal_identity.router)
 
-    # Legacy routers (for backward compatibility)
-    application.include_router(identity.legacy_router)
+    # Versioned OCR router
+    application.include_router(ocr.router)
     application.include_router(ocr.legacy_router)
 
     @application.get("/openapi.json", include_in_schema=False)
@@ -88,3 +83,4 @@ if __name__ == "__main__":
         port=settings.ai_service_port,
         reload=settings.debug,
     )
+

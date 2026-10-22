@@ -9,6 +9,7 @@ export const EVENT_PATTERNS = {
   KYC_REVIEWING: 'kyc.reviewing',
   KYC_COMPLETED: 'kyc.completed',
   KYC_FAILED: 'kyc.failed',
+  KYC_JOB_PROCESS: 'kyc.job.process',
 
   ORDER_CREATED: 'order.created',
   ORDER_ACCEPTED: 'order.accepted',

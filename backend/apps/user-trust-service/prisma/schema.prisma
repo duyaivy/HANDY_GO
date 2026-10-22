@@ -151,26 +151,81 @@ model WorkerServiceOffering {
   @@map("worker_service_offerings")
 }
 
+enum AiJobStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("ai_job_status")
+}
+
 model KycCase {
-  id               String        @id @db.Uuid
-  workerProfileId  String        @map("worker_profile_id") @db.Uuid
-  idDocumentType   String        @map("id_document_type") @db.VarChar(50)
-  idNumberMasked   String?       @map("id_number_masked") @db.VarChar(100)
-  documentFrontRef String        @map("document_front_ref")
-  documentBackRef  String?       @map("document_back_ref")
-  selfieRef        String        @map("selfie_ref")
-  status           KycStatus     @default(draft)
-  aiSimilarityScore Decimal?     @map("ai_similarity_score") @db.Decimal(5, 4)
-  reviewedByUserId String?       @map("reviewed_by_user_id") @db.Uuid
-  reviewNote       String?       @map("review_note")
-  submittedAt      DateTime?     @map("submitted_at") @db.Timestamp(6)
-  reviewedAt       DateTime?     @map("reviewed_at") @db.Timestamp(6)
-  createdAt        DateTime      @map("created_at") @db.Timestamp(6)
-  updatedAt        DateTime      @map("updated_at") @db.Timestamp(6)
-  workerProfile    WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  reviewer         User?         @relation("KycReviewer", fields: [reviewedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id               String              @id @db.Uuid
+  workerProfileId  String              @map("worker_profile_id") @db.Uuid
+  idDocumentType   String              @map("id_document_type") @db.VarChar(50)
+  idNumberMasked   String?             @map("id_number_masked") @db.VarChar(100)
+  documentFrontRef String              @map("document_front_ref")
+  documentBackRef  String?             @map("document_back_ref")
+  selfieRef        String              @map("selfie_ref")
+  status           KycStatus           @default(draft)
+  version          Int                 @default(1)
+  idempotencyKey   String?             @map("idempotency_key") @db.VarChar(128)
+  activeJobId      String?             @map("active_job_id") @db.Uuid
+  aiSimilarityScore Decimal?           @map("ai_similarity_score") @db.Decimal(5, 4)
+  rawOcrData       Json?               @map("raw_ocr_data")
+  aiResult         Json?               @map("ai_result")
+  reviewedByUserId String?             @map("reviewed_by_user_id") @db.Uuid
+  reviewNote       String?             @map("review_note")
+  submittedAt      DateTime?           @map("submitted_at") @db.Timestamp(6)
+  reviewedAt       DateTime?           @map("reviewed_at") @db.Timestamp(6)
+  createdAt        DateTime            @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime            @map("updated_at") @db.Timestamp(6)
+  workerProfile    WorkerProfile       @relation(fields: [workerProfileId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewer         User?               @relation("KycReviewer", fields: [reviewedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  jobs             AiAnalysisJob[]
+  reviewHistories  KycReviewHistory[]
 
   @@map("kyc_cases")
+}
+
+model AiAnalysisJob {
+  id              String       @id @db.Uuid
+  kycCaseId       String       @map("kyc_case_id") @db.Uuid
+  workerProfileId String       @map("worker_profile_id") @db.Uuid
+  status          AiJobStatus  @default(pending)
+  retryCount      Int          @default(0) @map("retry_count")
+  maxRetries      Int          @default(3) @map("max_retries")
+  idempotencyKey  String?      @unique @map("idempotency_key") @db.VarChar(128)
+  failureReason   String?      @map("failure_reason")
+  aiResult        Json?        @map("ai_result")
+  startedAt       DateTime?    @map("started_at") @db.Timestamp(6)
+  completedAt     DateTime?    @map("completed_at") @db.Timestamp(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  kycCase         KycCase      @relation(fields: [kycCaseId], references: [id], onDelete: Cascade)
+
+  @@index([kycCaseId])
+  @@index([status])
+  @@map("ai_analysis_jobs")
+}
+
+model KycReviewHistory {
+  id                String    @id @db.Uuid
+  kycCaseId         String    @map("kyc_case_id") @db.Uuid
+  action            String    @db.VarChar(50)
+  fromStatus        String?   @map("from_status") @db.VarChar(50)
+  toStatus          String    @map("to_status") @db.VarChar(50)
+  performedByUserId String?   @map("performed_by_user_id") @db.Uuid
+  note              String?
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamp(6)
+
+  kycCase           KycCase   @relation(fields: [kycCaseId], references: [id], onDelete: Cascade)
+
+  @@index([kycCaseId])
+  @@map("kyc_review_histories")
 }
 
 model WorkerReview {
@@ -243,3 +298,21 @@ model EventInbox {
 
   @@map("event_inbox")
 }
+
+// Operational table: retained for durable transactional event publication.
+model OutboxEvent {
+  id           String    @id @default(uuid())
+  eventType    String
+  eventVersion Int       @default(1)
+  payload      Json
+  status       String    @default("pending")
+  retryCount   Int       @default(0)
+  lastError    String?
+  nextRetryAt  DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  publishedAt  DateTime?
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+}
+

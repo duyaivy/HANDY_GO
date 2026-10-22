@@ -1,51 +1,76 @@
 import { ApiClient } from '@/services/api/api-client';
 
-export type IdentityJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
+export type KycJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-export type IdentityJobError = {
-  message: string;
-  code?: string;
-  similarity?: number;
-  [key: string]: unknown;
+export type KycWorkerStatus = 'draft' | 'pending_kyc' | 'under_review' | 'verified' | 'rejected' | 'suspended';
+
+export type KycSubmitPayload = {
+  idFrontUri: string;
+  selfieUri: string;
+  idDocumentType?: string;
+  idNumber?: string;
+  idempotencyKey?: string;
+  onProgress?: (step: string) => void;
 };
 
-export type IdentityVerificationJobResponse = {
-  success: boolean;
+export type KycSubmitResponse = {
+  statusCode: number;
   message: string;
+  data: {
+    kycCaseId: string;
+    jobId: string;
+    status: string;
+    createdAt: string;
+  };
+};
+
+export type KycJobStatusResponse = {
+  statusCode: number;
   data: {
     jobId: string;
-    status: IdentityJobStatus;
-    statusUrl?: string;
-  };
-};
-
-export type IdentityJobStatusResponse = {
-  success: boolean;
-  data: {
-    job_id: string;
-    user_id: string;
-    status: IdentityJobStatus;
-    result_id?: string;
-    error?: IdentityJobError | null;
-    result?: {
-      id: string;
-      user_id: string;
-      ocr: Record<string, unknown>;
-      face_verification: {
-        selfie_image: string;
-        cropfromCCCD: string;
-        status: 'match' | 'review' | 'not_match';
-        is_match: boolean;
-        needs_review: boolean;
+    kycCaseId: string;
+    status: KycJobStatus;
+    retryCount: number;
+    failureReason?: string | null;
+    aiResult?: {
+      ocr?: Record<string, unknown>;
+      faceVerification?: {
+        isMatch: boolean;
         similarity: number;
+        status: string;
+        needsReview: boolean;
+        message?: string;
       };
-    };
-    created_at?: string;
-    updated_at?: string;
+    } | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    createdAt: string;
   };
 };
 
-export type IdentityVerificationResponse = IdentityVerificationJobResponse;
+export type KycStatusResponse = {
+  statusCode: number;
+  data: {
+    workerStatus: KycWorkerStatus;
+    latestKycCase: {
+      id: string;
+      status: string;
+      idDocumentType: string;
+      documentFrontRef: string;
+      selfieRef: string;
+      aiSimilarityScore?: number | null;
+      reviewNote?: string | null;
+      submittedAt?: string | null;
+      reviewedAt?: string | null;
+    } | null;
+    activeJob: {
+      id: string;
+      status: KycJobStatus;
+      retryCount: number;
+      failureReason?: string | null;
+    } | null;
+  };
+};
 
 function imageFile(uri: string, name: string): Blob {
   const extension = uri.match(/\.([a-z0-9]+)(?:[?#]|$)/i)?.[1]?.toLowerCase();
@@ -57,40 +82,90 @@ function imageFile(uri: string, name: string): Blob {
   } as unknown as Blob;
 }
 
+/**
+ * Tải ảnh CCCD / selfie lên BE storage qua API Gateway (/api/v1/uploads/image)
+ */
+async function uploadImageToStorage(uri: string, fieldName: string): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', imageFile(uri, fieldName));
+
+  const response = await ApiClient.post<{
+    statusCode: number;
+    message: string;
+    data: { url: string };
+  }>('/uploads/image', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+
+  if (!response?.data?.url) {
+    throw new Error(`Tải ảnh ${fieldName} lên máy chủ thất bại.`);
+  }
+
+  return response.data.url;
+}
+
 export const IdentityApi = {
   /**
-   * Submit CCCD and selfie images to AI async verification queue.
-   * Non-blocking, returns HTTP 202 with jobId.
+   * Nộp hồ sơ KYC mới tới Backend (User Trust Service).
+   * Tải ảnh lên BE Storage, tạo KycCase và AiAnalysisJob rồi trả về 202 Accepted.
    */
-  verify: async (payload: { idFrontUri: string; selfieUri: string }): Promise<IdentityVerificationJobResponse> => {
-    const formData = new FormData();
-    formData.append('cccd_image', imageFile(payload.idFrontUri, 'cccd'));
-    formData.append('selfie_image', imageFile(payload.selfieUri, 'selfie'));
+  submitKycVerification: async (payload: KycSubmitPayload): Promise<KycSubmitResponse> => {
+    payload.onProgress?.('Đang tải ảnh CCCD lên máy chủ...');
+    const documentFrontRef = await uploadImageToStorage(payload.idFrontUri, 'cccd');
 
-    return ApiClient.post<IdentityVerificationJobResponse>(
-      '/identity/verify',
-      formData,
+    payload.onProgress?.('Đang tải ảnh khuôn mặt selfie...');
+    const selfieRef = await uploadImageToStorage(payload.selfieUri, 'selfie');
+
+    payload.onProgress?.('Đang gửi hồ sơ xác minh vào hàng đợi...');
+    const idempotencyKey =
+      payload.idempotencyKey || `kyc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+    return ApiClient.post<KycSubmitResponse>(
+      '/users/me/kyc',
       {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        idDocumentType: payload.idDocumentType || 'CCCD',
+        idNumber: payload.idNumber,
+        documentFrontRef,
+        selfieRef,
+        idempotencyKey,
+      },
+      {
+        headers: {
+          'Idempotency-Key': idempotencyKey,
+        },
       },
     );
   },
 
   /**
-   * Check status of verification job in Redis queue.
+   * Alias tương thích ngược cho submitKycVerification
    */
-  getJobStatus: async (jobId: string): Promise<IdentityJobStatusResponse> => {
-    return ApiClient.get<IdentityJobStatusResponse>(`/identity/jobs/${jobId}`);
+  verify: async (payload: { idFrontUri: string; selfieUri: string }): Promise<KycSubmitResponse> => {
+    return IdentityApi.submitKycVerification(payload);
   },
 
   /**
-   * Poll verification job until completed or failed.
+   * Lấy trạng thái xác minh KYC hiện tại của tài khoản (GET /api/v1/users/me/kyc)
+   */
+  getKycStatus: async (): Promise<KycStatusResponse> => {
+    return ApiClient.get<KycStatusResponse>('/users/me/kyc');
+  },
+
+  /**
+   * Kiểm tra tiến độ xử lý công việc AI (GET /api/v1/users/me/kyc/jobs/:jobId)
+   */
+  getJobStatus: async (jobId: string): Promise<KycJobStatusResponse> => {
+    return ApiClient.get<KycJobStatusResponse>(`/users/me/kyc/jobs/${jobId}`);
+  },
+
+  /**
+   * Polling kiểm tra trạng thái job xác minh AI cho đến khi hoàn thành hoặc thất bại
    */
   pollJob: async (
     jobId: string,
-    onProgress?: (status: IdentityJobStatus) => void,
+    onProgress?: (status: KycJobStatus) => void,
     options?: { maxAttempts?: number; intervalMs?: number },
-  ): Promise<IdentityJobStatusResponse['data']> => {
+  ): Promise<KycJobStatusResponse['data']> => {
     const maxAttempts = options?.maxAttempts ?? 40;
     const intervalMs = options?.intervalMs ?? 2000;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -105,3 +180,4 @@ export const IdentityApi = {
     throw new Error('Hết thời gian chờ xử lý kết quả xác minh từ AI. Vui lòng thử lại sau.');
   },
 };
+

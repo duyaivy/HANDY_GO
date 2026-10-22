@@ -11,18 +11,24 @@ import ssl
 
 class IdentityJobStore:
     def __init__(self) -> None:
-        url = settings.effective_redis_url or os.getenv("AI_REDIS_URL") or os.getenv("REDIS_URL")
-        if not url:
-            raise RuntimeError("REDIS_URL hoặc AI_REDIS_URL chưa được cấu hình.")
-        kwargs = {
-            "decode_responses": True,
-            "socket_connect_timeout": 5,
-            "socket_timeout": 5,
-            "health_check_interval": 30,
-        }
-        if url.startswith("rediss://"):
-            kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
-        self.client = redis.Redis.from_url(url, **kwargs)
+        self._client: redis.Redis | None = None
+
+    @property
+    def client(self) -> redis.Redis:
+        if self._client is None:
+            url = settings.effective_redis_url or os.getenv("AI_REDIS_URL") or os.getenv("REDIS_URL")
+            if not url:
+                raise RuntimeError("REDIS_URL hoặc AI_REDIS_URL chưa được cấu hình.")
+            kwargs = {
+                "decode_responses": True,
+                "socket_connect_timeout": 5,
+                "socket_timeout": 5,
+                "health_check_interval": 30,
+            }
+            if url.startswith("rediss://"):
+                kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
+            self._client = redis.Redis.from_url(url, **kwargs)
+        return self._client
     def _key(self, job_id: str) -> str:
         if not re.fullmatch(r"[a-f0-9]{32}", job_id):
             raise ValueError("job_id không hợp lệ.")
