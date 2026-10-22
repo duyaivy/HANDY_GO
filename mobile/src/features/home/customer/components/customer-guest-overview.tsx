@@ -280,7 +280,7 @@ export function CustomerGuestOverview() {
       </ScrollView>
 
       {/* ── STICKY BOTTOM BUTTON ── */}
-      <View className="absolute right-0 bottom-0 left-0 border-t border-neutral-100 bg-white/95 p-4 shadow-lg backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95">
+      <View className="absolute inset-x-0 bottom-0 border-t border-neutral-100 bg-white/95 p-4 shadow-lg backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95">
         <Pressable
           testID="customer-guest-cta-bottom"
           onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}

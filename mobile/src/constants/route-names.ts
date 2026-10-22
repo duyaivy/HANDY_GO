@@ -57,6 +57,7 @@ export const RouteNames = {
   WORKER_JOBS: '/worker/jobs',
   WORKER_WALLET: '/worker/wallet',
   WORKER_PROFILE: '/worker/profile',
+  WORKER_PROFILE_DETAIL: '/worker/profile/detail',
   WORKER_JOB_DETAIL: (id: string) => `/worker/jobs/${id}` as const,
   WORKER_JOB_COMPLETE: (id: string) => `/worker/jobs/${id}/complete` as const,
   WORKER_WALLET_DEPOSIT: '/worker/wallet/deposit',
@@ -71,6 +72,10 @@ export const RouteNames = {
   WORKER_PROFESSIONAL_SKILLS: '/worker/skills',
   WORKER_SETTINGS: '/worker/settings',
   WORKER_SETTING: '/worker/settings',
+  ACCOUNT_VERIFICATION_INTRO: '/verification/intro',
+  ACCOUNT_VERIFICATION_ID_FRONT: '/verification/id-front',
+  ACCOUNT_VERIFICATION_SELFIE: '/verification/selfie',
+  ACCOUNT_VERIFICATION_SUBMIT: '/verification/submit',
 } as const;
 
 export type RoutePath

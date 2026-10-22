@@ -54,7 +54,8 @@ export default function CustomerTabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Tài khoản',
+          title: 'Hồ sơ',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <UserIcon color={color} size={size} />,
         }}
       />

@@ -28,7 +28,18 @@ describe('UserTrustServiceService', () => {
         upsert: vi.fn(),
       },
       workerProfile: {
+        findUnique: vi.fn(),
         upsert: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      kycCase: {
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        count: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
       },
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
@@ -405,6 +416,248 @@ describe('UserTrustServiceService', () => {
           [StandardPermissions.PROFILE_UPDATE],
         ),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('KYC Lifecycle and Database Persistence', () => {
+    describe('submitKyc', () => {
+      it('should set workerProfile to pending_kyc and create kycCase with status submitted', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-001', status: 'draft' });
+        dbMock.workerProfile.update.mockResolvedValue({ id: 'wp-001', status: 'pending_kyc' });
+        dbMock.kycCase.create.mockResolvedValue({
+          id: 'kyc-001',
+          workerProfileId: 'wp-001',
+          status: 'submitted',
+        });
+
+        const res: any = await service.submitKyc('user-001', {
+          idDocumentType: 'CCCD',
+          idNumber: '012345678901',
+          documentFrontRef: 'https://cloudinary.com/front.jpg',
+          selfieRef: 'https://cloudinary.com/selfie.jpg',
+        });
+
+        expect(res.statusCode).toBe(201);
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'pending_kyc' }),
+          }),
+        );
+        expect(dbMock.kycCase.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'submitted',
+              idDocumentType: 'CCCD',
+              idNumberMasked: '012******901',
+              documentFrontRef: 'https://cloudinary.com/front.jpg',
+              selfieRef: 'https://cloudinary.com/selfie.jpg',
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('handleKycPending', () => {
+      it('should transition workerProfile to pending_kyc and record draft kycCase', async () => {
+        dbMock.eventInbox.findUnique.mockResolvedValue(null);
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-001', status: 'draft' });
+        dbMock.workerProfile.update.mockResolvedValue({ id: 'wp-001', status: 'pending_kyc' });
+        dbMock.kycCase.findFirst.mockResolvedValue(null);
+        dbMock.kycCase.create.mockResolvedValue({ id: 'kyc-001', status: 'draft' });
+
+        const result = await service.handleKycPending({
+          eventId: 'evt-pend-1',
+          producer: 'ai-service',
+          data: { userId: 'user-001', jobId: 'job-1' },
+        } as any);
+
+        expect(result.processed).toBe(true);
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'pending_kyc' }),
+          }),
+        );
+        expect(dbMock.kycCase.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'draft' }),
+          }),
+        );
+      });
+    });
+
+    describe('handleKycSubmitted', () => {
+      it('should transition workerProfile to under_review and kycCase to reviewing with OCR and similarity score', async () => {
+        dbMock.eventInbox.findUnique.mockResolvedValue(null);
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-001', status: 'pending_kyc' });
+        dbMock.workerProfile.update.mockResolvedValue({ id: 'wp-001', status: 'under_review' });
+        dbMock.kycCase.findFirst.mockResolvedValue({
+          id: 'kyc-001',
+          workerProfileId: 'wp-001',
+          status: 'submitted',
+          documentFrontRef: '',
+          selfieRef: '',
+        });
+        dbMock.kycCase.update.mockResolvedValue({
+          id: 'kyc-001',
+          status: 'reviewing',
+        });
+
+        const result = await service.handleKycSubmitted({
+          eventId: 'evt-sub-1',
+          producer: 'ai-service',
+          data: {
+            userId: 'user-001',
+            ocr: { id: '079201001234' },
+            faceVerification: {
+              similarity: 0.92,
+              cropfromCCCD: 'https://cloudinary.com/crop.jpg',
+              selfie_image: 'https://cloudinary.com/selfie.jpg',
+            },
+          },
+        } as any);
+
+        expect(result.processed).toBe(true);
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'under_review' }),
+          }),
+        );
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'kyc-001' },
+            data: expect.objectContaining({
+              status: 'reviewing',
+              idNumberMasked: '079******234',
+              documentFrontRef: 'https://cloudinary.com/crop.jpg',
+              selfieRef: 'https://cloudinary.com/selfie.jpg',
+              aiSimilarityScore: 0.92,
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('handleKycFailed', () => {
+      it('should transition workerProfile to rejected and update kycCase to rejected with reason', async () => {
+        dbMock.eventInbox.findUnique.mockResolvedValue(null);
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-001', status: 'under_review' });
+        dbMock.workerProfile.update.mockResolvedValue({ id: 'wp-001', status: 'rejected' });
+        dbMock.kycCase.findFirst.mockResolvedValue({
+          id: 'kyc-001',
+          status: 'reviewing',
+        });
+        dbMock.kycCase.update.mockResolvedValue({ id: 'kyc-001', status: 'rejected' });
+
+        const result = await service.handleKycFailed({
+          eventId: 'evt-fail-1',
+          producer: 'ai-service',
+          data: {
+            userId: 'user-001',
+            reason: 'Khuôn mặt không khớp với ảnh trên thẻ CCCD.',
+            similarity: 0.35,
+          },
+        } as any);
+
+        expect(result.processed).toBe(true);
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ status: 'rejected' }),
+          }),
+        );
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'rejected',
+              reviewNote: 'Khuôn mặt không khớp với ảnh trên thẻ CCCD.',
+              aiSimilarityScore: 0.35,
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('reviewKycCase', () => {
+      it('should approve kycCase and set workerProfile to verified with timestamps', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: 'kyc-001',
+          workerProfileId: 'wp-001',
+          status: 'reviewing',
+        });
+        dbMock.kycCase.update.mockResolvedValue({
+          id: 'kyc-001',
+          status: 'approved',
+        });
+        dbMock.workerProfile.update.mockResolvedValue({
+          id: 'wp-001',
+          status: 'verified',
+        });
+
+        const res = await service.reviewKycCase(
+          'admin-001',
+          'kyc-001',
+          'approved',
+          'Hồ sơ hợp lệ',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'approved',
+              reviewedByUserId: 'admin-001',
+              reviewNote: 'Hồ sơ hợp lệ',
+            }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'verified',
+            }),
+          }),
+        );
+      });
+
+      it('should reject kycCase and set workerProfile to rejected', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: 'kyc-001',
+          workerProfileId: 'wp-001',
+          status: 'reviewing',
+        });
+        dbMock.kycCase.update.mockResolvedValue({
+          id: 'kyc-001',
+          status: 'rejected',
+        });
+        dbMock.workerProfile.update.mockResolvedValue({
+          id: 'wp-001',
+          status: 'rejected',
+        });
+
+        const res = await service.reviewKycCase(
+          'admin-001',
+          'kyc-001',
+          'rejected',
+          'Ảnh mờ, không đọc được số CCCD',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'rejected',
+              reviewedByUserId: 'admin-001',
+              reviewNote: 'Ảnh mờ, không đọc được số CCCD',
+            }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'rejected',
+            }),
+          }),
+        );
+      });
     });
   });
 });

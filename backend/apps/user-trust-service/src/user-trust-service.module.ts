@@ -7,6 +7,7 @@ import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { UserTrustDatabaseModule } from '@app/database';
 import { AuthModule } from '@app/auth';
+import { KycModule } from './kyc/kyc.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AuthModule } from '@app/auth';
     RabbitMQModule,
     UserTrustDatabaseModule,
     AuthModule,
+    KycModule,
   ],
   controllers: [UserTrustServiceController],
   providers: [UserTrustServiceService],

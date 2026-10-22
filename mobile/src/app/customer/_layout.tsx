@@ -9,6 +9,7 @@ export default function CustomerLayout() {
       <RoleGuard allowedRoles={['Customer']} allowGuest />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile/detail" options={{ headerShown: false }} />
         <Stack.Screen
           name="orders/[id]"
           options={{

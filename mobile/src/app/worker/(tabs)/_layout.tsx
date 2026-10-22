@@ -55,6 +55,7 @@ export default function WorkerTabsLayout() {
         name="profile"
         options={{
           title: 'Hồ sơ',
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <UserIcon color={color} size={size} />,
         }}
       />

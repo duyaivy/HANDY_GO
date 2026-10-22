@@ -84,6 +84,10 @@ describe('workerProfileScreen', () => {
     expect(screen.getByText('App Thợ')).toBeOnTheScreen();
     expect(screen.getByText('Chưa xác minh')).toBeOnTheScreen();
     expect(screen.getByTestId('profile-avatar-fallback')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('profile-header-card-pressable'));
+
+    expect(mockPush).toHaveBeenCalledWith('/worker/profile/detail');
   });
 
   it('renders switch button to Customer app when account has both roles', async () => {

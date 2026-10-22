@@ -145,4 +145,171 @@ export class UserTrustServiceController {
   ): Promise<unknown> {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
   }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.pending' (when verification is queued).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_PENDING)
+  async handleKycPending(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycPending(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.pending event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.submitted' (when AI verification succeeds).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_SUBMITTED)
+  async handleKycSubmitted(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycSubmitted(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.submitted event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.reviewing' (when AI verification finishes and awaits admin review).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_REVIEWING)
+  async handleKycReviewing(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycReviewing(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.reviewing event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.completed' (when Admin approves verification).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_COMPLETED)
+  async handleKycCompleted(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycCompleted(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.completed event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'kyc.failed' (when AI verification fails or rejected).
+   */
+  @EventPattern(EVENT_PATTERNS.KYC_FAILED)
+  async handleKycFailed(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleKycFailed(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle kyc.failed event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
 }
+
+

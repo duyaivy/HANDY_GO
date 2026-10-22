@@ -5,22 +5,17 @@ x-app: &app
   pull_policy: never
   init: true
   restart: unless-stopped
+  mem_limit: 350m
+  mem_reservation: 100m
   working_dir: /app
   command:
     - sh
     - -c
-    - >-
-      exec pnpm exec nodemon
-      --watch "apps/$$NEST_PROJECT"
-      --watch libs
-      --watch nest-cli.json
-      --watch tsconfig.json
-      --ext ts,json
-      --delay 300ms
-      --exec "pnpm exec nest start $$NEST_PROJECT"
+    - "exec node --enable-source-maps /app/dist/apps/$$NEST_PROJECT/main.js"
   volumes:
     - ./apps:/app/apps
     - ./libs:/app/libs
+    - ./dist:/app/dist
     - ./nest-cli.json:/app/nest-cli.json:ro
     - ./tsconfig.json:/app/tsconfig.json:ro
     - ./tsconfig.build.json:/app/tsconfig.build.json:ro
@@ -31,11 +26,7 @@ x-app: &app
       - node
       - -e
       - >-
-        const http=require('node:http');
-        const request=http.get({host:'127.0.0.1',port:process.env.PORT,path:'/health'},
-        response=>process.exit(response.statusCode===200?0:1));
-        request.on('error',()=>process.exit(1));
-        request.setTimeout(2000,()=>{request.destroy();process.exit(1)});
+        const http=require('node:http'); const request=http.get({host:'127.0.0.1',port:process.env.PORT,path:'/health'}, response=>process.exit(response.statusCode===200?0:1)); request.on('error',()=>process.exit(1)); request.setTimeout(2000,()=>{request.destroy();process.exit(1)});
     interval: 5s
     timeout: 3s
     retries: 20
@@ -43,6 +34,7 @@ x-app: &app
 
 x-development-environment: &development-environment
   NODE_ENV: development
+  NODE_OPTIONS: '--max-old-space-size=256'
   LOG_LEVEL: debug
   API_PREFIX: api/v1
   CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
@@ -79,6 +71,8 @@ services:
       UPSTREAM_TIMEOUT_MS: '15000'
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004
       BIDDING_SERVICE_URL: http://bidding-service:3005
@@ -87,6 +81,8 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3008
       WALLET_SERVICE_URL: http://wallet-service:3009
       TRACKING_SERVICE_URL: http://tracking-service:3010
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '3000:3000'
     depends_on:
@@ -94,6 +90,7 @@ services:
         condition: service_healthy
       user-trust-service:
         condition: service_healthy
+
 
   auth-service:
     <<: *app
@@ -117,6 +114,7 @@ services:
     volumes:
       - ./apps:/app/apps
       - ./libs:/app/libs
+      - ./dist:/app/dist
       - ./nest-cli.json:/app/nest-cli.json:ro
       - ./tsconfig.json:/app/tsconfig.json:ro
       - ./tsconfig.build.json:/app/tsconfig.build.json:ro
@@ -130,6 +128,10 @@ services:
       NEST_PROJECT: user-trust-service
       PORT: '3002'
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
+      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '3002:3002'
 

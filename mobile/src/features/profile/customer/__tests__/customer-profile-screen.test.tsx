@@ -79,6 +79,10 @@ describe('customerProfileScreen', () => {
     expect(screen.getByTestId('profile-phone')).toHaveTextContent('0912345678');
     expect(screen.getByText('App Khách')).toBeOnTheScreen();
     expect(screen.getByTestId('profile-avatar-fallback')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('profile-header-card-pressable'));
+
+    expect(mockPush).toHaveBeenCalledWith('/customer/profile/detail');
   });
 
   it('renders switch button to Worker app when account has both roles', async () => {
