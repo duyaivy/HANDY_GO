@@ -24,6 +24,18 @@ export class PreferencesRepository {
     return new Set(rows.map(({ userId }) => userId));
   }
 
+  async findPushOptOuts(
+    tx: Prisma.TransactionClient,
+    userIds: string[],
+  ): Promise<Set<string>> {
+    const rows = await tx.notificationPreference.findMany({
+      where: { userId: { in: userIds }, pushEnabled: false },
+      select: { userId: true },
+    });
+    return new Set(rows.map(({ userId }) => userId));
+  }
+
+
   find(userId: string) {
     return this.db.notificationPreference.findUnique({
       where: { userId },

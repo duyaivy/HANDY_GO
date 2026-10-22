@@ -5,6 +5,7 @@ import { NotificationsModule } from './notifications/index.js';
 import { PreferencesModule } from './preferences/index.js';
 import { HealthModule } from './health/health.module.js';
 import { EventsModule } from './events/index.js';
+import { PushModule } from './push/index.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { EventsModule } from './events/index.js';
     NotificationsModule,
     HealthModule,
     EventsModule,
+    PushModule,
   ],
 })
 export class NotificationServiceModule {}

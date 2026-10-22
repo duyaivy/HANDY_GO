@@ -182,6 +182,27 @@ pnpm run lint
 | `assertEventTopology`, `eventTransportOptions` | `apps/notification-service/src/events/event-topology.ts` | Reuses shared topic exchange configuration; dedicated quorum consumer/retry/DLQ queues with bounded prefetch and reliable dead lettering. `await assertEventTopology(channel, options)`. |
 | `EventConsumerService`, `transferEvent` | `apps/notification-service/src/events/event-consumer.service.ts` | Manual acknowledgement after commit or confirmed mandatory retry/DLQ transfer; safe channel-close redelivery and structured diagnostics. Nest lifecycle starts the consumer; `transferEvent(channel, queue, message, headers)`. |
 
+### 4.5. Notification Service Phase 3 (FCM Push Notification)
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `PushModule` | `apps/notification-service/src/push/push.module.ts` | Push notification feature module encapsulating provider, worker, job queue repository, and policy resolver. Import in `NotificationServiceModule`. |
+| `PushProvider`<br>`FirebasePushProvider` | `apps/notification-service/src/push/firebase-push.provider.ts`<br>`apps/notification-service/src/push/push-provider.ts` | **Firebase Admin SDK Push Provider.** Implements FCM HTTP v1 batch messaging (`sendEach`) up to 500 messages, handles credential resolution (`cert` / `applicationDefault`), fail-fast checks, and graceful shutdown. |
+| `PushJobRepository` | `apps/notification-service/src/push/push-job.repository.ts` | **PostgreSQL Durable Job Queue Repository.** Atomic worker claiming via `SELECT ... FOR UPDATE SKIP LOCKED`, lease timeout abandoned job recovery, exponential backoff with jitter retry scheduling, and atomic transaction-level job creation. `pushJobs.claimPendingJobs(batchSize)`. |
+| `PushWorkerService` | `apps/notification-service/src/push/push-worker.service.ts` | **In-Process Push Worker.** Periodic polling loop (default 3s), batch processing, retries with exponential backoff, and automatic device token deactivation on invalid token responses. Non-overlapping execution with graceful shutdown. |
+| `PushErrorClassifier` | `apps/notification-service/src/push/push-error-classifier.ts` | **FCM Error Classifier.** Classifies FCM error codes into transient/retryable (`messaging/unavailable`, timeouts), permanent token deactivation (`messaging/registration-token-not-registered`), and terminal config errors. Sanitizes and bounds error messages. |
+| `PushPayloadBuilder` | `apps/notification-service/src/push/push-payload.builder.ts` | **FCM Payload Builder.** Whitelists safe business metadata (`notificationId`, `eventType`, `entityId`, etc.), strips FCM reserved keys, converts all data attributes to strings, and truncates body to respect 4096-byte boundary. |
+| `PushPolicyResolver` | `apps/notification-service/src/push/push-policy.resolver.ts` | **Push Eligibility Policy Evaluator.** Safe default-disabled event policy resolver with mandatory vs optional modes, explicit JSON opt-in (`PUSH_EVENT_POLICIES`), and simulated testing support (`PUSH_SIMULATED_POLICIES`). |
+
+### 4.6. Admin Broadcast & User Trust RPC
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `AdminGuard` | `apps/notification-service/src/common/admin.guard.ts` | **Admin Role Guard.** Verifies `x-user-roles` gateway header includes `Role.ADMIN` (case-insensitive). `@UseGuards(AdminGuard)` on administrative routes. |
+| `UserTrustRpcClient` | `apps/notification-service/src/common/rpc/user-trust-rpc.client.ts` | **User & Trust RPC Client.** Fetches active user IDs via RabbitMQ RPC (`user.get-all-active-ids`). `userTrustClient.getAllActiveUserIds(targetGroup)`. |
+| `getAllActiveUserIds` | `apps/user-trust-service/src/user-trust-service.controller.ts`<br>`apps/user-trust-service/src/user-trust-service.service.ts` | **Active User IDs RPC Provider.** Microservice message pattern `user.get-all-active-ids` querying active users filtered by target group (`ALL`, `CUSTOMERS`, `WORKERS`). |
+| `AdminBroadcastNotificationDto`<br>`BroadcastResponseDto` | `apps/notification-service/src/notifications/dto/broadcast-notification.dto.ts` | **Broadcast DTOs.** Validates title, body, category, targetGroup, optional recipientUserIds, and sendPush flag. |
+
 ## 5. Feature Blueprint & Implementation Template
 
 When creating a new business feature, agents must replicate this pattern:

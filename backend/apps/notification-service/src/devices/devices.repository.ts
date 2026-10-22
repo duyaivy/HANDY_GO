@@ -71,4 +71,39 @@ export class DevicesRepository {
       data: { isActive: false },
     });
   }
+
+  deactivateById(id: string) {
+    return this.db.deviceToken.updateMany({
+      where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  deactivateByPushToken(pushToken: string) {
+    return this.db.deviceToken.updateMany({
+      where: { pushToken },
+      data: { isActive: false },
+    });
+  }
+
+  findActiveByUserIds(
+    userIds: string[],
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? this.db;
+    return client.deviceToken.findMany({
+      where: {
+        userId: { in: userIds },
+        isActive: true,
+      },
+      select: {
+        id: true,
+        userId: true,
+        platform: true,
+        pushToken: true,
+        deviceId: true,
+      },
+    });
+  }
 }
+

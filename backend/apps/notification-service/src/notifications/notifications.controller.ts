@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -17,14 +19,17 @@ import {
 } from '@nestjs/swagger';
 import { ApiErrorResponseDto, buildSuccessResponse } from '@app/common';
 import { TrustedGatewayGuard } from '../common/trusted-gateway.guard.js';
+import { AdminGuard } from '../common/admin.guard.js';
 import { GatewayUserId } from '../common/gateway-user-id.decorator.js';
 import { NotificationsService } from './notifications.service.js';
 import { ListNotificationsDto } from './dto/list-notifications.dto.js';
+import { AdminBroadcastNotificationDto } from './dto/broadcast-notification.dto.js';
 import {
   NotificationListDtoEnvelope,
   NotificationResponseDtoEnvelope,
   UnreadCountDtoEnvelope,
   ReadAllDtoEnvelope,
+  BroadcastResponseDtoEnvelope,
 } from './dto/notifications-response.dto.js';
 
 @ApiTags('Notifications')
@@ -126,6 +131,35 @@ export class NotificationsController {
     return buildSuccessResponse(
       await this.service.markRead(userId, id),
       'Notification marked as read',
+    );
+  }
+
+  @Post('admin/broadcast')
+  @UseGuards(AdminGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Admin phát thông báo in-app đến toàn bộ hoặc nhóm người dùng',
+    description:
+      'Tạo thông báo in-app hàng loạt cho toàn bộ người dùng active hoặc nhóm mục tiêu (Customers/Workers), tôn trọng cài đặt nhận thông báo của người dùng. Yêu cầu quyền Admin.',
+  })
+  @ApiResponse({
+    status: 201,
+    type: BroadcastResponseDtoEnvelope,
+    description: 'Phát thông báo thành công',
+  })
+  @ApiResponse({
+    status: 403,
+    type: ApiErrorResponseDto,
+    description: 'Chỉ quản trị viên mới có quyền thực hiện thao tác này',
+  })
+  async broadcast(
+    @GatewayUserId() adminUserId: string,
+    @Body() dto: AdminBroadcastNotificationDto,
+  ) {
+    return buildSuccessResponse(
+      await this.service.broadcast(adminUserId, dto),
+      'Phát thông báo thành công',
+      HttpStatus.CREATED,
     );
   }
 }

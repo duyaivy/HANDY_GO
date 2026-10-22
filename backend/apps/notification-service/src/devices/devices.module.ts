@@ -6,6 +6,6 @@ import { DevicesRepository } from './devices.repository.js';
 @Module({
   controllers: [DevicesController],
   providers: [DevicesService, DevicesRepository],
-  exports: [DevicesService],
+  exports: [DevicesService, DevicesRepository],
 })
 export class DevicesModule {}

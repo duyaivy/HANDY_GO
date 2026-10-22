@@ -10,9 +10,32 @@ describe('NotificationsService', () => {
     findOne: vi.fn(),
     markRead: vi.fn(),
     markAllRead: vi.fn(),
+    createInAppBatch: vi.fn(),
   };
+  const preferences = {
+    findInAppOptOuts: vi.fn(),
+    findPushOptOuts: vi.fn(),
+  };
+  const userTrustClient = {
+    getAllActiveUserIds: vi.fn(),
+  };
+  const db = {
+    $transaction: vi.fn((cb) => cb(db)),
+  };
+  const pushJobs = {
+    schedulePushAttempts: vi.fn(),
+  };
+  const devices = {
+    findActiveByUserIds: vi.fn(),
+  };
+
   const service = new NotificationsService(
     repository as unknown as NotificationsRepository,
+    preferences as any,
+    userTrustClient as any,
+    db as any,
+    pushJobs as any,
+    devices as any,
   );
   const userId = randomUUID();
   beforeEach(() => vi.resetAllMocks());
@@ -87,5 +110,105 @@ describe('NotificationsService', () => {
     expect(await service.markAllRead(userId)).toEqual({ updatedCount: 4 });
     expect(await service.markAllRead(userId)).toEqual({ updatedCount: 0 });
     expect(repository.markAllRead).toHaveBeenCalledWith(userId);
+  });
+
+  describe('broadcast', () => {
+    const adminId = randomUUID();
+    const user1 = randomUUID();
+    const user2 = randomUUID();
+    const user3 = randomUUID();
+
+    it('broadcasts to all active users from userTrustClient when recipientUserIds is omitted', async () => {
+      userTrustClient.getAllActiveUserIds.mockResolvedValue([user1, user2, user3]);
+      preferences.findInAppOptOuts.mockResolvedValue(new Set([user3])); // user3 opted out
+      repository.createInAppBatch.mockResolvedValue(2);
+
+      const result = await service.broadcast(adminId, {
+        title: 'Bảo trì hệ thống',
+        body: 'Thông báo bảo trì từ 2h-4h',
+      });
+
+      expect(userTrustClient.getAllActiveUserIds).toHaveBeenCalledWith(undefined);
+      expect(preferences.findInAppOptOuts).toHaveBeenCalledWith(db, [user1, user2, user3]);
+      expect(repository.createInAppBatch).toHaveBeenCalledTimes(1);
+
+      const createdRows = repository.createInAppBatch.mock.calls[0][1];
+      expect(createdRows).toHaveLength(2);
+      expect(createdRows.map((r: any) => r.recipientUserId)).toEqual([user1, user2]);
+      expect(createdRows[0].title).toBe('Bảo trì hệ thống');
+      expect(createdRows[0].category).toBe('system');
+      expect(createdRows[0].eventType).toBe('admin.broadcast');
+
+      expect(result).toMatchObject({
+        targetCount: 3,
+        inAppCount: 2,
+        pushJobCount: 0,
+        skippedCount: 1,
+      });
+      expect(result.broadcastId).toBeDefined();
+    });
+
+    it('uses recipientUserIds directly without calling userTrustClient', async () => {
+      preferences.findInAppOptOuts.mockResolvedValue(new Set());
+      repository.createInAppBatch.mockResolvedValue(2);
+
+      const result = await service.broadcast(adminId, {
+        title: 'Chào mừng thành viên',
+        body: 'Nội dung chào mừng',
+        recipientUserIds: [user1, user2, user1], // with duplicates
+      });
+
+      expect(userTrustClient.getAllActiveUserIds).not.toHaveBeenCalled();
+      expect(preferences.findInAppOptOuts).toHaveBeenCalledWith(db, [user1, user2]);
+      expect(result).toMatchObject({
+        targetCount: 2,
+        inAppCount: 2,
+        skippedCount: 0,
+      });
+    });
+
+    it('returns 0s immediately when resolved user list is empty', async () => {
+      userTrustClient.getAllActiveUserIds.mockResolvedValue([]);
+
+      const result = await service.broadcast(adminId, {
+        title: 'Tin nhắn',
+        body: 'Nội dung',
+      });
+
+      expect(result).toMatchObject({
+        targetCount: 0,
+        inAppCount: 0,
+        pushJobCount: 0,
+        skippedCount: 0,
+      });
+      expect(repository.createInAppBatch).not.toHaveBeenCalled();
+    });
+
+    it('schedules push attempts when sendPush is true and active devices exist', async () => {
+      userTrustClient.getAllActiveUserIds.mockResolvedValue([user1]);
+      preferences.findInAppOptOuts.mockResolvedValue(new Set());
+      preferences.findPushOptOuts.mockResolvedValue(new Set());
+      repository.createInAppBatch.mockResolvedValue(1);
+      devices.findActiveByUserIds.mockResolvedValue([
+        { id: 'dev-1', userId: user1 },
+      ]);
+      pushJobs.schedulePushAttempts.mockResolvedValue(1);
+
+      const result = await service.broadcast(adminId, {
+        title: 'Khuyến mãi đặc biệt',
+        body: 'Giảm giá 50%',
+        sendPush: true,
+      });
+
+      expect(preferences.findPushOptOuts).toHaveBeenCalledWith(db, [user1]);
+      expect(devices.findActiveByUserIds).toHaveBeenCalledWith([user1], db);
+      expect(pushJobs.schedulePushAttempts).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({
+        targetCount: 1,
+        inAppCount: 1,
+        pushJobCount: 1,
+        skippedCount: 0,
+      });
+    });
   });
 });

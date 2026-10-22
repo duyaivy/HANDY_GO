@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { ApiResponseDto } from '@app/common';
+import { BroadcastResponseDto } from './broadcast-notification.dto.js';
 
 export class NotificationResponseDto {
   @ApiProperty({ format: 'uuid' })
@@ -74,4 +75,9 @@ export class ReadAllDto {
 export class ReadAllDtoEnvelope extends ApiResponseDto<ReadAllDto> {
   @ApiProperty({ type: ReadAllDto })
   declare data: ReadAllDto;
+}
+
+export class BroadcastResponseDtoEnvelope extends ApiResponseDto<BroadcastResponseDto> {
+  @ApiProperty({ type: BroadcastResponseDto })
+  declare data: BroadcastResponseDto;
 }

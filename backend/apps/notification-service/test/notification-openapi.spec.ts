@@ -34,7 +34,7 @@ describe('Notification public OpenAPI contract', () => {
       const operations = Object.values(document.paths).flatMap((path) =>
         Object.values(path),
       );
-      expect(operations).toHaveLength(9);
+      expect(operations).toHaveLength(10);
       for (const operation of operations) {
         expect(operation.security).toEqual([{ bearer: [] }]);
         expect(
@@ -44,6 +44,9 @@ describe('Notification public OpenAPI contract', () => {
           ) ?? [],
         ).toEqual([]);
       }
+      const broadcast =
+        document.paths['/api/v1/notifications/admin/broadcast'].post!;
+      expect(broadcast.requestBody).toMatchObject({ required: true });
       const register = document.paths['/api/v1/notifications/devices'].post!;
       expect(register.requestBody).toMatchObject({ required: true });
       expect(
