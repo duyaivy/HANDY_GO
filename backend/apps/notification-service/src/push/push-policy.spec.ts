@@ -49,7 +49,7 @@ describe('PushPolicyResolver', () => {
     const decisionMatching = resolver.resolve({
       ...dummyEvent,
       eventType: 'matching.found',
-    } as NotificationEvent);
+    } as unknown as NotificationEvent);
     expect(decisionMatching.enabled).toBe(false);
   });
 

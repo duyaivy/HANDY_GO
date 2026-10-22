@@ -44,12 +44,12 @@ export class PushJobRepository {
    */
   async claimPendingJobs(batchSize: number): Promise<PushJobWithRelations[]> {
     const claimed = await this.db.$queryRaw<{ id: string }[]>`
-      UPDATE notification_delivery_attempts
-      SET status = 'processing'::delivery_status, attempted_at = NOW()
+      UPDATE "notification_service"."notification_delivery_attempts"
+      SET status = 'processing'::"notification_service"."delivery_status", attempted_at = NOW()
       WHERE id IN (
-        SELECT id FROM notification_delivery_attempts
-        WHERE channel = 'push'::notification_channel
-          AND status = 'queued'::delivery_status
+        SELECT id FROM "notification_service"."notification_delivery_attempts"
+        WHERE channel = 'push'::"notification_service"."notification_channel"
+          AND status = 'queued'::"notification_service"."delivery_status"
           AND (next_retry_at IS NULL OR next_retry_at <= NOW())
         ORDER BY created_at ASC
         LIMIT ${batchSize}
