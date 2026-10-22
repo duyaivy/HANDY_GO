@@ -1,11 +1,10 @@
 import type { SvgProps } from 'react-native-svg';
 import * as React from 'react';
-import { StyleSheet } from 'react-native';
+import { I18nManager, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
-import { isRTL } from '@/lib/i18n';
-
 export function ArrowLeft({ color = '#CCC', style, ...props }: SvgProps) {
+  const isRTL = I18nManager.isRTL;
   return (
     <Svg
       width={7}

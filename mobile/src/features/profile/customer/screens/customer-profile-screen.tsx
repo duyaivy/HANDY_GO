@@ -1,7 +1,6 @@
-/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';

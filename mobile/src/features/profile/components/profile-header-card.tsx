@@ -44,6 +44,10 @@ export function ProfileHeaderCard({
   const router = useRouter();
 
   const handleProfileDetail = () => {
+    if (onPressUserCard) {
+      onPressUserCard();
+      return;
+    }
     const profileDetailRoute = isWorkerMode
       ? RouteNames.WORKER_PROFILE_DETAIL
       : RouteNames.CUSTOMER_PROFILE_DETAIL;
@@ -105,7 +109,7 @@ export function ProfileHeaderCard({
                 testID="profile-phone"
                 className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400"
               >
-                {phone || 'Chưa cập nhật SĐT'}
+                {displayPhone}
               </Text>
               {/* Badges Row */}
               <View className="mt-1 flex-row flex-wrap items-center justify-between gap-1.5">
@@ -218,6 +222,7 @@ export function ProfileHeaderCard({
           roles={roles}
           workerStatus={workerStatus}
           onSwitch={onSwitch}
+          onPressSwitchArrow={onPressSwitchArrow}
         />
       </View>
     </Pressable>

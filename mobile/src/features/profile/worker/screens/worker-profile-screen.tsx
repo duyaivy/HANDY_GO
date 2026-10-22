@@ -1,9 +1,7 @@
-/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, ShieldCheckIcon, WalletIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { RouteNames } from '@/constants/route-names';
 import { ProfileHeaderCard } from '@/features/profile/components';

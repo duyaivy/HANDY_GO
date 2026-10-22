@@ -43,14 +43,20 @@ export function LoginScreen() {
     password?: string;
   }>({});
 
-  React.useEffect(() => {
+  const [prevParams, setPrevParams] = React.useState({
+    reset: params?.reset,
+    verified: params?.verified,
+  });
+
+  if (params?.reset !== prevParams.reset || params?.verified !== prevParams.verified) {
+    setPrevParams({ reset: params?.reset, verified: params?.verified });
     if (params?.reset === 'true') {
       setSuccessMessage('Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
     }
     else if (params?.verified === 'true') {
       setSuccessMessage('Xác thực tài khoản thành công! Vui lòng tiếp tục.');
     }
-  }, [params?.reset, params?.verified]);
+  }
 
   // Auth guard: already logged in users cannot re-enter login screen via back navigation
   React.useEffect(() => {

@@ -117,8 +117,8 @@ export const IdentityApi = {
     const selfieRef = await uploadImageToStorage(payload.selfieUri, 'selfie');
 
     payload.onProgress?.('Đang gửi hồ sơ xác minh vào hàng đợi...');
-    const idempotencyKey =
-      payload.idempotencyKey || `kyc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const idempotencyKey
+      = payload.idempotencyKey || `kyc-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     return ApiClient.post<KycSubmitResponse>(
       '/users/me/kyc',
@@ -180,4 +180,3 @@ export const IdentityApi = {
     throw new Error('Hết thời gian chờ xử lý kết quả xác minh từ AI. Vui lòng thử lại sau.');
   },
 };
-

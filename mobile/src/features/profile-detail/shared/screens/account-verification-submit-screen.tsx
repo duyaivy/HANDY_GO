@@ -9,7 +9,6 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { queryClient } from '@/lib/api/query-client';
-import { ApiClient } from '@/services/api/api-client';
 import { IdentityApi } from '@/services/identity/identity-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 
@@ -74,7 +73,7 @@ function useSubmitKyc(idFront?: string, selfie?: string) {
       const response = await IdentityApi.submitKycVerification({
         idFrontUri: idFront,
         selfieUri: selfie,
-        onProgress: (msg) => setStatusMessage(msg),
+        onProgress: msg => setStatusMessage(msg),
       });
 
       const jobId = response.data?.jobId;
