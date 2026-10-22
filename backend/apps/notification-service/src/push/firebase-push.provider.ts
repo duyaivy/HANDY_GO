@@ -49,10 +49,36 @@ export class FirebasePushProvider
       return;
     }
 
-    const saPath =
+    const rawSaBase64 = (
+      this.config.get('FIREBASE_SA_BASE64') ||
+      process.env.FIREBASE_SA_BASE64 ||
+      ''
+    ).trim();
+    const saBase64 = rawSaBase64.startsWith('base64:')
+      ? rawSaBase64.slice(7).trim()
+      : rawSaBase64;
+
+    let saPath =
       this.config.get('GOOGLE_APPLICATION_CREDENTIALS') ||
       process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    const projectId = this.config.get('FIREBASE_PROJECT_ID');
+
+    // Fallback: nếu không cấu hình GOOGLE_APPLICATION_CREDENTIALS, kiểm tra đường dẫn mặc định
+    if (!saBase64 && (!saPath || !fs.existsSync(saPath))) {
+      const defaultPaths = [
+        '/app/secrets/firebase-service-account.json',
+        'secrets/firebase-service-account.json',
+      ];
+      for (const p of defaultPaths) {
+        if (fs.existsSync(p)) {
+          saPath = p;
+          break;
+        }
+      }
+    }
+
+    let projectId =
+      this.config.get('FIREBASE_PROJECT_ID') ||
+      process.env.FIREBASE_PROJECT_ID;
 
     try {
       const existingApp = getApps().find((a) => a.name === FIREBASE_APP_NAME);
@@ -64,17 +90,36 @@ export class FirebasePushProvider
       }
 
       let credential;
-      if (saPath && fs.existsSync(saPath)) {
+      if (saBase64) {
+        this.logger.log(
+          'Initializing Firebase with base64 service account credential (FIREBASE_SA_BASE64)',
+        );
+        try {
+          const jsonStr = Buffer.from(saBase64, 'base64').toString('utf8');
+          const serviceAccount = JSON.parse(jsonStr);
+          credential = cert(serviceAccount);
+          if (!projectId && serviceAccount.project_id) {
+            projectId = serviceAccount.project_id;
+          }
+        } catch (parseError) {
+          throw new Error(
+            `Failed to parse FIREBASE_SA_BASE64: ${(parseError as Error).message}`,
+          );
+        }
+      } else if (saPath && fs.existsSync(saPath)) {
         this.logger.log(`Initializing Firebase with credentials from: ${saPath}`);
         const content = fs.readFileSync(saPath, 'utf8');
         const serviceAccount = JSON.parse(content);
         credential = cert(serviceAccount);
+        if (!projectId && serviceAccount.project_id) {
+          projectId = serviceAccount.project_id;
+        }
       } else if (projectId) {
         this.logger.log(`Initializing Firebase with applicationDefault and projectId: ${projectId}`);
         credential = applicationDefault();
       } else {
         throw new Error(
-          'Firebase credentials missing. Provide GOOGLE_APPLICATION_CREDENTIALS file path or FIREBASE_PROJECT_ID when PUSH_ENABLED=true',
+          'Firebase credentials missing. Provide FIREBASE_SA_BASE64, GOOGLE_APPLICATION_CREDENTIALS file path, or FIREBASE_PROJECT_ID when PUSH_ENABLED=true',
         );
       }
 
