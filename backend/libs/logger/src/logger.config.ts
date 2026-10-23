@@ -34,6 +34,8 @@ export const createLoggerConfig = (
         'res.headers.set-cookie',
         '*.password',
         '*.token',
+        'req.body.pushToken',
+        '*.pushToken',
         '*.secret',
       ],
       censor: '[REDACTED]',

@@ -8,6 +8,7 @@ import { storage } from '@/lib/storage';
 import { createSelectors } from '@/lib/utils';
 import { setOnUnauthorizedCallback } from '@/services/api/api-client';
 import { AuthApi } from '@/services/auth/auth-api';
+import { cleanupNotificationsBeforeLogout } from '@/services/notifications/logout-hook';
 
 export type AppMode = 'Customer' | 'Worker';
 
@@ -251,12 +252,15 @@ const _useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     set({ isLoading: true });
     try {
+      await cleanupNotificationsBeforeLogout(get().user?.id).catch(() => {});
       const tokens = getToken();
       if (tokens?.refresh) {
         await AuthApi.logout(tokens.refresh).catch(() => {});
       }
     }
     finally {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      queryClient.removeQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['user-profile'] });
       await removeToken();
       setStoredGuestRole(null);

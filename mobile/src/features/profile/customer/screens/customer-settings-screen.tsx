@@ -5,10 +5,12 @@ import { Modal, Pressable, Switch, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
+import { BellIcon, MailIcon, SparklesIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
+import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/features/notifications/hooks/use-notifications';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 /* ── Inline SVG Icons for Settings ── */
@@ -53,6 +55,34 @@ export function CustomerSettingsScreen() {
 
   const [biometricsEnabled, setBiometricsEnabled] = React.useState(true);
   const [showLogoutModal, setShowLogoutModal] = React.useState(false);
+
+  const { data: preferences } = useNotificationPreferences();
+  const updatePreferences = useUpdateNotificationPreferences();
+
+  const [localPrefs, setLocalPrefs] = React.useState<{
+    pushEnabled?: boolean;
+    inAppEnabled?: boolean;
+    emailEnabled?: boolean;
+  }>({});
+
+  const pushEnabled = localPrefs.pushEnabled ?? preferences?.pushEnabled ?? true;
+  const inAppEnabled = localPrefs.inAppEnabled ?? preferences?.inAppEnabled ?? true;
+  const emailEnabled = localPrefs.emailEnabled ?? preferences?.emailEnabled ?? false;
+
+  const handleTogglePush = (value: boolean) => {
+    setLocalPrefs(prev => ({ ...prev, pushEnabled: value }));
+    updatePreferences.mutate({ pushEnabled: value });
+  };
+
+  const handleToggleInApp = (value: boolean) => {
+    setLocalPrefs(prev => ({ ...prev, inAppEnabled: value }));
+    updatePreferences.mutate({ inAppEnabled: value });
+  };
+
+  const handleToggleEmail = (value: boolean) => {
+    setLocalPrefs(prev => ({ ...prev, emailEnabled: value }));
+    updatePreferences.mutate({ emailEnabled: value });
+  };
 
   const handleConfirmLogout = async () => {
     try {
@@ -130,7 +160,86 @@ export function CustomerSettingsScreen() {
           </View>
         </View>
 
-        {/* ── Nhóm 2: Thông tin hệ thống ── */}
+        {/* ── Nhóm 2: Cài đặt thông báo (API preferences) ── */}
+        <Text className="mb-2 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
+          Cài đặt thông báo
+        </Text>
+
+        <View className="mb-6 rounded-2xl border border-neutral-200 bg-white p-2 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+          {/* Tùy chọn 1: Thông báo đẩy (Push) */}
+          <View className="flex-row items-center justify-between border-b border-neutral-100 p-3.5 dark:border-neutral-800">
+            <View className="mr-2 flex-1 flex-row items-center">
+              <View className="mr-3 size-9 items-center justify-center rounded-xl bg-orange-100 dark:bg-orange-950/60">
+                <BellIcon size={18} color="#EA580C" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
+                  Thông báo đẩy
+                </Text>
+                <Text className="text-xs text-neutral-400">
+                  Nhận thông báo đơn hàng và tin nhắn mới trên thiết bị
+                </Text>
+              </View>
+            </View>
+            <Switch
+              testID="settings-push-switch"
+              value={pushEnabled}
+              onValueChange={handleTogglePush}
+              trackColor={{ false: '#E5E7EB', true: '#F5A524' }}
+              thumbColor={pushEnabled ? '#FFFFFF' : '#F4F4F5'}
+            />
+          </View>
+
+          {/* Tùy chọn 2: Thông báo trong ứng dụng (In-app) */}
+          <View className="flex-row items-center justify-between border-b border-neutral-100 p-3.5 dark:border-neutral-800">
+            <View className="mr-2 flex-1 flex-row items-center">
+              <View className="mr-3 size-9 items-center justify-center rounded-xl bg-purple-100 dark:bg-purple-950/60">
+                <SparklesIcon size={18} color="#7C3AED" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
+                  Thông báo trong ứng dụng
+                </Text>
+                <Text className="text-xs text-neutral-400">
+                  Hiển thị thông báo khi đang mở ứng dụng
+                </Text>
+              </View>
+            </View>
+            <Switch
+              testID="settings-inapp-switch"
+              value={inAppEnabled}
+              onValueChange={handleToggleInApp}
+              trackColor={{ false: '#E5E7EB', true: '#F5A524' }}
+              thumbColor={inAppEnabled ? '#FFFFFF' : '#F4F4F5'}
+            />
+          </View>
+
+          {/* Tùy chọn 3: Thông báo qua Email */}
+          <View className="flex-row items-center justify-between p-3.5">
+            <View className="mr-2 flex-1 flex-row items-center">
+              <View className="mr-3 size-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-950/60">
+                <MailIcon size={18} color="#2563EB" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
+                  Thông báo qua Email
+                </Text>
+                <Text className="text-xs text-neutral-400">
+                  Nhận cập nhật tài khoản và biên lai qua email
+                </Text>
+              </View>
+            </View>
+            <Switch
+              testID="settings-email-switch"
+              value={emailEnabled}
+              onValueChange={handleToggleEmail}
+              trackColor={{ false: '#E5E7EB', true: '#F5A524' }}
+              thumbColor={emailEnabled ? '#FFFFFF' : '#F4F4F5'}
+            />
+          </View>
+        </View>
+
+        {/* ── Nhóm 3: Thông tin hệ thống ── */}
         <Text className="mb-2 text-xs font-semibold tracking-wider text-neutral-400 uppercase">
           Thông tin ứng dụng
         </Text>

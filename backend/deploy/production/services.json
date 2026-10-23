@@ -31,7 +31,7 @@
       "port": 3008,
       "state": "PARTIAL",
       "deploy": true,
-      "scope": "health-only",
+      "scope": "notification-core",
       "memory_mib": 128
     },
     "order-service": {

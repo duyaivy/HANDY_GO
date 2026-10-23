@@ -119,11 +119,11 @@ describe('worker Skeleton & Route Flow', () => {
   });
 
   describe('workerNotificationsScreen (notifications)', () => {
-    it('renders notifications placeholder for worker with back button', () => {
+    it('renders notification inbox for worker with back button', () => {
       render(<WorkerNotificationsScreen />);
 
       expect(screen.getByText('Thông báo Thợ')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Đăng nhập để xem thông báo')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-notifications-screen')).toBeOnTheScreen();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');

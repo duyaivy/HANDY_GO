@@ -91,6 +91,27 @@ export class UserTrustServiceController {
     }
   }
 
+  /**
+   * Internal RabbitMQ RPC to retrieve active user IDs for broadcast notifications.
+   */
+  @MessagePattern('user.get-all-active-ids')
+  async getAllActiveUserIds(
+    @Payload() data?: { targetGroup?: 'ALL' | 'CUSTOMERS' | 'WORKERS' },
+    @Ctx() context?: any,
+  ): Promise<{ userIds: string[] }> {
+    try {
+      return await this.userTrustService.getAllActiveUserIds(data?.targetGroup);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+    }
+  }
+
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(StandardPermissions.PROFILE_READ)
   @Get('users/me')
