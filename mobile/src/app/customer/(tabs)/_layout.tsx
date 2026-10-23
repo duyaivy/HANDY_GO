@@ -2,9 +2,11 @@ import { Tabs } from 'expo-router';
 import * as React from 'react';
 import { BellIcon, HomeIcon, OrdersIcon, UserIcon } from '@/components/ui/icons';
 import { PRIMARY_COLOR } from '@/constants/colors';
+import { useUnreadNotifications } from '@/features/notifications/hooks/use-notifications';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 export default function CustomerTabsLayout() {
+  const { data: unread } = useUnreadNotifications();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const isGuest = !isAuthenticated || !user;
@@ -48,6 +50,7 @@ export default function CustomerTabsLayout() {
         name="notifications"
         options={{
           title: 'Thông báo',
+          tabBarBadge: unread?.count ? (unread.count > 99 ? '99+' : unread.count) : undefined,
           tabBarIcon: ({ color, size }) => <BellIcon color={color} size={size} />,
         }}
       />

@@ -29,8 +29,9 @@ const BUNDLE_IDS = {
   production: 'com.handygo',
 } as const;
 
+// Android development and production share one package and Firebase app.
 const PACKAGES = {
-  development: 'com.handygo.development',
+  development: 'com.handygo',
   preview: 'com.handygo.preview',
   production: 'com.handygo',
 } as const;
