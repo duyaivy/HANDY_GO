@@ -175,11 +175,17 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
       if (!job) continue;
 
       if (result.success) {
+        this.logger.log(
+          `Successfully delivered push notification to FCM (jobId=${result.jobId}, messageId=${result.messageId || 'fcm_ack'})`,
+        );
         await this.pushJobs.markJobSuccess(
           result.jobId,
           result.messageId || 'fcm_ack',
         );
       } else {
+        this.logger.warn(
+          `Push notification failed (jobId=${result.jobId}, errorCode=${result.errorCode || 'UNKNOWN'}, error=${result.errorMessage})`,
+        );
         await this.pushJobs.markJobFailed(result.jobId, {
           attemptNo: job.attemptNo,
           maxRetries,

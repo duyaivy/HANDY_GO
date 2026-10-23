@@ -224,12 +224,12 @@ export class KycWorkerService {
 
     formData.append(
       'cccd_image',
-      new Blob([frontBuffer], { type: 'image/jpeg' }),
+      new Blob([frontBuffer as unknown as BlobPart], { type: 'image/jpeg' }),
       'front.jpg',
     );
     formData.append(
       'selfie_image',
-      new Blob([selfieBuffer], { type: 'image/jpeg' }),
+      new Blob([selfieBuffer as unknown as BlobPart], { type: 'image/jpeg' }),
       'selfie.jpg',
     );
 

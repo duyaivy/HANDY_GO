@@ -63,3 +63,10 @@ it('does not fetch while authentication is hydrating', () => {
   render(<NotificationScreen />);
   expect(NotificationApi.list).not.toHaveBeenCalled();
 });
+it('optimistically marks all notifications as read', async () => {
+  render(<NotificationScreen />);
+  await screen.findByText(item.title);
+
+  fireEvent.press(screen.getByTestId('mark-all-read-btn'));
+  await waitFor(() => expect(NotificationApi.markAllRead).toHaveBeenCalled());
+});

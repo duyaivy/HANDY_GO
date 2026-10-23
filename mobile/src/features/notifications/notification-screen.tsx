@@ -45,9 +45,11 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
   }), [worker, insets.bottom]);
 
   const markRead = useCallback((item: NotificationRecord) => {
-    if (!item.readAt && !read.isPending)
+    if (!item.readAt) {
       read.mutate(item.id);
+    }
   }, [read]);
+
   const renderItem = useCallback(({ item, index }: { item: NotificationRecord; index: number }) => {
     const currentDate = formatDateHeader(item.createdAt);
     const prevDate = index > 0 ? formatDateHeader(items[index - 1]?.createdAt) : null;
@@ -79,7 +81,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
     return (
       <Pressable
         testID="mark-all-read-btn"
-        disabled={read.isPending || !unreadCount}
+        disabled={!unreadCount}
         onPress={() => read.mutate(null)}
         accessibilityRole="button"
         accessibilityLabel="Đọc tất cả"
@@ -87,7 +89,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
       >
         <Text
           className={`text-xs font-semibold ${
-            read.isPending || !unreadCount
+            !unreadCount
               ? 'text-neutral-400 dark:text-neutral-600'
               : 'text-primary-600 dark:text-primary-400'
           }`}
