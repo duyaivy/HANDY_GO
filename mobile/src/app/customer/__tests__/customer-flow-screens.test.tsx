@@ -322,6 +322,9 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByText('Cài đặt')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-change-password-btn')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-biometrics-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-push-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-inapp-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-email-switch')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-logout-btn')).toBeOnTheScreen();
     });
 

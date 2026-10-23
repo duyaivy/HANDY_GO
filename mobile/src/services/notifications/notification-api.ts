@@ -22,6 +22,12 @@ export type RegisteredDevice = {
   createdAt: string;
   updatedAt: string;
 };
+export type NotificationPreferences = {
+  pushEnabled: boolean;
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+};
+export type UpdateNotificationPreferencesDto = Partial<NotificationPreferences>;
 type Envelope<T> = { statusCode: number; message: string; data: T };
 const base = '/notifications';
 
@@ -36,6 +42,10 @@ export const NotificationApi = {
     (await ApiClient.patch<Envelope<NotificationRecord>>(`${base}/${encodeURIComponent(id)}/read`, undefined, { signal })).data,
   markAllRead: async (signal?: AbortSignal) =>
     (await ApiClient.post<Envelope<{ updatedCount: number }>>(`${base}/read-all`, undefined, { signal })).data,
+  getPreferences: async (signal?: AbortSignal) =>
+    (await ApiClient.get<Envelope<NotificationPreferences>>(`${base}/preferences`, { signal })).data,
+  updatePreferences: async (body: UpdateNotificationPreferencesDto, signal?: AbortSignal) =>
+    (await ApiClient.patch<Envelope<NotificationPreferences>>(`${base}/preferences`, body, { signal })).data,
   register: async (body: { platform: 'android'; deviceId: string; pushToken: string }, signal?: AbortSignal) =>
     (await ApiClient.post<Envelope<RegisteredDevice>>(`${base}/devices`, body, { signal, timeout: 5000 })).data,
   deactivate: async (id: string, signal?: AbortSignal) =>

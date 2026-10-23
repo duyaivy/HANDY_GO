@@ -1,3 +1,4 @@
+import type { UpdateNotificationPreferencesDto } from '@/services/notifications/notification-api';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryClient } from '@/lib/api/query-client';
 import { NotificationApi } from '@/services/notifications/notification-api';
@@ -7,6 +8,7 @@ export const notificationKeys = {
   user: (id: string | null) => ['notifications', id] as const,
   list: (id: string | null) => ['notifications', id, 'list'] as const,
   count: (id: string | null) => ['notifications', id, 'count'] as const,
+  preferences: (id: string | null) => ['notifications', id, 'preferences'] as const,
 };
 export function useNotificationUserId() {
   return useAuthStore(s => s.isHydrated && s.isAuthenticated && !s.isLoading ? s.user?.id ?? null : null);
@@ -53,6 +55,28 @@ export function useReadNotification() {
     onSuccess: () => {
       if (userId && useAuthStore.getState().user?.id === userId)
         return client.invalidateQueries({ queryKey: notificationKeys.user(userId) });
+    },
+  });
+}
+
+export function useNotificationPreferences() {
+  const userId = useNotificationUserId();
+  return useQuery({
+    queryKey: notificationKeys.preferences(userId),
+    enabled: Boolean(userId),
+    queryFn: ({ signal }) => NotificationApi.getPreferences(signal),
+  });
+}
+
+export function useUpdateNotificationPreferences() {
+  const client = useQueryClient();
+  const userId = useNotificationUserId();
+  return useMutation({
+    mutationFn: (body: UpdateNotificationPreferencesDto) => NotificationApi.updatePreferences(body),
+    onSuccess: (data) => {
+      if (userId) {
+        client.setQueryData(notificationKeys.preferences(userId), data);
+      }
     },
   });
 }

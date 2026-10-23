@@ -144,3 +144,13 @@ it('revoked permission deactivates a previously registered device', async () => 
   expect(deactivate).toHaveBeenCalled();
   expect(usePushRegistrationStore.getState().registration).toBeNull();
 });
+it('forcePrompt requests permission and registers even when permission was previously denied if canAskAgain is true', async () => {
+  permission.mockResolvedValueOnce({ ...granted, status: 'denied', granted: false, canAskAgain: true } as Notifications.NotificationPermissionsStatus);
+  jest.mocked(Notifications.requestPermissionsAsync).mockResolvedValueOnce({ ...granted, granted: true } as Notifications.NotificationPermissionsStatus);
+  usePushRegistrationStore.setState({ permissionAsked: true });
+  setPushUser('user-a');
+  await syncPushRegistration(undefined, { forcePrompt: true });
+  expect(Notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  expect(register).toHaveBeenCalled();
+  expect(usePushRegistrationStore.getState().registration?.userId).toBe('user-a');
+});

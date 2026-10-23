@@ -32,15 +32,15 @@ export function setPushUser(userId: string | null) {
   controller?.abort();
 }
 
-export async function syncPushRegistration(tokenOverride?: string): Promise<void> {
+export async function syncPushRegistration(tokenOverride?: string, options?: { forcePrompt?: boolean }): Promise<void> {
   if (!activeUser || suspended || !nativePushSupported())
     return;
   if (work) {
     await work;
     // Token rotation must not be dropped behind an older registration.
-    return syncPushRegistration(tokenOverride);
+    return syncPushRegistration(tokenOverride, options);
   }
-  if (Date.now() < retryAfter)
+  if (Date.now() < retryAfter && !options?.forcePrompt)
     return;
   const userId = activeUser;
   const generation = epoch;
@@ -59,7 +59,12 @@ export async function syncPushRegistration(tokenOverride?: string): Promise<void
       let permission = await Notifications.getPermissionsAsync();
       if (!current())
         return;
-      if (permission.status === 'undetermined' && permission.canAskAgain && !usePushRegistrationStore.getState().permissionAsked) {
+      const shouldPrompt = permission.canAskAgain && (
+        options?.forcePrompt
+          ? !permission.granted
+          : (permission.status === 'undetermined' && !usePushRegistrationStore.getState().permissionAsked)
+      );
+      if (shouldPrompt) {
         usePushRegistrationStore.setState({ permissionAsked: true });
         permission = await Notifications.requestPermissionsAsync();
       }

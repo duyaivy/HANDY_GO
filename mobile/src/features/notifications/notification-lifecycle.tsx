@@ -74,8 +74,10 @@ export function NotificationLifecycle() {
         queryClient.removeQueries({ queryKey });
         usePushRegistrationStore.setState({ registration: null });
       }
-      if (nextId && !state.isLoading)
-        void syncPushRegistration();
+      if (nextId && !state.isLoading) {
+        const isLogin = !previous.isAuthenticated && state.isAuthenticated;
+        void syncPushRegistration(undefined, { forcePrompt: isLogin });
+      }
     });
     const appState = AppState.addEventListener('change', (value) => {
       if (value === 'active')
