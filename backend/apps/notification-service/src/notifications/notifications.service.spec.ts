@@ -38,7 +38,11 @@ describe('NotificationsService', () => {
     devices as any,
   );
   const userId = randomUUID();
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    preferences.findPushOptOuts.mockResolvedValue(new Set());
+    devices.findActiveByUserIds.mockResolvedValue([]);
+  });
 
   it('returns a bounded page and a continuation, then terminates on the last page', async () => {
     const rows = [1, 2, 3].map(() => ({
@@ -209,6 +213,51 @@ describe('NotificationsService', () => {
         pushJobCount: 1,
         skippedCount: 0,
       });
+    });
+
+    it('populates event payload, inferred category, and default template when eventType is order.created', async () => {
+      userTrustClient.getAllActiveUserIds.mockResolvedValue([user1]);
+      preferences.findInAppOptOuts.mockResolvedValue(new Set());
+      repository.createInAppBatch.mockResolvedValue(1);
+
+      const result = await service.broadcast(adminId, {
+        eventType: 'order.created',
+        targetGroup: 'CUSTOMERS',
+        sendPush: false,
+      });
+
+      expect(result.inAppCount).toBe(1);
+      const createdRows = repository.createInAppBatch.mock.calls[0][1];
+      expect(createdRows[0].eventType).toBe('order.created');
+      expect(createdRows[0].category).toBe('order');
+      expect(createdRows[0].title).toBe('Đơn hàng đã được xác nhận');
+      expect(createdRows[0].body).toBe('Đơn hàng của bạn đã được tạo thành công.');
+      expect(createdRows[0].sourceEntityId).toBeTruthy();
+      expect(createdRows[0].serviceRequestId).toBeTruthy();
+      expect(createdRows[0].payload).toMatchObject({
+        eventType: 'order.created',
+        recipientRole: 'customer',
+        status: 'CONFIRMED',
+        orderId: createdRows[0].sourceEntityId,
+        requestId: createdRows[0].serviceRequestId,
+      });
+    });
+
+    it('bypasses push scheduling when sendPush is explicitly false', async () => {
+      userTrustClient.getAllActiveUserIds.mockResolvedValue([user1]);
+      preferences.findInAppOptOuts.mockResolvedValue(new Set());
+      repository.createInAppBatch.mockResolvedValue(1);
+
+      const result = await service.broadcast(adminId, {
+        title: 'Chỉ thông báo in-app',
+        body: 'Không gửi push',
+        sendPush: false,
+      });
+
+      expect(preferences.findPushOptOuts).not.toHaveBeenCalled();
+      expect(devices.findActiveByUserIds).not.toHaveBeenCalled();
+      expect(pushJobs.schedulePushAttempts).not.toHaveBeenCalled();
+      expect(result.pushJobCount).toBe(0);
     });
   });
 });

@@ -1,9 +1,9 @@
+/* eslint-disable max-lines-per-function */
 import type { NotificationRecord } from '@/services/notifications/notification-api';
 import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, FlatList, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppBar } from '@/components/ui/app-bar';
-import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/ui/error-state';
 import { LoadingState } from '@/components/ui/loading-state';
@@ -37,6 +37,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
   const unread = useUnreadNotifications();
   const read = useReadNotification();
   const items = useMemo(() => list.data?.pages.flatMap(page => page.items) ?? [], [list.data?.pages]);
+  const unreadCount = unread.data?.count ?? 0;
 
   const contentContainerStyle = useMemo(() => ({
     flexGrow: 1,
@@ -72,9 +73,39 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
     void syncPushRegistration();
   };
 
+  const rightAction = useMemo(() => {
+    if (!userId)
+      return undefined;
+    return (
+      <Pressable
+        testID="mark-all-read-btn"
+        disabled={read.isPending || !unreadCount}
+        onPress={() => read.mutate(null)}
+        accessibilityRole="button"
+        accessibilityLabel="Đọc tất cả"
+        className="rounded-full px-2 py-1 active:bg-neutral-100 dark:active:bg-neutral-800"
+      >
+        <Text
+          className={`text-xs font-semibold ${
+            read.isPending || !unreadCount
+              ? 'text-neutral-400 dark:text-neutral-600'
+              : 'text-primary-600 dark:text-primary-400'
+          }`}
+        >
+          Đọc tất cả
+        </Text>
+      </Pressable>
+    );
+  }, [userId, read, unreadCount]);
+
   return (
     <Screen safeArea={false}>
-      <AppBar title={worker ? 'Thông báo Thợ' : 'Thông báo'} hideBackButton={!worker} />
+      <AppBar
+        title={worker ? 'Thông báo Thợ' : 'Thông báo'}
+        subtitle={userId ? `${unreadCount} chưa đọc` : undefined}
+        hideBackButton={!worker}
+        rightAction={rightAction}
+      />
       <View
         className="flex-1"
         style={{ paddingBottom: worker ? insets.bottom : 0 }}
@@ -84,21 +115,8 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
           ? <EmptyState title="Đăng nhập để xem thông báo" message="Thông báo của bạn sẽ xuất hiện tại đây." />
           : (
               <>
-                <View className="flex-row items-center justify-between border-b border-neutral-100 px-4 py-2 dark:border-neutral-800">
-                  <Text className="text-sm font-medium text-neutral-600 dark:text-neutral-400">
-                    {`${unread.data?.count ?? 0} chưa đọc`}
-                  </Text>
-                  <Button
-                    label="Đọc tất cả"
-                    variant="ghost"
-                    size="sm"
-                    fullWidth={false}
-                    disabled={read.isPending || !unread.data?.count}
-                    onPress={() => read.mutate(null)}
-                  />
-                </View>
-                {read.isError && <Text accessibilityRole="alert" className="px-4 text-danger-600">Không thể đánh dấu đã đọc. Vui lòng thử lại.</Text>}
-                {unread.isError && <Text className="px-4 text-danger-600">Không thể tải số thông báo chưa đọc.</Text>}
+                {read.isError && <Text accessibilityRole="alert" className="px-4 py-1 text-xs text-danger-600">Không thể đánh dấu đã đọc. Vui lòng thử lại.</Text>}
+                {unread.isError && <Text className="px-4 py-1 text-xs text-danger-600">Không thể tải số thông báo chưa đọc.</Text>}
                 <FlatList
                   data={items}
                   renderItem={renderItem}

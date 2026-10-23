@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { NotificationCategory, type Prisma } from '@prisma/notification-client';
+import type { Prisma } from '@prisma/notification-client';
 import { NotificationPrismaService } from '../common/notification-prisma.service.js';
 import { PreferencesRepository } from '../preferences/preferences.repository.js';
 import { DevicesRepository } from '../devices/devices.repository.js';
@@ -16,6 +16,12 @@ import {
   decodeNotificationCursor,
   encodeNotificationCursor,
 } from './notification-cursor.js';
+import {
+  resolveEventCategory,
+  resolveEventTitleAndBody,
+  generateMockEventPayload,
+} from './notification-test-event.js';
+import type { RecipientRole } from '../events/notification-templates.js';
 
 @Injectable()
 export class NotificationsService {
@@ -96,6 +102,40 @@ export class NotificationsService {
     }
 
     const broadcastEventId = randomUUID();
+    const effectiveEventType = dto.eventType?.trim() || 'admin.broadcast';
+    const effectiveCategory = resolveEventCategory(
+      effectiveEventType,
+      dto.category,
+    );
+
+    let effectiveEntityId = dto.entityId ?? null;
+    if (!effectiveEntityId) {
+      if (
+        effectiveEventType.startsWith('order.') ||
+        effectiveEventType.startsWith('bid.') ||
+        effectiveEventType.startsWith('booking_proposal.') ||
+        effectiveEventType.startsWith('payment.') ||
+        effectiveEventType.startsWith('wallet.')
+      ) {
+        effectiveEntityId = randomUUID();
+      }
+    }
+
+    let effectiveRequestId = dto.requestId ?? null;
+    if (!effectiveRequestId) {
+      if (
+        effectiveEventType.startsWith('order.') ||
+        effectiveEventType.startsWith('bid.') ||
+        effectiveEventType.startsWith('booking_proposal.') ||
+        effectiveEventType.startsWith('matching.')
+      ) {
+        effectiveRequestId = randomUUID();
+      }
+    }
+
+    if (effectiveEventType.startsWith('matching.') && !effectiveEntityId) {
+      effectiveEntityId = effectiveRequestId;
+    }
 
     return this.db.$transaction(
       async (tx) => {
@@ -104,27 +144,69 @@ export class NotificationsService {
         const targetUserIds = userIds.filter((id) => !optOuts.has(id));
 
         const rows: Prisma.NotificationCreateManyInput[] = targetUserIds.map(
-          (userId) => ({
-            id: randomUUID(),
-            recipientUserId: userId,
-            sourceEventId: broadcastEventId,
-            eventType: 'admin.broadcast',
-            category: dto.category ?? NotificationCategory.system,
-            sourceService: 'notification-service',
-            sourceEntityId: null,
-            serviceRequestId: null,
-            dedupeKey: `broadcast:${broadcastEventId}:${userId}`,
-            title: dto.title,
-            body: dto.body,
-            payload: {
-              eventType: 'admin.broadcast',
+          (userId) => {
+            let role: RecipientRole = 'customer';
+            if (dto.targetGroup === 'WORKERS') {
+              role = 'worker';
+            } else if (dto.targetGroup === 'CUSTOMERS') {
+              role = 'customer';
+            } else if (
+              effectiveEventType === 'matching.eligible_workers.ready' ||
+              effectiveEventType === 'booking_proposal.created'
+            ) {
+              role = 'worker';
+            } else if (effectiveEventType.startsWith('payment.')) {
+              role =
+                effectiveEventType === 'payment.refunded'
+                  ? 'recipient'
+                  : 'payer';
+            } else if (effectiveEventType.startsWith('wallet.')) {
+              role = 'owner';
+            }
+
+            const { title, body } = resolveEventTitleAndBody({
+              eventType: effectiveEventType,
+              role,
+              explicitTitle: dto.title,
+              explicitBody: dto.body,
+            });
+
+            const eventPayload = generateMockEventPayload({
+              eventType: effectiveEventType,
+              entityId: effectiveEntityId,
+              requestId: effectiveRequestId,
+              recipientUserId: userId,
+              role,
+            });
+
+            const mergedPayload: Record<string, unknown> = {
+              eventType: effectiveEventType,
               senderAdminId: adminUserId,
               targetGroup: dto.targetGroup ?? 'ALL',
+              recipientRole: role,
+              ...(effectiveEntityId ? { entityId: effectiveEntityId } : {}),
+              ...(effectiveRequestId ? { requestId: effectiveRequestId } : {}),
+              ...eventPayload,
               ...dto.payload,
-            },
-            status: 'sent',
-            readAt: null,
-          }),
+            };
+
+            return {
+              id: randomUUID(),
+              recipientUserId: userId,
+              sourceEventId: broadcastEventId,
+              eventType: effectiveEventType,
+              category: effectiveCategory,
+              sourceService: 'notification-service',
+              sourceEntityId: effectiveEntityId,
+              serviceRequestId: effectiveRequestId,
+              dedupeKey: `broadcast:${broadcastEventId}:${userId}`,
+              title,
+              body,
+              payload: mergedPayload as Prisma.InputJsonValue,
+              status: 'sent',
+              readAt: null,
+            };
+          },
         );
 
         const inAppCount =
@@ -132,22 +214,28 @@ export class NotificationsService {
             ? await this.repository.createInAppBatch(tx, rows)
             : 0;
 
-        // 3. Tùy chọn gửi kèm push notification
+        // 3. Tùy chọn gửi kèm push notification (mặc định bật)
+        const shouldSendPush = dto.sendPush !== false;
         let pushJobCount = 0;
-        if (dto.sendPush && this.pushJobs && this.devices && rows.length > 0) {
-          const pushOptOuts = await this.preferences.findPushOptOuts(
-            tx,
-            targetUserIds,
-          );
+        if (
+          shouldSendPush &&
+          this.pushJobs &&
+          this.devices &&
+          rows.length > 0
+        ) {
+          const pushOptOuts =
+            (await this.preferences.findPushOptOuts(tx, targetUserIds)) ??
+            new Set<string>();
           const eligiblePushUserIds = targetUserIds.filter(
             (id) => !pushOptOuts.has(id),
           );
 
           if (eligiblePushUserIds.length > 0) {
-            const activeDevices = await this.devices.findActiveByUserIds(
-              eligiblePushUserIds,
-              tx,
-            );
+            const activeDevices =
+              (await this.devices.findActiveByUserIds(
+                eligiblePushUserIds,
+                tx,
+              )) ?? [];
             const userToNotificationId = new Map(
               rows.map((r) => [r.recipientUserId, r.id]),
             );
