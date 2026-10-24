@@ -1,0 +1,243 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["order_service"]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/order-client"
+}
+
+enum RequestStatus {
+  draft
+  open_for_bidding
+  bidding_closed
+  converted_to_order
+  cancelled
+  expired
+
+  @@schema("order_service")
+}
+
+enum BookingProposalStatus {
+  proposed
+  changes_requested
+  worker_rejected
+  withdrawn
+  expired
+  finalized
+  superseded
+
+  @@schema("order_service")
+}
+
+enum WorkerSelectionSource {
+  bid
+  recommendation
+
+  @@schema("order_service")
+}
+
+enum OrderStatus {
+  created
+  confirmed
+  in_progress
+  awaiting_customer_confirmation
+  completed
+  cancelled
+  disputed
+
+  @@schema("order_service")
+}
+
+enum PaymentState {
+  unpaid
+  pending
+  paid
+  refunded
+  failed
+
+  @@schema("order_service")
+}
+
+model ServiceRequest {
+  id                 String        @id @default(uuid()) @db.Uuid
+  requestCode        String        @unique @map("request_code") @db.VarChar(30)
+  customerUserId     String        @map("customer_user_id") @db.Uuid
+  serviceId          String?       @map("service_id") @db.Uuid
+  description        String?       @db.Text
+  scheduledAt        DateTime?     @map("scheduled_at") @db.Timestamptz(6)
+  aiRefPriceMin      Decimal?      @map("ai_reference_price_min") @db.Decimal(12, 2)
+  aiRefPriceMax      Decimal?      @map("ai_reference_price_max") @db.Decimal(12, 2)
+  addressText        String?       @map("address_text") @db.VarChar(500)
+  latitude           Decimal?      @db.Decimal(9, 6)
+  longitude          Decimal?      @db.Decimal(9, 6)
+  status             RequestStatus @default(draft)
+  publishedAt        DateTime?     @map("published_at") @db.Timestamptz(6)
+  biddingClosesAt    DateTime?     @map("bidding_closes_at") @db.Timestamptz(6)
+  selectionExpiresAt DateTime?     @map("selection_expires_at") @db.Timestamptz(6)
+  version            Int           @default(0)
+  matchingRevision   Int           @default(0) @map("matching_revision")
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  media            RequestMedia[]
+  bookingProposals BookingProposal[]
+  order            Order?
+
+  @@index([customerUserId, status, createdAt])
+  @@index([serviceId, status])
+  @@map("service_requests")
+  @@schema("order_service")
+}
+
+model RequestMedia {
+  id               String         @id @default(uuid()) @db.Uuid
+  serviceRequestId String         @map("service_request_id") @db.Uuid
+  mediaType        String         @map("media_type") @db.VarChar(30)
+  mediaUrl         String         @map("media_url") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+  @@map("request_media")
+  @@schema("order_service")
+}
+
+model BookingProposal {
+  id                   String                @id @default(uuid()) @db.Uuid
+  serviceRequestId     String                @map("service_request_id") @db.Uuid
+  supersedesProposalId String?               @unique @map("supersedes_proposal_id") @db.Uuid
+  revisionNo           Int                   @default(1) @map("revision_no")
+  customerUserId       String                @map("customer_user_id") @db.Uuid
+  workerUserId         String                @map("worker_user_id") @db.Uuid
+  selectionSource      WorkerSelectionSource @map("selection_source")
+  sourceBidId          String?               @map("source_bid_id") @db.Uuid
+  sourceMatchResultId  String?               @map("source_match_result_id") @db.Uuid
+  agreedPrice          Decimal               @map("agreed_price") @db.Decimal(12, 2)
+  agreedScope          String                @map("agreed_scope") @db.Text
+  scheduledAt          DateTime?             @map("scheduled_at") @db.Timestamptz(6)
+  status               BookingProposalStatus @default(proposed)
+  expiresAt            DateTime              @map("expires_at") @db.Timestamptz(6)
+  workerRespondedAt    DateTime?             @map("worker_responded_at") @db.Timestamptz(6)
+  finalizedAt          DateTime?             @map("finalized_at") @db.Timestamptz(6)
+  responseNote         String?               @map("response_note") @db.Text
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  serviceRequest     ServiceRequest   @relation(fields: [serviceRequestId], references: [id], onDelete: Restrict)
+  supersedesProposal BookingProposal? @relation("ProposalRevisions", fields: [supersedesProposalId], references: [id])
+  supersededBy       BookingProposal? @relation("ProposalRevisions")
+  order              Order?
+
+  @@index([serviceRequestId, status])
+  @@index([workerUserId, status])
+  @@map("booking_proposals")
+  @@schema("order_service")
+}
+
+model Order {
+  id                    String                @id @default(uuid()) @db.Uuid
+  orderCode             String                @unique @map("order_code") @db.VarChar(30)
+  serviceRequestId      String                @unique @map("service_request_id") @db.Uuid
+  bookingProposalId     String                @unique @map("booking_proposal_id") @db.Uuid
+  customerUserId        String                @map("customer_user_id") @db.Uuid
+  workerUserId          String                @map("worker_user_id") @db.Uuid
+  serviceId             String                @map("service_id") @db.Uuid
+  selectionSource       WorkerSelectionSource @map("selection_source")
+  selectedBidId         String?               @map("selected_bid_id") @db.Uuid
+  selectedMatchResultId String?               @map("selected_match_result_id") @db.Uuid
+  agreedPrice           Decimal               @map("agreed_price") @db.Decimal(12, 2)
+  agreedScope           String                @map("agreed_scope") @db.Text
+  scheduledAt           DateTime?             @map("scheduled_at") @db.Timestamptz(6)
+  addressText           String                @map("address_text") @db.VarChar(500)
+  latitude              Decimal               @db.Decimal(9, 6)
+  longitude             Decimal               @db.Decimal(9, 6)
+  status                OrderStatus           @default(created)
+  paymentState          PaymentState          @default(unpaid) @map("payment_state")
+  confirmedAt           DateTime?             @map("confirmed_at") @db.Timestamptz(6)
+  startedAt             DateTime?             @map("started_at") @db.Timestamptz(6)
+  workerFinishedAt      DateTime?             @map("worker_finished_at") @db.Timestamptz(6)
+  completedAt           DateTime?             @map("completed_at") @db.Timestamptz(6)
+  cancelledAt           DateTime?             @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason          String?               @map("cancel_reason") @db.Text
+  disputedAt            DateTime?             @map("disputed_at") @db.Timestamptz(6)
+  disputeReason         String?               @map("dispute_reason") @db.Text
+  disputePreviousStatus OrderStatus?          @map("dispute_previous_status")
+  disputeResolvedAt     DateTime?             @map("dispute_resolved_at") @db.Timestamptz(6)
+  disputeResolutionNote String?               @map("dispute_resolution_note") @db.Text
+  version               Int                   @default(0)
+  createdAt             DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  serviceRequest   ServiceRequest       @relation(fields: [serviceRequestId], references: [id], onDelete: Restrict)
+  bookingProposal  BookingProposal      @relation(fields: [bookingProposalId], references: [id], onDelete: Restrict)
+  statusHistory    OrderStatusHistory[]
+  evidences        OrderEvidence[]
+
+  @@index([customerUserId, status, createdAt])
+  @@index([workerUserId, status, createdAt])
+  @@map("orders")
+  @@schema("order_service")
+}
+
+model OrderEvidence {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  mediaType   String   @map("media_type") @db.VarChar(30)
+  mediaUrl    String   @map("media_url") @db.Text
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_evidences")
+  @@schema("order_service")
+}
+
+model OrderStatusHistory {
+  id              String       @id @default(uuid()) @db.Uuid
+  orderId         String       @map("order_id") @db.Uuid
+  fromStatus      OrderStatus? @map("from_status")
+  toStatus        OrderStatus  @map("to_status")
+  changedByUserId String?      @map("changed_by_user_id") @db.Uuid
+  reason          String?      @db.Text
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order           Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, createdAt])
+  @@map("order_status_history")
+  @@schema("order_service")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String    @map("aggregate_type") @db.VarChar(50)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(100)
+  eventVersion  Int       @default(1) @map("event_version")
+  payload       Json
+  status        String    @default("pending") @db.VarChar(30)
+  retryCount    Int       @default(0) @map("retry_count")
+  lastError     String?   @map("last_error") @db.Text
+  nextRetryAt   DateTime  @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@index([status, nextRetryAt])
+  @@index([aggregateType, aggregateId])
+  @@map("outbox_events")
+  @@schema("order_service")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.VarChar(100)
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+  @@schema("order_service")
+}
