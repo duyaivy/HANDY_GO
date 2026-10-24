@@ -61,6 +61,13 @@ export class BidResponseDto {
   })
   isMasked?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Hồ sơ tóm tắt và đánh giá uy tín của thợ (được làm giàu từ User-Trust Service)',
+    type: () => WorkerProfileSummaryDto,
+  })
+  workerProfile?: WorkerProfileSummaryDto | null;
+
   @ApiProperty({ description: 'Thời điểm nộp báo giá lần đầu' })
   submittedAt!: Date;
 
@@ -72,6 +79,44 @@ export class BidResponseDto {
     type: [BidRevisionDto],
   })
   revisions?: BidRevisionDto[];
+}
+
+export class WorkerProfileSummaryDto {
+  @ApiPropertyOptional({
+    description: 'Họ và tên hoặc tên hiển thị của thợ',
+    example: 'Nguyễn Văn A',
+  })
+  fullName?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Đường dẫn ảnh đại diện của thợ',
+    example: 'https://cdn.handygo.vn/avatars/worker-1.jpg',
+  })
+  avatarUrl?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Điểm đánh giá trung bình ⭐ (thang điểm 1.0 - 5.0)',
+    example: 4.85,
+  })
+  averageRating?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Tổng số lượt đánh giá đã nhận từ khách hàng',
+    example: 42,
+  })
+  ratingCount?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Số công việc đã hoàn thành thành công',
+    example: 38,
+  })
+  completedOrderCount?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Khoảng cách ước tính từ vị trí thợ đến địa chỉ khách hàng (km)',
+    example: 2.5,
+  })
+  distanceKm?: number | null;
 }
 
 export class BidListResponseDto {

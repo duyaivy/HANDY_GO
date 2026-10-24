@@ -43,6 +43,7 @@ model BiddingRound {
 
   bids             Bid[]
 
+  @@index([status, closesAt])
   @@map("bidding_rounds")
   @@schema("bidding_service")
 }

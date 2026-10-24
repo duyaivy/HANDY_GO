@@ -12,7 +12,7 @@ const CONNECTION_STRING =
   process.env.DATABASE_URL ||
   'postgresql://postgres.pkdvnwcjqlgrbmjokako:handygo@1234!!!@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres';
 
-describe('Bidding Service Real Database Integration Test (Supabase)', () => {
+describe('Bidding Service Real Database Integration Test (Supabase)', { timeout: 20000 }, () => {
   let prisma: PrismaClient;
   const testRequestId = randomUUID();
   const worker1Id = randomUUID();

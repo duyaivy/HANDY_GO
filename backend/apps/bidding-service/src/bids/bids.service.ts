@@ -5,6 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoundsService } from '../rounds/rounds.service.js';
@@ -16,11 +17,13 @@ import {
   BidListResponseDto,
   BidResponseDto,
   BidRevisionDto,
+  WorkerProfileSummaryDto,
 } from './dto/bid-response.dto.js';
 import {
   BidEligibilityQueryDto,
   BidEligibilityResponseDto,
 } from './dto/bid-eligibility.dto.js';
+import { WorkerProfileEnricherService } from './services/worker-profile-enricher.service.js';
 import { EVENT_PATTERNS } from '@app/common';
 import type { Bid, BidRevision, Prisma } from '@prisma/bidding-client';
 
@@ -41,6 +44,8 @@ export class BidsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly roundsService: RoundsService,
+    @Optional()
+    private readonly enricher?: WorkerProfileEnricherService,
   ) {}
 
   /**
@@ -501,6 +506,11 @@ export class BidsService {
       }),
     ]);
 
+    const workerIds = Array.from(new Set(bids.map((b) => b.workerId)));
+    const profileMap = this.enricher
+      ? await this.enricher.enrichWorkerProfiles(workerIds)
+      : new Map<string, WorkerProfileSummaryDto>();
+
     const items = bids.map((b) => {
       const isOwnerWorker = currentUserId && b.workerId === currentUserId;
       if (shouldMaskCompetitors && !isOwnerWorker) {
@@ -518,11 +528,17 @@ export class BidsService {
           submittedAt: b.submittedAt,
           revisionsCount: b._count.revisions,
           isMasked: true,
+          workerProfile: null,
         };
       }
 
       return {
-        ...this.mapToBidResponse(b, b._count.revisions),
+        ...this.mapToBidResponse(
+          b,
+          b._count.revisions,
+          undefined,
+          profileMap.get(b.workerId) || null,
+        ),
         isMasked: false,
       };
     });
@@ -552,7 +568,18 @@ export class BidsService {
       throw new NotFoundException(`Không tìm thấy báo giá ${bidId}`);
     }
 
-    return this.mapToBidResponse(bid, bid.revisions.length, bid.revisions);
+    let workerProfile: WorkerProfileSummaryDto | null = null;
+    if (this.enricher) {
+      const profileMap = await this.enricher.enrichWorkerProfiles([bid.workerId]);
+      workerProfile = profileMap.get(bid.workerId) || null;
+    }
+
+    return this.mapToBidResponse(
+      bid,
+      bid.revisions.length,
+      bid.revisions,
+      workerProfile,
+    );
   }
 
   /**
@@ -674,6 +701,7 @@ export class BidsService {
     bid: Bid,
     revisionsCount: number,
     revisions?: BidRevision[],
+    workerProfile?: WorkerProfileSummaryDto | null,
   ): BidResponseDto {
     return {
       id: bid.id,
@@ -687,6 +715,7 @@ export class BidsService {
       version: bid.version,
       submittedAt: bid.submittedAt,
       revisionsCount,
+      workerProfile: workerProfile ?? null,
       ...(revisions
         ? {
             revisions: revisions.map((r) => this.mapToRevisionDto(r)),
