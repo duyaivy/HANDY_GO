@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Query,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
@@ -18,6 +19,7 @@ import {
   CurrentUser,
   JwtAuthGuard,
   PermissionsGuard,
+  Public,
   Public,
   RequirePermissions,
   StandardPermissions,
@@ -341,43 +343,78 @@ export class UserTrustServiceController {
   }
 
   /**
-   * Internal endpoint for BFF / Inter-service worker profile enrichment (F12)
+   * Internal REST API for Matching Service candidate discovery.
+   * GET /internal/v1/workers/candidates?serviceId=...&latitude=...&longitude=...&customerUserId=...
    */
   @Public()
-  @Get('internal/workers/batch-summary')
+  @Get('internal/v1/workers/candidates')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Lấy tóm tắt hồ sơ thợ (Inter-service / BFF enrichment)' })
-  @ApiResponse({ status: 200, description: 'Lấy danh sách tóm tắt thợ thành công' })
-  async getWorkersBatchSummary(
-    @Query('ids') ids?: string,
-    @Headers('x-internal-secret') internalSecret?: string,
-  ): Promise<any[]> {
-    const expectedSecret = this.config.internalServiceSecret;
-    const isValid =
-      !!expectedSecret &&
-      !!internalSecret &&
-      internalSecret.length === expectedSecret.length &&
-      crypto.timingSafeEqual(
-        Buffer.from(internalSecret),
-        Buffer.from(expectedSecret),
-      );
+  @ApiOperation({ summary: 'Internal: Find eligible worker candidates for matching' })
+  async findWorkerCandidates(
+    @Query('serviceId') serviceId: string,
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+    @Query('customerUserId') customerUserId?: string,
+  ): Promise<unknown> {
+    return this.userTrustService.findWorkerCandidates({
+      serviceId,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      customerUserId,
+    });
+  }
 
-    if (!isValid) {
-      throw new ForbiddenException(
-        'Request must originate from trusted internal service with valid x-internal-secret',
-      );
+  /**
+   * Internal RabbitMQ RPC to discover eligible worker candidates.
+   */
+  @MessagePattern('workers.find-candidates')
+  async findWorkerCandidatesRpc(
+    @Payload() data: { serviceId: string; latitude: number; longitude: number; customerUserId?: string },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.findWorkerCandidates(data);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
     }
+  }
 
-    if (!ids) return [];
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const workerIds = ids
-      .split(',')
-      .map((id) => id.trim())
-      .filter((id) => uuidRegex.test(id))
-      .slice(0, 100); // Giới hạn tối đa 100 IDs
+  /**
+   * Internal REST API for worker matching profile lookup (offerings, areas, verification).
+   */
+  @Public()
+  @Get('internal/v1/workers/:id/matching-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Internal: Get worker match profile for request discovery' })
+  async getWorkerMatchProfile(@Param('id') workerUserId: string): Promise<unknown> {
+    return this.userTrustService.getWorkerMatchProfile(workerUserId);
+  }
 
-    return this.userTrustService.getWorkersBatchSummary(workerIds);
+  /**
+   * Internal RabbitMQ RPC for worker match profile lookup.
+   */
+  @MessagePattern('workers.get-matching-profile')
+  async getWorkerMatchProfileRpc(
+    @Payload() data: { workerUserId: string },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.getWorkerMatchProfile(data.workerUserId);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+    }
   }
 }
 
