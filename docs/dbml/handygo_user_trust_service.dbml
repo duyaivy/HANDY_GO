@@ -1,0 +1,227 @@
+Project handygo_user_trust_service {
+  database_type: 'PostgreSQL'
+  Note: 'Owns Users, Customer and Worker Profiles, Service Offerings, Service Areas, KYC Verification, Reviews, and Complaints.'
+}
+
+// Trạng thái hoạt động của user trên hệ thống.
+Enum user_status {
+  active
+  suspended
+  deleted
+}
+
+// Trạng thái hồ sơ và khả năng hoạt động của worker.
+Enum worker_status {
+  draft
+  pending_kyc
+  under_review
+  verified
+  rejected
+  suspended
+}
+
+// Trạng thái xử lý của hồ sơ KYC.
+Enum kyc_status {
+  draft
+  submitted
+  reviewing
+  approved
+  rejected
+}
+
+// Trạng thái hiển thị và kiểm duyệt đánh giá worker.
+Enum review_status {
+  published
+  hidden
+  flagged
+  removed
+}
+
+// Trạng thái xử lý của khiếu nại.
+Enum complaint_status {
+  submitted
+  reviewing
+  awaiting_information
+  resolved
+  rejected
+  closed
+}
+
+// Phân loại nội dung của khiếu nại.
+Enum complaint_category {
+  service_quality
+  worker_behavior
+  customer_behavior
+  payment
+  fraud
+  safety
+  other
+}
+
+// Lưu thông tin cơ bản của tất cả user trên hệ thống.
+Table users {
+  id uuid [pk]
+  full_name varchar(150) [not null]
+  avatar_url text
+  status user_status [not null, default: 'active']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu thông tin bổ sung dành cho customer.
+Table customer_profiles {
+  id uuid [pk]
+  user_id uuid [not null, unique]
+  bio text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu thông tin bổ sung và trạng thái hoạt động của worker.
+Table worker_profiles {
+  id uuid [pk]
+  user_id uuid [not null, unique]
+  status worker_status [not null, default: 'draft']
+  average_rating decimal(3,2) [not null, default: 0]
+  rating_count int [not null, default: 0]
+  completed_order_count int [not null, default: 0]
+  order_count_total int [not null, default: 0]
+  verified_at timestamp
+  approved_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu thông tin tài khoản ngân hàng của user để nhận hoặc rút tiền.
+Table user_bank_accounts {
+  id uuid [pk]
+  user_id uuid [not null]
+  bank_code varchar(20) [not null]
+  bank_name varchar(100) [not null]
+  account_number varchar(50) [not null]
+  account_holder_name varchar(150) [not null]
+  is_default boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu loại dịch vụ mà worker đăng ký cung cấp.
+Table worker_service_offerings {
+  id uuid [pk]
+  worker_profile_id uuid [not null]
+  service_id uuid [not null, note: 'Logical reference -> Catalog Service.services.id']
+  title varchar(200)
+  description text
+  experience_years int [default: 0]
+  is_active boolean [not null, default: true]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (worker_profile_id, service_id) [unique]
+  }
+}
+
+// [NEW] Lưu khu vực và bán kính nhận việc của worker.
+Table worker_service_areas {
+  id uuid [pk]
+  worker_profile_id uuid [not null]
+  latitude decimal(9,6) [not null, note: 'Center latitude (-90 to 90)']
+  longitude decimal(9,6) [not null, note: 'Center longitude (-180 to 180)']
+  radius_km decimal(6,2) [not null, note: 'Maximum service radius in km (> 0)']
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (worker_profile_id, is_active)
+    (latitude, longitude)
+  }
+}
+
+// Lưu hồ sơ xác minh danh tính KYC của worker.
+Table kyc_cases {
+  id uuid [pk]
+  worker_profile_id uuid [not null]
+  id_document_type varchar(50) [not null]
+  id_number_masked varchar(100)
+  document_front_ref text [not null]
+  document_back_ref text
+  selfie_ref text [not null]
+  status kyc_status [not null, default: 'draft']
+  ai_similarity_score decimal(5,4)
+  reviewed_by_user_id uuid
+  review_note text
+  submitted_at timestamp
+  reviewed_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu đánh giá của customer đối với worker sau khi hoàn thành order.
+Table worker_reviews {
+  id uuid [pk]
+  order_id uuid [not null, note: 'Logical reference -> Order Service.orders.id']
+  customer_user_id uuid [not null]
+  worker_user_id uuid [not null]
+  rating int [not null]
+  attitude_rating text [not null]
+  quality_rating text [not null]
+  speed_rating text [not null]
+  comment text
+  status review_status [not null, default: 'published']
+  moderated_by_user_id uuid
+  moderation_note text
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    order_id [unique]
+    worker_user_id
+    customer_user_id
+  }
+}
+
+// Lưu thông tin khiếu nại liên quan đến order và user.
+Table complaints {
+  id uuid [pk]
+  order_id uuid [not null, note: 'Logical reference -> Order Service.orders.id']
+  complainant_user_id uuid [not null]
+  reported_user_id uuid
+  category complaint_category [not null]
+  subject varchar(200) [not null]
+  description text [not null]
+  status complaint_status [not null, default: 'submitted']
+  assigned_admin_user_id uuid
+  resolution text
+  resolved_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+// Lưu các file bằng chứng được đính kèm vào khiếu nại.
+Table complaint_evidence {
+  id uuid [pk]
+  complaint_id uuid [not null]
+  uploaded_by_user_id uuid [not null]
+  file_url text [not null]
+  note text
+  created_at timestamp [not null]
+}
+
+// Relationships
+Ref: users.id - customer_profiles.user_id
+Ref: users.id - worker_profiles.user_id
+Ref: users.id < user_bank_accounts.user_id
+Ref: worker_profiles.id < worker_service_offerings.worker_profile_id
+Ref: worker_profiles.id < worker_service_areas.worker_profile_id
+Ref: worker_profiles.id < kyc_cases.worker_profile_id
+Ref: users.id < kyc_cases.reviewed_by_user_id
+Ref: users.id < worker_reviews.customer_user_id
+Ref: users.id < worker_reviews.worker_user_id
+Ref: users.id < worker_reviews.moderated_by_user_id
+Ref: users.id < complaints.complainant_user_id
+Ref: users.id < complaints.reported_user_id
+Ref: users.id < complaints.assigned_admin_user_id
+Ref: complaints.id < complaint_evidence.complaint_id
+Ref: users.id < complaint_evidence.uploaded_by_user_id

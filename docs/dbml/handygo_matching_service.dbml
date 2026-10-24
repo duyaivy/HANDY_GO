@@ -1,0 +1,89 @@
+// HANDYGO V3 — FULL DBML | MATCHING SERVICE
+// All cross-microservice references are logical only; no cross-database foreign keys.
+
+Project handygo_matching_service {
+  database_type: 'PostgreSQL'
+  Note: 'Always-on AI worker recommendations. Runs asynchronously on request publication/revision updates, independently from bidding.'
+}
+
+// Matching execution lifecycle state:
+// pending -> processing -> completed | failed
+// Retries and reruns do not overwrite historical runs.
+Enum match_run_status {
+  pending
+  processing
+  completed
+  failed
+}
+
+Table match_runs {
+  id uuid [pk]
+
+  service_request_id uuid [not null, note: 'Logical reference -> Order Service.service_requests.id']
+  service_id uuid [not null, note: 'Logical reference -> Catalog Service.services.id']
+
+  request_revision int [not null, default: 1, note: 'Increments on material request changes; prevents using stale results']
+  run_number int [not null, default: 1, note: 'Execution sequence number for retries under the same revision']
+
+  status match_run_status [not null, default: 'pending']
+
+  candidate_count int [not null, default: 0, note: 'Eligible workers evaluated']
+  result_count int [not null, default: 0, note: 'Persisted ranked results (up to Top 20)']
+  display_limit int [not null, default: 5, note: 'Customer-facing API presents Top 5 recommended workers']
+
+  model_version varchar(100)
+  error_message text
+
+  created_at timestamptz [not null]
+  started_at timestamptz
+  completed_at timestamptz
+
+  indexes {
+    (service_request_id, request_revision, run_number) [unique]
+    (service_request_id, status, created_at)
+  }
+}
+
+// Persist up to Top 20 ranked workers so UI reliably shows Top 5 and supports deduplication with bids.
+Table match_results {
+  id uuid [pk]
+  match_run_id uuid [not null]
+
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+
+  rank int [not null, note: 'Ranking position 1 to 20']
+  matching_score decimal(5,2) [not null, note: 'Normalized scoring in [0.00, 100.00]']
+
+  score_breakdown jsonb [note: 'Semantic, geographical, rating, service experience, and completion breakdown']
+
+  created_at timestamptz [not null]
+
+  indexes {
+    (match_run_id, worker_user_id) [unique]
+    (match_run_id, rank) [unique]
+  }
+}
+
+// Outbox for reliable event publication
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(50) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(100) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+// Inbox for inbound idempotency
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(100) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: match_runs.id < match_results.match_run_id
