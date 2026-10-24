@@ -21,6 +21,15 @@ export const EVENT_PATTERNS = {
   BID_ACCEPTED: 'bid.accepted',
   BID_REJECTED: 'bid.rejected',
 
+  SERVICE_REQUEST_PUBLISHED: 'service_request.published',
+  SERVICE_REQUEST_MATCHING_INPUTS_CHANGED: 'service_request.matching_inputs_changed',
+  SERVICE_REQUEST_CANCELLED: 'service_request.cancelled',
+  SERVICE_REQUEST_CONVERTED_TO_ORDER: 'service_request.converted_to_order',
+
+  MATCHING_STARTED: 'matching.started',
+  MATCHING_COMPLETED: 'matching.completed',
+  MATCHING_FAILED: 'matching.failed',
+
   WORKER_MATCHED: 'worker.matched',
 
   PAYMENT_COMPLETED: 'payment.completed',

@@ -7,6 +7,7 @@ import {
   Logger,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
@@ -15,6 +16,7 @@ import {
   CurrentUser,
   JwtAuthGuard,
   PermissionsGuard,
+  Public,
   RequirePermissions,
   StandardPermissions,
   type AuthenticatedUser,
@@ -308,6 +310,81 @@ export class UserTrustServiceController {
         }
       }
       throw err;
+    }
+  }
+
+  /**
+   * Internal REST API for Matching Service candidate discovery.
+   * GET /internal/v1/workers/candidates?serviceId=...&latitude=...&longitude=...&customerUserId=...
+   */
+  @Public()
+  @Get('internal/v1/workers/candidates')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Internal: Find eligible worker candidates for matching' })
+  async findWorkerCandidates(
+    @Query('serviceId') serviceId: string,
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+    @Query('customerUserId') customerUserId?: string,
+  ): Promise<unknown> {
+    return this.userTrustService.findWorkerCandidates({
+      serviceId,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      customerUserId,
+    });
+  }
+
+  /**
+   * Internal RabbitMQ RPC to discover eligible worker candidates.
+   */
+  @MessagePattern('workers.find-candidates')
+  async findWorkerCandidatesRpc(
+    @Payload() data: { serviceId: string; latitude: number; longitude: number; customerUserId?: string },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.findWorkerCandidates(data);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+    }
+  }
+
+  /**
+   * Internal REST API for worker matching profile lookup (offerings, areas, verification).
+   */
+  @Public()
+  @Get('internal/v1/workers/:id/matching-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Internal: Get worker match profile for request discovery' })
+  async getWorkerMatchProfile(@Param('id') workerUserId: string): Promise<unknown> {
+    return this.userTrustService.getWorkerMatchProfile(workerUserId);
+  }
+
+  /**
+   * Internal RabbitMQ RPC for worker match profile lookup.
+   */
+  @MessagePattern('workers.get-matching-profile')
+  async getWorkerMatchProfileRpc(
+    @Payload() data: { workerUserId: string },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.getWorkerMatchProfile(data.workerUserId);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
     }
   }
 }
