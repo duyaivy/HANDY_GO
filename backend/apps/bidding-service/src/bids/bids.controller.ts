@@ -173,9 +173,9 @@ export class BidsController {
   @Get('requests/:id/bids')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Lấy danh sách báo giá theo yêu cầu dịch vụ',
+    summary: 'Lấy danh sách báo giá theo yêu cầu dịch vụ (Hỗ trợ Sealed-Bid)',
     description:
-      'Trả về danh sách báo giá sắp xếp theo thời gian mới nhất (submittedAt DESC). Lưu ý: Việc bấm xem/chat với báo giá không làm thay đổi trạng thái sang selected.',
+      'Trả về danh sách báo giá sắp xếp mới nhất (submittedAt DESC). Khách hàng xem được toàn bộ giá; thợ đối thủ chỉ thấy trạng thái báo giá kín (isMasked). Bấm xem không làm đổi trạng thái sang selected.',
   })
   @ApiParam({ name: 'id', description: 'Mã định danh duy nhất (UUID) của yêu cầu dịch vụ', type: String })
   @ApiResponse({
@@ -186,8 +186,15 @@ export class BidsController {
   async getBidsForRequest(
     @Param('id', new ParseUUIDPipe({ version: '4' })) serviceRequestId: string,
     @Query() query: QueryBidsDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-user-roles') userRoles?: string,
   ) {
-    const data = await this.bidsService.getBidsForRequest(serviceRequestId, query);
+    const data = await this.bidsService.getBidsForRequest(
+      serviceRequestId,
+      query,
+      userId,
+      userRoles,
+    );
     return buildSuccessResponse(
       data,
       'Lấy danh sách báo giá thành công',
@@ -202,8 +209,10 @@ export class BidsController {
   async getBidsForRequestAlias(
     @Param('id', new ParseUUIDPipe({ version: '4' })) serviceRequestId: string,
     @Query() query: QueryBidsDto,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-user-roles') userRoles?: string,
   ) {
-    return this.getBidsForRequest(serviceRequestId, query);
+    return this.getBidsForRequest(serviceRequestId, query, userId, userRoles);
   }
 
   @Get('bids/me')

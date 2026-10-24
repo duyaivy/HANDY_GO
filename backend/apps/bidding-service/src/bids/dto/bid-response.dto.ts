@@ -55,6 +55,12 @@ export class BidResponseDto {
   @ApiProperty({ description: 'Số phiên bản hiện tại để kiểm soát tranh chấp đồng thời' })
   version!: number;
 
+  @ApiPropertyOptional({
+    description: 'Đánh dấu mức giá và nội dung đã được ẩn (Sealed-Bid) đối với thợ đối thủ',
+    example: false,
+  })
+  isMasked?: boolean;
+
   @ApiProperty({ description: 'Thời điểm nộp báo giá lần đầu' })
   submittedAt!: Date;
 

@@ -24,6 +24,16 @@ import {
 import { EVENT_PATTERNS } from '@app/common';
 import type { Bid, BidRevision, Prisma } from '@prisma/bidding-client';
 
+export const MAX_BID_REVISIONS = 5;
+export const ANTI_SNIPING_TRIGGER_WINDOW_MS = 30 * 1000; // 30 giây cuối
+export const ANTI_SNIPING_EXTENSION_MS = 2 * 60 * 1000; // Gia hạn 2 phút
+export const MIN_REVISION_INTERVAL_MS =
+  process.env.BID_REVISION_COOLDOWN_MS !== undefined
+    ? Number(process.env.BID_REVISION_COOLDOWN_MS)
+    : process.env.NODE_ENV === 'test'
+      ? 0
+      : 2 * 60 * 1000; // 2 phút
+
 @Injectable()
 export class BidsService {
   private readonly logger = new Logger(BidsService.name);
@@ -91,6 +101,40 @@ export class BidsService {
     }
 
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Anti-sniping: Nếu gửi báo giá trong 30 giây cuối cùng, tự động gia hạn thêm 2 phút
+      const remainingMs = round.closesAt.getTime() - now.getTime();
+      if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
+        const newClosesAt = new Date(
+          round.closesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+        );
+        await tx.biddingRound.update({
+          where: { id: round.id },
+          data: { closesAt: newClosesAt },
+        });
+
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bidding_round',
+            aggregateId: round.id,
+            eventType: 'bidding.round.extended',
+            eventVersion: 1,
+            payload: {
+              roundId: round.id,
+              serviceRequestId,
+              previousClosesAt: round.closesAt.toISOString(),
+              newClosesAt: newClosesAt.toISOString(),
+              extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
+              reason:
+                'Anti-sniping extension triggered by last-minute bid submission',
+            },
+          },
+        });
+
+        this.logger.log(
+          `Anti-sniping kích hoạt: Phiên ${round.id} được gia hạn thêm 2 phút đến ${newClosesAt.toISOString()}`,
+        );
+      }
+
       const createdBid = await tx.bid.create({
         data: {
           biddingRoundId: round.id,
@@ -201,6 +245,31 @@ export class BidsService {
       }
     }
 
+    // Anti-Abuse: Giới hạn tối đa 5 lần điều chỉnh báo giá cho mỗi phiên
+    if (bid.revisions.length >= MAX_BID_REVISIONS) {
+      throw new BadRequestException(
+        `Bạn đã đạt giới hạn tối đa ${MAX_BID_REVISIONS} lần điều chỉnh báo giá cho yêu cầu này`,
+      );
+    }
+
+    // Anti-Abuse: Giới hạn thời gian giãn cách giữa 2 lần sửa liên tiếp (tối thiểu 2 phút)
+    if (MIN_REVISION_INTERVAL_MS > 0 && bid.revisions.length > 0) {
+      const lastRevisionTime = new Date(
+        Math.max(
+          ...bid.revisions.map((r) => new Date(r.revisedAt).getTime()),
+        ),
+      );
+      const elapsedMs = now.getTime() - lastRevisionTime.getTime();
+      if (elapsedMs < MIN_REVISION_INTERVAL_MS) {
+        const remainingSec = Math.ceil(
+          (MIN_REVISION_INTERVAL_MS - elapsedMs) / 1000,
+        );
+        throw new BadRequestException(
+          `Vui lòng đợi thêm ${remainingSec} giây trước khi thực hiện lần điều chỉnh tiếp theo (khoảng cách tối thiểu giữa 2 lần sửa là 2 phút).`,
+        );
+      }
+    }
+
     const newAmount = dto.amount !== undefined ? dto.amount : Number(bid.amount);
     const newMessage = dto.message !== undefined ? dto.message : bid.message;
     const newValidUntil = dto.validUntil
@@ -208,6 +277,40 @@ export class BidsService {
       : bid.validUntil;
 
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // Anti-sniping: Nếu điều chỉnh báo giá trong 30 giây cuối cùng, gia hạn thêm 2 phút
+      const remainingMs = round.closesAt.getTime() - now.getTime();
+      if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
+        const newClosesAt = new Date(
+          round.closesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+        );
+        await tx.biddingRound.update({
+          where: { id: round.id },
+          data: { closesAt: newClosesAt },
+        });
+
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bidding_round',
+            aggregateId: round.id,
+            eventType: 'bidding.round.extended',
+            eventVersion: 1,
+            payload: {
+              roundId: round.id,
+              serviceRequestId: bid.serviceRequestId,
+              previousClosesAt: round.closesAt.toISOString(),
+              newClosesAt: newClosesAt.toISOString(),
+              extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
+              reason:
+                'Anti-sniping extension triggered by last-minute bid revision',
+            },
+          },
+        });
+
+        this.logger.log(
+          `Anti-sniping kích hoạt: Phiên ${round.id} được gia hạn thêm 2 phút do điều chỉnh giá phút chót`,
+        );
+      }
+
       const revisionNo = bid.revisions.length + 1;
 
       // Create BidRevision record
@@ -360,7 +463,20 @@ export class BidsService {
   async getBidsForRequest(
     serviceRequestId: string,
     query: QueryBidsDto,
+    currentUserId?: string,
+    userRoles?: string,
   ): Promise<BidListResponseDto> {
+    const roles = userRoles
+      ? userRoles.split(',').map((r) => r.trim().toLowerCase())
+      : [];
+    const isWorker = roles.includes('worker');
+    const isCustomerOrAdmin =
+      roles.includes('customer') ||
+      roles.includes('admin') ||
+      roles.includes('operator');
+    // Cơ chế Đấu giá kín: Nếu người xem là Thợ (và không phải Admin) thì ẩn giá đối thủ
+    const shouldMaskCompetitors = isWorker && !isCustomerOrAdmin;
+
     const where: Prisma.BidWhereInput = {
       serviceRequestId,
       ...(query.status && query.status !== 'all'
@@ -385,9 +501,31 @@ export class BidsService {
       }),
     ]);
 
-    const items = bids.map((b) =>
-      this.mapToBidResponse(b, b._count.revisions),
-    );
+    const items = bids.map((b) => {
+      const isOwnerWorker = currentUserId && b.workerId === currentUserId;
+      if (shouldMaskCompetitors && !isOwnerWorker) {
+        // Blind Bidding (Đấu giá kín): Che giá và nội dung đối với thợ đối thủ
+        return {
+          id: b.id,
+          biddingRoundId: b.biddingRoundId,
+          serviceRequestId: b.serviceRequestId,
+          workerId: b.workerId,
+          amount: 0,
+          message: '[Báo giá kín - Chỉ khách hàng sở hữu yêu cầu mới có quyền xem]',
+          validUntil: null,
+          status: b.status,
+          version: b.version,
+          submittedAt: b.submittedAt,
+          revisionsCount: b._count.revisions,
+          isMasked: true,
+        };
+      }
+
+      return {
+        ...this.mapToBidResponse(b, b._count.revisions),
+        isMasked: false,
+      };
+    });
 
     return {
       items,

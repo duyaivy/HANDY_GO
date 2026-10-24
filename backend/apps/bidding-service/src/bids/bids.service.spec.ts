@@ -391,4 +391,158 @@ describe('BidsService', () => {
       expect(result.bid?.status).toBe('active');
     });
   });
+
+  describe('Anti-Abuse & Fair Play features', () => {
+    it('should throw BadRequestException when worker exceeds max 5 revisions', async () => {
+      prismaMock.bid.findUnique.mockResolvedValue({
+        id: 'bid-1',
+        workerId: 'worker-1',
+        status: 'active',
+        version: 5,
+        amount: 200000,
+        submittedAt: new Date(Date.now() - 1000000),
+        biddingRound: {
+          status: 'open',
+          closesAt: new Date(Date.now() + 100000),
+        },
+        revisions: [
+          { revisionNo: 1, revisedAt: new Date(Date.now() - 500000) },
+          { revisionNo: 2, revisedAt: new Date(Date.now() - 400000) },
+          { revisionNo: 3, revisedAt: new Date(Date.now() - 300000) },
+          { revisionNo: 4, revisedAt: new Date(Date.now() - 200000) },
+          { revisionNo: 5, revisedAt: new Date(Date.now() - 100000) },
+        ],
+      });
+
+      await expect(
+        service.reviseBid('worker-1', 'bid-1', { version: 5, amount: 190000 }),
+      ).rejects.toThrow('Bạn đã đạt giới hạn tối đa 5 lần điều chỉnh báo giá');
+    });
+
+    it('should trigger Anti-Sniping and extend closesAt when bid submitted in last 30s', async () => {
+      const now = Date.now();
+      const closesAtSoon = new Date(now + 20 * 1000); // Còn 20 giây (< 30s)
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        status: 'open',
+        closesAt: closesAtSoon,
+      });
+
+      prismaMock.bid.findUnique.mockResolvedValue(null);
+      prismaMock.bid.create.mockResolvedValue({
+        id: 'bid-new',
+        biddingRoundId: 'round-1',
+        serviceRequestId: 'req-1',
+        workerId: 'worker-1',
+        amount: 250000,
+        status: 'active',
+        version: 1,
+        submittedAt: new Date(),
+      });
+
+      await service.submitBid('worker-1', 'req-1', { amount: 250000 });
+
+      // Round closesAt should be updated with +2 minutes extension
+      expect(prismaMock.biddingRound.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'round-1' },
+          data: expect.objectContaining({
+            closesAt: expect.any(Date),
+          }),
+        }),
+      );
+
+      // Outbox event bidding.round.extended should be created
+      expect(prismaMock.outboxEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'bidding.round.extended',
+          }),
+        }),
+      );
+    });
+
+    it('should mask competitor bid amounts (Blind Bidding) when viewer is another worker', async () => {
+      prismaMock.bid.count.mockResolvedValue(2);
+      prismaMock.bid.findMany.mockResolvedValue([
+        {
+          id: 'bid-own',
+          biddingRoundId: 'round-1',
+          serviceRequestId: 'req-1',
+          workerId: 'worker-1',
+          amount: 250000,
+          message: 'Tin nhắn của tôi',
+          validUntil: null,
+          status: 'active',
+          version: 1,
+          submittedAt: new Date(),
+          _count: { revisions: 0 },
+        },
+        {
+          id: 'bid-competitor',
+          biddingRoundId: 'round-1',
+          serviceRequestId: 'req-1',
+          workerId: 'worker-2',
+          amount: 200000,
+          message: 'Báo giá của đối thủ',
+          validUntil: null,
+          status: 'active',
+          version: 1,
+          submittedAt: new Date(),
+          _count: { revisions: 0 },
+        },
+      ]);
+
+      // Worker 1 viewing bids: Worker 2's bid should be masked
+      const res = await service.getBidsForRequest(
+        'req-1',
+        { page: 1, limit: 10 },
+        'worker-1',
+        'worker',
+      );
+
+      expect(res.items.length).toBe(2);
+      const ownBid = res.items.find((b) => b.id === 'bid-own');
+      const competitorBid = res.items.find((b) => b.id === 'bid-competitor');
+
+      expect(ownBid?.isMasked).toBe(false);
+      expect(ownBid?.amount).toBe(250000);
+
+      expect(competitorBid?.isMasked).toBe(true);
+      expect(competitorBid?.amount).toBe(0);
+      expect(competitorBid?.message).toContain('Báo giá kín');
+    });
+
+    it('should NOT mask bids when viewer is customer or admin', async () => {
+      prismaMock.bid.count.mockResolvedValue(1);
+      prismaMock.bid.findMany.mockResolvedValue([
+        {
+          id: 'bid-1',
+          biddingRoundId: 'round-1',
+          serviceRequestId: 'req-1',
+          workerId: 'worker-2',
+          amount: 200000,
+          message: 'Báo giá thợ 2',
+          validUntil: null,
+          status: 'active',
+          version: 1,
+          submittedAt: new Date(),
+          _count: { revisions: 0 },
+        },
+      ]);
+
+      const res = await service.getBidsForRequest(
+        'req-1',
+        { page: 1, limit: 10 },
+        'customer-1',
+        'customer',
+      );
+
+      expect(res.items[0].isMasked).toBe(false);
+      expect(res.items[0].amount).toBe(200000);
+      expect(res.items[0].message).toBe('Báo giá thợ 2');
+    });
+  });
 });
