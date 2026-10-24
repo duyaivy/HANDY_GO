@@ -1044,5 +1044,45 @@ export class UserTrustServiceService {
       data: updated,
     };
   }
+
+  /**
+   * Retrieves summary profile for a list of workers (Inter-service / BFF enrichment)
+   */
+  async getWorkersBatchSummary(workerIds: string[]): Promise<
+    Array<{
+      workerId: string;
+      fullName: string;
+      avatarUrl: string | null;
+      averageRating: number;
+      ratingCount: number;
+      completedOrderCount: number;
+    }>
+  > {
+    if (!workerIds || workerIds.length === 0) return [];
+
+    const workers = await this.db.workerProfile.findMany({
+      where: {
+        userId: { in: workerIds },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    return workers.map((w) => ({
+      workerId: w.userId,
+      fullName: w.user?.fullName || 'Thợ Handyman',
+      avatarUrl: w.user?.avatarUrl || null,
+      averageRating: Number(w.averageRating) || 5.0,
+      ratingCount: w.ratingCount,
+      completedOrderCount: w.completedOrderCount,
+    }));
+  }
 }
 

@@ -7,6 +7,7 @@ import {
   Logger,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
@@ -309,6 +310,24 @@ export class UserTrustServiceController {
       }
       throw err;
     }
+  }
+
+  /**
+   * Internal endpoint for BFF / Inter-service worker profile enrichment
+   */
+  @Get('internal/workers/batch-summary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lấy tóm tắt hồ sơ thợ (Inter-service / BFF enrichment)' })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách tóm tắt thợ thành công' })
+  async getWorkersBatchSummary(
+    @Query('ids') ids?: string,
+  ): Promise<any[]> {
+    if (!ids) return [];
+    const workerIds = ids
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    return this.userTrustService.getWorkersBatchSummary(workerIds);
   }
 }
 
