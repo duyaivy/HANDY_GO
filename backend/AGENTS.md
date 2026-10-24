@@ -150,7 +150,20 @@ pnpm run lint
 | `otp/otp.service.ts` | `OtpService` | **Cryptographic OTP & SMTP Service:** Generates 6-digit codes, HMAC-SHA256 hashing, timing-safe equality verification. Supports Gmail SMTP (`smtp.gmail.com:465` SSL with App Password) with fail-fast missing credentials check and delivery failure handling. |
 | `otp/otp-flow.service.ts` | `OtpFlowService` | **Atomic OTP Concurrency & Lockout:**<br>- `verifyEmail`: Transaction-level conditional updates (`isUsed = false`, `deliveryStatus = 'delivered'`, not expired, `attempts < 5`) for both failed and valid codes; 5 failed attempts completely locks verification until new challenge requested.<br>- `resendOtp`: Account row-level lock (`SELECT ... FOR UPDATE`), active pending challenge (15s timeout) / cooldown check returning 429 without sending 2nd email; SMTP dispatch outside transaction with timeout; on SMTP failure old delivered code remains valid and immediate resend allowed. |
 
----
+### 4.3. Wallet Service Components
+
+These components are reusable across wallet feature modules. They remain service-internal and should not be imported directly by other microservices.
+
+| File Path | Function / Class | Purpose & Usage Contract |
+| :--- | :--- | :--- |
+| `apps/wallet-service/src/wallet-query/wallet-query.service.ts` | `WalletQueryService`, `WalletQueryRepository`, `WALLET_QUERY_REPOSITORY` | **Wallet query contract and service.** Reads the owner's wallet, transaction detail, and paginated/filterable transactions; serializes BIGINT values as decimal strings and computes available balance. Bind `WALLET_QUERY_REPOSITORY` to `WalletPrismaQueryRepository` in `WalletQueryModule`. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-query.dto.ts` | `WalletTransactionQueryDto` | **Wallet transaction query contract.** Validates page (minimum 1), limit (1–100), optional type/status, and ISO date filters `from`/`to`. Use as the controller's `@Query()` DTO. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-response.dto.ts` | `WalletResponseDto` | **Wallet balance response contract.** Documents wallet identity/status and decimal-string `balance`, `reservedBalance`, and `availableBalance`. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-response.dto.ts` | `WalletTransactionResponseDto`, `PaginatedWalletTransactionsResponseDto` | **Wallet transaction response contract.** Documents transaction detail and paginated list fields (`items`, `page`, `limit`, `total`, `totalPages`). |
+| `apps/wallet-service/src/wallet-ledger/wallet-prisma.service.ts` | `WalletPrismaService` | **Wallet-owned Prisma/PostgreSQL client.** Connects to the generated `@prisma/wallet-client` using `DATABASE_URL_WALLET` (or the default database URL with `wallet_service` schema). Inject via `WalletLedgerModule`; do not share this database client with other services. |
+| `apps/wallet-service/src/wallet-ledger/wallet-ledger.service.ts` | `WalletLedgerService` | **Atomic ledger transfer service.** Validates balanced postings, locks wallet rows, checks available funds, and writes balance changes, immutable ledger entries, and outbox events in one transaction. Wallet features call `createBalancedTransfer({ operationId, idempotencyKey, kind, postings })`. |
+| `apps/wallet-service/src/wallet-events/wallet-outbox.repository.ts` | `WalletOutboxRepository` | **Wallet adapter for shared `OutboxPublisherService`.** Reads pending wallet outbox events and updates publish/retry/DLQ state. Registered as `OutboxRepository` in `WalletEventsModule`; not a cross-service adapter. |
+| `apps/wallet-service/src/common/utils/client-ip.util.ts` | `resolveClientIp`, `normalizeClientIp` | **Wallet HTTP client IP utility.** Trusts forwarded IP only after timing-safe gateway-secret validation and validates/normalizes the IP. Use `resolveClientIp(config, req, fallbackIp)` in Wallet controllers. |
 
 ## 5. Feature Blueprint & Implementation Template
 
