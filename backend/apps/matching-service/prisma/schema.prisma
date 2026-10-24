@@ -76,3 +76,23 @@ model ConsumedEvent {
 
   @@map("consumed_events")
 }
+
+model ServiceRequestProjection {
+  id               String    @id @db.Uuid
+  requestCode      String    @map("request_code") @db.VarChar(30)
+  customerUserId   String    @map("customer_user_id") @db.Uuid
+  serviceId        String    @map("service_id") @db.Uuid
+  description      String?   @db.Text
+  scheduledAt      DateTime? @map("scheduled_at") @db.Timestamptz(6)
+  addressText      String?   @map("address_text") @db.VarChar(500)
+  latitude         Decimal   @db.Decimal(9, 6)
+  longitude        Decimal   @db.Decimal(9, 6)
+  status           String    @db.VarChar(50)
+  matchingRevision Int       @default(1) @map("matching_revision")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([serviceId, status])
+  @@index([customerUserId])
+  @@map("service_request_projections")
+}
