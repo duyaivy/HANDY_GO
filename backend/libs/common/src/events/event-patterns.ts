@@ -4,9 +4,12 @@ export const EVENT_PATTERNS = {
   USER_DELETED: 'user.deleted',
   AUTH_OTP_REQUESTED: 'auth.otp.requested',
 
+  KYC_PENDING: 'kyc.pending',
   KYC_SUBMITTED: 'kyc.submitted',
+  KYC_REVIEWING: 'kyc.reviewing',
   KYC_COMPLETED: 'kyc.completed',
   KYC_FAILED: 'kyc.failed',
+  KYC_JOB_PROCESS: 'kyc.job.process',
 
   ORDER_CREATED: 'order.created',
   ORDER_ACCEPTED: 'order.accepted',

@@ -6,10 +6,10 @@ import { WorkerJobsScreen } from '../screens/worker-jobs-screen';
 afterEach(cleanup);
 
 describe('workerJobsScreen', () => {
-  it('renders screen title, route and responsible owner', () => {
+  it('renders screen title and placeholder message', () => {
     render(<WorkerJobsScreen />);
-    expect(screen.getByText('Danh sách công việc của Thợ')).toBeOnTheScreen();
-    expect(screen.getByText('Route: /worker/jobs')).toBeOnTheScreen();
-    expect(screen.getByText('Worker Orders / Jobs Owner')).toBeOnTheScreen();
+    expect(screen.getByText('Công việc của tôi')).toBeOnTheScreen();
+    expect(screen.getByTestId('orders-worker-jobs-screen')).toBeOnTheScreen();
+    expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
   });
 });

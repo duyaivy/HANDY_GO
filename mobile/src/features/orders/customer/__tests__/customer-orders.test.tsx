@@ -13,6 +13,7 @@ jest.mock('expo-router', () => ({
     replace: jest.fn(),
     back: mockBack,
   })),
+  useLocalSearchParams: jest.fn(() => ({ id: 'demo-001' })),
 }));
 
 afterEach(() => {
@@ -21,30 +22,23 @@ afterEach(() => {
 });
 
 describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
-  it('renders CustomerOrdersScreen with title and route', () => {
+  it('renders CustomerOrdersScreen with title and placeholder text', () => {
     render(<CustomerOrdersScreen />);
-    expect(screen.getByText('Danh sách đơn hàng của Khách')).toBeOnTheScreen();
-    expect(screen.getByText('Route: /customer/orders')).toBeOnTheScreen();
-    expect(screen.getByText('Customer Orders Owner')).toBeOnTheScreen();
+    expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
+    expect(screen.getByTestId('orders-customer-screen')).toBeOnTheScreen();
+    expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
   });
 
-  it('navigates to customer order detail demo-001 when pressing open demo button', () => {
-    render(<CustomerOrdersScreen />);
-    const openDemoBtn = screen.getByTestId('orders-customer-open-demo');
-    fireEvent.press(openDemoBtn);
-    expect(mockPush).toHaveBeenCalledWith('/customer/orders/demo-001');
-  });
-
-  it('renders CustomerOrderDetailScreen displaying orderId passed as prop', () => {
+  it('renders CustomerOrderDetailScreen displaying orderId passed as prop and placeholder text', () => {
     render(<CustomerOrderDetailScreen orderId="demo-001" />);
-    expect(screen.getByText('Chi tiết đơn hàng của Khách')).toBeOnTheScreen();
-    expect(screen.getByText('Route: /customer/orders/[id]')).toBeOnTheScreen();
-    expect(screen.getByTestId('orders-customer-detail-order-id')).toHaveTextContent('demo-001');
+    expect(screen.getByText('Báo giá thợ')).toBeOnTheScreen();
+    expect(screen.getByText('Mã đơn: #demo-001')).toBeOnTheScreen();
+    expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
   });
 
-  it('navigates back when pressing back button in detail screen', () => {
+  it('navigates back when pressing back button in detail screen app bar', () => {
     render(<CustomerOrderDetailScreen orderId="demo-001" />);
-    const backBtn = screen.getByTestId('orders-customer-detail-back-btn');
+    const backBtn = screen.getByTestId('app-bar-back-btn');
     fireEvent.press(backBtn);
     expect(mockBack).toHaveBeenCalled();
   });

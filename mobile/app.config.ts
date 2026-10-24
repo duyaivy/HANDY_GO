@@ -94,6 +94,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     ],
     'expo-localization',
+    [
+      'expo-camera',
+      {
+        cameraPermission: 'Cho phép HANDY GO sử dụng camera để chụp CCCD xác minh.',
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     'expo-router',
     ['react-native-edge-to-edge'],
   ],

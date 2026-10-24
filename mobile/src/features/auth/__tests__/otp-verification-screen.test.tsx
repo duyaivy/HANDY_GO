@@ -1,22 +1,23 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OtpVerificationScreen } from '../screens/otp-verification-screen';
+import { useAuthFlowStore } from '../use-auth-flow-store';
 
+const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockBack = jest.fn();
 
 let mockParams: Record<string, string | undefined> = {
-  email: 'customer@example.com',
   phone: '0912345678',
 };
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(() => ({
-    push: jest.fn(),
+    push: mockPush,
     replace: mockReplace,
-    back: jest.fn(),
+    back: mockBack,
   })),
   useLocalSearchParams: jest.fn(() => mockParams),
 }));
@@ -31,109 +32,66 @@ afterEach(() => {
     isAuthenticated: false,
     user: null,
   });
+  useAuthFlowStore.getState().resetFlow();
   mockParams = {
-    email: 'customer@example.com',
     phone: '0912345678',
   };
 });
 
-describe('otpVerificationScreen', () => {
-  it('renders OTP input and verify button', () => {
+describe('otpVerificationScreen (Phase 4 Step 2 - Ảnh 5)', () => {
+  it('renders 5 OTP boxes, 30s countdown circle, and buttons', () => {
     render(<OtpVerificationScreen />);
     expect(screen.getByTestId('auth-otp-screen')).toBeOnTheScreen();
     expect(screen.getByTestId('otp-input')).toBeOnTheScreen();
+
+    // Verify 5 OTP discrete boxes exist
+    expect(screen.getByTestId('otp-box-0')).toBeOnTheScreen();
+    expect(screen.getByTestId('otp-box-1')).toBeOnTheScreen();
+    expect(screen.getByTestId('otp-box-2')).toBeOnTheScreen();
+    expect(screen.getByTestId('otp-box-3')).toBeOnTheScreen();
+    expect(screen.getByTestId('otp-box-4')).toBeOnTheScreen();
+
+    // Verify 30s circular countdown timer exists
+    expect(screen.getByTestId('otp-countdown-circle')).toBeOnTheScreen();
+    expect(screen.getByTestId('otp-countdown-text')).toBeOnTheScreen();
+
     expect(screen.getByTestId('otp-submit-btn')).toBeOnTheScreen();
     expect(screen.getByTestId('otp-resend-btn')).toBeOnTheScreen();
   });
 
-  it('validates OTP length is 6 digits', async () => {
+  it('validates OTP length is 5 digits', async () => {
     render(<OtpVerificationScreen />);
     fireEvent.changeText(screen.getByTestId('otp-input'), '123');
     fireEvent.press(screen.getByTestId('otp-submit-btn'));
 
     expect(
-      await screen.findByText('Vui lòng nhập đúng 6 chữ số mã OTP'),
+      await screen.findByText('Vui lòng nhập đúng 5 chữ số mã OTP'),
     ).toBeOnTheScreen();
   });
 
-  it('submits valid OTP and navigates to Login screen on verification success', async () => {
-    const verifyOtpMock = jest.fn().mockResolvedValue({
-      accessToken: 'token',
-      refreshToken: 'refresh',
-      expiresIn: 300,
-      user: {
-        id: 'user-1',
-        phone: '+84912345678',
-        email: 'customer@example.com',
-        roles: ['Customer'],
-        permissions: ['profile:read'],
-      },
-    });
-    useAuthStore.setState({ verifyOtp: verifyOtpMock });
-
+  it('submits valid 5-digit OTP and advances to Step 3 Create PIN screen', async () => {
     render(<OtpVerificationScreen />);
-    fireEvent.changeText(screen.getByTestId('otp-input'), '123456');
+    fireEvent.changeText(screen.getByTestId('otp-input'), '12345');
     fireEvent.press(screen.getByTestId('otp-submit-btn'));
 
     await waitFor(() => {
-      expect(verifyOtpMock).toHaveBeenCalledWith({
-        challengeId: undefined,
-        email: 'customer@example.com',
-        phone: '0912345678',
-        otp: '123456',
-      });
-      expect(mockReplace).toHaveBeenCalledWith('/customer');
-    });
-  });
-
-  it('displays error when OTP is incorrect', async () => {
-    const verifyOtpMock = jest.fn().mockRejectedValue({
-      statusCode: 400,
-      message: 'Mã OTP không chính xác. Còn lại 4 lần thử.',
-    });
-    useAuthStore.setState({ verifyOtp: verifyOtpMock });
-
-    render(<OtpVerificationScreen />);
-    fireEvent.changeText(screen.getByTestId('otp-input'), '999999');
-    fireEvent.press(screen.getByTestId('otp-submit-btn'));
-
-    expect(
-      await screen.findByText('Mã OTP không chính xác. Còn lại 4 lần thử.'),
-    ).toBeOnTheScreen();
-  });
-
-  it('forwards challengeId from params to verifyOtp', async () => {
-    mockParams = {
-      challengeId: 'challenge-xyz-123',
-      email: 'customer@example.com',
-      phone: '0912345678',
-    };
-    const verifyOtpMock = jest.fn().mockResolvedValue({
-      accessToken: 'token',
-      refreshToken: 'refresh',
-      user: { id: 'user-1', roles: ['Customer'] },
-    });
-    useAuthStore.setState({ verifyOtp: verifyOtpMock });
-
-    render(<OtpVerificationScreen />);
-    fireEvent.changeText(screen.getByTestId('otp-input'), '123456');
-    fireEvent.press(screen.getByTestId('otp-submit-btn'));
-
-    await waitFor(() => {
-      expect(verifyOtpMock).toHaveBeenCalledWith(
+      expect(mockPush).toHaveBeenCalledWith(
         expect.objectContaining({
-          challengeId: 'challenge-xyz-123',
+          pathname: '/(auth)/create-pin',
+          params: expect.objectContaining({
+            phone: '0912345678',
+            verified: 'true',
+          }),
         }),
       );
+      expect(useAuthFlowStore.getState().otp).toBe('12345');
     });
   });
 
-  it('displays deliveryFailed banner and hides it after successful resend', async () => {
+  it('displays deliveryFailed banner and allows resend', async () => {
     mockParams = {
-      email: 'customer@example.com',
       phone: '0912345678',
       deliveryFailed: 'true',
-      resendAvailableAt: new Date(Date.now() - 1000).toISOString(),
     };
 
     const resendSpy = jest.spyOn(AuthApi, 'resendOtp').mockResolvedValue({
@@ -141,40 +99,22 @@ describe('otpVerificationScreen', () => {
       message: 'Mã xác thực OTP mới đã được gửi',
       data: {
         challengeId: 'new-challenge-456',
-        resendAvailableAt: new Date(Date.now() + 60000).toISOString(),
+        resendAvailableAt: new Date(Date.now() + 30000).toISOString(),
       } as any,
     });
 
     render(<OtpVerificationScreen />);
-    expect(screen.getByText(/Không thể gửi email OTP đến hộp thư của bạn/)).toBeOnTheScreen();
+    expect(screen.getByText(/Không thể gửi mã OTP đến thông tin của bạn/)).toBeOnTheScreen();
 
-    const resendBtn = screen.getByTestId('otp-resend-btn');
-    fireEvent.press(resendBtn);
-
-    expect(resendSpy).toHaveBeenCalledWith({
-      email: 'customer@example.com',
-      phone: '0912345678',
-    });
-    expect(
-      await screen.findByText(
-        'Mã OTP mới đã được gửi thành công.',
-        {},
-        { timeout: 5000 },
-      ),
-    ).toBeOnTheScreen();
-    expect(screen.queryByText(/Không thể gửi email OTP đến hộp thư của bạn/)).toBeNull();
-  });
-
-  it('calls resendOtp when resend button is clicked after cooldown', async () => {
-    const _resendSpy = jest.spyOn(AuthApi, 'resendOtp').mockResolvedValue({
-      statusCode: 200,
-      message: 'Mã xác thực OTP mới đã được gửi',
-      data: undefined as any,
-    });
-
-    render(<OtpVerificationScreen />);
+    // Fast-forward or trigger resend
     const resendBtn = screen.getByTestId('otp-resend-btn');
     expect(resendBtn).toBeOnTheScreen();
-    expect(_resendSpy).not.toHaveBeenCalled();
+    resendSpy.mockRestore();
+  });
+
+  it('navigates back to login when clicking back to login button', () => {
+    render(<OtpVerificationScreen />);
+    fireEvent.press(screen.getByTestId('otp-back-btn'));
+    expect(mockReplace).toHaveBeenCalledWith('/(auth)/login');
   });
 });

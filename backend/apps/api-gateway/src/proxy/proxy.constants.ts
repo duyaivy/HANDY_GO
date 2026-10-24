@@ -1,7 +1,11 @@
+import type { Request } from 'express';
+
 export interface ServiceRouteConfig {
   upstreamName: string;
   envKey: string;
   prefixes: readonly string[];
+  pathRewrite?: (path: string, req: Request) => string;
+  timeoutEnvKey?: string;
 }
 
 export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
@@ -13,7 +17,16 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'user-trust-service',
     envKey: 'USER_TRUST_SERVICE_URL',
-    prefixes: ['/api/v1/users'],
+    prefixes: ['/api/v1/users', '/api/v1/admin/kyc-cases'],
+  },
+  {
+    upstreamName: 'ai-service',
+    envKey: 'AI_SERVICE_URL',
+    prefixes: [
+      '/api/v1/ocr',
+      '/ocr',
+    ],
+    timeoutEnvKey: 'AI_SERVICE_TIMEOUT_MS',
   },
   {
     upstreamName: 'catalog-service',
