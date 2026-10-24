@@ -1,3 +1,4 @@
+
 type CustomOptions = Omit<RequestInit, "method" | "body"> & {
   baseUrl?: string;
   body?: unknown;
@@ -14,7 +15,13 @@ export class HttpError extends Error {
   status: number;
   payload: ErrorPayload;
 
-  constructor({ status, payload }: { status: number; payload: ErrorPayload }) {
+  constructor({
+    status,
+    payload,
+  }: {
+    status: number;
+    payload: ErrorPayload;
+  }) {
     super(payload.message ?? "Lỗi HTTP");
     this.name = "HttpError";
     this.status = status;
@@ -23,7 +30,13 @@ export class HttpError extends Error {
 }
 
 export class EntityError extends HttpError {
-  constructor({ status, payload }: { status: number; payload: ErrorPayload }) {
+  constructor({
+    status,
+    payload,
+  }: {
+    status: number;
+    payload: ErrorPayload;
+  }) {
     super({ status, payload });
     this.name = "EntityError";
   }
@@ -52,18 +65,9 @@ const request = async <Response>(
 
   requestHeaders.set("Accept", "application/json");
 
-  if (!isFormData && body !== undefined) {
+  if (!isFormData && body !== undefined && body !== null) {
     if (!requestHeaders.has("Content-Type")) {
       requestHeaders.set("Content-Type", "application/json");
-    }
-  }
-
-  // Chỉ lấy token khi chạy trên trình duyệt
-  if (typeof window !== "undefined") {
-    const accessToken = localStorage.getItem("accessToken");
-
-    if (accessToken && !requestHeaders.has("Authorization")) {
-      requestHeaders.set("Authorization", `Bearer ${accessToken}`);
     }
   }
 
@@ -74,7 +78,11 @@ const request = async <Response>(
     method,
     headers: requestHeaders,
     body:
-      body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
+      body === undefined || body === null
+        ? undefined
+        : isFormData
+          ? body
+          : JSON.stringify(body),
   });
 
   const rawText = await response.text();
@@ -118,7 +126,10 @@ const request = async <Response>(
 };
 
 const http = {
-  get<Response>(url: string, options?: Omit<CustomOptions, "body">) {
+  get<Response>(
+    url: string,
+    options?: Omit<CustomOptions, "body">,
+  ) {
     return request<Response>("GET", url, options);
   },
 
@@ -155,7 +166,10 @@ const http = {
     });
   },
 
-  delete<Response>(url: string, options?: Omit<CustomOptions, "body">) {
+  delete<Response>(
+    url: string,
+    options?: Omit<CustomOptions, "body">,
+  ) {
     return request<Response>("DELETE", url, options);
   },
 };

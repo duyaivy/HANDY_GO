@@ -4,6 +4,7 @@ import { PaginationResponse, SuccessResponse } from "@/shared/constants/type";
 import {
   CategoryDetailResType,
   CategoryResType,
+  CreateCategoryBodyType,
 } from "../schema/category.schema";
 
 import queryString from "query-string";
@@ -16,6 +17,12 @@ const categoryApiRequest = {
     ),
   detail: (id: string) =>
     http.get<SuccessResponse<CategoryDetailResType>>(`categories/${id}`),
+   create: (body: CreateCategoryBodyType) =>
+    http.post<SuccessResponse<CategoryDetailResType>>(
+      "/api/categories",
+      body,
+      { baseUrl: "" },
+    ),
 };
 
 export default categoryApiRequest;

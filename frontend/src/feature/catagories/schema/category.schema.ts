@@ -49,5 +49,12 @@ export type CategoryDetailResType = {
     children: number;
   };
 };
+export type CreateCategoryBodyType = {
+  name: string;
+  description?: string;
+  imageUrl?: string | null;
+  parentId?: string | null;
+  isActive: boolean;
+};
 
 export type CategoryResType = z.infer<typeof categorySchema>;

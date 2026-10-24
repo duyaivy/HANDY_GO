@@ -1,11 +1,15 @@
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import {
+  useQuery,
+  keepPreviousData,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import categoryApiRequest from "../api/category.api";
 import type { QueryCategoryConfig } from "./use-category-query-config";
+import { CategoryDetailResType } from "../schema/category.schema";
 
-export const useCategoryListQuery = (
-  queryConfig: QueryCategoryConfig
-) => {
+export const useCategoryListQuery = (queryConfig: QueryCategoryConfig) => {
   return useQuery({
     queryKey: ["categories", queryConfig],
     queryFn: async () =>
@@ -17,8 +21,21 @@ export const useCategoryListQuery = (
 export const useCategoryDetailQuery = (id?: string) =>
   useQuery({
     queryKey: ["categories", "detail", id],
-    queryFn: async () =>
-      (await categoryApiRequest.detail(id!)).payload.data,
+    queryFn: async () => (await categoryApiRequest.detail(id!)).payload.data,
     enabled: !!id,
     staleTime: 1000 * 60 * 5,
   });
+
+export const useCreateCategory = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: categoryApiRequest.create,
+
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["categories", "list"],
+      });
+    },
+  });
+};
