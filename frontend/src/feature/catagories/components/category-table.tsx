@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -10,8 +9,8 @@ import {
   Eye,
   Pencil,
   Power,
+  Trash2,
 } from "lucide-react";
-
 
 import AddCatalogModal from "./add-catagory";
 import DetailCatalogModal from "./detail-catagory";
@@ -75,45 +74,35 @@ export const CategoryTable = () => {
         ? "disabled"
         : "all";
 
-  const {
-    data,
-    isFetching,
-    isError,
-    error,
-    refetch,
-  } = useCategoryListQuery(queryConfig);
+  const { data, isFetching, isError, error, refetch } =
+    useCategoryListQuery(queryConfig);
 
-  const categories: CategoryItem[] = (data?.data ?? []).map(
-    (category) => ({
-      id: category.id,
-      parentId: category.parentId,
-      name: category.name,
-      description: category.description,
-      imageUrl: category.imageUrl,
-      servicesCount: category._count.services,
-      isActive: category.isActive,
-      createdAt: category.createdAt,
-      updatedAt: category.updatedAt,
-    })
-  );
+  const categories: CategoryItem[] = (data?.data ?? []).map((category) => ({
+    id: category.id,
+    parentId: category.parentId,
+    name: category.name,
+    description: category.description,
+    imageUrl: category.imageUrl,
+    servicesCount: category._count.services,
+    isActive: category.isActive,
+    createdAt: category.createdAt,
+    updatedAt: category.updatedAt,
+  }));
 
   const total = data?.meta.total ?? 0;
   const totalPages = Math.max(1, data?.meta.totalPages ?? 1);
 
-  const [selectedCategory, setSelectedCategory] =
-    useState<CategoryItem | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<CategoryItem | null>(
+    null,
+  );
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  const updateQuery = (
-    params: Record<string, string | undefined>
-  ) => {
-    const searchParams = new URLSearchParams(
-      window.location.search
-    );
+  const updateQuery = (params: Record<string, string | undefined>) => {
+    const searchParams = new URLSearchParams(window.location.search);
 
     Object.entries(params).forEach(([key, value]) => {
       if (value) {
@@ -125,10 +114,9 @@ export const CategoryTable = () => {
 
     const query = searchParams.toString();
 
-    router.replace(
-      query ? `${pathname}?${query}` : pathname,
-      { scroll: false }
-    );
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   };
 
   const formatDate = (date: string) => {
@@ -213,34 +201,19 @@ export const CategoryTable = () => {
           <table className="w-full min-w-[900px] text-left">
             <thead>
               <tr className="border-b border-gray-100 text-xs uppercase text-gray-500">
-                <th className="px-4 py-3 font-medium">
-                  Danh mục
-                </th>
-                <th className="px-4 py-3 font-medium">
-                  Mã danh mục
-                </th>
-                <th className="px-4 py-3 font-medium">
-                  Số dịch vụ
-                </th>
-                <th className="px-4 py-3 font-medium">
-                  Cập nhật lần cuối
-                </th>
-                <th className="px-4 py-3 font-medium">
-                  Trạng thái
-                </th>
-                <th className="px-4 py-3 text-right font-medium">
-                  Thao tác
-                </th>
+                <th className="px-4 py-3 font-medium">Danh mục</th>
+                <th className="px-4 py-3 font-medium">Mã danh mục</th>
+                <th className="px-4 py-3 font-medium">Số dịch vụ</th>
+                <th className="px-4 py-3 font-medium">Cập nhật lần cuối</th>
+                <th className="px-4 py-3 font-medium">Trạng thái</th>
+                <th className="px-4 py-3 text-right font-medium">Thao tác</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-100">
               {isError ? (
                 <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-12 text-center"
-                  >
+                  <td colSpan={6} className="px-4 py-12 text-center">
                     <p className="text-sm text-red-600">
                       {error instanceof Error
                         ? error.message
@@ -262,10 +235,7 @@ export const CategoryTable = () => {
                 ))
               ) : categories.length ? (
                 categories.map((category) => (
-                  <tr
-                    key={category.id}
-                    className="transition hover:bg-gray-50"
-                  >
+                  <tr key={category.id} className="transition hover:bg-gray-50">
                     {/* Danh mục */}
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
@@ -331,9 +301,7 @@ export const CategoryTable = () => {
                           type="button"
                           onClick={() =>
                             setOpenMenuId(
-                              openMenuId === category.id
-                                ? null
-                                : category.id
+                              openMenuId === category.id ? null : category.id,
                             )
                           }
                           className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
@@ -376,19 +344,37 @@ export const CategoryTable = () => {
                                 Chỉnh sửa
                               </button>
 
+                              {/* Đường phân cách */}
+                              <div className="my-1 border-t border-gray-100" />
+
+                              {/* Vô hiệu hóa / Kích hoạt */}
                               <button
                                 type="button"
                                 onClick={() => setOpenMenuId(null)}
-                                className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 ${
+                                className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-gray-50 ${
                                   category.isActive
-                                    ? "text-red-600"
+                                    ? "text-orange-600"
                                     : "text-green-600"
                                 }`}
                               >
                                 <Power size={16} />
+
                                 {category.isActive
                                   ? "Vô hiệu hóa"
                                   : "Kích hoạt"}
+                              </button>
+
+                              {/* Đường phân cách */}
+                              <div className="my-1 border-t border-gray-100" />
+
+                              {/* Xóa vĩnh viễn */}
+                              <button
+                                type="button"
+                                onClick={() => setOpenMenuId(null)}
+                                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50"
+                              >
+                                <Trash2 size={16} />
+                                Xóa vĩnh viễn
                               </button>
                             </div>
                           </>
@@ -414,51 +400,42 @@ export const CategoryTable = () => {
         {/* Pagination */}
         <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-gray-500">
-            Hiển thị{" "}
-            {total === 0 ? 0 : (page - 1) * limit + 1}
+            Hiển thị {total === 0 ? 0 : (page - 1) * limit + 1}
             {" - "}
-            {Math.min(page * limit, total)} trong tổng số{" "}
-            {total} danh mục
+            {Math.min(page * limit, total)} trong tổng số {total} danh mục
           </p>
 
           <div className="flex items-center gap-1">
             <button
               type="button"
               disabled={page === 1}
-              onClick={() =>
-                updateQuery({ page: String(page - 1) })
-              }
+              onClick={() => updateQuery({ page: String(page - 1) })}
               className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Trước
             </button>
 
-            {Array.from(
-              { length: totalPages },
-              (_, index) => index + 1
-            ).map((item) => (
-              <button
-                type="button"
-                key={item}
-                onClick={() =>
-                  updateQuery({ page: String(item) })
-                }
-                className={`h-9 min-w-9 rounded-lg px-3 text-sm ${
-                  page === item
-                    ? "bg-[#FF5E14] text-white"
-                    : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                {item}
-              </button>
-            ))}
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              (item) => (
+                <button
+                  type="button"
+                  key={item}
+                  onClick={() => updateQuery({ page: String(item) })}
+                  className={`h-9 min-w-9 rounded-lg px-3 text-sm ${
+                    page === item
+                      ? "bg-[#FF5E14] text-white"
+                      : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  {item}
+                </button>
+              ),
+            )}
 
             <button
               type="button"
               disabled={page >= totalPages}
-              onClick={() =>
-                updateQuery({ page: String(page + 1) })
-              }
+              onClick={() => updateQuery({ page: String(page + 1) })}
               className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Sau
@@ -468,11 +445,7 @@ export const CategoryTable = () => {
       </div>
 
       {/* Modals */}
-      <AddCatalogModal
-        isOpen={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
-        onAddCatalog={() => setIsAddOpen(false)}
-      />
+      <AddCatalogModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />
 
       <EditCatalogModal
         key={selectedCategory?.id}
@@ -482,15 +455,11 @@ export const CategoryTable = () => {
           setIsEditOpen(false);
           setSelectedCategory(null);
         }}
-        onSave={() => {
-          setIsEditOpen(false);
-          setSelectedCategory(null);
-        }}
       />
 
       <DetailCatalogModal
         isOpen={isDetailOpen}
-         categoryId={selectedCategory?.id}
+        categoryId={selectedCategory?.id}
         onClose={() => {
           setIsDetailOpen(false);
           setSelectedCategory(null);

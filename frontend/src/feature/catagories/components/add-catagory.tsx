@@ -1,60 +1,99 @@
-import React, { useState, useRef } from 'react';
-import { X, ArrowUp, ImageIcon, ChevronDown } from 'lucide-react';
+import React, { useState, useRef } from "react";
+import { X, ArrowUp, ImageIcon, ChevronDown } from "lucide-react";
+import { useCreateCategory } from "../hooks/use-categories";
+import { useUploadImage } from "@/feature/uploads/hooks/use-upload";
 
 export interface AddCatalogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddCatalog?: (categoryData: {
-    name: string;
-    description: string;
-    status: 'Active' | 'Disabled';
-    imageUrl: string;
-  }) => void;
 }
 
 export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
   isOpen,
   onClose,
-  onAddCatalog,
 }) => {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<'Active' | 'Disabled'>('Active');
-  const [previewImage, setPreviewImage] = useState<string>('');
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<"Active" | "Disabled">("Active");
+  const [previewImage, setPreviewImage] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const createCategory = useCreateCategory();
+  const uploadImage = useUploadImage();
 
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      alert("Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP!");
+      e.target.value = "";
+      return;
     }
+
+    setSelectedFile(file);
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      setPreviewImage(reader.result as string);
+    };
+
+    reader.readAsDataURL(file);
   };
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
 
-    onAddCatalog?.({
-      name: name.trim(),
-      description: description.trim(),
-      status,
-      imageUrl:
-        previewImage ||
-        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=120&auto=format&fit=crop&q=80',
-    });
+    if (!name.trim() || createCategory.isPending || uploadImage.isPending) {
+      return;
+    }
 
-    // Reset form
-    setName('');
-    setDescription('');
-    setStatus('Active');
-    setPreviewImage('');
-    onClose();
+    try {
+      let imageUrl: string | null = null;
+
+      // 1. Upload ảnh trước
+      if (selectedFile) {
+        const uploadResponse = await uploadImage.mutateAsync(selectedFile);
+
+        imageUrl = uploadResponse.payload.data.url;
+
+        if (!imageUrl) {
+          throw new Error("Không nhận được URL ảnh từ Backend");
+        }
+      }
+
+      // 2. Tạo danh mục
+      const response = await createCategory.mutateAsync({
+        name: name.trim(),
+        description: description.trim(),
+        imageUrl,
+        parentId: null,
+        isActive: status === "Active",
+      });
+
+      // alert(response.payload.message || "Thêm danh mục thành công!");
+
+      // 3. Reset form
+      setName("");
+      setDescription("");
+      setStatus("Active");
+      setPreviewImage("");
+      setSelectedFile(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      onClose();
+    } catch (error) {
+      console.error("Lỗi thêm danh mục:", error);
+
+      // alert(error instanceof Error ? error.message : "Thêm danh mục thất bại!");
+    }
   };
 
   return (
@@ -69,9 +108,7 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
       <div className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-150 z-10 my-auto animate-in zoom-in-95 duration-200">
         {/* HEADER: Tiêu đề + Nút X */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">
-            Thêm danh mục
-          </h2>
+          <h2 className="text-lg font-bold text-slate-900">Thêm danh mục</h2>
           <button
             type="button"
             onClick={onClose}
@@ -170,7 +207,9 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             <div className="relative">
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as 'Active' | 'Disabled')}
+                onChange={(e) =>
+                  setStatus(e.target.value as "Active" | "Disabled")
+                }
                 className="w-full appearance-none px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 cursor-pointer shadow-2xs bg-white"
               >
                 <option value="Active">● Active</option>
@@ -194,9 +233,14 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             {/* Nút Thêm danh mục màu cam */}
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer"
-            >
-              Thêm danh mục
+              disabled={createCategory.isPending || uploadImage.isPending}
+              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer disabled:opacity-50"
+            > Thêm
+              {/* {uploadImage.isPending
+                ? "Đang tải ảnh..."
+                : createCategory.isPending
+                  ? "Đang thêm..."
+                  : "Thêm danh mục"} */}
             </button>
           </div>
         </form>

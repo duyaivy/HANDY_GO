@@ -56,5 +56,11 @@ export type CreateCategoryBodyType = {
   parentId?: string | null;
   isActive: boolean;
 };
-
+export type UpdateCategoryBodyType = {
+  name?: string;
+  description?: string;
+  imageUrl?: string | null;
+  parentId?: string | null;
+  isActive?: boolean;
+};
 export type CategoryResType = z.infer<typeof categorySchema>;

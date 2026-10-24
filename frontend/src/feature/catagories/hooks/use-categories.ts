@@ -7,7 +7,7 @@ import {
 
 import categoryApiRequest from "../api/category.api";
 import type { QueryCategoryConfig } from "./use-category-query-config";
-import { CategoryDetailResType } from "../schema/category.schema";
+import { CategoryDetailResType, UpdateCategoryBodyType } from "../schema/category.schema";
 
 export const useCategoryListQuery = (queryConfig: QueryCategoryConfig) => {
   return useQuery({
@@ -32,9 +32,28 @@ export const useCreateCategory = () => {
   return useMutation({
     mutationFn: categoryApiRequest.create,
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["categories", "list"],
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["categories"],
+      });
+    },
+  });
+};
+export const useUpdateCategory = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: UpdateCategoryBodyType;
+    }) => categoryApiRequest.update(id, body),
+
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["categories"],
       });
     },
   });

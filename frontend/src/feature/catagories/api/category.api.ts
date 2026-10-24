@@ -5,6 +5,7 @@ import {
   CategoryDetailResType,
   CategoryResType,
   CreateCategoryBodyType,
+  UpdateCategoryBodyType,
 } from "../schema/category.schema";
 
 import queryString from "query-string";
@@ -17,12 +18,17 @@ const categoryApiRequest = {
     ),
   detail: (id: string) =>
     http.get<SuccessResponse<CategoryDetailResType>>(`categories/${id}`),
-   create: (body: CreateCategoryBodyType) =>
-    http.post<SuccessResponse<CategoryDetailResType>>(
-      "/api/categories",
+  create: (body: CreateCategoryBodyType) =>
+    http.post<SuccessResponse<CategoryDetailResType>>("/api/categories", body, {
+      baseUrl: "",
+    }),
+  update: (id: string, body: UpdateCategoryBodyType) =>
+    http.patch<SuccessResponse<CategoryDetailResType>>(
+      `/api/categories/${id}`,
       body,
       { baseUrl: "" },
     ),
+    
 };
 
 export default categoryApiRequest;

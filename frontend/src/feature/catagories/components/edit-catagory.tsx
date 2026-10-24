@@ -1,93 +1,115 @@
-
 "use client";
 
 import React, { useState, useRef } from "react";
 import { X, ArrowUp } from "lucide-react";
 import { CategoryItem } from "../types";
-
+import { useUploadImage } from "@/feature/uploads/hooks/use-upload";
+import { useUpdateCategory } from "../hooks/use-categories";
 
 export interface EditCatalogModalProps {
   isOpen: boolean;
   onClose: () => void;
   category?: CategoryItem | null;
-  onSave?: (updatedCategory: CategoryItem) => void;
 }
 
-export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
-  isOpen,
+type EditCatalogFormProps = {
+  onClose: () => void;
+  category: CategoryItem;
+};
+
+const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
   onClose,
   category,
-  onSave,
 }) => {
   // =========================
   // STATE
   // =========================
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const updateCategory = useUpdateCategory();
+  const uploadImage = useUploadImage();
 
   const [name, setName] = useState(category?.name || "");
 
-  const [description, setDescription] = useState(
-    category?.description || ""
-  );
+  const [description, setDescription] = useState(category?.description || "");
 
   const [status, setStatus] = useState<"Active" | "Disabled">(
-    category?.isActive === false ? "Disabled" : "Active"
+    category?.isActive === false ? "Disabled" : "Active",
   );
 
-  const [previewImage, setPreviewImage] = useState(
-    category?.imageUrl || ""
-  );
+  const [previewImage, setPreviewImage] = useState(category?.imageUrl || "");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // =========================
-  // Đóng modal nếu chưa có category
-  // =========================
-
-  if (!isOpen || !category) return null;
-
-  // =========================
   // CHỌN ẢNH
   // =========================
-
-  const handleFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
 
-    if (file) {
-      const reader = new FileReader();
+    if (!file) return;
 
-      reader.onloadend = () => {
-        setPreviewImage(reader.result as string);
-      };
-
-      reader.readAsDataURL(file);
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      console.error("Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP");
+      e.target.value = "";
+      return;
     }
+
+    setSelectedFile(file);
+
+    const reader = new FileReader();
+
+    reader.onloadend = () => {
+      setPreviewImage(reader.result as string);
+    };
+
+    reader.readAsDataURL(file);
   };
 
   // =========================
   // LƯU
   // =========================
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name.trim()) return;
+    if (!name.trim() || updateCategory.isPending || uploadImage.isPending) {
+      return;
+    }
 
-    const updatedCategory: CategoryItem = {
-      ...category,
-      name: name.trim(),
-      description: description.trim() || null,
-      isActive: status === "Active",
-      imageUrl: previewImage || null,
-      updatedAt: new Date().toISOString(),
-    };
+    try {
+      // Giữ ảnh cũ nếu không thay ảnh
+      let imageUrl: string | null = category.imageUrl ?? null;
 
-    onSave?.(updatedCategory);
+      // Nếu chọn ảnh mới thì upload trước
+      if (selectedFile) {
+        const uploadResponse = await uploadImage.mutateAsync(selectedFile);
 
-    onClose();
+        imageUrl = uploadResponse.payload.data.url;
+
+        if (!imageUrl) {
+          throw new Error("Không nhận được URL ảnh từ Backend");
+        }
+      }
+
+      // Gọi API PATCH cập nhật danh mục
+      await updateCategory.mutateAsync({
+        id: category.id,
+        body: {
+          name: name.trim(),
+          description: description.trim(),
+          imageUrl,
+          parentId: category.parentId ?? null,
+          isActive: status === "Active",
+        },
+      });
+
+      // Đóng form khi cập nhật thành công
+      onClose();
+    } catch (error) {
+      console.error("Lỗi cập nhật danh mục:", error);
+    }
   };
-
   // =========================
   // UI
   // =========================
@@ -102,7 +124,6 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
 
       {/* MODAL */}
       <div className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-150 z-10 my-auto animate-in zoom-in-95 duration-200">
-
         {/* HEADER */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
           <h2 className="text-lg font-bold text-slate-900">
@@ -119,11 +140,7 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
         </div>
 
         {/* FORM */}
-        <form
-          onSubmit={handleSubmit}
-          className="mt-5 space-y-4"
-        >
-
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           {/* =========================
               HÌNH ẢNH
           ========================= */}
@@ -134,25 +151,26 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
             </label>
 
             <div className="flex items-center gap-3">
-
               {/* ẢNH HIỆN TẠI */}
-              <div className="w-24 h-24 rounded-2xl border border-orange-200 bg-[#FFF9F5] flex flex-col items-center justify-center gap-1.5 overflow-hidden shrink-0 shadow-2xs p-1">
+              {/* ẢNH HIỆN TẠI */}
+              <div className="w-24 h-24 rounded-2xl border border-orange-200 bg-[#FFF9F5] flex flex-col items-center justify-center gap-1 overflow-hidden shrink-0 shadow-2xs p-1">
+                <div className="w-full flex-1 min-h-0 overflow-hidden rounded-xl">
+                  {previewImage ? (
+                    <img
+                      src={previewImage}
+                      alt={category.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-orange-100 flex items-center justify-center text-[#FF5E14] font-bold">
+                      ⚡
+                    </div>
+                  )}
+                </div>
 
-                {previewImage ? (
-                  <img
-                    src={previewImage}
-                    alt={category.name}
-                    className="w-10 h-10 rounded-xl object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-[#FF5E14] font-bold">
-                    ⚡
-                  </div>
-                )}
-
-                <span className="text-[10px] uppercase font-bold text-slate-700 tracking-wider text-center leading-tight">
+                {/* <span className="text-[9px] uppercase font-bold text-slate-700 tracking-wider text-center leading-tight shrink-0">
                   ẢNH HIỆN TẠI
-                </span>
+                </span> */}
               </div>
 
               {/* THAY ẢNH */}
@@ -165,9 +183,9 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
                   <ArrowUp className="w-4 h-4 stroke-[2.5]" />
                 </div>
 
-                <span className="text-xs font-semibold text-slate-700 group-hover:text-orange-600 transition-colors">
+                {/* <span className="text-xs font-semibold text-slate-700 group-hover:text-orange-600 transition-colors">
                   Thay ảnh
-                </span>
+                </span> */}
               </button>
 
               <input
@@ -186,8 +204,7 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
 
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-1.5">
-              Tên danh mục{" "}
-              <span className="text-rose-500">*</span>
+              Tên danh mục <span className="text-rose-500">*</span>
             </label>
 
             <input
@@ -228,7 +245,6 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
             </label>
 
             <div className="flex items-center gap-6">
-
               {/* ACTIVE */}
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -240,9 +256,7 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
                   className="w-4 h-4 accent-[#FF5E14] cursor-pointer"
                 />
 
-                <span className="text-sm font-bold text-slate-800">
-                  Active
-                </span>
+                <span className="text-sm font-bold text-slate-800">Active</span>
               </label>
 
               {/* DISABLED */}
@@ -260,7 +274,6 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
                   Disabled
                 </span>
               </label>
-
             </div>
           </div>
 
@@ -269,7 +282,6 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
           ========================= */}
 
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-
             <button
               type="button"
               onClick={onClose}
@@ -280,15 +292,27 @@ export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
 
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+              disabled={updateCategory.isPending || uploadImage.isPending}
+              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Lưu thay đổi
             </button>
-
           </div>
         </form>
       </div>
     </div>
+  );
+};
+
+export const EditCatalogModal: React.FC<EditCatalogModalProps> = ({
+  isOpen,
+  onClose,
+  category,
+}) => {
+  if (!isOpen || !category) return null;
+
+  return (
+    <EditCatalogForm key={category.id} category={category} onClose={onClose} />
   );
 };
 
