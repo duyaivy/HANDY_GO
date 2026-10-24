@@ -1,0 +1,118 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["bidding_service"]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/bidding-client"
+}
+
+enum BiddingRoundStatus {
+  pending
+  open
+  closed
+  no_bid
+  finalized
+  cancelled
+
+  @@map("bidding_round_status")
+  @@schema("bidding_service")
+}
+
+enum BidStatus {
+  active
+  withdrawn
+  expired
+  selected
+  rejected
+
+  @@map("bid_status")
+  @@schema("bidding_service")
+}
+
+model BiddingRound {
+  id               String             @id @default(uuid()) @db.Uuid
+  serviceRequestId String             @unique @map("service_request_id") @db.Uuid
+  status           BiddingRoundStatus @default(open)
+  opensAt          DateTime           @default(now()) @map("opens_at") @db.Timestamptz(6)
+  closesAt         DateTime           @map("closes_at") @db.Timestamptz(6)
+  bidCount         Int                @default(0) @map("bid_count")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  bids             Bid[]
+
+  @@map("bidding_rounds")
+  @@schema("bidding_service")
+}
+
+model Bid {
+  id               String        @id @default(uuid()) @db.Uuid
+  biddingRoundId   String        @map("bidding_round_id") @db.Uuid
+  serviceRequestId String        @map("service_request_id") @db.Uuid
+  workerId         String        @map("worker_id") @db.Uuid
+  amount           Decimal       @db.Decimal(12, 2)
+  message          String?       @db.Text
+  validUntil       DateTime?     @map("valid_until") @db.Timestamptz(6)
+  status           BidStatus     @default(active)
+  version          Int           @default(1)
+  submittedAt      DateTime      @default(now()) @map("submitted_at") @db.Timestamptz(6)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  biddingRound     BiddingRound  @relation(fields: [biddingRoundId], references: [id], onDelete: Cascade)
+  revisions        BidRevision[]
+
+  @@unique([biddingRoundId, workerId])
+  @@index([serviceRequestId, status])
+  @@index([workerId])
+  @@map("bids")
+  @@schema("bidding_service")
+}
+
+model BidRevision {
+  id              String   @id @default(uuid()) @db.Uuid
+  bidId           String   @map("bid_id") @db.Uuid
+  revisionNo      Int      @map("revision_no")
+  previousAmount  Decimal  @map("previous_amount") @db.Decimal(12, 2)
+  newAmount       Decimal  @map("new_amount") @db.Decimal(12, 2)
+  previousMessage String?  @map("previous_message") @db.Text
+  newMessage      String?  @map("new_message") @db.Text
+  revisedAt       DateTime @default(now()) @map("revised_at") @db.Timestamptz(6)
+
+  bid             Bid      @relation(fields: [bidId], references: [id], onDelete: Cascade)
+
+  @@unique([bidId, revisionNo])
+  @@map("bid_revisions")
+  @@schema("bidding_service")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String    @default("bidding") @map("aggregate_type") @db.VarChar(50)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(100)
+  eventVersion  Int       @default(1) @map("event_version")
+  payload       Json
+  status        String    @default("pending") @db.VarChar(30)
+  retryCount    Int       @default(0) @map("retry_count")
+  lastError     String?   @map("last_error") @db.Text
+  nextRetryAt   DateTime  @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@index([status, nextRetryAt])
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+  @@schema("bidding_service")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.VarChar(128)
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+  @@schema("bidding_service")
+}

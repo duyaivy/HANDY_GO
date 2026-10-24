@@ -41,7 +41,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'bidding-service',
     envKey: 'BIDDING_SERVICE_URL',
-    prefixes: [ '/api/v1/bids'],
+    prefixes: ['/api/v1/bids', '/api/v1/requests'],
   },
   {
     upstreamName: 'matching-service',

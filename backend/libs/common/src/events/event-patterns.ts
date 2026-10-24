@@ -17,6 +17,16 @@ export const EVENT_PATTERNS = {
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',
 
+  SERVICE_REQUEST_PUBLISHED: 'service_request.published',
+  SERVICE_REQUEST_CANCELLED: 'service_request.cancelled',
+
+  BIDDING_ROUND_OPENED: 'bidding.round.opened',
+  BIDDING_ROUND_CLOSED: 'bidding.round.closed',
+  BIDDING_ROUND_FINALIZED: 'bidding.round.finalized',
+  BID_SUBMITTED: 'bid.submitted',
+  BID_REVISED: 'bid.revised',
+  BID_WITHDRAWN: 'bid.withdrawn',
+
   BID_CREATED: 'bid.created',
   BID_ACCEPTED: 'bid.accepted',
   BID_REJECTED: 'bid.rejected',
