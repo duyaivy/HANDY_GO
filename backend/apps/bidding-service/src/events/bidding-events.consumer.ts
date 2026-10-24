@@ -193,6 +193,38 @@ export class BiddingEventsConsumer {
     }
   }
 
+  /**
+   * Consumes 'bidding.round.expire_check' (Scheduled / Triggered via RabbitMQ).
+   * Automatically expires the round if deadline has passed.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_EXPIRE_CHECK)
+  async handleRoundExpireCheck(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    const payload = data.payload || data;
+    const roundId = payload.roundId || data.roundId;
+
+    this.logger.log(`Received bidding.round.expire_check for round ${roundId}`);
+
+    if (!roundId) {
+      this.logger.warn('bidding.round.expire_check missing roundId');
+      this.ackMessage(context);
+      return;
+    }
+
+    try {
+      await this.roundsService.expireRoundById(roundId);
+      this.ackMessage(context);
+    } catch (error) {
+      this.logger.error(
+        `Failed to expire round ${roundId}: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      this.nackMessage(context);
+    }
+  }
+
   private async isEventAlreadyConsumed(eventId: string): Promise<boolean> {
     const record = await this.prisma.consumedEvent.findUnique({
       where: { eventId },

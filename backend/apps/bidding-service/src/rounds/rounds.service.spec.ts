@@ -277,4 +277,72 @@ describe('RoundsService', () => {
       });
     });
   });
+
+  describe('expireRoundById', () => {
+    it('should return null if round does not exist', async () => {
+      prismaMock.biddingRound.findUnique.mockResolvedValue(null);
+      const res = await service.expireRoundById('non-existent');
+      expect(res).toBeNull();
+    });
+
+    it('should not expire round if closesAt is in future', async () => {
+      const mockRound = {
+        id: 'round-future',
+        status: 'open',
+        closesAt: new Date(Date.now() + 100000),
+      };
+      prismaMock.biddingRound.findUnique.mockResolvedValue(mockRound);
+
+      const res = await service.expireRoundById('round-future');
+      expect(res?.status).toBe('open');
+      expect(prismaMock.biddingRound.update).not.toHaveBeenCalled();
+    });
+
+    it('should expire round if open and closesAt <= now', async () => {
+      const pastDate = new Date(Date.now() - 5000);
+      const mockRound = {
+        id: 'round-overdue',
+        serviceRequestId: 'req-1',
+        status: 'open',
+        closesAt: pastDate,
+      };
+      prismaMock.biddingRound.findUnique.mockResolvedValue(mockRound);
+      prismaMock.bid.count.mockResolvedValue(1);
+      prismaMock.biddingRound.update.mockResolvedValue({
+        ...mockRound,
+        status: 'closed',
+      });
+
+      const res = await service.expireRoundById('round-overdue');
+      expect(res?.status).toBe('closed');
+      expect(prismaMock.biddingRound.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'round-overdue' },
+          data: expect.objectContaining({ status: 'closed' }),
+        }),
+      );
+    });
+  });
+
+  describe('findOverdueOpenRounds', () => {
+    it('should query open rounds with closesAt <= now', async () => {
+      const overdueRounds = [
+        { id: 'r-1', status: 'open', closesAt: new Date(Date.now() - 1000) },
+      ];
+      prismaMock.biddingRound.findMany = vi.fn().mockResolvedValue(overdueRounds);
+
+      const now = new Date();
+      const res = await service.findOverdueOpenRounds(10, now);
+
+      expect(res).toEqual(overdueRounds);
+      expect(prismaMock.biddingRound.findMany).toHaveBeenCalledWith({
+        where: {
+          status: 'open',
+          closesAt: { lte: now },
+        },
+        orderBy: { closesAt: 'asc' },
+        take: 10,
+      });
+    });
+  });
 });

@@ -12,7 +12,7 @@ export class BiddingOutboxRepository extends OutboxRepository {
     limit = 20,
     now = new Date(),
   ): Promise<OutboxEventEntity[]> {
-    return this.prisma.outboxEvent.findMany({
+    const records = await this.prisma.outboxEvent.findMany({
       where: {
         status: { in: ['pending', 'dlq_retry'] },
         nextRetryAt: { lte: now },
@@ -20,6 +20,21 @@ export class BiddingOutboxRepository extends OutboxRepository {
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
+
+    return records.map((r) => ({
+      id: r.id,
+      aggregateType: r.aggregateType,
+      aggregateId: r.aggregateId,
+      eventType: r.eventType,
+      eventVersion: r.eventVersion,
+      payload: r.payload,
+      status: r.status,
+      retryCount: r.retryCount,
+      lastError: r.lastError,
+      nextRetryAt: r.nextRetryAt,
+      createdAt: r.createdAt,
+      publishedAt: r.publishedAt,
+    }));
   }
 
   async markPublished(id: string, publishedAt = new Date()): Promise<void> {
@@ -73,9 +88,9 @@ export class BiddingOutboxRepository extends OutboxRepository {
       where: { id },
       data: {
         status: 'dlq_retry',
-        ...(retryCount !== undefined ? { retryCount } : {}),
         nextRetryAt,
         lastError: error,
+        ...(retryCount !== undefined ? { retryCount } : {}),
       },
     });
   }

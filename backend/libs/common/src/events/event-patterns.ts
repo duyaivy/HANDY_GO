@@ -23,6 +23,8 @@ export const EVENT_PATTERNS = {
   BIDDING_ROUND_OPENED: 'bidding.round.opened',
   BIDDING_ROUND_CLOSED: 'bidding.round.closed',
   BIDDING_ROUND_FINALIZED: 'bidding.round.finalized',
+  BIDDING_ROUND_EXTENDED: 'bidding.round.extended',
+  BIDDING_ROUND_EXPIRE_CHECK: 'bidding.round.expire_check',
   BID_SUBMITTED: 'bid.submitted',
   BID_REVISED: 'bid.revised',
   BID_WITHDRAWN: 'bid.withdrawn',

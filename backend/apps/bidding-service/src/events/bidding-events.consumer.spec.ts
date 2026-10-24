@@ -141,4 +141,21 @@ describe('BiddingEventsConsumer', () => {
       expect(channelMock.ack).toHaveBeenCalled();
     });
   });
+
+  describe('handleRoundExpireCheck', () => {
+    it('should call expireRoundById and ack message', async () => {
+      roundsServiceMock.expireRoundById = vi.fn().mockResolvedValue({ id: 'round-123', status: 'closed' });
+
+      const eventPayload = {
+        payload: {
+          roundId: 'round-123',
+        },
+      };
+
+      await consumer.handleRoundExpireCheck(eventPayload, contextMock);
+
+      expect(roundsServiceMock.expireRoundById).toHaveBeenCalledWith('round-123');
+      expect(channelMock.ack).toHaveBeenCalled();
+    });
+  });
 });

@@ -114,6 +114,53 @@ export class RoundsService {
   }
 
   /**
+   * Closes a round by ID if it is currently 'open' and has reached its closesAt deadline.
+   */
+  async expireRoundById(
+    roundId: string,
+    now: Date = new Date(),
+  ): Promise<BiddingRound | null> {
+    const round = await this.prisma.biddingRound.findUnique({
+      where: { id: roundId },
+    });
+
+    if (!round) {
+      this.logger.warn(`expireRoundById: round ${roundId} not found`);
+      return null;
+    }
+
+    if (round.status !== 'open') {
+      return round;
+    }
+
+    if (now < round.closesAt) {
+      this.logger.log(
+        `Round ${roundId} has not yet expired (closesAt: ${round.closesAt.toISOString()}, now: ${now.toISOString()})`,
+      );
+      return round;
+    }
+
+    return this.expireRoundIfNeeded(round, now);
+  }
+
+  /**
+   * Scans all overdue open rounds using composite index [status, closesAt]
+   */
+  async findOverdueOpenRounds(
+    limit = 50,
+    now: Date = new Date(),
+  ): Promise<BiddingRound[]> {
+    return this.prisma.biddingRound.findMany({
+      where: {
+        status: 'open',
+        closesAt: { lte: now },
+      },
+      orderBy: { closesAt: 'asc' },
+      take: limit,
+    });
+  }
+
+  /**
    * Opens a bidding round when service_request.published is received.
    */
   async openRound(params: {
