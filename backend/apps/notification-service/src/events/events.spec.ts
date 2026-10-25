@@ -214,4 +214,30 @@ describe('Notification event contracts, routing, templates and policies', () => 
         ),
     ).toThrow();
   });
+
+  it('accepts alternative envelope and field aliases for cross-service contract compatibility (R10)', () => {
+    const bidId = randomUUID();
+    const requestId = randomUUID();
+    const customerId = randomUUID();
+
+    const rawPacket = {
+      eventId: randomUUID(),
+      eventType: 'bid.submitted',
+      sourceService: 'bidding-service',
+      occurredAt: new Date().toISOString(),
+      payload: {
+        bidId,
+        serviceRequestId: requestId,
+        customerUserId: customerId,
+      },
+    };
+
+    const validated = validateNotificationEvent(rawPacket);
+    expect(validated.source).toBe('bidding-service');
+    expect(validated.data).toEqual({
+      bidId: bidId.toLowerCase(),
+      requestId: requestId.toLowerCase(),
+      customerId: customerId.toLowerCase(),
+    });
+  });
 });

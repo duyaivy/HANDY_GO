@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/notification-client';
+import { Prisma } from '@prisma/notification-client';
 import { NotificationPrismaService } from '../common/notification-prisma.service.js';
 import { PUSH_DEFAULTS } from './push.constants.js';
 
@@ -10,8 +10,10 @@ export interface PushJobWithRelations {
   attemptNo: number;
   deliveryAttemptKey: string;
   status: string;
+  attemptedAt: Date | null;
   notification: {
     id: string;
+    recipientUserId: string;
     title: string;
     body: string;
     eventType: string;
@@ -43,13 +45,20 @@ export class PushJobRepository {
    * Concurrently claims a batch of queued push delivery attempts using FOR UPDATE SKIP LOCKED.
    */
   async claimPendingJobs(batchSize: number): Promise<PushJobWithRelations[]> {
+    const schema = /^[a-zA-Z0-9_]+$/.test(this.db.schema ?? '')
+      ? this.db.schema
+      : 'notification_service';
+    const tableIdentifier = Prisma.raw(`"${schema}"."notification_delivery_attempts"`);
+    const statusType = Prisma.raw(`"${schema}"."delivery_status"`);
+    const channelType = Prisma.raw(`"${schema}"."notification_channel"`);
+
     const claimed = await this.db.$queryRaw<{ id: string }[]>`
-      UPDATE "notification_service"."notification_delivery_attempts"
-      SET status = 'processing'::"notification_service"."delivery_status", attempted_at = NOW()
+      UPDATE ${tableIdentifier}
+      SET status = 'processing'::${statusType}, attempted_at = NOW()
       WHERE id IN (
-        SELECT id FROM "notification_service"."notification_delivery_attempts"
-        WHERE channel = 'push'::"notification_service"."notification_channel"
-          AND status = 'queued'::"notification_service"."delivery_status"
+        SELECT id FROM ${tableIdentifier}
+        WHERE channel = 'push'::${channelType}
+          AND status = 'queued'::${statusType}
           AND (next_retry_at IS NULL OR next_retry_at <= NOW())
         ORDER BY created_at ASC
         LIMIT ${batchSize}
@@ -69,6 +78,7 @@ export class PushJobRepository {
         notification: {
           select: {
             id: true,
+            recipientUserId: true,
             title: true,
             body: true,
             eventType: true,
@@ -109,11 +119,20 @@ export class PushJobRepository {
   }
 
   /**
-   * Marks a job as successfully sent via FCM.
+   * Marks a job as successfully sent via FCM, fenced by status='processing' and generation.
    */
-  async markJobSuccess(id: string, providerMessageId: string): Promise<void> {
-    await this.db.notificationDeliveryAttempt.update({
-      where: { id },
+  async markJobSuccess(
+    id: string,
+    providerMessageId: string,
+    expectedAttemptedAt?: Date | null,
+  ): Promise<boolean> {
+    const where: Prisma.NotificationDeliveryAttemptWhereInput = {
+      id,
+      status: 'processing',
+      ...(expectedAttemptedAt ? { attemptedAt: expectedAttemptedAt } : {}),
+    };
+    const result = await this.db.notificationDeliveryAttempt.updateMany({
+      where,
       data: {
         status: 'sent',
         deliveredAt: new Date(),
@@ -122,16 +141,24 @@ export class PushJobRepository {
         errorMessage: null,
       },
     });
+    return result.count > 0;
   }
 
   /**
    * Marks a job as failed, scheduling retry if transient or setting terminal failed status.
+   * Fenced by status='processing' and generation so slow/abandoned leases cannot overwrite 'sent'.
    */
   async markJobFailed(
     id: string,
     options: MarkJobFailedOptions,
-  ): Promise<void> {
+    expectedAttemptedAt?: Date | null,
+  ): Promise<boolean> {
     const { attemptNo, maxRetries, isTransient, errorMessage } = options;
+    const where: Prisma.NotificationDeliveryAttemptWhereInput = {
+      id,
+      status: 'processing',
+      ...(expectedAttemptedAt ? { attemptedAt: expectedAttemptedAt } : {}),
+    };
 
     if (isTransient && attemptNo < maxRetries) {
       // Exponential backoff with jitter
@@ -144,8 +171,8 @@ export class PushJobRepository {
       );
       const nextRetryAt = new Date(Date.now() + delayMs);
 
-      await this.db.notificationDeliveryAttempt.update({
-        where: { id },
+      const result = await this.db.notificationDeliveryAttempt.updateMany({
+        where,
         data: {
           status: 'queued',
           attemptNo: attemptNo + 1,
@@ -154,16 +181,18 @@ export class PushJobRepository {
           provider: 'fcm',
         },
       });
+      return result.count > 0;
     } else {
       // Terminal failure
-      await this.db.notificationDeliveryAttempt.update({
-        where: { id },
+      const result = await this.db.notificationDeliveryAttempt.updateMany({
+        where,
         data: {
           status: 'failed',
           errorMessage: errorMessage ?? 'Push delivery permanently failed',
           provider: 'fcm',
         },
       });
+      return result.count > 0;
     }
   }
 

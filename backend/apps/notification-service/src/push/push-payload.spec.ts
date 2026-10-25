@@ -70,4 +70,44 @@ describe('PushPayloadBuilder', () => {
     expect(totalBytes).toBeLessThanOrEqual(FCM_MAX_PAYLOAD_BYTES);
     expect(payload.body.endsWith('...')).toBe(true);
   });
+
+  it('rejects google.* and gcm.* prefixed keys from customData', () => {
+    const payload = PushPayloadBuilder.build({
+      notificationId: 'notif-123',
+      title: 'Title',
+      body: 'Body',
+      customData: {
+        'google.bad': 'not-allowed',
+        'gcm.notification.alert': 'blocked',
+        'gcm_custom': 'blocked',
+        valid_custom: 'ok',
+      },
+    });
+
+    expect(payload.data['google.bad']).toBeUndefined();
+    expect(payload.data['gcm.notification.alert']).toBeUndefined();
+    expect(payload.data['gcm_custom']).toBeUndefined();
+    expect(payload.data.valid_custom).toBe('ok');
+  });
+
+  it('guarantees <= 4096 bytes when customData is huge and body is short', () => {
+    const payload = PushPayloadBuilder.build({
+      notificationId: 'notif-123',
+      title: 'Title',
+      body: 'Short',
+      customData: {
+        large: 'X'.repeat(5000),
+      },
+    });
+
+    const totalBytes =
+      Buffer.byteLength(payload.title, 'utf8') +
+      Buffer.byteLength(payload.body, 'utf8') +
+      Object.entries(payload.data).reduce(
+        (acc, [k, v]) => acc + Buffer.byteLength(k, 'utf8') + Buffer.byteLength(v, 'utf8'),
+        0,
+      );
+
+    expect(totalBytes).toBeLessThanOrEqual(FCM_MAX_PAYLOAD_BYTES);
+  });
 });

@@ -28,7 +28,14 @@ type ProposalData = {
   workerId: string;
 };
 type OrderData = { orderId: string; customerId: string; workerId: string };
-type WalletData = { walletOwnerId: string; transactionId: string };
+type WalletData = {
+  walletOwnerId: string;
+  transactionId: string;
+  reason?: string;
+  paymentId?: string;
+  orderId?: string;
+  referenceType?: string;
+};
 
 export interface EventDataMap {
   'matching.eligible_workers.ready': {
@@ -151,14 +158,20 @@ export function validateNotificationEvent(
     throw new PermanentEventError('ROUTING_MISMATCH');
   const contract = EVENT_CONTRACTS[type as NotificationEventType];
   const source =
-    envelope.source === undefined ? envelope.producer : envelope.source;
+    envelope.source === undefined
+      ? (envelope.sourceService === undefined ? envelope.producer : envelope.sourceService)
+      : envelope.source;
   const version =
     envelope.eventVersion === undefined
-      ? envelope.version
+      ? (envelope.version === undefined ? 1 : envelope.version)
       : envelope.eventVersion;
+  const rawData =
+    envelope.data !== undefined ? envelope.data : envelope.payload;
+
   if (
     version !== 1 ||
-    (envelope.version !== undefined && envelope.version !== version)
+    (envelope.version !== undefined && envelope.version !== version) ||
+    (envelope.eventVersion !== undefined && envelope.eventVersion !== version)
   )
     throw new PermanentEventError('UNSUPPORTED_VERSION');
   if (
@@ -166,24 +179,48 @@ export function validateNotificationEvent(
     !isUUID(envelope.eventId) ||
     source !== contract.source ||
     (envelope.producer !== undefined && envelope.producer !== source) ||
+    (envelope.sourceService !== undefined && envelope.sourceService !== source) ||
     typeof envelope.occurredAt !== 'string' ||
     !isISO8601(envelope.occurredAt, { strict: true, strictSeparator: true }) ||
     !/(Z|[+-]\d{2}:\d{2})$/.test(envelope.occurredAt) ||
     (envelope.correlationId !== undefined &&
       (typeof envelope.correlationId !== 'string' ||
         !/^[\w.:-]{1,128}$/.test(envelope.correlationId))) ||
-    !isRecord(envelope.data)
+    !isRecord(rawData)
   )
     throw new PermanentEventError('INVALID_ENVELOPE');
+
+  const resolveField = (
+    record: Record<string, unknown>,
+    field: string,
+  ): unknown => {
+    if (record[field] !== undefined) return record[field];
+    if (field === 'requestId') return record.serviceRequestId;
+    if (field === 'customerId') return record.customerUserId;
+    if (field === 'workerId') return record.workerUserId;
+    if (field === 'matchingRunId') return record.matchRunId;
+    if (field === 'walletOwnerId') return record.userId ?? record.ownerId;
+    return undefined;
+  };
+
   const data: Record<string, unknown> = {};
   for (const field of contract.ids) {
-    const value = envelope.data[field];
+    const value = resolveField(rawData, field);
     if (typeof value !== 'string' || !isUUID(value))
       throw new PermanentEventError('INVALID_REQUIRED_ID');
     data[field] = value.toLowerCase();
   }
   if (type === 'matching.eligible_workers.ready') {
-    const ids = envelope.data.eligibleWorkerIds;
+    let ids = rawData.eligibleWorkerIds;
+    if (!ids && Array.isArray(rawData.eligibleWorkers)) {
+      ids = rawData.eligibleWorkers.map((w: unknown) =>
+        typeof w === 'string'
+          ? w
+          : isRecord(w)
+            ? (w.workerId ?? w.userId ?? w.id)
+            : undefined,
+      );
+    }
     if (
       !Array.isArray(ids) ||
       ids.length === 0 ||
@@ -197,7 +234,7 @@ export function validateNotificationEvent(
   }
   if (type === 'order.status.changed') {
     for (const field of ['previousStatus', 'nextStatus']) {
-      const status = envelope.data[field];
+      const status = rawData[field];
       if (
         typeof status !== 'string' ||
         !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(status)
@@ -206,13 +243,20 @@ export function validateNotificationEvent(
       data[field] = status;
     }
     if (
-      typeof envelope.data.notificationKind !== 'string' ||
+      typeof rawData.notificationKind !== 'string' ||
       !['status_update', 'completed', 'cancelled'].includes(
-        envelope.data.notificationKind,
+        rawData.notificationKind,
       )
     )
       throw new PermanentEventError('INVALID_TRANSITION_KIND');
-    data.notificationKind = envelope.data.notificationKind;
+    data.notificationKind = rawData.notificationKind;
+  }
+  if (type.startsWith('wallet.')) {
+    if (typeof rawData.reason === 'string') data.reason = rawData.reason;
+    if (typeof rawData.paymentId === 'string') data.paymentId = rawData.paymentId;
+    if (typeof rawData.orderId === 'string') data.orderId = rawData.orderId;
+    if (typeof rawData.referenceType === 'string')
+      data.referenceType = rawData.referenceType;
   }
   // Whitelist metadata; unknown business fields and secrets never reach storage/logs.
   return {

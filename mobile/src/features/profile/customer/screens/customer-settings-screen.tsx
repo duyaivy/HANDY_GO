@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Modal, Pressable, Switch, View } from 'react-native';
+import { Alert, Modal, Pressable, Switch, View } from 'react-native';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
@@ -59,29 +59,43 @@ export function CustomerSettingsScreen() {
   const { data: preferences } = useNotificationPreferences();
   const updatePreferences = useUpdateNotificationPreferences();
 
-  const [localPrefs, setLocalPrefs] = React.useState<{
-    pushEnabled?: boolean;
-    inAppEnabled?: boolean;
-    emailEnabled?: boolean;
-  }>({});
-
-  const pushEnabled = localPrefs.pushEnabled ?? preferences?.pushEnabled ?? true;
-  const inAppEnabled = localPrefs.inAppEnabled ?? preferences?.inAppEnabled ?? true;
-  const emailEnabled = localPrefs.emailEnabled ?? preferences?.emailEnabled ?? false;
+  const pushEnabled = preferences?.pushEnabled ?? true;
+  const inAppEnabled = preferences?.inAppEnabled ?? true;
+  const emailEnabled = preferences?.emailEnabled ?? false;
 
   const handleTogglePush = (value: boolean) => {
-    setLocalPrefs(prev => ({ ...prev, pushEnabled: value }));
-    updatePreferences.mutate({ pushEnabled: value });
+    updatePreferences.mutate(
+      { pushEnabled: value },
+      {
+        onError: () => {
+          Alert.alert(
+            'Lỗi kết nối',
+            'Không thể cập nhật cài đặt thông báo đẩy. Vui lòng kiểm tra kết nối mạng và thử lại.',
+          );
+        },
+      },
+    );
   };
 
   const handleToggleInApp = (value: boolean) => {
-    setLocalPrefs(prev => ({ ...prev, inAppEnabled: value }));
-    updatePreferences.mutate({ inAppEnabled: value });
+    updatePreferences.mutate(
+      { inAppEnabled: value },
+      {
+        onError: () => {
+          Alert.alert(
+            'Lỗi kết nối',
+            'Không thể cập nhật cài đặt thông báo trong ứng dụng. Vui lòng kiểm tra kết nối mạng và thử lại.',
+          );
+        },
+      },
+    );
   };
 
-  const handleToggleEmail = (value: boolean) => {
-    setLocalPrefs(prev => ({ ...prev, emailEnabled: value }));
-    updatePreferences.mutate({ emailEnabled: value });
+  const handleToggleEmail = (_value: boolean) => {
+    Alert.alert(
+      'Tính năng sắp ra mắt',
+      'Kênh thông báo qua Email đang được hoàn thiện và sẽ sớm được hỗ trợ.',
+    );
   };
 
   const handleConfirmLogout = async () => {
@@ -214,27 +228,33 @@ export function CustomerSettingsScreen() {
             />
           </View>
 
-          {/* Tùy chọn 3: Thông báo qua Email */}
-          <View className="flex-row items-center justify-between p-3.5">
+          {/* Tùy chọn 3: Thông báo qua Email (Chưa hỗ trợ trong MVP) */}
+          <View className="flex-row items-center justify-between p-3.5 opacity-70">
             <View className="mr-2 flex-1 flex-row items-center">
               <View className="mr-3 size-9 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-950/60">
                 <MailIcon size={18} color="#2563EB" />
               </View>
               <View className="flex-1">
-                <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
-                  Thông báo qua Email
-                </Text>
+                <View className="flex-row items-center gap-1.5">
+                  <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
+                    Thông báo qua Email
+                  </Text>
+                  <Text className="rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                    Sắp ra mắt
+                  </Text>
+                </View>
                 <Text className="text-xs text-neutral-400">
-                  Nhận cập nhật tài khoản và biên lai qua email
+                  Nhận cập nhật tài khoản và biên lai qua email (chưa hỗ trợ trong phiên bản này)
                 </Text>
               </View>
             </View>
             <Switch
               testID="settings-email-switch"
-              value={emailEnabled}
+              value={false}
+              disabled={true}
               onValueChange={handleToggleEmail}
               trackColor={{ false: '#E5E7EB', true: '#F5A524' }}
-              thumbColor={emailEnabled ? '#FFFFFF' : '#F4F4F5'}
+              thumbColor="#F4F4F5"
             />
           </View>
         </View>

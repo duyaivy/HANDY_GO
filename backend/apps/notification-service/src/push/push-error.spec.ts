@@ -6,7 +6,6 @@ describe('PushErrorClassifier', () => {
     const invalidCodes = [
       'messaging/registration-token-not-registered',
       'messaging/invalid-registration-token',
-      'messaging/invalid-argument',
     ];
 
     for (const code of invalidCodes) {
@@ -21,6 +20,15 @@ describe('PushErrorClassifier', () => {
     );
     expect(byMessage.shouldDeactivateToken).toBe(true);
     expect(byMessage.isTransient).toBe(false);
+  });
+
+  it('treats invalid-argument as payload/config error without deactivating token', () => {
+    const res = PushErrorClassifier.classify(
+      'messaging/invalid-argument',
+      'The message payload is invalid',
+    );
+    expect(res.isTransient).toBe(false);
+    expect(res.shouldDeactivateToken).toBe(false);
   });
 
   it('identifies transient retryable errors without deactivating token', () => {

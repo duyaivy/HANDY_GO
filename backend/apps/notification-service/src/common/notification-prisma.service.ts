@@ -13,17 +13,21 @@ export class NotificationPrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  readonly schema: string;
+
   constructor(config: ConfigService) {
     const connectionString = resolveNotificationDatabaseUrl(
       config.get<string>('DATABASE_URL_NOTIFICATION'),
       config.get<string>('DATABASE_URL'),
     );
     const url = new URL(connectionString);
+    const schema = url.searchParams.get('schema') || 'notification_service';
     const adapter = new PrismaPg(
       { connectionString },
-      { schema: url.searchParams.get('schema')! },
+      { schema },
     );
     super({ adapter });
+    this.schema = schema;
   }
 
   async onModuleInit() {

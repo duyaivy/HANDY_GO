@@ -25,6 +25,7 @@ export class NotificationsRepository {
     for (let offset = 0; offset < rows.length; offset += 100) {
       const result = await tx.notification.createMany({
         data: rows.slice(offset, offset + 100),
+        skipDuplicates: true,
       });
       count += result.count;
     }
@@ -42,6 +43,12 @@ export class NotificationsRepository {
         recipientUserId: userId,
         readAt:
           isRead === undefined ? undefined : isRead ? { not: null } : null,
+        NOT: {
+          payload: {
+            path: ['inAppVisible'],
+            equals: false,
+          },
+        },
         ...(cursor
           ? {
               OR: [
@@ -59,13 +66,31 @@ export class NotificationsRepository {
 
   unreadCount(userId: string) {
     return this.db.notification.count({
-      where: { recipientUserId: userId, readAt: null },
+      where: {
+        recipientUserId: userId,
+        readAt: null,
+        NOT: {
+          payload: {
+            path: ['inAppVisible'],
+            equals: false,
+          },
+        },
+      },
     });
   }
 
   findOne(userId: string, id: string) {
     return this.db.notification.findFirst({
-      where: { id, recipientUserId: userId },
+      where: {
+        id,
+        recipientUserId: userId,
+        NOT: {
+          payload: {
+            path: ['inAppVisible'],
+            equals: false,
+          },
+        },
+      },
       select: notificationSelect,
     });
   }
@@ -85,7 +110,16 @@ export class NotificationsRepository {
 
   markAllRead(userId: string) {
     return this.db.notification.updateMany({
-      where: { recipientUserId: userId, readAt: null },
+      where: {
+        recipientUserId: userId,
+        readAt: null,
+        NOT: {
+          payload: {
+            path: ['inAppVisible'],
+            equals: false,
+          },
+        },
+      },
       data: { readAt: new Date() },
     });
   }

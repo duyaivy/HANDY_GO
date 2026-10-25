@@ -129,12 +129,34 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
 
     for (const job of jobs) {
       if (!job.deviceToken || !job.deviceToken.isActive || !job.deviceToken.pushToken) {
-        await this.pushJobs.markJobFailed(job.id, {
-          attemptNo: job.attemptNo,
-          maxRetries: 1,
-          isTransient: false,
-          errorMessage: 'Device token is missing or deactivated',
-        });
+        await this.pushJobs.markJobFailed(
+          job.id,
+          {
+            attemptNo: job.attemptNo,
+            maxRetries: 1,
+            isTransient: false,
+            errorMessage: 'Device token is missing or deactivated',
+          },
+          job.attemptedAt,
+        );
+        continue;
+      }
+
+      // Privacy / Ownership guard: do not deliver if the device has been rebound to another user
+      if (job.deviceToken.userId !== job.notification.recipientUserId) {
+        this.logger.warn(
+          `Skipping push delivery for job ${job.id}: token owner ${job.deviceToken.userId} does not match recipient ${job.notification.recipientUserId}`,
+        );
+        await this.pushJobs.markJobFailed(
+          job.id,
+          {
+            attemptNo: job.attemptNo,
+            maxRetries: 1,
+            isTransient: false,
+            errorMessage: 'Device token ownership mismatch or rebound',
+          },
+          job.attemptedAt,
+        );
         continue;
       }
 
@@ -181,23 +203,32 @@ export class PushWorkerService implements OnModuleInit, OnModuleDestroy {
         await this.pushJobs.markJobSuccess(
           result.jobId,
           result.messageId || 'fcm_ack',
+          job.attemptedAt,
         );
       } else {
         this.logger.warn(
           `Push notification failed (jobId=${result.jobId}, errorCode=${result.errorCode || 'UNKNOWN'}, error=${result.errorMessage})`,
         );
-        await this.pushJobs.markJobFailed(result.jobId, {
-          attemptNo: job.attemptNo,
-          maxRetries,
-          isTransient: result.isTransient,
-          errorMessage: result.errorMessage,
-        });
+        await this.pushJobs.markJobFailed(
+          result.jobId,
+          {
+            attemptNo: job.attemptNo,
+            maxRetries,
+            isTransient: result.isTransient,
+            errorMessage: result.errorMessage,
+          },
+          job.attemptedAt,
+        );
 
         if (result.shouldDeactivateToken && job.deviceToken) {
           this.logger.warn(
             `Deactivating invalid FCM token for deviceId=${job.deviceToken.id} (error: ${result.errorCode || result.errorMessage})`,
           );
-          await this.devices.deactivateById(job.deviceToken.id);
+          // Conditional deactivation: only deactivate if the token has not been rotated in the meantime
+          await this.devices.deactivateIfTokenMatches(
+            job.deviceToken.id,
+            job.deviceToken.pushToken,
+          );
         }
       }
     }

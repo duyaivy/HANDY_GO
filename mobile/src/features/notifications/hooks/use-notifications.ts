@@ -1,6 +1,7 @@
 import type { InfiniteData } from '@tanstack/react-query';
 import type {
   NotificationPage,
+  NotificationPreferences,
   NotificationRecord,
   UpdateNotificationPreferencesDto,
 } from '@/services/notifications/notification-api';
@@ -144,9 +145,32 @@ export function useUpdateNotificationPreferences() {
   const userId = useNotificationUserId();
   return useMutation({
     mutationFn: (body: UpdateNotificationPreferencesDto) => NotificationApi.updatePreferences(body),
+    onMutate: async (newPrefs) => {
+      if (!userId) return;
+      const key = notificationKeys.preferences(userId);
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<NotificationPreferences>(key);
+      if (previous) {
+        client.setQueryData<NotificationPreferences>(key, {
+          ...previous,
+          ...newPrefs,
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _newPrefs, context) => {
+      if (userId && context?.previous !== undefined) {
+        client.setQueryData(notificationKeys.preferences(userId), context.previous);
+      }
+    },
     onSuccess: (data) => {
       if (userId) {
         client.setQueryData(notificationKeys.preferences(userId), data);
+      }
+    },
+    onSettled: () => {
+      if (userId && useAuthStore.getState().user?.id === userId) {
+        return client.invalidateQueries({ queryKey: notificationKeys.preferences(userId) });
       }
     },
   });

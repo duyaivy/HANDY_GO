@@ -33,6 +33,7 @@ describe('PushWorkerService', () => {
 
     devices = {
       deactivateById: vi.fn(),
+      deactivateIfTokenMatches: vi.fn(),
     } as unknown as DevicesRepository;
 
     provider = {
@@ -51,8 +52,10 @@ describe('PushWorkerService', () => {
       attemptNo: 1,
       deliveryAttemptKey: 'push:notif-1:dev-1',
       status: 'processing',
+      attemptedAt: null,
       notification: {
         id: 'notif-1',
+        recipientUserId: 'user-1',
         title: 'Title',
         body: 'Body',
         eventType: 'order.created',
@@ -71,12 +74,57 @@ describe('PushWorkerService', () => {
 
     await worker.processJobs([inactiveJob]);
 
-    expect(pushJobs.markJobFailed).toHaveBeenCalledWith('job-1', {
+    expect(pushJobs.markJobFailed).toHaveBeenCalledWith(
+      'job-1',
+      expect.objectContaining({
+        attemptNo: 1,
+        maxRetries: 1,
+        isTransient: false,
+        errorMessage: expect.stringContaining('deactivated'),
+      }),
+      null,
+    );
+    expect(provider.sendEach).not.toHaveBeenCalled();
+  });
+
+  it('marks job permanently failed if device token ownership does not match notification recipient', async () => {
+    const mismatchedJob: PushJobWithRelations = {
+      id: 'job-mismatch',
+      notificationId: 'notif-mismatch',
+      deviceTokenId: 'dev-rebound',
       attemptNo: 1,
-      maxRetries: 1,
-      isTransient: false,
-      errorMessage: expect.stringContaining('deactivated'),
-    });
+      deliveryAttemptKey: 'push:notif-mismatch:dev-rebound',
+      status: 'processing',
+      attemptedAt: null,
+      notification: {
+        id: 'notif-mismatch',
+        recipientUserId: 'user-original-owner',
+        title: 'Private info',
+        body: 'Secret body',
+        eventType: 'payment.succeeded',
+        category: 'payment',
+        sourceEntityId: 'order-1',
+        serviceRequestId: null,
+        payload: null,
+      },
+      deviceToken: {
+        id: 'dev-rebound',
+        userId: 'user-new-rebound-owner', // Ownership changed!
+        pushToken: 'fcm-token-shared-device',
+        isActive: true,
+      },
+    };
+
+    await worker.processJobs([mismatchedJob]);
+
+    expect(pushJobs.markJobFailed).toHaveBeenCalledWith(
+      'job-mismatch',
+      expect.objectContaining({
+        isTransient: false,
+        errorMessage: expect.stringContaining('ownership mismatch'),
+      }),
+      null,
+    );
     expect(provider.sendEach).not.toHaveBeenCalled();
   });
 
@@ -88,8 +136,10 @@ describe('PushWorkerService', () => {
       attemptNo: 1,
       deliveryAttemptKey: 'push:notif-2:dev-2',
       status: 'processing',
+      attemptedAt: null,
       notification: {
         id: 'notif-2',
+        recipientUserId: 'user-2',
         title: 'Thành công',
         body: 'Nội dung',
         eventType: 'payment.succeeded',
@@ -127,10 +177,10 @@ describe('PushWorkerService', () => {
         body: 'Nội dung',
       }),
     ]);
-    expect(pushJobs.markJobSuccess).toHaveBeenCalledWith('job-2', 'fcm-msg-id-123');
+    expect(pushJobs.markJobSuccess).toHaveBeenCalledWith('job-2', 'fcm-msg-id-123', null);
   });
 
-  it('handles invalid token by deactivating device and marking job failed', async () => {
+  it('handles invalid token by deactivating device conditionally and marking job failed', async () => {
     const jobWithDeadToken: PushJobWithRelations = {
       id: 'job-3',
       notificationId: 'notif-3',
@@ -138,8 +188,10 @@ describe('PushWorkerService', () => {
       attemptNo: 1,
       deliveryAttemptKey: 'push:notif-3:dev-3',
       status: 'processing',
+      attemptedAt: null,
       notification: {
         id: 'notif-3',
+        recipientUserId: 'user-3',
         title: 'Title',
         body: 'Body',
         eventType: 'order.created',
@@ -170,12 +222,16 @@ describe('PushWorkerService', () => {
 
     await worker.processJobs([jobWithDeadToken]);
 
-    expect(pushJobs.markJobFailed).toHaveBeenCalledWith('job-3', {
-      attemptNo: 1,
-      maxRetries: 3,
-      isTransient: false,
-      errorMessage: 'Token is dead',
-    });
-    expect(devices.deactivateById).toHaveBeenCalledWith('dev-3');
+    expect(pushJobs.markJobFailed).toHaveBeenCalledWith(
+      'job-3',
+      expect.objectContaining({
+        attemptNo: 1,
+        maxRetries: 3,
+        isTransient: false,
+        errorMessage: 'Token is dead',
+      }),
+      null,
+    );
+    expect(devices.deactivateIfTokenMatches).toHaveBeenCalledWith('dev-3', 'dead-token');
   });
 });

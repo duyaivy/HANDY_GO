@@ -24,7 +24,6 @@ export const PUSH_DEFAULTS = {
 export const TOKEN_INVALID_ERROR_CODES = new Set([
   'messaging/registration-token-not-registered',
   'messaging/invalid-registration-token',
-  'messaging/invalid-argument',
 ]) as ReadonlySet<string>;
 
 /** FCM error codes that are transient and safe to retry. */

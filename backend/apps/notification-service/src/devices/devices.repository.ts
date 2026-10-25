@@ -20,31 +20,68 @@ export class DevicesRepository {
 
   register(userId: string, dto: RegisterDeviceDto) {
     return this.db.$transaction(async (tx) => {
-      // Serialize registrations for this user across service instances. Unique
-      // indexes also protect against simultaneous claims by different users.
+      // Serialize registrations on pushToken and user to prevent concurrent race conditions
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${dto.pushToken}::text, 0))::text`;
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${userId}::text, 0))::text`;
-      const token = await tx.deviceToken.findUnique({
+
+      const existingToken = await tx.deviceToken.findUnique({
         where: { pushToken: dto.pushToken },
-        select: { id: true, userId: true, deviceId: true },
+        select: { id: true, userId: true, deviceId: true, isActive: true },
       });
-      if (token && token.userId !== userId)
-        throw new ConflictException('Device token is already registered');
-      const device = dto.deviceId
+
+      // If token belongs to another user: atomically rebind ownership to the new user
+      if (existingToken && existingToken.userId !== userId) {
+        // Invalidate old owner's token and free up unique pushToken constraint
+        await tx.deviceToken.update({
+          where: { id: existingToken.id },
+          data: {
+            isActive: false,
+            pushToken: `${dto.pushToken}:rebound:${existingToken.id}`,
+          },
+        });
+
+        // Cancel any pending or in-flight delivery attempts for the old owner
+        await tx.notificationDeliveryAttempt.updateMany({
+          where: {
+            deviceTokenId: existingToken.id,
+            status: { in: ['queued', 'processing'] },
+          },
+          data: {
+            status: 'failed',
+            errorMessage: 'Device rebound to another user',
+          },
+        });
+      }
+
+      // Check if this user already has an existing token for this installation deviceId
+      const userDevice = dto.deviceId
         ? await tx.deviceToken.findUnique({
             where: { userId_deviceId: { userId, deviceId: dto.deviceId } },
-            select: { id: true },
+            select: { id: true, pushToken: true },
           })
         : null;
+
+      // If user had another record for this deviceId with a different pushToken, retire it
       if (
-        token &&
-        ((device && device.id !== token.id) ||
-          (dto.deviceId && token.deviceId && dto.deviceId !== token.deviceId))
+        userDevice &&
+        existingToken &&
+        existingToken.userId === userId &&
+        userDevice.id !== existingToken.id
       ) {
-        throw new ConflictException(
-          'Device token is already registered to another installation',
-        );
+        await tx.deviceToken.update({
+          where: { id: userDevice.id },
+          data: {
+            isActive: false,
+            pushToken: `${userDevice.pushToken}:superseded:${userDevice.id}`,
+          },
+        });
       }
-      const existing = device ?? token;
+
+      const targetId =
+        existingToken && existingToken.userId === userId
+          ? existingToken.id
+          : userDevice?.id;
+
       const data = {
         platform: dto.platform,
         deviceId: dto.deviceId,
@@ -52,9 +89,10 @@ export class DevicesRepository {
         isActive: true,
         lastSeenAt: new Date(),
       };
-      return existing
+
+      return targetId
         ? tx.deviceToken.update({
-            where: { id: existing.id, userId },
+            where: { id: targetId },
             data,
             select: deviceSelect,
           })
@@ -75,6 +113,13 @@ export class DevicesRepository {
   deactivateById(id: string) {
     return this.db.deviceToken.updateMany({
       where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  deactivateIfTokenMatches(id: string, pushToken: string) {
+    return this.db.deviceToken.updateMany({
+      where: { id, pushToken },
       data: { isActive: false },
     });
   }

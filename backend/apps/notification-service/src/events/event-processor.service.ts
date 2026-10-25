@@ -67,6 +67,25 @@ export class EventProcessorService {
             skipReason: skipReason ?? 'POLICY_DISABLED',
           };
         }
+        if (event.eventType === 'wallet.debited') {
+          const data = event.data as Record<string, unknown>;
+          const isPaymentDebit =
+            (data.reason &&
+              ['PAYMENT', 'ORDER_PAYMENT', 'SERVICE_PAYMENT'].includes(
+                String(data.reason).toUpperCase(),
+              )) ||
+            Boolean(data.paymentId) ||
+            String(data.referenceType ?? '').toUpperCase() === 'PAYMENT';
+          if (isPaymentDebit) {
+            return {
+              status: 'skipped',
+              recipientCount: route.recipients.length,
+              notificationCount: 0,
+              skipReason: 'PAYMENT_DEBIT_SUPPRESSED',
+            };
+          }
+        }
+
         const recipients = [
           ...new Map(
             route.recipients
@@ -76,47 +95,75 @@ export class EventProcessorService {
         ];
         if (recipients.length === 0)
           throw new PermanentEventError('POLICY_RECIPIENT_MISMATCH');
-        const optedOut =
+
+        const recipientUserIds = recipients.map(({ userId }) => userId);
+
+        const inAppOptOuts =
           policy.mode === 'optional'
-            ? await this.preferences.findInAppOptOuts(
-                tx,
-                recipients.map(({ userId }) => userId),
-              )
+            ? await this.preferences.findInAppOptOuts(tx, recipientUserIds)
+            : new Set<string>();
+
+        const pushDecision =
+          this.pushPolicies && this.devices && this.pushJobs
+            ? this.pushPolicies.resolve(event)
+            : { enabled: false, mode: 'disabled' as const };
+
+        const pushOptOuts =
+          pushDecision.enabled && pushDecision.mode === 'optional'
+            ? await this.preferences.findPushOptOuts(tx, recipientUserIds)
             : new Set<string>();
 
         const rows: Prisma.NotificationCreateManyInput[] = [];
         const userToNotificationId = new Map<string, string>();
+        const pushEligibleUserIds: string[] = [];
 
         for (const { userId, role } of recipients) {
-          if (!optedOut.has(userId)) {
-            const notifId = randomUUID();
-            userToNotificationId.set(userId, notifId);
-            rows.push({
-              id: notifId,
-              recipientUserId: userId,
-              sourceEventId: event.eventId,
-              eventType: event.eventType,
-              category: route.category,
-              sourceService: event.source,
-              sourceEntityId: route.entityId,
-              serviceRequestId: route.requestId,
-              // Event-level only: do not merge unrelated payments/runs/ledger entries.
-              dedupeKey: `${event.eventId}:${userId}`,
-              ...renderNotificationTemplate(
-                event.eventType,
-                role,
-                policy.template,
-              ),
-              payload: {
-                eventType: event.eventType,
-                entityId: route.entityId,
-                recipientRole: role,
-                ...(route.requestId ? { requestId: route.requestId } : {}),
-              },
-              status: 'sent',
-              readAt: null,
-            });
+          const inAppEligible =
+            policy.mode !== 'optional' || !inAppOptOuts.has(userId);
+          const pushEligible =
+            pushDecision.enabled &&
+            (pushDecision.mode !== 'optional' || !pushOptOuts.has(userId));
+
+          if (!inAppEligible && !pushEligible) continue;
+
+          const notifId = randomUUID();
+          userToNotificationId.set(userId, notifId);
+
+          if (pushEligible) {
+            pushEligibleUserIds.push(userId);
           }
+
+          // Business deduplication: for matching events, key on request and worker to prevent duplicate alerts across runs
+          const dedupeKey =
+            event.eventType === 'matching.eligible_workers.ready' && route.requestId
+              ? `new-request:${route.requestId}:${userId}`
+              : `${event.eventId}:${userId}`;
+
+          rows.push({
+            id: notifId,
+            recipientUserId: userId,
+            sourceEventId: event.eventId,
+            eventType: event.eventType,
+            category: route.category,
+            sourceService: event.source,
+            sourceEntityId: route.entityId,
+            serviceRequestId: route.requestId,
+            dedupeKey,
+            ...renderNotificationTemplate(
+              event.eventType,
+              role,
+              policy.template,
+            ),
+            payload: {
+              eventType: event.eventType,
+              entityId: route.entityId,
+              recipientRole: role,
+              inAppVisible: inAppEligible,
+              ...(route.requestId ? { requestId: route.requestId } : {}),
+            },
+            status: 'sent',
+            readAt: null,
+          });
         }
 
         const notificationCount = await this.notifications.createInAppBatch(
@@ -126,47 +173,44 @@ export class EventProcessorService {
 
         let pushJobCount = 0;
         if (
+          notificationCount > 0 &&
+          pushEligibleUserIds.length > 0 &&
           this.pushPolicies &&
           this.devices &&
-          this.pushJobs &&
-          userToNotificationId.size > 0
+          this.pushJobs
         ) {
-          const pushDecision = this.pushPolicies.resolve(event);
-          if (pushDecision.enabled) {
-            const recipientIds = Array.from(userToNotificationId.keys());
-            const pushOptOuts =
-              pushDecision.mode === 'optional'
-                ? await this.preferences.findPushOptOuts(tx, recipientIds)
-                : new Set<string>();
+          let activeUserToNotificationId = userToNotificationId;
+          if (notificationCount < rows.length && tx.notification?.findMany) {
+            const created = await tx.notification.findMany({
+              where: { sourceEventId: event.eventId },
+              select: { id: true, recipientUserId: true },
+            });
+            activeUserToNotificationId = new Map(
+              created.map((c) => [c.recipientUserId, c.id]),
+            );
+          }
 
-            const eligibleUserIds = recipientIds.filter(
-              (userId) => !pushOptOuts.has(userId),
+          const activeDevices = await this.devices.findActiveByUserIds(
+            pushEligibleUserIds,
+            tx,
+          );
+          const attempts = activeDevices
+            .map((device) => {
+              const notificationId = activeUserToNotificationId.get(device.userId);
+              return notificationId
+                ? { notificationId, deviceTokenId: device.id }
+                : null;
+            })
+            .filter(
+              (a): a is { notificationId: string; deviceTokenId: string } =>
+                a !== null,
             );
 
-            if (eligibleUserIds.length > 0) {
-              const activeDevices = await this.devices.findActiveByUserIds(
-                eligibleUserIds,
-                tx,
-              );
-              const attempts = activeDevices
-                .map((device) => {
-                  const notificationId = userToNotificationId.get(device.userId);
-                  return notificationId
-                    ? { notificationId, deviceTokenId: device.id }
-                    : null;
-                })
-                .filter(
-                  (a): a is { notificationId: string; deviceTokenId: string } =>
-                    a !== null,
-                );
-
-              if (attempts.length > 0) {
-                pushJobCount = await this.pushJobs.schedulePushAttempts(
-                  tx,
-                  attempts,
-                );
-              }
-            }
+          if (attempts.length > 0) {
+            pushJobCount = await this.pushJobs.schedulePushAttempts(
+              tx,
+              attempts,
+            );
           }
         }
 
