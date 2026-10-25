@@ -22,15 +22,17 @@ export class WalletProvisioningConsumer {
   @EventPattern(EVENT_PATTERNS.USER_REGISTERED)
   async onUserRegistered(
     @Payload() event: UserRegisteredEvent,
-    @Ctx() context: RmqContext,
+    @Ctx() context: unknown,
   ): Promise<void> {
+    const rmqContext = context as RmqContext;
+
     if (
       !event?.eventId ||
       event.eventVersion !== 3 ||
       !event.data?.userId ||
       !event.data.accountId
     ) {
-      this.rmqContext.ack(context);
+      this.rmqContext.ack(rmqContext);
       return;
     }
 
@@ -40,9 +42,9 @@ export class WalletProvisioningConsumer {
         event.eventId,
         EVENT_PATTERNS.USER_REGISTERED,
       );
-      this.rmqContext.ack(context);
+      this.rmqContext.ack(rmqContext);
     } catch {
-      this.rmqContext.nack(context, true);
+      this.rmqContext.nack(rmqContext, true);
     }
   }
 }

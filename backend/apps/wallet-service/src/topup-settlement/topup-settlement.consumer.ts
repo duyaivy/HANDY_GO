@@ -14,8 +14,10 @@ export class TopupSettlementConsumer {
   @EventPattern('payment.topup.succeeded')
   async onTopupSucceeded(
     @Payload() event: PaymentTopupSucceededDto,
-    @Ctx() context: RmqContext,
+    @Ctx() context: unknown,
   ): Promise<void> {
+    const rmqContext = context as RmqContext;
+
     if (
       !event ||
       typeof event.userId !== 'string' ||
@@ -24,15 +26,15 @@ export class TopupSettlementConsumer {
       !/^[1-9]\d*$/.test(event.amount) ||
       typeof event.idempotencyKey !== 'string'
     ) {
-      this.rmqContext.ack(context);
+      this.rmqContext.ack(rmqContext);
       return;
     }
 
     try {
       await this.service.settle(event);
-      this.rmqContext.ack(context);
+      this.rmqContext.ack(rmqContext);
     } catch {
-      this.rmqContext.nack(context, true);
+      this.rmqContext.nack(rmqContext, true);
     }
   }
 }
