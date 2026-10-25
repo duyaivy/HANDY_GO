@@ -239,7 +239,7 @@ export function CustomerSettingsScreen() {
                   <Text className="text-sm font-semibold text-neutral-900 dark:text-white">
                     Thông báo qua Email
                   </Text>
-                  <Text className="rounded bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                  <Text className="rounded-sm bg-neutral-200 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                     Sắp ra mắt
                   </Text>
                 </View>
@@ -250,7 +250,7 @@ export function CustomerSettingsScreen() {
             </View>
             <Switch
               testID="settings-email-switch"
-              value={false}
+              value={emailEnabled}
               disabled={true}
               onValueChange={handleToggleEmail}
               trackColor={{ false: '#E5E7EB', true: '#F5A524' }}

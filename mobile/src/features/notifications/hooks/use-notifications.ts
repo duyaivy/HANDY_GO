@@ -146,7 +146,9 @@ export function useUpdateNotificationPreferences() {
   return useMutation({
     mutationFn: (body: UpdateNotificationPreferencesDto) => NotificationApi.updatePreferences(body),
     onMutate: async (newPrefs) => {
-      if (!userId) return;
+      if (!userId) {
+        return;
+      }
       const key = notificationKeys.preferences(userId);
       await client.cancelQueries({ queryKey: key });
       const previous = client.getQueryData<NotificationPreferences>(key);
