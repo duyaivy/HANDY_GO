@@ -8,6 +8,8 @@ import {
 import { BidsService } from './bids.service.js';
 import { RoundsService } from '../rounds/rounds.service.js';
 import { EVENT_PATTERNS } from '@app/common';
+const TEST_INTERNAL_SECRET = 'test-internal-secret';
+process.env.INTERNAL_SERVICE_SECRET = TEST_INTERNAL_SECRET;
 
 describe('BidsService', () => {
   let service: BidsService;
@@ -511,6 +513,12 @@ describe('BidsService', () => {
     });
 
     it('should mask competitor bid amounts (Blind Bidding) when viewer is another worker', async () => {
+      const secret = TEST_INTERNAL_SECRET;
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        customerId: 'customer-owner',
+      });
       prismaMock.bid.count.mockResolvedValue(2);
       prismaMock.bid.findMany.mockResolvedValue([
         {
@@ -541,12 +549,13 @@ describe('BidsService', () => {
         },
       ]);
 
-      // Worker 1 viewing bids: Worker 2's bid should be masked
+      // Worker 1 viewing bids through gateway: Worker 2's bid should be masked
       const res = await service.getBidsForRequest(
         'req-1',
         { page: 1, limit: 10 },
         'worker-1',
         'worker',
+        secret,
       );
 
       expect(res.items.length).toBe(2);
@@ -561,7 +570,13 @@ describe('BidsService', () => {
       expect(competitorBid?.message).toContain('Báo giá kín');
     });
 
-    it('should NOT mask bids when viewer is customer or admin', async () => {
+    it('should NOT mask bids when viewer is request owner customer or admin (R01/F03)', async () => {
+      const secret = TEST_INTERNAL_SECRET;
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        customerId: 'customer-1',
+      });
       prismaMock.bid.count.mockResolvedValue(1);
       prismaMock.bid.findMany.mockResolvedValue([
         {
@@ -579,16 +594,92 @@ describe('BidsService', () => {
         },
       ]);
 
+      // Request owner customer
       const res = await service.getBidsForRequest(
         'req-1',
         { page: 1, limit: 10 },
         'customer-1',
         'customer',
+        secret,
       );
 
       expect(res.items[0].isMasked).toBe(false);
       expect(res.items[0].amount).toBe(200000);
       expect(res.items[0].message).toBe('Báo giá thợ 2');
+    });
+
+    it('should MASK bids when viewer is another customer who does not own the request (R01/F03)', async () => {
+      const secret = TEST_INTERNAL_SECRET;
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        customerId: 'owner-customer-id',
+      });
+      prismaMock.bid.count.mockResolvedValue(1);
+      prismaMock.bid.findMany.mockResolvedValue([
+        {
+          id: 'bid-1',
+          biddingRoundId: 'round-1',
+          serviceRequestId: 'req-1',
+          workerId: 'worker-2',
+          amount: 200000,
+          message: 'Báo giá thợ 2',
+          validUntil: null,
+          status: 'active',
+          version: 1,
+          submittedAt: new Date(),
+          _count: { revisions: 0 },
+        },
+      ]);
+
+      // Non-owner customer
+      const res = await service.getBidsForRequest(
+        'req-1',
+        { page: 1, limit: 10 },
+        'other-customer-id',
+        'customer',
+        secret,
+      );
+
+      expect(res.items[0].isMasked).toBe(true);
+      expect(res.items[0].amount).toBe(0);
+      expect(res.items[0].message).toContain('Báo giá kín');
+    });
+
+    it('should MASK bids when accessed directly without trusted gateway secret (R01/F03 direct port spoofing)', async () => {
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        customerId: 'customer-1',
+      });
+      prismaMock.bid.count.mockResolvedValue(1);
+      prismaMock.bid.findMany.mockResolvedValue([
+        {
+          id: 'bid-1',
+          biddingRoundId: 'round-1',
+          serviceRequestId: 'req-1',
+          workerId: 'worker-2',
+          amount: 200000,
+          message: 'Báo giá thợ 2',
+          validUntil: null,
+          status: 'active',
+          version: 1,
+          submittedAt: new Date(),
+          _count: { revisions: 0 },
+        },
+      ]);
+
+      // Direct port access without valid secret -> unverified identity headers ignored
+      const res = await service.getBidsForRequest(
+        'req-1',
+        { page: 1, limit: 10 },
+        'customer-1',
+        'admin',
+        undefined, // no secret
+      );
+
+      expect(res.items[0].isMasked).toBe(true);
+      expect(res.items[0].amount).toBe(0);
     });
   });
 });

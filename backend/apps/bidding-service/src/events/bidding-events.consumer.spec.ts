@@ -18,9 +18,10 @@ describe('BiddingEventsConsumer', () => {
     };
 
     roundsServiceMock = {
-      openRound: vi.fn(),
-      cancelRound: vi.fn(),
-      finalizeRound: vi.fn(),
+      openRound: vi.fn().mockResolvedValue({ id: 'round-1', status: 'open' }),
+      cancelRound: vi.fn().mockResolvedValue({ id: 'round-1', status: 'cancelled' }),
+      finalizeRound: vi.fn().mockResolvedValue({ id: 'round-1', status: 'finalized' }),
+      expireRoundById: vi.fn().mockResolvedValue({ id: 'round-1', status: 'closed' }),
     };
 
     channelMock = {
@@ -39,10 +40,8 @@ describe('BiddingEventsConsumer', () => {
     );
   });
 
-  describe('handleServiceRequestPublished', () => {
-    it('should open round, record consumed event, and ack message', async () => {
-      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-
+  describe('handleServiceRequestPublished (R04/F07)', () => {
+    it('should forward eventId to roundsService.openRound for transactional atomic inbox and ack message', async () => {
       const eventPayload = {
         eventId: 'evt-100',
         serviceRequestId: 'req-1',
@@ -58,39 +57,37 @@ describe('BiddingEventsConsumer', () => {
         expect.objectContaining({
           serviceRequestId: 'req-1',
           durationHours: 48,
+          eventId: 'evt-100',
         }),
       );
-      expect(prismaMock.consumedEvent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          eventId: 'evt-100',
-          eventType: 'service_request.published',
-        }),
-      });
       expect(channelMock.ack).toHaveBeenCalled();
     });
 
-    it('should deduplicate and ack without calling openRound if event was already consumed', async () => {
-      prismaMock.consumedEvent.findUnique.mockResolvedValue({
-        eventId: 'evt-already-consumed',
-      });
+    it('should retry on transient error up to 3 times then nack without requeue (R06/F10)', async () => {
+      roundsServiceMock.openRound.mockRejectedValue(new Error('DB Connection Timeout'));
 
       const eventPayload = {
-        eventId: 'evt-already-consumed',
-        serviceRequestId: 'req-1',
-        payload: { serviceRequestId: 'req-1' },
+        eventId: 'evt-retry-1',
+        serviceRequestId: 'req-retry',
+        payload: { serviceRequestId: 'req-retry' },
       };
 
+      // 1st attempt -> requeue: true
       await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
 
-      expect(roundsServiceMock.openRound).not.toHaveBeenCalled();
-      expect(channelMock.ack).toHaveBeenCalled();
+      // 2nd attempt -> requeue: true
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // 3rd attempt -> requeue: false (DLQ dead-lettered)
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, false);
     });
   });
 
-  describe('handleServiceRequestCancelled', () => {
-    it('should cancel round and ack message', async () => {
-      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-
+  describe('handleServiceRequestCancelled (R04/F07)', () => {
+    it('should pass eventId to roundsService.cancelRound and ack message', async () => {
       const eventPayload = {
         eventId: 'evt-200',
         serviceRequestId: 'req-1',
@@ -99,21 +96,18 @@ describe('BiddingEventsConsumer', () => {
 
       await consumer.handleServiceRequestCancelled(eventPayload, contextMock);
 
-      expect(roundsServiceMock.cancelRound).toHaveBeenCalledWith('req-1');
-      expect(prismaMock.consumedEvent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(roundsServiceMock.cancelRound).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceRequestId: 'req-1',
           eventId: 'evt-200',
-          eventType: 'service_request.cancelled',
         }),
-      });
+      );
       expect(channelMock.ack).toHaveBeenCalled();
     });
   });
 
-  describe('handleOrderCreated', () => {
-    it('should finalize round with selectedBidId and ack message', async () => {
-      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-
+  describe('handleOrderCreated (R04/F07 & R05/F09)', () => {
+    it('should pass eventId and winner data to roundsService.finalizeRound and ack message', async () => {
       const eventPayload = {
         eventId: 'evt-300',
         payload: {
@@ -131,12 +125,7 @@ describe('BiddingEventsConsumer', () => {
         orderId: 'order-1',
         selectedBidId: 'bid-winning',
         winningWorkerId: 'worker-1',
-      });
-      expect(prismaMock.consumedEvent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          eventId: 'evt-300',
-          eventType: 'order.created',
-        }),
+        eventId: 'evt-300',
       });
       expect(channelMock.ack).toHaveBeenCalled();
     });
@@ -144,8 +133,6 @@ describe('BiddingEventsConsumer', () => {
 
   describe('handleRoundExpireCheck', () => {
     it('should call expireRoundById and ack message', async () => {
-      roundsServiceMock.expireRoundById = vi.fn().mockResolvedValue({ id: 'round-123', status: 'closed' });
-
       const eventPayload = {
         payload: {
           roundId: 'round-123',

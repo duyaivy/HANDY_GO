@@ -25,6 +25,8 @@ import {
 } from './dto/bid-eligibility.dto.js';
 import { WorkerProfileEnricherService } from './services/worker-profile-enricher.service.js';
 import { RequestEligibilityVerifierService } from './services/request-eligibility-verifier.service.js';
+import { ConfigService } from '@app/config';
+import { isTrustedGateway } from '../common/utils/security.util.js';
 import { EVENT_PATTERNS } from '@app/common';
 import type { Bid, BidRevision, Prisma } from '@prisma/bidding-client';
 
@@ -50,6 +52,8 @@ export class BidsService {
     private readonly enricher?: WorkerProfileEnricherService,
     @Optional()
     private readonly requestEligibilityVerifier?: RequestEligibilityVerifierService,
+    @Optional()
+    private readonly config?: ConfigService,
   ) {}
 
   /**
@@ -68,7 +72,7 @@ export class BidsService {
       );
     }
 
-    const round = await this.prisma.biddingRound.findUnique({
+    let round = await this.prisma.biddingRound.findUnique({
       where: { serviceRequestId },
     });
 
@@ -84,6 +88,21 @@ export class BidsService {
     if (round.status === 'open' && now >= round.closesAt) {
       await this.roundsService.expireRoundIfNeeded(round, now);
       throw new BadRequestException('Phiên báo giá cho yêu cầu này đã kết thúc');
+    }
+
+    // N01: If pending and opensAt <= now, activate on the fly
+    if (round.status === 'pending') {
+      if (now >= round.opensAt) {
+        const activated = await this.roundsService.activateRoundIfNeeded(
+          round,
+          now,
+        );
+        if (activated) round = activated;
+      } else {
+        throw new BadRequestException(
+          `Phiên báo giá chưa mở (thời điểm mở dự kiến: ${round.opensAt.toISOString()})`,
+        );
+      }
     }
 
     if (round.status !== 'open') {
@@ -130,7 +149,15 @@ export class BidsService {
         typeof tx.biddingRound?.findUnique === 'function'
           ? await tx.biddingRound.findUnique({ where: { id: round.id } })
           : round;
-      const currentRound = roundInTx || round;
+      let currentRound = roundInTx || round;
+
+      if (currentRound.status === 'pending' && now >= currentRound.opensAt) {
+        const activated = await this.roundsService.activateRoundIfNeeded(
+          currentRound,
+          now,
+        );
+        if (activated) currentRound = activated;
+      }
 
       if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
         throw new BadRequestException(
@@ -223,13 +250,32 @@ export class BidsService {
         },
       });
 
-      // Increment round bidCount
-      await tx.biddingRound.update({
-        where: { id: round.id },
-        data: {
-          bidCount: { increment: 1 },
-        },
-      });
+      // Increment round bidCount with CAS verification that round is still open and not passed deadline (R03 / F06)
+      if (typeof tx.biddingRound.updateMany === 'function') {
+        const updateRoundResult = await tx.biddingRound.updateMany({
+          where: {
+            id: round.id,
+            status: 'open',
+            closesAt: { gt: now },
+          },
+          data: {
+            bidCount: { increment: 1 },
+          },
+        });
+
+        if (updateRoundResult.count === 0) {
+          throw new BadRequestException(
+            'Phiên đấu giá đã kết thúc hoặc không còn nhận báo giá (round closed or finalized)',
+          );
+        }
+      } else {
+        await tx.biddingRound.update({
+          where: { id: round.id },
+          data: {
+            bidCount: { increment: 1 },
+          },
+        });
+      }
 
       // Write Outbox Event: bid.submitted
       await tx.outboxEvent.create({
@@ -417,6 +463,21 @@ export class BidsService {
         }
       }
 
+      const revisionNo = bid.revisions.length + 1;
+
+      // Create BidRevision record first so it is persisted in DB (N02)
+      const createdRevision = await tx.bidRevision.create({
+        data: {
+          bidId: bid.id,
+          revisionNo,
+          previousAmount: bid.amount,
+          newAmount,
+          previousMessage: bid.message,
+          newMessage,
+          revisedAt: now,
+        },
+      });
+
       let updatedBid: any;
       if (typeof tx.bid.updateMany === 'function') {
         // Atomic Compare-And-Swap UPDATE (F05)
@@ -475,21 +536,6 @@ export class BidsService {
         });
       }
 
-      const revisionNo = bid.revisions.length + 1;
-
-      // Create BidRevision record
-      await tx.bidRevision.create({
-        data: {
-          bidId: bid.id,
-          revisionNo,
-          previousAmount: bid.amount,
-          newAmount,
-          previousMessage: bid.message,
-          newMessage,
-          revisedAt: now,
-        },
-      });
-
       // Write Outbox Event: bid.revised
       await tx.outboxEvent.create({
         data: {
@@ -514,24 +560,16 @@ export class BidsService {
         },
       });
 
-      const revisions = updatedBid.revisions || [
-        ...(bid.revisions || []),
-        {
-          id: 'temp',
-          bidId: bid.id,
-          revisionNo,
-          previousAmount: bid.amount,
-          newAmount,
-          previousMessage: bid.message,
-          newMessage,
-          revisedAt: now,
-        } as unknown as BidRevision,
-      ];
+      // Ensure returned revisions list contains the newly created revision (N02)
+      let revisionsList: BidRevision[] = updatedBid?.revisions || [];
+      if (!revisionsList.some((r: any) => r.revisionNo === revisionNo)) {
+        revisionsList = [...(bid.revisions || []), createdRevision];
+      }
 
       return this.mapToBidResponse(
         updatedBid,
         revisionNo,
-        revisions,
+        revisionsList,
       );
     });
   }
@@ -687,14 +725,24 @@ export class BidsService {
     query: QueryBidsDto,
     currentUserId?: string,
     userRoles?: string,
+    internalSecret?: string,
   ): Promise<BidListResponseDto> {
-    const roles = userRoles
+    const expectedSecret =
+      this.config?.get?.('INTERNAL_SERVICE_SECRET') ||
+      this.config?.get?.('INTERNAL_SECRET') ||
+      process.env.INTERNAL_SERVICE_SECRET ||
+      process.env.INTERNAL_SECRET ||
+      (process.env.NODE_ENV === 'test' ? 'test-internal-secret' : undefined);
+
+    // Only trust identity headers if request passes internal secret check (R01 / F03)
+    const isGatewayTrusted = isTrustedGateway(internalSecret, expectedSecret);
+    const roles = isGatewayTrusted && userRoles
       ? userRoles.split(',').map((r) => r.trim().toLowerCase())
       : [];
-    const isCustomerOrAdmin =
-      roles.includes('customer') ||
-      roles.includes('admin') ||
-      roles.includes('operator');
+    const verifiedUserId = isGatewayTrusted ? currentUserId : undefined;
+
+    const isAdminOrOperator =
+      roles.includes('admin') || roles.includes('operator');
 
     const where: Prisma.BidWhereInput = {
       serviceRequestId,
@@ -705,7 +753,7 @@ export class BidsService {
 
     const skip = (query.page - 1) * query.limit;
 
-    const [total, bids] = await Promise.all([
+    const [total, bids, round] = await Promise.all([
       this.prisma.bid.count({ where }),
       this.prisma.bid.findMany({
         where,
@@ -718,7 +766,18 @@ export class BidsService {
           },
         },
       }),
+      this.prisma.biddingRound.findUnique({
+        where: { serviceRequestId },
+        select: { customerId: true },
+      }),
     ]);
+
+    const isRequestOwnerCustomer = Boolean(
+      round?.customerId &&
+        verifiedUserId &&
+        round.customerId === verifiedUserId &&
+        roles.includes('customer'),
+    );
 
     const workerIds = Array.from(new Set(bids.map((b) => b.workerId)));
     const profileMap = this.enricher
@@ -726,12 +785,18 @@ export class BidsService {
       : new Map<string, WorkerProfileSummaryDto>();
 
     const items = bids.map((b) => {
-      const isOwnerWorker = currentUserId && b.workerId === currentUserId;
-      // Sealed-bid: Only request customer, worker who owns the bid, or admin/operator sees real price
-      const canSeeRealPrice = isOwnerWorker || isCustomerOrAdmin;
+      const isOwnerWorker = Boolean(
+        verifiedUserId &&
+          b.workerId === verifiedUserId &&
+          roles.includes('worker'),
+      );
+
+      // Sealed-bid: Only verified request customer owner, worker who owns this specific bid, or admin/operator sees real price
+      const canSeeRealPrice =
+        isAdminOrOperator || isRequestOwnerCustomer || isOwnerWorker;
 
       if (!canSeeRealPrice) {
-        // Blind Bidding (Đấu giá kín): Che giá và nội dung đối với thợ đối thủ
+        // Blind Bidding (Đấu giá kín): Che giá và nội dung đối với thợ đối thủ hoặc khách hàng không sở hữu
         return {
           id: b.id,
           biddingRoundId: b.biddingRoundId,
@@ -776,10 +841,14 @@ export class BidsService {
     bidId: string,
     currentUserId?: string,
     userRoles?: string,
+    internalSecret?: string,
   ): Promise<BidResponseDto> {
     const bid = await this.prisma.bid.findUnique({
       where: { id: bidId },
       include: {
+        biddingRound: {
+          select: { customerId: true },
+        },
         revisions: {
           orderBy: { revisionNo: 'asc' },
         },
@@ -790,18 +859,38 @@ export class BidsService {
       throw new NotFoundException(`Không tìm thấy báo giá ${bidId}`);
     }
 
-    const roles = userRoles
+    const expectedSecret =
+      this.config?.get?.('INTERNAL_SERVICE_SECRET') ||
+      this.config?.get?.('INTERNAL_SECRET') ||
+      process.env.INTERNAL_SERVICE_SECRET ||
+      process.env.INTERNAL_SECRET ||
+      (process.env.NODE_ENV === 'test' ? 'test-internal-secret' : undefined);
+
+    const isGatewayTrusted = isTrustedGateway(internalSecret, expectedSecret);
+    const roles = isGatewayTrusted && userRoles
       ? userRoles.split(',').map((r) => r.trim().toLowerCase())
       : [];
-    const isCustomerOrAdmin =
-      roles.includes('customer') ||
-      roles.includes('admin') ||
-      roles.includes('operator');
-    const isOwnerWorker = currentUserId && bid.workerId === currentUserId;
-    const canSeeRealPrice = isOwnerWorker || isCustomerOrAdmin;
+    const verifiedUserId = isGatewayTrusted ? currentUserId : undefined;
+
+    const isAdminOrOperator =
+      roles.includes('admin') || roles.includes('operator');
+    const isRequestOwnerCustomer = Boolean(
+      bid.biddingRound?.customerId &&
+        verifiedUserId &&
+        bid.biddingRound.customerId === verifiedUserId &&
+        roles.includes('customer'),
+    );
+    const isOwnerWorker = Boolean(
+      verifiedUserId &&
+        bid.workerId === verifiedUserId &&
+        roles.includes('worker'),
+    );
+
+    const canSeeRealPrice =
+      isAdminOrOperator || isRequestOwnerCustomer || isOwnerWorker;
 
     if (!canSeeRealPrice) {
-      // F03: Competitor or external caller cannot see competitor's price and revision history
+      // F03: Competitor, other customer, or direct external caller cannot see competitor's price and revision history
       return {
         id: bid.id,
         biddingRoundId: bid.biddingRoundId,

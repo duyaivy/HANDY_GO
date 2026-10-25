@@ -1,4 +1,4 @@
-import { Controller, Logger } from '@nestjs/common';
+import { Controller, Logger, BadRequestException } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
 import { EVENT_PATTERNS } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -49,34 +49,26 @@ export class BiddingEventsConsumer {
     }
 
     try {
-      // Inbox deduplication check
-      if (eventId && (await this.isEventAlreadyConsumed(eventId))) {
-        this.logger.warn(`Event ${eventId} already consumed, skipping`);
-        this.ackMessage(context);
-        return;
-      }
-
       await this.roundsService.openRound({
         serviceRequestId,
+        customerId:
+          payload.customerId ||
+          payload.customerUserId ||
+          payload.userId,
         opensAt: payload.opensAt ? new Date(payload.opensAt) : undefined,
         closesAt: payload.closesAt ? new Date(payload.closesAt) : undefined,
         durationHours: payload.durationHours,
+        eventId,
       });
 
-      if (eventId) {
-        await this.recordConsumedEvent(
-          eventId,
-          EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
-        );
-      }
-
-      this.ackMessage(context);
+      this.ackMessage(context, eventId);
     } catch (error) {
       this.logger.error(
         `Failed to handle service_request.published for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context, true);
+      const isTransient = !(error instanceof BadRequestException);
+      this.nackMessage(context, isTransient, eventId);
     }
   }
 
@@ -102,33 +94,24 @@ export class BiddingEventsConsumer {
 
     if (!serviceRequestId) {
       this.logger.warn('service_request.cancelled event missing serviceRequestId');
-      this.ackMessage(context);
+      this.ackMessage(context, eventId);
       return;
     }
 
     try {
-      if (eventId && (await this.isEventAlreadyConsumed(eventId))) {
-        this.logger.warn(`Event ${eventId} already consumed, skipping`);
-        this.ackMessage(context);
-        return;
-      }
+      await this.roundsService.cancelRound({
+        serviceRequestId,
+        eventId,
+      });
 
-      await this.roundsService.cancelRound(serviceRequestId);
-
-      if (eventId) {
-        await this.recordConsumedEvent(
-          eventId,
-          EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED,
-        );
-      }
-
-      this.ackMessage(context);
+      this.ackMessage(context, eventId);
     } catch (error) {
       this.logger.error(
         `Failed to handle service_request.cancelled for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context, true);
+      const isTransient = !(error instanceof BadRequestException);
+      this.nackMessage(context, isTransient, eventId);
     }
   }
 
@@ -158,38 +141,33 @@ export class BiddingEventsConsumer {
 
     if (!serviceRequestId) {
       this.logger.warn('order.created event missing serviceRequestId');
-      this.ackMessage(context);
+      this.ackMessage(context, eventId);
+      return;
+    }
+
+    if (!orderId) {
+      this.logger.error('order.created event missing orderId; permanent contract violation');
+      this.nackMessage(context, false, eventId);
       return;
     }
 
     try {
-      if (eventId && (await this.isEventAlreadyConsumed(eventId))) {
-        this.logger.warn(`Event ${eventId} already consumed, skipping`);
-        this.ackMessage(context);
-        return;
-      }
-
       await this.roundsService.finalizeRound({
         serviceRequestId,
-        orderId: orderId || serviceRequestId,
+        orderId,
         selectedBidId,
         winningWorkerId: workerId,
+        eventId,
       });
 
-      if (eventId) {
-        await this.recordConsumedEvent(
-          eventId,
-          EVENT_PATTERNS.ORDER_CREATED,
-        );
-      }
-
-      this.ackMessage(context);
+      this.ackMessage(context, eventId);
     } catch (error) {
       this.logger.error(
         `Failed to handle order.created for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context, true);
+      const isTransient = !(error instanceof BadRequestException);
+      this.nackMessage(context, isTransient, eventId);
     }
   }
 
@@ -215,41 +193,22 @@ export class BiddingEventsConsumer {
 
     try {
       await this.roundsService.expireRoundById(roundId);
-      this.ackMessage(context);
+      this.ackMessage(context, roundId);
     } catch (error) {
       this.logger.error(
         `Failed to expire round ${roundId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context, true);
+      this.nackMessage(context, true, roundId);
     }
   }
 
-  private async isEventAlreadyConsumed(eventId: string): Promise<boolean> {
-    const record = await this.prisma.consumedEvent.findUnique({
-      where: { eventId },
-    });
-    return !!record;
-  }
+  private readonly retryAttempts = new Map<string, number>();
 
-  private async recordConsumedEvent(
-    eventId: string,
-    eventType: string,
-  ): Promise<void> {
-    try {
-      await this.prisma.consumedEvent.create({
-        data: {
-          eventId,
-          eventType,
-          consumedAt: new Date(),
-        },
-      });
-    } catch {
-      // Idempotent duplicate-key handling
+  private ackMessage(context: any, key?: string): void {
+    if (key) {
+      this.retryAttempts.delete(key);
     }
-  }
-
-  private ackMessage(context: any): void {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
       const originalMsg = context.getMessage?.();
@@ -259,23 +218,32 @@ export class BiddingEventsConsumer {
     }
   }
 
-  private nackMessage(context: any, isTransient = true): void {
+  private nackMessage(
+    context: any,
+    isTransient = true,
+    messageKey?: string,
+  ): void {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
       const originalMsg = context.getMessage?.();
       if (channel && originalMsg) {
-        // F10: Read x-death header for retry count to allow bounded retries
-        const deathHeader = originalMsg.properties?.headers?.['x-death'];
-        const retryCount =
-          Array.isArray(deathHeader) && deathHeader.length > 0
-            ? Number(deathHeader[0].count || 0)
-            : 0;
+        const key =
+          messageKey ||
+          originalMsg.properties?.messageId ||
+          String(originalMsg.fields?.deliveryTag);
 
-        // Bounded retry: requeue up to 3 times for transient failures
-        const shouldRequeue = isTransient && retryCount < 3;
+        const currentAttempts = (this.retryAttempts.get(key) || 0) + 1;
+        this.retryAttempts.set(key, currentAttempts);
+
+        // Bounded retry: requeue maximum 3 times for transient failures
+        const shouldRequeue = isTransient && currentAttempts < 3;
+        if (!shouldRequeue) {
+          this.retryAttempts.delete(key);
+        }
+
         channel.nack(originalMsg, false, shouldRequeue);
         this.logger.warn(
-          `Message ${originalMsg.properties?.messageId || 'unknown'} nacked (requeue=${shouldRequeue}, retryCount=${retryCount})`,
+          `Message ${key} nacked (requeue=${shouldRequeue}, attempts=${currentAttempts})`,
         );
       }
     }

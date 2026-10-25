@@ -1,19 +1,23 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import crypto from 'node:crypto';
 
+export function isTrustedGateway(
+  incomingSecret: string | undefined,
+  expectedSecret: string | undefined,
+): boolean {
+  if (!incomingSecret || !expectedSecret) return false;
+  if (incomingSecret.length !== expectedSecret.length) return false;
+  return crypto.timingSafeEqual(
+    Buffer.from(incomingSecret),
+    Buffer.from(expectedSecret),
+  );
+}
+
 export function assertTrustedGateway(
   incomingSecret: string | undefined,
   expectedSecret: string | undefined,
 ): void {
-  const isValid =
-    !!expectedSecret &&
-    !!incomingSecret &&
-    incomingSecret.length === expectedSecret.length &&
-    crypto.timingSafeEqual(
-      Buffer.from(incomingSecret),
-      Buffer.from(expectedSecret),
-    );
-  if (!isValid) {
+  if (!isTrustedGateway(incomingSecret, expectedSecret)) {
     throw new ForbiddenException(
       'Request must originate from the trusted API Gateway or internal service',
     );

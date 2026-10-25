@@ -16,10 +16,12 @@ export class BiddingOutboxRepository extends OutboxRepository {
     limit = 20,
     now = new Date(),
   ): Promise<OutboxEventEntity[]> {
-    const leaseUntil = new Date(now.getTime() + 15 * 1000);
+    // Distinct lease timestamp for this replica claim cycle
+    const leaseUntil = new Date(now.getTime() + 15 * 1000 + Math.floor(Math.random() * 1000));
 
     const fetchAndLease = async (client: any) => {
-      const records = await client.outboxEvent.findMany({
+      // 1. Candidate selection
+      const candidates = await client.outboxEvent.findMany({
         where: {
           status: { in: ['pending', 'dlq_retry'] },
           nextRetryAt: { lte: now },
@@ -28,15 +30,54 @@ export class BiddingOutboxRepository extends OutboxRepository {
         take: limit,
       });
 
-      if (records.length > 0 && typeof client.outboxEvent.updateMany === 'function') {
-        const ids = records.map((r: any) => r.id);
-        await client.outboxEvent.updateMany({
-          where: { id: { in: ids } },
-          data: { nextRetryAt: leaseUntil },
-        });
+      if (!candidates || candidates.length === 0) {
+        return [];
       }
 
-      return records.map((r: any) => ({
+      const ids = candidates.map((r: any) => r.id);
+
+      // 2. Atomic CAS Claim: only claim records that are still eligible (nextRetryAt <= now)
+      if (typeof client.outboxEvent.updateMany === 'function') {
+        const updateResult = await client.outboxEvent.updateMany({
+          where: {
+            id: { in: ids },
+            status: { in: ['pending', 'dlq_retry'] },
+            nextRetryAt: { lte: now },
+          },
+          data: { nextRetryAt: leaseUntil },
+        });
+
+        if (updateResult.count === 0) {
+          return [];
+        }
+
+        // 3. Only return records where this replica won the claim
+        const claimedRecords = await client.outboxEvent.findMany({
+          where: {
+            id: { in: ids },
+            nextRetryAt: leaseUntil,
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        return (claimedRecords || []).map((r: any) => ({
+          id: r.id,
+          aggregateType: r.aggregateType,
+          aggregateId: r.aggregateId,
+          eventType: r.eventType,
+          eventVersion: r.eventVersion,
+          payload: r.payload,
+          status: r.status,
+          retryCount: r.retryCount,
+          lastError: r.lastError,
+          nextRetryAt: r.nextRetryAt,
+          createdAt: r.createdAt,
+          publishedAt: r.publishedAt,
+        }));
+      }
+
+      // Fallback for mocks without updateMany
+      return candidates.map((r: any) => ({
         id: r.id,
         aggregateType: r.aggregateType,
         aggregateId: r.aggregateId,

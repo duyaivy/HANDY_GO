@@ -164,12 +164,14 @@ describe('BidsController', () => {
         '00000000-0000-0000-0000-000000000001',
         'worker-1',
         'worker',
+        'test-secret',
       );
 
       expect(bidsServiceMock.getBidById).toHaveBeenCalledWith(
         '00000000-0000-0000-0000-000000000001',
         'worker-1',
         'worker',
+        'test-secret',
       );
       expect(response.statusCode).toBe(200);
       expect(response.data).toEqual(mockResult);

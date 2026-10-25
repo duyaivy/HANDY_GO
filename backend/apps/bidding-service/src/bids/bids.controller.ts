@@ -196,12 +196,14 @@ export class BidsController {
     @Query() query: QueryBidsDto,
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
     const data = await this.bidsService.getBidsForRequest(
       serviceRequestId,
       query,
       userId,
       userRoles,
+      internalSecret,
     );
     return buildSuccessResponse(
       data,
@@ -219,8 +221,9 @@ export class BidsController {
     @Query() query: QueryBidsDto,
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    return this.getBidsForRequest(serviceRequestId, query, userId, userRoles);
+    return this.getBidsForRequest(serviceRequestId, query, userId, userRoles, internalSecret);
   }
 
   @Get('bids/me')
@@ -271,8 +274,14 @@ export class BidsController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) bidId: string,
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    const data = await this.bidsService.getBidById(bidId, userId, userRoles);
+    const data = await this.bidsService.getBidById(
+      bidId,
+      userId,
+      userRoles,
+      internalSecret,
+    );
     return buildSuccessResponse(
       data,
       'Lấy thông tin báo giá thành công',

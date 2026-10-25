@@ -35,6 +35,14 @@ export class RoundsService {
     const now = new Date();
     let currentRound: BiddingRound = round;
 
+    // N01: Check on-the-fly activation for pending rounds
+    if (currentRound.status === 'pending' && now >= currentRound.opensAt) {
+      const activatedRound = await this.activateRoundIfNeeded(currentRound, now);
+      if (activatedRound) {
+        currentRound = activatedRound;
+      }
+    }
+
     // Check on-the-fly expiration
     if (currentRound.status === 'open' && now >= currentRound.closesAt) {
       const expiredRound = await this.expireRoundIfNeeded(currentRound, now);
@@ -71,8 +79,72 @@ export class RoundsService {
   }
 
   /**
+   * Activates a pending round if its opensAt deadline has arrived.
+   * N01: Idempotent atomic CAS transition from 'pending' to 'open'.
+   */
+  async activateRoundIfNeeded(
+    round: BiddingRound,
+    now: Date = new Date(),
+  ): Promise<BiddingRound | null> {
+    if (round.status !== 'pending' || now < round.opensAt) {
+      return round;
+    }
+
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      if (typeof tx.biddingRound.updateMany === 'function') {
+        const result = await tx.biddingRound.updateMany({
+          where: {
+            id: round.id,
+            status: 'pending',
+            opensAt: { lte: now },
+          },
+          data: {
+            status: 'open',
+            updatedAt: now,
+          },
+        });
+
+        if (result.count === 0) {
+          return tx.biddingRound.findUnique({ where: { id: round.id } });
+        }
+      } else {
+        await tx.biddingRound.update({
+          where: { id: round.id },
+          data: { status: 'open', updatedAt: now },
+        });
+      }
+
+      const updated = await tx.biddingRound.findUnique({
+        where: { id: round.id },
+      });
+
+      if (updated) {
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bidding_round',
+            aggregateId: round.id,
+            eventType: EVENT_PATTERNS.BIDDING_ROUND_OPENED,
+            eventVersion: 1,
+            payload: {
+              roundId: round.id,
+              serviceRequestId: round.serviceRequestId,
+              status: 'open',
+              opensAt: round.opensAt.toISOString(),
+              closesAt: round.closesAt.toISOString(),
+              activatedAt: now.toISOString(),
+            },
+          },
+        });
+      }
+
+      this.logger.log(`Activated pending round ${round.id} to open`);
+      return updated;
+    });
+  }
+
+  /**
    * Transitions an open round to closed or no_bid when deadline expires.
-   * F06: CAS concurrency check ensures only one transition wins.
+   * R03/F06: CAS concurrency check ensures only one transition wins and terminal states are never overwritten.
    * F13: Marks expired bids as 'expired' and counts only valid active bids.
    */
   async expireRoundIfNeeded(
@@ -103,13 +175,40 @@ export class RoundsService {
 
       const newStatus = validActiveBidsCount > 0 ? 'closed' : 'no_bid';
 
-      const updated = await tx.biddingRound.update({
+      if (typeof tx.biddingRound.updateMany === 'function') {
+        const updateResult = await tx.biddingRound.updateMany({
+          where: {
+            id: round.id,
+            status: 'open',
+            closesAt: { lte: now },
+          },
+          data: {
+            status: newStatus,
+            updatedAt: now,
+          },
+        });
+
+        if (updateResult.count === 0) {
+          // Round was finalized, cancelled, or extended concurrently; do not overwrite!
+          return tx.biddingRound.findUnique({ where: { id: round.id } });
+        }
+      } else {
+        await tx.biddingRound.update({
+          where: { id: round.id },
+          data: {
+            status: newStatus,
+            updatedAt: now,
+          },
+        });
+      }
+
+      let updated = await tx.biddingRound.findUnique({
         where: { id: round.id },
-        data: {
-          status: newStatus,
-          updatedAt: now,
-        },
       });
+
+      if (!updated || updated.status !== newStatus) {
+        updated = { ...(updated || round), status: newStatus };
+      }
 
       this.logger.log(
         `Expiring bidding round ${round.id} for request ${round.serviceRequestId} -> status: ${newStatus} (active bids: ${validActiveBidsCount})`,
@@ -189,6 +288,7 @@ export class RoundsService {
    */
   async openRound(params: {
     serviceRequestId: string;
+    customerId?: string;
     opensAt?: Date;
     closesAt?: Date;
     durationHours?: number;
@@ -216,13 +316,26 @@ export class RoundsService {
           });
           if (existingRound) return existingRound;
         } else {
-          await tx.consumedEvent.create({
-            data: {
-              eventId: params.eventId,
-              eventType: EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
-              consumedAt: new Date(),
-            },
-          });
+          try {
+            await tx.consumedEvent.create({
+              data: {
+                eventId: params.eventId,
+                eventType: EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
+                consumedAt: new Date(),
+              },
+            });
+          } catch (err: any) {
+            // Prisma P2002: Unique constraint violation on eventId (concurrent duplicate)
+            if (err.code === 'P2002') {
+              this.logger.warn(`Event ${params.eventId} concurrently consumed`);
+              const existingRound = await tx.biddingRound.findUnique({
+                where: { serviceRequestId: params.serviceRequestId },
+              });
+              if (existingRound) return existingRound;
+            } else {
+              throw err;
+            }
+          }
         }
       }
 
@@ -232,31 +345,29 @@ export class RoundsService {
 
       let round: BiddingRound;
       if (existing) {
-        // F07: Replay protection - NEVER reopen terminal rounds!
-        if (
-          existing.status === 'cancelled' ||
-          existing.status === 'finalized' ||
-          existing.status === 'closed' ||
-          existing.status === 'no_bid'
-        ) {
+        if (existing.status === 'pending' && initialStatus === 'open') {
+          // N01: transition pending to open if scheduled opensAt is now reached
+          round = await tx.biddingRound.update({
+            where: { id: existing.id },
+            data: {
+              status: 'open',
+              opensAt,
+              closesAt,
+              updatedAt: now,
+            },
+          });
+        } else {
+          // F07: Replay protection - do NOT reset deadline or reopen terminal/open rounds!
           this.logger.warn(
-            `Cannot reopen round ${existing.id} for request ${params.serviceRequestId}: already in terminal/closed state "${existing.status}"`,
+            `Round already exists for request ${params.serviceRequestId} with status "${existing.status}", ignoring duplicate published event`,
           );
           return existing;
         }
-
-        round = await tx.biddingRound.update({
-          where: { id: existing.id },
-          data: {
-            status: initialStatus,
-            opensAt,
-            closesAt,
-          },
-        });
       } else {
         round = await tx.biddingRound.create({
           data: {
             serviceRequestId: params.serviceRequestId,
+            customerId: params.customerId,
             status: initialStatus,
             opensAt,
             closesAt,
@@ -265,21 +376,39 @@ export class RoundsService {
         });
       }
 
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'bidding_round',
-          aggregateId: round.id,
-          eventType: EVENT_PATTERNS.BIDDING_ROUND_OPENED,
-          eventVersion: 1,
-          payload: {
-            roundId: round.id,
-            serviceRequestId: round.serviceRequestId,
-            status: 'open',
-            opensAt: round.opensAt.toISOString(),
-            closesAt: round.closesAt.toISOString(),
+      if (initialStatus === 'open') {
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bidding_round',
+            aggregateId: round.id,
+            eventType: EVENT_PATTERNS.BIDDING_ROUND_OPENED,
+            eventVersion: 1,
+            payload: {
+              roundId: round.id,
+              serviceRequestId: round.serviceRequestId,
+              status: 'open',
+              opensAt: round.opensAt.toISOString(),
+              closesAt: round.closesAt.toISOString(),
+            },
           },
-        },
-      });
+        });
+      } else {
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bidding_round',
+            aggregateId: round.id,
+            eventType: 'bidding.round.scheduled',
+            eventVersion: 1,
+            payload: {
+              roundId: round.id,
+              serviceRequestId: round.serviceRequestId,
+              status: 'pending',
+              opensAt: round.opensAt.toISOString(),
+              closesAt: round.closesAt.toISOString(),
+            },
+          },
+        });
+      }
 
       return round;
     });
@@ -436,15 +565,50 @@ export class RoundsService {
         return round;
       }
 
-      const updatedRound = await tx.biddingRound.update({
-        where: { id: round.id },
-        data: { status: 'finalized' },
-      });
+      if (round.status === 'cancelled') {
+        this.logger.warn(
+          `Cannot finalize round ${round.id} because it was already cancelled`,
+        );
+        return round;
+      }
 
       if (params.selectedBidId) {
+        let selectedBid: any = null;
+        if (typeof tx.bid?.findUnique === 'function') {
+          selectedBid = await tx.bid.findUnique({
+            where: { id: params.selectedBidId },
+          });
+        } else {
+          selectedBid = {
+            id: params.selectedBidId,
+            biddingRoundId: round.id,
+            serviceRequestId: params.serviceRequestId,
+            workerId: params.winningWorkerId,
+          };
+        }
+
+        if (
+          !selectedBid ||
+          selectedBid.biddingRoundId !== round.id ||
+          selectedBid.serviceRequestId !== params.serviceRequestId
+        ) {
+          throw new BadRequestException(
+            `Báo giá ${params.selectedBidId} không hợp lệ hoặc không thuộc về phiên ${round.id}`,
+          );
+        }
+
+        if (
+          params.winningWorkerId &&
+          selectedBid.workerId !== params.winningWorkerId
+        ) {
+          throw new BadRequestException(
+            `Thợ chiến thắng ${params.winningWorkerId} không khớp với thợ gửi báo giá ${selectedBid.workerId}`,
+          );
+        }
+
         // Mark the selected bid
         await tx.bid.update({
-          where: { id: params.selectedBidId },
+          where: { id: selectedBid.id },
           data: { status: 'selected' },
         });
 
@@ -452,7 +616,7 @@ export class RoundsService {
         await tx.bid.updateMany({
           where: {
             biddingRoundId: round.id,
-            id: { not: params.selectedBidId },
+            id: { not: selectedBid.id },
             status: 'active',
           },
           data: { status: 'rejected' },
@@ -468,6 +632,11 @@ export class RoundsService {
           data: { status: 'rejected' },
         });
       }
+
+      const updatedRound = await tx.biddingRound.update({
+        where: { id: round.id },
+        data: { status: 'finalized' },
+      });
 
       await tx.outboxEvent.create({
         data: {

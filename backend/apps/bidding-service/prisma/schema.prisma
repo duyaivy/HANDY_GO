@@ -34,6 +34,7 @@ enum BidStatus {
 model BiddingRound {
   id               String             @id @default(uuid()) @db.Uuid
   serviceRequestId String             @unique @map("service_request_id") @db.Uuid
+  customerId       String?            @map("customer_id") @db.Uuid
   status           BiddingRoundStatus @default(open)
   opensAt          DateTime           @default(now()) @map("opens_at") @db.Timestamptz(6)
   closesAt         DateTime           @map("closes_at") @db.Timestamptz(6)
