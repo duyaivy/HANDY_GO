@@ -7,14 +7,32 @@ const BASE_URL = process.env.BIDDING_SERVICE_URL || 'http://localhost:3005';
 const INTERNAL_SECRET =
   process.env.INTERNAL_SERVICE_SECRET ||
   'handy-go-internal-service-secret-key-12345';
-const CONNECTION_STRING =
-  process.env.DATABASE_URL_BIDDING ||
-  process.env.DATABASE_URL_TEST ||
-  process.env.DATABASE_URL;
+
+function resolveTestDatabaseUrl(): string | undefined {
+  const testUrl =
+    process.env.DATABASE_URL_TEST ||
+    process.env.DATABASE_URL_BIDDING_TEST ||
+    process.env.DATABASE_URL_BIDDING;
+
+  if (testUrl) return testUrl;
+
+  const fallback = process.env.DATABASE_URL;
+  if (fallback && process.env.NODE_ENV === 'test') {
+    if (fallback.includes('supabase.co') && !fallback.includes('test')) {
+      console.warn('⚠️ Prevented connecting to production Supabase database during test run.');
+      return undefined;
+    }
+    return fallback;
+  }
+  return undefined;
+}
+
+const CONNECTION_STRING = resolveTestDatabaseUrl();
 
 describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, () => {
   let prisma: PrismaClient | null = null;
   const testRequestId = randomUUID();
+  const testCustomerId = randomUUID();
   const worker1Id = randomUUID();
   const worker2Id = randomUUID();
   let createdRoundId: string;
@@ -80,6 +98,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
     const round = await prisma.biddingRound.create({
       data: {
         serviceRequestId: testRequestId,
+        customerId: testCustomerId,
         status: 'open',
         opensAt: new Date(),
         closesAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // +2 hours
@@ -127,6 +146,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
         'Content-Type': 'application/json',
         'x-user-id': worker1Id,
         'x-user-roles': 'worker',
+        'x-internal-secret': INTERNAL_SECRET,
       },
       body: JSON.stringify({
         amount: 350000,
@@ -175,6 +195,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
         'Content-Type': 'application/json',
         'x-user-id': worker1Id,
         'x-user-roles': 'worker',
+        'x-internal-secret': INTERNAL_SECRET,
       },
       body: JSON.stringify({
         amount: 340000,
@@ -197,6 +218,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
         'Content-Type': 'application/json',
         'x-user-id': worker2Id,
         'x-user-roles': 'worker',
+        'x-internal-secret': INTERNAL_SECRET,
       },
       body: JSON.stringify({
         amount: 320000,
@@ -229,6 +251,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
         'Content-Type': 'application/json',
         'x-user-id': worker1Id,
         'x-user-roles': 'worker',
+        'x-internal-secret': INTERNAL_SECRET,
       },
       body: JSON.stringify({
         amount: 300000,
@@ -268,6 +291,7 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
         'Content-Type': 'application/json',
         'x-user-id': worker2Id,
         'x-user-roles': 'worker',
+        'x-internal-secret': INTERNAL_SECRET,
       },
       body: JSON.stringify({
         version: 1,
@@ -294,7 +318,13 @@ describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, (
       return;
     }
 
-    const res = await fetch(`${BASE_URL}/api/v1/requests/${testRequestId}/bids`);
+    const res = await fetch(`${BASE_URL}/api/v1/requests/${testRequestId}/bids`, {
+      headers: {
+        'x-user-id': testCustomerId,
+        'x-user-roles': 'customer',
+        'x-internal-secret': INTERNAL_SECRET,
+      },
+    });
     expect(res.status).toBe(200);
 
     const body = await res.json();

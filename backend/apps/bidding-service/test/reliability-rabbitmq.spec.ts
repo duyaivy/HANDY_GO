@@ -3,10 +3,26 @@ import { PrismaClient } from '@prisma/bidding-client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { randomUUID } from 'crypto';
 
-const CONNECTION_STRING =
-  process.env.DATABASE_URL_BIDDING ||
-  process.env.DATABASE_URL_TEST ||
-  process.env.DATABASE_URL;
+function resolveTestDatabaseUrl(): string | undefined {
+  const testUrl =
+    process.env.DATABASE_URL_TEST ||
+    process.env.DATABASE_URL_BIDDING_TEST ||
+    process.env.DATABASE_URL_BIDDING;
+
+  if (testUrl) return testUrl;
+
+  const fallback = process.env.DATABASE_URL;
+  if (fallback && process.env.NODE_ENV === 'test') {
+    if (fallback.includes('supabase.co') && !fallback.includes('test')) {
+      console.warn('⚠️ Prevented connecting to production Supabase database during test run.');
+      return undefined;
+    }
+    return fallback;
+  }
+  return undefined;
+}
+
+const CONNECTION_STRING = resolveTestDatabaseUrl();
 
 describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30000 }, () => {
   let prisma: PrismaClient | null = null;
