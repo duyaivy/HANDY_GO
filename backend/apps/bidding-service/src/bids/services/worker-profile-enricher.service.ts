@@ -110,7 +110,10 @@ export class WorkerProfileEnricherService {
           const profileSummary: WorkerProfileSummaryDto = {
             fullName: p.fullName || 'Thợ đối tác',
             avatarUrl: p.avatarUrl || null,
-            averageRating: p.averageRating ?? 5.0,
+            averageRating:
+              p.averageRating !== undefined && p.averageRating !== null
+                ? p.averageRating
+                : null,
             ratingCount: p.ratingCount ?? 0,
             completedOrderCount: p.completedOrderCount ?? 0,
             distanceKm: p.distanceKm ?? null,
@@ -135,7 +138,7 @@ export class WorkerProfileEnricherService {
         const fallbackProfile: WorkerProfileSummaryDto = {
           fullName: 'Thợ đối tác HandyGo',
           avatarUrl: null,
-          averageRating: 5.0,
+          averageRating: null,
           ratingCount: 0,
           completedOrderCount: 0,
           distanceKm: null,

@@ -22,7 +22,7 @@ describe('WorkerProfileEnricherService', () => {
 
     expect(profile).toBeDefined();
     expect(profile?.fullName).toContain('Thợ');
-    expect(profile?.averageRating).toBe(5.0);
+    expect(profile?.averageRating).toBeNull();
     expect(profile?.ratingCount).toBe(0);
     expect(profile?.completedOrderCount).toBe(0);
   });
