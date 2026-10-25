@@ -252,11 +252,11 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerNotificationsScreen ((tabs)/notifications)', () => {
-    it('renders notifications placeholder frame and app bar', () => {
+    it('renders notification inbox frame and app bar', () => {
       render(<CustomerNotificationsScreen />);
 
       expect(screen.getByText('Thông báo')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Đăng nhập để xem thông báo')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-notifications-screen')).toBeOnTheScreen();
     });
   });
@@ -322,6 +322,9 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByText('Cài đặt')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-change-password-btn')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-biometrics-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-push-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-inapp-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-email-switch')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-logout-btn')).toBeOnTheScreen();
     });
 

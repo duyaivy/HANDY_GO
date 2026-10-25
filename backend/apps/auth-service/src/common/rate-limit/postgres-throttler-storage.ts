@@ -1,4 +1,5 @@
-import type { ThrottlerStorage, ThrottlerStorageRecord } from '@nestjs/throttler';
+import type { ThrottlerStorage } from '@nestjs/throttler';
+import type { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface.js';
 import { Prisma } from '@prisma/auth-client';
 import type { AuthPrismaService } from '@app/database';
 

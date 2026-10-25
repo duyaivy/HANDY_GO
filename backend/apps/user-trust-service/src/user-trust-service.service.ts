@@ -203,6 +203,25 @@ export class UserTrustServiceService {
     };
   }
 
+  async getAllActiveUserIds(
+    targetGroup?: 'ALL' | 'CUSTOMERS' | 'WORKERS',
+  ): Promise<{ userIds: string[] }> {
+    const where: any = { status: 'active' };
+
+    if (targetGroup === 'CUSTOMERS') {
+      where.customerProfile = { isNot: null };
+    } else if (targetGroup === 'WORKERS') {
+      where.workerProfile = { isNot: null };
+    }
+
+    const users = await this.db.user.findMany({
+      where,
+      select: { id: true },
+    });
+
+    return { userIds: users.map((u) => u.id) };
+  }
+
   async getProfile(
     requestingUserId: string,
     targetUserId: string,

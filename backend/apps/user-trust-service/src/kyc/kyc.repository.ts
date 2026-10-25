@@ -162,9 +162,9 @@ export class KycRepository {
             workerProfileId: worker.id,
             idDocumentType: dto.idDocumentType || 'CCCD',
             idNumberMasked: maskedId,
-            documentFrontRef: dto.documentFrontRef,
+            documentFrontRef: dto.documentFrontRef || '',
             documentBackRef: dto.documentBackRef || null,
-            selfieRef: dto.selfieRef,
+            selfieRef: dto.selfieRef || '',
             status: 'submitted',
             version: 1,
             idempotencyKey: idempotencyKey || null,
@@ -263,7 +263,7 @@ export class KycRepository {
 
     // Check if job or case is already completed / under review
     if (
-      job.status === 'succeeded' ||
+      job.status === 'completed' ||
       kycCase.status === 'reviewing' ||
       kycCase.status === 'approved'
     ) {

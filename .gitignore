@@ -6,5 +6,23 @@
 .DS_Store
 Thumbs.db
 .pnpm-store/
-.agents/
 
+# Python cache & compiled bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python environments & testing
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment variable files
+.env
+.env.*
+!.env.example

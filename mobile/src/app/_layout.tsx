@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useThemeConfig } from '@/components/ui/use-theme-config';
+import { NotificationLifecycle } from '@/features/notifications/notification-lifecycle';
 import { APIProvider } from '@/lib/api';
 import { loadSelectedTheme } from '@/lib/hooks/use-selected-theme';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -87,6 +88,7 @@ function Providers({
       <KeyboardProvider>
         <ThemeProvider value={theme}>
           <APIProvider>
+            <NotificationLifecycle />
             <BottomSheetModalProvider>
               {children}
               <FlashMessage position="top" />
