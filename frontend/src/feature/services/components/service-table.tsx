@@ -1,11 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { useServiceListQuery } from "../hooks/use-services";
+import {
+  useServiceListQuery,
+  useUpdateServiceStatusMutation,
+  useDeleteServiceMutation,
+} from "../hooks/use-services";
 import { useServiceQueryConfig } from "../hooks/use-service-query-config";
 import { useCategoryListQuery } from "@/feature/catagories/hooks/use-categories";
-import { Plus, Search, Layers, ChevronDown, Power } from "lucide-react";
+import { Plus, Search, Layers, ChevronDown, Power, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Pagination,
@@ -17,7 +21,7 @@ import {
   PaginationEllipsis,
 } from "@/components/ui/pagination";
 
-import { ServiceCategory, ServiceFormData, ServiceItem } from "../types";
+import { ServiceCategory, ServiceItem } from "../types";
 
 import ServiceCard from "./service-card";
 import AddServiceModal from "./add-service";
@@ -28,35 +32,44 @@ type ModalMode = "add" | "edit" | "detail" | null;
 
 export default function ServiceTable() {
   const router = useRouter();
+  const updateServiceStatus = useUpdateServiceStatusMutation();
+  const deleteService = useDeleteServiceMutation();
   const pathname = usePathname();
   const queryConfig = useServiceQueryConfig();
   const page = Math.max(1, Number(queryConfig.page) || 1);
   const limit = Math.max(1, Number(queryConfig.limit) || 5);
 
-  const { data: serviceData, isPending, isError } = useServiceListQuery(queryConfig);
-  const { data: categoryData, isPending: isCategoryPending } = useCategoryListQuery({ page: "1", limit: "100" });
+  const {
+    data: serviceData,
+    isPending,
+    isError,
+  } = useServiceListQuery(queryConfig);
+  const { data: categoryData, isPending: isCategoryPending } =
+    useCategoryListQuery({ page: "1", limit: "100" });
 
   const categories: ServiceCategory[] = (categoryData?.data ?? []).map(
     (category) => ({ id: category.id, name: category.name }),
   );
 
-  // Danh sách lấy từ API. Sửa và đổi trạng thái vẫn đang dùng bản nháp frontend.
-  const [draftUpdates, setDraftUpdates] = useState<Record<string, Partial<ServiceItem>>>({});
-  const services = useMemo<ServiceItem[]>(() => {
-    const apiServices = (serviceData?.data ?? []).map((service) => ({
-      ...service,
-      ...draftUpdates[service.id],
-    }));
-    return apiServices;
-  }, [serviceData, draftUpdates]);
+  const services: ServiceItem[] = serviceData?.data ?? [];
 
   const total = serviceData?.meta.total ?? 0;
   const totalPages = Math.max(1, serviceData?.meta.totalPages ?? 1);
-  const pageNumbers = Array.from({ length: totalPages }, (_, index) => index + 1)
-    .filter((number) => number === 1 || number === totalPages || Math.abs(number - page) <= 1);
+  const pageNumbers = Array.from(
+    { length: totalPages },
+    (_, index) => index + 1,
+  ).filter(
+    (number) =>
+      number === 1 || number === totalPages || Math.abs(number - page) <= 1,
+  );
   const [search, setSearch] = useState(queryConfig.search ?? "");
   const categoryFilter = queryConfig.categoryId ?? "all";
-  const statusFilter = queryConfig.isActive === "true" ? "active" : queryConfig.isActive === "false" ? "disabled" : "all";
+  const statusFilter =
+    queryConfig.isActive === "true"
+      ? "active"
+      : queryConfig.isActive === "false"
+        ? "disabled"
+        : "all";
 
   const updateQuery = (params: Record<string, string | undefined>) => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -65,7 +78,9 @@ export default function ServiceTable() {
       else urlParams.delete(key);
     });
     const query = urlParams.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
   };
 
   useEffect(() => {
@@ -75,10 +90,14 @@ export default function ServiceTable() {
       }
     }, 400);
     return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, queryConfig.search]);
 
   const [modalMode, setModalMode] = useState<ModalMode>(null);
+  const [serviceToDelete, setServiceToDelete] = useState<ServiceItem | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState("");
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(
     null,
   );
@@ -109,27 +128,32 @@ export default function ServiceTable() {
     setSelectedService(null);
   };
 
-  const handleEditService = (data: ServiceFormData) => {
-    if (!selectedService) return;
-
-    const changes = { ...data, updatedAt: new Date().toISOString() };
-    setDraftUpdates((current) => ({
-      ...current,
-      [selectedService.id]: { ...current[selectedService.id], ...changes },
-    }));
-
-    closeModal();
+  const handleToggleStatus = async (service: ServiceItem) => {
+    try {
+      await updateServiceStatus.mutateAsync({
+        id: service.id,
+        isActive: !service.isActive,
+      });
+    } catch (error) {
+      console.error("Lỗi cập nhật trạng thái dịch vụ:", error);
+    }
   };
 
-  const handleToggleStatus = (service: ServiceItem) => {
-    const changes = {
-      isActive: !service.isActive,
-      updatedAt: new Date().toISOString(),
-    };
-    setDraftUpdates((current) => ({
-      ...current,
-      [service.id]: { ...current[service.id], ...changes },
-    }));
+  const handleDeleteService = (service: ServiceItem) => {
+    setDeleteError("");
+    setServiceToDelete(service);
+  };
+
+  const confirmDeleteService = async () => {
+    if (!serviceToDelete || deleteService.isPending) return;
+    try {
+      await deleteService.mutateAsync(serviceToDelete.id);
+      setServiceToDelete(null);
+      setDeleteError("");
+    } catch (error) {
+      console.error("Lỗi xóa vĩnh viễn dịch vụ:", error);
+      setDeleteError("Không thể xóa dịch vụ. Vui lòng thử lại.");
+    }
   };
 
   return (
@@ -209,7 +233,9 @@ export default function ServiceTable() {
               <input
                 type="text"
                 value={search}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+                onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                  setSearch(event.target.value)
+                }
                 placeholder="Tìm tên dịch vụ..."
                 className="w-full min-w-0 rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
               />
@@ -219,7 +245,15 @@ export default function ServiceTable() {
             <div className="relative min-w-0">
               <select
                 value={categoryFilter}
-                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => updateQuery({ categoryId: event.target.value === "all" ? undefined : event.target.value, page: "1" })}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  updateQuery({
+                    categoryId:
+                      event.target.value === "all"
+                        ? undefined
+                        : event.target.value,
+                    page: "1",
+                  })
+                }
                 className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
               >
                 <option value="all">Tất cả danh mục</option>
@@ -239,7 +273,17 @@ export default function ServiceTable() {
             <div className="relative min-w-0 sm:col-span-2 xl:col-span-1">
               <select
                 value={statusFilter}
-                onChange={(event: React.ChangeEvent<HTMLSelectElement>) => updateQuery({ isActive: event.target.value === "all" ? undefined : event.target.value === "active" ? "true" : "false", page: "1" })}
+                onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+                  updateQuery({
+                    isActive:
+                      event.target.value === "all"
+                        ? undefined
+                        : event.target.value === "active"
+                          ? "true"
+                          : "false",
+                    page: "1",
+                  })
+                }
                 className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
               >
                 <option value="all">Tất cả trạng thái</option>
@@ -257,84 +301,100 @@ export default function ServiceTable() {
         {/* SERVICE GROUPS */}
         <div className="space-y-7 p-4 sm:p-5">
           {(isPending || isCategoryPending) && <ServiceListSkeleton />}
-          {isError && <p className="text-sm text-red-500">Không thể tải danh sách dịch vụ.</p>}
-          {!isPending && !isCategoryPending && !isError && categories
-            .filter(
-              (category) =>
-                categoryFilter === "all" || category.id === categoryFilter,
-            )
-            .map((category) => {
-              const categoryServices = filteredServices.filter(
-                (service) => service.categoryId === category.id,
-              );
+          {isError && (
+            <p className="text-sm text-red-500">
+              Không thể tải danh sách dịch vụ.
+            </p>
+          )}
+          {!isPending &&
+            !isCategoryPending &&
+            !isError &&
+            categories
+              .filter(
+                (category) =>
+                  categoryFilter === "all" || category.id === categoryFilter,
+              )
+              .map((category) => {
+                const categoryServices = filteredServices.filter(
+                  (service) => service.categoryId === category.id,
+                );
 
-              if (categoryServices.length === 0) return null;
+                if (categoryServices.length === 0) return null;
 
-              return (
-                <section key={category.id} className="min-w-0">
-                  <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#FF5E14] sm:h-10 sm:w-10">
-                        <Layers size={19} />
+                return (
+                  <section key={category.id} className="min-w-0">
+                    <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#FF5E14] sm:h-10 sm:w-10">
+                          <Layers size={19} />
+                        </div>
+
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-bold text-slate-900">
+                            {category.name}
+                          </h3>
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            {categoryServices.length} dịch vụ
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-bold text-slate-900">
-                          {category.name}
-                        </h3>
-                        <p className="mt-0.5 text-xs text-slate-400">
-                          {categoryServices.length} dịch vụ
-                        </p>
-                      </div>
+                      <span className="hidden shrink-0 rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 min-[420px]:inline-flex">
+                        Danh mục
+                      </span>
                     </div>
 
-                    <span className="hidden shrink-0 rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 min-[420px]:inline-flex">
-                      Danh mục
-                    </span>
-                  </div>
-
-                  <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                    {categoryServices.map((service) => (
-                      <ServiceCard
-                        key={service.id}
-                        service={service}
-                        onView={openDetailModal}
-                        onEdit={openEditModal}
-                        onToggleStatus={handleToggleStatus}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
+                    <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+                      {categoryServices.map((service) => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          onView={openDetailModal}
+                          onEdit={openEditModal}
+                          onToggleStatus={handleToggleStatus}
+                          onDelete={handleDeleteService}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
 
           {/* EMPTY STATE */}
-          {!isPending && !isCategoryPending && !isError && filteredServices.length === 0 && (
-            <div className="flex flex-col items-center justify-center px-3 py-12 text-center sm:py-16">
-              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                <Search size={24} />
+          {!isPending &&
+            !isCategoryPending &&
+            !isError &&
+            filteredServices.length === 0 && (
+              <div className="flex flex-col items-center justify-center px-3 py-12 text-center sm:py-16">
+                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                  <Search size={24} />
+                </div>
+
+                <p className="text-sm font-bold text-slate-700">
+                  Không tìm thấy dịch vụ
+                </p>
+
+                <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
+                  Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    updateQuery({
+                      search: undefined,
+                      categoryId: undefined,
+                      isActive: undefined,
+                      page: "1",
+                    });
+                  }}
+                  className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
+                >
+                  Xóa bộ lọc
+                </button>
               </div>
-
-              <p className="text-sm font-bold text-slate-700">
-                Không tìm thấy dịch vụ
-              </p>
-
-              <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
-                Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
-              </p>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  updateQuery({ search: undefined, categoryId: undefined, isActive: undefined, page: "1" });
-                }}
-                className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
-              >
-                Xóa bộ lọc
-              </button>
-            </div>
-          )}
+            )}
         </div>
         {!isPending && !isError && (
           <div className="flex flex-col gap-3 border-t border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
@@ -351,7 +411,11 @@ export default function ServiceTable() {
                       href="#"
                       aria-disabled={page <= 1}
                       tabIndex={page <= 1 ? -1 : undefined}
-                      className={page <= 1 ? "pointer-events-none opacity-40" : "cursor-pointer"}
+                      className={
+                        page <= 1
+                          ? "pointer-events-none opacity-40"
+                          : "cursor-pointer"
+                      }
                       onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
                         event.preventDefault();
                         if (page > 1) updateQuery({ page: String(page - 1) });
@@ -369,12 +433,17 @@ export default function ServiceTable() {
                         <PaginationLink
                           href="#"
                           isActive={page === number}
-                          className={page === number
-                            ? "cursor-pointer border-[#FF5E14] bg-[#FF5E14] text-white hover:bg-[#E9510D] hover:text-white"
-                            : "cursor-pointer"}
-                          onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+                          className={
+                            page === number
+                              ? "cursor-pointer border-[#FF5E14] bg-[#FF5E14] text-white hover:bg-[#E9510D] hover:text-white"
+                              : "cursor-pointer"
+                          }
+                          onClick={(
+                            event: React.MouseEvent<HTMLAnchorElement>,
+                          ) => {
                             event.preventDefault();
-                            if (number !== page) updateQuery({ page: String(number) });
+                            if (number !== page)
+                              updateQuery({ page: String(number) });
                           }}
                         >
                           {number}
@@ -387,10 +456,15 @@ export default function ServiceTable() {
                       href="#"
                       aria-disabled={page >= totalPages}
                       tabIndex={page >= totalPages ? -1 : undefined}
-                      className={page >= totalPages ? "pointer-events-none opacity-40" : "cursor-pointer"}
+                      className={
+                        page >= totalPages
+                          ? "pointer-events-none opacity-40"
+                          : "cursor-pointer"
+                      }
                       onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
                         event.preventDefault();
-                        if (page < totalPages) updateQuery({ page: String(page + 1) });
+                        if (page < totalPages)
+                          updateQuery({ page: String(page + 1) });
                       }}
                     />
                   </PaginationItem>
@@ -400,6 +474,70 @@ export default function ServiceTable() {
           </div>
         )}
       </section>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {serviceToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" />
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-service-title"
+            aria-describedby="delete-service-description"
+            className="relative z-10 w-full max-w-[370px] rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+              <Trash2 size={22} />
+            </div>
+            <h2
+              id="delete-service-title"
+              className="text-lg font-bold text-slate-900"
+            >
+              Xóa vĩnh viễn dịch vụ?
+            </h2>
+            <p
+              id="delete-service-description"
+              className="mt-3 text-sm leading-6 text-slate-600"
+            >
+              Bạn có chắc muốn xóa dịch vụ{" "}
+              <span className="font-bold">{serviceToDelete.name}</span>? Hành
+              động này không thể hoàn tác.
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Chỉ có thể xóa nếu dịch vụ đáp ứng điều kiện của hệ thống.
+            </p>
+            {deleteError && (
+              <p
+                role="alert"
+                className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-600"
+              >
+                {deleteError}
+              </p>
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={deleteService.isPending}
+                onClick={() => {
+                  setServiceToDelete(null);
+                  setDeleteError("");
+                }}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={deleteService.isPending}
+                onClick={confirmDeleteService}
+                className="rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deleteService.isPending ? "Đang xóa..." : "Xóa vĩnh viễn"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ADD MODAL */}
       {modalMode === "add" && (
@@ -419,7 +557,6 @@ export default function ServiceTable() {
           onClose={closeModal}
           service={selectedService}
           categories={categories}
-          onSave={handleEditService}
         />
       )}
 
@@ -440,7 +577,11 @@ export default function ServiceTable() {
 
 function ServiceListSkeleton() {
   return (
-    <div className="space-y-7" role="status" aria-label="Đang tải danh sách dịch vụ">
+    <div
+      className="space-y-7"
+      role="status"
+      aria-label="Đang tải danh sách dịch vụ"
+    >
       {Array.from({ length: 2 }, (_, group) => (
         <section key={group} className="min-w-0">
           <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-3">
@@ -452,7 +593,10 @@ function ServiceListSkeleton() {
           </div>
           <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
             {Array.from({ length: group === 0 ? 5 : 3 }, (_, index) => (
-              <div key={index} className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+              <div
+                key={index}
+                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"
+              >
                 <Skeleton className="h-11 w-11 rounded-xl" />
                 <Skeleton className="h-4 w-4/5" />
                 <Skeleton className="h-3 w-full" />

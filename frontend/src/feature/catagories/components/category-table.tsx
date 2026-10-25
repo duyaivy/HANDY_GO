@@ -300,8 +300,8 @@ export const CategoryTable = () => {
                         }`}
                       >
                         {category.isActive
-                          ? "Đang hoạt động"
-                          : "Đã vô hiệu hóa"}
+                          ? "Active"
+                          : "Disabled"}
                       </span>
                     </td>
 

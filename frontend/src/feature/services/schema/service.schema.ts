@@ -22,3 +22,10 @@ export type CreateServiceBodyType = {
   iconUrl: string | null;
   isActive: boolean;
 };
+export type UpdateServiceBodyType = {
+  categoryId: string;
+  name: string;
+  description: string | null;
+  iconUrl: string | null;
+  isActive: boolean;
+};
