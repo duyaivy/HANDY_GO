@@ -9,7 +9,12 @@ export class WithdrawalService {
     const amount = BigInt(dto.amount);
     return this.prisma.$transaction(async (tx) => {
       const prior = await tx.withdrawal.findUnique({ where: { idempotencyKey: dto.idempotencyKey } });
-      if (prior) return prior;
+      if (prior) {
+        if (prior.userId !== userId || prior.amount !== amount || prior.bankAccountId !== dto.bankAccountId) {
+          throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Withdrawal idempotency payload does not match the original request');
+        }
+        return prior;
+      }
       const wallet = await tx.wallet.findUnique({ where: { userId } });
       if (!wallet || wallet.status !== 'active') throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Active wallet not found');
       await tx.$queryRaw`SELECT id FROM wallets WHERE id = ${wallet.id}::uuid FOR UPDATE`;
@@ -30,6 +35,9 @@ export class WithdrawalService {
     return this.prisma.$transaction(async (tx) => {
       const withdrawal = await tx.withdrawal.findFirst({ where: { id, userId } });
       if (!withdrawal) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Withdrawal not found');
+      if (status === 'cancelled' && withdrawal.status !== 'requested') {
+        throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Withdrawal is already being processed and cannot be cancelled safely');
+      }
       const hold = await tx.walletHold.findUnique({ where: { withdrawalId: id } });
       if (!hold || hold.status !== 'active') return withdrawal;
       await tx.$queryRaw`SELECT id FROM wallets WHERE id = ${withdrawal.walletId}::uuid FOR UPDATE`;
