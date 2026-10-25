@@ -42,9 +42,11 @@ FROM build AS production-dependencies
 # Preserve non-package generated clients across pnpm prune.
 RUN cp -a node_modules/@prisma/auth-client /auth-client \
     && cp -a node_modules/@prisma/user-trust-client /user-trust-client \
+    && cp -a node_modules/@prisma/notification-client /notification-client \
     && pnpm prune --prod \
     && cp -a /auth-client node_modules/@prisma/auth-client \
-    && cp -a /user-trust-client node_modules/@prisma/user-trust-client
+    && cp -a /user-trust-client node_modules/@prisma/user-trust-client \
+    && cp -a /notification-client node_modules/@prisma/notification-client
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

@@ -12,6 +12,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
+import { syncPushRegistration } from '@/services/notifications/push-registration';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { usePasswordResetStore } from '../use-password-reset-store';
 
@@ -129,6 +130,8 @@ export function LoginScreen() {
         phone: cleanPhone,
         password,
       });
+
+      void syncPushRegistration(undefined, { forcePrompt: true });
 
       const currentMode = useAuthStore.getState().activeMode;
       const dest = getDestinationByRoles(session.user.roles, currentMode);

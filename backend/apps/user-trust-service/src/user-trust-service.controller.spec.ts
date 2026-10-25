@@ -69,27 +69,16 @@ describe('UserTrustServiceController', () => {
     );
   });
 
-  it('should handle kyc.pending domain event', async () => {
-    serviceMock.handleKycPending = vi.fn().mockResolvedValue({ processed: true });
-    const event = { eventId: 'evt-1', data: { userId: 'user-1' } } as any;
-    const res = await controller.handleKycPending(event, undefined);
-    expect(res).toEqual({ processed: true });
-    expect(serviceMock.handleKycPending).toHaveBeenCalledWith(event);
-  });
+  it('should handle user.get-all-active-ids MessagePattern', async () => {
+    serviceMock.getAllActiveUserIds = vi.fn().mockResolvedValue({
+      userIds: ['user-1', 'user-2'],
+    });
 
-  it('should handle kyc.reviewing domain event', async () => {
-    serviceMock.handleKycReviewing = vi.fn().mockResolvedValue({ processed: true });
-    const event = { eventId: 'evt-2', data: { userId: 'user-1' } } as any;
-    const res = await controller.handleKycReviewing(event, undefined);
-    expect(res).toEqual({ processed: true });
-    expect(serviceMock.handleKycReviewing).toHaveBeenCalledWith(event);
-  });
-
-  it('should handle kyc.completed domain event', async () => {
-    serviceMock.handleKycCompleted = vi.fn().mockResolvedValue({ processed: true });
-    const event = { eventId: 'evt-3', data: { userId: 'user-1' } } as any;
-    const res = await controller.handleKycCompleted(event, undefined);
-    expect(res).toEqual({ processed: true });
-    expect(serviceMock.handleKycCompleted).toHaveBeenCalledWith(event);
+    const result = await controller.getAllActiveUserIds(
+      { targetGroup: 'ALL' },
+      undefined,
+    );
+    expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
+    expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
   });
 });

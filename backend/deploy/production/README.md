@@ -16,7 +16,7 @@ Một Compose: `backend/deploy/production/compose.production.yml`. Một ENV ứ
 | 1 | | api-gateway | JWT/proxy/media | 160 / 80 |
 | 1 | | auth-service | Register/OTP/login/refresh/reset | 208 / 112 |
 | 1 | | user-trust-service | Profile/provisioning/RPC; chưa đầy đủ KYC | 176 / 96 |
-| 1 | | notification-service | **Health-only**, chưa notification workflow | 128 / 64 |
+| 1 | | notification-service | **Phase 1 core APIs**, chưa delivery/consumer | 128 / 64 |
 | 2 | 10.77.0.2 | order-service | **Health-only** | 128 / 64 |
 | 2 | | bidding-service | **Health-only** | 112 / 56 |
 | 2 | | matching-service | **Health-only** | 160 / 80 |
@@ -171,7 +171,7 @@ Không chạy PostgreSQL, Redis hoặc RabbitMQ container trên các VPS. Cloud 
 
 Copy `env/production.env.example` ra vị trí an toàn ngoài Git. Điền đầy đủ giá trị thật, rồi lưu nguyên nội dung vào secret GitHub `BACKEND_PRODUCTION_ENV` ở bước 9.
 
-Template production giữ bố cục như `backend/.env.example`: **PHẦN 1** là cấu hình dùng chung (system, proxy, database, RabbitMQ, Redis, SMTP, JWT và Cloudinary); **PHẦN 2** chia đủ 11 service theo thứ tự cổng 3000–3010, ghi rõ VPS. URL upstream nằm trong mục API Gateway; URL database Auth/User Trust và OTP nằm tại mục service tương ứng. Mỗi service có đủ PORT_* và RABBITMQ_QUEUE_* để đối chiếu với ENV hiện có; Catalog có thêm DATABASE_URL_CATALOG. Các service health-only có sẵn mục để bổ sung ENV sau này. Biến dùng chung chỉ khai báo một lần.
+Template production giữ bố cục như `backend/.env.example`: **PHẦN 1** là cấu hình dùng chung (system, proxy, database, RabbitMQ, Redis, SMTP, JWT và Cloudinary); **PHẦN 2** chia đủ 11 service theo thứ tự cổng 3000–3010, ghi rõ VPS. URL upstream nằm trong mục API Gateway; URL database Auth/User Trust và OTP nằm tại mục service tương ứng. Mỗi service có đủ PORT_* và RABBITMQ_QUEUE_* để đối chiếu với ENV hiện có; Catalog có thêm DATABASE_URL_CATALOG. Notification có DATABASE_URL_NOTIFICATION tùy chọn; khi trống sẽ dùng DATABASE_URL với schema=notification_service. Migration Notification chạy trên VPS1 trước khi service khởi động. Các service health-only có sẵn mục để bổ sung ENV sau này. Biến dùng chung chỉ khai báo một lần.
 
 Các biến được liệt kê đầy đủ không đồng nghĩa source đã sử dụng tất cả:
 

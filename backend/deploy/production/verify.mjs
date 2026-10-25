@@ -80,6 +80,20 @@ try {
     probe = 'Gateway rejects forged identity';
     await http('http://127.0.0.1:3000/api/v1/users/me', 401, { 'x-user-id': 'forged' });
   }
+  if (service === 'notification-service') {
+    const base = `http://127.0.0.1:${process.env.PORT}/${process.env.API_PREFIX || 'api/v1'}/notifications`;
+    probe = 'Notification rejects untrusted identity';
+    await http(`${base}/unread-count`, 403, { 'x-user-id': randomUUID() });
+    const headers = { 'x-internal-secret': process.env.INTERNAL_SERVICE_SECRET, 'x-user-id': randomUUID() };
+    probe = 'Notification database and unread count';
+    const count = await (await http(`${base}/unread-count`, 200, headers)).json();
+    if (!Number.isInteger(count.data?.count) || count.data.count < 0) throw new Error('Invalid unread count');
+    probe = 'Notification preferences';
+    const preferences = await (await http(`${base}/preferences`, 200, headers)).json();
+    if (!['pushEnabled', 'inAppEnabled', 'emailEnabled'].every(key => typeof preferences.data?.[key] === 'boolean')) {
+      throw new Error('Invalid notification preferences');
+    }
+  }
   clearTimeout(timer);
   console.log(`Verified ${service}; health-only remains health-only`);
 } catch {

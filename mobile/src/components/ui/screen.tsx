@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { ViewStyle } from 'react-native';
+import type { Edge } from 'react-native-safe-area-context';
 import { ScrollView, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +14,7 @@ export type ScreenProps = {
   scrollable?: boolean;
   keyboardAware?: boolean;
   safeArea?: boolean;
+  edges?: readonly Edge[];
   className?: string;
   style?: ViewStyle;
   contentContainerStyle?: ViewStyle;
@@ -25,6 +27,7 @@ export function Screen({
   scrollable = false,
   keyboardAware = true,
   safeArea = true,
+  edges,
   className = '',
   style,
   contentContainerStyle,
@@ -71,7 +74,11 @@ export function Screen({
   };
 
   return (
-    <Container className={`flex-1 bg-white dark:bg-neutral-950 ${className}`} style={[{ flex: 1 }, style]}>
+    <Container
+      {...(safeArea && edges ? { edges } : {})}
+      className={`flex-1 bg-white dark:bg-neutral-950 ${className}`}
+      style={[{ flex: 1 }, style]}
+    >
       <FocusAwareStatusBar />
       {renderContent()}
     </Container>
