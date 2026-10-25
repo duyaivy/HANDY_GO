@@ -8,6 +8,19 @@ import { WalletAdjustmentDto } from './dto/wallet-adjustment.dto.js';
 export class RefundAdjustmentService {
   constructor(private readonly ledger: WalletLedgerService) {}
   async refund(userId: string, dto: RefundCreditDto) {
+    const amount = BigInt(dto.amount);
+    const operationId = `${dto.paymentId}:refund:${dto.refundId}`;
+    const idempotencyKey = `refund:${dto.refundId}`;
+    const existing = typeof this.ledger.prisma.walletTransfer.findUnique === 'function'
+      ? await this.ledger.prisma.walletTransfer.findUnique({ where: { idempotencyKey } })
+      : null;
+    if (existing) {
+      if (existing.operationId !== operationId || existing.totalAmount !== amount || existing.kind !== 'refund') {
+        throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Refund retry payload does not match the original operation');
+      }
+      return { ...existing, idempotentReplay: true };
+    }
+
     const original = await this.ledger.prisma.walletTransfer.findFirst({ where: { operationId: { startsWith: `${dto.paymentId}:` }, kind: 'payment' } });
     if (!original) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Original payment transfer not found');
     const entries = await this.ledger.prisma.walletTransaction.findMany({ where: { transferId: original.id } });
@@ -16,7 +29,6 @@ export class RefundAdjustmentService {
     if (!customerEntry || sources.length === 0) throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Original payment postings are incomplete');
     const customerWallet = await this.ledger.prisma.wallet.findUnique({ where: { id: customerEntry.walletId } });
     if (!customerWallet || customerWallet.userId !== userId) throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Refund owner does not match original payment');
-    const amount = BigInt(dto.amount);
     const alreadyRefunded = await this.ledger.prisma.walletTransfer.aggregate({ where: { kind: 'refund', operationId: { startsWith: `${dto.paymentId}:` } }, _sum: { totalAmount: true } });
     if ((alreadyRefunded._sum.totalAmount ?? 0n) + amount > customerEntry.amount) throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Refund exceeds original payment amount');
     const sourceTotal = sources.reduce((sum, entry) => sum + entry.amount, 0n);
@@ -29,7 +41,7 @@ export class RefundAdjustmentService {
       if (share) postings.push({ walletId: source.walletId, direction: 'debit', amount: share, type: 'refund_recovery', referenceId: dto.paymentId });
     }
     postings.push({ walletId: customerWallet.id, direction: 'credit', amount, type: 'refund_credit', referenceId: dto.paymentId });
-    try { return await this.ledger.createBalancedTransfer({ operationId: `${dto.paymentId}:refund:${dto.refundId}`, idempotencyKey: `refund:${dto.refundId}`, kind: 'refund', postings }); }
+    try { return await this.ledger.createBalancedTransfer({ operationId, idempotencyKey, kind: 'refund', postings }); }
     catch (error) { throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, `Refund needs review because funds could not be recovered: ${(error as Error).message}`); }
   }
   async adjust(userId: string, dto: WalletAdjustmentDto) {
