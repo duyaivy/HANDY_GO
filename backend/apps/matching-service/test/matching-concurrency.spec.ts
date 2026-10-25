@@ -59,7 +59,6 @@ describe('MatchingJobQueue Concurrency & Reliability Scenarios', () => {
     process.env.MATCHING_JOB_TIMEOUT_MS = '100';
     const queueService = new MatchingJobQueueService();
 
-    let jobFailedWithTimeout = false;
 
     // Processor that never finishes within 100ms
     queueService.setProcessor(async () => {

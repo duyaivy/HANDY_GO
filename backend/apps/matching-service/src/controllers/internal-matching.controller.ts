@@ -47,7 +47,8 @@ export class InternalMatchingController {
   @ApiOperation({
     summary: 'Internal: Lấy danh sách Top 20 đề xuất cho Gateway/BFF kết hợp Bids',
     description:
-      'Chỉ trả về các đề xuất của revision hoàn thành mới nhất. Thứ tự xếp hạng được bảo toàn.',
+      'Lấy đầy đủ Top 20 ứng viên được xếp hạng bởi FastAPI AI Service (hoặc Rule-Based Fallback) ' +
+      'cho revision hoàn thành mới nhất. Kết quả bao gồm điểm composite matchingScore và scoreBreakdown 5 chiều.',
   })
   @ApiParam({ name: 'id', description: 'ID yêu cầu dịch vụ', type: String })
   @ApiResponse({

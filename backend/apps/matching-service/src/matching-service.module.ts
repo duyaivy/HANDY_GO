@@ -26,6 +26,7 @@ import { FeatureBuilderService } from './features/feature-builder.service.js';
 // Ranking Providers & Validation
 import { RANKING_PROVIDER } from './ranking/ranking-provider.interface.js';
 import { MockAiRankingProvider } from './ranking/mock-ai-ranking.provider.js';
+import { FastApiAiRankingProvider } from './ranking/fastapi-ai-ranking.provider.js';
 import { RuleBasedFallbackRanker } from './ranking/rule-based-fallback.ranker.js';
 import { RankingValidatorService } from './ranking/ranking-validator.service.js';
 
@@ -79,11 +80,24 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
 
     // Ranking
     MockAiRankingProvider,
+    FastApiAiRankingProvider,
     RuleBasedFallbackRanker,
     RankingValidatorService,
     {
       provide: RANKING_PROVIDER,
-      useClass: MockAiRankingProvider,
+      useFactory: (
+        mockProvider: MockAiRankingProvider,
+        fastApiProvider: FastApiAiRankingProvider,
+      ) => {
+        const providerConfig = (
+          process.env.MATCHING_RANKING_PROVIDER || 'real_ai'
+        ).toLowerCase();
+        if (providerConfig === 'mock') {
+          return mockProvider;
+        }
+        return fastApiProvider;
+      },
+      inject: [MockAiRankingProvider, FastApiAiRankingProvider],
     },
 
     // Candidates
@@ -108,6 +122,8 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
     ServiceRequestProjectionService,
     CANDIDATE_PROVIDER,
     RANKING_PROVIDER,
+    MockAiRankingProvider,
+    FastApiAiRankingProvider,
     TestCandidateAdapter,
   ],
 })

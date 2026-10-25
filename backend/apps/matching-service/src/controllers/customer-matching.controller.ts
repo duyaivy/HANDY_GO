@@ -4,7 +4,6 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  NotFoundException,
   Param,
   Query,
   UseGuards,
@@ -50,9 +49,12 @@ export class CustomerMatchingController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Lấy danh sách Top 5 thợ đề xuất cho yêu cầu dịch vụ',
+    summary: 'Lấy danh sách Top 5 thợ đề xuất cho yêu cầu dịch vụ (Customer)',
     description:
-      'Chỉ hiển thị kết quả từ revision hợp lệ mới nhất. Không hiển thị kết quả cũ hoặc yêu cầu đã hủy/đã chuyển đơn.',
+      'Quy trình matching diễn ra bất đồng bộ thông qua RabbitMQ. Matching Service lưu trữ Top 20 ứng viên ' +
+      'được xếp hạng bởi FastAPI AI Service độc lập (mô hình Multilingual E5 Small & Hybrid Ranking). ' +
+      'Endpoint này trả về tối đa Top 5 thợ tối ưu nhất cho khách hàng từ revision hợp lệ mới nhất. ' +
+      'Metadata mô hình cho biết providerType là real_ai hoặc fallback.',
   })
   @ApiParam({ name: 'id', description: 'ID yêu cầu dịch vụ', type: String })
   @ApiResponse({

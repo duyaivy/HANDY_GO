@@ -30,7 +30,7 @@ export class TestCandidateAdapter implements ICandidateProvider {
     longitude: number;
     customerUserId?: string;
   }): Promise<WorkerCandidateDto[]> {
-    const { serviceId, latitude, longitude, customerUserId } = params;
+    const { latitude, longitude, customerUserId } = params;
 
     return this.candidates
       .filter((c) => {
