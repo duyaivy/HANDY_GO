@@ -23,17 +23,40 @@ export class WalletLedgerService {
     const debits = input.postings.filter((posting) => posting.direction === 'debit').reduce((sum, posting) => sum + posting.amount, 0n);
     const credits = input.postings.filter((posting) => posting.direction === 'credit').reduce((sum, posting) => sum + posting.amount, 0n);
     if (debits !== credits) throw new Error('Transfer debit and credit totals must match');
+    const fingerprint = JSON.stringify({
+      operationId: input.operationId,
+      kind: input.kind,
+      postings: input.postings
+        .map((posting) => ({
+          walletId: posting.walletId,
+          direction: posting.direction,
+          amount: posting.amount.toString(),
+          type: posting.type,
+          referenceId: posting.referenceId ?? null,
+        }))
+        .sort((a, b) => `${a.walletId}:${a.direction}`.localeCompare(`${b.walletId}:${b.direction}`)),
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.walletTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
-      if (existing) return { ...existing, idempotentReplay: true };
+      if (existing) {
+        const metadata = existing.metadata;
+        const existingFingerprint =
+          metadata && typeof metadata === 'object' && !Array.isArray(metadata) && 'fingerprint' in metadata
+            ? metadata.fingerprint
+            : undefined;
+        if (existing.operationId !== input.operationId || existing.kind !== input.kind || existingFingerprint !== fingerprint) {
+          throw new Error('Idempotency key is already used by another operation');
+        }
+        return { ...existing, idempotentReplay: true };
+      }
       const walletIds = [...new Set(input.postings.map((posting) => posting.walletId))].sort();
       for (const walletId of walletIds) {
         await tx.$queryRaw`SELECT id FROM wallets WHERE id = ${walletId}::uuid FOR UPDATE`;
       }
       const transfer = await tx.walletTransfer.create({ data: {
         operationId: input.operationId, idempotencyKey: input.idempotencyKey, kind: input.kind,
-        totalAmount: debits, status: 'completed',
+        totalAmount: debits, status: 'completed', metadata: { fingerprint },
       } });
       for (const posting of input.postings) {
         const wallet = await tx.wallet.findUnique({ where: { id: posting.walletId } });

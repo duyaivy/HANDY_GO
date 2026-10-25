@@ -118,8 +118,10 @@ pnpm run lint
 | | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
+| **Wallet service**<br>`apps/wallet-service/src/` | `WalletPrismaService` | Prisma client for the Wallet bounded context. Resolves the wallet schema consistently and passes it to the PostgreSQL driver adapter; use this client for Wallet transactions and row locks. |
 | **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
+| | `RabbitMQContextService` | Manual ACK/NACK helper for RMQ consumers. ACK only after the database operation commits; NACK transient failures for broker redelivery. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
 | **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret`. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
 | **`@app/cloudinary`**<br>`libs/cloudinary/src/` | `CloudinaryModule`<br>`CloudinaryService` | **Cloudinary Media Storage Integration.** Streaming image upload (`uploadImage`) and signed direct big-video chunk upload initialization (`createVideoUploadSignature`). |
