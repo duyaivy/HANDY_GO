@@ -472,12 +472,28 @@ export class RoundsService {
         return existing;
       }
 
-      const updated = await tx.biddingRound.update({
-        where: { id: existing.id },
-        data: { status: 'cancelled' },
-      });
+      let updated: any;
+      if (typeof tx.biddingRound.updateMany === 'function') {
+        const cancelResult = await tx.biddingRound.updateMany({
+          where: {
+            id: existing.id,
+            status: { notIn: ['cancelled', 'finalized'] },
+          },
+          data: { status: 'cancelled' },
+        });
 
-      // Reject all active bids
+        if (cancelResult.count === 0) {
+          return existing;
+        }
+        updated = await tx.biddingRound.findUnique({ where: { id: existing.id } });
+      } else {
+        updated = await tx.biddingRound.update({
+          where: { id: existing.id },
+          data: { status: 'cancelled' },
+        });
+      }
+
+      // Reject all active bids under round lock
       await tx.bid.updateMany({
         where: {
           biddingRoundId: existing.id,
@@ -573,6 +589,31 @@ export class RoundsService {
         return round;
       }
 
+      // P1-02: Serialize with submitBid/reviseBid: lock and transition Round status to 'finalized' FIRST
+      let updatedRound: any;
+      if (typeof tx.biddingRound.updateMany === 'function') {
+        const finalizeResult = await tx.biddingRound.updateMany({
+          where: {
+            id: round.id,
+            status: { in: ['open', 'closed', 'no_bid'] },
+          },
+          data: { status: 'finalized' },
+        });
+
+        if (finalizeResult.count === 0) {
+          this.logger.warn(
+            `Round ${round.id} is already in state '${round.status}', returning existing round`,
+          );
+          return tx.biddingRound.findUnique({ where: { id: round.id } });
+        }
+        updatedRound = await tx.biddingRound.findUnique({ where: { id: round.id } });
+      } else {
+        updatedRound = await tx.biddingRound.update({
+          where: { id: round.id },
+          data: { status: 'finalized' },
+        });
+      }
+
       if (params.selectedBidId) {
         let selectedBid: any = null;
         if (typeof tx.bid?.findUnique === 'function') {
@@ -633,11 +674,6 @@ export class RoundsService {
           data: { status: 'rejected' },
         });
       }
-
-      const updatedRound = await tx.biddingRound.update({
-        where: { id: round.id },
-        data: { status: 'finalized' },
-      });
 
       await tx.outboxEvent.create({
         data: {

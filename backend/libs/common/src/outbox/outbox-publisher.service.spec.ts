@@ -41,7 +41,16 @@ describe('OutboxPublisherService', () => {
       const count = await service.publishPendingEvents();
 
       expect(count).toBe(1);
-      expect(rabbitmqMock.emit).toHaveBeenCalledWith('user.registered', { userId: 'u1' });
+      expect(rabbitmqMock.emit).toHaveBeenCalledWith(
+        'user.registered',
+        expect.objectContaining({
+          eventId: 'event-1',
+          eventType: 'user.registered',
+          eventVersion: 1,
+          data: { userId: 'u1' },
+          payload: { userId: 'u1' },
+        }),
+      );
       expect(repoMock.markPublished).toHaveBeenCalledWith('event-1', expect.any(Date));
     });
 

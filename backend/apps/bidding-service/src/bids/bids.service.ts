@@ -236,21 +236,7 @@ export class BidsService {
         }
       }
 
-      const createdBid = await tx.bid.create({
-        data: {
-          biddingRoundId: round.id,
-          serviceRequestId,
-          workerId,
-          amount: dto.amount,
-          message: dto.message || null,
-          validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
-          status: 'active',
-          version: 1,
-          submittedAt: now,
-        },
-      });
-
-      // Increment round bidCount with CAS verification that round is still open and not passed deadline (R03 / F06)
+      // P1-02: Serialize with finalize/cancel by acquiring row lock and verifying round open status FIRST
       if (typeof tx.biddingRound.updateMany === 'function') {
         const updateRoundResult = await tx.biddingRound.updateMany({
           where: {
@@ -277,6 +263,21 @@ export class BidsService {
         });
       }
 
+      // Now create bid under the acquired round lock
+      const createdBid = await tx.bid.create({
+        data: {
+          biddingRoundId: round.id,
+          serviceRequestId,
+          workerId,
+          amount: dto.amount,
+          message: dto.message || null,
+          validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+          status: 'active',
+          version: 1,
+          submittedAt: now,
+        },
+      });
+
       // Write Outbox Event: bid.submitted
       await tx.outboxEvent.create({
         data: {
@@ -288,6 +289,8 @@ export class BidsService {
             bidId: createdBid.id,
             biddingRoundId: round.id,
             serviceRequestId,
+            requestId: serviceRequestId,
+            customerId: round.customerId || null,
             workerId,
             amount: Number(createdBid.amount),
             message: createdBid.message,
@@ -547,6 +550,8 @@ export class BidsService {
             bidId: bid.id,
             biddingRoundId: bid.biddingRoundId,
             serviceRequestId: bid.serviceRequestId,
+            requestId: bid.serviceRequestId,
+            customerId: bid.biddingRound?.customerId || null,
             workerId,
             revisionNo,
             previousAmount: Number(bid.amount),
@@ -702,6 +707,8 @@ export class BidsService {
             bidId: bid.id,
             biddingRoundId: bid.biddingRoundId,
             serviceRequestId: bid.serviceRequestId,
+            requestId: bid.serviceRequestId,
+            customerId: bid.biddingRound?.customerId || null,
             workerId,
             reason: dto.reason || null,
             version: updatedBid.version,

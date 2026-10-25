@@ -1,5 +1,6 @@
 import { Controller, Logger, BadRequestException } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
+import { randomUUID } from 'crypto';
 import { EVENT_PATTERNS } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoundsService } from '../rounds/rounds.service.js';
@@ -68,7 +69,7 @@ export class BiddingEventsConsumer {
         (error as Error).stack,
       );
       const isTransient = !(error instanceof BadRequestException);
-      this.nackMessage(context, isTransient, eventId);
+      await this.nackMessage(context, isTransient, eventId, data, error);
     }
   }
 
@@ -111,7 +112,7 @@ export class BiddingEventsConsumer {
         (error as Error).stack,
       );
       const isTransient = !(error instanceof BadRequestException);
-      this.nackMessage(context, isTransient, eventId);
+      await this.nackMessage(context, isTransient, eventId, data, error);
     }
   }
 
@@ -147,7 +148,7 @@ export class BiddingEventsConsumer {
 
     if (!orderId) {
       this.logger.error('order.created event missing orderId; permanent contract violation');
-      this.nackMessage(context, false, eventId);
+      await this.nackMessage(context, false, eventId, data, 'Missing orderId in order.created');
       return;
     }
 
@@ -167,7 +168,7 @@ export class BiddingEventsConsumer {
         (error as Error).stack,
       );
       const isTransient = !(error instanceof BadRequestException);
-      this.nackMessage(context, isTransient, eventId);
+      await this.nackMessage(context, isTransient, eventId, data, error);
     }
   }
 
@@ -199,7 +200,7 @@ export class BiddingEventsConsumer {
         `Failed to expire round ${roundId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context, true, roundId);
+      await this.nackMessage(context, true, roundId, data, error);
     }
   }
 
@@ -218,11 +219,13 @@ export class BiddingEventsConsumer {
     }
   }
 
-  private nackMessage(
+  private async nackMessage(
     context: any,
     isTransient = true,
     messageKey?: string,
-  ): void {
+    rawPayload?: any,
+    error?: any,
+  ): Promise<void> {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
       const originalMsg = context.getMessage?.();
@@ -239,6 +242,11 @@ export class BiddingEventsConsumer {
         const shouldRequeue = isTransient && currentAttempts < 3;
         if (!shouldRequeue) {
           this.retryAttempts.delete(key);
+          await this.persistDeadLetter(key, originalMsg, rawPayload, error);
+        } else {
+          // Delay/backoff for transient retry (short in test environment to avoid test timeouts)
+          const delay = process.env.NODE_ENV === 'test' ? 10 : 500 * currentAttempts;
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
 
         channel.nack(originalMsg, false, shouldRequeue);
@@ -246,6 +254,45 @@ export class BiddingEventsConsumer {
           `Message ${key} nacked (requeue=${shouldRequeue}, attempts=${currentAttempts})`,
         );
       }
+    }
+  }
+
+  private async persistDeadLetter(
+    messageKey: string,
+    originalMsg: any,
+    payload: any,
+    error: any,
+  ): Promise<void> {
+    try {
+      if (typeof this.prisma.outboxEvent?.create === 'function') {
+        const errorMsg =
+          error instanceof Error
+            ? error.message
+            : String(error || 'Message processing failed permanently');
+        await this.prisma.outboxEvent.create({
+          data: {
+            aggregateType: 'dead_letter',
+            aggregateId: randomUUID(),
+            eventType: 'bidding.dead_letter',
+            eventVersion: 1,
+            payload: {
+              messageKey,
+              payload: payload || null,
+              content: originalMsg?.content ? originalMsg.content.toString() : null,
+              error: errorMsg,
+              failedAt: new Date().toISOString(),
+            },
+            status: 'failed',
+            lastError: errorMsg,
+            retryCount: 3,
+          },
+        });
+        this.logger.warn(
+          `Persisted dead-letter record for unprocessable message ${messageKey} to outbox_events with status 'failed'`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.error(`Could not persist dead letter record: ${e.message}`);
     }
   }
 }

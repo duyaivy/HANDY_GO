@@ -15,6 +15,9 @@ describe('BiddingEventsConsumer', () => {
         findUnique: vi.fn(),
         create: vi.fn(),
       },
+      outboxEvent: {
+        create: vi.fn(),
+      },
     };
 
     roundsServiceMock = {
@@ -63,7 +66,7 @@ describe('BiddingEventsConsumer', () => {
       expect(channelMock.ack).toHaveBeenCalled();
     });
 
-    it('should retry on transient error up to 3 times then nack without requeue (R06/F10)', async () => {
+    it('should retry on transient error up to 3 times then nack without requeue and persist dead letter (R06/F10/P1-03)', async () => {
       roundsServiceMock.openRound.mockRejectedValue(new Error('DB Connection Timeout'));
 
       const eventPayload = {
@@ -83,6 +86,15 @@ describe('BiddingEventsConsumer', () => {
       // 3rd attempt -> requeue: false (DLQ dead-lettered)
       await consumer.handleServiceRequestPublished(eventPayload, contextMock);
       expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, false);
+      expect(prismaMock.outboxEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aggregateType: 'dead_letter',
+            eventType: 'bidding.dead_letter',
+            status: 'failed',
+          }),
+        }),
+      );
     });
   });
 

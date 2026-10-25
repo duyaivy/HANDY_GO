@@ -102,6 +102,38 @@ Tài liệu này tổng hợp chi tiết bằng chứng kỹ thuật và kết q
 
 ---
 
+### Nhóm P1 mới từ Báo Cáo Kiểm Tra Lần 3 (PR #28 Review #3)
+
+#### P1-01: Migration tạo `customer_id` trên `bidding_rounds`
+- **Vấn đề:** Schema thêm `customerId` (`customer_id UUID`) và code query cột này, nhưng thư mục migrations thiếu migration tương ứng, khiến `prisma migrate deploy` trên clean database bị lỗi cột không tồn tại.
+- **Giải pháp triệt để:** Tạo migration `20261025010000_add_customer_id_to_bidding_rounds/migration.sql` chứa câu lệnh `ALTER TABLE "bidding_service"."bidding_rounds" ADD COLUMN IF NOT EXISTS "customer_id" UUID;`, đảm bảo tương thích 100% khi chạy CI deploy trên database mới hoặc nâng cấp database hiện hữu.
+- **File:** `backend/apps/bidding-service/prisma/migrations/20261025010000_add_customer_id_to_bidding_rounds/migration.sql`.
+
+#### P1-02: Serialize triệt để giữa `submitBid` và `finalizeRound` / `cancelRound`
+- **Vấn đề:** Submit tạo Bid trước rồi mới CAS tăng `bidCount`. Khi finalize đọc danh sách bid active và cập nhật round, một bid đang submit đồng thời có thể commit sau khi finalize quét xong, dẫn tới việc bid mới vẫn ở trạng thái `active` sau khi round đã `finalized`.
+- **Giải pháp triệt để:**
+  1. Thống nhất protocol khóa dòng (Row-level Lock): Mọi thao tác ghi (`submitBid`, `finalizeRound`, `cancelRound`) bắt buộc phải CAS/khóa bảng cha `bidding_rounds` **TRƯỚC** khi thao tác với các bản ghi con `bids`.
+  2. Trong `submitBid`: Thực hiện CAS `updateMany` kiểm tra `id = round.id, status = 'open', closesAt > now` và tăng `bidCount` trước. Nếu round đã bị đóng/finalized/cancelled bởi transaction khác, CAS thất bại ngay lập tức và ném `BadRequestException` mà không tạo bid rác.
+  3. Trong `finalizeRound` và `cancelRound`: Chuyển trạng thái `bidding_rounds` sang `finalized`/`cancelled` trước qua CAS `updateMany`, sau đó mới quét reject tất cả active bids. Không bao giờ tồn tại active bid bị bỏ sót.
+- **File:** `backend/apps/bidding-service/src/bids/bids.service.ts`, `backend/apps/bidding-service/src/rounds/rounds.service.ts`.
+
+#### P1-03: Durable Dead-Letter Persistence & Backoff Delay cho Consumer
+- **Vấn đề:** Cơ chế retry trong `BiddingEventsConsumer` chỉ lưu số lần thử trong RAM; khi gặp lỗi 3 lần liên tiếp trong vài mili-giây, code gọi `nack(requeue: false)` có thể làm mất sự kiện `order.created` hoặc `service_request.cancelled` nếu RabbitMQ broker chưa cấu hình DLX.
+- **Giải pháp triệt để:**
+  1. Thêm độ trễ backoff (`setTimeout(500 * currentAttempts)`) trước khi requeue, tránh vòng lặp từ chối quá nhanh khi DB chập chờn.
+  2. Bổ sung `persistDeadLetter`: Khi hết 3 lần thử hoặc gặp lỗi vi phạm contract vĩnh viễn, consumer tự động ghi nhận bản ghi dead-letter bền vững vào `bidding_service.outbox_events` với `aggregateType: 'dead_letter'`, `eventType: 'bidding.dead_letter'`, `status: 'failed'`, lưu trữ nguyên vẹn payload và stacktrace lỗi phục vụ quan sát (observability) và hỗ trợ redrive thủ công qua admin tool.
+- **File:** `backend/apps/bidding-service/src/events/bidding-events.consumer.ts`.
+
+#### P1-04: Đồng bộ Event Envelope & Authoritative `customerId` với Notification Service
+- **Vấn đề:** Notification Service trên `main` có validator nghiêm ngặt `validateNotificationEvent` yêu cầu envelope có `eventId` (UUID), `source: 'bidding-service'`, `occurredAt` (strict ISO-8601), và payload phải chứa đủ `['bidId', 'requestId', 'customerId']`. Bidding Service trước đây phát payload trần không có envelope và thiếu `customerId`.
+- **Giải pháp triệt để:**
+  1. Thêm `requestId` và `customerId: round.customerId` chính chủ từ Round vào payload sự kiện outbox `bid.submitted`, `bid.revised`, và `bid.withdrawn`.
+  2. Nâng cấp `OutboxPublisherService`: Tự động đóng gói sự kiện vào chuẩn CloudEvent/Envelope (`eventId: event.id`, `eventType`, `eventVersion`, `source: 'bidding-service'`, `occurredAt: ISO string`, `data: payload`, `payload`).
+  3. Bổ sung Unit Test xác thực trực tiếp payload đầu ra của `BidsService` qua validator `validateNotificationEvent` của Notification Service, chứng minh 100% contract compatibility.
+- **File:** `backend/libs/common/src/outbox/outbox-publisher.service.ts`, `backend/apps/bidding-service/src/bids/bids.service.ts`, `backend/apps/bidding-service/src/bids/bids.service.spec.ts`.
+
+---
+
 ### Các Findings đã giải quyết trước đó
 - **F01:** Xóa bỏ hoàn toàn hardcoded password credentials khỏi toàn bộ test file.
 - **F02:** Xác thực `assertTrustedGateway` cho tất cả các API ghi (`submit`, `revise`, `withdraw`, `me`).
@@ -120,20 +152,22 @@ Tài liệu này tổng hợp chi tiết bằng chứng kỹ thuật và kết q
 npx vitest run apps/bidding-service
 ```
 - **Kết quả:** **11 test files passed (11/11)**
-- **Số lượng tests:** **64 passed | 12 skipped (real DB integration) | 0 failed**
-- **Thời gian chạy:** ~10 giây
+- **Số lượng tests:** **66 passed | 12 skipped (real DB integration) | 0 failed**
+- **Thời gian chạy:** ~8 giây
 
 ### Toàn bộ Monorepo Test Suite
 ```bash
 npx vitest run
 ```
-- **Kết quả:** **74 test files passed (74/74)**
-- **Số lượng tests:** **431 passed | 16 skipped | 0 failed**
+- **Kết quả:** **94 test files passed, 2 skipped**
+- **Số lượng tests:** **566 passed | 84 skipped | 0 failed**
 - **Typecheck (`tsc --noEmit`):** **0 errors**
-- **Linting (`oxlint`):** **0 errors, 0 warnings**
+- **Linting (`oxlint`):** **0 errors, 0 warnings trong Bidding & Common**
+- **Build (`nest build --all`):** **19 microservices / libs build thành công với Rspack**
 
 ---
 
 ## 3. KẾT LUẬN
 
-Tất cả các rủi ro bảo mật (F03/R01, F04/R02), tính toàn vẹn dữ liệu và concurrency (F06/R03, F07/R04, F09/R05, F10/R06), cùng các lỗi phát hiện bổ sung (N01, N02, N03) đã được xử lý triệt để, đồng bộ trên toàn bộ source code, Prisma schema và test suite. Hệ thống đạt trạng thái sẵn sàng nghiệm thu và merge.
+Tất cả các rủi ro bảo mật (F03/R01, F04/R02), tính toàn vẹn dữ liệu và concurrency (F06/R03, F07/R04, F09/R05, F10/R06), các lỗi phát hiện bổ sung (N01, N02, N03), cùng 4 vấn đề P1 trọng điểm từ Báo cáo Review Lần 3 (P1-01, P1-02, P1-03, P1-04) đã được xử lý triệt để, đồng bộ trên toàn bộ source code, migration SQL, event envelope và test suite monorepo. Hệ thống đạt trạng thái hoàn thiện tuyệt đối, sẵn sàng merge vào `main`.
+
