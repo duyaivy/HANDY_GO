@@ -1,13 +1,18 @@
 import { Tabs } from 'expo-router';
 import * as React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HomeIcon, OrdersIcon, UserIcon, WalletIcon } from '@/components/ui/icons';
 import { SECONDARY_COLOR } from '@/constants/colors';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 export default function WorkerTabsLayout() {
+  const insets = useSafeAreaInsets();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
   const user = useAuthStore.use.user();
   const isGuest = !isAuthenticated || !user;
+
+  const bottomPadding = insets.bottom > 0 ? insets.bottom + 4 : 8;
+  const tabHeight = 56 + bottomPadding;
 
   return (
     <Tabs
@@ -20,8 +25,8 @@ export default function WorkerTabsLayout() {
           : {
               backgroundColor: '#FFFFFF',
               borderTopColor: '#F3F4F6',
-              height: 60,
-              paddingBottom: 8,
+              height: tabHeight,
+              paddingBottom: bottomPadding,
               paddingTop: 6,
             },
         tabBarLabelStyle: {

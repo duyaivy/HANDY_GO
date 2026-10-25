@@ -263,7 +263,7 @@ class Host:
         state = self.owner(transaction)
         state.update(touched=True, phase='APPLYING')
         write(ROOT / 'pending.json', state)  # before mutation, including uncertain SSH outcomes
-        migrations = {'vps1': ('user-trust', 'auth'), 'vps2': (), 'vps3': ('catalog',)}[self.role]
+        migrations = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog',)}[self.role]
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
             self.compose('stop', *self.names)
             for service in migrations:
