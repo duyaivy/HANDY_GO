@@ -28,6 +28,20 @@ const categoryApiRequest = {
       body,
       { baseUrl: "" },
     ),
+
+updateStatus: (id: string, isActive: boolean) =>
+  http.patch<SuccessResponse<CategoryDetailResType>>(
+    `/api/categories/${id}/status?isActive=${isActive}`,
+    undefined,
+    { baseUrl: "" },
+  ),
+
+deletePermanently: (id: string) =>
+  http.delete<SuccessResponse<unknown>>(
+    `/api/categories/${id}?hard=true`,
+    { baseUrl: "" },
+  ),
+
     
 };
 

@@ -17,7 +17,11 @@ import DetailCatalogModal from "./detail-catagory";
 import { EditCatalogModal } from "./edit-catagory";
 
 import type { CategoryItem } from "../types";
-import { useCategoryListQuery } from "../hooks/use-categories";
+import {
+  useCategoryListQuery,
+  useUpdateCategoryStatus,
+  useDeleteCategoryPermanently,
+} from "../hooks/use-categories";
 import { useCategoryQueryConfig } from "../hooks/use-category-query-config";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -74,7 +78,7 @@ export const CategoryTable = () => {
         ? "disabled"
         : "all";
 
-  const { data, isFetching, isError, error, refetch } =
+  const { data, isPending, isError, error, refetch } =
     useCategoryListQuery(queryConfig);
 
   const categories: CategoryItem[] = (data?.data ?? []).map((category) => ({
@@ -100,6 +104,13 @@ export const CategoryTable = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [categoryToDelete, setCategoryToDelete] = useState<CategoryItem | null>(
+    null,
+  );
+  const [deleteError, setDeleteError] = useState("");
+
+  const updateCategoryStatus = useUpdateCategoryStatus();
+  const deleteCategory = useDeleteCategoryPermanently();
 
   const updateQuery = (params: Record<string, string | undefined>) => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -229,7 +240,7 @@ export const CategoryTable = () => {
                     </button>
                   </td>
                 </tr>
-              ) : isFetching ? (
+              ) : isPending ? (
                 Array.from({ length: limit }, (_, index) => (
                   <SkeletonRow key={index} />
                 ))
@@ -350,8 +361,22 @@ export const CategoryTable = () => {
                               {/* Vô hiệu hóa / Kích hoạt */}
                               <button
                                 type="button"
-                                onClick={() => setOpenMenuId(null)}
-                                className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-gray-50 ${
+                                disabled={updateCategoryStatus.isPending}
+                                onClick={async () => {
+                                  setOpenMenuId(null);
+                                  try {
+                                    await updateCategoryStatus.mutateAsync({
+                                      id: category.id,
+                                      isActive: !category.isActive,
+                                    });
+                                  } catch (error) {
+                                    console.error(
+                                      "Lỗi thay đổi trạng thái:",
+                                      error,
+                                    );
+                                  }
+                                }}
+                                className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${
                                   category.isActive
                                     ? "text-orange-600"
                                     : "text-green-600"
@@ -370,7 +395,11 @@ export const CategoryTable = () => {
                               {/* Xóa vĩnh viễn */}
                               <button
                                 type="button"
-                                onClick={() => setOpenMenuId(null)}
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  setDeleteError("");
+                                  setCategoryToDelete(category);
+                                }}
                                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50"
                               >
                                 <Trash2 size={16} />
@@ -465,6 +494,86 @@ export const CategoryTable = () => {
           setSelectedCategory(null);
         }}
       />
+
+      {/* Xác nhận xóa vĩnh viễn */}
+      {categoryToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-category-title"
+            aria-describedby="delete-category-description"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl"
+          >
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+              <Trash2 size={22} />
+            </div>
+
+            <h3
+              id="delete-category-title"
+              className="text-lg font-bold text-slate-900"
+            >
+              Xóa vĩnh viễn danh mục?
+            </h3>
+
+            <p
+              id="delete-category-description"
+              className="mt-3 text-sm leading-6 text-slate-600"
+            >
+              Bạn có chắc muốn xóa danh mục{" "}
+              <strong>{categoryToDelete.name}</strong>? Hành động này không thể
+              hoàn tác.
+            </p>
+
+            <p className="mt-2 text-xs text-slate-500">
+              Chỉ có thể xóa nếu danh mục không có danh mục con hoặc dịch vụ.
+            </p>
+
+            {deleteError && (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {deleteError}
+              </p>
+            )}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                disabled={deleteCategory.isPending}
+                onClick={() => {
+                  setCategoryToDelete(null);
+                  setDeleteError("");
+                }}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+              >
+                Hủy
+              </button>
+
+              <button
+                type="button"
+                disabled={deleteCategory.isPending}
+                onClick={async () => {
+                  if (!categoryToDelete) return;
+                  setDeleteError("");
+                  try {
+                    await deleteCategory.mutateAsync(categoryToDelete.id);
+                    setCategoryToDelete(null);
+                  } catch (error) {
+                    console.error("Lỗi xóa danh mục:", error);
+                    setDeleteError(
+                      error instanceof Error
+                        ? error.message
+                        : "Không thể xóa danh mục. Vui lòng thử lại.",
+                    );
+                  }
+                }}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Xóa vĩnh viễn
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

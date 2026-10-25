@@ -58,3 +58,37 @@ export const useUpdateCategory = () => {
     },
   });
 };
+export const useUpdateCategoryStatus = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      id,
+      isActive,
+    }: {
+      id: string;
+      isActive: boolean;
+    }) => categoryApiRequest.updateStatus(id, isActive),
+
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["categories"],
+      });
+    },
+  });
+};
+
+export const useDeleteCategoryPermanently = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) =>
+      categoryApiRequest.deletePermanently(id),
+
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["categories"],
+      });
+    },
+  });
+};
