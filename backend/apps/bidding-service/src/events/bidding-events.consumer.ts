@@ -76,7 +76,7 @@ export class BiddingEventsConsumer {
         `Failed to handle service_request.published for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context);
+      this.nackMessage(context, true);
     }
   }
 
@@ -128,7 +128,7 @@ export class BiddingEventsConsumer {
         `Failed to handle service_request.cancelled for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context);
+      this.nackMessage(context, true);
     }
   }
 
@@ -189,7 +189,7 @@ export class BiddingEventsConsumer {
         `Failed to handle order.created for request ${serviceRequestId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context);
+      this.nackMessage(context, true);
     }
   }
 
@@ -221,7 +221,7 @@ export class BiddingEventsConsumer {
         `Failed to expire round ${roundId}: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      this.nackMessage(context);
+      this.nackMessage(context, true);
     }
   }
 
@@ -236,13 +236,17 @@ export class BiddingEventsConsumer {
     eventId: string,
     eventType: string,
   ): Promise<void> {
-    await this.prisma.consumedEvent.create({
-      data: {
-        eventId,
-        eventType,
-        consumedAt: new Date(),
-      },
-    });
+    try {
+      await this.prisma.consumedEvent.create({
+        data: {
+          eventId,
+          eventType,
+          consumedAt: new Date(),
+        },
+      });
+    } catch {
+      // Idempotent duplicate-key handling
+    }
   }
 
   private ackMessage(context: any): void {
@@ -255,13 +259,24 @@ export class BiddingEventsConsumer {
     }
   }
 
-  private nackMessage(context: any): void {
+  private nackMessage(context: any, isTransient = true): void {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
       const originalMsg = context.getMessage?.();
       if (channel && originalMsg) {
-        // Do not requeue corrupted / permanently failing events directly into a tight loop
-        channel.nack(originalMsg, false, false);
+        // F10: Read x-death header for retry count to allow bounded retries
+        const deathHeader = originalMsg.properties?.headers?.['x-death'];
+        const retryCount =
+          Array.isArray(deathHeader) && deathHeader.length > 0
+            ? Number(deathHeader[0].count || 0)
+            : 0;
+
+        // Bounded retry: requeue up to 3 times for transient failures
+        const shouldRequeue = isTransient && retryCount < 3;
+        channel.nack(originalMsg, false, shouldRequeue);
+        this.logger.warn(
+          `Message ${originalMsg.properties?.messageId || 'unknown'} nacked (requeue=${shouldRequeue}, retryCount=${retryCount})`,
+        );
       }
     }
   }

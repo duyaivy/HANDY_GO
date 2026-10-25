@@ -32,6 +32,7 @@ describe('BidsService', () => {
       },
       outboxEvent: {
         create: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
       },
       $transaction: vi.fn(async (cb: (tx: any) => any) => {
         return cb(prismaMock);
@@ -456,6 +457,51 @@ describe('BidsService', () => {
 
       // Outbox event bidding.round.extended should be created
       expect(prismaMock.outboxEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'bidding.round.extended',
+          }),
+        }),
+      );
+    });
+
+    it('should NOT extend closesAt when anti-sniping has reached max extensions cap (3 times)', async () => {
+      const now = Date.now();
+      const closesAtSoon = new Date(now + 20 * 1000); // 20s remaining
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-1',
+        serviceRequestId: 'req-1',
+        status: 'open',
+        closesAt: closesAtSoon,
+      });
+
+      prismaMock.bid.findUnique.mockResolvedValue(null);
+      prismaMock.outboxEvent.count.mockResolvedValue(3); // Already extended 3 times
+      prismaMock.bid.create.mockResolvedValue({
+        id: 'bid-new',
+        biddingRoundId: 'round-1',
+        serviceRequestId: 'req-1',
+        workerId: 'worker-1',
+        amount: 250000,
+        status: 'active',
+        version: 1,
+        submittedAt: new Date(),
+      });
+
+      await service.submitBid('worker-1', 'req-1', { amount: 250000 });
+
+      // Round closesAt should NOT be updated with extension
+      expect(prismaMock.biddingRound.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            closesAt: expect.any(Date),
+          }),
+        }),
+      );
+
+      // No bidding.round.extended event should be created
+      expect(prismaMock.outboxEvent.create).not.toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             eventType: 'bidding.round.extended',

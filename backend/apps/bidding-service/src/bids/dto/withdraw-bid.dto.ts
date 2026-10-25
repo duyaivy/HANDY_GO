@@ -1,17 +1,16 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class WithdrawBidDto {
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: 'Số phiên bản hiện tại của báo giá để khóa lạc quan chống xung đột',
     example: 1,
   })
-  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  version?: number;
+  version: number;
 
   @ApiPropertyOptional({
     description: 'Lý do thợ rút lại báo giá',

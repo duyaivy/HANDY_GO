@@ -51,6 +51,15 @@ export class WorkerProfileEnricherService {
     const missingIds: string[] = [];
     const now = Date.now();
 
+    // Cache Eviction: Dọn dẹp các mục hết hạn nếu kích thước cache vượt quá 200
+    if (this.cache.size > 200) {
+      for (const [key, value] of this.cache.entries()) {
+        if (value.expiresAt <= now) {
+          this.cache.delete(key);
+        }
+      }
+    }
+
     // 1. Kiểm tra cache trước
     for (const id of uniqueIds) {
       const cached = this.cache.get(id);

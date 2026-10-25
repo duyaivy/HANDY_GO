@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -14,10 +15,15 @@ export class SubmitBidDto {
     description: 'Mức giá đề xuất của thợ cho yêu cầu dịch vụ (VNĐ)',
     example: 250000,
     minimum: 1000,
+    maximum: 9999999999,
   })
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber(
+    { maxDecimalPlaces: 2 },
+    { message: 'Báo giá không được có quá 2 chữ số thập phân' },
+  )
   @Min(1000, { message: 'Báo giá phải tối thiểu là 1,000 VND' })
+  @Max(9999999999, { message: 'Báo giá không được vượt quá 9,999,999,999 VND' })
   amount!: number;
 
   @ApiPropertyOptional({

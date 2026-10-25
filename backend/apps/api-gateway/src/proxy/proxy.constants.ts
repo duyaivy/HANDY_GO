@@ -6,6 +6,7 @@ export interface ServiceRouteConfig {
   prefixes: readonly string[];
   pathRewrite?: (path: string, req: Request) => string;
   timeoutEnvKey?: string;
+  customMatch?: (pathname: string) => boolean;
 }
 
 export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
@@ -34,14 +35,21 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     prefixes: ['/api/v1/catalog', '/api/v1/categories', '/api/v1/services'],
   },
   {
-    upstreamName: 'order-service',
-    envKey: 'ORDER_SERVICE_URL',
-    prefixes: ['/api/v1/orders'],
-  },
-  {
     upstreamName: 'bidding-service',
     envKey: 'BIDDING_SERVICE_URL',
-    prefixes: ['/api/v1/bids', '/api/v1/requests'],
+    prefixes: ['/api/v1/bids'],
+    customMatch: (pathname: string) =>
+      pathname === '/api/v1/bids' ||
+      pathname.startsWith('/api/v1/bids/') ||
+      pathname.startsWith('/api/v1/bids?') ||
+      /^\/api\/v1\/requests\/[^/?#]+\/(bids|bidding-status)(\/.*)?(\?.*)?$/.test(
+        pathname,
+      ),
+  },
+  {
+    upstreamName: 'order-service',
+    envKey: 'ORDER_SERVICE_URL',
+    prefixes: ['/api/v1/orders', '/api/v1/requests'],
   },
   {
     upstreamName: 'matching-service',

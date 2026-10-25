@@ -5,26 +5,50 @@ import { randomUUID } from 'crypto';
 
 const CONNECTION_STRING =
   process.env.DATABASE_URL_BIDDING ||
-  process.env.DATABASE_URL ||
-  'postgresql://postgres.pkdvnwcjqlgrbmjokako:handygo@1234!!!@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres';
+  process.env.DATABASE_URL_TEST ||
+  process.env.DATABASE_URL;
 
 describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30000 }, () => {
-  let prisma: PrismaClient;
+  let prisma: PrismaClient | null = null;
+  const createdOutboxIds: string[] = [];
+  const createdRoundIds: string[] = [];
 
   beforeAll(async () => {
+    if (!CONNECTION_STRING) {
+      console.warn('⚠️ No DATABASE_URL_BIDDING or DATABASE_URL_TEST provided. Skipping reliability tests.');
+      return;
+    }
     const adapter = new PrismaPg({ connectionString: CONNECTION_STRING });
     prisma = new PrismaClient({ adapter });
     await prisma.$connect();
-    console.log('✅ Connected to Supabase DB for Reliability Testing.');
+    console.log('✅ Connected to DB for Reliability Testing.');
   });
 
   afterAll(async () => {
     if (prisma) {
+      try {
+        if (createdOutboxIds.length > 0) {
+          await prisma.outboxEvent.deleteMany({
+            where: { id: { in: createdOutboxIds } },
+          });
+        }
+        if (createdRoundIds.length > 0) {
+          await prisma.biddingRound.deleteMany({
+            where: { id: { in: createdRoundIds } },
+          });
+        }
+      } catch {
+        // best-effort cleanup
+      }
       await prisma.$disconnect();
     }
   });
 
-  it('1. Outbox Relay Worker: Tự động quét event pending, publish sang RabbitMQ và chuyển sang published', async () => {
+  it('1. Outbox Relay Worker: Tự động quét event pending, publish sang RabbitMQ và chuyển sang published', async (ctx) => {
+    if (!prisma) {
+      ctx.skip();
+      return;
+    }
     const aggregateId = randomUUID();
 
     // 1.1 Ghi một sự kiện test vào bảng outbox_events ở trạng thái pending
@@ -43,6 +67,7 @@ describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30
       },
     });
 
+    createdOutboxIds.push(createdEvent.id);
     expect(createdEvent).toBeDefined();
     expect(createdEvent.status).toBe('pending');
     console.log(`✅ [Outbox Test] Đã tạo OutboxEvent ID: ${createdEvent.id} với status: pending`);
@@ -73,11 +98,14 @@ describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30
     );
   });
 
-  it('2. Tự động đóng phiên khi hết hạn (Auto Round Expiration Worker)', async () => {
+  it('2. Tự động đóng phiên khi hết hạn (Auto Round Expiration Worker)', async (ctx) => {
+    if (!prisma) {
+      ctx.skip();
+      return;
+    }
     const testRequestId = randomUUID();
 
     // 2.1 Tạo một phiên có closesAt trong quá khứ (-10 giây) nhưng status vẫn là 'open'
-    // Giả lập khách hàng tắt app hoặc không ai gọi API kiểm tra trạng thái
     const overdueRound = await prisma.biddingRound.create({
       data: {
         serviceRequestId: testRequestId,
@@ -88,6 +116,7 @@ describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30
       },
     });
 
+    createdRoundIds.push(overdueRound.id);
     expect(overdueRound).toBeDefined();
     expect(overdueRound.status).toBe('open');
     console.log(`✅ [Expiration Test] Đã tạo phiên quá hạn ID: ${overdueRound.id} với status: open`);
@@ -120,6 +149,10 @@ describe('Bidding Service: Architecture & Reliability Live Tests', { timeout: 30
         eventType: 'bidding.round.closed',
       },
     });
+
+    if (closeOutboxEvent) {
+      createdOutboxIds.push(closeOutboxEvent.id);
+    }
 
     expect(closeOutboxEvent).toBeDefined();
     console.log(`🎉 [Expiration Test] Sự kiện Outbox "bidding.round.closed" đã được ghi nhận ID: ${closeOutboxEvent?.id}`);

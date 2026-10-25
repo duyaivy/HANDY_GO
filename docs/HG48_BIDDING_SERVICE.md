@@ -544,3 +544,25 @@ Nháº±m Ä‘áº£m báº£o há»‡ thá»‘ng váº­n hÃ nh bá»n bá»‰, zero-event-loss vÃ  khÃ
      - **Dead Letter Queue (DLQ)**: Sau 5 láº§n retry tháº¥t báº¡i, sá»± kiá»‡n Ä‘Æ°á»£c Ä‘á»‹nh tuyáº¿n tá»›i queue `handy-go.dlq` vá»›i status `dlq_retry` hoáº·c `failed` Ä‘á»ƒ giÃ¡m sÃ¡t viÃªn can thiá»‡p mÃ  khÃ´ng bao giá» bá»‹ máº¥t tin nháº¯n (zero message loss).
 
 
+
+---
+
+## 10. Gi?i Quy?t Toàn Di?n 13 V?n Ð? T? PR #28 Review
+
+Theo báo cáo rà soát ki?n trúc và b?o m?t PR28_Bidding_Service_Review.md, toàn b? 13 v?n d? (11 P1 và 2 P2) dã du?c x? lý tri?t d?:
+
+| ID | M?c d? | V?n d? | Gi?i pháp dã hoàn thành | Tr?ng thái |
+|:---|:---:|:---|:---|:---:|
+| **F01** | P1 | Hardcoded DB Credential | Ðã lo?i b? hoàn toàn fallback connection string Supabase pooler trong real-db.spec.ts và reliability-rabbitmq.spec.ts. S? d?ng bi?n môi tru?ng chu?n DATABASE_URL_BIDDING / DATABASE_URL_TEST và t? d?ng skip/d?n d?p test data sau khi ch?y. | ? Ðã x? lý |
+| **F02** | P1 | API ghi thi?u xác th?c Trusted Gateway | Áp d?ng assertTrustedGateway và TrustedGatewayGuard xác th?c x-internal-secret b?ng crypto.timingSafeEqual cho toàn b? các endpoint mutation (POST /requests/:id/bids, PATCH /bids/:id, POST /bids/:id/withdraw, GET /bids/me). Lo?i b? quy?n submit thay c?a admin. | ? Ðã x? lý |
+| **F03** | P1 | Chi ti?t báo giá làm rò r? Sealed-Bid | Endpoint GET /bids/:id dã nh?n identity caller (userId, userRoles). N?u ngu?i xem không ph?i khách hàng s? h?u yêu c?u, không ph?i chính th? dó và không ph?i Admin, h? th?ng t? d?ng mask amount: 0, ?n l?i nh?n và che gi?u toàn b? danh sách revisions. | ? Ðã x? lý |
+| **F04** | P1 | Worker Role dùng thay cho Eligibility | T?o RequestEligibilityVerifierService tích h?p g?i n?i b? GET /internal/service-requests/:id/bidding-eligibility sang Order Service d? xác th?c th? và yêu c?u d?ch v? tru?c khi n?p báo giá. | ? Ðã x? lý |
+| **F05** | P1 | Optimistic Lock không n?m trong l?nh DB | B?t bu?c tru?ng version trong WithdrawBidDto. Áp d?ng Atomic Compare-And-Swap (CAS) tx.bid.updateMany theo where: { id, workerId, version, status: 'active' }, ném 409 Conflict ngay khi x?y ra xung d?t d?ng th?i. | ? Ðã x? lý |
+| **F06** | P1 | Lifecycle race conditions | Khóa và xác th?c l?i tr?ng thái status: 'open' cùng deadline closesAt > now c?a phiên báo giá ngay trong database transaction c?a submitBid, reviseBid, withdrawBid. expireRoundIfNeeded áp d?ng CAS không ghi dè tr?ng thái dã dóng. | ? Ðã x? lý |
+| **F07** | P1 | Replay published m? l?i phiên k?t thúc | Trong openRound, n?u round dã ? tr?ng thái terminal (cancelled, finalized, closed, no_bid), h? th?ng t? ch?i m? l?i phiên. Ghi nh?n consumedEvent x? lý duplicate event idempotently. | ? Ðã x? lý |
+| **F08** | P1 | Cancel/Order d?n tru?c Published | Co ch? Tombstone: Khi nh?n service_request.cancelled ho?c order.created mà chua có round do s? ki?n d?n l?ch th? t? m?ng, h? th?ng t? d?ng t?o b?n ghi tombstone ? tr?ng thái cancelled/finalized d? ngan published d?n sau m? phiên ?o. | ? Ðã x? lý |
+| **F09** | P1 | Finalize ch?n Bid ngoài Round | Trong finalizeRound, c?p nh?t selected ràng bu?c ch?t ch? v?i biddingRoundId: round.id, lo?i tr? vi?c ch?n nh?m báo giá c?a yêu c?u d?ch v? khác. Ch? chuy?n rejected cho các báo giá cùng thu?c round dó. | ? Ðã x? lý |
+| **F10** | P1 | Consumer l?i nack không requeue | Trong bidding-events.consumer.ts, d?c header x-death d? phân lo?i l?i transient và th?c hi?n bounded retry (t?i da 3 l?n) tru?c khi dua vào Dead Letter Queue (DLQ). | ? Ðã x? lý |
+| **F11** | P1 | Thi?u SQL Migration kh?i t?o CSDL | Ðã t?o thu m?c và file migration chính th?c 20261025000000_init_bidding/migration.sql và migration_lock.toml s?n sàng tri?n khai trên môi tru?ng database m?i qua prisma:migrate:bidding. | ? Ðã x? lý |
+| **F12** | P2 | Batch-summary b? ch?n b?i Guard | Thêm @Public() và ki?m tra timing-safe x-internal-secret cho route GET internal/workers/batch-summary trong user-trust-service.controller.ts. Thêm validation UUID và gi?i h?n t?i da 100 th?. | ? Ðã x? lý |
+| **F13** | P2 | Ð?m Bid active không lo?i validUntil | C?p nh?t hàm d?m activeBidCount trong getBiddingStatus và expireRoundIfNeeded lo?i tr? các báo giá dã quá h?n validUntil. T? d?ng chuy?n các báo giá h?t h?n sang tr?ng thái expired khi dóng phiên. | ? Ðã x? lý |

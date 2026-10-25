@@ -64,6 +64,7 @@ export class BidsController {
   @ApiParam({ name: 'id', description: 'Mã định danh duy nhất (UUID) của yêu cầu dịch vụ', type: String })
   @ApiHeader({ name: 'x-user-id', description: 'Mã người dùng (Thợ) do API Gateway chuyển tiếp' })
   @ApiHeader({ name: 'x-user-roles', description: 'Vai trò người dùng do API Gateway chuyển tiếp' })
+  @ApiHeader({ name: 'x-internal-secret', description: 'Mã khóa nội bộ từ Trusted Gateway' })
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Gửi báo giá thành công',
@@ -78,7 +79,9 @@ export class BidsController {
     @Body() dto: SubmitBidDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
+    assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.submitBid(workerId, serviceRequestId, dto);
     return buildSuccessResponse(
@@ -96,8 +99,9 @@ export class BidsController {
     @Body() dto: SubmitBidDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
-    return this.submitBid(serviceRequestId, dto, userId, userRoles);
+    return this.submitBid(serviceRequestId, dto, userId, userRoles, internalSecret);
   }
 
   // --------------------------------------------------------------------------
@@ -126,7 +130,9 @@ export class BidsController {
     @Body() dto: ReviseBidDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
+    assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.reviseBid(workerId, bidId, dto);
     return buildSuccessResponse(
@@ -144,7 +150,7 @@ export class BidsController {
       'Thợ tự nguyện rút lại báo giá khi phiên báo giá vẫn đang mở.',
   })
   @ApiParam({ name: 'id', description: 'Mã định danh duy nhất (UUID) của báo giá', type: String })
-  @ApiBody({ type: WithdrawBidDto, required: false })
+  @ApiBody({ type: WithdrawBidDto, required: true })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Rút báo giá thành công',
@@ -155,7 +161,9 @@ export class BidsController {
     @Body() dto: WithdrawBidDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
+    assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.withdrawBid(workerId, bidId, dto);
     return buildSuccessResponse(
@@ -230,7 +238,9 @@ export class BidsController {
     @Query() query: QueryBidsDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret?: string,
   ) {
+    assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.getMyBids(workerId, query);
     return buildSuccessResponse(
@@ -244,8 +254,8 @@ export class BidsController {
   @Get('bids/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Lấy chi tiết báo giá kèm lịch sử điều chỉnh',
-    description: 'Trả về thông tin chi tiết của báo giá cùng toàn bộ lịch sử các lần sửa đổi.',
+    summary: 'Lấy chi tiết báo giá kèm lịch sử điều chỉnh (Tuân thủ Sealed-Bid)',
+    description: 'Trả về thông tin chi tiết của báo giá. Thợ đối thủ không thể xem giá và lịch sử điều chỉnh của người khác.',
   })
   @ApiParam({ name: 'id', description: 'Mã định danh duy nhất (UUID) của báo giá', type: String })
   @ApiResponse({
@@ -259,8 +269,10 @@ export class BidsController {
   })
   async getBidById(
     @Param('id', new ParseUUIDPipe({ version: '4' })) bidId: string,
+    @Headers('x-user-id') userId?: string,
+    @Headers('x-user-roles') userRoles?: string,
   ) {
-    const data = await this.bidsService.getBidById(bidId);
+    const data = await this.bidsService.getBidById(bidId, userId, userRoles);
     return buildSuccessResponse(
       data,
       'Lấy thông tin báo giá thành công',

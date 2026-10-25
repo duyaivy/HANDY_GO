@@ -9,11 +9,11 @@ const INTERNAL_SECRET =
   'handy-go-internal-service-secret-key-12345';
 const CONNECTION_STRING =
   process.env.DATABASE_URL_BIDDING ||
-  process.env.DATABASE_URL ||
-  'postgresql://postgres.pkdvnwcjqlgrbmjokako:handygo@1234!!!@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres';
+  process.env.DATABASE_URL_TEST ||
+  process.env.DATABASE_URL;
 
-describe('Bidding Service Real Database Integration Test (Supabase)', { timeout: 20000 }, () => {
-  let prisma: PrismaClient;
+describe('Bidding Service Real Database Integration Test', { timeout: 20000 }, () => {
+  let prisma: PrismaClient | null = null;
   const testRequestId = randomUUID();
   const worker1Id = randomUUID();
   const worker2Id = randomUUID();
@@ -23,10 +23,14 @@ describe('Bidding Service Real Database Integration Test (Supabase)', { timeout:
   let isHttpServiceAvailable = false;
 
   beforeAll(async () => {
+    if (!CONNECTION_STRING) {
+      console.warn('⚠️ No DATABASE_URL_BIDDING or DATABASE_URL_TEST provided. Skipping real DB tests.');
+      return;
+    }
     const adapter = new PrismaPg({ connectionString: CONNECTION_STRING });
     prisma = new PrismaClient({ adapter });
     await prisma.$connect();
-    console.log('✅ Connected to Supabase PostgreSQL database.');
+    console.log('✅ Connected to PostgreSQL database.');
 
     try {
       const res = await fetch(`${BASE_URL}/health`, {
@@ -68,7 +72,11 @@ describe('Bidding Service Real Database Integration Test (Supabase)', { timeout:
     }
   });
 
-  it('Bước 1: Tạo phiên báo giá thực tế trong DB Supabase (Bidding Round)', async () => {
+  it('Bước 1: Tạo phiên báo giá thực tế trong DB Supabase (Bidding Round)', async (ctx) => {
+    if (!prisma) {
+      ctx.skip();
+      return;
+    }
     const round = await prisma.biddingRound.create({
       data: {
         serviceRequestId: testRequestId,

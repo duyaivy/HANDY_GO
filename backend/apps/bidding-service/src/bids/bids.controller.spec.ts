@@ -8,6 +8,7 @@ describe('BidsController', () => {
   let controller: BidsController;
   let bidsServiceMock: any;
   let configServiceMock: any;
+  const validSecret = 'super-secret-internal-key-1234567890';
 
   beforeEach(() => {
     bidsServiceMock = {
@@ -21,7 +22,7 @@ describe('BidsController', () => {
     };
 
     configServiceMock = {
-      internalServiceSecret: 'super-secret-internal-key-1234567890',
+      internalServiceSecret: validSecret,
     };
 
     controller = new BidsController(
@@ -31,13 +32,26 @@ describe('BidsController', () => {
   });
 
   describe('submitBid', () => {
+    it('should throw ForbiddenException if internal secret is missing or mismatched (F02)', async () => {
+      await expect(
+        controller.submitBid(
+          '00000000-0000-0000-0000-000000000001',
+          { amount: 200000 },
+          'worker-1',
+          'worker',
+          'wrong-secret',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('should throw UnauthorizedException if userId header is missing', async () => {
       await expect(
         controller.submitBid(
           '00000000-0000-0000-0000-000000000001',
           { amount: 200000 },
           undefined,
-          'Worker',
+          'worker',
+          validSecret,
         ),
       ).rejects.toThrow(UnauthorizedException);
     });
@@ -48,12 +62,13 @@ describe('BidsController', () => {
           '00000000-0000-0000-0000-000000000001',
           { amount: 200000 },
           'user-1',
-          'Customer',
+          'customer',
+          validSecret,
         ),
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should call service and return 201 for verified worker', async () => {
+    it('should call service and return 201 for verified worker with valid secret', async () => {
       const mockResult = { id: 'bid-1', amount: 200000 };
       bidsServiceMock.submitBid.mockResolvedValue(mockResult);
 
@@ -61,7 +76,8 @@ describe('BidsController', () => {
         '00000000-0000-0000-0000-000000000001',
         { amount: 200000 },
         'worker-1',
-        'Worker',
+        'worker',
+        validSecret,
       );
 
       expect(bidsServiceMock.submitBid).toHaveBeenCalledWith(
@@ -75,7 +91,19 @@ describe('BidsController', () => {
   });
 
   describe('reviseBid', () => {
-    it('should call reviseBid with workerId from headers', async () => {
+    it('should throw ForbiddenException if internal secret is missing (F02)', async () => {
+      await expect(
+        controller.reviseBid(
+          '00000000-0000-0000-0000-000000000001',
+          { version: 1, amount: 220000 },
+          'worker-1',
+          'worker',
+          undefined,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should call reviseBid with workerId from headers and valid secret', async () => {
       const mockResult = { id: 'bid-1', amount: 220000, version: 2 };
       bidsServiceMock.reviseBid.mockResolvedValue(mockResult);
 
@@ -83,7 +111,8 @@ describe('BidsController', () => {
         '00000000-0000-0000-0000-000000000001',
         { version: 1, amount: 220000 },
         'worker-1',
-        'Worker',
+        'worker',
+        validSecret,
       );
 
       expect(bidsServiceMock.reviseBid).toHaveBeenCalledWith(
@@ -97,17 +126,51 @@ describe('BidsController', () => {
   });
 
   describe('withdrawBid', () => {
-    it('should call withdrawBid and return 200', async () => {
+    it('should throw ForbiddenException if internal secret is missing (F02)', async () => {
+      await expect(
+        controller.withdrawBid(
+          '00000000-0000-0000-0000-000000000001',
+          { version: 1, reason: 'Too busy' },
+          'worker-1',
+          'worker',
+          undefined,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should call withdrawBid and return 200 with valid secret', async () => {
       const mockResult = { id: 'bid-1', status: 'withdrawn' };
       bidsServiceMock.withdrawBid.mockResolvedValue(mockResult);
 
       const response = await controller.withdrawBid(
         '00000000-0000-0000-0000-000000000001',
-        { reason: 'Too busy' },
+        { version: 1, reason: 'Too busy' },
         'worker-1',
-        'Worker',
+        'worker',
+        validSecret,
       );
 
+      expect(response.statusCode).toBe(200);
+      expect(response.data).toEqual(mockResult);
+    });
+  });
+
+  describe('getBidById (F03 Sealed-Bid)', () => {
+    it('should forward current user identity headers to getBidById', async () => {
+      const mockResult = { id: 'bid-1', amount: 200000, isMasked: false };
+      bidsServiceMock.getBidById.mockResolvedValue(mockResult);
+
+      const response = await controller.getBidById(
+        '00000000-0000-0000-0000-000000000001',
+        'worker-1',
+        'worker',
+      );
+
+      expect(bidsServiceMock.getBidById).toHaveBeenCalledWith(
+        '00000000-0000-0000-0000-000000000001',
+        'worker-1',
+        'worker',
+      );
       expect(response.statusCode).toBe(200);
       expect(response.data).toEqual(mockResult);
     });
@@ -137,7 +200,7 @@ describe('BidsController', () => {
           requestId: '00000000-0000-0000-0000-000000000002',
           workerId: '00000000-0000-0000-0000-000000000003',
         },
-        'super-secret-internal-key-1234567890',
+        validSecret,
       );
 
       expect(response.statusCode).toBe(200);

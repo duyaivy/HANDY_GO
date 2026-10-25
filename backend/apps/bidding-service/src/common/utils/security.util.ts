@@ -28,7 +28,7 @@ export function extractWorkerIdentity(
     throw new UnauthorizedException('Authentication required: missing user id');
   }
   const roles = userRoles ? userRoles.split(',').map((r) => r.trim().toLowerCase()) : [];
-  if (!roles.includes('worker') && !roles.includes('admin')) {
+  if (!roles.includes('worker')) {
     throw new ForbiddenException('Only verified workers can perform this bidding action');
   }
   return userId;
