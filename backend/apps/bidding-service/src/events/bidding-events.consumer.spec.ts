@@ -119,6 +119,84 @@ describe('BiddingEventsConsumer', () => {
       await consumer.handleServiceRequestPublished(eventPayload, contextMock);
       expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
     });
+
+    it('fault injection lifecycle: DB down during dead-letter -> requeued -> service restarts -> DB recovers -> event successfully processed (ACK)', async () => {
+      // Phase 1: DB is down for both business logic and dead-letter storage
+      roundsServiceMock.openRound.mockRejectedValue(new Error('DB Connection Refused'));
+      prismaMock.outboxEvent.create.mockRejectedValue(new Error('PostgreSQL unavailable'));
+
+      const eventPayload = {
+        eventId: 'evt-fault-recovery',
+        serviceRequestId: 'req-fault-1',
+        payload: { serviceRequestId: 'req-fault-1' },
+      };
+
+      // Attempt 1, 2, 3 all fail and dead-letter fails -> message is requeued (requeue=true)
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // Phase 2: Consumer service restarts (clean in-memory state)
+      const restartedConsumer = new BiddingEventsConsumer(
+        prismaMock,
+        roundsServiceMock as unknown as RoundsService,
+      );
+
+      // Phase 3: DB recovers
+      roundsServiceMock.openRound.mockResolvedValue({ id: 'round-recovered', status: 'open' });
+
+      // Broker redelivers the requeued message
+      await restartedConsumer.handleServiceRequestPublished(eventPayload, contextMock);
+
+      // Verified: Message was NEVER discarded and is now successfully ACKed!
+      expect(channelMock.ack).toHaveBeenCalled();
+    });
+
+    it('tracks retry attempts across requeues via content hash even if deliveryTag changes and messageId is absent', async () => {
+      roundsServiceMock.openRound.mockRejectedValue(new Error('Transient lock timeout'));
+      prismaMock.outboxEvent.create.mockResolvedValue({ id: 'dlq-ok' });
+
+      const rawJson = JSON.stringify({
+        serviceRequestId: 'req-hash-test',
+        payload: { serviceRequestId: 'req-hash-test' },
+      });
+      const messageContent = Buffer.from(rawJson);
+
+      // Delivery 1: deliveryTag = 101, no messageId
+      const context1 = {
+        getChannelRef: () => channelMock,
+        getMessage: () => ({
+          fields: { deliveryTag: 101 },
+          content: messageContent,
+        }),
+      };
+      await consumer.handleServiceRequestPublished(JSON.parse(rawJson), context1);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // Delivery 2: broker assigns deliveryTag = 102
+      const context2 = {
+        getChannelRef: () => channelMock,
+        getMessage: () => ({
+          fields: { deliveryTag: 102 },
+          content: messageContent,
+        }),
+      };
+      await consumer.handleServiceRequestPublished(JSON.parse(rawJson), context2);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // Delivery 3: broker assigns deliveryTag = 103 -> reaches max retry (3) and dead-letters
+      const context3 = {
+        getChannelRef: () => channelMock,
+        getMessage: () => ({
+          fields: { deliveryTag: 103 },
+          content: messageContent,
+        }),
+      };
+      await consumer.handleServiceRequestPublished(JSON.parse(rawJson), context3);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, false);
+      expect(prismaMock.outboxEvent.create).toHaveBeenCalled();
+    });
   });
 
   describe('handleServiceRequestCancelled (R04/F07)', () => {

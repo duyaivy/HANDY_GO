@@ -105,6 +105,192 @@ describe('OutboxPublisherService', () => {
       expect(emittedEnvelope.data.userId).toBe('u-123');
     });
 
+    it('end-to-end: Auth register-flow outbox event (v3) -> OutboxPublisherService -> UserTrustService consumer successfully provisions user and profiles', async () => {
+      const { RegisterRole } = await import('@app/auth');
+
+      // 1. Outbox record produced by auth-service register-flow.service.ts
+      const authOutboxRecord: OutboxEventEntity = {
+        id: 'evt-auth-v3-e2e',
+        eventType: 'user.registered',
+        eventVersion: 3,
+        payload: {
+          eventId: 'evt-auth-v3-e2e',
+          eventVersion: 3,
+          occurredAt: new Date().toISOString(),
+          producer: 'auth-service',
+          data: {
+            userId: 'user-auth-v3',
+            accountId: 'acc-auth-v3',
+            fullName: 'Nguyen Thi B',
+            roles: [RegisterRole.CUSTOMER, RegisterRole.WORKER],
+          },
+        },
+        status: 'pending',
+        retryCount: 0,
+        nextRetryAt: new Date(),
+      };
+
+      vi.spyOn(repoMock, 'findPendingEvents').mockResolvedValueOnce([authOutboxRecord]);
+
+      // 2. Shared publisher runs
+      await service.publishPendingEvents();
+
+      expect(rabbitmqMock.emit).toHaveBeenCalledWith('user.registered', expect.anything());
+      const publishedEnvelope = (rabbitmqMock.emit as any).mock.calls[0][1];
+
+      // 3. Pass emitted envelope directly to UserTrustServiceService consumer
+      const dbMock: any = {
+        eventInbox: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: publishedEnvelope.eventId }),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: 'user-auth-v3' }),
+        },
+        customerProfile: {
+          upsert: vi.fn().mockResolvedValue({ id: 'prof-cust' }),
+        },
+        workerProfile: {
+          upsert: vi.fn().mockResolvedValue({ id: 'prof-work' }),
+        },
+        $transaction: vi.fn(async (cb: (tx: any) => any) => cb(dbMock)),
+      };
+
+      const { UserTrustServiceService } = await import(
+        '../../../../apps/user-trust-service/src/user-trust-service.service.js'
+      );
+      const userTrustService = new UserTrustServiceService(dbMock);
+
+      const consumerResult = await userTrustService.handleUserRegistered(publishedEnvelope);
+
+      // Verified: Provisioning succeeds without being blocked by nested data or missing roles!
+      expect(consumerResult.processed).toBe(true);
+      expect(consumerResult.idempotent).toBe(false);
+      expect(dbMock.eventInbox.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: 'evt-auth-v3-e2e',
+            producer: 'auth-service',
+          }),
+        }),
+      );
+      expect(dbMock.user.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ id: 'user-auth-v3' }),
+        }),
+      );
+      expect(dbMock.customerProfile.upsert).toHaveBeenCalled();
+      expect(dbMock.workerProfile.upsert).toHaveBeenCalled();
+    });
+
+    it('end-to-end: Auth outbox event (v2) -> OutboxPublisherService -> UserTrustService consumer successfully provisions customer', async () => {
+      const { RegisterRole } = await import('@app/auth');
+
+      const authV2Record: OutboxEventEntity = {
+        id: 'evt-auth-v2-e2e',
+        eventType: 'user.registered',
+        eventVersion: 2,
+        payload: {
+          eventId: 'evt-auth-v2-e2e',
+          eventVersion: 2,
+          occurredAt: new Date().toISOString(),
+          producer: 'auth-service',
+          data: {
+            userId: 'user-auth-v2',
+            accountId: 'acc-auth-v2',
+            fullName: 'Tran Van C',
+            role: RegisterRole.CUSTOMER,
+          },
+        },
+        status: 'pending',
+        retryCount: 0,
+        nextRetryAt: new Date(),
+      };
+
+      vi.spyOn(repoMock, 'findPendingEvents').mockResolvedValueOnce([authV2Record]);
+
+      await service.publishPendingEvents();
+
+      const publishedEnvelope = (rabbitmqMock.emit as any).mock.calls[0][1];
+
+      const dbMock: any = {
+        eventInbox: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: publishedEnvelope.eventId }),
+        },
+        user: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: 'user-auth-v2' }),
+        },
+        customerProfile: {
+          upsert: vi.fn().mockResolvedValue({ id: 'prof-cust-v2' }),
+        },
+        workerProfile: {
+          upsert: vi.fn(),
+        },
+        $transaction: vi.fn(async (cb: (tx: any) => any) => cb(dbMock)),
+      };
+
+      const { UserTrustServiceService } = await import(
+        '../../../../apps/user-trust-service/src/user-trust-service.service.js'
+      );
+      const userTrustService = new UserTrustServiceService(dbMock);
+
+      const consumerResult = await userTrustService.handleUserRegistered(publishedEnvelope);
+
+      expect(consumerResult.processed).toBe(true);
+      expect(consumerResult.idempotent).toBe(false);
+      expect(dbMock.user.create).toHaveBeenCalled();
+      expect(dbMock.customerProfile.upsert).toHaveBeenCalled();
+      expect(dbMock.workerProfile.upsert).not.toHaveBeenCalled();
+    });
+
+    it('end-to-end: Bidding outbox event -> OutboxPublisherService -> Notification validateNotificationEvent passes 100%', async () => {
+      const { randomUUID } = await import('crypto');
+      const bidId = randomUUID();
+      const requestId = randomUUID();
+      const customerId = randomUUID();
+      const outboxId = randomUUID();
+
+      const bidOutboxRecord: OutboxEventEntity = {
+        id: outboxId,
+        aggregateType: 'bid',
+        aggregateId: bidId,
+        eventType: 'bid.submitted',
+        eventVersion: 1,
+        payload: {
+          bidId,
+          serviceRequestId: requestId,
+          requestId,
+          customerId,
+          workerId: randomUUID(),
+          amount: 250000,
+          message: 'Báo giá sửa nước',
+        },
+        status: 'pending',
+        retryCount: 0,
+        nextRetryAt: new Date(),
+      };
+
+      vi.spyOn(repoMock, 'findPendingEvents').mockResolvedValueOnce([bidOutboxRecord]);
+
+      await service.publishPendingEvents();
+
+      const emittedEnvelope = (rabbitmqMock.emit as any).mock.calls[0][1];
+
+      const { validateNotificationEvent } = await import(
+        '../../../../apps/notification-service/src/events/event-contracts.js'
+      );
+
+      const validated = validateNotificationEvent(emittedEnvelope, 'bid.submitted');
+      expect(validated.eventId).toBe(outboxId);
+      expect(validated.source).toBe('bidding-service');
+      expect(validated.data.bidId).toBe(bidId.toLowerCase());
+      expect(validated.data.requestId).toBe(requestId.toLowerCase());
+      expect(validated.data.customerId).toBe(customerId.toLowerCase());
+    });
+
     it('should schedule retry with backoff on publish error (attempts < 5)', async () => {
       const mockEvent: OutboxEventEntity = {
         id: 'event-2',

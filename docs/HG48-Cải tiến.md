@@ -145,7 +145,10 @@ Tài liệu này tổng hợp chi tiết bằng chứng kỹ thuật và kết q
   2. Trong `nackMessage`:
      - Nếu `persistDeadLetter` trả về `true`: Xác nhận đã lưu bản sao bền vững vào PostgreSQL -> an toàn thực hiện `channel.nack(originalMsg, false, false)` để loại bỏ message khỏi hàng đợi và xóa khỏi bộ đệm `retryAttempts`.
      - Nếu `persistDeadLetter` trả về `false`: **TUYỆT ĐỐI KHÔNG BỎ RƠI MESSAGE**. Consumer tự động kích hoạt chế độ dự phòng `shouldRequeue = true`, chờ delay 2 giây và gọi `channel.nack(originalMsg, false, true)` để RabbitMQ giữ lại message trong queue cho đến khi Database hồi phục hoàn toàn.
-  3. Bổ sung Unit Test chuyên biệt trong `bidding-events.consumer.spec.ts`: Mock `prisma.outboxEvent.create` ném ngoại lệ `'Database unavailable'`, xác nhận consumer gọi `channel.nack(msg, false, true)` (requeue=true), chứng minh không bao giờ mất message.
+  3. Bổ sung cơ chế Fingerprinting bằng mã SHA-256 đối với nội dung message (`createHash('sha256')`) khi `eventId` hoặc `messageId` không có sẵn, đảm bảo số lần retry (bounded to 3) được theo dõi chính xác xuyên suốt các lần redelivery dù broker cấp `deliveryTag` mới. Bọc `channel.ack`/`channel.nack` trong `try-catch` an toàn.
+  4. Bổ sung Unit Test chuyên biệt trong `bidding-events.consumer.spec.ts`:
+     - Mock `prisma.outboxEvent.create` ném ngoại lệ `'Database unavailable'`, xác nhận consumer gọi `channel.nack(msg, false, true)` (requeue=true), chứng minh không bao giờ mất message.
+     - Kiểm thử kịch bản Fault Injection hoàn chỉnh: Database lỗi khiến lưu dead-letter thất bại -> message được requeue -> Consumer restart (xóa bộ nhớ RAM) -> Database phục hồi -> message được gửi lại và xử lý thành công (ACK).
 - **File:** `backend/apps/bidding-service/src/events/bidding-events.consumer.ts`, `backend/apps/bidding-service/src/events/bidding-events.consumer.spec.ts`.
 
 #### F-B: Bảo toàn DomainEvent Envelope trong Shared OutboxPublisherService (Chống phá vỡ Auth Provisioning)
@@ -167,7 +170,10 @@ Tài liệu này tổng hợp chi tiết bằng chứng kỹ thuật và kết q
      ```
   2. Nếu payload **đã là envelope** (Auth Service, User-Trust Service): Giữ nguyên toàn bộ cấu trúc cấp ngoài (`eventId`, `eventVersion`, `producer`, `source`, `occurredAt`, và đặc biệt là `data: payloadObj.data`, `payload: payloadObj.data`), không bọc thêm bất kỳ lớp nào.
   3. Nếu payload là **raw business data** (Bidding Service): Đóng gói chuẩn CloudEvent envelope (`eventId`, `eventType`, `eventVersion`, `source`, `occurredAt`, `data: payloadObj`, `payload: payloadObj`).
-  4. Bổ sung Unit Test chuyên biệt trong `outbox-publisher.service.spec.ts`: Xác thực `user.registered` v3 giữ nguyên `data.roles` và `data.userId`, `data.data` không tồn tại, đồng thời đảm bảo test notification của Bidding Service tiếp tục pass 100%.
+  4. Bổ sung Integration Test xuyên service hoàn chỉnh trong `outbox-publisher.service.spec.ts`:
+     - Luồng Auth `register-flow` (v3) -> `OutboxPublisherService` -> chuyển trực tiếp vào `UserTrustServiceService.handleUserRegistered`: xác thực `processed: true`, user và profile customer/worker được tạo đầy đủ.
+     - Luồng Auth v2 -> `OutboxPublisherService` -> `UserTrustServiceService.handleUserRegistered`: xác thực `processed: true`.
+     - Luồng Bidding (`bid.submitted`, `bid.revised`) -> `OutboxPublisherService` -> `validateNotificationEvent` của Notification Service: pass 100% với `source: 'bidding-service'` và đầy đủ IDs.
 - **File:** `backend/libs/common/src/outbox/outbox-publisher.service.ts`, `backend/libs/common/src/outbox/outbox-publisher.service.spec.ts`.
 
 ---

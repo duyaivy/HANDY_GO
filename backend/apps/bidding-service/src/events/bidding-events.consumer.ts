@@ -1,6 +1,6 @@
 import { Controller, Logger, BadRequestException } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { EVENT_PATTERNS } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoundsService } from '../rounds/rounds.service.js';
@@ -214,7 +214,13 @@ export class BiddingEventsConsumer {
       const channel = context.getChannelRef();
       const originalMsg = context.getMessage?.();
       if (channel && originalMsg) {
-        channel.ack(originalMsg);
+        try {
+          channel.ack(originalMsg);
+        } catch (ackError) {
+          this.logger.error(
+            `Failed to ack message ${key || 'unknown'}: ${(ackError as Error).message}`,
+          );
+        }
       }
     }
   }
@@ -233,7 +239,10 @@ export class BiddingEventsConsumer {
         const key =
           messageKey ||
           originalMsg.properties?.messageId ||
-          String(originalMsg.fields?.deliveryTag);
+          originalMsg.properties?.correlationId ||
+          (originalMsg.content
+            ? createHash('sha256').update(originalMsg.content).digest('hex')
+            : String(originalMsg.fields?.deliveryTag));
 
         const currentAttempts = (this.retryAttempts.get(key) || 0) + 1;
         this.retryAttempts.set(key, currentAttempts);
@@ -270,10 +279,16 @@ export class BiddingEventsConsumer {
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
 
-        channel.nack(originalMsg, false, shouldRequeue);
-        this.logger.warn(
-          `Message ${key} nacked (requeue=${shouldRequeue}, attempts=${currentAttempts})`,
-        );
+        try {
+          channel.nack(originalMsg, false, shouldRequeue);
+          this.logger.warn(
+            `Message ${key} nacked (requeue=${shouldRequeue}, attempts=${currentAttempts})`,
+          );
+        } catch (nackError) {
+          this.logger.error(
+            `Failed to nack message ${key}: ${(nackError as Error).message}`,
+          );
+        }
       }
     }
   }
