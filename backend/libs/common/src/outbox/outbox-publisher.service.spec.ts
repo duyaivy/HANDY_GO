@@ -54,6 +54,57 @@ describe('OutboxPublisherService', () => {
       expect(repoMock.markPublished).toHaveBeenCalledWith('event-1', expect.any(Date));
     });
 
+    it('should preserve already structured DomainEvent envelope (e.g. Auth user.registered version 3) without double wrapping data (F-B)', async () => {
+      const authPayload = {
+        eventId: 'evt-auth-123',
+        eventVersion: 3,
+        occurredAt: '2026-10-26T12:00:00.000Z',
+        producer: 'auth-service',
+        data: {
+          userId: 'u-123',
+          accountId: 'acc-123',
+          fullName: 'Nguyen Van A',
+          roles: ['CUSTOMER', 'WORKER'],
+        },
+      };
+
+      const mockEvent: OutboxEventEntity = {
+        id: 'evt-auth-123',
+        eventType: 'user.registered',
+        eventVersion: 3,
+        payload: authPayload,
+        status: 'pending',
+        retryCount: 0,
+        nextRetryAt: new Date(),
+      };
+
+      vi.spyOn(repoMock, 'findPendingEvents').mockResolvedValueOnce([mockEvent]);
+
+      const count = await service.publishPendingEvents();
+
+      expect(count).toBe(1);
+      expect(rabbitmqMock.emit).toHaveBeenCalledWith(
+        'user.registered',
+        expect.objectContaining({
+          eventId: 'evt-auth-123',
+          eventType: 'user.registered',
+          eventVersion: 3,
+          producer: 'auth-service',
+          source: 'auth-service',
+          data: {
+            userId: 'u-123',
+            accountId: 'acc-123',
+            fullName: 'Nguyen Van A',
+            roles: ['CUSTOMER', 'WORKER'],
+          },
+        }),
+      );
+      const emittedEnvelope = (rabbitmqMock.emit as any).mock.calls[0][1];
+      expect(emittedEnvelope.data.data).toBeUndefined();
+      expect(emittedEnvelope.data.roles).toEqual(['CUSTOMER', 'WORKER']);
+      expect(emittedEnvelope.data.userId).toBe('u-123');
+    });
+
     it('should schedule retry with backoff on publish error (attempts < 5)', async () => {
       const mockEvent: OutboxEventEntity = {
         id: 'event-2',

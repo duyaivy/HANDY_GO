@@ -96,6 +96,29 @@ describe('BiddingEventsConsumer', () => {
         }),
       );
     });
+
+    it('should requeue message if DB fails during dead-letter persistence (zero message loss F-A)', async () => {
+      roundsServiceMock.openRound.mockRejectedValue(new Error('DB Connection Timeout'));
+      prismaMock.outboxEvent.create.mockRejectedValue(new Error('Database unavailable'));
+
+      const eventPayload = {
+        eventId: 'evt-db-outage',
+        serviceRequestId: 'req-db-outage',
+        payload: { serviceRequestId: 'req-db-outage' },
+      };
+
+      // 1st attempt -> requeue: true
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // 2nd attempt -> requeue: true
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+
+      // 3rd attempt -> DB fails when saving dead-letter -> requeue MUST be true!
+      await consumer.handleServiceRequestPublished(eventPayload, contextMock);
+      expect(channelMock.nack).toHaveBeenLastCalledWith(expect.anything(), false, true);
+    });
   });
 
   describe('handleServiceRequestCancelled (R04/F07)', () => {

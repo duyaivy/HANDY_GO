@@ -89,11 +89,10 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
               : { value: event.payload };
 
           const aggType = event.aggregateType || 'event';
-          const source =
-            payloadObj.source ||
-            (aggType === 'bid' || aggType === 'bidding_round'
+          const defaultSource =
+            aggType === 'bid' || aggType === 'bidding_round'
               ? 'bidding-service'
-              : `${aggType}-service`);
+              : `${aggType}-service`;
 
           const occurredAt =
             payloadObj.occurredAt ||
@@ -101,15 +100,52 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
               ? new Date(event.createdAt).toISOString()
               : new Date().toISOString());
 
-          const envelope = {
-            eventId: event.id,
-            eventType: event.eventType,
-            eventVersion: event.eventVersion || 1,
-            source,
-            occurredAt,
-            data: payloadObj,
-            payload: payloadObj,
-          };
+          // Check if payload is ALREADY a structured DomainEvent/Envelope (e.g. from auth-service, user-trust-service)
+          const isAlreadyEnveloped = Boolean(
+            payloadObj &&
+              typeof payloadObj === 'object' &&
+              payloadObj.data &&
+              typeof payloadObj.data === 'object' &&
+              !Array.isArray(payloadObj.data),
+          );
+
+          let envelope: Record<string, any>;
+
+          if (isAlreadyEnveloped) {
+            // Preserve the existing DomainEvent envelope structure without double wrapping data
+            const producer =
+              payloadObj.producer ||
+              payloadObj.source ||
+              payloadObj.sourceService ||
+              defaultSource;
+
+            envelope = {
+              ...payloadObj,
+              eventId: payloadObj.eventId || event.id,
+              eventType: payloadObj.eventType || event.eventType,
+              eventVersion: payloadObj.eventVersion || event.eventVersion || 1,
+              producer,
+              source: producer,
+              occurredAt: payloadObj.occurredAt || occurredAt,
+              data: payloadObj.data,
+              payload: payloadObj.data,
+            };
+          } else {
+            // Raw business payload (e.g. from bidding-service): wrap into standard CloudEvent envelope
+            const source =
+              payloadObj.source || payloadObj.producer || defaultSource;
+
+            envelope = {
+              eventId: event.id,
+              eventType: event.eventType,
+              eventVersion: event.eventVersion || 1,
+              source,
+              producer: source,
+              occurredAt,
+              data: payloadObj,
+              payload: payloadObj,
+            };
+          }
 
           await this.rabbitmq.emit(event.eventType, envelope);
 

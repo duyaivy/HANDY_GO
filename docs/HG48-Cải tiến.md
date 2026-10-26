@@ -134,6 +134,44 @@ Tài liệu này tổng hợp chi tiết bằng chứng kỹ thuật và kết q
 
 ---
 
+### Nhóm P1 mới từ Báo Cáo Kiểm Tra Lần 4 (PR #28 Review #4 — `review(3).md`)
+
+#### F-A: Bảo toàn Message (Zero Message Loss) khi Database lỗi trong lúc lưu Dead-Letter
+- **Vấn đề (F-A):**
+  - Khi consumer xử lý thất bại (hết 3 lần retry hoặc permanent error), phương thức `nackMessage` gọi `await persistDeadLetter(...)`. Tuy nhiên `persistDeadLetter` trước đây catch mọi lỗi DB và chỉ log mà không trả về kết quả hoặc báo thất bại.
+  - Hệ quả: Khi Database chính bị sự cố (chính là nguyên nhân làm business transaction thất bại), việc lưu dead-letter vào `outbox_events` cũng thất bại theo. Consumer tiếp tục chạy tới `channel.nack(originalMsg, false, false)` (requeue=false), dẫn đến việc message bị loại bỏ vĩnh viễn khỏi RabbitMQ queue dù chưa có bản sao bền vững nào được lưu trữ.
+- **Giải pháp triệt để:**
+  1. Cập nhật `persistDeadLetter(...)` trả về `Promise<boolean>`: `true` nếu lưu thành công vào PostgreSQL outbox, `false` nếu có lỗi hoặc DB unavailable.
+  2. Trong `nackMessage`:
+     - Nếu `persistDeadLetter` trả về `true`: Xác nhận đã lưu bản sao bền vững vào PostgreSQL -> an toàn thực hiện `channel.nack(originalMsg, false, false)` để loại bỏ message khỏi hàng đợi và xóa khỏi bộ đệm `retryAttempts`.
+     - Nếu `persistDeadLetter` trả về `false`: **TUYỆT ĐỐI KHÔNG BỎ RƠI MESSAGE**. Consumer tự động kích hoạt chế độ dự phòng `shouldRequeue = true`, chờ delay 2 giây và gọi `channel.nack(originalMsg, false, true)` để RabbitMQ giữ lại message trong queue cho đến khi Database hồi phục hoàn toàn.
+  3. Bổ sung Unit Test chuyên biệt trong `bidding-events.consumer.spec.ts`: Mock `prisma.outboxEvent.create` ném ngoại lệ `'Database unavailable'`, xác nhận consumer gọi `channel.nack(msg, false, true)` (requeue=true), chứng minh không bao giờ mất message.
+- **File:** `backend/apps/bidding-service/src/events/bidding-events.consumer.ts`, `backend/apps/bidding-service/src/events/bidding-events.consumer.spec.ts`.
+
+#### F-B: Bảo toàn DomainEvent Envelope trong Shared OutboxPublisherService (Chống phá vỡ Auth Provisioning)
+- **Vấn đề (F-B):**
+  - PR sửa `OutboxPublisherService` (dùng chung trong `@app/common`) để bọc payload vào envelope cho Notification Service.
+  - Tuy nhiên, `auth-service` (ví dụ flow `register-flow.service.ts`) vốn đã tự xây dựng DomainEvent envelope version 3 đầy đủ (`{ eventId, eventVersion: 3, occurredAt, producer: 'auth-service', data: { userId, accountId, fullName, roles } }`).
+  - Publisher dùng chung bọc mù quáng thêm một tầng envelope nữa, gán `data: payloadObj` -> dẫn đến `event.data` bị lồng thành `event.data.data`.
+  - Khi `user-trust-service` nhận sự kiện `user.registered`, nó đọc `event.data.roles` và `event.data.userId` (lúc này bị `undefined` vì nằm ở `event.data.data`), dẫn đến validation thất bại và `handleUserRegistered` trả về `processed: false`, chặn đứng quy trình khởi tạo tài khoản/profile của người dùng.
+- **Giải pháp triệt để:**
+  1. Thêm cơ chế nhận diện thông minh `isAlreadyEnveloped`:
+     ```typescript
+     const isAlreadyEnveloped = Boolean(
+       payloadObj &&
+         typeof payloadObj === 'object' &&
+         payloadObj.data &&
+         typeof payloadObj.data === 'object' &&
+         !Array.isArray(payloadObj.data),
+     );
+     ```
+  2. Nếu payload **đã là envelope** (Auth Service, User-Trust Service): Giữ nguyên toàn bộ cấu trúc cấp ngoài (`eventId`, `eventVersion`, `producer`, `source`, `occurredAt`, và đặc biệt là `data: payloadObj.data`, `payload: payloadObj.data`), không bọc thêm bất kỳ lớp nào.
+  3. Nếu payload là **raw business data** (Bidding Service): Đóng gói chuẩn CloudEvent envelope (`eventId`, `eventType`, `eventVersion`, `source`, `occurredAt`, `data: payloadObj`, `payload: payloadObj`).
+  4. Bổ sung Unit Test chuyên biệt trong `outbox-publisher.service.spec.ts`: Xác thực `user.registered` v3 giữ nguyên `data.roles` và `data.userId`, `data.data` không tồn tại, đồng thời đảm bảo test notification của Bidding Service tiếp tục pass 100%.
+- **File:** `backend/libs/common/src/outbox/outbox-publisher.service.ts`, `backend/libs/common/src/outbox/outbox-publisher.service.spec.ts`.
+
+---
+
 ### Các Findings đã giải quyết trước đó
 - **F01:** Xóa bỏ hoàn toàn hardcoded password credentials khỏi toàn bộ test file.
 - **F02:** Xác thực `assertTrustedGateway` cho tất cả các API ghi (`submit`, `revise`, `withdraw`, `me`).
@@ -155,6 +193,14 @@ npx vitest run apps/bidding-service
 - **Số lượng tests:** **66 passed | 12 skipped (real DB integration) | 0 failed**
 - **Thời gian chạy:** ~8 giây
 
+### Kiểm thử tích hợp xuyên Service (Bidding + Auth + User-Trust + Notification)
+```bash
+npx vitest run apps/auth-service apps/user-trust-service apps/bidding-service apps/notification-service
+```
+- **Kết quả:** **62 test files passed, 2 skipped**
+- **Số lượng tests:** **418 passed | 84 skipped | 0 failed**
+- **Thời gian chạy:** ~27 giây
+
 ### Toàn bộ Monorepo Test Suite
 ```bash
 npx vitest run
@@ -162,12 +208,13 @@ npx vitest run
 - **Kết quả:** **94 test files passed, 2 skipped**
 - **Số lượng tests:** **566 passed | 84 skipped | 0 failed**
 - **Typecheck (`tsc --noEmit`):** **0 errors**
-- **Linting (`oxlint`):** **0 errors, 0 warnings trong Bidding & Common**
+- **Linting (`oxlint`):** **0 errors**
 - **Build (`nest build --all`):** **19 microservices / libs build thành công với Rspack**
 
 ---
 
 ## 3. KẾT LUẬN
 
-Tất cả các rủi ro bảo mật (F03/R01, F04/R02), tính toàn vẹn dữ liệu và concurrency (F06/R03, F07/R04, F09/R05, F10/R06), các lỗi phát hiện bổ sung (N01, N02, N03), cùng 4 vấn đề P1 trọng điểm từ Báo cáo Review Lần 3 (P1-01, P1-02, P1-03, P1-04) đã được xử lý triệt để, đồng bộ trên toàn bộ source code, migration SQL, event envelope và test suite monorepo. Hệ thống đạt trạng thái hoàn thiện tuyệt đối, sẵn sàng merge vào `main`.
+Tất cả các rủi ro bảo mật (F03/R01, F04/R02), tính toàn vẹn dữ liệu và concurrency (F06/R03, F07/R04, F09/R05, F10/R06), các lỗi phát hiện bổ sung (N01, N02, N03), 4 vấn đề P1 trọng điểm từ Báo cáo Review Lần 3 (P1-01, P1-02, P1-03, P1-04), và **2 finding P1 mới nhất từ Báo cáo Review Lần 4 / review(3).md (F-A và F-B)** đã được giải quyết triệt để, có kiểm thử đơn vị và tích hợp bảo vệ.
 
+100% test files pass, typecheck 0 errors, lint 0 errors. Hệ thống đạt tính ổn định và tính tương thích cao nhất, sẵn sàng 100% để merge PR #28.

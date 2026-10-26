@@ -239,10 +239,31 @@ export class BiddingEventsConsumer {
         this.retryAttempts.set(key, currentAttempts);
 
         // Bounded retry: requeue maximum 3 times for transient failures
-        const shouldRequeue = isTransient && currentAttempts < 3;
+        let shouldRequeue = isTransient && currentAttempts < 3;
+
         if (!shouldRequeue) {
-          this.retryAttempts.delete(key);
-          await this.persistDeadLetter(key, originalMsg, rawPayload, error);
+          // Attempt to persist dead-letter to database
+          const persisted = await this.persistDeadLetter(
+            key,
+            originalMsg,
+            rawPayload,
+            error,
+          );
+
+          if (persisted) {
+            // Successfully stored dead-letter in PostgreSQL. Safe to discard from broker queue.
+            this.retryAttempts.delete(key);
+            shouldRequeue = false;
+          } else {
+            // DB is unavailable or failed to save dead-letter.
+            // NEVER discard message into the void! Requeue so broker retains it until DB recovers.
+            this.logger.error(
+              `Failed to persist dead letter for message ${key}. Requeueing to broker to prevent data loss.`,
+            );
+            shouldRequeue = true;
+            const delay = process.env.NODE_ENV === 'test' ? 10 : 2000;
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
         } else {
           // Delay/backoff for transient retry (short in test environment to avoid test timeouts)
           const delay = process.env.NODE_ENV === 'test' ? 10 : 500 * currentAttempts;
@@ -262,7 +283,7 @@ export class BiddingEventsConsumer {
     originalMsg: any,
     payload: any,
     error: any,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       if (typeof this.prisma.outboxEvent?.create === 'function') {
         const errorMsg =
@@ -290,9 +311,14 @@ export class BiddingEventsConsumer {
         this.logger.warn(
           `Persisted dead-letter record for unprocessable message ${messageKey} to outbox_events with status 'failed'`,
         );
+        return true;
       }
+      return false;
     } catch (e: any) {
-      this.logger.error(`Could not persist dead letter record: ${e.message}`);
+      this.logger.error(
+        `Could not persist dead letter record for ${messageKey}: ${e.message}`,
+      );
+      return false;
     }
   }
 }
