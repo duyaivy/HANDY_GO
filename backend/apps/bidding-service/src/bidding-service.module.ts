@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
-import { BiddingServiceController } from './bidding-service.controller.js';
-import { BiddingServiceService } from './bidding-service.service.js';
 import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { PrismaModule } from './prisma/prisma.module.js';
+import { BiddingCommonModule } from './common/bidding-common.module.js';
+import { RoundsModule } from './rounds/rounds.module.js';
+import { BidsModule } from './bids/bids.module.js';
+import { BiddingEventsModule } from './events/bidding-events.module.js';
 
 @Module({
   imports: [
@@ -12,8 +15,13 @@ import { RabbitMQModule } from '@app/rabbitmq';
     LoggerModule.forRoot('bidding-service'),
     HealthModule,
     RabbitMQModule,
+    PrismaModule,
+    BiddingCommonModule,
+    RoundsModule,
+    BidsModule,
+    BiddingEventsModule,
   ],
-  controllers: [BiddingServiceController],
-  providers: [BiddingServiceService],
+  controllers: [],
+  providers: [],
 })
 export class BiddingServiceModule {}
