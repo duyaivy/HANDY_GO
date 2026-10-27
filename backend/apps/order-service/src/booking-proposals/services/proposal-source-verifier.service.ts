@@ -91,7 +91,7 @@ export class ProposalSourceVerifierService {
 
     // Real production/staging verification via Bidding Service internal contract
     const rawBiddingUrl =
-      this.config.get('BIDDING_SERVICE_URL') || 'http://localhost:3003';
+      this.config.get('BIDDING_SERVICE_URL') || 'http://localhost:3005';
     const biddingServiceUrl = rawBiddingUrl.replace(/\/+$/, '');
     const internalSecret = this.config.internalServiceSecret;
 
