@@ -86,6 +86,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
   };
 
   beforeAll(async () => {
+    process.env.INTERNAL_SERVICE_SECRET = INTERNAL_SECRET;
     logBanner('KHỞI ĐỘNG TEST SUITE E2E TOÀN BỘ 8 LUỒNG TRONG HỆ THỐNG');
 
     const serviceRequestsServiceMock = {
@@ -808,6 +809,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
     logSuccess(`Đơn hàng chuyển sang trạng thái: [${dispRes1.body.data.status}] (disputed)`);
 
     const adminCancel = await request(app.getHttpServer()).post(`/api/v1/admin/orders/${oDisp1.id}/resolve-dispute`)
+      .set('x-internal-secret', INTERNAL_SECRET)
       .set('x-user-id', ADMIN_ID).set('x-user-roles', 'Admin')
       .send({ action: 'cancel', resolutionNote: 'Xác minh thợ làm hư hại, hủy đơn và bồi hoàn' }).expect(200);
     expect(adminCancel.body.data.status).toBe('cancelled');
@@ -827,6 +829,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
       .send({ reason: 'Khách hàng không liên lạc được để nghiệm thu' }).expect(200);
 
     const adminComplete = await request(app.getHttpServer()).post(`/api/v1/admin/orders/${oDisp2.id}/resolve-dispute`)
+      .set('x-internal-secret', INTERNAL_SECRET)
       .set('x-user-id', ADMIN_ID).set('x-user-roles', 'Admin')
       .send({ action: 'complete', resolutionNote: 'Ảnh nghiệm thu đạt chuẩn, giải ngân cho thợ' }).expect(200);
     expect(adminComplete.body.data.status).toBe('completed');

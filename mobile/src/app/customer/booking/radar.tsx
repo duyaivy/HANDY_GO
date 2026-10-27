@@ -266,31 +266,37 @@ export default function CustomerBookingRadarRoute() {
         }
       }
 
-      if (targetRequestId && !targetRequestId.startsWith('req-mock') && targetRequestId !== '00225617') {
-        await OrdersApi.createProposal({
-          serviceRequestId: targetRequestId,
-          workerUserId: worker.id,
-          selectionSource: 'bid',
-          sourceBidId: worker.bidId,
-          agreedPrice: worker.price,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
-          autoAccept: true,
-        });
+      if (!targetRequestId || targetRequestId.startsWith('req-mock') || targetRequestId === '00225617') {
+        Alert.alert(
+          'Không tìm thấy yêu cầu dịch vụ',
+          'Chưa xác định được yêu cầu dịch vụ hợp lệ để gửi đề xuất cho thợ. Vui lòng quay lại tạo yêu cầu.',
+          [{ text: 'Đóng', style: 'cancel' }],
+        );
+        return;
       }
 
-      // Vô hiệu hóa cache React Query để trang Hoạt động fetch đơn hàng mới ngay lập tức
+      await OrdersApi.createProposal({
+        serviceRequestId: targetRequestId,
+        workerUserId: worker.id,
+        selectionSource: 'bid',
+        sourceBidId: worker.bidId,
+        agreedPrice: worker.price,
+        agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
+      });
+
+      // Vô hiệu hóa cache React Query để trang Hoạt động fetch dữ liệu mới
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
       useBookingDraftStore.getState().resetDraft();
 
       Alert.alert(
-        'Đã gửi đề xuất thành công!',
-        `Bạn đã chọn thợ ${worker.name} với giá ${worker.priceText}. Đơn hàng đã được khởi tạo thành công. Bạn có thể theo dõi trong tab Hoạt động.`,
+        'Đã gửi đề xuất dịch vụ!',
+        `Bạn đã chọn thợ ${worker.name} với giá ${worker.priceText}. Đề xuất đã được gửi thành công và đang chờ thợ xác nhận nhận việc.`,
         [
           {
             text: 'Xem hoạt động',
             onPress: () => router.push({
               pathname: RouteNames.CUSTOMER_ORDERS,
-              params: { tab: 'In process' },
+              params: { tab: 'Draft' },
             } as any),
           },
         ],
@@ -299,43 +305,20 @@ export default function CustomerBookingRadarRoute() {
     catch (err: unknown) {
       const errorObj = err as { code?: string; message?: string; response?: { data?: { code?: string; message?: string } } };
       const errorMsg = String(errorObj?.response?.data?.message || errorObj?.message || '');
-      const errorCode = errorObj?.code || errorObj?.response?.data?.code;
-      const isAlreadyOrder
-        = errorCode === 'ORDER_ALREADY_EXISTS'
-          || errorMsg.includes('already been converted')
-          || errorMsg.includes('already exists');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
 
-      if (isAlreadyOrder) {
-        useBookingDraftStore.getState().resetDraft();
-        Alert.alert(
-          'Đơn hàng đã được khởi tạo!',
-          `Yêu cầu của bạn đã được chuyển thành đơn hàng thành công.`,
-          [
-            {
-              text: 'Xem hoạt động',
-              onPress: () => router.push({
-                pathname: RouteNames.CUSTOMER_ORDERS,
-                params: { tab: 'In process' },
-              } as any),
-            },
-          ],
-        );
-      }
-      else {
-        console.error('[RADAR] Error while sending proposal:', errorMsg || err);
-        Alert.alert(
-          'Không thể hoàn tất chọn thợ',
-          errorMsg || 'Đã có lỗi xảy ra khi tạo đề xuất chọn thợ. Vui lòng thử lại.',
-          [
-            {
-              text: 'Đóng',
-              style: 'cancel',
-            },
-          ],
-        );
-      }
+      console.error('[RADAR] Error while sending proposal:', errorMsg || err);
+      Alert.alert(
+        'Không thể gửi đề xuất',
+        errorMsg || 'Đã có lỗi xảy ra khi tạo đề xuất chọn thợ. Vui lòng thử lại.',
+        [
+          {
+            text: 'Đóng',
+            style: 'cancel',
+          },
+        ],
+      );
     }
     finally {
       setIsSubmitting(false);

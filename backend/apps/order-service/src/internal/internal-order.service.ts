@@ -16,6 +16,7 @@ export class InternalOrderService {
    */
   async getBiddingEligibility(
     serviceRequestId: string,
+    workerId?: string,
   ): Promise<BiddingEligibilityResponseDto> {
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: serviceRequestId },
@@ -33,19 +34,24 @@ export class InternalOrderService {
       !request.biddingClosesAt || request.biddingClosesAt > now;
     const isStatusOpen = request.status === 'open_for_bidding';
 
-    const isEligible = isStatusOpen && isDeadlineActive;
+    let isEligible = isStatusOpen && isDeadlineActive;
     let reason: string | undefined;
 
     if (!isStatusOpen) {
       reason = `Service request is in '${request.status}' status, not open for bidding`;
     } else if (!isDeadlineActive) {
       reason = 'Bidding deadline has expired';
+    } else if (workerId && request.customerUserId === workerId) {
+      isEligible = false;
+      reason = 'Khách hàng không thể tự gửi báo giá cho yêu cầu dịch vụ của chính mình';
     }
 
     return {
       serviceRequestId: request.id,
+      eligible: isEligible,
       isEligible,
       status: request.status,
+      requestStatus: request.status,
       biddingClosesAt: request.biddingClosesAt,
       serviceId: request.serviceId,
       customerUserId: request.customerUserId,

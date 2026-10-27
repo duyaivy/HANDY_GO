@@ -39,6 +39,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
   };
 
   beforeAll(async () => {
+    process.env.INTERNAL_SERVICE_SECRET = INTERNAL_SECRET;
     const serviceRequestsServiceMock = {
       createDraft: async (userId: string, dto: any) => {
         const id = crypto.randomUUID();
@@ -376,6 +377,8 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           serviceRequestId: req.id,
           requestCode: req.requestCode,
           status: req.status,
+          requestStatus: req.status,
+          eligible: req.status === 'open_for_bidding',
           isEligible: req.status === 'open_for_bidding',
           biddingClosesAt: req.biddingClosesAt ?? new Date(Date.now() + 86400000).toISOString(),
         };
@@ -615,7 +618,22 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
         .set('x-user-roles', 'customer')
         .expect(200);
 
-      // 2. Submit Booking Proposal from Customer to Worker 1
+      // 2a. Reject Booking Proposal with autoAccept=true (BE-01)
+      await request(app.getHttpServer())
+        .post('/api/v1/booking-proposals')
+        .set('x-user-id', CUSTOMER_ID)
+        .set('x-user-roles', 'customer')
+        .send({
+          serviceRequestId: reqId,
+          workerUserId: WORKER_1_ID,
+          selectionSource: 'bid',
+          agreedPrice: 300000,
+          agreedScope: 'Thử autoAccept',
+          autoAccept: true,
+        })
+        .expect(400);
+
+      // 2b. Submit Booking Proposal from Customer to Worker 1
       const propRes = await request(app.getHttpServer())
         .post('/api/v1/booking-proposals')
         .set('x-user-id', CUSTOMER_ID)
@@ -764,9 +782,32 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
 
       expect(disputeRes.body.data.status).toBe('disputed');
 
-      // Admin queries all orders
+      // Non-admin without internal secret -> 403
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/orders')
+        .set('x-user-id', ADMIN_ID)
+        .set('x-user-roles', 'Admin')
+        .expect(403);
+
+      // Customer or Worker accessing admin endpoint -> 403 even with internal secret
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/orders')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .set('x-user-id', CUSTOMER_ID)
+        .set('x-user-roles', 'customer')
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .get('/api/v1/admin/orders')
+        .set('x-internal-secret', INTERNAL_SECRET)
+        .set('x-user-id', WORKER_1_ID)
+        .set('x-user-roles', 'worker')
+        .expect(403);
+
+      // Admin queries all orders with internal secret
       const adminListRes = await request(app.getHttpServer())
         .get('/api/v1/admin/orders')
+        .set('x-internal-secret', INTERNAL_SECRET)
         .set('x-user-id', ADMIN_ID)
         .set('x-user-roles', 'Admin')
         .expect(200);
@@ -776,6 +817,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
       // Admin resolves dispute
       const resolveRes = await request(app.getHttpServer())
         .post(`/api/v1/admin/orders/${orderId}/resolve-dispute`)
+        .set('x-internal-secret', INTERNAL_SECRET)
         .set('x-user-id', ADMIN_ID)
         .set('x-user-roles', 'Admin')
         .send({

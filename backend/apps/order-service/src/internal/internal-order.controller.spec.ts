@@ -35,7 +35,7 @@ describe('InternalOrderController', () => {
 
       const response = await controller.getBiddingEligibility(mockRequestId);
 
-      expect(serviceMock.getBiddingEligibility).toHaveBeenCalledWith(mockRequestId);
+      expect(serviceMock.getBiddingEligibility).toHaveBeenCalledWith(mockRequestId, undefined);
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.data).toEqual(eligibility);
     });

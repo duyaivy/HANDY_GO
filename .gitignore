@@ -28,9 +28,8 @@ htmlcov/
 !.env.example
 !*.env.example
 
-# Docs ignore except dbml and order-service
+# Docs ignore except dbml
 docs/*
 !docs/dbml/
 !docs/dbml/**
-!docs/order-service/
-!docs/order-service/**
+

@@ -947,4 +947,28 @@ describe('OrdersService', () => {
       expect(result.total).toBe(1);
     });
   });
+
+  describe('adminFindAll (BE-02)', () => {
+    it('should allow Admin to query all orders globally', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.adminFindAll({ page: 1, limit: 10 }, ['Admin']);
+      expect(result.items).toHaveLength(1);
+      expect(result.total).toBe(1);
+      expect(prismaMock.order.findMany).toHaveBeenCalled();
+    });
+
+    it('should throw ForbiddenException if caller has Customer role only', async () => {
+      await expect(
+        service.adminFindAll({ page: 1, limit: 10 }, ['Customer']),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException if caller has Worker role only', async () => {
+      await expect(
+        service.adminFindAll({ page: 1, limit: 10 }, ['Worker']),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
 });

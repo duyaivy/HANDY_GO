@@ -159,7 +159,6 @@ export type CreateBookingProposalPayload = {
   sourceMatchResultId?: string;
   expiresAt?: string;
   supersedesProposalId?: string;
-  autoAccept?: boolean;
 };
 
 export type UploadEvidencePayload = {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { HttpStatus } from '@nestjs/common';
 import { AppException } from '@app/common';
 import { RequestStatus } from '@prisma/order-client';
 import { ServiceRequestsService } from './service-requests.service.js';
@@ -534,6 +535,67 @@ describe('ServiceRequestsService', () => {
       await expect(
         service.deleteMedia(mockRequestId, 'media-999', mockUserId),
       ).rejects.toThrow(AppException);
+    });
+  });
+
+  describe('findById (BE-12)', () => {
+    const mockWorkerA = 'worker-uuid-a';
+    const mockWorkerB = 'worker-uuid-b';
+    const mockRequestWithProposals = {
+      id: mockRequestId,
+      customerUserId: mockUserId,
+      status: RequestStatus.open_for_bidding,
+      media: [],
+      bookingProposals: [
+        { id: 'prop-a', workerUserId: mockWorkerA, agreedPrice: 200000 },
+        { id: 'prop-b', workerUserId: mockWorkerB, agreedPrice: 350000 },
+      ],
+      order: null,
+    };
+
+    it('customer owner can see all nested booking proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockRequestWithProposals);
+
+      const result = await service.findById(mockRequestId, mockUserId, ['Customer']);
+
+      expect(result.bookingProposals).toHaveLength(2);
+      expect(result.bookingProposals).toEqual(mockRequestWithProposals.bookingProposals);
+    });
+
+    it('Admin can see all nested booking proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockRequestWithProposals);
+
+      const result = await service.findById(mockRequestId, 'admin-id', ['Admin']);
+
+      expect(result.bookingProposals).toHaveLength(2);
+    });
+
+    it('non-owner Customer (without Worker role) receives 403 Forbidden', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockRequestWithProposals);
+
+      await expect(
+        service.findById(mockRequestId, 'other-customer', ['Customer']),
+      ).rejects.toMatchObject({
+        status: HttpStatus.FORBIDDEN,
+      });
+    });
+
+    it('Worker A only sees their own nested proposal and cannot see Worker B proposal', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockRequestWithProposals);
+
+      const result = await service.findById(mockRequestId, mockWorkerA, ['Worker']);
+
+      expect(result.bookingProposals).toHaveLength(1);
+      expect(result.bookingProposals[0].workerUserId).toBe(mockWorkerA);
+      expect(result.bookingProposals[0].id).toBe('prop-a');
+    });
+
+    it('Worker without any proposal sees empty proposals list [] and not other proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockRequestWithProposals);
+
+      const result = await service.findById(mockRequestId, 'worker-c', ['Worker']);
+
+      expect(result.bookingProposals).toHaveLength(0);
     });
   });
 });

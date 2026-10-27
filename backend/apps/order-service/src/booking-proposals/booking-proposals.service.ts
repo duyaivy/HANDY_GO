@@ -7,6 +7,7 @@ import {
   type Prisma,
 } from '@prisma/order-client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ProposalSourceVerifierService } from './services/proposal-source-verifier.service.js';
 import {
   ORDER_ERROR_CODES,
   ORDER_ERROR_MESSAGES,
@@ -20,12 +21,23 @@ import { QueryBookingProposalDto } from './dto/query-booking-proposal.dto.js';
 export class BookingProposalsService {
   private readonly logger = new Logger(BookingProposalsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly proposalSourceVerifier: ProposalSourceVerifierService,
+  ) {}
 
   /**
    * Create a new booking proposal or a subsequent immutable revision.
    */
   async create(userId: string, dto: CreateBookingProposalDto) {
+    if (dto.autoAccept) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        'autoAccept=true is not supported. Booking proposals must be accepted by the assigned worker.',
+      );
+    }
+
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: dto.serviceRequestId },
     });
@@ -75,28 +87,66 @@ export class BookingProposalsService {
       );
     }
 
-    // XOR selection source validation
-    if (
-      dto.selectionSource === WorkerSelectionSource.bid &&
-      !dto.sourceBidId
-    ) {
+    // BE-10: Strict XOR selection source validation
+    if (!dto.selectionSource) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        'sourceBidId is required when selectionSource is bid',
+        'selectionSource is required',
       );
     }
 
-    if (
-      dto.selectionSource === WorkerSelectionSource.recommendation &&
-      !dto.sourceMatchResultId
-    ) {
+    const hasBid = Boolean(dto.sourceBidId);
+    const hasRecommendation = Boolean(dto.sourceMatchResultId);
+
+    if (hasBid && hasRecommendation) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        'sourceMatchResultId is required when selectionSource is recommendation',
+        'Both sourceBidId and sourceMatchResultId were provided; exactly one selection source is required',
       );
     }
+
+    if (!hasBid && !hasRecommendation) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        'Either sourceBidId or sourceMatchResultId must be provided',
+      );
+    }
+
+    if (dto.selectionSource === WorkerSelectionSource.bid) {
+      if (!hasBid || hasRecommendation) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'selectionSource is bid: sourceBidId is required and sourceMatchResultId must not be provided',
+        );
+      }
+    } else if (dto.selectionSource === WorkerSelectionSource.recommendation) {
+      if (!hasRecommendation || hasBid) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'selectionSource is recommendation: sourceMatchResultId is required and sourceBidId must not be provided',
+        );
+      }
+    } else {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        `Unsupported selectionSource: ${dto.selectionSource}`,
+      );
+    }
+
+    // Verify source authenticity with external verifier (fail-closed)
+    await this.proposalSourceVerifier.verifyProposalSource({
+      selectionSource: dto.selectionSource,
+      serviceRequestId: dto.serviceRequestId,
+      workerUserId: dto.workerUserId,
+      sourceBidId: dto.sourceBidId,
+      sourceMatchResultId: dto.sourceMatchResultId,
+    });
 
     let revisionNo = 1;
     let supersedesProposalId: string | null = null;
@@ -401,6 +451,17 @@ export class BookingProposalsService {
 
     const isAdmin = roles.some((r) => r.toLowerCase() === 'admin');
     const isOwner = request.customerUserId === userId;
+    const isWorker = roles.some((r) => r.toLowerCase() === 'worker');
+
+    if (!isOwner && !isAdmin) {
+      if (!isWorker) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.FORBIDDEN_ROLE,
+          'You are not authorized to view proposals for this request',
+        );
+      }
+    }
 
     const proposals = await this.prisma.bookingProposal.findMany({
       where: { serviceRequestId },

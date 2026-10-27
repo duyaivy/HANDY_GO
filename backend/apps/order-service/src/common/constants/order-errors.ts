@@ -29,6 +29,9 @@ export const ORDER_ERROR_CODES = {
 
   // 422 Unprocessable Entity
   INCOMPLETE_PUBLISH_PAYLOAD: 'INCOMPLETE_PUBLISH_PAYLOAD',
+
+  // 503 Service Unavailable
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 } as const;
 
 export type OrderErrorCode =
@@ -81,4 +84,6 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
 
   INCOMPLETE_PUBLISH_PAYLOAD:
     'Service request must include serviceId, addressText, coordinates, description, and future scheduledAt to be published',
+  SERVICE_UNAVAILABLE:
+    'External downstream service is temporarily unavailable',
 };

@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -36,8 +37,11 @@ export class InternalOrderController {
     description: 'Bidding eligibility retrieved successfully',
     type: BiddingEligibilityResponseDto,
   })
-  async getBiddingEligibility(@Param('id', ParseUUIDPipe) id: string) {
-    const data = await this.internalOrderService.getBiddingEligibility(id);
+  async getBiddingEligibility(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('workerId') workerId?: string,
+  ) {
+    const data = await this.internalOrderService.getBiddingEligibility(id, workerId);
     return buildSuccessResponse(
       data,
       'Bidding eligibility retrieved successfully',

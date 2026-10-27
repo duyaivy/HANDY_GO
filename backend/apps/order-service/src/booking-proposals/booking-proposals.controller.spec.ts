@@ -71,6 +71,24 @@ describe('BookingProposalsController', () => {
       expect(response.message).toBe('Booking proposal created successfully');
       expect(response.data).toEqual(created);
     });
+
+    it('should throw BadRequestException when autoAccept=true is provided (BE-01)', async () => {
+      const dto: CreateBookingProposalDto = {
+        serviceRequestId: mockRequestId,
+        workerUserId: mockWorkerId,
+        selectionSource: 'bid' as any,
+        sourceBidId: '55555555-5555-5555-5555-555555555555',
+        agreedPrice: 200000,
+        agreedScope: 'Ghi chú',
+        autoAccept: true,
+      };
+
+      await expect(controller.create(mockUserId, dto)).rejects.toThrow(
+        'autoAccept=true is not supported. Booking proposals must be accepted by the assigned worker.',
+      );
+      expect(serviceMock.create).not.toHaveBeenCalled();
+      expect(ordersServiceMock.acceptProposal).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {

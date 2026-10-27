@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -22,6 +23,8 @@ import {
   CurrentUser,
   type RequestUserIdentity,
 } from '../common/decorators/current-user.decorator.js';
+import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
+import { AdminGuard } from '../common/guards/admin.guard.js';
 import { OrdersService } from './orders.service.js';
 import { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
@@ -29,6 +32,7 @@ import { OrderResponseDto } from './dto/order-response.dto.js';
 
 @ApiTags('Admin Orders')
 @ApiBearerAuth()
+@UseGuards(TrustedGatewayGuard, AdminGuard)
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(private readonly ordersService: OrdersService) {}
@@ -47,7 +51,7 @@ export class AdminOrdersController {
     @CurrentUser() user: RequestUserIdentity,
     @Query() query: AdminQueryOrderDto,
   ) {
-    const data = await this.ordersService.adminFindAll(query);
+    const data = await this.ordersService.adminFindAll(query, user.roles);
     return buildSuccessResponse(data, 'Admin orders retrieved successfully');
   }
 

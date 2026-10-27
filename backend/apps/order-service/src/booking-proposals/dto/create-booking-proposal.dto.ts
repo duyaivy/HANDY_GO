@@ -8,9 +8,24 @@ import {
   IsString,
   IsUUID,
   Min,
+  Validate,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { WorkerSelectionSource } from '@prisma/order-client';
+
+@ValidatorConstraint({ name: 'isNotTrue', async: false })
+export class IsNotTrueConstraint implements ValidatorConstraintInterface {
+  validate(value: any, _args?: ValidationArguments) {
+    return value !== true && value !== 'true';
+  }
+
+  defaultMessage(_args?: ValidationArguments) {
+    return 'autoAccept=true is not supported. Booking proposals must be accepted by the assigned worker.';
+  }
+}
 
 export class CreateBookingProposalDto {
   @ApiProperty({
@@ -99,10 +114,12 @@ export class CreateBookingProposalDto {
   supersedesProposalId?: string;
 
   @ApiPropertyOptional({
-    description: 'Auto-accept proposal on worker side for instant dispatch/order creation',
-    example: true,
+    description:
+      'REJECTED: autoAccept=true is strictly forbidden (BE-01). Proposals must be independently accepted by the assigned worker.',
+    example: false,
   })
   @IsOptional()
   @IsBoolean()
+  @Validate(IsNotTrueConstraint)
   autoAccept?: boolean;
 }

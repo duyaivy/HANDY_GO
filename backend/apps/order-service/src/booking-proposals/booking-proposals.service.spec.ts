@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { HttpStatus } from '@nestjs/common';
 import { AppException } from '@app/common';
 import {
   BookingProposalStatus,
@@ -11,6 +12,9 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 describe('BookingProposalsService', () => {
   let service: BookingProposalsService;
   let prismaMock: any;
+  let verifierMock: {
+    verifyProposalSource: ReturnType<typeof vi.fn>;
+  };
 
   const mockCustomerId = '11111111-1111-1111-1111-111111111111';
   const mockWorkerId = '22222222-2222-2222-2222-222222222222';
@@ -42,7 +46,14 @@ describe('BookingProposalsService', () => {
       },
     };
 
-    service = new BookingProposalsService(prismaMock as unknown as PrismaService);
+    verifierMock = {
+      verifyProposalSource: vi.fn().mockResolvedValue(undefined),
+    };
+
+    service = new BookingProposalsService(
+      prismaMock as unknown as PrismaService,
+      verifierMock as any,
+    );
   });
 
   describe('create', () => {
@@ -212,7 +223,60 @@ describe('BookingProposalsService', () => {
       ).rejects.toThrow(AppException);
     });
 
-    it('should throw 400 if selectionSource is recommendation but sourceMatchResultId is missing', async () => {
+    it('should throw 400 if autoAccept=true is passed (BE-01)', async () => {
+      await expect(
+        service.create(mockCustomerId, {
+          serviceRequestId: mockRequestId,
+          workerUserId: mockWorkerId,
+          selectionSource: WorkerSelectionSource.bid,
+          sourceBidId: 'bid-1',
+          agreedPrice: 100000,
+          agreedScope: 'Scope',
+          autoAccept: true,
+        }),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('autoAccept=true is not supported'),
+      });
+    });
+
+    it('should throw 400 if both sourceBidId and sourceMatchResultId are provided (BE-10 XOR)', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
+
+      await expect(
+        service.create(mockCustomerId, {
+          serviceRequestId: mockRequestId,
+          workerUserId: mockWorkerId,
+          selectionSource: WorkerSelectionSource.bid,
+          sourceBidId: 'bid-1',
+          sourceMatchResultId: 'match-1',
+          agreedPrice: 100000,
+          agreedScope: 'Scope',
+        }),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('Both sourceBidId and sourceMatchResultId were provided'),
+      });
+    });
+
+    it('should throw 400 if neither sourceBidId nor sourceMatchResultId is provided (BE-10 XOR)', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
+
+      await expect(
+        service.create(mockCustomerId, {
+          serviceRequestId: mockRequestId,
+          workerUserId: mockWorkerId,
+          selectionSource: WorkerSelectionSource.bid,
+          agreedPrice: 100000,
+          agreedScope: 'Scope',
+        }),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('Either sourceBidId or sourceMatchResultId must be provided'),
+      });
+    });
+
+    it('should throw 400 if selectionSource is recommendation but sourceBidId is sent (BE-10 XOR)', async () => {
       prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
 
       await expect(
@@ -220,10 +284,34 @@ describe('BookingProposalsService', () => {
           serviceRequestId: mockRequestId,
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.recommendation,
+          sourceBidId: 'bid-1',
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
-      ).rejects.toThrow(AppException);
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('sourceMatchResultId is required'),
+      });
+    });
+
+    it('should throw error when proposalSourceVerifier fails (fail-closed)', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
+      verifierMock.verifyProposalSource.mockRejectedValueOnce(
+        new AppException(HttpStatus.SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE', 'Verifier outage'),
+      );
+
+      await expect(
+        service.create(mockCustomerId, {
+          serviceRequestId: mockRequestId,
+          workerUserId: mockWorkerId,
+          selectionSource: WorkerSelectionSource.bid,
+          sourceBidId: 'bid-1',
+          agreedPrice: 100000,
+          agreedScope: 'Scope',
+        }),
+      ).rejects.toMatchObject({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
+      });
     });
 
     it('should throw 409 if an active proposed proposal already exists for this worker', async () => {
@@ -525,6 +613,77 @@ describe('BookingProposalsService', () => {
       await expect(
         service.withdraw(mockProposalId, mockCustomerId),
       ).rejects.toThrow(AppException);
+    });
+  });
+
+  describe('findByServiceRequestId (BE-12)', () => {
+    const proposalsList = [
+      { id: 'prop-1', workerUserId: mockWorkerId, agreedPrice: 200000 },
+      { id: 'prop-2', workerUserId: 'worker-b', agreedPrice: 350000 },
+    ];
+
+    it('allows request owner to see all proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        customerUserId: mockCustomerId,
+      });
+      prismaMock.bookingProposal.findMany.mockResolvedValue(proposalsList);
+
+      const result = await service.findByServiceRequestId(
+        mockRequestId,
+        mockCustomerId,
+        ['Customer'],
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result).toEqual(proposalsList);
+    });
+
+    it('allows Admin to see all proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        customerUserId: mockCustomerId,
+      });
+      prismaMock.bookingProposal.findMany.mockResolvedValue(proposalsList);
+
+      const result = await service.findByServiceRequestId(
+        mockRequestId,
+        'admin-user',
+        ['Admin'],
+      );
+
+      expect(result).toHaveLength(2);
+    });
+
+    it('throws 403 Forbidden if non-owner is Customer (not a worker)', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        customerUserId: mockCustomerId,
+      });
+
+      await expect(
+        service.findByServiceRequestId(mockRequestId, 'other-customer', ['Customer']),
+      ).rejects.toMatchObject({
+        status: HttpStatus.FORBIDDEN,
+      });
+    });
+
+    it('filters proposals for Worker so they only see their own proposals', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        customerUserId: mockCustomerId,
+      });
+      prismaMock.bookingProposal.findMany.mockResolvedValue(proposalsList);
+
+      const result = await service.findByServiceRequestId(
+        mockRequestId,
+        mockWorkerId,
+        ['Worker'],
+      );
+
+      expect(result).toHaveLength(1);
+      expect(result[0].workerUserId).toBe(mockWorkerId);
+      expect(result[0].id).toBe('prop-1');
     });
   });
 });

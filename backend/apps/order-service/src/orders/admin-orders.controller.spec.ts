@@ -42,7 +42,7 @@ describe('AdminOrdersController', () => {
 
       const response = await controller.findAll(user, query);
 
-      expect(serviceMock.adminFindAll).toHaveBeenCalledWith(query);
+      expect(serviceMock.adminFindAll).toHaveBeenCalledWith(query, ['Admin']);
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.message).toBe('Admin orders retrieved successfully');
       expect(response.data).toEqual(paginated);

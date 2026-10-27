@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -61,26 +62,12 @@ export class BookingProposalsController {
     @CurrentUserId() userId: string,
     @Body() dto: CreateBookingProposalDto,
   ) {
-    const data = await this.bookingProposalsService.create(userId, dto);
     if (dto.autoAccept) {
-      try {
-        const order = await this.ordersService.acceptProposal(
-          data.id,
-          dto.workerUserId,
-        );
-        return buildSuccessResponse(
-          { ...data, order },
-          'Booking proposal created and order placed successfully',
-          HttpStatus.CREATED,
-        );
-      } catch (err) {
-        this.logger.error(
-          `Auto-accept failed for proposal ${data.id} and worker ${dto.workerUserId}: ${(err as Error).message}`,
-          (err as Error).stack,
-        );
-        // Fall back to returning the proposal if auto-accept encountered an issue
-      }
+      throw new BadRequestException(
+        'autoAccept=true is not supported. Booking proposals must be accepted by the assigned worker.',
+      );
     }
+    const data = await this.bookingProposalsService.create(userId, dto);
     return buildSuccessResponse(
       data,
       'Booking proposal created successfully',

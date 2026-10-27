@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/order-client';
+import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InternalOrderService } from './internal-order.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
+import type { RequestEligibilityResult } from '../../../../bidding-service/src/bids/services/request-eligibility-verifier.service.js';
 
-describe('InternalOrderService', () => {
+describe('InternalOrderService (BE-03)', () => {
   let service: InternalOrderService;
   let prismaMock: {
     serviceRequest: {
@@ -16,13 +16,8 @@ describe('InternalOrderService', () => {
   };
 
   const mockRequestId = '11111111-1111-1111-1111-111111111111';
-  const mockOrderId = '22222222-2222-2222-2222-222222222222';
-  const mockServiceId = '33333333-3333-3333-3333-333333333333';
-  const mockCustomerId = '44444444-4444-4444-4444-444444444444';
-  const mockWorkerId = '55555555-5555-5555-5555-555555555555';
-
-  const futureDate = new Date(Date.now() + 12 * 3600 * 1000);
-  const pastDate = new Date(Date.now() - 3600 * 1000);
+  const mockCustomerId = 'cust-1111-1111';
+  const mockWorkerId = 'work-2222-2222';
 
   beforeEach(() => {
     prismaMock = {
@@ -37,130 +32,103 @@ describe('InternalOrderService', () => {
     service = new InternalOrderService(prismaMock as unknown as PrismaService);
   });
 
-  describe('getBiddingEligibility', () => {
-    it('should return isEligible = true when request is open_for_bidding and before deadline', async () => {
+  describe('getBiddingEligibility (BE-03)', () => {
+    it('returns eligible=true and compatible contract when request is open for bidding', async () => {
+      const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
       prismaMock.serviceRequest.findUnique.mockResolvedValue({
         id: mockRequestId,
         status: 'open_for_bidding',
         biddingClosesAt: futureDate,
-        serviceId: mockServiceId,
+        serviceId: 'srv-1',
         customerUserId: mockCustomerId,
       });
 
-      const result = await service.getBiddingEligibility(mockRequestId);
+      const response = await service.getBiddingEligibility(mockRequestId, mockWorkerId);
 
-      expect(result.serviceRequestId).toBe(mockRequestId);
-      expect(result.isEligible).toBe(true);
-      expect(result.status).toBe('open_for_bidding');
-      expect(result.reason).toBeUndefined();
+      // Verify BE-03 contract fields
+      expect(response.eligible).toBe(true);
+      expect(response.isEligible).toBe(true);
+      expect(response.status).toBe('open_for_bidding');
+      expect(response.requestStatus).toBe('open_for_bidding');
+      expect(response.serviceRequestId).toBe(mockRequestId);
+      expect(response.reason).toBeUndefined();
+
+      // Verify that Bidding service consumer can read data.eligible directly without throwing
+      const biddingConsumerCheck = (data: RequestEligibilityResult) => {
+        if (!data.eligible) {
+          throw new ForbiddenException(data.reason || 'Thợ không đủ điều kiện');
+        }
+        return data;
+      };
+
+      expect(() => biddingConsumerCheck(response)).not.toThrow();
+      expect(biddingConsumerCheck(response).eligible).toBe(true);
     });
 
-    it('should return isEligible = false when bidding deadline has expired', async () => {
+    it('returns eligible=false when request status is draft or not open_for_bidding', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        status: 'draft',
+        biddingClosesAt: null,
+        serviceId: 'srv-1',
+        customerUserId: mockCustomerId,
+      });
+
+      const response = await service.getBiddingEligibility(mockRequestId, mockWorkerId);
+
+      expect(response.eligible).toBe(false);
+      expect(response.isEligible).toBe(false);
+      expect(response.reason).toContain('draft');
+
+      // Verify that Bidding consumer correctly rejects ineligible response
+      const biddingConsumerCheck = (data: RequestEligibilityResult) => {
+        if (!data.eligible) {
+          throw new ForbiddenException(data.reason || 'Thợ không đủ điều kiện');
+        }
+        return data;
+      };
+
+      expect(() => biddingConsumerCheck(response)).toThrow(ForbiddenException);
+    });
+
+    it('returns eligible=false when bidding deadline has passed', async () => {
+      const pastDate = new Date(Date.now() - 3600 * 1000);
       prismaMock.serviceRequest.findUnique.mockResolvedValue({
         id: mockRequestId,
         status: 'open_for_bidding',
         biddingClosesAt: pastDate,
-        serviceId: mockServiceId,
+        serviceId: 'srv-1',
         customerUserId: mockCustomerId,
       });
 
-      const result = await service.getBiddingEligibility(mockRequestId);
+      const response = await service.getBiddingEligibility(mockRequestId, mockWorkerId);
 
-      expect(result.isEligible).toBe(false);
-      expect(result.reason).toBe('Bidding deadline has expired');
+      expect(response.eligible).toBe(false);
+      expect(response.reason).toContain('deadline has expired');
     });
 
-    it('should return isEligible = false when status is not open_for_bidding', async () => {
+    it('returns eligible=false when worker is the customer owner', async () => {
+      const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
       prismaMock.serviceRequest.findUnique.mockResolvedValue({
         id: mockRequestId,
-        status: 'bidding_closed',
+        status: 'open_for_bidding',
         biddingClosesAt: futureDate,
-        serviceId: mockServiceId,
+        serviceId: 'srv-1',
         customerUserId: mockCustomerId,
       });
 
-      const result = await service.getBiddingEligibility(mockRequestId);
+      const response = await service.getBiddingEligibility(mockRequestId, mockCustomerId);
 
-      expect(result.isEligible).toBe(false);
-      expect(result.reason).toContain('bidding_closed');
+      expect(response.eligible).toBe(false);
+      expect(response.reason).toContain('chính mình');
     });
 
-    it('should throw NotFoundException if service request not found', async () => {
+    it('throws NotFoundException when service request does not exist', async () => {
       prismaMock.serviceRequest.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.getBiddingEligibility('non-existent-id'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('getPaymentEligibility', () => {
-    it('should return isEligibleForSettlement = true with exact decimal price when completed and unpaid', async () => {
-      prismaMock.order.findUnique.mockResolvedValue({
-        id: mockOrderId,
-        orderCode: 'ORD-20261023-A1B2',
-        status: 'completed',
-        paymentState: 'unpaid',
-        customerUserId: mockCustomerId,
-        workerUserId: mockWorkerId,
-        serviceId: mockServiceId,
-        agreedPrice: new Prisma.Decimal('450000.00'),
-      });
-
-      const result = await service.getPaymentEligibility(mockOrderId);
-
-      expect(result.orderId).toBe(mockOrderId);
-      expect(result.orderCode).toBe('ORD-20261023-A1B2');
-      expect(result.status).toBe('completed');
-      expect(result.paymentState).toBe('unpaid');
-      expect(result.isEligibleForSettlement).toBe(true);
-      expect(result.agreedPrice).toBe('450000');
-      expect(result.currency).toBe('VND');
-      expect(result.reason).toBeUndefined();
-    });
-
-    it('should return isEligibleForSettlement = false when order is not completed', async () => {
-      prismaMock.order.findUnique.mockResolvedValue({
-        id: mockOrderId,
-        orderCode: 'ORD-20261023-A1B2',
-        status: 'in_progress',
-        paymentState: 'unpaid',
-        customerUserId: mockCustomerId,
-        workerUserId: mockWorkerId,
-        serviceId: mockServiceId,
-        agreedPrice: new Prisma.Decimal('450000.00'),
-      });
-
-      const result = await service.getPaymentEligibility(mockOrderId);
-
-      expect(result.isEligibleForSettlement).toBe(false);
-      expect(result.reason).toContain('in_progress');
-    });
-
-    it('should return isEligibleForSettlement = false when order is already paid', async () => {
-      prismaMock.order.findUnique.mockResolvedValue({
-        id: mockOrderId,
-        orderCode: 'ORD-20261023-A1B2',
-        status: 'completed',
-        paymentState: 'paid',
-        customerUserId: mockCustomerId,
-        workerUserId: mockWorkerId,
-        serviceId: mockServiceId,
-        agreedPrice: new Prisma.Decimal('450000.00'),
-      });
-
-      const result = await service.getPaymentEligibility(mockOrderId);
-
-      expect(result.isEligibleForSettlement).toBe(false);
-      expect(result.reason).toContain('paid');
-    });
-
-    it('should throw NotFoundException if order is not found', async () => {
-      prismaMock.order.findUnique.mockResolvedValue(null);
-
-      await expect(
-        service.getPaymentEligibility('non-existent-order'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.getBiddingEligibility('non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

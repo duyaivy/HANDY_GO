@@ -155,14 +155,17 @@ export class ServiceRequestsService {
 
     const isOwner = request.customerUserId === userId;
     const isAdmin = roles.some((r) => r.toLowerCase() === 'admin');
-    const isAssociatedWorker =
-      request.bookingProposals.some((p) => p.workerUserId === userId) ||
-      request.order?.workerUserId === userId;
-    const isPubliclyAvailableForWorkers =
-      request.status === RequestStatus.open_for_bidding ||
-      request.status === RequestStatus.bidding_closed;
+    const isWorker = roles.some((r) => r.toLowerCase() === 'worker');
 
     if (!isOwner && !isAdmin) {
+      if (!isWorker) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.FORBIDDEN_ROLE,
+          'You are not authorized to view this service request',
+        );
+      }
+
       if (request.status === RequestStatus.draft) {
         throw new AppException(
           HttpStatus.FORBIDDEN,
@@ -170,6 +173,14 @@ export class ServiceRequestsService {
           ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
         );
       }
+
+      const isAssociatedWorker =
+        request.bookingProposals.some((p) => p.workerUserId === userId) ||
+        request.order?.workerUserId === userId;
+      const isPubliclyAvailableForWorkers =
+        request.status === RequestStatus.open_for_bidding ||
+        request.status === RequestStatus.bidding_closed;
+
       if (!isPubliclyAvailableForWorkers && !isAssociatedWorker) {
         throw new AppException(
           HttpStatus.FORBIDDEN,
@@ -177,6 +188,14 @@ export class ServiceRequestsService {
           'You are not authorized to view this service request',
         );
       }
+
+      // BE-12: Filter nested booking proposals so workers only see their own proposals
+      return {
+        ...request,
+        bookingProposals: request.bookingProposals.filter(
+          (p) => p.workerUserId === userId,
+        ),
+      };
     }
 
     return request;

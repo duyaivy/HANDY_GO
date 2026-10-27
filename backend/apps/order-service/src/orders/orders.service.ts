@@ -1097,7 +1097,18 @@ export class OrdersService {
   /**
    * Admin global order query with advanced filters.
    */
-  async adminFindAll(query: AdminQueryOrderDto) {
+  async adminFindAll(
+    query: AdminQueryOrderDto,
+    roles: string[] = ['Admin'],
+  ) {
+    const isAdmin = roles.some((r) => r.toLowerCase() === 'admin');
+    if (!isAdmin) {
+      throw new ForbiddenException({
+        code: ORDER_ERROR_CODES.FORBIDDEN_ROLE,
+        message: 'Only administrators can query all orders',
+      });
+    }
+
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const skip = (page - 1) * limit;
