@@ -112,6 +112,10 @@ export class ProxyMiddleware implements NestMiddleware {
     const pathname = req.originalUrl || req.url;
 
     for (const { route, handler } of this.entries) {
+      if (route.customMatch && route.customMatch(pathname)) {
+        handler(req, res, next);
+        return;
+      }
       for (const prefix of route.prefixes) {
         if (
           pathname === prefix ||

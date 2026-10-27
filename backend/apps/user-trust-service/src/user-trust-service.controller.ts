@@ -1,12 +1,15 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Logger,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
@@ -15,6 +18,7 @@ import {
   CurrentUser,
   JwtAuthGuard,
   PermissionsGuard,
+  Public,
   RequirePermissions,
   StandardPermissions,
   type AuthenticatedUser,
@@ -26,11 +30,15 @@ import {
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
+import { ConfigService } from '@app/config';
+import crypto from 'node:crypto';
+
 @ApiTags('User & Trust')
 @Controller()
 export class UserTrustServiceController {
   constructor(
     private readonly userTrustService: UserTrustServiceService,
+    private readonly config: ConfigService,
   ) {}
 
   private readonly logger = new Logger(UserTrustServiceController.name);
@@ -330,6 +338,46 @@ export class UserTrustServiceController {
       }
       throw err;
     }
+  }
+
+  /**
+   * Internal endpoint for BFF / Inter-service worker profile enrichment (F12)
+   */
+  @Public()
+  @Get('internal/workers/batch-summary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Lấy tóm tắt hồ sơ thợ (Inter-service / BFF enrichment)' })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách tóm tắt thợ thành công' })
+  async getWorkersBatchSummary(
+    @Query('ids') ids?: string,
+    @Headers('x-internal-secret') internalSecret?: string,
+  ): Promise<any[]> {
+    const expectedSecret = this.config.internalServiceSecret;
+    const isValid =
+      !!expectedSecret &&
+      !!internalSecret &&
+      internalSecret.length === expectedSecret.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(internalSecret),
+        Buffer.from(expectedSecret),
+      );
+
+    if (!isValid) {
+      throw new ForbiddenException(
+        'Request must originate from trusted internal service with valid x-internal-secret',
+      );
+    }
+
+    if (!ids) return [];
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const workerIds = ids
+      .split(',')
+      .map((id) => id.trim())
+      .filter((id) => uuidRegex.test(id))
+      .slice(0, 100); // Giới hạn tối đa 100 IDs
+
+    return this.userTrustService.getWorkersBatchSummary(workerIds);
   }
 }
 
