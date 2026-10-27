@@ -1,4 +1,3 @@
-
 export interface CategoryItem {
   id: string;
   parentId: string | null;
@@ -15,4 +14,3 @@ export interface CategoryItem {
   // Mã hiển thị tự quy ước ở frontend, không phải cột DB
   code?: string;
 }
-export type { ApiCategory } from "../schema/category.schema";
