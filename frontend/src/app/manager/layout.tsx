@@ -267,9 +267,22 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
   );
 
   return (
-    <>
-      <AuthSession />
-
+    <AuthSession>
+      {(user) => {
+        const accountLabel = user.email || user.phone || user.id;
+        const avatarLabel = user.email
+          ? user.email.slice(0, 2).toUpperCase()
+          : (user.phone || user.id).slice(-2);
+        const roleLabel = (user.roles ?? [])
+          .map((role) =>
+            role
+              .replace(/^role[_-]?/i, "")
+              .replace(/[_-]/g, " ")
+              .toLowerCase()
+              .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+          )
+          .join(", ");
+        return (
       <div className="flex min-h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#FF5E14] selection:text-white">
         {/* SIDEBAR DESKTOP */}
         <div className="sticky top-0 hidden h-screen shrink-0 lg:block">
@@ -361,10 +374,10 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                   className="flex items-center gap-2 rounded-full border border-orange-200/80 bg-white/80 p-1 pr-1.5 transition hover:bg-white sm:gap-2.5 sm:pr-2"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EA580C] text-xs font-bold text-white sm:h-9 sm:w-9">
-                    AD
+                    {avatarLabel}
                   </span>
                   <span className="hidden text-sm font-semibold text-slate-800 md:inline">
-                    Admin
+                    {accountLabel}
                   </span>
                   <ChevronDown
                     size={15}
@@ -389,10 +402,10 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                           Tài khoản quản trị
                         </p>
                         <p className="text-sm font-bold text-slate-800">
-                          Admin
+                          {accountLabel}
                         </p>
                         <p className="text-[11px] font-medium text-emerald-600">
-                          System manager
+                          {roleLabel || "Tài khoản quản lý"}
                         </p>
                       </div>
 
@@ -429,6 +442,8 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
           </main>
         </div>
       </div>
-    </>
+        );
+      }}
+    </AuthSession>
   );
 }

@@ -6,6 +6,7 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 
 export default function Providers({
   children,
@@ -19,6 +20,7 @@ export default function Providers({
   return (
     <QueryClientProvider client={queryClient}>
       {children}
+      <Toaster position="top-right" richColors />
     </QueryClientProvider>
   );
 }

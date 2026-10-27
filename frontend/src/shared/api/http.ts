@@ -11,6 +11,21 @@ type ErrorPayload = {
   [key: string]: unknown;
 };
 
+let refreshPromise: Promise<Response> | null = null;
+
+export function refreshAuthSession() {
+  if (!refreshPromise) {
+    refreshPromise = fetch("/api/auth/refresh-token", {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    }).finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
+
 export class HttpError extends Error {
   status: number;
   payload: ErrorPayload;
@@ -42,8 +57,33 @@ export class EntityError extends HttpError {
   }
 }
 
-const request = async <Response>(
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+const isAuthEndpoint = (url: string) =>
+  /^\/api\/auth\/(login|logout|refresh-token)(?:\?|$)/.test(url);
+
+async function clearSession() {
+  try {
+    await fetch("/api/auth/logout", { method: "POST" });
+  } catch (error) {
+    console.error("Không thể xóa phiên đăng nhập", error);
+  }
+
+  if (window.location.pathname.startsWith("/manager")) {
+    window.location.replace("/login");
+  }
+}
+
+function notifyForbidden(error: HttpError) {
+  if (typeof window === "undefined") return;
+
+  void import("sonner").then(({ toast }) => {
+    toast.error(error.payload.message ?? "Bạn không có đủ quyền thực hiện thao tác này");
+  });
+}
+
+const request = async <Result>(
+  method: HttpMethod,
   url: string,
   options: CustomOptions = {},
 ) => {
@@ -73,56 +113,94 @@ const request = async <Response>(
 
   const fullUrl = `${baseUrl.replace(/\/$/, "")}/${url.replace(/^\//, "")}`;
 
-  const response = await fetch(fullUrl, {
-    ...restOptions,
-    method,
-    headers: requestHeaders,
-    body:
-      body === undefined || body === null
-        ? undefined
-        : isFormData
-          ? body
-          : JSON.stringify(body),
-  });
-
-  const rawText = await response.text();
-
-  let payload: Response;
-
-  try {
-    payload = rawText ? JSON.parse(rawText) : null;
-  } catch {
-    throw new HttpError({
-      status: response.status,
-      payload: {
-        message: "Backend trả về dữ liệu không phải JSON",
-      },
+  const send = async () => {
+    const response = await fetch(fullUrl, {
+      ...restOptions,
+      method,
+      headers: requestHeaders,
+      body:
+        body === undefined || body === null
+          ? undefined
+          : isFormData
+            ? body
+            : JSON.stringify(body),
     });
-  }
 
-  if (!response.ok) {
-    const errorPayload =
-      payload && typeof payload === "object"
-        ? (payload as ErrorPayload)
-        : { message: `Lỗi API: ${response.status}` };
+    const rawText = await response.text();
+    let payload: Result;
 
-    if (response.status === ENTITY_ERROR_STATUS) {
-      throw new EntityError({
+    try {
+      payload = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      throw new HttpError({
+        status: response.status,
+        payload: { message: "Backend trả về dữ liệu không phải JSON" },
+      });
+    }
+
+    if (!response.ok) {
+      const errorPayload =
+        payload && typeof payload === "object"
+          ? (payload as ErrorPayload)
+          : { message: `Lỗi API: ${response.status}` };
+
+      if (response.status === ENTITY_ERROR_STATUS) {
+        throw new EntityError({
+          status: response.status,
+          payload: errorPayload,
+        });
+      }
+
+      throw new HttpError({
         status: response.status,
         payload: errorPayload,
       });
     }
 
-    throw new HttpError({
-      status: response.status,
-      payload: errorPayload,
-    });
-  }
-
-  return {
-    status: response.status,
-    payload,
+    return { status: response.status, payload };
   };
+
+  try {
+    return await send();
+  } catch (error) {
+    if (!(error instanceof HttpError)) throw error;
+    if (error.status === 403) {
+      notifyForbidden(error);
+      throw error;
+    }
+
+    if (
+      error.status !== 401 ||
+      typeof window === "undefined" ||
+      isAuthEndpoint(url)
+    ) {
+      throw error;
+    }
+
+    let refreshed: Response;
+    try {
+      refreshed = await refreshAuthSession();
+    } catch (refreshError) {
+      console.error("Không thể làm mới phiên đăng nhập", refreshError);
+      throw error;
+    }
+
+    if (!refreshed.ok) {
+      if (refreshed.status === 401) await clearSession();
+      throw error;
+    }
+
+    try {
+      return await send();
+    } catch (retryError) {
+      if (retryError instanceof HttpError && retryError.status === 401) {
+        await clearSession();
+      } else if (retryError instanceof HttpError && retryError.status === 403) {
+        notifyForbidden(retryError);
+      }
+      throw retryError;
+    }
+  }
 };
 
 const http = {
