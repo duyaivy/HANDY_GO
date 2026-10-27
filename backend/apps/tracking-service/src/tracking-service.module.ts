@@ -1,10 +1,12 @@
 import { Module } from '@nestjs/common';
-import { TrackingServiceController } from './tracking-service.controller.js';
-import { TrackingServiceService } from './tracking-service.service.js';
-import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { TrackingCommonModule } from './common/index.js';
+import { HealthModule } from './health/health.module.js';
+import { TrackingEventsModule } from './events/index.js';
+import { TimelineModule } from './timeline/index.js';
+import { SummaryModule } from './summary/index.js';
 
 @Module({
   imports: [
@@ -13,10 +15,12 @@ import { RabbitMQModule } from '@app/rabbitmq';
       defaultPort: 3010,
     }),
     LoggerModule.forRoot('tracking-service'),
-    HealthModule,
     RabbitMQModule,
+    TrackingCommonModule,
+    HealthModule,
+    TrackingEventsModule,
+    TimelineModule,
+    SummaryModule,
   ],
-  controllers: [TrackingServiceController],
-  providers: [TrackingServiceService],
 })
 export class TrackingServiceModule {}

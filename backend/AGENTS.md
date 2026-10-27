@@ -205,6 +205,18 @@ pnpm run lint
 | `getAllActiveUserIds` | `apps/user-trust-service/src/user-trust-service.controller.ts`<br>`apps/user-trust-service/src/user-trust-service.service.ts` | **Active User IDs RPC Provider.** Microservice message pattern `user.get-all-active-ids` querying active users filtered by target group (`ALL`, `CUSTOMERS`, `WORKERS`). |
 | `AdminBroadcastNotificationDto`<br>`BroadcastResponseDto` | `apps/notification-service/src/notifications/dto/broadcast-notification.dto.ts` | **Broadcast DTOs.** Validates title, body, category, targetGroup, optional recipientUserIds, and sendPush flag. |
 
+### 4.7. Tracking Service (HG-47 Business Timeline & Lifecycle Monitoring)
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `PrismaService` | `apps/tracking-service/src/common/prisma/prisma.service.ts` | **Tracking Database Client.** Manages connection pooling for `tracking_service` schema (`tracking_flows`, `tracking_events`, `consumed_events`). |
+| `TrustedGatewayGuard` | `apps/tracking-service/src/common/security/trusted-gateway.guard.ts` | **API Gateway Authenticator.** Verifies `x-internal-secret` and validates caller identity from gateway headers. `@UseGuards(TrustedGatewayGuard)`. |
+| `CurrentGatewayUser` | `apps/tracking-service/src/common/security/gateway-user.decorator.ts` | **Gateway User Decorator.** Extracts `{ userId, roles, isAdmin, isCustomer, isWorker }` from request headers. `@CurrentGatewayUser() user: GatewayUser`. |
+| `TrackingEventsService` | `apps/tracking-service/src/events/tracking-events.service.ts` | **Timeline Ingestion Engine.** Idempotent event ingestion, out-of-order flow creation/linking, deduplication via `consumed_events` and P2002 error handling, and safe metadata sanitization. |
+| `TrackingEventsConsumer` | `apps/tracking-service/src/events/tracking-events.consumer.ts` | **RabbitMQ Event Consumer.** Consumes 27 domain events across Order, Bidding, Matching, and Payment. Supports automatic retry (requeue) for transient errors and DLQ routing. |
+| `TimelineService` | `apps/tracking-service/src/timeline/timeline.service.ts` | **Cross-Service Timeline Query Engine.** Paginated history for requests, bids, and orders. Enforces privacy rules: worker cannot see competitor bids or competitor proposals. |
+| `SummaryService` | `apps/tracking-service/src/summary/summary.service.ts` | **Flow Progress & Milestone Aggregator.** Computes `currentPhase` and stage milestones (`serviceRequest`, `matching`, `bidding`, `bookingProposal`, `order`, `payment`) with competitor bid shielding. |
+
 ## 5. Feature Blueprint & Implementation Template
 
 When creating a new business feature, agents must replicate this pattern:

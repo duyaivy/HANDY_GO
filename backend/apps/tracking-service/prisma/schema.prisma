@@ -1,0 +1,73 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["tracking_service"]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/tracking-client"
+}
+
+enum TrackingEntityType {
+  service_request
+  bid
+  bidding_round
+  matching
+  booking_proposal
+  order
+  payment
+
+  @@map("tracking_entity_type")
+  @@schema("tracking_service")
+}
+
+model TrackingFlow {
+  id               String          @id @default(uuid()) @db.Uuid
+  serviceRequestId String          @unique @map("service_request_id") @db.Uuid
+  orderId          String?         @unique @map("order_id") @db.Uuid
+  customerId       String?         @map("customer_id") @db.Uuid
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events           TrackingEvent[]
+
+  @@index([orderId])
+  @@index([customerId])
+  @@map("tracking_flows")
+  @@schema("tracking_service")
+}
+
+model TrackingEvent {
+  id               String             @id @default(uuid()) @db.Uuid
+  trackingFlowId   String             @map("tracking_flow_id") @db.Uuid
+  eventId          String             @unique @map("event_id") @db.Uuid
+  entityType       TrackingEntityType @map("entity_type")
+  entityId         String             @map("entity_id") @db.Uuid
+  eventType        String             @map("event_type") @db.VarChar(100)
+  sourceService    String             @map("source_service") @db.VarChar(100)
+  aggregateVersion Int?               @map("aggregate_version")
+  fromStatus       String?            @map("from_status") @db.VarChar(50)
+  toStatus         String?            @map("to_status") @db.VarChar(50)
+  actorUserId      String?            @map("actor_user_id") @db.Uuid
+  reason           String?            @db.Text
+  metadata         Json?
+  occurredAt       DateTime           @map("occurred_at") @db.Timestamptz(6)
+  recordedAt       DateTime           @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  trackingFlow     TrackingFlow       @relation(fields: [trackingFlowId], references: [id], onDelete: Cascade)
+
+  @@index([trackingFlowId, occurredAt])
+  @@index([entityType, entityId, occurredAt])
+  @@index([occurredAt])
+  @@map("tracking_events")
+  @@schema("tracking_service")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.VarChar(128)
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+  @@schema("tracking_service")
+}

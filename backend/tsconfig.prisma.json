@@ -9,6 +9,7 @@
     "apps/catalog-service/prisma.config.ts",
     "apps/user-trust-service/prisma/prisma.config.ts",
     "apps/bidding-service/prisma/prisma.config.ts",
-    "apps/notification-service/prisma/prisma.config.ts"
+    "apps/notification-service/prisma/prisma.config.ts",
+    "apps/tracking-service/prisma/prisma.config.ts"
   ]
 }
