@@ -8,6 +8,7 @@ export const ORDER_CONSTANTS = {
   HEADER_INTERNAL_SECRET: 'x-internal-secret',
   HEADER_USER_ID: 'x-user-id',
   HEADER_USER_ROLES: 'x-user-roles',
+  ROLE_ADMIN: 'Admin',
 
   // Outbox Aggregates
   AGGREGATE_SERVICE_REQUEST: 'ServiceRequest',

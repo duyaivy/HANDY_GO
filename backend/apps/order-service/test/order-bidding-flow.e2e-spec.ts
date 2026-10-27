@@ -23,8 +23,6 @@ import { OrderServiceModule } from '../src/order-service.module.js';
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
 const GREEN = '\x1b[32m';
-const RED = '\x1b[31m';
-const YELLOW = '\x1b[33m';
 const BLUE = '\x1b[34m';
 const MAGENTA = '\x1b[35m';
 const CYAN = '\x1b[36m';
@@ -52,14 +50,6 @@ function logStep(stepNum: string | number, title: string) {
 
 function logSuccess(msg: string) {
   console.log(`${GREEN}║   ✔ ${msg}${RESET}`);
-}
-
-function logInfo(msg: string) {
-  console.log(`${CYAN}║   ℹ ${msg}${RESET}`);
-}
-
-function logData(label: string, value: unknown) {
-  console.log(`${GRAY}║     ▸ ${label}: ${RESET}${BOLD}${typeof value === 'object' ? JSON.stringify(value) : value}${RESET}`);
 }
 
 function logStepEnd() {
