@@ -32,17 +32,34 @@ describe('BookingProposalsService', () => {
   };
 
   beforeEach(() => {
+    let lastProposalUpdatedData: any = null;
+
     prismaMock = {
+      $transaction: vi.fn(async (cb) => cb(prismaMock)),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([]),
       serviceRequest: {
-        findUnique: vi.fn(),
+        findUnique: vi.fn().mockResolvedValue(mockOpenRequest),
+        findUniqueOrThrow: vi.fn(async (args) => (await prismaMock.serviceRequest.findUnique(args)) ?? mockOpenRequest),
       },
       bookingProposal: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn(async (args) => {
+          const current = await prismaMock.bookingProposal.findUnique(args);
+          if (lastProposalUpdatedData && current) {
+            return { ...current, ...lastProposalUpdatedData };
+          }
+          return current;
+        }),
         findFirst: vi.fn(),
         findMany: vi.fn(),
         count: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(async ({ data }: any) => {
+          lastProposalUpdatedData = data;
+          return { count: 1 };
+        }),
       },
     };
 
@@ -510,14 +527,31 @@ describe('BookingProposalsService', () => {
         responseNote: 'Cần tăng 50k',
       });
 
-      expect(prismaMock.bookingProposal.update).toHaveBeenCalledWith({
-        where: { id: mockProposalId },
+      expect(prismaMock.bookingProposal.updateMany).toHaveBeenCalledWith({
+        where: { id: mockProposalId, status: BookingProposalStatus.proposed },
         data: expect.objectContaining({
           status: BookingProposalStatus.changes_requested,
           responseNote: 'Cần tăng 50k',
         }),
       });
       expect(result.status).toBe(BookingProposalStatus.changes_requested);
+    });
+
+    it('should throw 409 Conflict if proposal status changed concurrently during requestChanges', async () => {
+      const proposal = {
+        id: mockProposalId,
+        serviceRequestId: mockRequestId,
+        workerUserId: mockWorkerId,
+        status: BookingProposalStatus.proposed,
+        expiresAt: new Date(Date.now() + 60000),
+      };
+
+      prismaMock.bookingProposal.findUnique.mockResolvedValue(proposal);
+      prismaMock.bookingProposal.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.requestChanges(mockProposalId, mockWorkerId, { responseNote: 'note' }),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
     });
 
     it('should throw 403 if caller is not the assigned worker', async () => {

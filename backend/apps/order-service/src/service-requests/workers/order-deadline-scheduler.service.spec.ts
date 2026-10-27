@@ -13,12 +13,14 @@ describe('OrderDeadlineSchedulerService', () => {
   beforeEach(() => {
     prismaMock = {
       $transaction: vi.fn(async (cb) => cb(prismaMock)),
+      $executeRaw: vi.fn().mockResolvedValue(1),
       serviceRequest: {
         findMany: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       bookingProposal: {
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
 
@@ -55,8 +57,12 @@ describe('OrderDeadlineSchedulerService', () => {
       expect(result.biddingClosedCount).toBe(1);
       expect(result.expiredCount).toBe(0);
 
-      expect(prismaMock.serviceRequest.update).toHaveBeenCalledWith({
-        where: { id: 'req-1' },
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'req-1',
+          status: RequestStatus.open_for_bidding,
+          biddingClosesAt: { lte: now },
+        },
         data: {
           status: RequestStatus.bidding_closed,
           version: { increment: 1 },
@@ -71,6 +77,27 @@ describe('OrderDeadlineSchedulerService', () => {
         }),
         expect.anything(),
       );
+    });
+
+    it('should skip emitting event if request was converted to order concurrently during bidding close', async () => {
+      const now = new Date('2026-10-23T12:00:00Z');
+      const pastBiddingRequest = {
+        id: 'req-1',
+        requestCode: 'REQ-20261022-A1B2',
+        customerUserId: 'user-1',
+      };
+
+      prismaMock.serviceRequest.findMany
+        .mockResolvedValueOnce([pastBiddingRequest])
+        .mockResolvedValueOnce([]);
+
+      // updateMany returns 0 because status is no longer open_for_bidding
+      prismaMock.serviceRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      const result = await service.checkDeadlines(now);
+
+      expect(result.biddingClosedCount).toBe(0);
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
     });
 
     it('should expire requests and their open proposals whose selection deadline passed', async () => {
@@ -101,8 +128,14 @@ describe('OrderDeadlineSchedulerService', () => {
         },
       });
 
-      expect(prismaMock.serviceRequest.update).toHaveBeenCalledWith({
-        where: { id: 'req-2' },
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'req-2',
+          status: {
+            in: [RequestStatus.open_for_bidding, RequestStatus.bidding_closed],
+          },
+          selectionExpiresAt: { lte: now },
+        },
         data: {
           status: RequestStatus.expired,
           version: { increment: 1 },
@@ -119,13 +152,35 @@ describe('OrderDeadlineSchedulerService', () => {
       );
     });
 
+    it('should skip expiring proposals and emitting outbox if request was converted concurrently', async () => {
+      const now = new Date('2026-10-23T12:00:00Z');
+      const expiredRequest = {
+        id: 'req-2',
+        requestCode: 'REQ-20261021-X9Y8',
+        customerUserId: 'user-2',
+      };
+
+      prismaMock.serviceRequest.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([expiredRequest]);
+
+      // updateMany returns count 0
+      prismaMock.serviceRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      const result = await service.checkDeadlines(now);
+
+      expect(result.expiredCount).toBe(0);
+      expect(prismaMock.bookingProposal.updateMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
     it('should gracefully handle errors on individual request processing', async () => {
       const now = new Date();
       prismaMock.serviceRequest.findMany
         .mockResolvedValueOnce([{ id: 'req-err' }])
         .mockResolvedValueOnce([]);
 
-      prismaMock.serviceRequest.update.mockRejectedValue(
+      prismaMock.serviceRequest.updateMany.mockRejectedValue(
         new Error('Database lock timeout'),
       );
 

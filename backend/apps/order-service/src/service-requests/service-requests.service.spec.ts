@@ -17,14 +17,29 @@ describe('ServiceRequestsService', () => {
   const mockRequestId = '22222222-2222-2222-2222-222222222222';
 
   beforeEach(() => {
+    let lastUpdatedData: any = null;
+
     prismaMock = {
       $transaction: vi.fn(async (cb) => cb(prismaMock)),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([]),
       serviceRequest: {
         create: vi.fn(),
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn(async (args) => {
+          const current = await prismaMock.serviceRequest.findUnique(args);
+          if (lastUpdatedData && current) {
+            return { ...current, ...lastUpdatedData };
+          }
+          return current;
+        }),
         findMany: vi.fn(),
         count: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(async ({ data }: any) => {
+          lastUpdatedData = data;
+          return { count: 1 };
+        }),
       },
       requestMedia: {
         deleteMany: vi.fn(),
@@ -34,7 +49,7 @@ describe('ServiceRequestsService', () => {
         delete: vi.fn(),
       },
       bookingProposal: {
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
 
@@ -246,7 +261,23 @@ describe('ServiceRequestsService', () => {
       });
 
       expect(result.description).toBe('New Description');
-      expect(prismaMock.serviceRequest.update).toHaveBeenCalled();
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalled();
+    });
+
+    it('should throw 409 Conflict if draft was concurrently updated or published', async () => {
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+      prismaMock.serviceRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.updateDraft(mockRequestId, mockUserId, { description: 'test' }),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
     });
 
     it('should throw 403 if user is not the owner', async () => {
@@ -406,9 +437,33 @@ describe('ServiceRequestsService', () => {
         service.publish(mockRequestId, mockUserId),
       ).rejects.toThrow(AppException);
     });
+
+    it('should throw 409 Conflict if request was concurrently published or converted', async () => {
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(validDraft);
+      prismaMock.serviceRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.publish(mockRequestId, mockUserId),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+    });
   });
 
   describe('cancel', () => {
+    it('should throw 409 Conflict if request was concurrently converted to order or cancelled', async () => {
+      const openRequest = {
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.open_for_bidding,
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(openRequest);
+      prismaMock.serviceRequest.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.cancel(mockRequestId, mockUserId),
+      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+    });
     it('should cancel an open request and withdraw open proposals', async () => {
       const openRequest = {
         id: mockRequestId,

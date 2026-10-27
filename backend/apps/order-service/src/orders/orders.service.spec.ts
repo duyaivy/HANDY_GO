@@ -143,44 +143,45 @@ describe('OrdersService', () => {
   };
 
   beforeEach(() => {
-    txMock = {
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      bookingProposal: {
-        findUnique: vi.fn(),
-        update: vi.fn(),
-        updateMany: vi.fn(),
-      },
-      serviceRequest: {
-        update: vi.fn(),
-      },
-      order: {
-        findUnique: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
-      },
-      orderStatusHistory: {
-        create: vi.fn(),
-      },
-    };
+    let lastOrderUpdatedData: any = null;
 
     prismaMock = {
       $transaction: vi.fn().mockImplementation(async (callback) => {
         return callback(txMock);
       }),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      $queryRaw: vi.fn().mockResolvedValue([]),
       order: {
         findUnique: vi.fn(),
+        findUniqueOrThrow: vi.fn(async (args) => {
+          const current = await prismaMock.order.findUnique(args);
+          if (lastOrderUpdatedData && current) {
+            return { ...current, ...lastOrderUpdatedData };
+          }
+          return current;
+        }),
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(async ({ where, data }: any) => {
+          lastOrderUpdatedData = data;
+          txMock.order.update({ where: { id: where?.id }, data });
+          return { count: 1 };
+        }),
         count: vi.fn(),
       },
       bookingProposal: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        create: vi.fn(),
         update: vi.fn(),
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       serviceRequest: {
+        findUnique: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       orderStatusHistory: {
         create: vi.fn(),
@@ -188,10 +189,21 @@ describe('OrdersService', () => {
       },
       orderEvidence: {
         create: vi.fn(),
+        count: vi.fn().mockResolvedValue(1),
         findMany: vi.fn(),
         findFirst: vi.fn(),
         delete: vi.fn(),
       },
+    };
+
+    txMock = {
+      $queryRaw: prismaMock.$queryRaw,
+      $executeRaw: prismaMock.$executeRaw,
+      bookingProposal: prismaMock.bookingProposal,
+      serviceRequest: prismaMock.serviceRequest,
+      order: prismaMock.order,
+      orderEvidence: prismaMock.orderEvidence,
+      orderStatusHistory: prismaMock.orderStatusHistory,
     };
 
     outboxRepoMock = {
@@ -230,8 +242,8 @@ describe('OrdersService', () => {
       const result = await service.acceptProposal(mockProposalId, mockWorkerId);
 
       expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
-      expect(txMock.bookingProposal.update).toHaveBeenCalledWith({
-        where: { id: mockProposalId },
+      expect(txMock.bookingProposal.updateMany).toHaveBeenCalledWith({
+        where: { id: mockProposalId, status: 'proposed' },
         data: expect.objectContaining({
           status: 'finalized',
           finalizedAt: expect.any(Date),
@@ -249,11 +261,14 @@ describe('OrdersService', () => {
         },
       });
 
-      expect(txMock.serviceRequest.update).toHaveBeenCalledWith({
-        where: { id: mockRequestId },
-        data: {
-          status: 'converted_to_order',
+      expect(txMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: mockRequestId,
+          status: { in: ['open_for_bidding', 'bidding_closed'] },
         },
+        data: expect.objectContaining({
+          status: 'converted_to_order',
+        }),
       });
 
       expect(txMock.order.create).toHaveBeenCalledWith({
@@ -623,7 +638,7 @@ describe('OrdersService', () => {
 
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { status: 'in_progress' },
+          data: expect.objectContaining({ status: 'in_progress' }),
         }),
       );
       expect(txMock.orderStatusHistory.create).toHaveBeenCalledWith(

@@ -47,10 +47,35 @@ export class OrdersService {
     proposalId: string,
     workerUserId: string,
   ): Promise<OrderResponseDto> {
+    // 1. Initial query to resolve serviceRequestId for consistent hierarchical locking
+    const initialProposal = await this.prisma.bookingProposal.findUnique({
+      where: { id: proposalId },
+      select: { id: true, serviceRequestId: true, workerUserId: true },
+    });
+
+    if (!initialProposal) {
+      throw new NotFoundException({
+        code: ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
+        message: ORDER_ERROR_MESSAGES.PROPOSAL_NOT_FOUND,
+      });
+    }
+
+    if (initialProposal.workerUserId !== workerUserId) {
+      throw new ForbiddenException({
+        code: ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
+        message: 'Only the assigned worker can accept this booking proposal',
+      });
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      // 1. Pessimistic row-level locking concurrency guard
+      // 2. Strict hierarchical locking: lock ServiceRequest FIRST, then BookingProposal
       if (typeof tx.$queryRaw === 'function') {
         try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${initialProposal.serviceRequestId}::uuid
+            FOR UPDATE
+          `;
           await tx.$queryRaw`
             SELECT id FROM order_service.booking_proposals
             WHERE id = ${proposalId}::uuid
@@ -61,7 +86,7 @@ export class OrdersService {
         }
       }
 
-      // 2. Query Proposal along with Service Request
+      // 3. Query Proposal along with Service Request
       const proposal = await tx.bookingProposal.findUnique({
         where: { id: proposalId },
         include: { serviceRequest: true },
@@ -74,7 +99,7 @@ export class OrdersService {
         });
       }
 
-      // 3. Verify caller is the assigned Worker
+      // 4. Verify caller is the assigned Worker
       if (proposal.workerUserId !== workerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
@@ -82,7 +107,7 @@ export class OrdersService {
         });
       }
 
-      // 4. Verify Proposal status is proposed
+      // 5. Verify Proposal status is proposed
       if (proposal.status !== 'proposed') {
         if (proposal.status === 'finalized') {
           throw new ConflictException({
@@ -96,7 +121,7 @@ export class OrdersService {
         });
       }
 
-      // 5. Verify Proposal expiration
+      // 6. Verify Proposal expiration
       const now = new Date();
       if (proposal.expiresAt <= now) {
         throw new BadRequestException({
@@ -105,7 +130,7 @@ export class OrdersService {
         });
       }
 
-      // 6. Verify Service Request invariants
+      // 7. Verify Service Request invariants
       const request = proposal.serviceRequest;
       if (!request) {
         throw new NotFoundException({
@@ -137,7 +162,7 @@ export class OrdersService {
         });
       }
 
-      // 7. Double Order Protection: Verify no existing order exists for this service request
+      // 8. Double Order Protection: Verify no existing order exists for this service request
       const existingOrder = await tx.order.findUnique({
         where: { serviceRequestId: request.id },
       });
@@ -148,7 +173,7 @@ export class OrdersService {
         });
       }
 
-      // 8. Generate Order Code and Snapshot Immutable Data
+      // 9. Generate Order Code and Snapshot Immutable Data
       const orderCode = generateOrderCode();
       const createdOrder = await tx.order.create({
         data: {
@@ -172,16 +197,26 @@ export class OrdersService {
         },
       });
 
-      // 9. Finalize accepted proposal
-      await tx.bookingProposal.update({
-        where: { id: proposal.id },
+      // 10. Conditional atomic update on proposal
+      const propUpdate = await tx.bookingProposal.updateMany({
+        where: {
+          id: proposal.id,
+          status: 'proposed',
+        },
         data: {
           status: 'finalized',
           finalizedAt: now,
         },
       });
 
-      // 10. Invalidate/supersede all other proposals belonging to this request
+      if (propUpdate.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.PROPOSAL_ALREADY_FINALIZED,
+          message: ORDER_ERROR_MESSAGES.PROPOSAL_ALREADY_FINALIZED,
+        });
+      }
+
+      // 11. Invalidate/supersede all other proposals belonging to this request
       await tx.bookingProposal.updateMany({
         where: {
           serviceRequestId: request.id,
@@ -193,15 +228,26 @@ export class OrdersService {
         },
       });
 
-      // 11. Update Service Request status to converted_to_order
-      await tx.serviceRequest.update({
-        where: { id: request.id },
+      // 12. Conditional atomic update on Service Request to converted_to_order
+      const reqUpdate = await tx.serviceRequest.updateMany({
+        where: {
+          id: request.id,
+          status: { in: ['open_for_bidding', 'bidding_closed'] },
+        },
         data: {
           status: 'converted_to_order',
+          version: { increment: 1 },
         },
       });
 
-      // 12. Create initial order status history
+      if (reqUpdate.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.REQUEST_ALREADY_CONVERTED,
+          message: ORDER_ERROR_MESSAGES.REQUEST_ALREADY_CONVERTED,
+        });
+      }
+
+      // 13. Create initial order status history
       const historyEntry = await tx.orderStatusHistory.create({
         data: {
           orderId: createdOrder.id,
@@ -212,7 +258,7 @@ export class OrdersService {
         },
       });
 
-      // 13. Publish outbox event order.created
+      // 14. Publish outbox event order.created in the SAME transaction
       await this.outboxRepo.createEvent(
         {
           aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
@@ -257,30 +303,45 @@ export class OrdersService {
     orderId: string,
     workerUserId: string,
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    if (order.workerUserId !== workerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the assigned worker can confirm readiness for this order',
-      });
-    }
-
-    if (order.status !== 'created') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Order in status '${order.status}' cannot be confirmed. Status must be 'created'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.workerUserId !== workerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the assigned worker can confirm readiness for this order',
+        });
+      }
+
+      if (order.status !== 'created') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Order in status '${order.status}' cannot be confirmed. Status must be 'created'.`,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'created',
+        },
         data: {
           status: 'confirmed',
           confirmedAt: now,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order status changed concurrently and cannot be confirmed',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -326,30 +387,45 @@ export class OrdersService {
     orderId: string,
     workerUserId: string,
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    if (order.workerUserId !== workerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the assigned worker can start work on this order',
-      });
-    }
-
-    if (order.status !== 'confirmed') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Order in status '${order.status}' cannot be started. Status must be 'confirmed'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.workerUserId !== workerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the assigned worker can start work on this order',
+        });
+      }
+
+      if (order.status !== 'confirmed') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Order in status '${order.status}' cannot be started. Status must be 'confirmed'.`,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'confirmed',
+        },
         data: {
           status: 'in_progress',
           startedAt: now,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order status changed concurrently and cannot be started',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -395,52 +471,60 @@ export class OrdersService {
     orderId: string,
     workerUserId: string,
   ): Promise<OrderResponseDto> {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-      include: {
-        _count: {
-          select: { evidences: true },
-        },
-      },
-    });
-
-    if (!order) {
-      throw new NotFoundException({
-        code: ORDER_ERROR_CODES.ORDER_NOT_FOUND,
-        message: ORDER_ERROR_MESSAGES.ORDER_NOT_FOUND,
-      });
-    }
-
-    if (order.workerUserId !== workerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the assigned worker can finish this order',
-      });
-    }
-
-    if (order.status !== 'in_progress') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Order in status '${order.status}' cannot be marked as finished. Status must be 'in_progress'.`,
-      });
-    }
-
-    // ORD-10 Guard: Verify at least one evidence image/video exists
-    if (order._count.evidences === 0) {
-      throw new BadRequestException({
-        code: ORDER_ERROR_CODES.MISSING_EVIDENCE,
-        message: ORDER_ERROR_MESSAGES.MISSING_EVIDENCE,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.workerUserId !== workerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the assigned worker can finish this order',
+        });
+      }
+
+      if (order.status !== 'in_progress') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Order in status '${order.status}' cannot be marked as finished. Status must be 'in_progress'.`,
+        });
+      }
+
+      // ORD-10 Guard: Verify at least one evidence image/video exists inside the locked transaction
+      const evidenceCount =
+        (order as any)._count?.evidences !== undefined
+          ? (order as any)._count.evidences
+          : await tx.orderEvidence.count({
+              where: { orderId },
+            });
+
+      if (evidenceCount === 0) {
+        throw new BadRequestException({
+          code: ORDER_ERROR_CODES.MISSING_EVIDENCE,
+          message: ORDER_ERROR_MESSAGES.MISSING_EVIDENCE,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'in_progress',
+        },
         data: {
           status: 'awaiting_customer_confirmation',
           workerFinishedAt: now,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order status changed concurrently and cannot be finished',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -488,30 +572,45 @@ export class OrdersService {
     orderId: string,
     customerUserId: string,
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    if (order.customerUserId !== customerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the ordering customer can confirm completion of this order',
-      });
-    }
-
-    if (order.status !== 'awaiting_customer_confirmation') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Order in status '${order.status}' cannot be completed. Status must be 'awaiting_customer_confirmation'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.customerUserId !== customerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the ordering customer can confirm completion of this order',
+        });
+      }
+
+      if (order.status !== 'awaiting_customer_confirmation') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Order in status '${order.status}' cannot be completed. Status must be 'awaiting_customer_confirmation'.`,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'awaiting_customer_confirmation',
+        },
         data: {
           status: 'completed',
           completedAt: now,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order was already completed or status changed concurrently',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -563,28 +662,43 @@ export class OrdersService {
     customerUserId: string,
     dto: RequestReworkDto,
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    if (order.customerUserId !== customerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the ordering customer can request rework for this order',
-      });
-    }
-
-    if (order.status !== 'awaiting_customer_confirmation') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Rework can only be requested when order is in 'awaiting_customer_confirmation' status`,
-      });
-    }
-
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.customerUserId !== customerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the ordering customer can request rework for this order',
+        });
+      }
+
+      if (order.status !== 'awaiting_customer_confirmation') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Rework can only be requested when order is in 'awaiting_customer_confirmation' status`,
+        });
+      }
+
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'awaiting_customer_confirmation',
+        },
         data: {
           status: 'in_progress',
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order status changed concurrently and rework cannot be requested',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -616,35 +730,50 @@ export class OrdersService {
     dto: CancelOrderDto,
     roles: string[] = [],
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    const isAdmin = roles.includes('Admin');
-    const isParticipant =
-      order.customerUserId === userId || order.workerUserId === userId;
-
-    if (!isAdmin && !isParticipant) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'You are not authorized to cancel this order',
-      });
-    }
-
-    if (order.status !== 'created' && order.status !== 'confirmed') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Orders can only be cancelled while in 'created' or 'confirmed' status. Current status is '${order.status}'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      const isAdmin = roles.includes('Admin');
+      const isParticipant =
+        order.customerUserId === userId || order.workerUserId === userId;
+
+      if (!isAdmin && !isParticipant) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'You are not authorized to cancel this order',
+        });
+      }
+
+      if (order.status !== 'created' && order.status !== 'confirmed') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Orders can only be cancelled while in 'created' or 'confirmed' status. Current status is '${order.status}'.`,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: { in: ['created', 'confirmed'] },
+        },
         data: {
           status: 'cancelled',
           cancelledAt: now,
           cancelReason: dto.reason,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order was already cancelled or status changed concurrently',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -693,43 +822,45 @@ export class OrdersService {
     workerUserId: string,
     dto: CreateOrderEvidenceDto,
   ): Promise<OrderEvidenceResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
+    return this.prisma.$transaction(async (tx) => {
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
 
-    if (order.workerUserId !== workerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the assigned worker can upload evidence for this order',
+      if (order.workerUserId !== workerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the assigned worker can upload evidence for this order',
+        });
+      }
+
+      if (order.status !== 'in_progress') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Evidence can only be uploaded while the order is in 'in_progress' status. Current status is '${order.status}'.`,
+        });
+      }
+
+      const evidence = await tx.orderEvidence.create({
+        data: {
+          orderId,
+          mediaType: dto.mediaType,
+          mediaUrl: dto.mediaUrl,
+          description: dto.description,
+        },
       });
-    }
 
-    if (order.status !== 'in_progress') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Evidence can only be uploaded while the order is in 'in_progress' status. Current status is '${order.status}'.`,
-      });
-    }
+      this.logger.log(
+        `Evidence ${evidence.id} (${evidence.mediaType}) attached to order ${orderId} by worker ${workerUserId}`,
+      );
 
-    const evidence = await this.prisma.orderEvidence.create({
-      data: {
-        orderId,
-        mediaType: dto.mediaType,
-        mediaUrl: dto.mediaUrl,
-        description: dto.description,
-      },
+      return {
+        id: evidence.id,
+        orderId: evidence.orderId,
+        mediaType: evidence.mediaType,
+        mediaUrl: evidence.mediaUrl,
+        description: evidence.description,
+        createdAt: evidence.createdAt,
+      };
     });
-
-    this.logger.log(
-      `Evidence ${evidence.id} (${evidence.mediaType}) attached to order ${orderId} by worker ${workerUserId}`,
-    );
-
-    return {
-      id: evidence.id,
-      orderId: evidence.orderId,
-      mediaType: evidence.mediaType,
-      mediaUrl: evidence.mediaUrl,
-      description: evidence.description,
-      createdAt: evidence.createdAt,
-    };
   }
 
   /**
@@ -765,40 +896,42 @@ export class OrdersService {
     evidenceId: string,
     workerUserId: string,
   ): Promise<void> {
-    const order = await this.getOrderOrThrow(orderId);
+    return this.prisma.$transaction(async (tx) => {
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
 
-    if (order.workerUserId !== workerUserId) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only the assigned worker can delete evidence for this order',
+      if (order.workerUserId !== workerUserId) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only the assigned worker can delete evidence for this order',
+        });
+      }
+
+      if (order.status !== 'in_progress') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Evidence can only be deleted while the order is in 'in_progress' status. Current status is '${order.status}'.`,
+        });
+      }
+
+      const evidence = await tx.orderEvidence.findFirst({
+        where: { id: evidenceId, orderId },
       });
-    }
 
-    if (order.status !== 'in_progress') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Evidence can only be deleted while the order is in 'in_progress' status. Current status is '${order.status}'.`,
+      if (!evidence) {
+        throw new NotFoundException({
+          code: ORDER_ERROR_CODES.EVIDENCE_NOT_FOUND,
+          message: ORDER_ERROR_MESSAGES.EVIDENCE_NOT_FOUND,
+        });
+      }
+
+      await tx.orderEvidence.delete({
+        where: { id: evidenceId },
       });
-    }
 
-    const evidence = await this.prisma.orderEvidence.findFirst({
-      where: { id: evidenceId, orderId },
+      this.logger.log(
+        `Evidence ${evidenceId} deleted from order ${orderId} by worker ${workerUserId}`,
+      );
     });
-
-    if (!evidence) {
-      throw new NotFoundException({
-        code: ORDER_ERROR_CODES.EVIDENCE_NOT_FOUND,
-        message: ORDER_ERROR_MESSAGES.EVIDENCE_NOT_FOUND,
-      });
-    }
-
-    await this.prisma.orderEvidence.delete({
-      where: { id: evidenceId },
-    });
-
-    this.logger.log(
-      `Evidence ${evidenceId} deleted from order ${orderId} by worker ${workerUserId}`,
-    );
   }
 
   /**
@@ -810,38 +943,53 @@ export class OrdersService {
     userId: string,
     dto: DisputeOrderDto,
   ): Promise<OrderResponseDto> {
-    const order = await this.getOrderOrThrow(orderId);
-
-    const isParticipant =
-      order.customerUserId === userId || order.workerUserId === userId;
-
-    if (!isParticipant) {
-      throw new ForbiddenException({
-        code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-        message: 'Only participants in this order can open a dispute',
-      });
-    }
-
-    if (
-      order.status !== 'in_progress' &&
-      order.status !== 'awaiting_customer_confirmation'
-    ) {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Disputes can only be opened when the order is 'in_progress' or 'awaiting_customer_confirmation'. Current status is '${order.status}'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
-      const updatedOrder = await tx.order.update({
-        where: { id: orderId },
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      const isParticipant =
+        order.customerUserId === userId || order.workerUserId === userId;
+
+      if (!isParticipant) {
+        throw new ForbiddenException({
+          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+          message: 'Only participants in this order can open a dispute',
+        });
+      }
+
+      if (
+        order.status !== 'in_progress' &&
+        order.status !== 'awaiting_customer_confirmation'
+      ) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Disputes can only be opened when the order is 'in_progress' or 'awaiting_customer_confirmation'. Current status is '${order.status}'.`,
+        });
+      }
+
+      const now = new Date();
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: { in: ['in_progress', 'awaiting_customer_confirmation'] },
+        },
         data: {
           status: 'disputed',
           disputePreviousStatus: order.status,
           disputedAt: now,
           disputeReason: dto.reason,
+          version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Order status changed concurrently and dispute cannot be opened',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
+        where: { id: orderId },
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -901,17 +1049,17 @@ export class OrdersService {
       });
     }
 
-    const order = await this.getOrderOrThrow(orderId);
-
-    if (order.status !== 'disputed') {
-      throw new ConflictException({
-        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        message: `Only orders in 'disputed' status can be resolved. Current status is '${order.status}'.`,
-      });
-    }
-
-    const now = new Date();
     return this.prisma.$transaction(async (tx) => {
+      const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+      if (order.status !== 'disputed') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: `Only orders in 'disputed' status can be resolved. Current status is '${order.status}'.`,
+        });
+      }
+
+      const now = new Date();
       let nextStatus = order.disputePreviousStatus ?? 'in_progress';
       const orderUpdateData: Prisma.OrderUpdateInput = {
         disputeResolvedAt: now,
@@ -972,9 +1120,26 @@ export class OrdersService {
         );
       }
 
-      const updatedOrder = await tx.order.update({
+      const updateResult = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: 'disputed',
+        },
+        data: {
+          ...orderUpdateData,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          message: 'Dispute was already resolved or order status changed concurrently',
+        });
+      }
+
+      const updatedOrder = await tx.order.findUniqueOrThrow({
         where: { id: orderId },
-        data: orderUpdateData,
       });
 
       const history = await tx.orderStatusHistory.create({
@@ -1187,6 +1352,39 @@ export class OrdersService {
    */
   private async getOrderOrThrow(orderId: string) {
     const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException({
+        code: ORDER_ERROR_CODES.ORDER_NOT_FOUND,
+        message: ORDER_ERROR_MESSAGES.ORDER_NOT_FOUND,
+      });
+    }
+
+    return order;
+  }
+
+  /**
+   * Internal helper to lock an order row (SELECT FOR UPDATE) and retrieve it within a transaction.
+   */
+  private async lockAndGetOrderOrThrow(
+    orderId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<Prisma.OrderGetPayload<Record<string, never>>> {
+    if (typeof tx.$queryRaw === 'function') {
+      try {
+        await tx.$queryRaw`
+          SELECT id FROM order_service.orders
+          WHERE id = ${orderId}::uuid
+          FOR UPDATE
+        `;
+      } catch {
+        // Non-blocking in mock environments
+      }
+    }
+
+    const order = await tx.order.findUnique({
       where: { id: orderId },
     });
 

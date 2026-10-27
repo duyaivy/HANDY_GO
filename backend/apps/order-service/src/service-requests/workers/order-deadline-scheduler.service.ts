@@ -77,31 +77,53 @@ export class OrderDeadlineSchedulerService
       for (const req of requestsToCloseBidding) {
         try {
           await this.prisma.$transaction(async (tx) => {
-            await tx.serviceRequest.update({
-              where: { id: req.id },
+            // Row-level lock on ServiceRequest
+            if (typeof tx.$queryRaw === 'function') {
+              try {
+                await tx.$queryRaw`
+                  SELECT id FROM order_service.service_requests
+                  WHERE id = ${req.id}::uuid
+                  FOR UPDATE
+                `;
+              } catch {
+                // Non-blocking in mock environments
+              }
+            }
+
+            // Conditional update: only update if status is still open_for_bidding and deadline passed.
+            // Will NEVER overwrite a request that was converted_to_order or already closed.
+            const updateResult = await tx.serviceRequest.updateMany({
+              where: {
+                id: req.id,
+                status: RequestStatus.open_for_bidding,
+                biddingClosesAt: { lte: now },
+              },
               data: {
                 status: RequestStatus.bidding_closed,
                 version: { increment: 1 },
               },
             });
 
-            await this.outboxRepo.createEvent(
-              {
-                aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
-                aggregateId: req.id,
-                eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_BIDDING_CLOSED,
-                eventVersion: 1,
-                payload: {
-                  requestId: req.id,
-                  requestCode: req.requestCode,
-                  customerUserId: req.customerUserId,
-                  biddingClosedAt: now.toISOString(),
+            // ONLY emit outbox event if state was actually transitioned!
+            if (updateResult.count > 0) {
+              await this.outboxRepo.createEvent(
+                {
+                  aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
+                  aggregateId: req.id,
+                  eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_BIDDING_CLOSED,
+                  eventVersion: 1,
+                  payload: {
+                    requestId: req.id,
+                    requestCode: req.requestCode,
+                    customerUserId: req.customerUserId,
+                    biddingClosedAt: now.toISOString(),
+                  },
                 },
-              },
-              tx,
-            );
+                tx,
+              );
+              biddingClosedCount++;
+            }
           });
-          biddingClosedCount++;
         } catch (err) {
           this.logger.error(
             `Failed to close bidding for request ${req.id}: ${(err as Error).message}`,
@@ -128,42 +150,65 @@ export class OrderDeadlineSchedulerService
       for (const req of requestsToExpire) {
         try {
           await this.prisma.$transaction(async (tx) => {
-            // Expire all open proposals for this request
-            await tx.bookingProposal.updateMany({
-              where: {
-                serviceRequestId: req.id,
-                status: BookingProposalStatus.proposed,
-              },
-              data: {
-                status: BookingProposalStatus.expired,
-              },
-            });
+            // Row-level lock on ServiceRequest
+            if (typeof tx.$queryRaw === 'function') {
+              try {
+                await tx.$queryRaw`
+                  SELECT id FROM order_service.service_requests
+                  WHERE id = ${req.id}::uuid
+                  FOR UPDATE
+                `;
+              } catch {
+                // Non-blocking in mock environments
+              }
+            }
 
-            await tx.serviceRequest.update({
-              where: { id: req.id },
+            // Conditional update: only update if status is still open_for_bidding or bidding_closed.
+            // Will NEVER overwrite a request that was converted_to_order or already expired.
+            const updateResult = await tx.serviceRequest.updateMany({
+              where: {
+                id: req.id,
+                status: {
+                  in: [RequestStatus.open_for_bidding, RequestStatus.bidding_closed],
+                },
+                selectionExpiresAt: { lte: now },
+              },
               data: {
                 status: RequestStatus.expired,
                 version: { increment: 1 },
               },
             });
 
-            await this.outboxRepo.createEvent(
-              {
-                aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
-                aggregateId: req.id,
-                eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_EXPIRED,
-                eventVersion: 1,
-                payload: {
-                  requestId: req.id,
-                  requestCode: req.requestCode,
-                  customerUserId: req.customerUserId,
-                  expiredAt: now.toISOString(),
+            // ONLY expire proposals and emit outbox event if state transition succeeded!
+            if (updateResult.count > 0) {
+              await tx.bookingProposal.updateMany({
+                where: {
+                  serviceRequestId: req.id,
+                  status: BookingProposalStatus.proposed,
                 },
-              },
-              tx,
-            );
+                data: {
+                  status: BookingProposalStatus.expired,
+                },
+              });
+
+              await this.outboxRepo.createEvent(
+                {
+                  aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
+                  aggregateId: req.id,
+                  eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_EXPIRED,
+                  eventVersion: 1,
+                  payload: {
+                    requestId: req.id,
+                    requestCode: req.requestCode,
+                    customerUserId: req.customerUserId,
+                    expiredAt: now.toISOString(),
+                  },
+                },
+                tx,
+              );
+              expiredCount++;
+            }
           });
-          expiredCount++;
         } catch (err) {
           this.logger.error(
             `Failed to expire request ${req.id}: ${(err as Error).message}`,

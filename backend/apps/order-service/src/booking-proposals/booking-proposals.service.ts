@@ -148,140 +148,185 @@ export class BookingProposalsService {
       sourceMatchResultId: dto.sourceMatchResultId,
     });
 
-    let revisionNo = 1;
-    let supersedesProposalId: string | null = null;
+    return this.prisma.$transaction(async (tx) => {
+      // Hierarchical lock on service request
+      await tx.$executeRaw`
+        SELECT id FROM order_service.service_requests
+        WHERE id = ${dto.serviceRequestId}::uuid
+        FOR UPDATE;
+      `;
 
-    if (dto.supersedesProposalId) {
-      const oldProposal = await this.prisma.bookingProposal.findUnique({
-        where: { id: dto.supersedesProposalId },
-        include: { supersededBy: true },
+      const txRequest = await tx.serviceRequest.findUniqueOrThrow({
+        where: { id: dto.serviceRequestId },
       });
 
-      if (!oldProposal) {
-        throw new AppException(
-          HttpStatus.NOT_FOUND,
-          ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
-          'Previous proposal revision not found',
-        );
-      }
-
-      if (oldProposal.serviceRequestId !== dto.serviceRequestId) {
-        throw new AppException(
-          HttpStatus.BAD_REQUEST,
-          ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
-          'Superseded proposal does not belong to the same service request',
-        );
-      }
-
-      if (oldProposal.workerUserId !== dto.workerUserId) {
+      if (
+        txRequest.status !== RequestStatus.open_for_bidding &&
+        txRequest.status !== RequestStatus.bidding_closed
+      ) {
+        if (txRequest.status === RequestStatus.converted_to_order) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            ORDER_ERROR_CODES.ORDER_ALREADY_EXISTS,
+            'Service request has already been converted to an order',
+          );
+        }
         throw new AppException(
           HttpStatus.BAD_REQUEST,
-          ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
-          'Superseded proposal does not belong to the specified worker',
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot create proposals for service request in ${txRequest.status} status`,
         );
       }
 
-      if (oldProposal.status !== BookingProposalStatus.changes_requested) {
+      if (txRequest.selectionExpiresAt && txRequest.selectionExpiresAt <= new Date()) {
         throw new AppException(
-          HttpStatus.CONFLICT,
-          ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
-          `Cannot create a revision for a proposal in ${oldProposal.status} status. It must be changes_requested.`,
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.DEADLINE_EXPIRED,
+          'The selection window for this service request has expired',
         );
       }
 
-      if (oldProposal.supersededBy) {
-        throw new AppException(
-          HttpStatus.CONFLICT,
-          ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
-          'A newer revision has already superseded this proposal',
-        );
+      let revisionNo = 1;
+      let supersedesProposalId: string | null = null;
+
+      if (dto.supersedesProposalId) {
+        // Lock old proposal
+        await tx.$executeRaw`
+          SELECT id FROM order_service.booking_proposals
+          WHERE id = ${dto.supersedesProposalId}::uuid
+          FOR UPDATE;
+        `;
+
+        const oldProposal = await tx.bookingProposal.findUnique({
+          where: { id: dto.supersedesProposalId },
+          include: { supersededBy: true },
+        });
+
+        if (!oldProposal) {
+          throw new AppException(
+            HttpStatus.NOT_FOUND,
+            ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
+            'Previous proposal revision not found',
+          );
+        }
+
+        if (oldProposal.serviceRequestId !== dto.serviceRequestId) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
+            'Superseded proposal does not belong to the same service request',
+          );
+        }
+
+        if (oldProposal.workerUserId !== dto.workerUserId) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
+            'Superseded proposal does not belong to the specified worker',
+          );
+        }
+
+        if (oldProposal.status !== BookingProposalStatus.changes_requested) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
+            `Cannot create a revision for a proposal in ${oldProposal.status} status. It must be changes_requested.`,
+          );
+        }
+
+        if (oldProposal.supersededBy) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
+            'A newer revision has already superseded this proposal',
+          );
+        }
+
+        revisionNo = oldProposal.revisionNo + 1;
+        supersedesProposalId = oldProposal.id;
+      } else {
+        const existingProposed = await tx.bookingProposal.findFirst({
+          where: {
+            serviceRequestId: dto.serviceRequestId,
+            workerUserId: dto.workerUserId,
+            status: BookingProposalStatus.proposed,
+          },
+        });
+
+        if (existingProposed) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
+            'An active proposal is already awaiting response from this worker. Withdraw or await response first.',
+          );
+        }
       }
 
-      revisionNo = oldProposal.revisionNo + 1;
-      supersedesProposalId = oldProposal.id;
-    } else {
-      // Check if there is already an active proposed proposal for this worker on this request
-      const existingProposed = await this.prisma.bookingProposal.findFirst({
-        where: {
+      // Determine expiration date
+      const maxExpiresAt =
+        txRequest.selectionExpiresAt ??
+        new Date(now.getTime() + 24 * 3600 * 1000);
+
+      let expiresAt = maxExpiresAt;
+      if (dto.expiresAt) {
+        const requestedExpiry = new Date(dto.expiresAt);
+        if (requestedExpiry <= now) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            ORDER_ERROR_CODES.DEADLINE_EXPIRED,
+            'Proposal expiresAt must be in the future',
+          );
+        }
+        if (requestedExpiry > maxExpiresAt) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            ORDER_ERROR_CODES.DEADLINE_EXPIRED,
+            `Proposal expiresAt cannot exceed the request selection deadline (${maxExpiresAt.toISOString()})`,
+          );
+        }
+        expiresAt = requestedExpiry;
+      }
+
+      const created = await tx.bookingProposal.create({
+        data: {
           serviceRequestId: dto.serviceRequestId,
+          supersedesProposalId,
+          revisionNo,
+          customerUserId: userId,
           workerUserId: dto.workerUserId,
+          selectionSource: dto.selectionSource,
+          sourceBidId: dto.sourceBidId ?? null,
+          sourceMatchResultId: dto.sourceMatchResultId ?? null,
+          agreedPrice: dto.agreedPrice,
+          agreedScope: dto.agreedScope,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
           status: BookingProposalStatus.proposed,
+          expiresAt,
+        },
+        include: {
+          serviceRequest: {
+            select: {
+              id: true,
+              requestCode: true,
+              status: true,
+            },
+          },
+          supersedesProposal: {
+            select: {
+              id: true,
+              revisionNo: true,
+              status: true,
+              responseNote: true,
+            },
+          },
         },
       });
 
-      if (existingProposed) {
-        throw new AppException(
-          HttpStatus.CONFLICT,
-          ORDER_ERROR_CODES.PROPOSAL_REVISION_CONFLICT,
-          'An active proposal is already awaiting response from this worker. Withdraw or await response first.',
-        );
-      }
-    }
-
-    // Determine expiration date
-    const maxExpiresAt =
-      request.selectionExpiresAt ??
-      new Date(now.getTime() + 24 * 3600 * 1000);
-
-    let expiresAt = maxExpiresAt;
-    if (dto.expiresAt) {
-      const requestedExpiry = new Date(dto.expiresAt);
-      if (requestedExpiry <= now) {
-        throw new AppException(
-          HttpStatus.BAD_REQUEST,
-          ORDER_ERROR_CODES.DEADLINE_EXPIRED,
-          'Proposal expiresAt must be in the future',
-        );
-      }
-      if (requestedExpiry > maxExpiresAt) {
-        throw new AppException(
-          HttpStatus.BAD_REQUEST,
-          ORDER_ERROR_CODES.DEADLINE_EXPIRED,
-          `Proposal expiresAt cannot exceed the request selection deadline (${maxExpiresAt.toISOString()})`,
-        );
-      }
-      expiresAt = requestedExpiry;
-    }
-
-    const created = await this.prisma.bookingProposal.create({
-      data: {
-        serviceRequestId: dto.serviceRequestId,
-        supersedesProposalId,
-        revisionNo,
-        customerUserId: userId,
-        workerUserId: dto.workerUserId,
-        selectionSource: dto.selectionSource,
-        sourceBidId: dto.sourceBidId ?? null,
-        sourceMatchResultId: dto.sourceMatchResultId ?? null,
-        agreedPrice: dto.agreedPrice,
-        agreedScope: dto.agreedScope,
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-        status: BookingProposalStatus.proposed,
-        expiresAt,
-      },
-      include: {
-        serviceRequest: {
-          select: {
-            id: true,
-            requestCode: true,
-            status: true,
-          },
-        },
-        supersedesProposal: {
-          select: {
-            id: true,
-            revisionNo: true,
-            status: true,
-            responseNote: true,
-          },
-        },
-      },
+      this.logger.log(
+        `Created booking proposal: ${created.id} (Revision ${created.revisionNo}) for worker ${dto.workerUserId} on request ${dto.serviceRequestId}`,
+      );
+      return created;
     });
-
-    this.logger.log(
-      `Created booking proposal: ${created.id} (Revision ${created.revisionNo}) for worker ${dto.workerUserId} on request ${dto.serviceRequestId}`,
-    );
-    return created;
   }
 
   /**
@@ -495,11 +540,12 @@ export class BookingProposalsService {
     workerUserId: string,
     dto: RequestChangesProposalDto,
   ) {
-    const proposal = await this.prisma.bookingProposal.findUnique({
+    const existing = await this.prisma.bookingProposal.findUnique({
       where: { id },
+      select: { id: true, serviceRequestId: true },
     });
 
-    if (!proposal) {
+    if (!existing) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
@@ -507,48 +553,90 @@ export class BookingProposalsService {
       );
     }
 
-    if (proposal.workerUserId !== workerUserId) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
-        'Only the assigned worker can request changes to this proposal',
-      );
-    }
+    return this.prisma.$transaction(async (tx) => {
+      // Hierarchical locking: ServiceRequest -> BookingProposal
+      await tx.$executeRaw`
+        SELECT id FROM order_service.service_requests
+        WHERE id = ${existing.serviceRequestId}::uuid
+        FOR UPDATE;
+      `;
+      await tx.$executeRaw`
+        SELECT id FROM order_service.booking_proposals
+        WHERE id = ${id}::uuid
+        FOR UPDATE;
+      `;
 
-    if (proposal.status !== BookingProposalStatus.proposed) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        `Cannot request changes on a proposal in ${proposal.status} status`,
-      );
-    }
+      const [request, proposal] = await Promise.all([
+        tx.serviceRequest.findUniqueOrThrow({
+          where: { id: existing.serviceRequestId },
+        }),
+        tx.bookingProposal.findUniqueOrThrow({
+          where: { id },
+        }),
+      ]);
 
-    const now = new Date();
-    if (proposal.expiresAt <= now) {
-      await this.prisma.bookingProposal.update({
-        where: { id },
-        data: { status: BookingProposalStatus.expired },
+      if (request.status === RequestStatus.converted_to_order) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request has already been converted to an order',
+        );
+      }
+
+      if (proposal.workerUserId !== workerUserId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
+          'Only the assigned worker can request changes to this proposal',
+        );
+      }
+
+      if (proposal.status !== BookingProposalStatus.proposed) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot request changes on a proposal in ${proposal.status} status`,
+        );
+      }
+
+      const now = new Date();
+      if (proposal.expiresAt <= now) {
+        await tx.bookingProposal.updateMany({
+          where: { id, status: BookingProposalStatus.proposed },
+          data: { status: BookingProposalStatus.expired },
+        });
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.DEADLINE_EXPIRED,
+          ORDER_ERROR_MESSAGES.DEADLINE_EXPIRED,
+        );
+      }
+
+      const updateResult = await tx.bookingProposal.updateMany({
+        where: { id, status: BookingProposalStatus.proposed },
+        data: {
+          status: BookingProposalStatus.changes_requested,
+          responseNote: dto.responseNote,
+          workerRespondedAt: now,
+        },
       });
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.DEADLINE_EXPIRED,
-        ORDER_ERROR_MESSAGES.DEADLINE_EXPIRED,
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Proposal status changed concurrently',
+        );
+      }
+
+      this.logger.log(
+        `Worker ${workerUserId} requested changes on proposal ${id}`,
       );
-    }
 
-    const updated = await this.prisma.bookingProposal.update({
-      where: { id },
-      data: {
-        status: BookingProposalStatus.changes_requested,
-        responseNote: dto.responseNote,
-        workerRespondedAt: now,
-      },
+      return tx.bookingProposal.findUniqueOrThrow({
+        where: { id },
+      });
     });
-
-    this.logger.log(
-      `Worker ${workerUserId} requested changes on proposal ${id}`,
-    );
-    return updated;
   }
 
   /**
@@ -556,11 +644,12 @@ export class BookingProposalsService {
    * Transitions status from `proposed` -> `worker_rejected`.
    */
   async reject(id: string, workerUserId: string, dto?: RejectProposalDto) {
-    const proposal = await this.prisma.bookingProposal.findUnique({
+    const existing = await this.prisma.bookingProposal.findUnique({
       where: { id },
+      select: { id: true, serviceRequestId: true },
     });
 
-    if (!proposal) {
+    if (!existing) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
@@ -568,34 +657,76 @@ export class BookingProposalsService {
       );
     }
 
-    if (proposal.workerUserId !== workerUserId) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
-        'Only the assigned worker can reject this proposal',
-      );
-    }
+    return this.prisma.$transaction(async (tx) => {
+      // Hierarchical locking: ServiceRequest -> BookingProposal
+      await tx.$executeRaw`
+        SELECT id FROM order_service.service_requests
+        WHERE id = ${existing.serviceRequestId}::uuid
+        FOR UPDATE;
+      `;
+      await tx.$executeRaw`
+        SELECT id FROM order_service.booking_proposals
+        WHERE id = ${id}::uuid
+        FOR UPDATE;
+      `;
 
-    if (proposal.status !== BookingProposalStatus.proposed) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        `Cannot reject a proposal in ${proposal.status} status`,
-      );
-    }
+      const [request, proposal] = await Promise.all([
+        tx.serviceRequest.findUniqueOrThrow({
+          where: { id: existing.serviceRequestId },
+        }),
+        tx.bookingProposal.findUniqueOrThrow({
+          where: { id },
+        }),
+      ]);
 
-    const now = new Date();
-    const updated = await this.prisma.bookingProposal.update({
-      where: { id },
-      data: {
-        status: BookingProposalStatus.worker_rejected,
-        responseNote: dto?.responseNote ?? null,
-        workerRespondedAt: now,
-      },
+      if (request.status === RequestStatus.converted_to_order) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request has already been converted to an order',
+        );
+      }
+
+      if (proposal.workerUserId !== workerUserId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_PROPOSAL_PARTICIPANT,
+          'Only the assigned worker can reject this proposal',
+        );
+      }
+
+      if (proposal.status !== BookingProposalStatus.proposed) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot reject a proposal in ${proposal.status} status`,
+        );
+      }
+
+      const now = new Date();
+      const updateResult = await tx.bookingProposal.updateMany({
+        where: { id, status: BookingProposalStatus.proposed },
+        data: {
+          status: BookingProposalStatus.worker_rejected,
+          responseNote: dto?.responseNote ?? null,
+          workerRespondedAt: now,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Proposal status changed concurrently',
+        );
+      }
+
+      this.logger.log(`Worker ${workerUserId} rejected proposal ${id}`);
+
+      return tx.bookingProposal.findUniqueOrThrow({
+        where: { id },
+      });
     });
-
-    this.logger.log(`Worker ${workerUserId} rejected proposal ${id}`);
-    return updated;
   }
 
   /**
@@ -603,11 +734,12 @@ export class BookingProposalsService {
    * Transitions status from `proposed` -> `withdrawn`.
    */
   async withdraw(id: string, customerUserId: string) {
-    const proposal = await this.prisma.bookingProposal.findUnique({
+    const existing = await this.prisma.bookingProposal.findUnique({
       where: { id },
+      select: { id: true, serviceRequestId: true },
     });
 
-    if (!proposal) {
+    if (!existing) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         ORDER_ERROR_CODES.PROPOSAL_NOT_FOUND,
@@ -615,30 +747,73 @@ export class BookingProposalsService {
       );
     }
 
-    if (proposal.customerUserId !== customerUserId) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
-        'Only the customer who created this proposal can withdraw it',
-      );
-    }
+    return this.prisma.$transaction(async (tx) => {
+      // Hierarchical locking: ServiceRequest -> BookingProposal
+      await tx.$executeRaw`
+        SELECT id FROM order_service.service_requests
+        WHERE id = ${existing.serviceRequestId}::uuid
+        FOR UPDATE;
+      `;
+      await tx.$executeRaw`
+        SELECT id FROM order_service.booking_proposals
+        WHERE id = ${id}::uuid
+        FOR UPDATE;
+      `;
 
-    if (proposal.status !== BookingProposalStatus.proposed) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        `Cannot withdraw a proposal that is already ${proposal.status}`,
-      );
-    }
+      const [request, proposal] = await Promise.all([
+        tx.serviceRequest.findUniqueOrThrow({
+          where: { id: existing.serviceRequestId },
+        }),
+        tx.bookingProposal.findUniqueOrThrow({
+          where: { id },
+        }),
+      ]);
 
-    const updated = await this.prisma.bookingProposal.update({
-      where: { id },
-      data: {
-        status: BookingProposalStatus.withdrawn,
-      },
+      if (request.status === RequestStatus.converted_to_order) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request has already been converted to an order',
+        );
+      }
+
+      if (proposal.customerUserId !== customerUserId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+          'Only the customer who created this proposal can withdraw it',
+        );
+      }
+
+      if (proposal.status !== BookingProposalStatus.proposed) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot withdraw a proposal that is already ${proposal.status}`,
+        );
+      }
+
+      const updateResult = await tx.bookingProposal.updateMany({
+        where: { id, status: BookingProposalStatus.proposed },
+        data: {
+          status: BookingProposalStatus.withdrawn,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Proposal status changed concurrently',
+        );
+      }
+
+      this.logger.log(`Customer ${customerUserId} withdrew proposal ${id}`);
+
+      return tx.bookingProposal.findUniqueOrThrow({
+        where: { id },
+      });
     });
-
-    this.logger.log(`Customer ${customerUserId} withdrew proposal ${id}`);
-    return updated;
   }
 }
+

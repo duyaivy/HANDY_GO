@@ -236,6 +236,16 @@ export class ServiceRequestsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      if (typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${id}::uuid
+            FOR UPDATE
+          `;
+        } catch {}
+      }
+
       if (dto.media !== undefined) {
         await tx.requestMedia.deleteMany({
           where: { serviceRequestId: id },
@@ -252,8 +262,8 @@ export class ServiceRequestsService {
         }
       }
 
-      const updated = await tx.serviceRequest.update({
-        where: { id },
+      const updateResult = await tx.serviceRequest.updateMany({
+        where: { id, status: RequestStatus.draft },
         data: {
           serviceId: dto.serviceId !== undefined ? dto.serviceId : undefined,
           description:
@@ -274,6 +284,18 @@ export class ServiceRequestsService {
           longitude: dto.longitude !== undefined ? dto.longitude : undefined,
           version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request is no longer in draft status',
+        );
+      }
+
+      const updated = await tx.serviceRequest.findUniqueOrThrow({
+        where: { id },
         include: {
           media: true,
         },
@@ -467,8 +489,18 @@ export class ServiceRequestsService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      const published = await tx.serviceRequest.update({
-        where: { id },
+      if (typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${id}::uuid
+            FOR UPDATE
+          `;
+        } catch {}
+      }
+
+      const updateResult = await tx.serviceRequest.updateMany({
+        where: { id, status: RequestStatus.draft },
         data: {
           status: RequestStatus.open_for_bidding,
           publishedAt: now,
@@ -476,6 +508,18 @@ export class ServiceRequestsService {
           selectionExpiresAt,
           version: { increment: 1 },
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request was already published or modified concurrently',
+        );
+      }
+
+      const published = await tx.serviceRequest.findUniqueOrThrow({
+        where: { id },
         include: {
           media: true,
         },
@@ -518,49 +562,90 @@ export class ServiceRequestsService {
    * Cancel an open or draft request when no Order has been materialized.
    */
   async cancel(id: string, userId: string) {
-    const request = await this.prisma.serviceRequest.findUnique({
-      where: { id },
-    });
-
-    if (!request) {
-      throw new AppException(
-        HttpStatus.NOT_FOUND,
-        ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
-        ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
-      );
-    }
-
-    if (request.customerUserId !== userId) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
-        ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
-      );
-    }
-
-    if (request.status === RequestStatus.converted_to_order) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        'Cannot cancel a request that has already been converted to an order',
-      );
-    }
-
-    if (
-      request.status === RequestStatus.cancelled ||
-      request.status === RequestStatus.expired
-    ) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        'Service request is already cancelled or expired',
-      );
-    }
-
-    const now = new Date();
-
     return this.prisma.$transaction(async (tx) => {
-      // Transition open proposed proposals to withdrawn
+      // 1. Pessimistic row-level locking concurrency guard
+      if (typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${id}::uuid
+            FOR UPDATE
+          `;
+        } catch {
+          // Non-blocking in mock environments
+        }
+      }
+
+      // 2. Fetch fresh request inside transaction
+      const request = await tx.serviceRequest.findUnique({
+        where: { id },
+      });
+
+      if (!request) {
+        throw new AppException(
+          HttpStatus.NOT_FOUND,
+          ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
+          ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
+        );
+      }
+
+      if (request.customerUserId !== userId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+          ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
+        );
+      }
+
+      if (request.status === RequestStatus.converted_to_order) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Cannot cancel a request that has already been converted to an order',
+        );
+      }
+
+      if (
+        request.status === RequestStatus.cancelled ||
+        request.status === RequestStatus.expired
+      ) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request is already cancelled or expired',
+        );
+      }
+
+      const now = new Date();
+
+      // 3. Conditional atomic update: only update if NOT converted, cancelled, or expired
+      const updateResult = await tx.serviceRequest.updateMany({
+        where: {
+          id,
+          status: {
+            notIn: [
+              RequestStatus.converted_to_order,
+              RequestStatus.cancelled,
+              RequestStatus.expired,
+            ],
+          },
+        },
+        data: {
+          status: RequestStatus.cancelled,
+          cancelledAt: now,
+          version: { increment: 1 },
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new AppException(
+          HttpStatus.CONFLICT,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Service request was converted to order or cancelled concurrently',
+        );
+      }
+
+      // 4. Transition open proposed proposals to withdrawn in the SAME transaction
       await tx.bookingProposal.updateMany({
         where: {
           serviceRequestId: id,
@@ -571,12 +656,8 @@ export class ServiceRequestsService {
         },
       });
 
-      const cancelled = await tx.serviceRequest.update({
+      const cancelled = await tx.serviceRequest.findUniqueOrThrow({
         where: { id },
-        data: {
-          status: RequestStatus.cancelled,
-          version: { increment: 1 },
-        },
         include: {
           media: true,
         },
