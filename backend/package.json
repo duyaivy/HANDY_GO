@@ -48,7 +48,11 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "typecheck": "tsc --noEmit -p tsconfig.build.json && tsc --noEmit -p tsconfig.prisma.json",
-    "typecheck:notification": "tsc --noEmit -p apps/notification-service/tsconfig.typecheck.json"
+    "typecheck:notification": "tsc --noEmit -p apps/notification-service/tsconfig.typecheck.json",
+    "typecheck:wallet": "tsc --noEmit -p apps/wallet-service/tsconfig.typecheck.json",
+    "test:wallet:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-up.ps1",
+    "test:wallet:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-down.ps1",
+    "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",

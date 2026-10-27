@@ -131,3 +131,28 @@ model InboxEvent {
   processedAt DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
   @@map("inbox_events")
 }
+
+model WalletAuditLog {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  targetUserId String @map("target_user_id") @db.Uuid
+  action String @db.VarChar(80)
+  reason String @db.VarChar(500)
+  transferId String? @map("transfer_id") @db.Uuid
+  metadata Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@index([targetUserId, createdAt(sort: Desc)])
+  @@map("wallet_audit_logs")
+}
+
+model DeadLetterEvent {
+  id String @id @default(uuid()) @db.Uuid
+  eventId String @unique @map("event_id") @db.VarChar(200)
+  eventType String @map("event_type") @db.VarChar(120)
+  payload Json
+  reason String @db.VarChar(500)
+  error String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  @@index([eventType, createdAt(sort: Desc)])
+  @@map("dead_letter_events")
+}

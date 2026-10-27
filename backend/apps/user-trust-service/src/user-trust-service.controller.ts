@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   ForbiddenException,
   Get,
@@ -10,8 +11,11 @@ import {
   Param,
   Patch,
   Query,
+  Post,
   UseGuards,
 } from '@nestjs/common';
+import crypto from 'node:crypto';
+import { ConfigService } from '@app/config';
 import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
@@ -30,9 +34,6 @@ import {
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
-import { ConfigService } from '@app/config';
-import crypto from 'node:crypto';
-
 @ApiTags('User & Trust')
 @Controller()
 export class UserTrustServiceController {
@@ -42,6 +43,34 @@ export class UserTrustServiceController {
   ) {}
 
   private readonly logger = new Logger(UserTrustServiceController.name);
+
+  @Post('internal/users/verify-bank-account')
+  @HttpCode(HttpStatus.OK)
+  async verifyBankAccount(
+    @Headers('x-internal-secret') secret: string | undefined,
+    @Body() body: { userId?: string; bankAccountId?: string },
+  ): Promise<{ owned: boolean; active: boolean }> {
+    this.assertInternalSecret(secret);
+    if (!body?.userId || !body.bankAccountId) {
+      throw new BadRequestException('userId and bankAccountId are required');
+    }
+    return this.userTrustService.verifyBankAccountOwnership(
+      body.userId,
+      body.bankAccountId,
+    );
+  }
+
+  private assertInternalSecret(secret?: string): void {
+    const expected = this.config.internalServiceSecret;
+    if (
+      !expected ||
+      !secret ||
+      secret.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(expected))
+    ) {
+      throw new ForbiddenException('Trusted service authentication required');
+    }
+  }
 
   /**
    * RabbitMQ Event Consumer for 'user.registered'.
@@ -380,5 +409,3 @@ export class UserTrustServiceController {
     return this.userTrustService.getWorkersBatchSummary(workerIds);
   }
 }
-
-

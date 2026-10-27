@@ -229,6 +229,7 @@ services:
       <<: *development-environment
       NEST_PROJECT: wallet-service
       PORT: '3009'
+      BANK_ACCOUNT_VERIFIER_URL: http://user-trust-service:3002/internal/users/verify-bank-account
     ports:
       - '3009:3009'
 
@@ -240,4 +241,3 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
-

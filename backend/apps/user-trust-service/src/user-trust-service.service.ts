@@ -42,6 +42,22 @@ export class UserTrustServiceService {
     private readonly rabbitmq?: RabbitMQService,
   ) {}
 
+  async verifyBankAccountOwnership(
+    userId: string,
+    bankAccountId: string,
+  ): Promise<{ owned: boolean; active: boolean }> {
+    const account = await this.db.userBankAccount.findFirst({
+      where: {
+        id: bankAccountId,
+        userId,
+        user: { status: 'active' },
+      },
+      select: { id: true },
+    });
+
+    return { owned: account !== null, active: account !== null };
+  }
+
   async handleUserRegistered(
     event: DomainEvent<UserRegisteredData>,
   ): Promise<{ processed: boolean; idempotent: boolean }> {
@@ -1104,4 +1120,3 @@ export class UserTrustServiceService {
     }));
   }
 }
-

@@ -14,6 +14,7 @@ import { TopupSettlementModule } from './topup-settlement/topup-settlement.modul
 import { WithdrawalModule } from './withdrawal/withdrawal.module.js';
 import { WorkerCommissionModule } from './worker-commission/worker-commission.module.js';
 import { WalletEventsModule } from './wallet-events/wallet-events.module.js';
+import { DeadLetterModule } from './dead-letter/dead-letter.module.js';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { WalletEventsModule } from './wallet-events/wallet-events.module.js';
     WithdrawalModule,
     WorkerCommissionModule,
     WalletEventsModule,
+    DeadLetterModule,
     WalletQueryModule,
   ],
   controllers: [WalletServiceController],

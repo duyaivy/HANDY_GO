@@ -61,6 +61,12 @@ export class WithdrawalController {
     return buildSuccessResponse(serializeWithdrawal(await this.service.finish(withdrawal.userId, id, dto.status)), 'Withdrawal status updated');
   }
 
+  @Post('internal/withdrawals/:id/mark-processing')
+  async markProcessing(@Headers('x-internal-secret') s: string|undefined, @Param('id') id: string) {
+    this.trusted(s);
+    return buildSuccessResponse(serializeWithdrawal(await this.service.markProcessing(id)), 'Withdrawal marked as processing');
+  }
+
   private trusted(s?: string) {
     const expected = this.config.internalServiceSecret;
     if (!expected || !s) throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Trusted service authentication required');
