@@ -19,7 +19,12 @@ export const ORDER_CONSTANTS = {
   EVENT_SERVICE_REQUEST_BIDDING_CLOSED: 'service_request.bidding_closed',
   EVENT_SERVICE_REQUEST_EXPIRED: 'service_request.expired',
   EVENT_SERVICE_REQUEST_CANCELLED: 'service_request.cancelled',
+  EVENT_BOOKING_PROPOSAL_CREATED: 'booking_proposal.created',
+  EVENT_BOOKING_PROPOSAL_CHANGES_REQUESTED:
+    'booking_proposal.changes_requested',
+  EVENT_BOOKING_PROPOSAL_REJECTED: 'booking_proposal.rejected',
   EVENT_ORDER_CREATED: 'order.created',
+  EVENT_ORDER_STATUS_CHANGED: 'order.status.changed',
   EVENT_ORDER_CONFIRMED: 'order.confirmed',
   EVENT_ORDER_STARTED: 'order.started',
   EVENT_ORDER_FINISHED: 'order.finished',

@@ -84,7 +84,8 @@ export class OrderOutboxPublisherService
 
         // status === 'pending'
         try {
-          await this.rabbitmq.emit(event.eventType, event.payload);
+          const envelope = this.buildEnvelope(event);
+          await this.rabbitmq.emit(event.eventType, envelope);
           await this.repository.markPublished(event.id, new Date());
           publishedCount++;
           this.logger.debug(
@@ -139,5 +140,36 @@ export class OrderOutboxPublisherService
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  buildEnvelope(event: {
+    id: string;
+    eventType: string;
+    eventVersion?: number;
+    payload: any;
+    createdAt?: Date | string;
+  }): Record<string, unknown> {
+    const payloadObj =
+      typeof event.payload === 'string'
+        ? JSON.parse(event.payload)
+        : event.payload && typeof event.payload === 'object'
+          ? (event.payload as Record<string, unknown>)
+          : {};
+
+    const occurredAt = event.createdAt
+      ? new Date(event.createdAt).toISOString()
+      : new Date().toISOString();
+
+    return {
+      ...payloadObj,
+      eventId: event.id,
+      eventType: event.eventType,
+      eventVersion: event.eventVersion ?? 1,
+      source: 'order-service',
+      producer: 'order-service',
+      occurredAt,
+      payload: payloadObj,
+      data: payloadObj,
+    };
   }
 }

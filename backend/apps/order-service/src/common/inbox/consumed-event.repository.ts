@@ -43,6 +43,14 @@ export class ConsumedEventRepository {
     tx?: Prisma.TransactionClient,
   ): Promise<boolean> {
     const client = tx ?? this.prisma;
+    const existing = await client.consumedEvent.findUnique({
+      where: { eventId },
+      select: { eventId: true },
+    });
+    if (existing) {
+      return false;
+    }
+
     try {
       await client.consumedEvent.create({
         data: {

@@ -29,52 +29,12 @@ export class PaymentEventsConsumer {
     @Payload() data: PaymentEventPayload,
     @Ctx() context?: any,
   ): Promise<void> {
-    const eventId =
-      data?.eventId ??
-      (data as any)?.id ??
-      `payment_succeeded_${Date.now()}`;
-    const orderId = data?.payload?.orderId ?? data?.orderId;
-
-    if (!orderId) {
-      this.logger.warn(
-        `Received ${ORDER_CONSTANTS.EVENT_PAYMENT_SUCCEEDED} without orderId, skipping`,
-      );
-      this.ackMessage(context);
-      return;
-    }
-
-    const isNew = await this.consumedEventRepo.recordEventIfNew(
-      eventId,
+    await this.processPaymentEvent(
       ORDER_CONSTANTS.EVENT_PAYMENT_SUCCEEDED,
+      'paid',
+      data,
+      context,
     );
-
-    if (!isNew) {
-      this.logger.debug(
-        `Duplicate ${ORDER_CONSTANTS.EVENT_PAYMENT_SUCCEEDED} event ${eventId} skipped`,
-      );
-      this.ackMessage(context);
-      return;
-    }
-
-    try {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: {
-          paymentState: 'paid',
-        },
-      });
-
-      this.logger.log(
-        `Order ${orderId} projection updated to paymentState: paid`,
-      );
-      this.ackMessage(context);
-    } catch (error) {
-      this.logger.error(
-        `Failed to update paymentState for order ${orderId}: ${(error as Error).message}`,
-      );
-      this.nackMessage(context);
-      throw error;
-    }
   }
 
   @EventPattern(ORDER_CONSTANTS.EVENT_PAYMENT_FAILED)
@@ -82,50 +42,70 @@ export class PaymentEventsConsumer {
     @Payload() data: PaymentEventPayload,
     @Ctx() context?: any,
   ): Promise<void> {
-    const eventId =
-      data?.eventId ??
-      (data as any)?.id ??
-      `payment_failed_${Date.now()}`;
+    await this.processPaymentEvent(
+      ORDER_CONSTANTS.EVENT_PAYMENT_FAILED,
+      'failed',
+      data,
+      context,
+    );
+  }
+
+  private async processPaymentEvent(
+    eventType: string,
+    targetPaymentState: 'paid' | 'failed',
+    data: PaymentEventPayload,
+    context?: any,
+  ): Promise<void> {
+    const eventId = data?.eventId ?? (data as any)?.id;
     const orderId = data?.payload?.orderId ?? data?.orderId;
 
-    if (!orderId) {
+    if (!eventId || !orderId) {
       this.logger.warn(
-        `Received ${ORDER_CONSTANTS.EVENT_PAYMENT_FAILED} without orderId, skipping`,
+        `Received ${eventType} without valid eventId (${eventId}) or orderId (${orderId}), rejecting without requeue`,
       );
-      this.ackMessage(context);
-      return;
-    }
-
-    const isNew = await this.consumedEventRepo.recordEventIfNew(
-      eventId,
-      ORDER_CONSTANTS.EVENT_PAYMENT_FAILED,
-    );
-
-    if (!isNew) {
-      this.logger.debug(
-        `Duplicate ${ORDER_CONSTANTS.EVENT_PAYMENT_FAILED} event ${eventId} skipped`,
-      );
-      this.ackMessage(context);
+      this.nackMessage(context, false);
       return;
     }
 
     try {
-      await this.prisma.order.update({
-        where: { id: orderId },
-        data: {
-          paymentState: 'failed',
-        },
+      const result = await this.prisma.$transaction(async (tx) => {
+        const isNew = await this.consumedEventRepo.recordEventIfNew(
+          eventId,
+          eventType,
+          tx,
+        );
+
+        if (!isNew) {
+          return { duplicate: true };
+        }
+
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            paymentState: targetPaymentState,
+          },
+        });
+
+        return { duplicate: false };
       });
 
+      if (result.duplicate) {
+        this.logger.debug(
+          `Duplicate ${eventType} event ${eventId} skipped`,
+        );
+        this.ackMessage(context);
+        return;
+      }
+
       this.logger.log(
-        `Order ${orderId} projection updated to paymentState: failed`,
+        `Order ${orderId} projection updated to paymentState: ${targetPaymentState}`,
       );
       this.ackMessage(context);
     } catch (error) {
       this.logger.error(
-        `Failed to update paymentState for order ${orderId}: ${(error as Error).message}`,
+        `Failed to process ${eventType} for order ${orderId}: ${(error as Error).message}`,
       );
-      this.nackMessage(context);
+      this.nackMessage(context, true);
       throw error;
     }
   }
@@ -133,19 +113,19 @@ export class PaymentEventsConsumer {
   private ackMessage(context: any): void {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
-      const originalMsg = context.getMessage();
+      const originalMsg = context.getMessage?.();
       if (channel && originalMsg) {
         channel.ack(originalMsg);
       }
     }
   }
 
-  private nackMessage(context: any): void {
+  private nackMessage(context: any, requeue = true): void {
     if (context && typeof context.getChannelRef === 'function') {
       const channel = context.getChannelRef();
-      const originalMsg = context.getMessage();
+      const originalMsg = context.getMessage?.();
       if (channel && originalMsg) {
-        channel.nack(originalMsg, false, true);
+        channel.nack(originalMsg, false, requeue);
       }
     }
   }

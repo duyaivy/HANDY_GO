@@ -34,13 +34,16 @@ describe('OrderOutboxPublisherService', () => {
     );
   });
 
-  it('should publish pending events and mark them as published', async () => {
+  it('should publish pending events wrapped in notification envelope and mark them as published', async () => {
+    const fixedCreatedAt = new Date('2026-10-27T10:00:00.000Z');
     const events = [
       {
-        id: 'evt-1',
+        id: '11111111-1111-1111-1111-111111111111',
         status: 'pending',
         eventType: 'order.created',
-        payload: { orderId: 'ord-1' },
+        eventVersion: 1,
+        payload: { orderId: 'ord-1', customerId: 'cust-1' },
+        createdAt: fixedCreatedAt,
         retryCount: 0,
       },
     ];
@@ -49,20 +52,38 @@ describe('OrderOutboxPublisherService', () => {
 
     const count = await service.publishPendingEvents();
 
-    expect(rabbitmqMock.emit).toHaveBeenCalledWith('order.created', {
-      orderId: 'ord-1',
-    });
-    expect(repoMock.markPublished).toHaveBeenCalledWith('evt-1', expect.any(Date));
+    expect(rabbitmqMock.emit).toHaveBeenCalledWith(
+      'order.created',
+      expect.objectContaining({
+        eventId: '11111111-1111-1111-1111-111111111111',
+        eventType: 'order.created',
+        eventVersion: 1,
+        source: 'order-service',
+        producer: 'order-service',
+        occurredAt: '2026-10-27T10:00:00.000Z',
+        orderId: 'ord-1',
+        customerId: 'cust-1',
+        payload: { orderId: 'ord-1', customerId: 'cust-1' },
+        data: { orderId: 'ord-1', customerId: 'cust-1' },
+      }),
+    );
+    expect(repoMock.markPublished).toHaveBeenCalledWith(
+      '11111111-1111-1111-1111-111111111111',
+      expect.any(Date),
+    );
     expect(count).toBe(1);
   });
 
-  it('should schedule retry when publishing fails', async () => {
+  it('should schedule retry when publishing fails and preserve eventId and occurredAt', async () => {
+    const fixedCreatedAt = new Date('2026-10-27T10:00:00.000Z');
     const events = [
       {
-        id: 'evt-2',
+        id: '22222222-2222-2222-2222-222222222222',
         status: 'pending',
         eventType: 'order.completed',
+        eventVersion: 1,
         payload: { orderId: 'ord-2' },
+        createdAt: fixedCreatedAt,
         retryCount: 1,
       },
     ];
@@ -72,10 +93,15 @@ describe('OrderOutboxPublisherService', () => {
     await service.publishPendingEvents();
 
     expect(repoMock.scheduleRetry).toHaveBeenCalledWith(
-      'evt-2',
+      '22222222-2222-2222-2222-222222222222',
       expect.any(Date),
       2,
       'Connection dropped',
     );
+
+    // Verify envelope preserves identical eventId and occurredAt
+    const envelope = service.buildEnvelope(events[0]);
+    expect(envelope.eventId).toBe('22222222-2222-2222-2222-222222222222');
+    expect(envelope.occurredAt).toBe('2026-10-27T10:00:00.000Z');
   });
 });

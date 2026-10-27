@@ -8,6 +8,8 @@ import {
 } from '@prisma/order-client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProposalSourceVerifierService } from './services/proposal-source-verifier.service.js';
+import { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
+import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 import {
   ORDER_ERROR_CODES,
   ORDER_ERROR_MESSAGES,
@@ -24,6 +26,7 @@ export class BookingProposalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly proposalSourceVerifier: ProposalSourceVerifierService,
+    private readonly outboxRepo: OrderOutboxRepository,
   ) {}
 
   /**
@@ -321,6 +324,29 @@ export class BookingProposalsService {
           },
         },
       });
+
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_BOOKING_PROPOSAL,
+          aggregateId: created.id,
+          eventType: ORDER_CONSTANTS.EVENT_BOOKING_PROPOSAL_CREATED,
+          eventVersion: 1,
+          payload: {
+            proposalId: created.id,
+            requestId: created.serviceRequestId,
+            serviceRequestId: created.serviceRequestId,
+            customerId: userId,
+            customerUserId: userId,
+            workerId: dto.workerUserId,
+            workerUserId: dto.workerUserId,
+            revisionNo: created.revisionNo,
+            agreedPrice: created.agreedPrice.toString(),
+            scheduledAt: created.scheduledAt ? new Date(created.scheduledAt).toISOString() : null,
+            createdAt: (created.createdAt ? new Date(created.createdAt) : new Date()).toISOString(),
+          },
+        },
+        tx,
+      );
 
       this.logger.log(
         `Created booking proposal: ${created.id} (Revision ${created.revisionNo}) for worker ${dto.workerUserId} on request ${dto.serviceRequestId}`,
@@ -629,6 +655,28 @@ export class BookingProposalsService {
         );
       }
 
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_BOOKING_PROPOSAL,
+          aggregateId: id,
+          eventType: ORDER_CONSTANTS.EVENT_BOOKING_PROPOSAL_CHANGES_REQUESTED,
+          eventVersion: 1,
+          payload: {
+            proposalId: id,
+            requestId: existing.serviceRequestId,
+            serviceRequestId: existing.serviceRequestId,
+            customerId: proposal.customerUserId,
+            customerUserId: proposal.customerUserId,
+            workerId: workerUserId,
+            workerUserId: workerUserId,
+            revisionNo: proposal.revisionNo,
+            responseNote: dto.responseNote,
+            requestedAt: now.toISOString(),
+          },
+        },
+        tx,
+      );
+
       this.logger.log(
         `Worker ${workerUserId} requested changes on proposal ${id}`,
       );
@@ -720,6 +768,28 @@ export class BookingProposalsService {
           'Proposal status changed concurrently',
         );
       }
+
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_BOOKING_PROPOSAL,
+          aggregateId: id,
+          eventType: ORDER_CONSTANTS.EVENT_BOOKING_PROPOSAL_REJECTED,
+          eventVersion: 1,
+          payload: {
+            proposalId: id,
+            requestId: existing.serviceRequestId,
+            serviceRequestId: existing.serviceRequestId,
+            customerId: proposal.customerUserId,
+            customerUserId: proposal.customerUserId,
+            workerId: workerUserId,
+            workerUserId: workerUserId,
+            revisionNo: proposal.revisionNo,
+            responseNote: dto?.responseNote ?? null,
+            rejectedAt: now.toISOString(),
+          },
+        },
+        tx,
+      );
 
       this.logger.log(`Worker ${workerUserId} rejected proposal ${id}`);
 

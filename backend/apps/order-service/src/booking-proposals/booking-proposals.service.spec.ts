@@ -67,9 +67,14 @@ describe('BookingProposalsService', () => {
       verifyProposalSource: vi.fn().mockResolvedValue(undefined),
     };
 
+    const outboxRepoMock = {
+      createEvent: vi.fn().mockResolvedValue(undefined),
+    };
+
     service = new BookingProposalsService(
       prismaMock as unknown as PrismaService,
       verifierMock as any,
+      outboxRepoMock as any,
     );
   });
 

@@ -269,9 +269,15 @@ export class OrdersService {
             orderId: createdOrder.id,
             orderCode: createdOrder.orderCode,
             serviceRequestId: request.id,
+            requestId: request.id,
             bookingProposalId: proposal.id,
             customerUserId: createdOrder.customerUserId,
+            customerId: createdOrder.customerUserId,
             workerUserId: createdOrder.workerUserId,
+            workerId: createdOrder.workerUserId,
+            selectionSource: createdOrder.selectionSource,
+            selectedBidId: createdOrder.selectedBidId ?? null,
+            selectedMatchResultId: createdOrder.selectedMatchResultId ?? null,
             serviceId: createdOrder.serviceId,
             agreedPrice: createdOrder.agreedPrice.toString(),
             currency: 'VND',
@@ -371,6 +377,14 @@ export class OrdersService {
         tx,
       );
 
+      await this.emitOrderStatusChangedEvent(
+        tx,
+        order,
+        'created',
+        'confirmed',
+        { confirmedAt: now.toISOString() },
+      );
+
       this.logger.log(`Order ${orderId} confirmed by worker ${workerUserId}`);
       return this.formatOrderResponse({
         ...updatedOrder,
@@ -453,6 +467,14 @@ export class OrdersService {
           },
         },
         tx,
+      );
+
+      await this.emitOrderStatusChangedEvent(
+        tx,
+        order,
+        'confirmed',
+        'in_progress',
+        { startedAt: now.toISOString() },
       );
 
       this.logger.log(`Order ${orderId} started by worker ${workerUserId}`);
@@ -554,6 +576,14 @@ export class OrdersService {
         tx,
       );
 
+      await this.emitOrderStatusChangedEvent(
+        tx,
+        order,
+        'in_progress',
+        'awaiting_customer_confirmation',
+        { finishedAt: now.toISOString() },
+      );
+
       this.logger.log(
         `Order ${orderId} marked as finished by worker ${workerUserId}`,
       );
@@ -634,7 +664,9 @@ export class OrdersService {
             orderId,
             orderCode: order.orderCode,
             customerUserId,
+            customerId: customerUserId,
             workerUserId: order.workerUserId,
+            workerId: order.workerUserId,
             serviceId: order.serviceId,
             agreedPrice: order.agreedPrice.toString(),
             currency: 'VND',
@@ -710,6 +742,14 @@ export class OrdersService {
           reason: dto.reason,
         },
       });
+
+      await this.emitOrderStatusChangedEvent(
+        tx,
+        order,
+        'awaiting_customer_confirmation',
+        'in_progress',
+        { reason: dto.reason },
+      );
 
       this.logger.log(
         `Customer ${customerUserId} requested rework on order ${orderId}: ${dto.reason}`,
@@ -796,7 +836,9 @@ export class OrdersService {
             orderId,
             orderCode: order.orderCode,
             customerUserId: order.customerUserId,
+            customerId: order.customerUserId,
             workerUserId: order.workerUserId,
+            workerId: order.workerUserId,
             cancelledByUserId: userId,
             cancelReason: dto.reason,
             cancelledAt: now.toISOString(),
@@ -1021,6 +1063,14 @@ export class OrdersService {
         tx,
       );
 
+      await this.emitOrderStatusChangedEvent(
+        tx,
+        order,
+        order.status,
+        'disputed',
+        { disputeReason: dto.reason, disputedAt: now.toISOString() },
+      );
+
       this.logger.log(`Order ${orderId} moved to disputed by user ${userId}`);
       return this.formatOrderResponse({
         ...updatedOrder,
@@ -1069,6 +1119,14 @@ export class OrdersService {
       if (dto.action === 'resume_previous_state') {
         nextStatus = order.disputePreviousStatus ?? 'in_progress';
         orderUpdateData.status = nextStatus;
+
+        await this.emitOrderStatusChangedEvent(
+          tx,
+          order,
+          'disputed',
+          nextStatus,
+          { resolutionNote: dto.resolutionNote, resolvedAt: now.toISOString() },
+        );
       } else if (dto.action === 'cancel') {
         nextStatus = 'cancelled';
         orderUpdateData.status = nextStatus;
@@ -1085,7 +1143,9 @@ export class OrdersService {
               orderId,
               orderCode: order.orderCode,
               customerUserId: order.customerUserId,
+              customerId: order.customerUserId,
               workerUserId: order.workerUserId,
+              workerId: order.workerUserId,
               cancelledByUserId: adminUserId,
               cancelReason: dto.resolutionNote,
               cancelledAt: now.toISOString(),
@@ -1109,7 +1169,9 @@ export class OrdersService {
               orderId,
               orderCode: order.orderCode,
               customerUserId: order.customerUserId,
+              customerId: order.customerUserId,
               workerUserId: order.workerUserId,
+              workerId: order.workerUserId,
               serviceId: order.serviceId,
               agreedPrice: order.agreedPrice.toString(),
               currency: 'VND',
@@ -1456,5 +1518,37 @@ export class OrdersService {
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };
+  }
+
+  /**
+   * Helper to emit order.status.changed outbox event for progress transitions.
+   */
+  private async emitOrderStatusChangedEvent(
+    tx: Prisma.TransactionClient,
+    order: { id: string; customerUserId: string; workerUserId: string },
+    previousStatus: string,
+    nextStatus: string,
+    extraPayload: Record<string, unknown> = {},
+  ): Promise<void> {
+    await this.outboxRepo.createEvent(
+      {
+        aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+        aggregateId: order.id,
+        eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+        eventVersion: 1,
+        payload: {
+          orderId: order.id,
+          customerId: order.customerUserId,
+          customerUserId: order.customerUserId,
+          workerId: order.workerUserId,
+          workerUserId: order.workerUserId,
+          previousStatus,
+          nextStatus,
+          notificationKind: 'status_update',
+          ...extraPayload,
+        },
+      },
+      tx,
+    );
   }
 }
