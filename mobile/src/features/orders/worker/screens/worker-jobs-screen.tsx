@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   View,
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
@@ -47,8 +48,16 @@ export function WorkerJobsScreen() {
 
   const {
     activeOrders,
+    fetchNextOrders,
+    fetchNextProposals,
+    hasNextOrders,
+    hasNextProposals,
+    isFetchingNextOrders,
+    isFetchingNextProposals,
     isLoading,
+    isRefetching,
     proposals,
+    refetch,
   } = useWorkerJobs();
 
   const acceptMutation = useAcceptProposal();
@@ -82,7 +91,18 @@ export function WorkerJobsScreen() {
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen
+      safeArea
+      scrollable
+      className="bg-neutral-50 dark:bg-neutral-950"
+      refreshControl={(
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          tintColor={PRIMARY_COLOR}
+        />
+      )}
+    >
       <AppBar
         mode="stack"
         title="Công việc của tôi"
@@ -208,6 +228,20 @@ export function WorkerJobsScreen() {
                 </View>
               </View>
             )}
+
+            {hasNextProposals && (
+              <View className="items-center py-2">
+                <Button
+                  testID="load-more-proposals-btn"
+                  label={isFetchingNextProposals ? 'Đang tải thêm lời mời...' : 'Tải thêm lời mời nhận việc'}
+                  variant="outline"
+                  disabled={isFetchingNextProposals}
+                  className="rounded-xl border-primary px-4 py-2"
+                  textClassName="text-xs font-bold text-primary"
+                  onPress={() => fetchNextProposals()}
+                />
+              </View>
+            )}
           </View>
         )}
 
@@ -258,6 +292,20 @@ export function WorkerJobsScreen() {
                 </View>
               );
             })}
+
+            {hasNextOrders && (
+              <View className="items-center py-2">
+                <Button
+                  testID="load-more-active-orders-btn"
+                  label={isFetchingNextOrders ? 'Đang tải thêm...' : 'Tải thêm công việc đang làm'}
+                  variant="outline"
+                  disabled={isFetchingNextOrders}
+                  className="rounded-xl border-primary px-4 py-2"
+                  textClassName="text-xs font-bold text-primary"
+                  onPress={() => fetchNextOrders()}
+                />
+              </View>
+            )}
 
             {activeOrders.length === 0 && (
               /* Đơn việc mẫu cho thợ */

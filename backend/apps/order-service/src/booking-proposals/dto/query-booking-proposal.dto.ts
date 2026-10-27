@@ -1,5 +1,4 @@
 import {
-  IsEnum,
   IsInt,
   IsOptional,
   IsUUID,
@@ -8,7 +7,6 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { BookingProposalStatus } from '@prisma/order-client';
 
 export class QueryBookingProposalDto {
   @ApiPropertyOptional({
@@ -33,12 +31,11 @@ export class QueryBookingProposalDto {
   customerUserId?: string;
 
   @ApiPropertyOptional({
-    enum: BookingProposalStatus,
-    description: 'Filter by booking proposal status',
+    description: 'Filter by booking proposal status (single or comma-separated)',
+    example: 'proposed,changes_requested',
   })
   @IsOptional()
-  @IsEnum(BookingProposalStatus)
-  status?: BookingProposalStatus;
+  status?: string;
 
   @ApiPropertyOptional({
     description: 'Page number for pagination',

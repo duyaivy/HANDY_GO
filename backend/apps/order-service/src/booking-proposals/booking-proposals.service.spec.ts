@@ -725,4 +725,49 @@ describe('BookingProposalsService', () => {
       expect(result[0].id).toBe('prop-1');
     });
   });
+
+  describe('findAll & findMyReceivedProposals multi-status filtering (MOB-01)', () => {
+    it('supports comma-separated status filtering in findAll', async () => {
+      prismaMock.bookingProposal.count.mockResolvedValue(1);
+      prismaMock.bookingProposal.findMany.mockResolvedValue([
+        { id: 'prop-1', workerUserId: mockWorkerId, status: BookingProposalStatus.proposed },
+      ]);
+
+      const result = await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, status: 'proposed,changes_requested' },
+        ['Worker'],
+      );
+
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.bookingProposal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: [BookingProposalStatus.proposed, BookingProposalStatus.changes_requested] },
+          }),
+        }),
+      );
+    });
+
+    it('supports comma-separated status filtering in findMyReceivedProposals', async () => {
+      prismaMock.bookingProposal.count.mockResolvedValue(1);
+      prismaMock.bookingProposal.findMany.mockResolvedValue([
+        { id: 'prop-1', workerUserId: mockWorkerId, status: BookingProposalStatus.proposed },
+      ]);
+
+      const result = await service.findMyReceivedProposals(
+        mockWorkerId,
+        { page: 1, limit: 10, status: 'proposed,changes_requested' },
+      );
+
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.bookingProposal.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: [BookingProposalStatus.proposed, BookingProposalStatus.changes_requested] },
+          }),
+        }),
+      );
+    });
+  });
 });

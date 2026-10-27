@@ -14,6 +14,19 @@ export const DEFAULT_DEVICE_COORDINATES: DeviceCoordinates = {
   addressText: '54 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
 };
 
+export type LocationStatus
+  = | 'gps_success'
+    | 'permission_denied'
+    | 'module_missing'
+    | 'gps_error';
+
+export type DeviceLocationResult = {
+  status: LocationStatus;
+  isRealGps: boolean;
+  coordinates: DeviceCoordinates | null;
+  errorMessage?: string;
+};
+
 /**
  * Helper nạp module expo-location an toàn.
  * Tránh ném uncaught exception tại thời điểm nạp bundle nếu APK hiện tại chưa được biên dịch kèm native module 'ExpoLocation'.
@@ -48,7 +61,7 @@ export const DeviceLocationService = {
       console.warn(
         '[DeviceLocationService] Native module ExpoLocation chưa được nạp trong APK. Sử dụng fallback.',
       );
-      return true;
+      return false;
     }
 
     try {
@@ -62,30 +75,49 @@ export const DeviceLocationService = {
   },
 
   /**
-   * Lấy tọa độ GPS thật của thiết bị và tự động dịch thành địa chỉ đường phố (Reverse Geocoding)
-   * Nếu build hiện tại chưa có native module ExpoLocation, fallback an toàn sang tọa độ mặc định để không làm đơ/treo ứng dụng.
+   * Lấy kết quả định vị chi tiết, phân biệt rõ:
+   * - 'gps_success': GPS thật thành công (isRealGps = true)
+   * - 'permission_denied': Người dùng từ chối quyền truy cập vị trí
+   * - 'module_missing': Bản dựng thiếu native module ExpoLocation
+   * - 'gps_error': Lỗi phần cứng/mạng/tín hiệu GPS
    */
-  async getCurrentLocation(): Promise<DeviceCoordinates | null> {
+  async getDeviceLocationResult(): Promise<DeviceLocationResult> {
     const Location = getLocationModule();
     if (!Location) {
-      console.warn(
-        '[DeviceLocationService] Native module ExpoLocation chưa có trong APK hiện tại. Tự động trả về tọa độ mặc định hợp lệ.',
-      );
-      return DEFAULT_DEVICE_COORDINATES;
+      return {
+        status: 'module_missing',
+        isRealGps: false,
+        coordinates: null,
+        errorMessage: 'Native module ExpoLocation chưa được tích hợp trong bản dựng.',
+      };
     }
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== Location.PermissionStatus.GRANTED) {
-        return null;
+        return {
+          status: 'permission_denied',
+          isRealGps: false,
+          coordinates: null,
+          errorMessage: 'Người dùng từ chối cấp quyền truy cập vị trí.',
+        };
       }
+    }
+    catch (err: unknown) {
+      return {
+        status: 'permission_denied',
+        isRealGps: false,
+        coordinates: null,
+        errorMessage: (err as Error)?.message || 'Lỗi khi yêu cầu quyền vị trí.',
+      };
+    }
 
+    try {
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
 
       const { latitude, longitude } = position.coords;
-
       let addressText = '';
 
       // 1. Ưu tiên Mapbox Reverse Geocoding vì độ chính xác tên đường phố tại VN rất cao
@@ -129,14 +161,37 @@ export const DeviceLocationService = {
       }
 
       return {
-        latitude,
-        longitude,
-        addressText,
+        status: 'gps_success',
+        isRealGps: true,
+        coordinates: {
+          latitude,
+          longitude,
+          addressText,
+        },
       };
     }
-    catch (error) {
-      console.warn('[DeviceLocationService] Lỗi khi đọc GPS thiết bị:', error);
+    catch (error: unknown) {
+      return {
+        status: 'gps_error',
+        isRealGps: false,
+        coordinates: null,
+        errorMessage: (error as Error)?.message || 'Lỗi khi đọc tín hiệu GPS thiết bị.',
+      };
+    }
+  },
+
+  /**
+   * Lấy tọa độ GPS thật của thiết bị và tự động dịch thành địa chỉ đường phố.
+   * Chỉ trả về tọa độ khi GPS thật thành công, hoặc khi `allowFallback: true`.
+   */
+  async getCurrentLocation(options?: { allowFallback?: boolean }): Promise<DeviceCoordinates | null> {
+    const res = await this.getDeviceLocationResult();
+    if (res.status === 'gps_success' && res.coordinates) {
+      return res.coordinates;
+    }
+    if (options?.allowFallback) {
       return DEFAULT_DEVICE_COORDINATES;
     }
+    return null;
   },
 };

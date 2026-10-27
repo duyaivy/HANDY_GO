@@ -961,6 +961,25 @@ describe('OrdersService', () => {
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
     });
+
+    it('should filter by multiple comma-separated statuses (MOB-01)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, status: 'created,confirmed,in_progress' },
+        ['Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: ['created', 'confirmed', 'in_progress'] },
+          }),
+        }),
+      );
+    });
   });
 
   describe('adminFindAll (BE-02)', () => {

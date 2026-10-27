@@ -164,6 +164,28 @@ describe('ServiceRequestsService', () => {
         include: { media: true },
       });
     });
+
+    it('should filter by multiple comma-separated statuses (MOB-01)', async () => {
+      prismaMock.serviceRequest.count.mockResolvedValue(1);
+      prismaMock.serviceRequest.findMany.mockResolvedValue([
+        { id: mockRequestId, customerUserId: mockUserId, media: [] },
+      ]);
+
+      const result = await service.findAll(mockUserId, {
+        page: 1,
+        limit: 10,
+        status: 'open_for_bidding,draft,bidding_closed',
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.serviceRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: { in: ['open_for_bidding', 'draft', 'bidding_closed'] },
+          }),
+        }),
+      );
+    });
   });
 
   describe('findById', () => {

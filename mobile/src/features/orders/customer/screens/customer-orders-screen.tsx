@@ -5,6 +5,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   View,
 } from 'react-native';
@@ -225,13 +226,40 @@ export function CustomerOrdersScreen({
   }, [userSelectedTab, searchParams?.tab]);
 
   const {
+    fetchNextOrders,
+    fetchNextPage,
+    fetchNextRequests,
+    hasNextOrders,
+    hasNextPage,
+    hasNextRequests,
+    isCancelledTab,
+    isFetchingNextOrders,
+    isFetchingNextPage,
+    isFetchingNextRequests,
     isLoading,
+    isOrdersError,
+    isRefetching,
+    isRequestsError,
     orders,
+    refetch,
+    refetchOrders,
+    refetchRequests,
     requests,
   } = useCustomerOrders(activeTab);
 
   return (
-    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen
+      safeArea={false}
+      scrollable
+      className="bg-neutral-50 dark:bg-neutral-950"
+      refreshControl={(
+        <RefreshControl
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          tintColor={PRIMARY_COLOR}
+        />
+      )}
+    >
       <AppBar
         mode="stack"
         title="Hoạt động"
@@ -294,9 +322,28 @@ export function CustomerOrdersScreen({
           </View>
         )}
 
+        {/* Error banners cho tab Cancelled khi một trong hai nguồn gặp sự cố */}
+        {isCancelledTab && isRequestsError && (
+          <View className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900 dark:bg-rose-950/40">
+            <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+              Không thể tải danh sách yêu cầu đã hủy
+            </Text>
+            <Pressable testID="retry-requests-btn" onPress={() => refetchRequests()} className="mt-1">
+              <Text className="text-xs font-bold text-primary">Thử lại yêu cầu</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* Danh sách Service Requests (Searching, Cancelled, All) */}
         {requests.length > 0 && (
           <View className="mb-4 gap-3">
+            {isCancelledTab && (
+              <Text className="text-xs font-bold tracking-wider text-neutral-500 uppercase">
+                Yêu cầu tìm thợ đã hủy (
+                {requests.length}
+                )
+              </Text>
+            )}
             {requests.map((req: ServiceRequest) => {
               const isSearch = ['open_for_bidding', 'bidding_closed', 'draft'].includes(req.status);
               const badge = isSearch
@@ -354,12 +401,44 @@ export function CustomerOrdersScreen({
                 </View>
               );
             })}
+
+            {isCancelledTab && hasNextRequests && (
+              <View className="items-center py-2">
+                <Button
+                  testID="load-more-requests-btn"
+                  label={isFetchingNextRequests ? 'Đang tải thêm yêu cầu...' : 'Tải thêm yêu cầu đã hủy'}
+                  variant="outline"
+                  disabled={isFetchingNextRequests}
+                  className="rounded-xl border-primary px-4 py-2"
+                  textClassName="text-xs font-bold text-primary"
+                  onPress={() => fetchNextRequests()}
+                />
+              </View>
+            )}
+          </View>
+        )}
+
+        {isCancelledTab && isOrdersError && (
+          <View className="mb-3 rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900 dark:bg-rose-950/40">
+            <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+              Không thể tải danh sách đơn hàng đã hủy
+            </Text>
+            <Pressable testID="retry-orders-btn" onPress={() => refetchOrders()} className="mt-1">
+              <Text className="text-xs font-bold text-primary">Thử lại đơn hàng</Text>
+            </Pressable>
           </View>
         )}
 
         {/* Danh sách Orders (In process, Finished, Cancelled, All, Reorder) */}
         {orders.length > 0 && (
           <View className="mb-4 gap-3">
+            {isCancelledTab && (
+              <Text className="text-xs font-bold tracking-wider text-neutral-500 uppercase">
+                Đơn hàng đã hủy (
+                {orders.length}
+                )
+              </Text>
+            )}
             {orders.map((ord: Order) => {
               const badge = getStatusBadge(ord.status, ord.createdAt);
               return (
@@ -402,6 +481,35 @@ export function CustomerOrdersScreen({
                 </View>
               );
             })}
+
+            {isCancelledTab && hasNextOrders && (
+              <View className="items-center py-2">
+                <Button
+                  testID="load-more-orders-btn"
+                  label={isFetchingNextOrders ? 'Đang tải thêm đơn...' : 'Tải thêm đơn hàng đã hủy'}
+                  variant="outline"
+                  disabled={isFetchingNextOrders}
+                  className="rounded-xl border-primary px-4 py-2"
+                  textClassName="text-xs font-bold text-primary"
+                  onPress={() => fetchNextOrders()}
+                />
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Nút Tải thêm chung cho các tab đơn nguồn (Searching, In process, Finished) */}
+        {!isCancelledTab && hasNextPage && (
+          <View className="my-2 items-center">
+            <Button
+              testID="load-more-btn"
+              label={isFetchingNextPage ? 'Đang tải thêm...' : 'Tải thêm'}
+              variant="outline"
+              disabled={isFetchingNextPage}
+              className="rounded-xl border-primary px-5 py-2.5"
+              textClassName="text-xs font-bold text-primary"
+              onPress={() => fetchNextPage()}
+            />
           </View>
         )}
 

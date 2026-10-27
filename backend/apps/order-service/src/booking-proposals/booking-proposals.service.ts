@@ -369,7 +369,6 @@ export class BookingProposalsService {
       ...(query.serviceRequestId
         ? { serviceRequestId: query.serviceRequestId }
         : {}),
-      ...(query.status ? { status: query.status } : {}),
       ...(isAdmin
         ? {
             ...(query.workerUserId ? { workerUserId: query.workerUserId } : {}),
@@ -385,6 +384,18 @@ export class BookingProposalsService {
               : {}),
           }),
     };
+
+    if (query.status) {
+      const statuses = (query.status as string)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length > 1) {
+        where.status = { in: statuses as BookingProposalStatus[] };
+      } else if (statuses.length === 1) {
+        where.status = statuses[0] as BookingProposalStatus;
+      }
+    }
 
     const skip = (query.page - 1) * query.limit;
     const take = query.limit;
@@ -429,8 +440,19 @@ export class BookingProposalsService {
       ...(query.serviceRequestId
         ? { serviceRequestId: query.serviceRequestId }
         : {}),
-      ...(query.status ? { status: query.status } : {}),
     };
+
+    if (query.status) {
+      const statuses = (query.status as string)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length > 1) {
+        where.status = { in: statuses as BookingProposalStatus[] };
+      } else if (statuses.length === 1) {
+        where.status = statuses[0] as BookingProposalStatus;
+      }
+    }
 
     const skip = (query.page - 1) * query.limit;
     const take = query.limit;

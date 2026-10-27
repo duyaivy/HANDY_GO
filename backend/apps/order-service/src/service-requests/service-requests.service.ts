@@ -83,9 +83,20 @@ export class ServiceRequestsService {
   async findAll(userId: string, query: QueryServiceRequestDto) {
     const where: Prisma.ServiceRequestWhereInput = {
       customerUserId: userId,
-      ...(query.status ? { status: query.status } : {}),
       ...(query.serviceId ? { serviceId: query.serviceId } : {}),
     };
+
+    if (query.status) {
+      const statuses = (query.status as string)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length > 1) {
+        where.status = { in: statuses as RequestStatus[] };
+      } else if (statuses.length === 1) {
+        where.status = statuses[0] as RequestStatus;
+      }
+    }
 
     const skip = (query.page - 1) * query.limit;
     const take = query.limit;

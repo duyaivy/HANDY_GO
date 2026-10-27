@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class QueryOrderDto {
   @ApiPropertyOptional({
@@ -28,27 +28,11 @@ export class QueryOrderDto {
   limit?: number = 10;
 
   @ApiPropertyOptional({
-    description: 'Filter by Order Status',
-    enum: [
-      'created',
-      'confirmed',
-      'in_progress',
-      'awaiting_customer_confirmation',
-      'completed',
-      'cancelled',
-      'disputed',
-    ],
+    description: 'Filter by Order Status (single or comma-separated)',
+    example: 'created,confirmed,in_progress',
   })
   @IsOptional()
-  @IsEnum([
-    'created',
-    'confirmed',
-    'in_progress',
-    'awaiting_customer_confirmation',
-    'completed',
-    'cancelled',
-    'disputed',
-  ])
+  @IsString()
   status?: string;
 
   @ApiPropertyOptional({

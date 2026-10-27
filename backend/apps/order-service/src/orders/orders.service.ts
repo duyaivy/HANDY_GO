@@ -1288,7 +1288,15 @@ export class OrdersService {
     }
 
     if (query.status) {
-      where.status = query.status as Prisma.EnumOrderStatusFilter['equals'];
+      const statuses = query.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length > 1) {
+        where.status = { in: statuses as Prisma.EnumOrderStatusFilter['in'] };
+      } else if (statuses.length === 1) {
+        where.status = statuses[0] as Prisma.EnumOrderStatusFilter['equals'];
+      }
     }
 
     if (query.paymentState) {
@@ -1351,7 +1359,15 @@ export class OrdersService {
     }
 
     if (query.status) {
-      where.status = query.status as Prisma.EnumOrderStatusFilter['equals'];
+      const statuses = query.status
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (statuses.length > 1) {
+        where.status = { in: statuses as Prisma.EnumOrderStatusFilter['in'] };
+      } else if (statuses.length === 1) {
+        where.status = statuses[0] as Prisma.EnumOrderStatusFilter['equals'];
+      }
     }
 
     if (query.paymentState) {

@@ -1,5 +1,4 @@
 import {
-  IsEnum,
   IsInt,
   IsOptional,
   IsUUID,
@@ -8,16 +7,14 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { RequestStatus } from '@prisma/order-client';
 
 export class QueryServiceRequestDto {
   @ApiPropertyOptional({
-    enum: RequestStatus,
-    description: 'Filter by request status',
+    description: 'Filter by request status (single or comma-separated)',
+    example: 'open_for_bidding,draft,bidding_closed',
   })
   @IsOptional()
-  @IsEnum(RequestStatus)
-  status?: RequestStatus;
+  status?: string;
 
   @ApiPropertyOptional({
     description: 'Filter by service ID',

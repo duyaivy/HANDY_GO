@@ -26,34 +26,53 @@ export default function CustomerBookingSelectAddressRoute() {
   const { addressText, latitude, longitude, setAddress } = useBookingDraftStore();
   const mapRef = React.useRef<HandyMapRef>(null);
   const [currentAddress, setCurrentAddress] = React.useState(
-    addressText || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
+    addressText || '',
   );
   const [currentCoords, setCurrentCoords] = React.useState<HandyCoordinates>({
     latitude: latitude || 16.0748,
     longitude: longitude || 108.1499,
   });
   const [isLocating, setIsLocating] = React.useState(false);
-  const [gpsStatus, setGpsStatus] = React.useState<'idle' | 'locating' | 'success' | 'failed'>('idle');
+  const [gpsStatus, setGpsStatus] = React.useState<
+    'idle' | 'locating' | 'success' | 'failed' | 'permission_denied' | 'module_missing'
+  >('idle');
 
   const fetchDeviceGpsLocation = React.useCallback(async (showFeedback = false) => {
     Keyboard.dismiss();
     setIsLocating(true);
     setGpsStatus('locating');
     try {
-      const loc = await DeviceLocationService.getCurrentLocation();
-      if (loc) {
-        setCurrentAddress(loc.addressText);
-        setCurrentCoords({ latitude: loc.latitude, longitude: loc.longitude });
-        setAddress(loc.addressText, loc.latitude, loc.longitude);
+      const result = await DeviceLocationService.getDeviceLocationResult();
+      if (result.status === 'gps_success' && result.coordinates) {
+        setCurrentAddress(result.coordinates.addressText);
+        setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
         setGpsStatus('success');
-        mapRef.current?.flyTo({ latitude: loc.latitude, longitude: loc.longitude }, 16);
+        mapRef.current?.flyTo({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude }, 16);
+      }
+      else if (result.status === 'permission_denied') {
+        setGpsStatus('permission_denied');
+        if (showFeedback) {
+          Alert.alert(
+            'Quyền truy cập bị từ chối',
+            'Vui lòng cấp quyền truy cập vị trí trong cài đặt thiết bị để tự động định vị địa chỉ của bạn.',
+          );
+        }
+      }
+      else if (result.status === 'module_missing') {
+        setGpsStatus('module_missing');
+        if (showFeedback) {
+          Alert.alert(
+            'Không hỗ trợ GPS',
+            'Bản dựng hoặc thiết bị hiện tại chưa tích hợp module GPS native. Vui lòng di chuyển bản đồ hoặc nhập địa chỉ bên dưới.',
+          );
+        }
       }
       else {
         setGpsStatus('failed');
         if (showFeedback) {
           Alert.alert(
             'Không thể lấy vị trí',
-            'Vui lòng bật quyền truy cập vị trí (GPS) trên thiết bị để tự động định vị địa chỉ của bạn.',
+            'Không thể xác định vị trí GPS thiết bị. Vui lòng thử lại hoặc chọn vị trí trên bản đồ.',
           );
         }
       }
@@ -64,7 +83,7 @@ export default function CustomerBookingSelectAddressRoute() {
     finally {
       setIsLocating(false);
     }
-  }, [setAddress]);
+  }, []);
 
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const forwardGeocodeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -255,12 +274,33 @@ export default function CustomerBookingSelectAddressRoute() {
                       <Text className="text-xs font-semibold text-emerald-400">GPS thiết bị: Đã định vị chính xác</Text>
                     </>
                   )
-                : (
-                    <>
-                      <Text className="mr-1.5 text-xs">📍</Text>
-                      <Text className="text-xs font-semibold text-amber-400">GPS: Chạm để định vị vị trí thật</Text>
-                    </>
-                  )}
+                : gpsStatus === 'permission_denied'
+                  ? (
+                      <>
+                        <Text className="mr-1.5 text-xs">⚠️</Text>
+                        <Text className="text-xs font-semibold text-rose-400">GPS: Quyền bị từ chối</Text>
+                      </>
+                    )
+                  : gpsStatus === 'module_missing'
+                    ? (
+                        <>
+                          <Text className="mr-1.5 text-xs">ℹ️</Text>
+                          <Text className="text-xs font-semibold text-amber-400">GPS: Không có native module</Text>
+                        </>
+                      )
+                    : gpsStatus === 'failed'
+                      ? (
+                          <>
+                            <Text className="mr-1.5 text-xs">⚠️</Text>
+                            <Text className="text-xs font-semibold text-rose-400">GPS: Lỗi tín hiệu (Thử lại)</Text>
+                          </>
+                        )
+                      : (
+                          <>
+                            <Text className="mr-1.5 text-xs">📍</Text>
+                            <Text className="text-xs font-semibold text-amber-400">GPS: Chạm để định vị vị trí thật</Text>
+                          </>
+                        )}
           </Pressable>
 
           {/* Nút định vị nhanh GPS thực tế (Floating Action Button) - nổi trên thẻ địa chỉ */}

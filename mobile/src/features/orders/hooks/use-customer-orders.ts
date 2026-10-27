@@ -1,5 +1,7 @@
+/* eslint-disable max-lines-per-function */
 import type { Order, ServiceRequest } from '../types/order.types';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
 import { ordersQueryKeys } from './orders-query-keys';
 
@@ -7,89 +9,114 @@ function extractItems<T>(data: unknown): T[] {
   if (Array.isArray(data)) {
     return data;
   }
-  if (data && typeof data === 'object' && 'items' in data && Array.isArray((data as { items: unknown }).items)) {
-    return (data as { items: T[] }).items;
+  if (data && typeof data === 'object') {
+    if ('items' in data && Array.isArray((data as { items: unknown }).items)) {
+      return (data as { items: T[] }).items;
+    }
+    if ('data' in data && (data as { data: unknown }).data) {
+      const nested = (data as { data: unknown }).data;
+      if (Array.isArray(nested)) {
+        return nested;
+      }
+      if (nested && typeof nested === 'object' && 'items' in nested && Array.isArray((nested as { items: unknown }).items)) {
+        return (nested as { items: T[] }).items;
+      }
+    }
   }
   return [];
+}
+
+function getNextPageFromResponse(lastPage: unknown): number | undefined {
+  if (!lastPage || typeof lastPage !== 'object') {
+    return undefined;
+  }
+  const meta: any = 'items' in lastPage
+    ? lastPage
+    : 'data' in lastPage && lastPage.data && typeof lastPage.data === 'object' && 'items' in (lastPage.data as any)
+      ? (lastPage as any).data
+      : null;
+
+  if (!meta || typeof meta.page !== 'number' || typeof meta.totalPages !== 'number') {
+    return undefined;
+  }
+  return meta.page < meta.totalPages ? meta.page + 1 : undefined;
 }
 
 export function useCustomerOrders(activeTab = 'Searching') {
   const isSearchingTab = activeTab === 'Searching';
   const isCancelledTab = activeTab === 'Cancelled';
+  const isFinishedTab = activeTab === 'Finished' || activeTab === 'Reorder';
+  const isInProcessTab = activeTab === 'In process';
 
-  // Lấy danh sách Service Requests (Searching, Cancelled)
-  const shouldFetchRequests = isSearchingTab || isCancelledTab;
-  const requestsQuery = useQuery({
-    queryKey: ordersQueryKeys.customerRequests(),
-    queryFn: async () => {
-      const res = await OrdersApi.getMyRequests();
+  // Server status filter per tab
+  const requestsStatusFilter = isSearchingTab
+    ? 'open_for_bidding,draft,bidding_closed'
+    : isCancelledTab
+      ? 'cancelled,expired'
+      : '';
+
+  const ordersStatusFilter = isInProcessTab
+    ? 'created,confirmed,in_progress,awaiting_customer_confirmation'
+    : isFinishedTab
+      ? 'completed'
+      : isCancelledTab
+        ? 'cancelled,disputed'
+        : '';
+
+  const shouldFetchRequests = isSearchingTab || isCancelledTab || activeTab === 'All';
+  const shouldFetchOrders = !isSearchingTab;
+
+  // Lấy danh sách Service Requests (phân trang + server filter + infinite query)
+  const requestsQuery = useInfiniteQuery({
+    queryKey: ordersQueryKeys.customerRequests({ tab: activeTab, status: requestsStatusFilter }),
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await OrdersApi.getMyRequests({
+        page: pageParam,
+        limit: 10,
+        status: requestsStatusFilter || undefined,
+      });
       return res.data;
     },
+    initialPageParam: 1,
+    getNextPageParam: getNextPageFromResponse,
     enabled: shouldFetchRequests,
     staleTime: 0,
     refetchOnMount: 'always',
   });
 
-  // Lấy danh sách Orders (In process, Finished, Cancelled, All, Reorder)
-  const shouldFetchOrders = !isSearchingTab;
-  const ordersQuery = useQuery({
-    queryKey: ordersQueryKeys.customerOrders(activeTab),
-    queryFn: async () => {
-      const res = await OrdersApi.getMyOrders();
+  // Lấy danh sách Orders (phân trang + server filter + infinite query)
+  const ordersQuery = useInfiniteQuery({
+    queryKey: ordersQueryKeys.customerOrders({ tab: activeTab, status: ordersStatusFilter }),
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await OrdersApi.getMyOrders({
+        page: pageParam,
+        limit: 10,
+        status: ordersStatusFilter || undefined,
+      });
       return res.data;
     },
+    initialPageParam: 1,
+    getNextPageParam: getNextPageFromResponse,
     enabled: shouldFetchOrders,
     staleTime: 0,
     refetchOnMount: 'always',
   });
 
-  const filterOrders = (orders: Order[]) => {
-    if (!Array.isArray(orders)) {
+  const requestsData = requestsQuery.data;
+  const requests: ServiceRequest[] = React.useMemo(() => {
+    if (!shouldFetchRequests || !requestsData?.pages) {
       return [];
     }
-    switch (activeTab) {
-      case 'In process':
-        return orders.filter(o =>
-          ['created', 'confirmed', 'in_progress', 'awaiting_customer_confirmation'].includes(
-            o.status,
-          ),
-        );
-      case 'Finished':
-      case 'Reorder':
-        return orders.filter(o => o.status === 'completed');
-      case 'Cancelled':
-        return orders.filter(o => ['cancelled', 'disputed'].includes(o.status));
-      case 'All':
-      default:
-        return orders;
-    }
-  };
+    return requestsData.pages.flatMap(page => extractItems<ServiceRequest>(page));
+  }, [shouldFetchRequests, requestsData]);
 
-  const filterRequests = (reqs: ServiceRequest[]) => {
-    if (!Array.isArray(reqs)) {
+  const ordersData = ordersQuery.data;
+  const orders: Order[] = React.useMemo(() => {
+    if (!shouldFetchOrders || !ordersData?.pages) {
       return [];
     }
-    switch (activeTab) {
-      case 'Searching':
-        return reqs.filter(r =>
-          ['open_for_bidding', 'draft', 'bidding_closed'].includes(r.status),
-        );
-      case 'Cancelled':
-        return reqs.filter(r => ['cancelled', 'expired'].includes(r.status));
-      default:
-        return [];
-    }
-  };
-
-  const rawRequests = extractItems<ServiceRequest>(requestsQuery.data);
-  const requests: ServiceRequest[] = shouldFetchRequests
-    ? filterRequests(rawRequests)
-    : [];
-
-  const rawOrders = extractItems<Order>(ordersQuery.data);
-  const orders: Order[] = shouldFetchOrders
-    ? filterOrders(rawOrders)
-    : [];
+    return ordersData.pages.flatMap(page => extractItems<Order>(page));
+  }, [shouldFetchOrders, ordersData]);
 
   const isLoading = (shouldFetchRequests && requestsQuery.isLoading)
     || (shouldFetchOrders && ordersQuery.isLoading);
@@ -97,22 +124,70 @@ export function useCustomerOrders(activeTab = 'Searching') {
   const isRefetching = requestsQuery.isRefetching || ordersQuery.isRefetching;
 
   const refetch = async () => {
+    const promises: Promise<unknown>[] = [];
     if (shouldFetchRequests) {
-      await requestsQuery.refetch();
+      promises.push(requestsQuery.refetch());
     }
     if (shouldFetchOrders) {
-      await ordersQuery.refetch();
+      promises.push(ordersQuery.refetch());
     }
+    await Promise.all(promises);
+  };
+
+  const hasNextPage = Boolean(
+    (shouldFetchRequests && requestsQuery.hasNextPage)
+    || (shouldFetchOrders && ordersQuery.hasNextPage),
+  );
+
+  const isFetchingNextPage = Boolean(
+    requestsQuery.isFetchingNextPage || ordersQuery.isFetchingNextPage,
+  );
+
+  const fetchNextPage = async () => {
+    const promises: Promise<unknown>[] = [];
+    if (shouldFetchRequests && requestsQuery.hasNextPage && !requestsQuery.isFetchingNextPage) {
+      promises.push(requestsQuery.fetchNextPage());
+    }
+    if (shouldFetchOrders && ordersQuery.hasNextPage && !ordersQuery.isFetchingNextPage) {
+      promises.push(ordersQuery.fetchNextPage());
+    }
+    await Promise.all(promises);
   };
 
   return {
     activeTab,
     isSearchingTab,
+    isCancelledTab,
     requests,
     orders,
+
+    // Unified states
     isLoading,
     isRefetching,
     refetch,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+
+    // Independent request source states (for Cancelled tab)
+    requestsLoading: requestsQuery.isLoading,
+    requestsRefetching: requestsQuery.isRefetching,
+    requestsError: requestsQuery.error,
+    isRequestsError: requestsQuery.isError,
+    hasNextRequests: Boolean(requestsQuery.hasNextPage),
+    isFetchingNextRequests: requestsQuery.isFetchingNextPage,
+    fetchNextRequests: () => requestsQuery.fetchNextPage(),
+    refetchRequests: () => requestsQuery.refetch(),
+
+    // Independent order source states (for Cancelled tab)
+    ordersLoading: ordersQuery.isLoading,
+    ordersRefetching: ordersQuery.isRefetching,
+    ordersError: ordersQuery.error,
+    isOrdersError: ordersQuery.isError,
+    hasNextOrders: Boolean(ordersQuery.hasNextPage),
+    isFetchingNextOrders: ordersQuery.isFetchingNextPage,
+    fetchNextOrders: () => ordersQuery.fetchNextPage(),
+    refetchOrders: () => ordersQuery.refetch(),
   };
 }
 
