@@ -1,0 +1,224 @@
+// ========================================================
+// AI Service Database Schema (v1)
+// ========================================================
+Project handygo_ai_service {
+  database_type: 'PostgreSQL'
+}
+
+// Trạng thái xử lý của một yêu cầu AI.
+Enum inference_status {
+  queued
+  // Đã tạo yêu cầu và đang chờ xử lý.
+
+  running
+  // Model AI đang xử lý.
+
+  succeeded
+  // Xử lý AI thành công.
+
+  failed
+  // Xử lý AI thất bại.
+}
+
+// Kết quả xác minh khuôn mặt.
+Enum face_verification_decision {
+  matched
+  // Khuôn mặt trong hai ảnh được xác định là khớp.
+
+  not_matched
+  // Khuôn mặt trong hai ảnh được xác định là không khớp.
+
+  manual_review
+  // Kết quả chưa đủ chắc chắn và cần kiểm tra thủ công.
+}
+
+// Lưu một lần AI dự đoán giá dịch vụ.
+Table price_prediction_runs {
+  id uuid [pk]
+  // ID duy nhất của lần dự đoán.
+
+  customer_user_id uuid [
+    note: 'Logical reference -> User & Trust Service.users.id'
+  ]
+  // ID của khách hàng yêu cầu dự đoán giá.
+
+  service_request_id uuid [
+    note: 'Logical reference -> Order Service.service_requests.id'
+  ]
+  // ID yêu cầu dịch vụ cần dự đoán giá.
+
+  service_id uuid [
+    not null,
+    note: 'Logical reference -> Catalog Service.services.id'
+  ]
+  // ID dịch vụ cần dự đoán giá.
+
+  input_features jsonb [not null]
+  // Các dữ liệu đầu vào được sử dụng để dự đoán giá.
+
+  predicted_min decimal(12,2)
+  // Mức giá thấp nhất AI dự đoán.
+
+  predicted_max decimal(12,2)
+  // Mức giá cao nhất AI dự đoán.
+
+  predicted_typical decimal(12,2)
+  // Mức giá phổ biến AI dự đoán.
+
+  confidence decimal(5,4)
+  // Độ tin cậy của kết quả dự đoán.
+
+  status inference_status [not null, default: 'queued']
+  // Trạng thái xử lý của yêu cầu dự đoán.
+
+  error_message text
+  // Thông báo lỗi nếu AI xử lý thất bại.
+
+  created_at timestamp [not null]
+  // Thời điểm tạo yêu cầu dự đoán.
+
+  completed_at timestamp
+  // Thời điểm hoàn thành dự đoán.
+}
+
+// Lưu một lần AI xếp hạng các worker phù hợp.
+Table worker_ranking_runs {
+  id uuid [pk]
+  // ID duy nhất của lần xếp hạng.
+
+  service_request_id uuid [
+    not null,
+    note: 'Logical reference -> Order Service.service_requests.id'
+  ]
+  // ID yêu cầu dịch vụ cần tìm worker.
+
+  customer_user_id uuid [
+    not null,
+    note: 'Logical reference -> User & Trust Service.users.id'
+  ]
+  // ID khách hàng yêu cầu tìm worker.
+
+  service_id uuid [
+    not null,
+    note: 'Logical reference -> Catalog Service.services.id'
+  ]
+  // ID dịch vụ cần tìm worker.
+
+  match_run_id uuid [
+    note: 'Logical reference -> Matching & Geo Service.match_runs.id'
+  ]
+  // ID lần matching được sử dụng làm nguồn worker ứng viên.
+
+  trigger_reason varchar(50) [
+    not null,
+    default: 'NO_BID'
+  ]
+  // Lý do kích hoạt AI ranking.
+
+  input_context jsonb
+  // Ngữ cảnh và dữ liệu đầu vào được cung cấp cho AI.
+
+  status inference_status [
+    not null,
+    default: 'queued'
+  ]
+  // Trạng thái xử lý của lần ranking.
+
+  error_message text
+  // Thông báo lỗi nếu ranking thất bại.
+
+  created_at timestamp [not null]
+  // Thời điểm tạo yêu cầu ranking.
+
+  completed_at timestamp
+  // Thời điểm hoàn thành ranking.
+}
+
+// Lưu kết quả xếp hạng của từng worker.
+Table worker_ranking_results { //dùng socket hay gì đó để realtime.
+  id uuid [pk]
+  // ID duy nhất của kết quả ranking.
+
+  ranking_run_id uuid [not null]
+  // ID của lần ranking tạo ra kết quả.
+
+  worker_user_id uuid [
+    not null,
+    note: 'Logical reference -> User & Trust Service.users.id'
+  ]
+  // ID worker được AI đánh giá.
+
+  rank int [not null]
+  // Thứ hạng của worker trong kết quả ranking.
+
+  score decimal(6,5) [not null]
+  // Điểm tổng hợp AI tính cho worker.
+
+  score_breakdown jsonb
+  // Chi tiết các thành phần tạo nên điểm số.
+
+  explanation jsonb
+  // Giải thích lý do worker có thứ hạng và điểm số tương ứng.
+
+  created_at timestamp [not null]
+  // Thời điểm tạo kết quả ranking.
+
+  indexes {
+    (ranking_run_id, worker_user_id) [unique]
+    // Đảm bảo một worker chỉ xuất hiện một lần trong một lần ranking.
+
+    (ranking_run_id, rank) [unique]
+    // Đảm bảo mỗi thứ hạng chỉ thuộc về một worker trong một lần ranking.
+  }
+}
+
+// Lưu một lần AI xác minh khuôn mặt worker.
+Table face_verification_runs {
+  id uuid [pk]
+  // ID duy nhất của lần xác minh.
+
+  worker_user_id uuid [
+    not null,
+    note: 'Logical reference -> User & Trust Service.users.id'
+  ]
+  // ID worker thực hiện xác minh.
+
+  kyc_case_id uuid [
+    not null,
+    note: 'Logical reference -> User & Trust Service.kyc_cases.id'
+  ]
+  // ID hồ sơ KYC liên quan đến lần xác minh.
+
+  selfie_image_ref text [not null]
+  // Tham chiếu đến ảnh selfie của worker.
+
+  id_face_image_ref text [not null]
+  // Tham chiếu đến ảnh khuôn mặt lấy từ giấy tờ tùy thân.
+
+  similarity_score decimal(6,5)
+  // Điểm tương đồng giữa hai khuôn mặt.
+
+  threshold decimal(6,5)
+  // Ngưỡng điểm dùng để xác định hai khuôn mặt có khớp hay không.
+
+  decision face_verification_decision
+  // Kết luận của AI về mức độ khớp khuôn mặt.
+
+  status inference_status [
+    not null,
+    default: 'queued'
+  ]
+  // Trạng thái xử lý xác minh.
+
+  error_message text
+  // Thông báo lỗi nếu xác minh thất bại.
+
+  created_at timestamp [not null]
+  // Thời điểm tạo yêu cầu xác minh.
+
+  completed_at timestamp
+  // Thời điểm hoàn thành xác minh.
+}
+
+// Một lần ranking có thể tạo ra nhiều kết quả worker.
+Ref: worker_ranking_runs.id < worker_ranking_results.ranking_run_id

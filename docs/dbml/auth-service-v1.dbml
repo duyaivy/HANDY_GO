@@ -1,0 +1,189 @@
+// ========================================================
+// Auth Service Database Schema (v1)
+// ========================================================
+Project handygo_auth_service {
+
+  database_type: 'PostgreSQL'
+
+}
+
+Enum account_status {
+  pending   // Tài khoản đã được tạo nhưng chưa hoàn tất quá trình xác thực hoặc kích hoạt
+  active    // Tài khoản đang hoạt động bình thường và có thể đăng nhập
+  suspended // Tài khoản bị tạm khóa bởi hệ thống hoặc quản trị viên
+  locked    // Tài khoản bị khóa, thường do vi phạm bảo mật hoặc đăng nhập sai nhiều lần
+  deleted   // Tài khoản đã bị xóa hoặc vô hiệu hóa vĩnh viễn
+}
+
+Enum otp_purpose {
+  register       // OTP dùng để xác nhận quá trình đăng ký tài khoản
+  verify_email   // OTP dùng để xác minh địa chỉ email
+  reset_password // OTP dùng để xác thực yêu cầu đặt lại mật khẩu
+}
+
+Table accounts {
+
+  id uuid [pk]
+  // ID duy nhất của tài khoản xác thực
+
+  user_id uuid [
+    not null,
+    unique,
+    note: 'Logical reference -> User & Trust Service.users.id'
+  ]
+  // ID của user tương ứng, tham chiếu logic đến User & Trust Service; mỗi user có một account xác thực
+
+  email varchar(255) [unique]
+  // Địa chỉ email được sử dụng để đăng nhập hoặc nhận thông báo xác thực
+
+  phone varchar(30) [unique]
+  // Số điện thoại được sử dụng để đăng nhập hoặc xác thực tài khoản
+
+  password_hash varchar(255) [not null]
+  // Mật khẩu đã được băm an toàn, không lưu mật khẩu gốc
+
+  status account_status [
+    not null,
+    default: 'pending'
+  ]
+  // Trạng thái hiện tại của tài khoản
+
+  email_verified_at timestamp
+  // Thời điểm email của tài khoản được xác minh thành công
+
+  password_changed_at timestamp
+  // Thời điểm mật khẩu được thay đổi gần nhất
+
+  created_at timestamp [not null]
+  // Thời điểm tài khoản được tạo
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin tài khoản được cập nhật lần cuối
+}
+
+Table roles {
+
+  id uuid [pk]
+  // ID duy nhất của role
+
+  code varchar(50) [
+    not null,
+    unique
+  ]
+  // Mã định danh duy nhất của role, dùng trong logic phân quyền
+
+  name varchar(100) [not null]
+  // Tên hiển thị của role
+
+  created_at timestamp [not null]
+  // Thời điểm role được tạo
+}
+
+Table permissions {
+
+  id uuid [pk]
+  // ID duy nhất của permission
+
+  code varchar(100) [
+    not null,
+    unique
+  ]
+  // Mã định danh duy nhất của quyền
+
+  name varchar(150) [not null]
+  // Tên hiển thị của quyền
+
+  resource varchar(50) [not null]
+  // Tài nguyên mà permission cho phép thao tác, ví dụ order, bid, payment
+
+  action varchar(30) [not null]
+  // Hành động được phép thực hiện trên resource, ví dụ create, read, update, delete
+
+  created_at timestamp [not null]
+  // Thời điểm permission được tạo
+}
+
+Table account_roles {
+
+  account_id uuid [not null]
+  // ID của account được gán role
+
+  role_id uuid [not null]
+  // ID của role được gán cho account
+
+  assigned_at timestamp [not null]
+  // Thời điểm role được gán cho account
+
+  indexes {
+    (account_id, role_id) [pk]
+    // Khóa chính kép, đảm bảo một role không bị gán trùng cho cùng một account
+  }
+}
+
+Table permission_roles {
+
+  permission_id uuid [not null]
+  // ID của permission được gán cho role
+
+  role_id uuid [not null]
+  // ID của role nhận permission
+
+  assigned_at timestamp [not null]
+  // Thời điểm permission được gán cho role
+
+  indexes {
+    (permission_id, role_id) [pk]
+    // Khóa chính kép, đảm bảo một permission không bị gán trùng cho cùng một role
+  }
+}
+
+Table refresh_sessions {
+
+  id uuid [pk]
+  // ID duy nhất của phiên đăng nhập
+
+  account_id uuid [not null]
+  // ID của account đang sử dụng phiên đăng nhập này
+
+  refresh_token_hash varchar(255) [
+    not null,
+    unique
+  ]
+  // Giá trị hash của refresh token dùng để cấp access token mới mà không cần đăng nhập lại
+
+  device_id varchar(255)
+  // ID nhận diện thiết bị được sử dụng để đăng nhập
+
+  device_name varchar(255)
+  // Tên thiết bị được sử dụng cho phiên đăng nhập
+
+  user_agent text
+  // Thông tin trình duyệt hoặc ứng dụng gửi request đăng nhập
+
+  ip_address varchar(64)
+  // Địa chỉ IP được ghi nhận khi tạo phiên đăng nhập
+
+  expires_at timestamp [not null]
+  // Thời điểm refresh session hết hạn
+
+  revoked_at timestamp
+  // Thời điểm phiên đăng nhập bị thu hồi; null nếu session vẫn còn hiệu lực
+
+  created_at timestamp [not null]
+  // Thời điểm phiên đăng nhập được tạo
+}
+
+Ref: accounts.id < account_roles.account_id
+// Một account có thể được gán nhiều role
+
+Ref: roles.id < account_roles.role_id
+// Một role có thể được gán cho nhiều account
+
+Ref: roles.id < permission_roles.role_id
+// Một role có thể có nhiều permission
+
+Ref: permissions.id < permission_roles.permission_id
+// Một permission có thể thuộc nhiều role
+
+Ref: accounts.id < refresh_sessions.account_id
+// Một account có thể có nhiều refresh session trên các thiết bị khác nhau
