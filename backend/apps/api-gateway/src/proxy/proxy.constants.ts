@@ -49,7 +49,13 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'order-service',
     envKey: 'ORDER_SERVICE_URL',
-    prefixes: ['/api/v1/orders', '/api/v1/requests'],
+    prefixes: [
+      '/api/v1/orders',
+      '/api/v1/service-requests',
+      '/api/v1/booking-proposals',
+      '/api/v1/admin/orders',
+      '/api/v1/requests',
+    ],
   },
   {
     upstreamName: 'matching-service',

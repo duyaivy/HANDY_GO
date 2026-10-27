@@ -52,7 +52,7 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
 
       const paymentItem = screen.getByTestId('profile-payment-item');
       expect(paymentItem).toBeOnTheScreen();
-      expect(screen.getByText('Payment')).toBeOnTheScreen();
+      expect(screen.getByText('Phương thức thanh toán')).toBeOnTheScreen();
 
       fireEvent.press(paymentItem);
       expect(mockPush).toHaveBeenCalledWith('/customer/payment');
@@ -132,7 +132,7 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
 
       const settingItem = screen.getByTestId('profile-setting-item');
       expect(settingItem).toBeOnTheScreen();
-      expect(screen.getByText('Setting')).toBeOnTheScreen();
+      expect(screen.getByText('Cài đặt ứng dụng')).toBeOnTheScreen();
 
       fireEvent.press(settingItem);
       expect(mockPush).toHaveBeenCalledWith('/customer/settings');
@@ -213,7 +213,7 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
 
       const arrowBtn = screen.getByTestId('switch-to-worker-arrow');
       expect(arrowBtn).toBeOnTheScreen();
-      expect(screen.getByText('Switch to Worker App')).toBeOnTheScreen();
+      expect(screen.getAllByText('Chuyển sang App Thợ').length).toBeGreaterThanOrEqual(1);
 
       fireEvent.press(arrowBtn);
       expect(mockPush).toHaveBeenCalledWith('/customer/switch-to-worker');

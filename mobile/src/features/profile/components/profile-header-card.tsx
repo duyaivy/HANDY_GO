@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
+import { ArrowRight } from '@/components/ui/icons/arrow-right';
 import { UserIcon, WrenchIcon } from '@/components/ui/icons/handy-icons';
 import { Image } from '@/components/ui/image';
 import { Text } from '@/components/ui/text';
@@ -67,21 +68,21 @@ export function ProfileHeaderCard({
           onPress={onPressUserCard || handleProfileDetail}
           className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
         >
-          <View className="h-[50px] flex-row items-center">
+          <View className="flex-row items-center">
             {/* Avatar Area */}
-            <View className="mr-4">
+            <View className="mr-3.5">
               {avatarUrl
                 ? (
                     <Image
                       testID="profile-avatar-img"
                       source={{ uri: avatarUrl }}
-                      className="size-16 rounded-full border-2 border-white shadow-sm dark:border-neutral-700"
+                      className="size-14 rounded-full border-2 border-white shadow-sm dark:border-neutral-700"
                     />
                   )
                 : (
                     <View
                       testID="profile-avatar-fallback"
-                      className={`size-16 items-center justify-center rounded-full ${
+                      className={`size-14 items-center justify-center rounded-full ${
                         isWorkerMode
                           ? 'bg-amber-100 dark:bg-amber-950/60'
                           : 'bg-blue-100 dark:bg-blue-950/60'
@@ -89,20 +90,20 @@ export function ProfileHeaderCard({
                     >
                       {isWorkerMode
                         ? (
-                            <WrenchIcon color="#D97706" size={28} />
+                            <WrenchIcon color="#D97706" size={26} />
                           )
                         : (
-                            <UserIcon color="#2563EB" size={28} />
+                            <UserIcon color="#2563EB" size={26} />
                           )}
                     </View>
                   )}
             </View>
 
             {/* User Details Area */}
-            <View className="flex-1">
+            <View className="flex-1 justify-center pr-2">
               <Text
                 testID="profile-full-name"
-                className="text-[14px] font-bold text-neutral-900 dark:text-white"
+                className="text-base font-bold text-neutral-900 dark:text-white"
                 numberOfLines={1}
               >
                 {displayName}
@@ -114,7 +115,7 @@ export function ProfileHeaderCard({
                 {displayPhone}
               </Text>
               {/* Badges Row */}
-              <View className="mt-1 flex-row flex-wrap items-center justify-between gap-1.5">
+              <View className="mt-1.5 flex-row flex-wrap items-center gap-1.5">
                 {/* Worker Verification Status Badge */}
                 {workerStatus && (() => {
                   const normalizedWorkerStatus = (workerStatus || '').toLowerCase().trim();
@@ -191,6 +192,11 @@ export function ProfileHeaderCard({
                   </View>
                 </View>
               </View>
+            </View>
+
+            {/* Right Chevron */}
+            <View className="ml-1 size-8 items-center justify-center rounded-full bg-neutral-50 dark:bg-neutral-800">
+              <ArrowRight color="#9CA3AF" />
             </View>
           </View>
 
