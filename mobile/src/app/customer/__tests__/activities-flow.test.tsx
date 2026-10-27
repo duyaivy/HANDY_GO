@@ -35,17 +35,16 @@ describe('activities feature skeleton and navigation flow', () => {
     it('renders Activities title, filter tabs, and Plumber (#224466) card', () => {
       render(<CustomerOrdersTabRoute />);
 
-      // Title & subtitle
-      expect(screen.getByText('Activities')).toBeOnTheScreen();
+      // Title
       expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
 
-      // 6 Filter tabs: Searching, In process, Reorder, All, Finished, Cancelled
-      expect(screen.getByText('Searching')).toBeOnTheScreen();
-      expect(screen.getByText('In process')).toBeOnTheScreen();
-      expect(screen.getByText('Reorder')).toBeOnTheScreen();
-      expect(screen.getByText('All')).toBeOnTheScreen();
-      expect(screen.getByText('Finished')).toBeOnTheScreen();
-      expect(screen.getByText('Cancelled')).toBeOnTheScreen();
+      // 5 Filter tabs: Đang tìm, Đang làm, Đặt lại, Hoàn thành, Đã hủy
+      expect(screen.getByText('Đang tìm')).toBeOnTheScreen();
+      expect(screen.getByText('Đang làm')).toBeOnTheScreen();
+      expect(screen.getByText('Đặt lại')).toBeOnTheScreen();
+      expect(screen.getByText('Hoàn thành')).toBeOnTheScreen();
+      expect(screen.getByText('Đã hủy')).toBeOnTheScreen();
+      expect(screen.queryByText('Tất cả')).not.toBeOnTheScreen();
 
       // Plumber order card
       expect(screen.getByText('Plumber')).toBeOnTheScreen();
@@ -129,7 +128,7 @@ describe('activities feature skeleton and navigation flow', () => {
     it('executes the complete sequence: Activities -> Chi tiết báo giá -> Hồ sơ thợ -> Back -> Back', () => {
       // Step 1: User opens Activities screen
       const { unmount: unmountActivities } = render(<CustomerOrdersTabRoute />);
-      expect(screen.getByText('Activities')).toBeOnTheScreen();
+      expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
 
       // Step 2: Press "View 1 quotes" on Plumber card (#224466) -> opens Chi tiết báo giá
       const viewQuotesBtn = screen.getByTestId('view-quotes-btn');

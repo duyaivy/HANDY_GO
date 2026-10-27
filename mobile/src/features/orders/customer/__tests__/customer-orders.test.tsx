@@ -1,6 +1,7 @@
 import * as React from 'react';
-
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { CustomerBookingScreen } from '../screens/customer-booking-screen';
+import { CustomerOrderCancelDialog } from '../screens/customer-order-cancel-dialog';
 import { CustomerOrderDetailScreen } from '../screens/customer-order-detail-screen';
 import { CustomerOrdersScreen } from '../screens/customer-orders-screen';
 
@@ -41,5 +42,48 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     const backBtn = screen.getByTestId('app-bar-back-btn');
     fireEvent.press(backBtn);
     expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('renders CustomerBookingScreen and handles photo attachment and next navigation', () => {
+    render(<CustomerBookingScreen serviceId="srv-01" />);
+
+    expect(screen.getByText('Mô tả sự cố')).toBeOnTheScreen();
+    expect(screen.getByTestId('customer-booking-screen')).toBeOnTheScreen();
+
+    const addPhotoBtn = screen.getByTestId('booking-add-photo-btn');
+    fireEvent.press(addPhotoBtn);
+
+    const nextBtn = screen.getByTestId('booking-next-btn');
+    fireEvent.press(nextBtn);
+    expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-address');
+  });
+
+  it('renders CustomerOrderCancelDialog and handles cancel dismissal and confirm action', () => {
+    render(<CustomerOrderCancelDialog orderId="demo-001" />);
+
+    expect(screen.getByText('Hủy đơn #demo-001')).toBeOnTheScreen();
+    expect(screen.getByTestId('order-cancel-dialog')).toBeOnTheScreen();
+
+    const confirmCancelBtn = screen.getByTestId('cancel-dialog-confirm-btn');
+    fireEvent.press(confirmCancelBtn);
+
+    const dismissBtn = screen.getByTestId('cancel-dialog-dismiss-btn');
+    fireEvent.press(dismissBtn);
+    expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('handles switching between activity filter tabs without filter errors', () => {
+    render(<CustomerOrdersScreen />);
+
+    const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
+    fireEvent.press(inProcessTab);
+
+    const finishedTab = screen.getByTestId('activity-filter-tab-finished');
+    fireEvent.press(finishedTab);
+
+    const cancelledTab = screen.getByTestId('activity-filter-tab-cancelled');
+    fireEvent.press(cancelledTab);
+
+    expect(screen.getByTestId('orders-customer-screen')).toBeOnTheScreen();
   });
 });
