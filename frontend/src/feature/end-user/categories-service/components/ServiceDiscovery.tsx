@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   Search,
   ChevronDown,
@@ -47,6 +52,37 @@ const CATEGORY_ANIMATION = {
   duration: 0.55,
   ease: [0.22, 1, 0.36, 1] as const,
 };
+
+const subscribeToViewport = (callback: () => void) => {
+  const mediaQueries = [
+    window.matchMedia("(max-width: 639px)"),
+    window.matchMedia("(min-width: 640px) and (max-width: 1023px)"),
+    window.matchMedia("(min-width: 1024px)"),
+  ];
+
+  mediaQueries.forEach((query) => query.addEventListener("change", callback));
+
+  return () => {
+    mediaQueries.forEach((query) =>
+      query.removeEventListener("change", callback),
+    );
+  };
+};
+
+const getCategoriesPerPage = () => {
+  if (window.innerWidth < 640) return 2;
+  if (window.innerWidth < 1024) return 4;
+  return 8;
+};
+
+const getServerCategoriesPerPage = () => 8;
+
+const useCategoriesPerPage = () =>
+  useSyncExternalStore(
+    subscribeToViewport,
+    getCategoriesPerPage,
+    getServerCategoriesPerPage,
+  );
 
 const ServiceCardSkeleton = () => (
   <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
@@ -114,7 +150,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
 }) => {
   const [draftSearch, setDraftSearch] = useState(search);
   const [categoryPage, setCategoryPage] = useState(0);
-  const [categoriesPerPage, setCategoriesPerPage] = useState(8);
+  const categoriesPerPage = useCategoriesPerPage();
 
   const touchStartX = useRef<number | null>(null);
 
@@ -127,36 +163,6 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
 
     return () => window.clearTimeout(timer);
   }, [draftSearch, search, onSearchChange]);
-
-  useEffect(() => {
-    const updateCategoriesPerPage = () => {
-      const width = window.innerWidth;
-
-      if (width < 640) {
-        setCategoriesPerPage(2);
-      } else if (width < 1024) {
-        setCategoriesPerPage(4);
-      } else {
-        setCategoriesPerPage(8);
-      }
-    };
-
-    const mediaQueries = [
-      window.matchMedia("(max-width: 639px)"),
-      window.matchMedia("(min-width: 640px) and (max-width: 1023px)"),
-      window.matchMedia("(min-width: 1024px)"),
-    ];
-
-    mediaQueries.forEach((query) => {
-      query.addEventListener("change", updateCategoriesPerPage);
-    });
-
-    return () => {
-      mediaQueries.forEach((query) => {
-        query.removeEventListener("change", updateCategoriesPerPage);
-      });
-    };
-  }, []);
 
   const totalCategoryPages = Math.ceil(categories.length / categoriesPerPage);
 

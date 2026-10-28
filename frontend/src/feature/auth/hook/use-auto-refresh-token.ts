@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { HttpError, refreshAuthSession } from "@/shared/api/http";
+import {
+  clearAuthSessionCookies,
+  getAuthCookieState,
+  HttpError,
+  refreshAuthSession,
+} from "@/shared/api/http";
 import type { AuthClientResType, AuthUserType } from "../schemas/auth.schema";
 
 export type AuthStatus =
@@ -24,6 +29,13 @@ export function useAutoRefreshToken() {
 
     const validateSession = async (background = false) => {
       try {
+        const cookies = await getAuthCookieState();
+        if (cancelled) return;
+        if (!cookies.hasAccessToken && !cookies.hasRefreshToken) {
+          router.replace("/login");
+          return;
+        }
+
         const response = await refreshAuthSession();
         let payload: { data?: AuthClientResType; message?: string };
 
@@ -78,12 +90,14 @@ export function useAutoRefreshToken() {
         if (cancelled) return;
 
         if (error instanceof HttpError && error.status === 401) {
-          try {
-            await fetch("/api/auth/logout", { method: "POST" });
-          } catch (logoutError) {
-            console.error("Không thể xóa phiên đăng nhập", logoutError);
-          }
+          await clearAuthSessionCookies();
           if (!cancelled) router.replace("/login");
+          return;
+        }
+
+        if (error instanceof HttpError && error.status === 403) {
+          setStatus("forbidden");
+          toast.error("Bạn không có quyền truy cập trang quản lý");
           return;
         }
 

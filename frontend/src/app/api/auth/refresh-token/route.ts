@@ -3,6 +3,14 @@ import { HttpError } from "@/shared/api/http";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+export async function GET() {
+  const cookieStore = await cookies();
+  const hasAccessToken = Boolean(cookieStore.get("accessToken")?.value);
+  const hasRefreshToken = Boolean(cookieStore.get("refreshToken")?.value);
+
+  return NextResponse.json({ hasAccessToken, hasRefreshToken });
+}
+
 export async function POST() {
   const cookieStore = await cookies();
 

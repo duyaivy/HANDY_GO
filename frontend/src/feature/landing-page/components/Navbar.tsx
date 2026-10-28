@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Menu,
   X,
@@ -14,7 +13,6 @@ import {
   Search,
   Star,
   Smartphone,
-  LogIn,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -43,7 +41,6 @@ const navLinks = [
 ] as const;
 
 export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
-  const router = useRouter();
   const lenis = useLenis();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -130,11 +127,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
     }
   };
 
-  const handleLogin = () => {
-    setIsMobileMenuOpen(false);
-    router.push("/login");
-  };
-
   return (
     <>
       {/* HEADER */}
@@ -215,14 +207,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
 
             {/* MOBILE / TABLET */}
             <div className="flex shrink-0 items-center gap-2 xl:hidden">
-              <button
-                type="button"
-                onClick={handleLogin}
-                className="hidden whitespace-nowrap rounded-xl bg-[#FF5E14] px-4 py-2.5 text-base font-bold text-white sm:inline-flex"
-              >
-                Đăng nhập
-              </button>
-
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
@@ -334,18 +318,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
                   );
                 })}
               </nav>
-
-              {/* DRAWER FOOTER */}
-              <div className="border-t border-slate-100 bg-slate-50 p-5">
-                <button
-                  type="button"
-                  onClick={handleLogin}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF5E14] px-5 py-3.5 text-base font-extrabold text-white shadow-md shadow-orange-500/20 hover:bg-[#E9510D]"
-                >
-                  <LogIn size={18} />
-                  Đăng nhập
-                </button>
-              </div>
             </motion.div>
           </div>
         )}

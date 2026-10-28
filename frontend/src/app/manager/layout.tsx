@@ -25,6 +25,17 @@ import {
   X,
 } from "lucide-react";
 import AuthSession from "@/feature/auth/component/auth-session";
+import authApiRequest from "@/feature/auth/api/auth.api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export interface ManageLayoutProps {
   children?: React.ReactNode;
@@ -40,6 +51,24 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
   const [hasNotifications, setHasNotifications] = useState(true);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+    setLogoutError("");
+
+    try {
+      await authApiRequest.logout();
+      window.location.replace("/login");
+    } catch (error) {
+      console.error("[manager/logout]", error);
+      setLogoutError("Không thể đăng xuất. Vui lòng thử lại.");
+      setIsLoggingOut(false);
+    }
+  };
 
   const navigateTo = (path: string) => {
     setIsMobileMenuOpen(false);
@@ -255,12 +284,14 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
         <button
           type="button"
           onClick={() => {
-            window.location.href = "/";
+            setLogoutError("");
+            setIsLogoutDialogOpen(true);
           }}
+          disabled={isLoggingOut}
           className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-medium text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300"
         >
           <LogOut size={17} />
-          <span>Đăng xuất</span>
+          <span>{isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}</span>
         </button>
       </div>
     </aside>
@@ -283,165 +314,207 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
           )
           .join(", ");
         return (
-      <div className="flex min-h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#FF5E14] selection:text-white">
-        {/* SIDEBAR DESKTOP */}
-        <div className="sticky top-0 hidden h-screen shrink-0 lg:block">
-          {sidebar}
-        </div>
-
-        {/* SIDEBAR MOBILE */}
-        {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden">
-            <button
-              type="button"
-              aria-label="Đóng menu"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
-            />
-
-            <div className="absolute inset-y-0 left-0 h-full shadow-2xl">
-              {sidebar}
-            </div>
-          </div>
-        )}
-
-        {/* CỘT NỘI DUNG */}
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-orange-200/70 bg-[#FFF4EB] px-3 shadow-sm sm:h-[72px] sm:px-6 lg:px-8">
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setIsMobileMenuOpen(true)}
-                className="shrink-0 rounded-xl border border-orange-200 bg-white p-2 text-slate-700 hover:text-[#FF5E14] lg:hidden"
-                aria-label="Mở menu"
-              >
-                <Menu size={20} />
-              </button>
-
-              <div className="relative w-full max-w-md">
-                <Search
-                  size={17}
-                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-                <input
-                  type="text"
-                  placeholder="Tìm kiếm..."
-                  className="w-full rounded-full border border-orange-200/80 bg-white py-2 pl-10 pr-3 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 sm:py-2.5 sm:pr-4"
-                />
+          <>
+            <div className="flex min-h-screen w-full bg-[#F8FAFC] font-sans text-slate-800 selection:bg-[#FF5E14] selection:text-white">
+              {/* SIDEBAR DESKTOP */}
+              <div className="sticky top-0 hidden h-screen shrink-0 lg:block">
+                {sidebar}
               </div>
-            </div>
 
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
-              <button
-                type="button"
-                onClick={() => setHasNotifications(false)}
-                className="relative flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
-                title="Thông báo"
-              >
-                <Bell size={17} />
-                {hasNotifications && (
-                  <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
-                title={isDarkMode ? "Chế độ sáng" : "Chế độ tối"}
-              >
-                {isDarkMode ? (
-                  <Sun size={17} className="text-amber-500" />
-                ) : (
-                  <Moon size={17} />
-                )}
-              </button>
-
-              <button
-                type="button"
-                className="hidden h-10 w-10 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:flex"
-                title="Đổi ngôn ngữ"
-              >
-                <Languages size={17} />
-              </button>
-
-              <div className="mx-1 hidden h-6 w-px bg-orange-200/80 sm:block" />
-
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsProfileOpen(!isProfileOpen)}
-                  className="flex items-center gap-2 rounded-full border border-orange-200/80 bg-white/80 p-1 pr-1.5 transition hover:bg-white sm:gap-2.5 sm:pr-2"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EA580C] text-xs font-bold text-white sm:h-9 sm:w-9">
-                    {avatarLabel}
-                  </span>
-                  <span className="hidden text-sm font-semibold text-slate-800 md:inline">
-                    {accountLabel}
-                  </span>
-                  <ChevronDown
-                    size={15}
-                    className={`hidden text-slate-400 transition-transform sm:block ${
-                      isProfileOpen ? "rotate-180" : ""
-                    }`}
+              {/* SIDEBAR MOBILE */}
+              {isMobileMenuOpen && (
+                <div className="fixed inset-0 z-50 lg:hidden">
+                  <button
+                    type="button"
+                    aria-label="Đóng menu"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
                   />
-                </button>
 
-                {isProfileOpen && (
-                  <>
+                  <div className="absolute inset-y-0 left-0 h-full shadow-2xl">
+                    {sidebar}
+                  </div>
+                </div>
+              )}
+
+              {/* CỘT NỘI DUNG */}
+              <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+                <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-orange-200/70 bg-[#FFF4EB] px-3 shadow-sm sm:h-[72px] sm:px-6 lg:px-8">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <button
                       type="button"
-                      aria-label="Đóng menu tài khoản"
-                      onClick={() => setIsProfileOpen(false)}
-                      className="fixed inset-0 z-40 cursor-default"
-                    />
+                      onClick={() => setIsMobileMenuOpen(true)}
+                      className="shrink-0 rounded-xl border border-orange-200 bg-white p-2 text-slate-700 hover:text-[#FF5E14] lg:hidden"
+                      aria-label="Mở menu"
+                    >
+                      <Menu size={20} />
+                    </button>
 
-                    <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl">
-                      <div className="border-b border-slate-100 px-4 py-2.5">
-                        <p className="text-xs font-semibold text-slate-400">
-                          Tài khoản quản trị
-                        </p>
-                        <p className="text-sm font-bold text-slate-800">
-                          {accountLabel}
-                        </p>
-                        <p className="text-[11px] font-medium text-emerald-600">
-                          {roleLabel || "Tài khoản quản lý"}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => navigateTo("/manager/setting")}
-                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-                      >
-                        <Settings size={16} />
-                        Cài đặt hệ thống
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.location.href = "/";
-                        }}
-                        className="flex w-full items-center gap-2.5 border-t border-slate-100 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
-                      >
-                        <LogOut size={16} />
-                        Đăng xuất
-                      </button>
+                    <div className="relative w-full max-w-md">
+                      <Search
+                        size={17}
+                        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Tìm kiếm..."
+                        className="w-full rounded-full border border-orange-200/80 bg-white py-2 pl-10 pr-3 text-sm text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 sm:py-2.5 sm:pr-4"
+                      />
                     </div>
-                  </>
-                )}
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setHasNotifications(false)}
+                      className="relative flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
+                      title="Thông báo"
+                    >
+                      <Bell size={17} />
+                      {hasNotifications && (
+                        <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-white" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsDarkMode(!isDarkMode)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:h-10 sm:w-10"
+                      title={isDarkMode ? "Chế độ sáng" : "Chế độ tối"}
+                    >
+                      {isDarkMode ? (
+                        <Sun size={17} className="text-amber-500" />
+                      ) : (
+                        <Moon size={17} />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="hidden h-10 w-10 items-center justify-center rounded-full border border-orange-200/80 bg-white text-slate-700 hover:text-[#FF5E14] sm:flex"
+                      title="Đổi ngôn ngữ"
+                    >
+                      <Languages size={17} />
+                    </button>
+
+                    <div className="mx-1 hidden h-6 w-px bg-orange-200/80 sm:block" />
+
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsProfileOpen(!isProfileOpen)}
+                        className="flex items-center gap-2 rounded-full border border-orange-200/80 bg-white/80 p-1 pr-1.5 transition hover:bg-white sm:gap-2.5 sm:pr-2"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EA580C] text-xs font-bold text-white sm:h-9 sm:w-9">
+                          {avatarLabel}
+                        </span>
+                        <span className="hidden text-sm font-semibold text-slate-800 md:inline">
+                          {accountLabel}
+                        </span>
+                        <ChevronDown
+                          size={15}
+                          className={`hidden text-slate-400 transition-transform sm:block ${
+                            isProfileOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+
+                      {isProfileOpen && (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Đóng menu tài khoản"
+                            onClick={() => setIsProfileOpen(false)}
+                            className="fixed inset-0 z-40 cursor-default"
+                          />
+
+                          <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl">
+                            <div className="border-b border-slate-100 px-4 py-2.5">
+                              <p className="text-xs font-semibold text-slate-400">
+                                Tài khoản quản trị
+                              </p>
+                              <p className="text-sm font-bold text-slate-800">
+                                {accountLabel}
+                              </p>
+                              <p className="text-[11px] font-medium text-emerald-600">
+                                {roleLabel || "Tài khoản quản lý"}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => navigateTo("/manager/setting")}
+                              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
+                            >
+                              <Settings size={16} />
+                              Cài đặt hệ thống
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLogoutError("");
+                                setIsLogoutDialogOpen(true);
+                              }}
+                              disabled={isLoggingOut}
+                              className="flex w-full items-center gap-2.5 border-t border-slate-100 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
+                            >
+                              <LogOut size={16} />
+                              {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </header>
+
+                <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-5 lg:p-8">
+                  <div className="mx-auto w-full max-w-[1600px] min-w-0">
+                    {children}
+                  </div>
+                </main>
               </div>
             </div>
-          </header>
-
-          <main className="min-w-0 flex-1 overflow-x-hidden p-3 sm:p-5 lg:p-8">
-            <div className="mx-auto w-full max-w-[1600px] min-w-0">
-              {children}
-            </div>
-          </main>
-        </div>
-      </div>
+            <AlertDialog
+              open={isLogoutDialogOpen}
+              onOpenChange={(open) => {
+                if (!isLoggingOut) {
+                  setIsLogoutDialogOpen(open);
+                  if (!open) setLogoutError("");
+                }
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Xác nhận đăng xuất</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Bạn có chắc chắn muốn đăng xuất khỏi hệ thống HandyGo không?
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {logoutError && (
+                  <p role="alert" className="text-sm text-rose-600">
+                    {logoutError}
+                  </p>
+                )}
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={isLoggingOut}>
+                    Hủy
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={isLoggingOut}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handleLogout();
+                    }}
+                    className="bg-red-600 text-white hover:bg-red-700"
+                  >
+                    {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
         );
       }}
     </AuthSession>

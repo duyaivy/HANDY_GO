@@ -5,6 +5,7 @@ import { X, ArrowUp } from "lucide-react";
 import { CategoryItem } from "../types";
 import { useUploadImage } from "@/feature/uploads/hooks/use-upload";
 import { useUpdateCategory } from "../hooks/use-categories";
+import { HttpError } from "@/shared/api/http";
 
 export interface EditCatalogModalProps {
   isOpen: boolean;
@@ -25,6 +26,7 @@ const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
   // STATE
   // =========================
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const updateCategory = useUpdateCategory();
   const uploadImage = useUploadImage();
@@ -50,11 +52,12 @@ const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
     if (!file) return;
 
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      console.error("Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP");
+      setErrorMessage("Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP!");
       e.target.value = "";
       return;
     }
 
+    setErrorMessage("");
     setSelectedFile(file);
 
     const reader = new FileReader();
@@ -72,6 +75,7 @@ const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage("");
 
     if (!name.trim() || updateCategory.isPending || uploadImage.isPending) {
       return;
@@ -108,6 +112,14 @@ const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
       onClose();
     } catch (error) {
       console.error("Lỗi cập nhật danh mục:", error);
+      setErrorMessage(
+        error instanceof HttpError
+          ? error.payload.message ||
+              "Không thể cập nhật danh mục. Vui lòng thử lại."
+          : error instanceof Error
+            ? error.message
+            : "Cập nhật danh mục thất bại. Vui lòng thử lại.",
+      );
     }
   };
   // =========================
@@ -276,6 +288,15 @@ const EditCatalogForm: React.FC<EditCatalogFormProps> = ({
               </label>
             </div>
           </div>
+
+          {errorMessage && (
+            <p
+              role="alert"
+              className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600"
+            >
+              {errorMessage}
+            </p>
+          )}
 
           {/* =========================
               FOOTER
