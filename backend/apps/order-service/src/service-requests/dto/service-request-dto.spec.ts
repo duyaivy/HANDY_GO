@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { CreateServiceRequestDto, ServiceRequestMediaDto } from './create-service-request.dto.js';
@@ -135,13 +135,28 @@ describe('ServiceRequest DTO GPS Validation', () => {
     });
   });
   describe('ServiceRequestMediaDto URL validation', () => {
-    it('should accept valid http/https URLs', async () => {
+    beforeEach(() => vi.stubEnv('CLOUDINARY_CLOUD_NAME', 'demo'));
+    afterEach(() => vi.unstubAllEnvs());
+
+    it('should accept project Cloudinary URLs', async () => {
       const dto = plainToInstance(ServiceRequestMediaDto, {
         mediaUrl: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
         mediaType: 'image',
       });
       const errors = await validate(dto);
       expect(errors).toHaveLength(0);
+    });
+
+    it.each([
+      'http://res.cloudinary.com/demo/image/upload/a.jpg',
+      'https://res.cloudinary.com.evil.test/demo/image/upload/a.jpg',
+      'https://res.cloudinary.com/other/image/upload/a.jpg',
+      'https://example.com/a.jpg',
+    ])('rejects untrusted URL %s for both create and update', async (mediaUrl) => {
+      for (const Dto of [CreateServiceRequestDto, UpdateServiceRequestDto]) {
+        const dto = plainToInstance(Dto, { media: [{ mediaUrl, mediaType: 'image' }] });
+        expect(await validate(dto)).not.toHaveLength(0);
+      }
     });
 
     it('should reject local file URIs (file:///...)', async () => {
@@ -152,7 +167,7 @@ describe('ServiceRequest DTO GPS Validation', () => {
       const errors = await validate(dto);
       expect(errors).toHaveLength(1);
       expect(errors[0].property).toBe('mediaUrl');
-      expect(errors[0].constraints).toHaveProperty('isUrl');
+      expect(errors[0].constraints).toHaveProperty('isProjectCloudinaryUrl');
     });
   });
 });

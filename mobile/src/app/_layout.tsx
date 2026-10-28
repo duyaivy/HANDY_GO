@@ -4,7 +4,7 @@ import { ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as React from 'react';
-import { LogBox, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import FlashMessage from 'react-native-flash-message';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
@@ -24,10 +24,6 @@ export { ErrorBoundary } from 'expo-router';
 export const unstable_settings = {
   initialRouteName: 'index',
 };
-
-LogBox.ignoreLogs([
-  'Looks like you have configured linking in multiple places',
-]);
 
 loadSelectedTheme();
 

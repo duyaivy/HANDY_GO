@@ -176,9 +176,10 @@ export function CustomerBookingScreen({
     setIsUploading(true);
     try {
       const uploadedUrl = await OrdersApi.uploadImage(localUri, 'booking_issue');
-      if (uploadedUrl) {
-        replaceMediaUrl(localUri, uploadedUrl);
+      if (!uploadedUrl) {
+        throw new Error('Upload did not return a URL');
       }
+      replaceMediaUrl(localUri, uploadedUrl);
     }
     catch (err: any) {
       console.warn('[BOOKING] Upload ảnh lên cloud thất bại:', err);
@@ -186,7 +187,8 @@ export function CustomerBookingScreen({
       removeMediaUrl(localUri);
 
       const is401
-        = err?.statusCode === 401
+        = err?.kind === 'AUTH_ERROR'
+          || err?.statusCode === 401
           || err?.response?.status === 401
           || err?.message?.includes('401')
           || err?.message?.includes('UNAUTHORIZED');
