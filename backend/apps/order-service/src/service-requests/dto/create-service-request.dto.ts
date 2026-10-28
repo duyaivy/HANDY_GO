@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  ValidateBy,
   IsUUID,
   Max,
   MaxLength,
@@ -18,6 +19,26 @@ export class ServiceRequestMediaDto {
   @ApiProperty({
     description: 'Direct CDN/Cloudinary URL of uploaded media',
     example: 'https://res.cloudinary.com/handygo/image/upload/v1/req/photo1.webp',
+  })
+  @ValidateBy({
+    name: 'isProjectCloudinaryUrl',
+    validator: {
+      validate(value: unknown): boolean {
+        if (typeof value !== 'string') return false;
+        try {
+          const url = new URL(value);
+          const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+          const segments = url.pathname.split('/').filter(Boolean);
+          return Boolean(cloudName && url.protocol === 'https:' && url.hostname === 'res.cloudinary.com'
+            && !url.port && !url.username && !url.password
+            && segments[0] === cloudName && ['image', 'video'].includes(segments[1])
+            && segments[2] === 'upload' && segments.length > 3);
+        } catch {
+          return false;
+        }
+      },
+      defaultMessage: () => 'mediaUrl phải là URL HTTPS Cloudinary của dự án',
+    },
   })
   @IsString()
   @IsNotEmpty()
