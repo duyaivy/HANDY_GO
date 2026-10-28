@@ -1,0 +1,292 @@
+// ========================================================
+// Order Service Database Schema (v2)
+// ========================================================
+// HANDYGO V3 — FULL DBML | [NEW] added | [CHANGED] modified from user original | [REMOVED] original removed
+// All cross-microservice references are logical only; no cross-database foreign keys.
+
+Project handygo_order_service {
+  database_type: 'PostgreSQL'
+  Note: 'Owns Service Requests, pre-order agreement proposals, and official Orders. Matching and Bidding do not create Orders.'
+}
+
+// Request State Machine:
+// draft -> open_for_bidding | cancelled
+// open_for_bidding -> bidding_closed | converted_to_order | cancelled | expired
+// bidding_closed -> converted_to_order | cancelled | expired
+// converted_to_order, cancelled, expired are terminal.
+// [REMOVED] matching_fallback. Matching starts when published, not only when bidding fails.
+Enum request_status {
+  draft
+  open_for_bidding
+  bidding_closed
+  converted_to_order
+  cancelled
+  expired
+}
+
+// [NEW] Pre-order agreement: worker acceptance atomically finalizes immutable terms and creates Order.
+// [CHANGED v3.1] proposed -> finalized (worker accepts + creates Order in one transaction)
+// proposed -> changes_requested | worker_rejected | withdrawn | expired | superseded
+// finalized, changes_requested, worker_rejected, withdrawn, expired, superseded are terminal.
+// Customer submits a NEW proposal revision when worker requests changes.
+Enum booking_proposal_status {
+  proposed
+  changes_requested
+  // [NEW v3.1] Worker requests customer to revise price/scope/schedule.
+  worker_rejected
+  withdrawn
+  expired
+  finalized
+  superseded
+  // [NEW] Another confirmed proposal from the same request became the Order.
+}
+
+// [NEW] Distinguishes a worker selected from a quote vs AI Top 3.
+Enum worker_selection_source {
+  bid
+  recommendation
+}
+
+// [CHANGED] created: Order already exists after TWO-SIDED agreement.
+// confirmed: worker additionally acknowledges readiness / scheduled execution,
+// NOT a second price agreement.
+// created -> confirmed -> in_progress -> awaiting_customer_confirmation -> completed
+// awaiting_customer_confirmation -> in_progress (rework)
+// Nonterminal states may -> cancelled / disputed subject to policy.
+// disputed -> in_progress | awaiting_customer_confirmation | cancelled | completed
+// completed and cancelled are terminal in the Order domain.
+Enum order_status {
+  created
+  confirmed
+  in_progress
+  awaiting_customer_confirmation
+  completed
+  cancelled
+  disputed
+}
+
+// Payment lifecycle is separate from Order lifecycle.
+// This field is a projection populated only from Payment Service events.
+Enum payment_state {
+  unpaid
+  pending
+  paid
+  refunded
+  failed
+}
+
+Table service_requests {
+  id uuid [pk]
+  request_code varchar(30) [not null, unique]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  service_id uuid [note: 'Logical reference -> Catalog Service.services.id; required when published']
+
+  description text
+  // [CHANGED] Drafts can be partially saved; publication validates required fields.
+  scheduled_at timestamptz
+
+  ai_reference_price_min decimal(12,2)
+  ai_reference_price_max decimal(12,2)
+
+  address_text varchar(500)
+  latitude decimal(9,6)
+  longitude decimal(9,6)
+  // [CHANGED] Nullable for draft; publication requires a complete address and GPS point.
+
+  status request_status [not null, default: 'draft']
+
+  published_at timestamptz
+  // [NEW] Timestamp of first publication.
+
+  bidding_closes_at timestamptz
+  // Deadline for NEW quotes; does not automatically forbid selection/negotiation.
+
+  selection_expires_at timestamptz
+  // Optional deadline for finalizing an agreement after bidding closes.
+  // Must be later than bidding_closes_at when both are provided.
+
+  version int [not null, default: 0]
+  // Optimistic concurrency; lock the request row when finalizing an Order.
+
+  matching_revision int [not null, default: 0]
+  // Increment only when service/location/schedule or other AI inputs change.
+  // Emit this revision in service_request.published/updated for Matching.
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (customer_user_id, status, created_at)
+    (service_id, status)
+  }
+}
+
+Table request_media {
+  id uuid [pk]
+  service_request_id uuid [not null]
+  media_type varchar(30) [not null]
+  media_url text [not null]
+  created_at timestamptz [not null]
+}
+
+// Customer proposes the final terms after discussion; worker accepts them.
+// [NEW] This is NOT an Order and does not prevent other conversations from existing.
+// Customer creates a proposal AFTER discussion (Chat integration comes later).
+// Worker accepts exact proposal terms and atomically creates Order; no second Customer finalization.
+Table booking_proposals {
+  id uuid [pk]
+  service_request_id uuid [not null]
+
+  // [NEW v3.1] Link immutable revisions of the same negotiation.
+  supersedes_proposal_id uuid [unique]
+  // Nullable on first proposal. Worker change request closes previous revision.
+  // Guard: same request/customer/worker and previous status=changes_requested;
+  // revision_no = previous.revision_no + 1.
+  revision_no int [not null, default: 1]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+
+  selection_source worker_selection_source [not null]
+  source_bid_id uuid [note: 'Logical reference -> Bidding Service.bids.id; used when source=bid']
+  source_match_result_id uuid [note: 'Logical reference -> Matching Service.match_results.id; used when source=recommendation']
+
+  agreed_price decimal(12,2) [not null]
+  agreed_scope text [not null]
+  scheduled_at timestamptz
+
+  status booking_proposal_status [not null, default: 'proposed']
+  expires_at timestamptz [not null]
+  worker_responded_at timestamptz
+  finalized_at timestamptz
+  response_note text
+
+  // [CHANGED v3.1] Immutable price/scope/schedule after submission.
+  // Worker can request changes (reason in response_note); Customer creates NEW row
+  // with supersedes_proposal_id + revision_no, not PATCH existing terms.
+  // On worker accept: proposed -> finalized and INSERT Order in one DB transaction.
+  // Several proposals may coexist; only one can finalize per request.
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (service_request_id, status)
+    (worker_user_id, status)
+  }
+}
+
+// [CHANGED v3.1] Official Order is created IMMEDIATELY when worker accepts
+// current immutable Booking Proposal. No extra Customer finalize.
+// Max one official Order per Service Request.
+Table orders {
+  id uuid [pk]
+  order_code varchar(30) [not null, unique]
+  service_request_id uuid [not null, unique]
+  booking_proposal_id uuid [not null, unique]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  service_id uuid [not null, note: 'Logical reference -> Catalog Service.services.id']
+
+  selection_source worker_selection_source [not null]
+  selected_bid_id uuid [note: 'Logical reference -> Bidding Service.bids.id; nullable for AI recommendation']
+  selected_match_result_id uuid [note: 'Logical reference -> Matching Service.match_results.id; nullable for selected Bid']
+
+  agreed_price decimal(12,2) [not null]
+  agreed_scope text [not null]
+  scheduled_at timestamptz
+
+  // Immutable job-location snapshot (do not depend on later Request edits).
+  address_text varchar(500) [not null]
+  latitude decimal(9,6) [not null]
+  longitude decimal(9,6) [not null]
+
+  status order_status [not null, default: 'created']
+  payment_state payment_state [not null, default: 'unpaid']
+  // [CHANGED] Local read projection of Payment Service events; payment source of truth is external.
+
+  confirmed_at timestamptz
+  started_at timestamptz
+  worker_finished_at timestamptz
+  completed_at timestamptz
+  cancelled_at timestamptz
+  cancel_reason text
+
+  version int [not null, default: 0]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (customer_user_id, status, created_at)
+    (worker_user_id, status, created_at)
+  }
+}
+
+// [NEW] Transactional audit of official Order state transitions.
+// Tracking Service can separately build a cross-service read-only timeline.
+Table order_status_history {
+  id uuid [pk]
+  order_id uuid [not null]
+  from_status order_status
+  to_status order_status [not null]
+  changed_by_user_id uuid [note: 'Nullable for system transitions']
+  reason text
+  created_at timestamptz [not null]
+  indexes {
+    (order_id, created_at)
+  }
+}
+
+// [NEW] Reliable publication of domain events in the same database transaction.
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(50) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(100) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+// [NEW] Inbound idempotency, especially Payment and other service events.
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(100) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: service_requests.id < request_media.service_request_id
+Ref: service_requests.id < booking_proposals.service_request_id
+Ref: booking_proposals.id - booking_proposals.supersedes_proposal_id
+Ref: service_requests.id - orders.service_request_id
+Ref: booking_proposals.id - orders.booking_proposal_id
+Ref: orders.id < order_status_history.order_id
+
+// IMPORTANT: Enforce these CHECKs/guards in PostgreSQL migrations & service code:
+// 1. agreed_price > 0, version >= 0; valid latitude/longitude.
+// 2. selection_source=bid => source_bid_id/selected_bid_id NOT NULL,
+//    and corresponding match_result_id IS NULL.
+//    selection_source=recommendation => source_match_result_id/
+//    selected_match_result_id NOT NULL, and bid_id IS NULL.
+// 3. On POST /booking-proposals/:id/accept: caller must be target Worker;
+//    proposal=proposed, exact revision expected, not expired; request in
+//    (open_for_bidding,bidding_closed) and selection deadline valid.
+//    Lock request & proposal, INSERT one Order, UPDATE request converted_to_order,
+//    mark proposal finalized and insert outbox event in ONE transaction.
+//    No separate POST /booking-proposals/:id/finalize by Customer.
+// 4. Checking worker agreement, bid eligibility, and match-result membership
+//    are cross-service business guards; DB foreign keys cannot enforce them.
+// 5. Customer cannot mutate price/scope/time after proposal creation;
+//    Worker request-changes -> changes_requested + response_note; Customer creates
+//    NEW proposal (supersedes_proposal_id + revision_no) with updated terms.
+// 6. Accept/finalize ONE proposal atomically: lock service_requests row, validate
+//    proposed + not expired and accepting worker; insert orders UNIQUE request ID;
+//    mark proposal finalized and siblings superseded; publish outbox.
+// 7. Publication requires service_id, description, address, latitude and longitude.
+// 8. Keep source_bid_id XOR source_match_result_id consistent with selection_source.

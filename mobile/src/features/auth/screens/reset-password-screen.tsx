@@ -21,8 +21,10 @@ export function ResetPasswordScreen() {
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
 
+  const isNavigatingAway = React.useRef(false);
+
   React.useEffect(() => {
-    if (!resetToken) {
+    if (!resetToken && !isNavigatingAway.current) {
       router.replace(RouteNames.AUTH_FORGOT_PASSWORD as any);
     }
   }, [resetToken, router]);
@@ -63,6 +65,7 @@ export function ResetPasswordScreen() {
     setIsLoading(true);
     try {
       await AuthApi.resetPassword({ resetToken, newPassword: password });
+      isNavigatingAway.current = true;
       clearFlow();
       router.replace({
         pathname: RouteNames.AUTH_LOGIN,
@@ -80,6 +83,7 @@ export function ResetPasswordScreen() {
   };
 
   const handleCancel = () => {
+    isNavigatingAway.current = true;
     clearFlow();
     router.replace(RouteNames.AUTH_LOGIN as any);
   };

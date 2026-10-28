@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "approval": "Owner explicitly approved deploying all eleven applications, including health-only scaffolds (2026-10-16).",
+  "services": {
+    "api-gateway": {
+      "host": "vps1",
+      "port": 3000,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "gateway-media",
+      "memory_mib": 160
+    },
+    "auth-service": {
+      "host": "vps1",
+      "port": 3001,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "authentication",
+      "memory_mib": 208
+    },
+    "user-trust-service": {
+      "host": "vps1",
+      "port": 3002,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "profile-provisioning",
+      "memory_mib": 176
+    },
+    "notification-service": {
+      "host": "vps1",
+      "port": 3008,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "notification-core",
+      "memory_mib": 128
+    },
+    "order-service": {
+      "host": "vps2",
+      "port": 3004,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 128
+    },
+    "bidding-service": {
+      "host": "vps2",
+      "port": 3005,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 112
+    },
+    "matching-service": {
+      "host": "vps2",
+      "port": 3006,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 160
+    },
+    "tracking-service": {
+      "host": "vps2",
+      "port": 3010,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 128
+    },
+    "payment-service": {
+      "host": "vps3",
+      "port": 3007,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 112
+    },
+    "wallet-service": {
+      "host": "vps3",
+      "port": 3009,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "health-only",
+      "memory_mib": 112
+    },
+    "catalog-service": {
+      "host": "vps3",
+      "port": 3003,
+      "state": "PARTIAL",
+      "deploy": true,
+      "scope": "catalog",
+      "memory_mib": 224
+    }
+  }
+}

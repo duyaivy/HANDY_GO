@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustServiceController } from './user-trust-service.controller.js';
 import { UserTrustServiceService } from './user-trust-service.service.js';
 import { RegisterRole, TokenVerifierService } from '@app/auth';
+import { ConfigService } from '@app/config';
 
 describe('UserTrustServiceController', () => {
   let controller: UserTrustServiceController;
@@ -21,6 +22,10 @@ describe('UserTrustServiceController', () => {
       providers: [
         { provide: UserTrustServiceService, useValue: serviceMock },
         { provide: TokenVerifierService, useValue: { verifyAccessToken: vi.fn() } },
+        {
+          provide: ConfigService,
+          useValue: { internalServiceSecret: 'test-secret' },
+        },
       ],
     }).compile();
 
@@ -67,5 +72,18 @@ describe('UserTrustServiceController', () => {
       'user-1',
       ['profile:read'],
     );
+  });
+
+  it('should handle user.get-all-active-ids MessagePattern', async () => {
+    serviceMock.getAllActiveUserIds = vi.fn().mockResolvedValue({
+      userIds: ['user-1', 'user-2'],
+    });
+
+    const result = await controller.getAllActiveUserIds(
+      { targetGroup: 'ALL' },
+      undefined,
+    );
+    expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
+    expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
   });
 });

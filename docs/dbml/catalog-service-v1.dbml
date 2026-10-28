@@ -1,0 +1,68 @@
+// ========================================================
+// Catalog Service Database Schema (v1)
+// ========================================================
+Project handygo_catalog_service {
+
+  database_type: 'PostgreSQL'
+
+}
+
+Table service_categories {
+
+  id uuid [pk]
+  // ID duy nhất của danh mục dịch vụ
+
+  parent_id uuid
+  // ID của danh mục cha, dùng để xây dựng cấu trúc danh mục nhiều cấp; null nếu là danh mục cấp cao nhất
+
+  name varchar(150) [not null]
+  // Tên của danh mục dịch vụ
+
+  description text
+  // Mô tả chi tiết về danh mục dịch vụ
+
+  image_url text
+  // Đường dẫn đến hình ảnh đại diện của danh mục
+
+  is_active boolean [not null, default: true]
+  // Xác định danh mục hiện có được sử dụng và hiển thị trên hệ thống hay không
+
+  created_at timestamp [not null]
+  // Thời điểm danh mục được tạo
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin danh mục được cập nhật lần cuối
+}
+
+Table services {
+
+  id uuid [pk]
+  // ID duy nhất của dịch vụ
+
+  category_id uuid [not null]
+  // ID của danh mục mà dịch vụ thuộc về
+
+  name varchar(180) [not null]
+  // Tên của dịch vụ được cung cấp trên HandyGo
+
+  description text
+  // Mô tả chi tiết về dịch vụ
+
+  icon_url text
+  // Đường dẫn đến biểu tượng đại diện cho dịch vụ
+
+  is_active boolean [not null, default: true]
+  // Xác định dịch vụ hiện có được phép sử dụng và hiển thị trên hệ thống hay không
+
+  created_at timestamp [not null]
+  // Thời điểm dịch vụ được tạo
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin dịch vụ được cập nhật lần cuối
+}
+
+Ref: service_categories.id < service_categories.parent_id
+// Một danh mục có thể có nhiều danh mục con; parent_id xác định danh mục cha
+
+Ref: service_categories.id < services.category_id
+// Một danh mục có thể chứa nhiều dịch vụ, mỗi dịch vụ thuộc một danh mục

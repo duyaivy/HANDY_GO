@@ -38,6 +38,13 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     const pathname = req.originalUrl || req.url;
     const method = req.method;
 
+    // Remove client identity headers on public routes as well as protected routes.
+    for (const header of Object.keys(req.headers)) {
+      if (header.startsWith('x-user-') || header === 'x-internal-secret') {
+        delete req.headers[header];
+      }
+    }
+
     // 1. Bỏ qua xác thực cho public routes
     if (isPublicRoute(pathname, method)) {
       this.injectGatewayHeaders(req);
@@ -101,8 +108,8 @@ export class GatewayAuthMiddleware implements NestMiddleware {
       req.headers['x-internal-secret'] = internalSecret;
     }
 
-    // Inject x-forwarded-for từ socket (không tin client header để chống spoofing)
-    const clientIp = req.socket?.remoteAddress ?? req.ip ?? '127.0.0.1';
+    // Express resolves req.ip using the explicitly trusted reverse proxies.
+    const clientIp = req.ip ?? req.socket?.remoteAddress ?? '127.0.0.1';
     req.headers['x-forwarded-for'] = clientIp;
   }
 }

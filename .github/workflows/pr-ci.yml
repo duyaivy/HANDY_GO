@@ -23,15 +23,17 @@ jobs:
       mobile: ${{ steps.filter.outputs.mobile }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
             backend:
               - 'backend/**'
+              - '.github/workflows/pr-ci.yml'
+              - '.github/workflows/backend-production.yml'
             frontend:
               - 'frontend/**'
             mobile:
@@ -48,17 +50,17 @@ jobs:
         working-directory: backend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.17.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: "pnpm"
           cache-dependency-path: backend/pnpm-lock.yaml
 
@@ -83,6 +85,17 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Record tested backend source
+        run: python3 scripts/record-ci-proof.py "$RUNNER_TEMP/backend-ci-proof/backend-proof.json"
+
+      - name: Store backend CI proof
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-ci-proof-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-ci-proof/backend-proof.json
+          if-no-files-found: error
+          retention-days: 90
+
   frontend-ci:
     name: Frontend CI
     needs: detect-changes
@@ -94,10 +107,10 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: "npm"
@@ -123,15 +136,15 @@ jobs:
         working-directory: mobile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.12.3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: "pnpm"

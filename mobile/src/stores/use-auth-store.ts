@@ -1,12 +1,14 @@
 /* eslint-disable max-lines-per-function */
 import type { AuthSessionData, AuthUser, LoginPayload, VerifyOtpPayload } from '@/services/auth/auth-api';
 import { create } from 'zustand';
+import { StorageKeys } from '@/constants/storage-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { getToken, hydrateTokens, removeToken, setToken } from '@/lib/auth/utils';
 import { storage } from '@/lib/storage';
 import { createSelectors } from '@/lib/utils';
 import { setOnUnauthorizedCallback } from '@/services/api/api-client';
 import { AuthApi } from '@/services/auth/auth-api';
+import { cleanupNotificationsBeforeLogout } from '@/services/notifications/logout-hook';
 
 export type AppMode = 'Customer' | 'Worker';
 
@@ -29,6 +31,34 @@ export function setStoredActiveMode(userId: string, mode: AppMode): void {
   try {
     storage.set(getActiveModeKey(userId), mode);
   }
+  catch {
+    // ignore
+  }
+}
+
+export function getStoredGuestRole(): AppMode | null {
+  try {
+    const raw = storage.getString(StorageKeys.GUEST_SELECTED_ROLE);
+    if (raw === 'Customer' || raw === 'Worker') {
+      return raw;
+    }
+    return null;
+  }
+  catch {
+    return null;
+  }
+}
+
+export function setStoredGuestRole(role: AppMode | null): void {
+  try {
+    if (role) {
+      storage.set(StorageKeys.GUEST_SELECTED_ROLE, role);
+    }
+    else {
+      storage.remove(StorageKeys.GUEST_SELECTED_ROLE);
+    }
+  }
+
   catch {
     // ignore
   }
@@ -60,6 +90,7 @@ export function resolveActiveMode(user: AuthUser | null): AppMode | null {
 type AuthState = {
   user: AuthUser | null;
   activeMode: AppMode | null;
+  guestRole: AppMode | null;
   isAuthenticated: boolean;
   isHydrated: boolean;
   isLoading: boolean;
@@ -73,11 +104,14 @@ type AuthState = {
   clearError: () => void;
   setUser: (user: AuthUser | null) => void;
   setActiveMode: (mode: AppMode) => void;
+  setGuestRole: (role: AppMode | null) => void;
+  switchRole: () => void;
 };
 
 const _useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   activeMode: null,
+  guestRole: getStoredGuestRole(),
   isAuthenticated: false,
   isHydrated: false,
   isLoading: false,
@@ -96,11 +130,37 @@ const _useAuthStore = create<AuthState>((set, get) => ({
 
   setActiveMode: (mode: AppMode) => {
     const currentUser = get().user;
-    if (!currentUser || !currentUser.roles?.includes(mode)) {
+    if (!currentUser) {
+      setStoredGuestRole(mode);
+      set({ guestRole: mode, activeMode: mode });
+      return;
+    }
+    if (!currentUser.roles?.includes(mode)) {
       return;
     }
     setStoredActiveMode(currentUser.id, mode);
     set({ activeMode: mode });
+  },
+
+  setGuestRole: (role: AppMode | null) => {
+    setStoredGuestRole(role);
+    set({ guestRole: role, activeMode: role });
+  },
+
+  switchRole: () => {
+    const { isAuthenticated, user, activeMode, guestRole } = get();
+    if (isAuthenticated && user) {
+      const targetMode: AppMode = activeMode === 'Customer' ? 'Worker' : 'Customer';
+      if (user.roles?.includes(targetMode)) {
+        setStoredActiveMode(user.id, targetMode);
+        set({ activeMode: targetMode });
+      }
+    }
+    else {
+      const targetGuestRole: AppMode = guestRole === 'Customer' ? 'Worker' : 'Customer';
+      setStoredGuestRole(targetGuestRole);
+      set({ guestRole: targetGuestRole, activeMode: targetGuestRole });
+    }
   },
 
   login: async (payload: LoginPayload) => {
@@ -192,15 +252,22 @@ const _useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     set({ isLoading: true });
     try {
+      await cleanupNotificationsBeforeLogout(get().user?.id).catch(() => {});
       const tokens = getToken();
-      await AuthApi.logout(tokens?.refresh).catch(() => {});
+      if (tokens?.refresh) {
+        await AuthApi.logout(tokens.refresh).catch(() => {});
+      }
     }
     finally {
+      await queryClient.cancelQueries({ queryKey: ['notifications'] });
+      queryClient.removeQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['user-profile'] });
       await removeToken();
+      setStoredGuestRole(null);
       set({
         user: null,
         activeMode: null,
+        guestRole: null,
         isAuthenticated: false,
         isLoading: false,
         error: null,
@@ -210,10 +277,11 @@ const _useAuthStore = create<AuthState>((set, get) => ({
   },
 
   hydrate: async () => {
+    const guestRole = getStoredGuestRole();
     try {
       const tokens = await hydrateTokens();
       if (!tokens) {
-        set({ isHydrated: true, isAuthenticated: false, user: null, activeMode: null, hydrationError: null });
+        set({ isHydrated: true, isAuthenticated: false, user: null, activeMode: null, guestRole, hydrationError: null });
         return;
       }
 

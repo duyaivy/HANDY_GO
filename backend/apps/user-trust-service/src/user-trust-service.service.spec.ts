@@ -18,6 +18,7 @@ describe('UserTrustServiceService', () => {
       },
       user: {
         findUnique: vi.fn(),
+        findMany: vi.fn(),
         create: vi.fn(),
         upsert: vi.fn(),
         update: vi.fn(),
@@ -28,7 +29,18 @@ describe('UserTrustServiceService', () => {
         upsert: vi.fn(),
       },
       workerProfile: {
+        findUnique: vi.fn(),
         upsert: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      kycCase: {
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        count: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
       },
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
@@ -405,6 +417,44 @@ describe('UserTrustServiceService', () => {
           [StandardPermissions.PROFILE_UPDATE],
         ),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getAllActiveUserIds', () => {
+    it('should return all active user IDs when targetGroup is ALL or omitted', async () => {
+      dbMock.user.findMany.mockResolvedValue([
+        { id: 'user-1' },
+        { id: 'user-2' },
+      ]);
+
+      const result = await service.getAllActiveUserIds();
+      expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
+      expect(dbMock.user.findMany).toHaveBeenCalledWith({
+        where: { status: 'active' },
+        select: { id: true },
+      });
+    });
+
+    it('should filter by customerProfile when targetGroup is CUSTOMERS', async () => {
+      dbMock.user.findMany.mockResolvedValue([{ id: 'cust-1' }]);
+
+      const result = await service.getAllActiveUserIds('CUSTOMERS');
+      expect(result).toEqual({ userIds: ['cust-1'] });
+      expect(dbMock.user.findMany).toHaveBeenCalledWith({
+        where: { status: 'active', customerProfile: { isNot: null } },
+        select: { id: true },
+      });
+    });
+
+    it('should filter by workerProfile when targetGroup is WORKERS', async () => {
+      dbMock.user.findMany.mockResolvedValue([{ id: 'work-1' }]);
+
+      const result = await service.getAllActiveUserIds('WORKERS');
+      expect(result).toEqual({ userIds: ['work-1'] });
+      expect(dbMock.user.findMany).toHaveBeenCalledWith({
+        where: { status: 'active', workerProfile: { isNot: null } },
+        select: { id: true },
+      });
     });
   });
 });

@@ -27,7 +27,13 @@ export class ProxyMiddleware implements NestMiddleware {
   private initProxies(): void {
     for (const route of SERVICE_ROUTES) {
       const targetUrl = this.config.getUrl(route.envKey);
-      const timeoutMs = this.config.upstreamTimeoutMs;
+      const timeoutMs = route.timeoutEnvKey
+        ? Number(this.config.get(route.timeoutEnvKey) || this.config.upstreamTimeoutMs)
+        : this.config.upstreamTimeoutMs;
+
+      console.log(
+        `[Proxy] ${route.upstreamName} timeout=${timeoutMs}ms target=${targetUrl}`,
+      );
 
       const handler = createProxyMiddleware({
         target: targetUrl,
@@ -35,6 +41,9 @@ export class ProxyMiddleware implements NestMiddleware {
         ws: true,
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
+        ...(route.pathRewrite
+          ? { pathRewrite: (path, req) => route.pathRewrite!(path, req as Request) }
+          : {}),
         on: {
           proxyReq: (proxyReq, req) => {
             const clientReq = req as Request;
@@ -103,6 +112,10 @@ export class ProxyMiddleware implements NestMiddleware {
     const pathname = req.originalUrl || req.url;
 
     for (const { route, handler } of this.entries) {
+      if (route.customMatch && route.customMatch(pathname)) {
+        handler(req, res, next);
+        return;
+      }
       for (const prefix of route.prefixes) {
         if (
           pathname === prefix ||

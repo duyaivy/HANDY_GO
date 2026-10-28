@@ -92,6 +92,34 @@ describe('GatewayAuthMiddleware (Unit)', () => {
     });
   });
 
+  it('removes all spoofed identity headers on a public route', async () => {
+    const req = buildReq({
+      originalUrl: '/api/v1/catalog',
+      headers: {
+        'x-user-id': 'attacker',
+        'x-user-roles': 'Admin',
+        'x-user-future-claim': 'spoofed',
+        'x-internal-secret': 'attacker-secret',
+      },
+    });
+    const { res } = buildRes();
+    await middleware.use(req, res, next);
+    expect(Object.keys(req.headers).some((key) => key.startsWith('x-user-'))).toBe(false);
+    expect(req.headers['x-internal-secret']).toBe('super-secret-internal-key');
+  });
+
+  it('forwards the client IP resolved by Express behind a trusted proxy', async () => {
+    const req = buildReq({
+      originalUrl: '/api/v1/catalog',
+      ip: '203.0.113.25',
+      socket: { remoteAddress: '172.30.1.1' } as Request['socket'],
+      headers: { 'x-forwarded-for': 'attacker-supplied-value' },
+    });
+    const { res } = buildRes();
+    await middleware.use(req, res, next);
+    expect(req.headers['x-forwarded-for']).toBe('203.0.113.25');
+  });
+
   describe('authorization header', () => {
     it('trả 401 khi thiếu Authorization header', async () => {
       const req = buildReq({ originalUrl: '/api/v1/orders', method: 'GET' });

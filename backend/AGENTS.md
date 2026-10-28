@@ -10,7 +10,7 @@
 
 > [!IMPORTANT]
 > **MANDATORY FOR ALL AGENTS:**
-> Whenever you implement, extend, or optimize:
+> Whenever you implement, extend, or optimize reusable application code in `apps/` or `libs/`:
 > 1. A shared library, utility function, or helper.
 > 2. A cross-cutting service, repository, messaging client, or RPC contract.
 > 3. A reusable decorator, guard, filter, or interceptor.
@@ -104,7 +104,7 @@ pnpm run lint
 | Library (`libs/`) | Exported Asset | Purpose & Usage Contract |
 | :--- | :--- | :--- |
 | **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES`<br>`AppErrorData` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { data });`<br>Supports `data.verification` containing `challengeId`, `phone`, `emailMasked`, `expiresAt`, `resendAvailableAt` for pending account and delivery failure flows. |
-| | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Used in `main.ts`. |
+| | `bootstrapApplication(Module, options?)` | **Microservice Bootstrap Engine.** Configures Pino logging, global `/api/v1` prefix, CORS, Swagger OpenAPI, and global ValidationPipe. Accepts `BootstrapOptions` (`connectMicroservices`, `setupApp`) or a bare `SetupAppCallback`. Enables shutdown hooks. Used in `main.ts`. |
 | | `HttpExceptionFilter` | **Global Exception Filter & Detailed Error Logger.** Catches all exceptions, formats standardized JSON error responses, logs full 5xx/4xx error context with method, URL, message & stack traces, and injects error details into `pino-http`. |
 | | `OutboxPublisherService`<br>`OutboxRepository` | **Reliable Transactional Outbox Pattern.** Persists domain events into the database within the same transaction and asynchronously dispatches to RabbitMQ with DLQ & retry support. |
 | | `renderEmailTemplate(template, vars)` | **HTML Email Template Renderer.** Injects dynamic placeholders `{{variable}}` into branded HANDY GO responsive HTML email layouts. |
@@ -121,15 +121,16 @@ pnpm run lint
 | **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
-| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)` | High-performance Pino structured JSON logging module. |
+| **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret` and notification `pushToken` fields. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
 | **`@app/cloudinary`**<br>`libs/cloudinary/src/` | `CloudinaryModule`<br>`CloudinaryService` | **Cloudinary Media Storage Integration.** Streaming image upload (`uploadImage`) and signed direct big-video chunk upload initialization (`createVideoUploadSignature`). |
 
 ---
 
-### 4.2. Service-Internal Utilities & Infrastructure
+### 4.2. Service-Internal Utilities
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
+| `apps/api-gateway/src/auth/gateway-auth.middleware.ts` | `GatewayAuthMiddleware` | Removes client-supplied `x-user-*` and `x-internal-secret` headers on all routes, verifies access tokens on protected routes, and injects trusted gateway headers. Usage: register as middleware before proxying requests to downstream services. |
 | `apps/api-gateway/src/dev/dev-video-upload.controller.ts` | `DevVideoUploadController` | **Development Video Upload Tester.** Serves HTML/JS tester page at `GET /dev/video-upload` in non-production environments (`NODE_ENV !== 'production'`) for direct-to-Cloudinary chunked video upload testing. Throws `404` in production. |
 | `common/utils/client-ip.util.ts` | `resolveClientIp(config, req, fallbackIp)`<br>`normalizeClientIp(ip, fallback)` | **IP Spoofing Prevention & Normalization.** Only trusts `x-forwarded-for` when validated against `x-internal-secret` from API Gateway. Validates with `net.isIP`, strips IPv4-mapped IPv6 (`::ffff:`), and normalizes `::1` loopback. |
 | `common/security/password-hasher.ts` | `BcryptPasswordHasher`<br>`PASSWORD_HASHER` | **Decoupled Password Hashing Abstraction.** Implements `IPasswordHasher` with configurable salt rounds (default: 10), isolating password hashing/comparison from business flow services. |
@@ -141,14 +142,85 @@ pnpm run lint
 | `common/utils/password.util.ts` | `@IsMaxByteLength(72)` | **UTF-8 Byte Length Validator.** Enforces strict 72-byte limit matching mobile and bcrypt boundary, preventing truncation vulnerabilities while preserving 8-64 char complexity rules. |
 | `common/utils/auth-response.builder.ts` | `AuthResponseBuilder` | **Standardized API Response Envelopes.** Factory methods: `buildRegisterResponse` (includes `challengeId`), `buildAuthSuccessResponse`, `buildResendOtpResponse` (includes `challengeId`), `buildLogoutResponse`, `buildMeResponse`. |
 | `common/rate-limit/rate-limiter.service.ts` | `RateLimiterService` | **Multi-Tier Rate Limiting & Brute-Force Lockout:**<br>- `checkAndIncrement(key, limit, windowSecs, message)`: Throttler sliding window.<br>- `checkFailedLogins(phone)`: Lockout check (5 failed attempts locks for 15 minutes).<br>- `recordFailedLogin(phone)` & `resetFailedLogins(phone)`: Counter management. |
+| `apps/auth-service/src/common/rate-limit/postgres-throttler-storage.ts` | `PostgresThrottlerStorage` | Atomic PostgreSQL-backed Nest throttler storage. `new PostgresThrottlerStorage(db)`; `increment(key, ttl, limit, blockDuration, throttlerName)` uses a single upsert and returns the installed throttler storage-record contract. |
 | `common/session/session.service.ts` | `SessionService` | **Session & Refresh Token Lifecycle:**<br>- `prepareSession()`: Pre-signs JWT prior to database transaction.<br>- `createSession()`: Stores session atomically.<br>- `rotateSession(refreshToken)`: Refresh token rotation with strict 7-day absolute lifetime.<br>- `revokeSession(refreshToken)`: Immediate invalidation on logout. |
 | `common/rpc/user-trust.client.ts` | `UserTrustClient` | **Fail-Close RPC Client.** Communicates via RabbitMQ to verify user status and KYC profile provisioning in `user-trust-service`. |
 | `apps/catalog-service/src/common/outbox/catalog-outbox.repository.ts` | `CatalogOutboxRepository` | **Catalog Service Outbox Repository.** Implements `OutboxRepository` interface to query/update pending events in `catalog_service.outbox_events` table. |
+| `apps/order-service/src/prisma/prisma.service.ts` | `PrismaService`<br>`OrderPrismaService` | **Order Service Database Client.** Connects to `order_service` PostgreSQL schema with connection pooling adapter `@prisma/adapter-pg`. Exports client types from `@prisma/order-client`. |
+| `apps/order-service/src/common/outbox/order-outbox.repository.ts` | `OrderOutboxRepository` | **Order Service Outbox Repository.** Implements `OutboxRepository` interface for `order_service.outbox_events`, provides `createEvent(data, tx)` for atomic event publishing in ACID transactions. |
+| `apps/order-service/src/common/inbox/consumed-event.repository.ts` | `ConsumedEventRepository` | **Idempotent Consumer Inbox Repository.** Atomic deduplication and idempotency tracking using `order_service.consumed_events` (`recordEventIfNew`, `isEventConsumed`). |
+| `apps/order-service/src/common/utils/code-generator.util.ts` | `generateRequestCode(date?)`<br>`generateOrderCode(date?)` | **Business Code Generator.** Produces uppercase alphanumeric unique codes: `REQ-YYYYMMDD-XXXX` and `ORD-YYYYMMDD-XXXX` with unambiguous charset (avoids 0/O, 1/I). |
+| `apps/order-service/src/common/decorators/current-user.decorator.ts` | `@CurrentUser()`<br>`@CurrentUserId()` | **Zero JWT Re-verification Gateway Header Decorators.** Resolves authenticated user identity directly from trusted Gateway headers (`x-user-id`, `x-user-roles`, `x-user-permissions`). |
+| `apps/order-service/src/service-requests/workers/order-deadline-scheduler.service.ts` | `OrderDeadlineSchedulerService` | **Order Service Deadline Scheduler Worker.** Scans requests every 60s, closes bidding (+24h), and expires inactive requests (+48h) with transactional outbox events. |
+| `apps/order-service/src/booking-proposals/booking-proposals.service.ts` | `BookingProposalsService` | **Booking Proposals & Immutable Price Negotiation Service.** Manages pre-order booking proposals (ORD-04, ORD-05), XOR source validation (bid vs. recommendation), immutable revision history increments (`revisionNo`), worker change requests, worker rejection, and customer withdrawal. |
+| `apps/order-service/src/orders/orders.service.ts` | `OrdersService` | **Orders & Atomic Contract Finalization Service.** Executes atomic single-transaction contract finalization (ORD-06) upon proposal acceptance: pessimistic locking, address snapshotting, order creation (`created`, `unpaid`), proposal finalization, competing proposal supersession, status history logging, and `order.created` outbox publishing. |
+| `apps/order-service/src/internal/internal-order.service.ts` | `InternalOrderService`<br>`InternalOrderController` | **Internal Inter-Service Order API (ORD-09).** Provides secure internal endpoints protected by `InternalSecretGuard` (`x-internal-secret` timing-safe comparison): `GET /internal/service-requests/:id/bidding-eligibility` and `GET /internal/orders/:orderId/payment-eligibility` (returns exact string decimal `agreedPrice`). |
+| `apps/order-service/src/common/outbox/order-outbox-publisher.service.ts` | `OrderOutboxPublisherService` | **Order Service Outbox Publisher Poller (BE-06).** Scheduled poller running every 3s via `@app/common` `OutboxPublisherService` to broadcast pending outbox events wrapped in Notification envelope (`eventId`, `eventType`, `eventVersion`, `source: 'order-service'`, `occurredAt`, `payload`, `data`) with retry timestamp/ID preservation compatible with Notification and Bidding services. |
+| `apps/order-service/src/consumers/payment-events.consumer.ts` | `PaymentEventsConsumer` | **Payment Domain Event Consumer (BE-05).** Transactional RabbitMQ consumer for `payment.succeeded` and `payment.failed` events: atomically records event in `consumed_events` and updates `orders.payment_state` (`paid`/`failed`) in the same database transaction, ACKs after commit, rolls back and NACKs with requeue on DB error, ACKs valid duplicates, and rejects poison pills (missing eventId/orderId) without requeue. |
+| `apps/order-service/src/**/dto/` | `OrderResponseDto`<br>`ServiceRequestResponseDto`<br>`BookingProposalResponseDto`<br>`PaymentEligibilityResponseDto`<br>`BiddingEligibilityResponseDto` | **Order Service Canonical Domain & Inter-Service DTOs.** Strongly-typed schemas for order lifecycle, immutable proposal revisions, deadline tracking, and payment eligibility with exact string decimal `agreedPrice`. |
+| `apps/order-service/src/common/guards/trusted-gateway.guard.ts` | `TrustedGatewayGuard` | **Order Service Trusted Gateway Guard (BE-02).** Validates `x-internal-secret` using timing-safe comparison and checks UUID `x-user-id` header from API Gateway; throws 403 on invalid/missing secret and 401 on missing user ID. |
+| `apps/order-service/src/common/guards/admin.guard.ts` | `AdminGuard` | **Order Service Admin Role Guard (BE-02).** Enforces `Admin` role from `x-user-roles` gateway header; rejects non-admin callers with 403 Forbidden. |
+| `apps/order-service/src/booking-proposals/services/proposal-source-verifier.service.ts` | `ProposalSourceVerifierService` | **Proposal Selection Source Verifier Service (BE-10).** Validates `bid` source authenticity against Bidding Service (`/api/v1/internal/bids/:id/eligibility`) with fail-closed behavior, enforces fail-closed on `recommendation` sources until Matching Service contract is ready, and enforces `assertProductionSafety`. |
+| `apps/order-service/test/order-service.e2e-spec.ts` | Vitest / Supertest E2E Suite | **Order Service Full Lifecycle E2E Test Suite.** Validates health, security guards (`x-user-id`, `x-internal-secret`), Service Request drafts & publishing, Booking Proposal revision & worker acceptance, atomic Order materialization, proof-of-work evidence, finish/rework/complete lifecycle, dispute resolution, and payment eligibility. |
+| `apps/order-service/test/order-messaging.spec.ts` | Vitest Integration Suite | **D3 Messaging & Integration Regression Suite (BE-04, BE-05, BE-06, BE-07, BE-11a, BE-11b).** Verifies RMQ listener configuration, transactional consumer with poison pill rejection, outbox envelope validation against `validateNotificationEvent`, Bidding round finalization, and proposal & order status notification routing without duplicates. |
+| `apps/bidding-service/src/common/outbox/bidding-outbox.repository.ts` | `BiddingOutboxRepository` | **Bidding Service Outbox Repository.** Implements `OutboxRepository` interface to query/update pending events in `bidding_service.outbox_events` table. |
+| `apps/bidding-service/src/common/utils/security.util.ts` | `assertTrustedGateway`<br>`extractWorkerIdentity` | **Trusted Gateway & Worker Role Guard Utilities.** Timing-safe `x-internal-secret` verification and worker role extraction from trusted gateway headers. |
 | `common/constants/auth.constants.ts` | Configuration Constants | Rate limits, lockout durations (`FAILED_LOGIN_LOCKOUT_SECONDS = 900`), and internal header names (`INTERNAL_GATEWAY_HEADER = 'x-internal-secret'`). |
+| `apps/api-gateway/src/proxy/proxy.constants.ts` | `ServiceRouteConfig.pathRewrite` | **Identity-aware upstream path rewriting.** Use for routes whose downstream path must be derived from gateway-verified headers; e.g. identity verification maps `/api/v1/identity/verify` to the authenticated user's AI endpoint. |
 | `otp/otp.service.ts` | `OtpService` | **Cryptographic OTP & SMTP Service:** Generates 6-digit codes, HMAC-SHA256 hashing, timing-safe equality verification. Supports Gmail SMTP (`smtp.gmail.com:465` SSL with App Password) with fail-fast missing credentials check and delivery failure handling. |
 | `otp/otp-flow.service.ts` | `OtpFlowService` | **Atomic OTP Concurrency & Lockout:**<br>- `verifyEmail`: Transaction-level conditional updates (`isUsed = false`, `deliveryStatus = 'delivered'`, not expired, `attempts < 5`) for both failed and valid codes; 5 failed attempts completely locks verification until new challenge requested.<br>- `resendOtp`: Account row-level lock (`SELECT ... FOR UPDATE`), active pending challenge (15s timeout) / cooldown check returning 429 without sending 2nd email; SMTP dispatch outside transaction with timeout; on SMTP failure old delivered code remains valid and immediate resend allowed. |
 
 ---
+
+### 4.3. Notification Service Phase 1
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `NotificationPrismaService` | `apps/notification-service/src/common/notification-prisma.service.ts` | Supabase PostgreSQL pool and lifecycle: prefers `DATABASE_URL_NOTIFICATION`, otherwise uses `DATABASE_URL` with `schema=notification_service`. Inject into repositories; `db.notification.count({ where: { recipientUserId, readAt: null } })`. Queries only the Notification-owned schema. |
+| `resolveNotificationDatabaseUrl` | `apps/notification-service/src/common/notification-database.config.ts` | Shared runtime/migration URL resolution. `resolveNotificationDatabaseUrl(override, sharedUrl)` preserves URL options and adds `notification_service` when no override schema is supplied; replaces any shared-URL schema on fallback. |
+| `NotificationCommonModule` | `apps/notification-service/src/common/notification-common.module.ts` | Shared service configuration, logging, persistence and gateway guard. Import once in `NotificationServiceModule`; no messaging or delivery dependencies. |
+| `TrustedGatewayGuard` | `apps/notification-service/src/common/trusted-gateway.guard.ts` | Timing-safe internal secret validation followed by UUID identity validation; no JWT verification. `@UseGuards(TrustedGatewayGuard)` before reading `@GatewayUserId()`. |
+| `GatewayUserId` | `apps/notification-service/src/common/gateway-user-id.decorator.ts` | Extracts the gateway-injected user ID after `TrustedGatewayGuard` validates the request. Use `@GatewayUserId() userId: string`; Swagger exposes Bearer authentication without asking clients for internal identity headers. |
+| `PersistenceErrorsInterceptor` | `apps/notification-service/src/common/persistence-errors.interceptor.ts` | Sanitizes storage diagnostics before shared logging/responses; maps conflicts to 409, missing rows to 404, unavailable storage to 503. Registered with `APP_INTERCEPTOR`. |
+| `DevicesRepository` | `apps/notification-service/src/devices/devices.repository.ts` | Atomic registration/rotation with user advisory lock, unique token/device constraints and token-free projections. `repository.register(userId, dto)`; `repository.deactivate(userId, id)`. |
+| `NotificationsRepository` | `apps/notification-service/src/notifications/notifications.repository.ts` | Owned keyset queries, unread counts, conditional read updates and bulk read-all. `repository.markAllRead(userId)`. |
+| `encodeNotificationCursor`, `decodeNotificationCursor` | `apps/notification-service/src/notifications/notification-cursor.ts` | Versioned date/UUID cursor bound to user and read filter; database queries always enforce ownership. `decodeNotificationCursor(cursor, userId, false)`. |
+| `PreferencesRepository` | `apps/notification-service/src/preferences/preferences.repository.ts` | Atomic per-user preference upsert and safe channel projection. `repository.update(userId, { pushEnabled: false })`. |
+
+### 4.4. Notification Service Phase 2
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `NOTIFICATION_EVENTS`, `EventDataMap`, `validateNotificationEvent` | `apps/notification-service/src/events/event-contracts.ts` | Provisional typed contracts for 16 events; validates UUIDs, version, source, routing and bounded fan-out, strips unknown fields. `validateNotificationEvent(packet, routingKey)`. |
+| `NotificationRouter` | `apps/notification-service/src/events/notification-router.ts` | Typed recipient/category/entity strategies with no foreign database access. `router.resolve(event)`. |
+| `renderNotificationTemplate` | `apps/notification-service/src/events/notification-templates.ts` | Vietnamese templates and controlled role placeholders, with reviewed transition-specific templates. `renderNotificationTemplate(event.eventType, 'worker', policy.template)`. |
+| `NotificationPolicy` | `apps/notification-service/src/events/notification-policy.ts` | Central reviewed optional/mandatory/disabled policies and transition/template allowlist; provisional simulation restricted to test/development. `policies.resolve(event)`. |
+| `EventProcessorService` | `apps/notification-service/src/events/event-processor.service.ts` | Atomic inbox claim, bounded fan-out and notification persistence; no delivery jobs. `processor.process(validatedEvent)`. |
+| `NotificationsRepository.createInAppBatch` | `apps/notification-service/src/notifications/notifications.repository.ts` | Inserts at most 100 rows per statement in caller's transaction. `repository.createInAppBatch(tx, rows)`. |
+| `PreferencesRepository.findInAppOptOuts` | `apps/notification-service/src/preferences/preferences.repository.ts` | One batched query for optional in-app preferences; absent preferences mean enabled. `repository.findInAppOptOuts(tx, userIds)`. |
+| `assertEventTopology`, `eventTransportOptions` | `apps/notification-service/src/events/event-topology.ts` | Reuses shared topic exchange configuration; dedicated quorum consumer/retry/DLQ queues with bounded prefetch and reliable dead lettering. `await assertEventTopology(channel, options)`. |
+| `EventConsumerService`, `transferEvent` | `apps/notification-service/src/events/event-consumer.service.ts` | Manual acknowledgement after commit or confirmed mandatory retry/DLQ transfer; safe channel-close redelivery and structured diagnostics. Nest lifecycle starts the consumer; `transferEvent(channel, queue, message, headers)`. |
+
+### 4.5. Notification Service Phase 3 (FCM Push Notification)
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `PushModule` | `apps/notification-service/src/push/push.module.ts` | Push notification feature module encapsulating provider, worker, job queue repository, and policy resolver. Import in `NotificationServiceModule`. |
+| `PushProvider`<br>`FirebasePushProvider` | `apps/notification-service/src/push/firebase-push.provider.ts`<br>`apps/notification-service/src/push/push-provider.ts` | **Firebase Admin SDK Push Provider.** Implements FCM HTTP v1 batch messaging (`sendEach`) up to 500 messages, handles credential resolution (`FIREBASE_SA_BASE64` in-memory / `cert` file / `applicationDefault`), fail-fast checks, and graceful shutdown. |
+| `PushJobRepository` | `apps/notification-service/src/push/push-job.repository.ts` | **PostgreSQL Durable Job Queue Repository.** Atomic worker claiming via `SELECT ... FOR UPDATE SKIP LOCKED`, lease timeout abandoned job recovery, exponential backoff with jitter retry scheduling, and atomic transaction-level job creation. `pushJobs.claimPendingJobs(batchSize)`. |
+| `PushWorkerService` | `apps/notification-service/src/push/push-worker.service.ts` | **In-Process Push Worker.** Periodic polling loop (default 3s), batch processing, retries with exponential backoff, and automatic device token deactivation on invalid token responses. Non-overlapping execution with graceful shutdown. |
+| `PushErrorClassifier` | `apps/notification-service/src/push/push-error-classifier.ts` | **FCM Error Classifier.** Classifies FCM error codes into transient/retryable (`messaging/unavailable`, timeouts), permanent token deactivation (`messaging/registration-token-not-registered`), and terminal config errors. Sanitizes and bounds error messages. |
+| `PushPayloadBuilder` | `apps/notification-service/src/push/push-payload.builder.ts` | **FCM Payload Builder.** Whitelists safe business metadata (`notificationId`, `eventType`, `entityId`, etc.), strips FCM reserved keys, converts all data attributes to strings, and truncates body to respect 4096-byte boundary. |
+| `PushPolicyResolver` | `apps/notification-service/src/push/push-policy.resolver.ts` | **Push Eligibility Policy Evaluator.** Safe default-disabled event policy resolver with mandatory vs optional modes, explicit JSON opt-in (`PUSH_EVENT_POLICIES`), and simulated testing support (`PUSH_SIMULATED_POLICIES`). |
+
+### 4.6. Admin Broadcast & User Trust RPC
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `AdminGuard` | `apps/notification-service/src/common/admin.guard.ts` | **Admin Role Guard.** Verifies `x-user-roles` gateway header includes `Role.ADMIN` (case-insensitive). `@UseGuards(AdminGuard)` on administrative routes. |
+| `UserTrustRpcClient` | `apps/notification-service/src/common/rpc/user-trust-rpc.client.ts` | **User & Trust RPC Client.** Fetches active user IDs via RabbitMQ RPC (`user.get-all-active-ids`). `userTrustClient.getAllActiveUserIds(targetGroup)`. |
+| `getAllActiveUserIds` | `apps/user-trust-service/src/user-trust-service.controller.ts`<br>`apps/user-trust-service/src/user-trust-service.service.ts` | **Active User IDs RPC Provider.** Microservice message pattern `user.get-all-active-ids` querying active users filtered by target group (`ALL`, `CUSTOMERS`, `WORKERS`). |
+| `AdminBroadcastNotificationDto`<br>`BroadcastResponseDto` | `apps/notification-service/src/notifications/dto/broadcast-notification.dto.ts` | **Broadcast DTOs.** Validates title, body, category, targetGroup, optional recipientUserIds, and sendPush flag. |
 
 ## 5. Feature Blueprint & Implementation Template
 
