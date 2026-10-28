@@ -67,7 +67,7 @@ export function WorkerJobsScreen() {
       await acceptMutation.mutateAsync(proposalId);
       Alert?.alert?.(
         'Nhận việc thành công!',
-        'Hợp đồng đã được ký kết tức thì (ORD-06). Đơn việc đã được chuyển sang tab Đang thi công.',
+        'Hợp đồng đã được ký kết thành công. Đơn việc đã được chuyển sang tab Đang thi công.',
         [
           {
             text: 'Đến đơn việc',
@@ -189,7 +189,7 @@ export function WorkerJobsScreen() {
                 <View className="mt-4 flex-row gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                   <Button
                     testID="accept-job-btn"
-                    label={acceptMutation.isPending ? 'Đang nhận việc...' : 'Nhận Việc Ngay (ORD-06)'}
+                    label={acceptMutation.isPending ? 'Đang nhận việc...' : 'Nhận Việc Ngay'}
                     variant="default"
                     disabled={acceptMutation.isPending}
                     className="h-10 flex-1 rounded-xl bg-[#F5A524]"
@@ -201,31 +201,10 @@ export function WorkerJobsScreen() {
             ))}
 
             {proposals.length === 0 && (
-              /* Fallback Proposal mẫu để test trên máy 2 khi chưa có request mới */
-              <View className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-                <View className="flex-row items-center justify-between">
-                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                    Sửa đường ống nước bồn rửa chén (Mẫu)
-                  </Text>
-                  <Text className="text-base font-black text-primary">
-                    300.000đ
-                  </Text>
-                </View>
-
-                <Text className="mt-1 text-xs text-neutral-500">
-                  Địa chỉ: 123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Đà Nẵng
+              <View className="items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white py-12 dark:border-neutral-800 dark:bg-neutral-900">
+                <Text className="text-sm font-medium text-neutral-400">
+                  Chưa có lời mời nhận việc nào
                 </Text>
-
-                <View className="mt-4 flex-row gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                  <Button
-                    testID="accept-job-btn"
-                    label="Nhận Việc Ngay"
-                    variant="default"
-                    className="h-10 flex-1 rounded-xl bg-[#F5A524]"
-                    textClassName="text-xs font-bold text-neutral-900"
-                    onPress={() => handleAcceptJob('sample-proposal-id')}
-                  />
-                </View>
               </View>
             )}
 
@@ -308,35 +287,10 @@ export function WorkerJobsScreen() {
             )}
 
             {activeOrders.length === 0 && (
-              /* Đơn việc mẫu cho thợ */
-              <View className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-                <View className="flex-row items-center justify-between">
-                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                    Sửa ống nước bồn rửa (JOB-1020)
-                  </Text>
-                  <View className="rounded-full bg-blue-100 px-2 py-0.5 dark:bg-blue-950/40">
-                    <Text className="text-[10px] font-bold text-blue-800 dark:text-blue-300">
-                      Đang thi công
-                    </Text>
-                  </View>
-                </View>
-
-                <Text className="mt-1 text-xs text-neutral-500">
-                  Mã: #JOB-1020 • Giá: 300.000đ
+              <View className="items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white py-12 dark:border-neutral-800 dark:bg-neutral-900">
+                <Text className="text-sm font-medium text-neutral-400">
+                  Chưa có công việc nào đang thi công
                 </Text>
-
-                <View className="mt-3 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                  <Text className="text-xs text-neutral-400">
-                    123 Nguyễn Lương Bằng, Đà Nẵng
-                  </Text>
-                  <Button
-                    label="Thi công chi tiết →"
-                    variant="default"
-                    className="h-8 rounded-xl bg-primary px-3"
-                    textClassName="text-[11px] font-bold text-white"
-                    onPress={() => router.push(RouteNames.WORKER_JOB_DETAIL('JOB-1020') as any)}
-                  />
-                </View>
               </View>
             )}
           </View>

@@ -7,6 +7,41 @@ import { WorkerJobsScreen } from '../screens/worker-jobs-screen';
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
+const mockMutateAsync = jest.fn();
+
+jest.mock('../../hooks/use-worker-jobs', () => {
+  const actual = jest.requireActual('../../hooks/use-worker-jobs');
+  return {
+    ...actual,
+    useWorkerJobs: () => ({
+      proposals: [
+        {
+          id: 'prop-1',
+          agreedScope: 'Sửa đường ống nước bồn rửa chén (Mẫu)',
+          agreedPrice: 300000,
+          status: 'proposed',
+          serviceRequest: {
+            addressText: '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Đà Nẵng',
+          },
+        },
+      ],
+      activeOrders: [],
+      isLoading: false,
+      isRefetching: false,
+      hasNextProposals: false,
+      hasNextOrders: false,
+      isFetchingNextProposals: false,
+      isFetchingNextOrders: false,
+      fetchNextProposals: jest.fn(),
+      fetchNextOrders: jest.fn(),
+      refetch: jest.fn(),
+    }),
+    useAcceptProposal: () => ({
+      mutateAsync: mockMutateAsync,
+      isPending: false,
+    }),
+  };
+});
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({

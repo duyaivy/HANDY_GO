@@ -57,30 +57,6 @@ const QUOTED_WORKERS: QuotedWorker[] = [
     avatarUrl: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80',
     bidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
   },
-  {
-    id: 'b8e9d0f1-2233-4455-9677-8899aabbccdd',
-    name: 'Phạm Tuấn',
-    rating: 4.8,
-    totalOrders: 562,
-    completionRate: 96,
-    price: 500000,
-    priceText: '500.000đ',
-    distance: '1.0km',
-    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=160&auto=format&fit=crop&q=80',
-    bidId: 'd3ffee88-8b3c-4ef9-9c7e-9ee0ce491d44',
-  },
-  {
-    id: 'c9f0e1a2-3344-4566-a788-99aabbccddee',
-    name: 'Đỗ Gia Huy',
-    rating: 4.8,
-    totalOrders: 562,
-    completionRate: 96,
-    price: 450000,
-    priceText: '450.000đ',
-    distance: '1.2km',
-    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=160&auto=format&fit=crop&q=80',
-    bidId: 'e4aaff99-9c4d-4f0a-8d8f-0ff1df502e55',
-  },
 ];
 
 async function fetchLatestActiveRequestId(): Promise<string | null> {
@@ -473,14 +449,8 @@ export default function CustomerBookingRadarRoute() {
           </Svg>
         </Animated.View>
 
-        {/* Các chấm Thợ xuất hiện trên Radar (Blips tương ứng 3 thợ báo giá) */}
+        {/* Chấm Thợ thật xuất hiện trên Radar (Trần Thanh Huy) */}
         <View pointerEvents="none" className="absolute top-[185px] right-[145px] size-3 items-center justify-center rounded-full bg-blue-500 shadow-sm">
-          <View className="size-1.5 rounded-full bg-white" />
-        </View>
-        <View pointerEvents="none" className="absolute top-[215px] left-[135px] size-3 items-center justify-center rounded-full bg-blue-500 shadow-sm">
-          <View className="size-1.5 rounded-full bg-white" />
-        </View>
-        <View pointerEvents="none" className="absolute right-[115px] bottom-[260px] size-3 items-center justify-center rounded-full bg-amber-500 shadow-sm">
           <View className="size-1.5 rounded-full bg-white" />
         </View>
 
