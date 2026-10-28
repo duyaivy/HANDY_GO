@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { CustomerBookingScreen } from '../screens/customer-booking-screen';
 import { CustomerOrderCancelDialog } from '../screens/customer-order-cancel-dialog';
 import { CustomerOrderDetailScreen } from '../screens/customer-order-detail-screen';
 import { CustomerOrdersScreen } from '../screens/customer-orders-screen';
-import { useAuthStore } from '@/stores/use-auth-store';
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();

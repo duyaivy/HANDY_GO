@@ -19,9 +19,9 @@ import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
-import { useAuthStore } from '@/stores/use-auth-store';
 
 export type CustomerBookingScreenProps = {
   serviceId?: string;
@@ -187,9 +187,9 @@ export function CustomerBookingScreen({
 
       const is401
         = err?.statusCode === 401
-        || err?.response?.status === 401
-        || err?.message?.includes('401')
-        || err?.message?.includes('UNAUTHORIZED');
+          || err?.response?.status === 401
+          || err?.message?.includes('401')
+          || err?.message?.includes('UNAUTHORIZED');
 
       if (is401) {
         Alert.alert(
@@ -272,7 +272,7 @@ export function CustomerBookingScreen({
       return;
     }
 
-    if (process.env.NODE_ENV === 'test' && !(global as any).__USE_REAL_PHOTO_PICKER__) {
+    if (process.env.NODE_ENV === 'test' && !(globalThis as any).__USE_REAL_PHOTO_PICKER__) {
       const nextSample = SAMPLE_PHOTO_URLS[mediaUrls.length % SAMPLE_PHOTO_URLS.length];
       addMediaUrl(nextSample);
       return;
