@@ -1,5 +1,7 @@
 export interface ServiceRequestPublishedEventData {
-  serviceRequestId: string;
+  serviceRequestId?: string;
+  requestId?: string;
+  id?: string;
   requestCode: string;
   customerUserId: string;
   serviceId: string;
@@ -8,11 +10,13 @@ export interface ServiceRequestPublishedEventData {
   addressText?: string;
   latitude: number;
   longitude: number;
-  matchingRevision: number;
+  matchingRevision?: number;
 }
 
 export interface ServiceRequestInputsChangedEventData {
-  serviceRequestId: string;
+  serviceRequestId?: string;
+  requestId?: string;
+  id?: string;
   customerUserId: string;
   matchingRevision: number;
   serviceId: string;
@@ -23,13 +27,17 @@ export interface ServiceRequestInputsChangedEventData {
 }
 
 export interface ServiceRequestCancelledEventData {
-  serviceRequestId: string;
+  serviceRequestId?: string;
+  requestId?: string;
+  id?: string;
   reason?: string;
   cancelledAt: string;
 }
 
 export interface ServiceRequestConvertedToOrderEventData {
-  serviceRequestId: string;
+  serviceRequestId?: string;
+  requestId?: string;
+  id?: string;
   orderId: string;
   convertedAt: string;
 }

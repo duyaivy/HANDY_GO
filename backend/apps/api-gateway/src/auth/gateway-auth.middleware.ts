@@ -96,6 +96,13 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     req.headers['x-user-roles'] = (payload.roles ?? []).join(',');
     req.headers['x-user-permissions'] = (payload.permissions ?? []).join(',');
 
+    (req as any).user = {
+      userId: payload.userId,
+      accountId: payload.sub,
+      roles: payload.roles ?? [],
+      permissions: payload.permissions ?? [],
+    };
+
     // 6. Inject internal gateway secret
     this.injectGatewayHeaders(req);
 

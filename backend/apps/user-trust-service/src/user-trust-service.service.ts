@@ -32,6 +32,24 @@ export interface UserRegisteredData {
   role?: RegisterRole;
 }
 
+export interface WorkerCandidateDto {
+  workerUserId: string;
+  workerProfileId: string;
+  offeringTitle: string;
+  offeringDescription: string;
+  experienceYears: number;
+  centerLatitude: number;
+  centerLongitude: number;
+  radiusKm: number;
+  distanceKm: number;
+  averageRating: number;
+  ratingCount: number;
+  completedOrderCount: number;
+  userStatus?: string;
+  workerProfileStatus?: string;
+  hasApprovedKyc?: boolean;
+}
+
 @Injectable()
 export class UserTrustServiceService {
   private readonly logger = new Logger(UserTrustServiceService.name);

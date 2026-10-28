@@ -51,22 +51,30 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestPublishedEventData = event?.data || event;
+    const data: ServiceRequestPublishedEventData = event?.data || event?.payload || event;
 
     try {
+      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.published (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
       // 1. Transactional Inbox Idempotency Check
       if (eventId) {
         const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
         if (isDuplicate) {
           this.logger.warn(
-            `Duplicate event ${eventId} ignored for service_request.published (${data?.serviceRequestId})`,
+            `Duplicate event ${eventId} ignored for service_request.published (${reqId})`,
           );
           this.ack(context);
           return { status: 'duplicate', eventId };
         }
       }
 
-      const reqId = data.serviceRequestId || (data as any).id;
       this.logger.log(
         `Consuming service_request.published for request ${reqId} (rev ${data.matchingRevision || 1})`,
       );
@@ -128,9 +136,18 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestInputsChangedEventData = event?.data || event;
+    const data: ServiceRequestInputsChangedEventData = event?.data || event?.payload || event;
 
     try {
+      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.matching_inputs_changed (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
       if (eventId) {
         const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
         if (isDuplicate) {
@@ -139,7 +156,6 @@ export class MatchingEventConsumer {
         }
       }
 
-      const reqId = data.serviceRequestId || (data as any).id;
       this.logger.log(
         `Consuming service_request.matching_inputs_changed for request ${reqId} (rev ${data.matchingRevision})`,
       );
@@ -195,9 +211,18 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestCancelledEventData = event?.data || event;
+    const data: ServiceRequestCancelledEventData = event?.data || event?.payload || event;
 
     try {
+      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.cancelled (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
       if (eventId) {
         const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
         if (isDuplicate) {
@@ -206,7 +231,6 @@ export class MatchingEventConsumer {
         }
       }
 
-      const reqId = data.serviceRequestId || (data as any).id;
       this.logger.log(
         `Consuming service_request.cancelled for request ${reqId}`,
       );
@@ -242,9 +266,18 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestConvertedToOrderEventData = event?.data || event;
+    const data: ServiceRequestConvertedToOrderEventData = event?.data || event?.payload || event;
 
     try {
+      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.converted_to_order (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
       if (eventId) {
         const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
         if (isDuplicate) {
@@ -253,7 +286,6 @@ export class MatchingEventConsumer {
         }
       }
 
-      const reqId = data.serviceRequestId || (data as any).id;
       this.logger.log(
         `Consuming service_request.converted_to_order for request ${reqId}`,
       );

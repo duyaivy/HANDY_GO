@@ -1,15 +1,12 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Logger,
   Param,
   Patch,
-  Query,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -19,7 +16,6 @@ import {
   CurrentUser,
   JwtAuthGuard,
   PermissionsGuard,
-  Public,
   Public,
   RequirePermissions,
   StandardPermissions,
@@ -33,7 +29,6 @@ import {
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
 import { ConfigService } from '@app/config';
-import crypto from 'node:crypto';
 
 @ApiTags('User & Trust')
 @Controller()
