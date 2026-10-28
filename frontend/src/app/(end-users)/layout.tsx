@@ -5,10 +5,5 @@ export default function managerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <main>
-      <h2>HandyGo users public</h2>
-      {children}
-    </main>
-  );
+  return <main>{children}</main>;
 }
