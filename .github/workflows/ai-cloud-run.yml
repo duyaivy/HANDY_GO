@@ -3,7 +3,7 @@ name: AI Service Cloud Run CD
 on:
   push:
     branches:
-      - main
+      - release
     paths:
       - 'ai/**'
       - '.github/workflows/ai-cloud-run.yml'
