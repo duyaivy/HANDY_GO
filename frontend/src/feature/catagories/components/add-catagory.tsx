@@ -1,77 +1,102 @@
-import React, { useState, useRef } from 'react';
-import { X, ArrowUp, ImageIcon, ChevronDown } from 'lucide-react';
+"use client";
+
+import React, { useState, useRef } from "react";
+import { X, ArrowUp, ImageIcon, ChevronDown } from "lucide-react";
+import { useCreateCategory } from "../hooks/use-categories";
+import { useUploadImage } from "@/feature/uploads/hooks/use-upload";
+import { HttpError } from "@/shared/api/http";
 
 export interface AddCatalogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddCatalog?: (categoryData: {
-    name: string;
-    description: string;
-    status: 'Active' | 'Disabled';
-    imageUrl: string;
-  }) => void;
 }
 
 export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
   isOpen,
   onClose,
-  onAddCatalog,
 }) => {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<'Active' | 'Disabled'>('Active');
-  const [previewImage, setPreviewImage] = useState<string>('');
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<"Active" | "Disabled">("Active");
+  const [previewImage, setPreviewImage] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const createCategory = useCreateCategory();
+  const uploadImage = useUploadImage();
 
   if (!isOpen) return null;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setErrorMessage("Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP!");
+      e.target.value = "";
+      return;
     }
+
+    setErrorMessage("");
+    setSelectedFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => setPreviewImage(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || createCategory.isPending || uploadImage.isPending)
+      return;
 
-    onAddCatalog?.({
-      name: name.trim(),
-      description: description.trim(),
-      status,
-      imageUrl:
-        previewImage ||
-        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=120&auto=format&fit=crop&q=80',
-    });
+    setErrorMessage("");
+    try {
+      let imageUrl: string | null = null;
+      if (selectedFile) {
+        const uploadResponse = await uploadImage.mutateAsync(selectedFile);
+        imageUrl = uploadResponse.payload.data.url;
+        if (!imageUrl) throw new Error("Không nhận được URL ảnh từ Backend");
+      }
 
-    // Reset form
-    setName('');
-    setDescription('');
-    setStatus('Active');
-    setPreviewImage('');
-    onClose();
+      await createCategory.mutateAsync({
+        name: name.trim(),
+        description: description.trim(),
+        imageUrl,
+        parentId: null,
+        isActive: status === "Active",
+      });
+
+      setName("");
+      setDescription("");
+      setStatus("Active");
+      setPreviewImage("");
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      onClose();
+    } catch (error) {
+      console.error("Lỗi thêm danh mục:", error);
+      setErrorMessage(
+        error instanceof HttpError
+          ? error.payload.message ||
+              "Không thể thêm danh mục. Vui lòng thử lại."
+          : error instanceof Error
+            ? error.message
+            : "Thêm danh mục thất bại. Vui lòng thử lại.",
+      );
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-200">
-      {/* Lớp phủ mờ nền đen */}
       <div
         className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity"
         onClick={onClose}
       />
 
-      {/* KHUNG MODAL POPUP THÊM DANH MỤC CHUẨN 100% THEO HÌNH MẪU */}
       <div className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-7 shadow-2xl border border-slate-150 z-10 my-auto animate-in zoom-in-95 duration-200">
-        {/* HEADER: Tiêu đề + Nút X */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">
-            Thêm danh mục
-          </h2>
+          <h2 className="text-lg font-bold text-slate-900">Thêm danh mục</h2>
           <button
             type="button"
             onClick={onClose}
@@ -81,16 +106,12 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
           </button>
         </div>
 
-        {/* FORM NHẬP LIỆU */}
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {/* PHẦN 1: HÌNH ẢNH (2 KHỐI VUÔNG: IMAGE & UPLOAD) */}
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-2">
               Hình ảnh
             </label>
-
             <div className="flex items-center gap-3">
-              {/* Box 1: Xem trước ảnh (IMAGE) */}
               <div className="w-24 h-24 rounded-2xl border border-slate-200 bg-slate-50/70 flex flex-col items-center justify-center gap-1.5 overflow-hidden shrink-0 shadow-2xs">
                 {previewImage ? (
                   <img
@@ -107,8 +128,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
                   </>
                 )}
               </div>
-
-              {/* Box 2: Nút Upload viền nét đứt cam */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -121,8 +140,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
                   Upload
                 </span>
               </button>
-
-              {/* Input file ẩn */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -133,7 +150,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             </div>
           </div>
 
-          {/* PHẦN 2: TÊN DANH MỤC * */}
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-1.5">
               Tên danh mục <span className="text-rose-500">*</span>
@@ -148,7 +164,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             />
           </div>
 
-          {/* PHẦN 3: MÔ TẢ */}
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-1.5">
               Mô tả
@@ -162,7 +177,6 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             />
           </div>
 
-          {/* PHẦN 4: TRẠNG THÁI */}
           <div>
             <label className="text-xs font-bold text-slate-700 block mb-1.5">
               Trạng thái
@@ -170,7 +184,9 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             <div className="relative">
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as 'Active' | 'Disabled')}
+                onChange={(e) =>
+                  setStatus(e.target.value as "Active" | "Disabled")
+                }
                 className="w-full appearance-none px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-800 focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-500/15 cursor-pointer shadow-2xs bg-white"
               >
                 <option value="Active">● Active</option>
@@ -180,9 +196,16 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             </div>
           </div>
 
-          {/* FOOTER: NÚT HỦY & NÚT THÊM DANH MỤC */}
+          {errorMessage && (
+            <p
+              role="alert"
+              className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600"
+            >
+              {errorMessage}
+            </p>
+          )}
+
           <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-            {/* Nút Hủy */}
             <button
               type="button"
               onClick={onClose}
@@ -190,13 +213,12 @@ export const AddCatalogModal: React.FC<AddCatalogModalProps> = ({
             >
               Hủy
             </button>
-
-            {/* Nút Thêm danh mục màu cam */}
             <button
               type="submit"
-              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer"
+              disabled={createCategory.isPending || uploadImage.isPending}
+              className="px-6 py-2.5 rounded-xl bg-[#FF5E14] hover:bg-[#e6520f] active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-orange-500/20 transition-all cursor-pointer disabled:opacity-50"
             >
-              Thêm danh mục
+              Thêm
             </button>
           </div>
         </form>

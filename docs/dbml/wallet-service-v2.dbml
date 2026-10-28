@@ -1,0 +1,189 @@
+// ========================================================
+// Wallet Service Database Schema (v2)
+// ========================================================
+// HandyGo Wallet Service v2 - PostgreSQL | 1 POINT = 1 VND (integer).
+// This service is the ONLY owner of balances, holds, and posted Point ledger.
+// External UUIDs (Payment/User & Trust) are logical references, not SQL foreign keys.
+// Amounts use BIGINT integral Point units. NestJS/Prisma: serialize JS bigint as string.
+// Migrations must implement the CHECK constraints documented at the end.
+
+Project handygo_wallet_service {
+  database_type: 'PostgreSQL'
+  Note: 'Wallet owns point balances, holds, immutable ledger, Point transfers and withdrawals. Never let Payment update a wallet row directly.'
+}
+
+Enum wallet_account_type {
+  user
+  system
+}
+
+Enum wallet_transaction_type {
+  deposit           // Verified bank topup credited into customer wallet
+  payment           // Customer debit for an Order
+  earning           // Worker credit from Point payment
+  platform_fee      // Worker debit or system credit for commission
+  refund            // Customer credit or recovery debit when refunding
+  withdrawal        // Final debit after payout success
+  adjustment        // Authorized admin credit/debit with reason
+  transfer          // Other approved internal wallet transfer
+}
+
+Enum wallet_transfer_status {
+  completed
+  failed
+}
+
+Enum wallet_hold_status {
+  active
+  captured
+  released
+}
+
+Enum withdrawal_status {
+  pending
+  processing
+  completed
+  failed
+  cancelled
+}
+
+Table wallets {
+  id uuid [pk]
+  account_type wallet_account_type [not null, default: 'user']
+  user_id uuid [unique, note: 'Logical reference -> User & Trust.users.id; only for user wallets']
+  system_code varchar(40) [unique, note: 'Only for system wallet, e.g. PLATFORM_FEES']
+  balance bigint [not null, default: 0, note: 'Total posted Point balance, including reserved']
+  reserved_balance bigint [not null, default: 0, note: 'Amount held for pending withdrawal; available = balance - reserved']
+  currency varchar(10) [not null, default: 'POINT']
+  is_active boolean [not null, default: true]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (account_type, is_active)
+  }
+}
+
+// Immutable POSTED balance movements only. Pending and failed operations live in
+// withdrawal/hold/transfer/payment command records, NOT in this ledger.
+Table wallet_transactions {
+  id uuid [pk]
+  wallet_id uuid [not null]
+  transfer_id uuid [note: 'Group id for a multi-wallet atomic transfer']
+  transaction_type wallet_transaction_type [not null]
+  signed_amount bigint [not null, note: 'Positive=credit; negative=debit; must not be 0']
+  balance_before bigint [not null]
+  balance_after bigint [not null]
+  source_type varchar(40) [not null, note: 'topup / payment / refund / withdrawal / adjustment']
+  source_id uuid [not null, note: 'Logical reference to originating domain aggregate']
+  idempotency_key varchar(150) [not null, unique]
+  actor_user_id uuid [note: 'Admin or initiating user when applicable; logical reference']
+  description text
+  created_at timestamptz [not null]
+
+  indexes {
+    (wallet_id, created_at)
+    (source_type, source_id)
+    (transfer_id)
+  }
+}
+
+// Audit and group a single atomic operation. Example: 400000 customer debit,
+// 380000 worker credit, 20000 system fee credit in ONE PostgreSQL transaction.
+Table wallet_transfers {
+  id uuid [pk]
+  source_type varchar(40) [not null, note: 'payment / cash_commission / refund / internal_transfer']
+  source_id uuid [not null]
+  idempotency_key varchar(150) [not null, unique]
+  status wallet_transfer_status [not null, default: 'completed']
+  total_debit bigint [not null, note: 'Positive aggregate debit amount in POINT']
+  total_credit bigint [not null, note: 'Positive aggregate credit amount; must equal debit']
+  description text
+  created_at timestamptz [not null]
+
+  indexes {
+    (source_type, source_id)
+  }
+}
+
+// Holds reserve spendable Point but do NOT decrease total balance.
+Table wallet_holds {
+  id uuid [pk]
+  wallet_id uuid [not null]
+  withdrawal_id uuid [not null, unique]
+  amount bigint [not null]
+  status wallet_hold_status [not null, default: 'active']
+  created_at timestamptz [not null]
+  closed_at timestamptz
+}
+
+// Cross-service bank account is a logical reference to User & Trust.
+// Only success from Payment payout causes an actual withdrawal ledger debit.
+Table withdrawals {
+  id uuid [pk]
+  wallet_id uuid [not null]
+  user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  bank_account_id uuid [not null, note: 'Logical reference -> User & Trust.user_bank_accounts.id']
+  amount bigint [not null, note: 'Number of Point to withdraw; 1 POINT = 1 VND']
+  status withdrawal_status [not null, default: 'pending']
+  idempotency_key varchar(150) [not null, unique]
+  payment_payout_id uuid [unique, note: 'Logical reference -> Payment Service.payouts.id']
+  failure_reason text
+  cancel_reason text
+  note text
+  created_at timestamptz [not null]
+  processing_at timestamptz
+  completed_at timestamptz
+  updated_at timestamptz [not null]
+
+  indexes {
+    (wallet_id, created_at)
+    (user_id, status, created_at)
+  }
+}
+
+// Transactional outbox: write event in the SAME DB transaction as state change.
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(60) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(120) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+// Deduplicate inbound RabbitMQ events by global event_id.
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(120) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: wallets.id < wallet_transactions.wallet_id
+Ref: wallets.id < wallet_holds.wallet_id
+Ref: wallets.id < withdrawals.wallet_id
+Ref: wallet_transfers.id < wallet_transactions.transfer_id
+Ref: withdrawals.id - wallet_holds.withdrawal_id
+
+// REQUIRED MIGRATION / SERVICE GUARDS:
+// 1. wallets: CHECK(balance >= 0 AND reserved_balance >= 0 AND reserved_balance <= balance).
+// 2. wallets: CHECK((account_type='user' AND user_id IS NOT NULL AND system_code IS NULL)
+//             OR (account_type='system' AND user_id IS NULL AND system_code IS NOT NULL)).
+// 3. wallet_transactions: CHECK(signed_amount <> 0 AND balance_before >= 0 AND
+//    balance_after >= 0 AND balance_after = balance_before + signed_amount).
+// 4. wallet_transfers: CHECK(total_debit > 0 AND total_debit=total_credit).
+//    For all wallet_transfer ledger rows: SUM(signed_amount) = 0; implement transactionally.
+// 5. withdrawal/hold: CHECK(amount > 0); unique withdrawal_id hold; reserve once.
+// 6. Lock all touched wallets in deterministic wallet_id order (SELECT FOR UPDATE).
+// 7. Successful payout: atomically decrease reserved_balance AND balance, post withdrawal debit,
+//    set hold=captured and withdrawal=completed. Failed/cancelled: release hold, no debit.
+// 8. Never cancel a payout already processing without provider-confirmed cancellation.
+// 9. Ledger rows are immutable; corrections must append compensating entries.
+// 10. Wallet created on user.created via idempotent consumer; auto-create system fee wallet via seed.
+// 11. RPC endpoints are INTERNAL and authenticated (service identity), never trust caller-provided wallet_id.

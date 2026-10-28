@@ -52,9 +52,6 @@ export function AppSwitchCard({
             <Text className="text-[14px] font-bold text-white">
               Chuyển sang App Thợ
             </Text>
-            <Text className="text-xs text-blue-200">
-              Switch to Worker App
-            </Text>
             <Text className="mt-0.5 text-[12px] text-blue-100">
               Tìm và quản lý công việc
             </Text>

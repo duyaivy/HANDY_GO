@@ -149,15 +149,26 @@ services:
 
   order-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/order-service/prisma/schema.prisma && exec node --enable-source-maps /app/dist/apps/order-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: order-service
       PORT: '3004'
+      ORDER_ENABLE_MOCK_VERIFIER: ${ORDER_ENABLE_MOCK_VERIFIER:-true}
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
     ports:
       - '3004:3004'
 
   bidding-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts && exec node --enable-source-maps /app/dist/apps/bidding-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: bidding-service
