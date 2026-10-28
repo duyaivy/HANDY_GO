@@ -31,10 +31,10 @@ jobs:
       run:
         working-directory: ai
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud via WIF
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
@@ -43,7 +43,8 @@ jobs:
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Cloud Run
+      - name: Deploy to Google Cloud Run
+        id: deploy
         run: |
           gcloud run deploy handygo-ai \
             --source . \
@@ -55,4 +56,30 @@ jobs:
             --min-instances 0 \
             --max-instances 2 \
             --allow-unauthenticated \
-            --set-env-vars "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }}"
+            --set-env-vars "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }},DEBUG=false"
+
+      - name: Verify Deployment & Post-Deploy Health Check
+        run: |
+          # 1. Lấy URL chính thức từ Google Cloud Run
+          SERVICE_URL=$(gcloud run services describe handygo-ai --region asia-southeast1 --format 'value(status.url)')
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+          # 2. In báo cáo tổng kết ra GitHub Step Summary
+          echo "## 🚀 AI Service Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "| Thuộc tính | Giá trị |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service Name** | \`handygo-ai\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | \`asia-southeast1\` (Singapore) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Service URL** | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Swagger Docs** | [$SERVICE_URL/docs]($SERVICE_URL/docs) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Health Endpoint** | [$SERVICE_URL/health]($SERVICE_URL/health) |" >> $GITHUB_STEP_SUMMARY
+
+          # 3. Chạy Smoke Test kiểm tra endpoint /health
+          echo "===> Đang kiểm tra sức khỏe endpoint /health..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health")
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ Health check PASSED (HTTP 200)"
+          else
+            echo "::error::Health check FAILED với mã lỗi HTTP: $HTTP_STATUS"
+            exit 1
+          fi
