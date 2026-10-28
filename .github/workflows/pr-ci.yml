@@ -21,6 +21,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       mobile: ${{ steps.filter.outputs.mobile }}
+      ai: ${{ steps.filter.outputs.ai }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -38,6 +39,9 @@ jobs:
               - 'frontend/**'
             mobile:
               - 'mobile/**'
+            ai:
+              - 'ai/**'
+              - '.github/workflows/ai-*.yml'
 
   backend-ci:
     name: Backend CI
@@ -165,6 +169,37 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm run test --runInBand --watchAll=false
 
+  ai-ci:
+    name: AI Service CI
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.ai == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Syntax and bytecode compilation
+        run: python -m compileall app tests
+
+      - name: Run unit tests
+        run: pytest tests -v
+
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
@@ -174,6 +209,7 @@ jobs:
       - backend-ci
       - frontend-ci
       - mobile-ci
+      - ai-ci
     steps:
       - name: Evaluate PR CI Gate Status
         env:
@@ -184,6 +220,8 @@ jobs:
           FRONTEND_RESULT: ${{ needs.frontend-ci.result }}
           MOBILE_CHANGED: ${{ needs.detect-changes.outputs.mobile }}
           MOBILE_RESULT: ${{ needs.mobile-ci.result }}
+          AI_CHANGED: ${{ needs.detect-changes.outputs.ai }}
+          AI_RESULT: ${{ needs.ai-ci.result }}
         run: |
           echo "=========================================="
           echo "       PR CI GATE EVALUATION REPORT       "
@@ -195,6 +233,8 @@ jobs:
           echo "Frontend Result        : $FRONTEND_RESULT"
           echo "Mobile Changed         : $MOBILE_CHANGED"
           echo "Mobile Result          : $MOBILE_RESULT"
+          echo "AI Changed             : $AI_CHANGED"
+          echo "AI Result              : $AI_RESULT"
           echo "=========================================="
 
           GATE_PASSED=true
@@ -221,6 +261,13 @@ jobs:
           if [ "$MOBILE_CHANGED" = "true" ]; then
             if [ "$MOBILE_RESULT" != "success" ]; then
               echo "::error::Mobile changed but Mobile CI result is '$MOBILE_RESULT' (expected 'success')."
+              GATE_PASSED=false
+            fi
+          fi
+
+          if [ "$AI_CHANGED" = "true" ]; then
+            if [ "$AI_RESULT" != "success" ]; then
+              echo "::error::AI changed but AI CI result is '$AI_RESULT' (expected 'success')."
               GATE_PASSED=false
             fi
           fi

@@ -1,0 +1,58 @@
+name: AI Service Cloud Run CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ai/**'
+      - '.github/workflows/ai-cloud-run.yml'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deploy to Google Cloud Run'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ai-cloud-run-cd
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build & Deploy to Google Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy handygo-ai \
+            --source . \
+            --region asia-southeast1 \
+            --platform managed \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 180s \
+            --min-instances 0 \
+            --max-instances 2 \
+            --allow-unauthenticated \
+            --set-env-vars "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }}"
