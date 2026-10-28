@@ -8,7 +8,25 @@ import { CANDIDATE_PROVIDER } from '../src/candidates/candidate.provider.interfa
 import { UserTrustPrismaService, MatchingPrismaService } from '@app/database';
 import { UserTrustServiceService } from '../../user-trust-service/src/user-trust-service.service.js';
 
-describe('Manual Supabase Cloud Matching Flow Verification', () => {
+const isDatabaseAvailable = await (async () => {
+  if (process.env.CI) {
+    return false;
+  }
+  if (!process.env.DATABASE_URL_MATCHING && !process.env.DATABASE_URL) {
+    return false;
+  }
+  try {
+    const testClient = new MatchingPrismaService();
+    await testClient.$connect();
+    await testClient.$queryRaw`SELECT 1`;
+    await testClient.$disconnect();
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+describe.skipIf(!isDatabaseAvailable)('Manual Supabase Cloud Matching Flow Verification', () => {
   let moduleRef: TestingModule;
   let orchestrator: MatchingOrchestratorService;
   let matchRunRepo: MatchRunRepository;
@@ -48,9 +66,9 @@ describe('Manual Supabase Cloud Matching Flow Verification', () => {
   });
 
   afterAll(async () => {
-    await moduleRef.close();
-    await matchingPrisma.$disconnect();
-    await userTrustPrisma.$disconnect();
+    if (moduleRef) await moduleRef.close();
+    if (matchingPrisma) await matchingPrisma.$disconnect();
+    if (userTrustPrisma) await userTrustPrisma.$disconnect();
   });
 
   it('1. should query candidate discovery from Supabase and filter out ineligible workers', async () => {
