@@ -116,6 +116,7 @@ model WorkerProfile {
   user                User                    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   serviceOfferings    WorkerServiceOffering[]
   kycCases            KycCase[]
+  serviceAreas        WorkerServiceArea[]
 
   @@map("worker_profiles")
 }
@@ -314,5 +315,21 @@ model OutboxEvent {
 
   @@index([status, nextRetryAt])
   @@map("outbox_events")
+}
+
+model WorkerServiceArea {
+  id              String        @id @default(uuid()) @db.Uuid
+  workerProfileId String        @map("worker_profile_id") @db.Uuid
+  latitude        Decimal       @db.Decimal(9, 6)
+  longitude       Decimal       @db.Decimal(9, 6)
+  radiusKm        Decimal       @map("radius_km") @db.Decimal(6, 2)
+  isActive        Boolean       @default(true) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  workerProfile   WorkerProfile @relation(fields: [workerProfileId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([workerProfileId, isActive])
+  @@index([latitude, longitude])
+  @@map("worker_service_areas")
 }
 

@@ -87,7 +87,9 @@ export class BidsService {
     // Check expiration and transition if needed
     if (round.status === 'open' && now >= round.closesAt) {
       await this.roundsService.expireRoundIfNeeded(round, now);
-      throw new BadRequestException('Phiên báo giá cho yêu cầu này đã kết thúc');
+      throw new BadRequestException(
+        'Phiên báo giá cho yêu cầu này đã kết thúc',
+      );
     }
 
     // N01: If pending and opensAt <= now, activate on the fly
@@ -343,7 +345,9 @@ export class BidsService {
     // Check round expiration
     if (round.status === 'open' && now >= round.closesAt) {
       await this.roundsService.expireRoundIfNeeded(round, now);
-      throw new BadRequestException('Phiên báo giá đã kết thúc, không thể điều chỉnh');
+      throw new BadRequestException(
+        'Phiên báo giá đã kết thúc, không thể điều chỉnh',
+      );
     }
 
     if (round.status !== 'open') {
@@ -378,9 +382,7 @@ export class BidsService {
     // Anti-Abuse: Giới hạn thời gian giãn cách giữa 2 lần sửa liên tiếp (tối thiểu 2 phút)
     if (MIN_REVISION_INTERVAL_MS > 0 && bid.revisions.length > 0) {
       const lastRevisionTime = new Date(
-        Math.max(
-          ...bid.revisions.map((r) => new Date(r.revisedAt).getTime()),
-        ),
+        Math.max(...bid.revisions.map((r) => new Date(r.revisedAt).getTime())),
       );
       const elapsedMs = now.getTime() - lastRevisionTime.getTime();
       if (elapsedMs < MIN_REVISION_INTERVAL_MS) {
@@ -393,7 +395,8 @@ export class BidsService {
       }
     }
 
-    const newAmount = dto.amount !== undefined ? dto.amount : Number(bid.amount);
+    const newAmount =
+      dto.amount !== undefined ? dto.amount : Number(bid.amount);
     const newMessage = dto.message !== undefined ? dto.message : bid.message;
     const newValidUntil = dto.validUntil
       ? new Date(dto.validUntil)
@@ -571,11 +574,7 @@ export class BidsService {
         revisionsList = [...(bid.revisions || []), createdRevision];
       }
 
-      return this.mapToBidResponse(
-        updatedBid,
-        revisionNo,
-        revisionsList,
-      );
+      return this.mapToBidResponse(updatedBid, revisionNo, revisionsList);
     });
   }
 
@@ -717,7 +716,10 @@ export class BidsService {
         },
       });
 
-      return this.mapToBidResponse(updatedBid, updatedBid.revisions?.length || 0);
+      return this.mapToBidResponse(
+        updatedBid,
+        updatedBid.revisions?.length || 0,
+      );
     });
   }
 
@@ -743,9 +745,10 @@ export class BidsService {
 
     // Only trust identity headers if request passes internal secret check (R01 / F03)
     const isGatewayTrusted = isTrustedGateway(internalSecret, expectedSecret);
-    const roles = isGatewayTrusted && userRoles
-      ? userRoles.split(',').map((r) => r.trim().toLowerCase())
-      : [];
+    const roles =
+      isGatewayTrusted && userRoles
+        ? userRoles.split(',').map((r) => r.trim().toLowerCase())
+        : [];
     const verifiedUserId = isGatewayTrusted ? currentUserId : undefined;
 
     const isAdminOrOperator =
@@ -760,7 +763,7 @@ export class BidsService {
 
     const skip = (query.page - 1) * query.limit;
 
-    const [total, bids, round] = await Promise.all([
+    const [total, bids, round, allBidders] = await Promise.all([
       this.prisma.bid.count({ where }),
       this.prisma.bid.findMany({
         where,
@@ -777,13 +780,18 @@ export class BidsService {
         where: { serviceRequestId },
         select: { customerId: true },
       }),
+      this.prisma.bid.findMany({
+        where: { serviceRequestId },
+        select: { workerId: true },
+        distinct: ['workerId'],
+      }),
     ]);
 
     const isRequestOwnerCustomer = Boolean(
       round?.customerId &&
-        verifiedUserId &&
-        round.customerId === verifiedUserId &&
-        roles.includes('customer'),
+      verifiedUserId &&
+      round.customerId === verifiedUserId &&
+      roles.includes('customer'),
     );
 
     const workerIds = Array.from(new Set(bids.map((b) => b.workerId)));
@@ -794,8 +802,8 @@ export class BidsService {
     const items = bids.map((b) => {
       const isOwnerWorker = Boolean(
         verifiedUserId &&
-          b.workerId === verifiedUserId &&
-          roles.includes('worker'),
+        b.workerId === verifiedUserId &&
+        roles.includes('worker'),
       );
 
       // Sealed-bid: Only verified request customer owner, worker who owns this specific bid, or admin/operator sees real price
@@ -810,7 +818,8 @@ export class BidsService {
           serviceRequestId: b.serviceRequestId,
           workerId: b.workerId,
           amount: 0,
-          message: '[Báo giá kín - Chỉ khách hàng sở hữu yêu cầu mới có quyền xem]',
+          message:
+            '[Báo giá kín - Chỉ khách hàng sở hữu yêu cầu mới có quyền xem]',
           validUntil: null,
           status: b.status,
           version: b.version,
@@ -837,6 +846,7 @@ export class BidsService {
       total,
       page: query.page,
       limit: query.limit,
+      allBidderWorkerIds: allBidders.map((b) => b.workerId),
     };
   }
 
@@ -874,23 +884,24 @@ export class BidsService {
       (process.env.NODE_ENV === 'test' ? 'test-internal-secret' : undefined);
 
     const isGatewayTrusted = isTrustedGateway(internalSecret, expectedSecret);
-    const roles = isGatewayTrusted && userRoles
-      ? userRoles.split(',').map((r) => r.trim().toLowerCase())
-      : [];
+    const roles =
+      isGatewayTrusted && userRoles
+        ? userRoles.split(',').map((r) => r.trim().toLowerCase())
+        : [];
     const verifiedUserId = isGatewayTrusted ? currentUserId : undefined;
 
     const isAdminOrOperator =
       roles.includes('admin') || roles.includes('operator');
     const isRequestOwnerCustomer = Boolean(
       bid.biddingRound?.customerId &&
-        verifiedUserId &&
-        bid.biddingRound.customerId === verifiedUserId &&
-        roles.includes('customer'),
+      verifiedUserId &&
+      bid.biddingRound.customerId === verifiedUserId &&
+      roles.includes('customer'),
     );
     const isOwnerWorker = Boolean(
       verifiedUserId &&
-        bid.workerId === verifiedUserId &&
-        roles.includes('worker'),
+      bid.workerId === verifiedUserId &&
+      roles.includes('worker'),
     );
 
     const canSeeRealPrice =
@@ -904,7 +915,8 @@ export class BidsService {
         serviceRequestId: bid.serviceRequestId,
         workerId: bid.workerId,
         amount: 0,
-        message: '[Báo giá kín - Bạn không có quyền xem chi tiết giá của đối thủ]',
+        message:
+          '[Báo giá kín - Bạn không có quyền xem chi tiết giá của đối thủ]',
         validUntil: null,
         status: bid.status,
         version: bid.version,
@@ -918,7 +930,9 @@ export class BidsService {
 
     let workerProfile: WorkerProfileSummaryDto | null = null;
     if (this.enricher) {
-      const profileMap = await this.enricher.enrichWorkerProfiles([bid.workerId]);
+      const profileMap = await this.enricher.enrichWorkerProfiles([
+        bid.workerId,
+      ]);
       workerProfile = profileMap.get(bid.workerId) || null;
     }
 
@@ -964,9 +978,7 @@ export class BidsService {
       }),
     ]);
 
-    const items = bids.map((b) =>
-      this.mapToBidResponse(b, b._count.revisions),
-    );
+    const items = bids.map((b) => this.mapToBidResponse(b, b._count.revisions));
 
     return {
       items,

@@ -36,8 +36,8 @@ RUN pip install -r requirements.txt
 
 # Create non-root user and prepare persistent cache directories for models
 RUN useradd --create-home --uid 10001 app \
-    && mkdir -p /app/storage /home/app/.insightface /home/app/.EasyOCR \
-    && chown -R app:app /app /home/app/.insightface /home/app/.EasyOCR
+    && mkdir -p /app/storage /home/app/.insightface /home/app/.EasyOCR /home/app/.cache/huggingface \
+    && chown -R app:app /app /home/app/.insightface /home/app/.EasyOCR /home/app/.cache
 
 # Copy application source
 COPY --chown=app:app app ./app

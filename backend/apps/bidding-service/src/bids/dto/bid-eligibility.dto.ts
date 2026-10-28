@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 import { IsUUID } from 'class-validator';
 
 export class BidEligibilityQueryDto {
@@ -47,3 +48,9 @@ export class BidEligibilityResponseDto {
   })
   bid?: EligibleBidDetailsDto;
 }
+
+export class BidEligibilityResponseDtoEnvelope extends ApiResponseDto<BidEligibilityResponseDto> {
+  @ApiProperty({ type: BidEligibilityResponseDto })
+  declare data: BidEligibilityResponseDto;
+}
+
