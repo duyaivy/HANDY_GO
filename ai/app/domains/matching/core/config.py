@@ -50,8 +50,8 @@ class MatchingSettings(BaseSettings):
     experience_cap_years: float = 10.0
 
     # Security
-    internal_service_secret: str | None = Field(
-        default=None,
+    internal_service_secret: str = Field(
+        default="handy-go-internal-service-secret-key-12345",
         validation_alias="INTERNAL_SERVICE_SECRET",
     )
     debug: bool = Field(default=False, validation_alias="DEBUG")

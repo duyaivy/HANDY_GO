@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest';
 vi.hoisted(() => {
   process.env.AUTH_SERVICE_URL ??= 'http://localhost:3001';
   process.env.USER_TRUST_SERVICE_URL ??= 'http://localhost:3002';
+  process.env.AI_SERVICE_URL ??= 'http://localhost:8000';
   process.env.CATALOG_SERVICE_URL ??= 'http://localhost:3003';
   process.env.ORDER_SERVICE_URL ??= 'http://localhost:3004';
   process.env.BIDDING_SERVICE_URL ??= 'http://localhost:3005';

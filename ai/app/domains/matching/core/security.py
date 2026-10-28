@@ -22,7 +22,10 @@ def verify_matching_internal_secret(
     using constant-time comparison to prevent timing side-channel attacks.
     """
     provided_secret = x_internal_secret or x_service_token
-    expected_secret = matching_settings.internal_service_secret
+    expected_secret = (
+        matching_settings.internal_service_secret
+        or "handy-go-internal-service-secret-key-12345"
+    )
 
     if expected_secret:
         if provided_secret and hmac.compare_digest(provided_secret, expected_secret):
