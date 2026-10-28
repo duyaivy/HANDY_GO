@@ -1,3 +1,24 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsIn } from 'class-validator';
-export class WithdrawalStatusDto { @ApiProperty({ enum: ['processing','succeeded','failed','cancelled'] }) @IsIn(['processing','succeeded','failed','cancelled']) status!: 'processing'|'succeeded'|'failed'|'cancelled'; }
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+
+export class WithdrawalClaimDto {
+  @ApiProperty({ description: 'payoutOperationId do Wallet cấp trong event wallet.withdrawal.requested' })
+  @IsUUID()
+  payoutOperationId!: string;
+
+  @ApiPropertyOptional({ description: 'Tham chiếu payout phía Payment/provider (unique)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  payoutReference?: string;
+}
+
+export class WithdrawalStatusDto {
+  @ApiProperty()
+  @IsUUID()
+  payoutOperationId!: string;
+
+  @ApiProperty({ enum: ['succeeded', 'failed', 'cancelled'] })
+  @IsIn(['succeeded', 'failed', 'cancelled'])
+  status!: 'succeeded' | 'failed' | 'cancelled';
+}

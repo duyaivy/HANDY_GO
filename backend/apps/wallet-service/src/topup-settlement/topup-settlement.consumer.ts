@@ -2,7 +2,7 @@ import { Controller, Logger } from '@nestjs/common';
 import { Ctx, EventPattern, Payload, RmqContext } from '@nestjs/microservices';
 import { AppException } from '@app/common';
 import { ConsumerRetryService } from '../common/messaging/consumer-retry.service.js';
-import { TopupSettlementService } from './topup-settlement.service.js';
+import { TopupSettlementService, WalletNotProvisionedException } from './topup-settlement.service.js';
 import { PaymentTopupSucceededDto } from './dto/payment-topup-succeeded.dto.js';
 
 @Controller()
@@ -68,6 +68,7 @@ export class TopupSettlementConsumer {
   }
 
   private isPermanentError(error: unknown): boolean {
+    if (error instanceof WalletNotProvisionedException) return false;
     if (error instanceof AppException) {
       const status = error.getStatus();
       // 4xx except 429 (rate limit) are permanent

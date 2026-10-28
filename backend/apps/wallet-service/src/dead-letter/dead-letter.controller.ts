@@ -1,7 +1,7 @@
 import { Controller, Get, Headers, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ConfigService } from '@app/config';
 import { AppException, ERROR_CODES, buildSuccessResponse } from '@app/common';
-import { assertTrustedSecret, requireAdminActor } from '../common/utils/trusted-request.util.js';
+import { assertTrustedSecret, requireAdminPermission, WALLET_PERMISSIONS } from '../common/utils/trusted-request.util.js';
 import { DeadLetterService } from './dead-letter.service.js';
 
 @Controller('internal/dead-letters')
@@ -16,11 +16,12 @@ export class DeadLetterController {
     @Headers('x-internal-secret') secret: string | undefined,
     @Headers('x-user-roles') roles: string | undefined,
     @Headers('x-user-id') userId: string | undefined,
+    @Headers('x-user-permissions') permissions: string | undefined,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
   ) {
     assertTrustedSecret(this.config.internalServiceSecret, secret);
-    requireAdminActor(roles, userId);
+    requireAdminPermission(roles, userId, permissions, WALLET_PERMISSIONS.dlqRead);
     const p = Number(page);
     const l = Number(limit);
     if (!Number.isInteger(p) || p < 1 || !Number.isInteger(l) || l < 1 || l > 100) {
@@ -34,10 +35,11 @@ export class DeadLetterController {
     @Headers('x-internal-secret') secret: string | undefined,
     @Headers('x-user-roles') roles: string | undefined,
     @Headers('x-user-id') userId: string | undefined,
+    @Headers('x-user-permissions') permissions: string | undefined,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     assertTrustedSecret(this.config.internalServiceSecret, secret);
-    const actorId = requireAdminActor(roles, userId);
+    const actorId = requireAdminPermission(roles, userId, permissions, WALLET_PERMISSIONS.dlqReplay);
     return buildSuccessResponse(await this.service.replay(id, actorId), 'Dead letter replayed');
   }
 }

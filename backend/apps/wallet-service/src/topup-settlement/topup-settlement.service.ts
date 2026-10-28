@@ -3,6 +3,17 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { WalletPrismaService } from '../wallet-ledger/wallet-prisma.service.js';
 import { PaymentTopupSucceededDto } from './dto/payment-topup-succeeded.dto.js';
 import crypto from 'node:crypto';
+
+/**
+ * Top-up có thể đến trước khi ví được provisioning (user.registered xử lý bất đồng bộ).
+ * Lỗi này là tạm thời: consumer retry có giới hạn, hết retry thì quarantine và replay được.
+ */
+export class WalletNotProvisionedException extends AppException {
+  constructor() {
+    super(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Wallet not provisioned yet');
+  }
+}
+
 @Injectable()
 export class TopupSettlementService {
   constructor(private readonly prisma: WalletPrismaService) {}
@@ -21,7 +32,8 @@ export class TopupSettlementService {
     const amount = BigInt(dto.amount);
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId: dto.userId } });
-      if (!wallet || wallet.status !== 'active') throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Active wallet not found');
+      if (!wallet) throw new WalletNotProvisionedException();
+      if (wallet.status !== 'active') throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Active wallet not found');
       await tx.$queryRaw`SELECT id FROM "wallet_service"."wallets" WHERE id = ${wallet.id}::uuid FOR UPDATE`;
       const prior = await tx.walletTransaction.findFirst({ where: { type: 'topup', referenceId: dto.paymentId } });
       if (prior) {

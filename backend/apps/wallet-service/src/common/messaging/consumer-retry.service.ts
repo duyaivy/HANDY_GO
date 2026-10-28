@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import type { RmqContext } from '@nestjs/microservices';
+import { AmqpConfirmedQueuePublisher, ConfirmedQueuePublisher } from './confirmed-queue-publisher.js';
 
 export const WALLET_EVENTS_QUEUE = 'wallet-service-events';
 export const RETRY_COUNT_HEADER = 'x-wallet-retry-count';
@@ -31,8 +32,6 @@ export type RetryOutcome =
   | { action: 'dead_letter'; attempts: number };
 
 interface AmqpChannelLike {
-  assertQueue(queue: string, options?: Record<string, unknown>): Promise<unknown>;
-  sendToQueue(queue: string, content: Buffer, options?: Record<string, unknown>): boolean;
   ack(message: unknown): void;
   nack(message: unknown, allUpTo?: boolean, requeue?: boolean): void;
 }
@@ -45,22 +44,29 @@ interface AmqpMessageLike {
 /**
  * Retry của consumer: message lỗi tạm thời được đẩy sang retry queue có TTL rồi
  * dead-letter ngược về queue chính. Khác với retry của outbox publisher (publish phía producer).
- * Publish xong mới ACK bản gốc; nếu crash giữa hai bước, broker redeliver bản gốc nên
+ * Bản retry/DLQ phải được broker xác nhận (publisher confirm) rồi mới ACK bản gốc; publish/confirm
+ * lỗi thì NACK requeue. Nếu crash giữa hai bước, broker redeliver bản gốc nên
  * consumer phải idempotent theo business operation.
  */
 @Injectable()
-export class ConsumerRetryService {
+export class ConsumerRetryService implements OnModuleDestroy {
   private readonly logger = new Logger(ConsumerRetryService.name);
   readonly config: ConsumerRetryConfig;
+  private publisher: ConfirmedQueuePublisher = new AmqpConfirmedQueuePublisher();
 
   constructor() {
     this.config = loadRetryConfig();
   }
 
-  static withConfig(config: ConsumerRetryConfig): ConsumerRetryService {
+  static withConfig(config: ConsumerRetryConfig, publisher?: ConfirmedQueuePublisher): ConsumerRetryService {
     const service = new ConsumerRetryService();
     (service as { config: ConsumerRetryConfig }).config = config;
+    if (publisher) service.publisher = publisher;
     return service;
+  }
+
+  async onModuleDestroy() {
+    await this.publisher.close();
   }
 
   get dlqName(): string {
@@ -79,7 +85,7 @@ export class ConsumerRetryService {
 
     if (delayMs === undefined) {
       try {
-        await this.publishDeadLetter(channel, message, `retries exhausted: ${reason}`);
+        await this.publishDeadLetter(message, `retries exhausted: ${reason}`);
       } catch (error) {
         this.logger.error(`Could not publish to DLQ, requeueing original message: ${(error as Error).message}`);
         channel.nack(message, false, true);
@@ -90,20 +96,23 @@ export class ConsumerRetryService {
     }
 
     try {
-      const retryQueue = this.retryQueueName(delayMs);
-      await channel.assertQueue(retryQueue, {
-        durable: true,
-        arguments: {
-          'x-message-ttl': delayMs,
-          'x-dead-letter-exchange': '',
-          'x-dead-letter-routing-key': this.config.queue,
+      await this.publisher.publish(
+        this.retryQueueName(delayMs),
+        message.content,
+        {
+          persistent: true,
+          contentType: message.properties.contentType,
+          headers: { ...message.properties.headers, [RETRY_COUNT_HEADER]: attempt + 1 },
         },
-      });
-      channel.sendToQueue(retryQueue, message.content, {
-        persistent: true,
-        contentType: message.properties.contentType,
-        headers: { ...message.properties.headers, [RETRY_COUNT_HEADER]: attempt + 1 },
-      });
+        {
+          durable: true,
+          arguments: {
+            'x-message-ttl': delayMs,
+            'x-dead-letter-exchange': '',
+            'x-dead-letter-routing-key': this.config.queue,
+          },
+        },
+      );
     } catch (error) {
       this.logger.error(`Could not schedule retry, requeueing original message: ${(error as Error).message}`);
       channel.nack(message, false, true);
@@ -117,7 +126,7 @@ export class ConsumerRetryService {
     const channel = context.getChannelRef() as AmqpChannelLike;
     const message = context.getMessage() as AmqpMessageLike;
     try {
-      await this.publishDeadLetter(channel, message, reason);
+      await this.publishDeadLetter(message, reason);
     } catch (error) {
       this.logger.error(`Could not publish to DLQ, requeueing original message: ${(error as Error).message}`);
       channel.nack(message, false, true);
@@ -132,12 +141,16 @@ export class ConsumerRetryService {
     return Number.isInteger(n) && n > 0 ? n : 0;
   }
 
-  private async publishDeadLetter(channel: AmqpChannelLike, message: AmqpMessageLike, reason: string) {
-    await channel.assertQueue(this.dlqName, { durable: true });
-    channel.sendToQueue(this.dlqName, message.content, {
-      persistent: true,
-      contentType: message.properties.contentType,
-      headers: { ...message.properties.headers, [DEAD_REASON_HEADER]: reason.slice(0, 500) },
-    });
+  private publishDeadLetter(message: AmqpMessageLike, reason: string) {
+    return this.publisher.publish(
+      this.dlqName,
+      message.content,
+      {
+        persistent: true,
+        contentType: message.properties.contentType,
+        headers: { ...message.properties.headers, [DEAD_REASON_HEADER]: reason.slice(0, 500) },
+      },
+      { durable: true },
+    );
   }
 }

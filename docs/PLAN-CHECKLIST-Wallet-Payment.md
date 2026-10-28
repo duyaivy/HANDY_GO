@@ -339,4 +339,29 @@ Nếu cần thêm dependency (ví dụ `amqplib` dev) chỉ khi `libs/rabbitmq` 
 
 Thay đổi hành vi: endpoint adjustment đọc actor từ `x-user-id` (do gateway inject, phải là UUID; `x-actor-id` không còn được tin).
 
-**Chưa làm / cần chủ dự án**: xem mục “Cần chủ dự án verify” trong PR #27; chưa test verifier với user-trust thật (chỉ fake server) nên prefix URL (`/internal/...` hay `/api/v1/internal/...`) còn phải xác nhận; Redis: grep không thấy trong `apps/wallet-service/src` và `backend/package.json` → Wallet không cần 
+---
+
+## CẬP NHẬT 28/10/2026 — Sửa theo review PR #27 (10 mục)
+
+**Kết quả chạy THẬT** (Postgres test `:55432`, RabbitMQ test `:56672`; migration chỉ chạy trên DB test qua `pnpm run test:wallet:up`):
+- Integration `pnpm run test:integration:wallet` → **7 file, 77 test pass**.
+- Unit `pnpm vitest run apps/wallet-service apps/user-trust-service` → **22 file, 85 test pass**.
+- `pnpm run typecheck:wallet` → sạch.
+- Auth: đã generate JWT keys (`node scripts/generate-jwt-keys.mjs`, thư mục `keys/` và `.env` bị gitignore) → `pnpm vitest run apps/auth-service` → 23 file, 162 pass, 4 skipped, không lỗi. Log SMTP là lỗi giả lập trong test.
+
+| # | Thay đổi |
+|---|---|
+| 1 | `global-setup.ts` validate cả `DATABASE_URL_WALLET` và `DATABASE_URL` (phải cùng DB test); `truncateAll` kiểm tra `current_database()` trước khi TRUNCATE |
+| 2 | Verifier gọi `${USER_TRUST_SERVICE_URL}/${API_PREFIX}/internal/users/verify-bank-account`; lỗi hạ tầng → 503. Test gọi controller/service User Trust **thật** qua HTTP (global prefix + secret thật); chỉ bảng bank account là in-memory fake, token verifier mock |
+| 3 | `finish` với callback mâu thuẫn (failed→succeeded, cancel→succeeded…) → `needs_review` + outbox `wallet.withdrawal.needs_review` |
+| 4 | Retry/DLQ/replay publish qua confirm channel (`confirmed-queue-publisher.ts`); chỉ ACK sau khi broker confirm, lỗi → NACK requeue |
+| 5 | `WALLET_WITHDRAWALS_ENABLED` mặc định `false` → tạo withdrawal trả 503 |
+| 6 | `create` kiểm tra replay idempotent trước khi gọi verifier → retry bản đã commit không phụ thuộc User Trust |
+| 7 | Swagger `/docs` dựng lại trong `setupApp` |
+| 8 | `WalletNotProvisionedException` coi là lỗi tạm: retry có giới hạn, hết lượt → quarantine/DLQ, replay được |
+| 9 | `payoutOperationId` (UUID, unique) trong event `wallet.withdrawal.requested`; `POST internal/withdrawals/:id/claim` và `/status` bắt buộc `payoutOperationId`; `payoutReference` unique (trùng → 409). Test bằng mock Payment |
+
+Quyết định nghiệp vụ đã áp dụng: refund thiếu nguồn → 409 + `wallet.refund.needs_review` (audit + outbox), không tạo Point/không dùng Platform; adjustment/DLQ/audit-read cần Admin + permission `wallet:adjust` / `wallet:dlq:read` / `wallet:dlq:replay` / `wallet:audit:read` (header `x-user-permissions` từ gateway); replay DLQ có audit; không tự xóa ledger/audit.
+
+**Chưa làm / cần xác nhận**: Payment & payout provider thật; gateway phải cấp các permission mới ở trên; DLQ retention chốt sau; `active` ≠ bank-verified; staging/production migrate theo quy trình deploy.
+

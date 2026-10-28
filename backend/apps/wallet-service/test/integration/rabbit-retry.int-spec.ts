@@ -63,6 +63,7 @@ beforeEach(async () => {
   await resetDb();
 });
 afterEach(async () => {
+  await retry.onModuleDestroy();
   await purgeAll();
   await conn.close();
 });
@@ -136,6 +137,32 @@ describe('consumer retry & DLQ (RabbitMQ thật)', () => {
     const dead = await nextMessage(`${MAIN}.dlq`);
     ch.ack(dead);
     const row = await h.prisma.deadLetterEvent.findUniqueOrThrow({ where: { eventId: 'ev-transient' } });
+    expect(row.reason).toBe('retries exhausted');
+  });
+
+  it('top-up đến trước provisioning ví → retry có giới hạn, thành công khi ví xuất hiện', async () => {
+    const userId = randomUUID();
+    const consumer = new TopupSettlementConsumer(new TopupSettlementService(h.prisma), retry);
+    const event = { eventId: 'ev-early', userId, paymentId: randomUUID(), idempotencyKey: 'idem-early', amount: '300' };
+    ch.sendToQueue(MAIN, Buffer.from(JSON.stringify({ pattern: 'payment.topup.succeeded', data: event })), { persistent: true });
+    await consumer.onTopupSucceeded(event as never, ctxFor(await nextMessage(MAIN)));
+    expect(await h.prisma.deadLetterEvent.count({ where: { eventId: 'ev-early' } })).toBe(0);
+    await seedWallet(h, { userId });
+    const redelivered = await nextMessage(MAIN);
+    expect(Number(redelivered.properties.headers?.[RETRY_COUNT_HEADER])).toBe(1);
+    await consumer.onTopupSucceeded(event as never, ctxFor(redelivered));
+    expect((await balanceOf(h, userId)).balance).toBe(300n);
+  });
+
+  it('top-up cho ví không bao giờ xuất hiện → hết retry thì quarantine + DLQ', async () => {
+    const consumer = new TopupSettlementConsumer(new TopupSettlementService(h.prisma), retry);
+    const event = { eventId: 'ev-never', userId: randomUUID(), paymentId: randomUUID(), idempotencyKey: 'idem-never', amount: '10' };
+    ch.sendToQueue(MAIN, Buffer.from(JSON.stringify({ pattern: 'payment.topup.succeeded', data: event })), { persistent: true });
+    for (let i = 0; i < DELAYS.length + 1; i++) {
+      await consumer.onTopupSucceeded(event as never, ctxFor(await nextMessage(MAIN)));
+    }
+    ch.ack(await nextMessage(`${MAIN}.dlq`));
+    const row = await h.prisma.deadLetterEvent.findUniqueOrThrow({ where: { eventId: 'ev-never' } });
     expect(row.reason).toBe('retries exhausted');
   });
 

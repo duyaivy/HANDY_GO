@@ -42,6 +42,10 @@ export class UserTrustServiceService {
     private readonly rabbitmq?: RabbitMQService,
   ) {}
 
+  /**
+   * `active` chỉ nghĩa là user đang active; KHÔNG chứng minh tài khoản ngân hàng đã được ngân hàng xác minh.
+   * Việc xác minh thật với ngân hàng/provider sẽ bổ sung sau.
+   */
   async verifyBankAccountOwnership(
     userId: string,
     bankAccountId: string,

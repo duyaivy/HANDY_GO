@@ -17,7 +17,7 @@ import { resetDb } from './helpers/harness.js';
 const SECRET = 'test-internal-secret-at-least-32-characters-long';
 let app: INestApplication;
 let prisma: WalletPrismaService;
-
+const env: Record<string, string | undefined> = { WALLET_WITHDRAWALS_ENABLED: 'true' };
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     controllers: [RefundAdjustmentController, WithdrawalController],
@@ -27,7 +27,7 @@ beforeAll(async () => {
       RefundAdjustmentService,
       WithdrawalService,
       { provide: BankAccountVerifier, useValue: { verify: async () => true } },
-      { provide: ConfigService, useValue: { internalServiceSecret: SECRET } },
+      { provide: ConfigService, useValue: { internalServiceSecret: SECRET, get: (k: string) => env[k] } },
     ],
   }).compile();
   app = moduleRef.createNestApplication();
@@ -43,13 +43,33 @@ beforeEach(async () => {
   await prisma.wallet.create({ data: { systemKey: 'PLATFORM_FEES', balance: 1000n } });
 });
 
-const adminHeaders = (actor = randomUUID()) => ({
+const adminHeaders = (actor = randomUUID(), permissions = 'wallet:adjust,wallet:audit:read') => ({
   'x-internal-secret': SECRET,
   'x-user-roles': 'admin',
   'x-user-id': actor,
+  'x-user-permissions': permissions,
 });
 
 describe('HTTP: BigInt serialization (F10) & adjustment authz', () => {
+  it('admin thiếu permission wallet:adjust → 403, không tạo audit; audit-read cần wallet:audit:read', async () => {
+    const userId = randomUUID();
+    await prisma.wallet.create({ data: { userId } });
+    const noPerm = await request(app.getHttpServer())
+      .post(`/internal/wallets/${userId}/adjustments`)
+      .set(adminHeaders(randomUUID(), 'wallet:audit:read'))
+      .send({ direction: 'credit', amount: '1', reason: 'goodwill credit', idempotencyKey: 'http-perm' });
+    expect(noPerm.status).toBe(403);
+    expect(await prisma.walletAuditLog.count()).toBe(0);
+    const readDenied = await request(app.getHttpServer())
+      .get(`/internal/wallets/${userId}/audit-logs`)
+      .set(adminHeaders(randomUUID(), 'wallet:adjust'));
+    expect(readDenied.status).toBe(403);
+    const readOk = await request(app.getHttpServer())
+      .get(`/internal/wallets/${userId}/audit-logs`)
+      .set(adminHeaders());
+    expect(readOk.status).toBe(200);
+  });
+
   it('adjustment trả totalAmount dạng string, không lỗi BigInt', async () => {
     const userId = randomUUID();
     await prisma.wallet.create({ data: { userId } });
@@ -93,7 +113,7 @@ describe('HTTP: BigInt serialization (F10) & adjustment authz', () => {
     const body = { direction: 'credit', amount: '1', reason: 'goodwill credit', idempotencyKey: 'http-4' };
     const missing = await request(app.getHttpServer())
       .post(`/internal/wallets/${userId}/adjustments`)
-      .set({ 'x-internal-secret': SECRET, 'x-user-roles': 'admin' })
+      .set({ 'x-internal-secret': SECRET, 'x-user-roles': 'admin', 'x-user-permissions': 'wallet:adjust' })
       .send(body);
     const bogus = await request(app.getHttpServer())
       .post(`/internal/wallets/${userId}/adjustments`)
@@ -115,13 +135,30 @@ describe('HTTP: BigInt serialization (F10) & adjustment authz', () => {
     await prisma.wallet.create({ data: { userId } });
     const res = await request(app.getHttpServer())
       .post(`/internal/wallets/${userId}/adjustments`)
-      .set({ 'x-internal-secret': SECRET, 'x-user-roles': 'admin', 'x-actor-id': randomUUID() })
+      .set({ 'x-internal-secret': SECRET, 'x-user-roles': 'admin', 'x-user-permissions': 'wallet:adjust', 'x-actor-id': randomUUID() })
       .send({ direction: 'credit', amount: '1', reason: 'goodwill credit', idempotencyKey: 'http-5' });
     expect(res.status).toBe(403);
   });
 });
 
 describe('HTTP: withdrawal endpoints', () => {
+  it('mặc định tắt: flag không bật → 503, không tạo hold; cancel/internal vẫn hoạt động', async () => {
+    const userId = randomUUID();
+    await prisma.wallet.create({ data: { userId, balance: 100n } });
+    const headers = { 'x-internal-secret': SECRET, 'x-user-id': userId };
+    const body = { bankAccountId: randomUUID(), amount: '40', idempotencyKey: 'w-http-off' };
+    env.WALLET_WITHDRAWALS_ENABLED = undefined;
+    try {
+      const off = await request(app.getHttpServer()).post('/wallets/me/withdrawals').set(headers).send(body);
+      expect(off.status).toBe(503);
+      expect(await prisma.withdrawal.count()).toBe(0);
+      env.WALLET_WITHDRAWALS_ENABLED = 'false';
+      expect((await request(app.getHttpServer()).post('/wallets/me/withdrawals').set(headers).send(body)).status).toBe(503);
+    } finally {
+      env.WALLET_WITHDRAWALS_ENABLED = 'true';
+    }
+  });
+
   it('tạo withdrawal trả amount dạng string và yêu cầu x-user-id + secret', async () => {
     const userId = randomUUID();
     await prisma.wallet.create({ data: { userId, balance: 100n } });

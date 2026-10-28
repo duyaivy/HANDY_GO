@@ -2,8 +2,7 @@ import { Client } from 'pg';
 import { assertTestTarget } from '../global-setup.js';
 
 export async function withDb<T>(fn: (client: Client) => Promise<T>): Promise<T> {
-  assertTestTarget();
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const client = new Client({ connectionString: assertTestTarget() });
   await client.connect();
   try {
     return await fn(client);
@@ -14,6 +13,10 @@ export async function withDb<T>(fn: (client: Client) => Promise<T>): Promise<T> 
 
 export async function truncateAll(): Promise<void> {
   await withDb(async (c) => {
+    const { rows: dbRows } = await c.query<{ db: string }>('SELECT current_database() AS db');
+    if (!/(^|_)test($|_)/.test(dbRows[0]?.db ?? '')) {
+      throw new Error(`GUARD: refuse TRUNCATE trên database "${dbRows[0]?.db}"`);
+    }
     const { rows } = await c.query<{ tablename: string }>(
       "SELECT tablename FROM pg_tables WHERE schemaname = 'wallet_service' AND tablename <> '_prisma_migrations'",
     );

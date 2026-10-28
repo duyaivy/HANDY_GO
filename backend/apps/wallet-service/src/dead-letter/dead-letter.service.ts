@@ -1,7 +1,8 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { AppException, ERROR_CODES } from '@app/common';
 import { WalletPrismaService } from '../wallet-ledger/wallet-prisma.service.js';
 import { WALLET_EVENTS_QUEUE } from '../common/messaging/consumer-retry.service.js';
+import { AmqpConfirmedQueuePublisher } from '../common/messaging/confirmed-queue-publisher.js';
 
 export const REPLAYABLE_EVENT_TYPES = new Set(['payment.topup.succeeded', 'user.registered']);
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -11,22 +12,21 @@ export abstract class DeadLetterPublisher {
 }
 
 @Injectable()
-export class AmqpDeadLetterPublisher extends DeadLetterPublisher {
+export class AmqpDeadLetterPublisher extends DeadLetterPublisher implements OnModuleDestroy {
+  private readonly confirmed = new AmqpConfirmedQueuePublisher();
+
+  /** Resolve chỉ khi broker đã xác nhận message replay. */
   async publish(eventType: string, payload: unknown): Promise<void> {
-    const amqp = await import('amqplib');
-    const connection = await amqp.connect(process.env['RABBITMQ_URL'] ?? '');
-    try {
-      const channel = await connection.createChannel();
-      await channel.assertQueue(WALLET_EVENTS_QUEUE, { durable: true });
-      channel.sendToQueue(WALLET_EVENTS_QUEUE, Buffer.from(JSON.stringify({ pattern: eventType, data: payload })), {
-        persistent: true,
-        contentType: 'application/json',
-        headers: { 'x-wallet-replayed': true },
-      });
-      await channel.close();
-    } finally {
-      await connection.close();
-    }
+    await this.confirmed.publish(
+      WALLET_EVENTS_QUEUE,
+      Buffer.from(JSON.stringify({ pattern: eventType, data: payload })),
+      { persistent: true, contentType: 'application/json', headers: { 'x-wallet-replayed': true } },
+      { durable: true },
+    );
+  }
+
+  async onModuleDestroy() {
+    await this.confirmed.close();
   }
 }
 

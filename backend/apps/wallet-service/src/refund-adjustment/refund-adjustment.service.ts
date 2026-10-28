@@ -4,11 +4,20 @@ import { WalletLedgerService } from '../wallet-ledger/wallet-ledger.service.js';
 import { RefundCreditDto } from './dto/refund-credit.dto.js';
 import { WalletAdjustmentDto } from './dto/wallet-adjustment.dto.js';
 
+/** Actor hệ thống cho audit do wallet tự ghi (không có admin thao tác). */
+export const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
+
+export class RefundNeedsReviewException extends AppException {
+  constructor(message: string) {
+    super(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, message);
+  }
+}
+
 @Injectable()
 export class RefundAdjustmentService {
   constructor(private readonly ledger: WalletLedgerService) {}
 
-  async refund(userId: string, dto: RefundCreditDto) {
+  private async refundTx(userId: string, dto: RefundCreditDto) {
     const amount = BigInt(dto.amount);
     const operationId = `${dto.paymentId}:refund:${dto.refundId}`;
     const idempotencyKey = `refund:${dto.refundId}`;
@@ -42,7 +51,7 @@ export class RefundAdjustmentService {
       const entries = await tx.walletTransaction.findMany({ where: { transferId: original.id } });
       const customerEntry = entries.find((entry) => entry.direction === 'debit');
       const sources = entries.filter((entry) => entry.direction === 'credit');
-      if (!customerEntry || sources.length === 0) throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Original payment postings are incomplete');
+      if (!customerEntry || sources.length === 0) throw new RefundNeedsReviewException('Refund needs review: original payment postings/sources are incomplete');
 
       const customerWallet = await tx.wallet.findUnique({ where: { id: customerEntry.walletId } });
       if (!customerWallet || customerWallet.userId !== userId) throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Refund owner does not match original payment');
@@ -98,9 +107,57 @@ export class RefundAdjustmentService {
       try {
         return await this.ledger.createBalancedTransferInTx(tx, { operationId, idempotencyKey, kind: 'refund', postings });
       } catch (error) {
-        throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, `Refund needs review because funds could not be recovered: ${(error as Error).message}`);
+        throw new RefundNeedsReviewException(`Refund needs review because funds could not be recovered: ${(error as Error).message}`);
       }
     }, { isolationLevel: 'Serializable' });
+  }
+
+  /**
+   * Refund thiếu nguồn thu hồi → needs_review: không tạo Point, không dùng Platform bù.
+   * Giao dịch refund bị rollback; bản ghi review (audit + outbox) được ghi riêng, idempotent theo refundId.
+   */
+  private async recordRefundNeedsReview(userId: string, dto: RefundCreditDto, reason: string) {
+    const prisma = this.ledger.prisma;
+    const eventId = `wallet.refund.needs_review:${dto.refundId}`;
+    const existing = await prisma.outboxEvent.findFirst({ where: { eventType: 'wallet.refund.needs_review', payload: { path: ['eventId'], equals: eventId } } });
+    if (existing) return;
+    await prisma.$transaction([
+      prisma.walletAuditLog.create({
+        data: {
+          actorId: SYSTEM_ACTOR_ID,
+          targetUserId: userId,
+          action: 'wallet.refund.needs_review',
+          reason: reason.slice(0, 500),
+          metadata: { paymentId: dto.paymentId, refundId: dto.refundId, amount: dto.amount },
+        },
+      }),
+      prisma.outboxEvent.create({
+        data: {
+          eventType: 'wallet.refund.needs_review',
+          payload: { eventId, userId, paymentId: dto.paymentId, refundId: dto.refundId, amount: dto.amount, reason: reason.slice(0, 200) },
+        },
+      }),
+    ]);
+  }
+
+  async refund(userId: string, dto: RefundCreditDto) {
+    try {
+      return await this.refundTx(userId, dto);
+    } catch (error) {
+      if (error instanceof RefundNeedsReviewException) {
+        await this.recordRefundNeedsReview(userId, dto, error.message);
+      }
+      throw error;
+    }
+  }
+
+  listAuditLogs(userId: string, skip: number, take: number) {
+    return this.ledger.prisma.walletAuditLog.findMany({
+      where: { targetUserId: userId },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take,
+    });
   }
 
   async adjust(userId: string, dto: WalletAdjustmentDto, actorId: string) {

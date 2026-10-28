@@ -104,6 +104,9 @@ model Withdrawal {
   status WithdrawalStatus @default(requested)
   idempotencyKey String @unique @map("idempotency_key") @db.VarChar(200)
   payoutReference String? @unique @map("payout_reference") @db.VarChar(160)
+  payoutOperationId String @unique @default(uuid()) @map("payout_operation_id") @db.Uuid
+  payoutClaimedAt DateTime? @map("payout_claimed_at") @db.Timestamptz(6)
+  reviewReason String? @map("review_reason") @db.VarChar(200)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   @@index([userId, createdAt(sort: Desc)])

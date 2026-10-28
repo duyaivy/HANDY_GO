@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AppException, ERROR_CODES } from '@app/common';
 import { createHarness, resetDb, seedPlatform, seedWallet, balanceOf, type Harness } from './helpers/harness.js';
 import type { BankAccountVerifier } from '../../src/withdrawal/bank-account-verifier/bank-account-verifier.port.js';
 
 let a: Harness; // hai harness = hai pool kết nối DB độc lập
 let b: Harness;
-const verifier = { result: true, calls: 0 };
+const verifier = { result: true, calls: 0, fail: false };
 const stubVerifier = {
   verify: async () => {
     verifier.calls++;
+    if (verifier.fail) throw new AppException(503, ERROR_CODES.DEPENDENCY_UNAVAILABLE, 'User Trust down');
     return verifier.result;
   },
 } as BankAccountVerifier;
@@ -23,6 +25,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   verifier.result = true;
+  verifier.fail = false;
   verifier.calls = 0;
   await resetDb();
   await seedPlatform(a);
@@ -34,8 +37,12 @@ async function newRequestedWithdrawal(balance = 100n, amount = '60') {
   const w = await a.withdrawals.create(userId, {
     bankAccountId: randomUUID(), amount, idempotencyKey: randomUUID(),
   });
-  return { userId, withdrawalId: w.id };
+  return { userId, withdrawalId: w.id, op: w.payoutOperationId };
 }
+
+const claim = (h: Harness, id: string, op: string) => h.withdrawals.claim(id, { payoutOperationId: op });
+const finish = (h: Harness, id: string, op: string, status: 'succeeded' | 'failed' | 'cancelled') =>
+  h.withdrawals.finish(id, { payoutOperationId: op, status });
 
 describe('withdrawal create', () => {
   it('tạo hold và event requested; retry cùng key không tạo hold thứ hai', async () => {
@@ -72,6 +79,42 @@ describe('withdrawal create', () => {
     expect((await balanceOf(a, userId)).reserved).toBe(0n);
   });
 
+  it('retry withdrawal đã commit khi User Trust tạm lỗi → trả lại bản ghi cũ, không gọi verifier', async () => {
+    const userId = randomUUID();
+    await seedWallet(a, { userId, balance: 100n });
+    const dto = { bankAccountId: randomUUID(), amount: '60', idempotencyKey: 'k-outage' };
+    const first = await a.withdrawals.create(userId, dto);
+    const callsBefore = verifier.calls;
+    verifier.fail = true;
+    const retried = await a.withdrawals.create(userId, dto);
+    expect(retried.id).toBe(first.id);
+    expect(verifier.calls).toBe(callsBefore);
+    expect(await a.prisma.walletHold.count()).toBe(1);
+  });
+
+  it('request mới khi User Trust tạm lỗi → 503, không tạo hold/withdrawal', async () => {
+    verifier.fail = true;
+    const userId = randomUUID();
+    await seedWallet(a, { userId, balance: 100n });
+    await expect(
+      a.withdrawals.create(userId, { bankAccountId: randomUUID(), amount: '10', idempotencyKey: 'k-outage-new' }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(await a.prisma.withdrawal.count()).toBe(0);
+    expect((await balanceOf(a, userId)).reserved).toBe(0n);
+  });
+
+  it('cùng key khác user → conflict, không lộ withdrawal của user khác', async () => {
+    const owner = randomUUID();
+    const other = randomUUID();
+    await seedWallet(a, { userId: owner, balance: 100n });
+    await seedWallet(a, { userId: other, balance: 100n });
+    const bank = randomUUID();
+    await a.withdrawals.create(owner, { bankAccountId: bank, amount: '10', idempotencyKey: 'shared' });
+    await expect(
+      a.withdrawals.create(other, { bankAccountId: bank, amount: '10', idempotencyKey: 'shared' }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
   it('2 withdrawal đồng thời không vượt số dư khả dụng', async () => {
     const userId = randomUUID();
     await seedWallet(a, { userId, balance: 100n });
@@ -91,9 +134,9 @@ describe('claim vs cancel race (F06)', () => {
     for (let i = 0; i < 15; i++) {
       await resetDb();
       await seedPlatform(a);
-      const { userId, withdrawalId } = await newRequestedWithdrawal();
-      const [claim, cancel] = await Promise.allSettled([
-        a.withdrawals.markProcessing(withdrawalId),
+      const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+      const [claimRes, cancel] = await Promise.allSettled([
+        claim(a, withdrawalId, op),
         b.withdrawals.cancel(userId, withdrawalId),
       ]);
       const final = await a.prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
@@ -103,13 +146,13 @@ describe('claim vs cancel race (F06)', () => {
       expect(['processing', 'cancelled']).toContain(final.status);
       outcomes.add(final.status);
       if (final.status === 'processing') {
-        expect(claim.status).toBe('fulfilled');
+        expect(claimRes.status).toBe('fulfilled');
         expect(cancel.status).toBe('rejected');
         expect(hold.status).toBe('active');
         expect(wallet.reserved).toBe(60n);
       } else {
         expect(cancel.status).toBe('fulfilled');
-        expect(claim.status).toBe('rejected');
+        expect(claimRes.status).toBe('rejected');
         expect(hold.status).toBe('released');
         expect(wallet.reserved).toBe(0n);
       }
@@ -118,59 +161,73 @@ describe('claim vs cancel race (F06)', () => {
   });
 
   it('cancel sau khi đã claim bị từ chối và giữ hold', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
-    await a.withdrawals.markProcessing(withdrawalId);
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
     await expect(a.withdrawals.cancel(userId, withdrawalId)).rejects.toMatchObject({ status: 409 });
     expect((await balanceOf(a, userId)).reserved).toBe(60n);
   });
 
-  it('claim lặp lại là idempotent', async () => {
-    const { withdrawalId } = await newRequestedWithdrawal();
-    await a.withdrawals.markProcessing(withdrawalId);
-    const again = await a.withdrawals.markProcessing(withdrawalId);
+  it('claim lặp lại là idempotent; sai payoutOperationId → 409', async () => {
+    const { withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    const again = await claim(a, withdrawalId, op);
     expect(again.status).toBe('processing');
+    await expect(claim(a, withdrawalId, randomUUID())).rejects.toMatchObject({ status: 409 });
   });
 });
 
 describe('payout callback', () => {
   it('succeeded: capture hold + debit ledger đúng một lần, callback lặp idempotent', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
-    await a.withdrawals.markProcessing(withdrawalId);
-    await a.withdrawals.finish(userId, withdrawalId, 'succeeded');
-    await a.withdrawals.finish(userId, withdrawalId, 'succeeded');
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    await finish(a, withdrawalId, op, 'succeeded');
+    await finish(a, withdrawalId, op, 'succeeded');
     const w = await balanceOf(a, userId);
     expect(w).toEqual({ balance: 40n, reserved: 0n });
     expect(await a.prisma.walletTransaction.count({ where: { type: 'withdrawal' } })).toBe(1);
   });
 
   it('succeeded gọi đồng thời 2 lần vẫn chỉ trừ một lần', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
-    await a.withdrawals.markProcessing(withdrawalId);
-    await Promise.allSettled([
-      a.withdrawals.finish(userId, withdrawalId, 'succeeded'),
-      b.withdrawals.finish(userId, withdrawalId, 'succeeded'),
-    ]);
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    await Promise.allSettled([finish(a, withdrawalId, op, 'succeeded'), finish(b, withdrawalId, op, 'succeeded')]);
     expect((await balanceOf(a, userId)).balance).toBe(40n);
     expect(await a.prisma.walletTransaction.count({ where: { type: 'withdrawal' } })).toBe(1);
   });
 
   it('failed: release hold, số dư giữ nguyên', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
-    await a.withdrawals.markProcessing(withdrawalId);
-    await a.withdrawals.finish(userId, withdrawalId, 'failed');
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    await finish(a, withdrawalId, op, 'failed');
     expect(await balanceOf(a, userId)).toEqual({ balance: 100n, reserved: 0n });
   });
 
+  it('failed rồi succeeded (mâu thuẫn) → needs_review, không trừ tiền', async () => {
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    await finish(a, withdrawalId, op, 'failed');
+    const res = await finish(a, withdrawalId, op, 'succeeded');
+    expect(res.status).toBe('needs_review');
+    expect(await balanceOf(a, userId)).toEqual({ balance: 100n, reserved: 0n });
+    expect(await a.prisma.outboxEvent.count({ where: { eventType: 'wallet.withdrawal.needs_review' } })).toBe(1);
+  });
+
+  it('sai payoutOperationId bị từ chối', async () => {
+    const { withdrawalId, op } = await newRequestedWithdrawal();
+    await claim(a, withdrawalId, op);
+    await expect(finish(a, withdrawalId, randomUUID(), 'succeeded')).rejects.toMatchObject({ status: 409 });
+  });
+
   it('terminal khi chưa claim bị từ chối (giữ hold)', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
-    await expect(a.withdrawals.finish(userId, withdrawalId, 'succeeded')).rejects.toMatchObject({ status: 409 });
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
+    await expect(finish(a, withdrawalId, op, 'succeeded')).rejects.toMatchObject({ status: 409 });
     expect((await balanceOf(a, userId)).reserved).toBe(60n);
   });
 
   it('success sau cancel → needs_review, ghi bằng chứng, không chuyển tiền', async () => {
-    const { userId, withdrawalId } = await newRequestedWithdrawal();
+    const { userId, withdrawalId, op } = await newRequestedWithdrawal();
     await a.withdrawals.cancel(userId, withdrawalId);
-    const res = await a.withdrawals.finish(userId, withdrawalId, 'succeeded');
+    const res = await finish(a, withdrawalId, op, 'succeeded');
     expect(res.status).toBe('needs_review');
     expect(await a.prisma.outboxEvent.count({ where: { eventType: 'wallet.withdrawal.needs_review' } })).toBe(1);
     expect(await balanceOf(a, userId)).toEqual({ balance: 100n, reserved: 0n });
