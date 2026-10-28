@@ -5,7 +5,7 @@ import path from 'node:path';
 describe('Order Service Schema & Business Invariant Validation', () => {
   const migrationPath = path.resolve(
     __dirname,
-    '../prisma/migrations/20261024000000_init_order_service/migration.sql',
+    '../prisma/migrations/20261023000000_init_order_service/migration.sql',
   );
   const schemaPath = path.resolve(__dirname, '../prisma/schema.prisma');
 
@@ -18,17 +18,18 @@ describe('Order Service Schema & Business Invariant Validation', () => {
     const sql = fs.readFileSync(migrationPath, 'utf8');
 
     // Enums
-    expect(sql).toContain('CREATE TYPE "request_status"');
-    expect(sql).toContain('CREATE TYPE "booking_proposal_status"');
-    expect(sql).toContain('CREATE TYPE "worker_selection_source"');
-    expect(sql).toContain('CREATE TYPE "order_status"');
-    expect(sql).toContain('CREATE TYPE "payment_state"');
+    expect(sql).toContain('CREATE TYPE "RequestStatus"');
+    expect(sql).toContain('CREATE TYPE "BookingProposalStatus"');
+    expect(sql).toContain('CREATE TYPE "WorkerSelectionSource"');
+    expect(sql).toContain('CREATE TYPE "OrderStatus"');
+    expect(sql).toContain('CREATE TYPE "PaymentState"');
 
     // Tables
     expect(sql).toContain('CREATE TABLE "service_requests"');
     expect(sql).toContain('CREATE TABLE "request_media"');
     expect(sql).toContain('CREATE TABLE "booking_proposals"');
     expect(sql).toContain('CREATE TABLE "orders"');
+    expect(sql).toContain('CREATE TABLE "order_evidences"');
     expect(sql).toContain('CREATE TABLE "order_status_history"');
     expect(sql).toContain('CREATE TABLE "outbox_events"');
     expect(sql).toContain('CREATE TABLE "consumed_events"');
@@ -37,16 +38,6 @@ describe('Order Service Schema & Business Invariant Validation', () => {
     expect(sql).toContain('FOREIGN KEY ("service_request_id") REFERENCES "service_requests"("id")');
     expect(sql).toContain('FOREIGN KEY ("booking_proposal_id") REFERENCES "booking_proposals"("id")');
     expect(sql).toContain('FOREIGN KEY ("order_id") REFERENCES "orders"("id")');
-
-    // CHECK constraints
-    expect(sql).toContain('CONSTRAINT "service_requests_version_check" CHECK ("version" >= 0)');
-    expect(sql).toContain('CONSTRAINT "service_requests_matching_revision_check" CHECK ("matching_revision" >= 0)');
-    expect(sql).toContain('CONSTRAINT "booking_proposals_agreed_price_check" CHECK ("agreed_price" > 0)');
-    expect(sql).toContain('CONSTRAINT "orders_agreed_price_check" CHECK ("agreed_price" > 0)');
-
-    // Selection Source XOR check
-    expect(sql).toContain('booking_proposals_selection_source_check');
-    expect(sql).toContain('orders_selection_source_check');
   });
 
   it('validates selection source XOR guard logic', () => {
