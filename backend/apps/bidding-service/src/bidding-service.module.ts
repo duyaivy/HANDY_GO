@@ -8,6 +8,7 @@ import { BiddingCommonModule } from './common/bidding-common.module.js';
 import { RoundsModule } from './rounds/rounds.module.js';
 import { BidsModule } from './bids/bids.module.js';
 import { BiddingEventsModule } from './events/bidding-events.module.js';
+import { SseModule } from './sse/sse.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { BiddingEventsModule } from './events/bidding-events.module.js';
     RoundsModule,
     BidsModule,
     BiddingEventsModule,
+    SseModule,
   ],
   controllers: [],
   providers: [],

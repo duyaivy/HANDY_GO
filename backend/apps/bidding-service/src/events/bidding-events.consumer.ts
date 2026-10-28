@@ -1,9 +1,10 @@
-import { Controller, Logger, BadRequestException } from '@nestjs/common';
+import { Controller, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
 import { randomUUID, createHash } from 'crypto';
 import { EVENT_PATTERNS } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoundsService } from '../rounds/rounds.service.js';
+import { SseEventBridgeService } from '../sse/sse-event-bridge.service.js';
 
 interface EventEnvelope<T = any> {
   eventId?: string;
@@ -21,6 +22,8 @@ export class BiddingEventsConsumer {
   constructor(
     private readonly prisma: PrismaService,
     private readonly roundsService: RoundsService,
+    @Optional()
+    private readonly sseBridge?: SseEventBridgeService,
   ) {}
 
   /**
@@ -202,6 +205,60 @@ export class BiddingEventsConsumer {
       );
       await this.nackMessage(context, true, roundId, data, error);
     }
+  }
+
+  /**
+   * Consumes 'matching.completed' domain events from the shared microservice queue.
+   * Note: Real-time SSE broadcast across all replicas is handled directly by SseEventBridgeService
+   * subscribing to the topic exchange pattern matching.#.
+   */
+  @EventPattern(EVENT_PATTERNS.MATCHING_COMPLETED)
+  async handleMatchingCompleted(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    const eventId = data.eventId || (data as any).id;
+    const payload = data.payload || data;
+    const serviceRequestId =
+      payload.serviceRequestId ||
+      payload.requestId ||
+      data.serviceRequestId;
+
+    this.logger.log(
+      `Received matching.completed event (eventId: ${eventId}, requestId: ${serviceRequestId})`,
+    );
+
+    if (!serviceRequestId) {
+      this.logger.warn('matching.completed event missing serviceRequestId');
+      this.ackMessage(context, eventId);
+      return;
+    }
+
+    this.ackMessage(context, eventId);
+  }
+
+  /**
+   * Consumes 'matching.failed' domain events from the shared microservice queue.
+   * Note: Real-time SSE broadcast across all replicas is handled directly by SseEventBridgeService.
+   */
+  @EventPattern(EVENT_PATTERNS.MATCHING_FAILED)
+  async handleMatchingFailed(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    const eventId = data.eventId || (data as any).id;
+    const payload = data.payload || data;
+    const serviceRequestId =
+      payload.serviceRequestId ||
+      payload.requestId ||
+      data.serviceRequestId;
+
+    if (!serviceRequestId) {
+      this.ackMessage(context, eventId);
+      return;
+    }
+
+    this.ackMessage(context, eventId);
   }
 
   private readonly retryAttempts = new Map<string, number>();
