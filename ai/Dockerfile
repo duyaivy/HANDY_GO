@@ -46,6 +46,6 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
-    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AI_SERVICE_PORT','8000')+'/health',timeout=3)"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.getenv('PORT', os.getenv('AI_SERVICE_PORT','8000'))+'/health',timeout=3)"
 
 CMD ["python", "-m", "app.main"]
