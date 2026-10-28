@@ -1,0 +1,361 @@
+// ========================================================
+// Payment Service Database Schema (v2)
+// ========================================================
+// HandyGo Payment Service v2 - PostgreSQL | Currency VND (integer units).
+// Payment owns order payment orchestration, QR topups, commissions, cash receivables,
+// payouts (mock in development), refunds and provider reconciliation.
+// It NEVER owns wallets or ledger; Point balances belong to Wallet Service.
+// External UUIDs (Order / Wallet / User & Trust) are logical references only.
+// Enforce detailed CHECK and business guards in migrations/service layer.
+
+Project handygo_payment_service {
+  database_type: 'PostgreSQL'
+  Note: 'Payment owns order charge state and settlement; Wallet exclusively posts Point balances. Payout uses MockPayoutProvider until a verified partner integration is available.'
+}
+
+Enum payment_method {
+  cash
+  point
+}
+
+Enum payment_status {
+  pending
+  processing
+  succeeded
+  failed
+  cancelled
+  partially_refunded
+  refunded
+}
+
+Enum attempt_status {
+  pending
+  processing
+  succeeded
+  failed
+  cancelled
+}
+
+Enum settlement_status {
+  pending
+  processing
+  settled
+  receivable
+  failed
+}
+
+Enum commission_receivable_status {
+  due
+  partially_collected
+  collected
+  waived
+}
+
+Enum topup_status {
+  pending
+  awaiting_payment
+  paid
+  credit_pending
+  completed
+  failed
+  cancelled
+  expired
+  needs_review
+}
+
+Enum payout_status {
+  pending
+  processing
+  completed
+  failed
+  cancelled
+  needs_review
+}
+
+Enum refund_status {
+  pending
+  processing
+  completed
+  failed
+  cancelled
+  needs_review
+}
+
+// New commission rule rows are versioned; never rewrite rules already in use.
+Table commission_rules {
+  id uuid [pk]
+  rate_percent decimal(5,2) [not null, note: '0.00 - 100.00; e.g. 5.00 = 5%']
+  effective_from timestamptz [not null]
+  effective_to timestamptz
+  is_active boolean [not null, default: true]
+  created_by_user_id uuid [not null, note: 'Admin, logical reference -> User & Trust.users.id']
+  description text
+  created_at timestamptz [not null]
+
+  indexes {
+    (is_active, effective_from)
+  }
+}
+
+// Each Order creates at most one payment; attempts can be retried.
+// Order.amount is immutable from finalized Proposal. Apply commission rule at
+// order.created and snapshot rate + calculated allocations here.
+Table payments {
+  id uuid [pk]
+  order_id uuid [not null, unique, note: 'Logical reference -> Order.orders.id']
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  amount bigint [not null, note: 'Agreed gross service price in VND / Point']
+  currency varchar(10) [not null, default: 'VND']
+  method payment_method [note: 'Chosen by customer when paying; null before choice']
+  status payment_status [not null, default: 'pending']
+  commission_rule_id uuid [not null]
+  commission_rate_percent decimal(5,2) [not null, note: 'Immutable snapshot at order.created']
+  platform_fee bigint [not null, note: 'ROUND_HALF_UP(amount * rate / 100) in VND']
+  worker_earning bigint [not null, note: 'amount - platform_fee']
+  order_completed_at timestamptz [note: 'Order.completed event observed, unlocks payment']
+  paid_at timestamptz
+  cash_confirmed_by_user_id uuid [note: 'Worker who acknowledged direct cash receipt']
+  failure_reason text
+  idempotency_key varchar(150) [unique, note: 'Optional request-level key; order_id is business unique']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (customer_user_id, status, created_at)
+    (worker_user_id, status, created_at)
+  }
+}
+
+Table payment_attempts {
+  id uuid [pk]
+  payment_id uuid [not null]
+  attempt_no int [not null]
+  method payment_method [not null]
+  provider varchar(50) [not null, note: 'wallet_internal or cash_manual']
+  provider_reference varchar(150)
+  status attempt_status [not null, default: 'pending']
+  failure_reason text
+  attempted_at timestamptz [not null]
+  completed_at timestamptz
+
+  indexes {
+    (payment_id, attempt_no) [unique]
+  }
+}
+
+// Distinguishes 'customer paid' from 'worker/platform allocation settled'.
+Table payment_settlements {
+  id uuid [pk]
+  payment_id uuid [not null, unique]
+  status settlement_status [not null, default: 'pending']
+  gross_amount bigint [not null]
+  platform_fee bigint [not null]
+  worker_earning bigint [not null]
+  wallet_transfer_id uuid [unique, note: 'Logical reference -> Wallet.wallet_transfers.id for point payment']
+  settled_at timestamptz
+  failure_reason text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+// Cash payment: worker already received full price outside HandyGo.
+// Only the commission is due to HandyGo; worker wallet is NOT credited.
+Table commission_receivables {
+  id uuid [pk]
+  payment_id uuid [not null, unique]
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  amount_due bigint [not null]
+  amount_collected bigint [not null, default: 0]
+  status commission_receivable_status [not null, default: 'due']
+  latest_wallet_transfer_id uuid [note: 'Logical reference -> Wallet.wallet_transfers.id']
+  waived_by_user_id uuid [note: 'Admin only']
+  waived_reason text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (worker_user_id, status, created_at)
+  }
+}
+
+// VNPAY sandbox: generate checkout URL with VNPAYQR option; validate IPN.
+// 'paid' means provider verified; 'completed' only after Wallet credited Points.
+Table topup_requests {
+  id uuid [pk]
+  user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  amount_vnd bigint [not null]
+  points_to_credit bigint [not null, note: '1 VND = 1 Point; usually equal amount_vnd']
+  provider varchar(50) [not null, default: 'vnpay']
+  status topup_status [not null, default: 'pending']
+  idempotency_key varchar(150) [not null, unique]
+  provider_transaction_ref varchar(150) [unique, note: 'Merchant txn ref (vnp_TxnRef)']
+  provider_payment_ref varchar(150) [note: 'Provider bank/payment reference after success']
+  checkout_url text [note: 'Expires; usually a hosted VNPAY page with QR option']
+  provider_paid_at timestamptz
+  wallet_credited_at timestamptz
+  expires_at timestamptz
+  failure_reason text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (user_id, created_at)
+    (status, created_at)
+  }
+}
+
+Table topup_attempts {
+  id uuid [pk]
+  topup_id uuid [not null]
+  attempt_no int [not null]
+  provider varchar(50) [not null, default: 'vnpay']
+  provider_transaction_ref varchar(150) [not null, unique]
+  status attempt_status [not null, default: 'pending']
+  checkout_url text
+  failure_reason text
+  attempted_at timestamptz [not null]
+  finished_at timestamptz
+
+  indexes {
+    (topup_id, attempt_no) [unique]
+  }
+}
+
+// Keep IPN audit without trusting redirect/returnUrl. Deduplicate provider events.
+Table provider_notifications {
+  id uuid [pk]
+  provider varchar(50) [not null]
+  event_key varchar(200) [not null, note: 'Derived deterministic idempotency key']
+  notification_type varchar(50) [not null, note: 'topup_ipn / refund_result / payout_result']
+  signature_valid boolean [not null, default: false]
+  payload jsonb [not null, note: 'Redact PII/secrets; provider-signed payload only']
+  related_topup_id uuid
+  processed_at timestamptz
+  processing_error text
+  received_at timestamptz [not null]
+
+  indexes {
+    (provider, event_key) [unique]
+    (received_at)
+  }
+}
+
+// User withdrawal from Wallet is executed by Payment's payout adapter.
+// Initial implementation uses MockPayoutProvider (NO real bank transfer).
+Table payouts {
+  id uuid [pk]
+  withdrawal_id uuid [not null, unique, note: 'Logical reference -> Wallet.withdrawals.id']
+  user_id uuid [not null, note: 'Logical reference -> User & Trust.users.id']
+  bank_account_id uuid [not null, note: 'Logical reference -> User & Trust.user_bank_accounts.id']
+  bank_account_snapshot jsonb [not null, note: 'Validated immutable destination snapshot; encrypt sensitive fields, redact logs']
+  amount_vnd bigint [not null]
+  provider varchar(50) [not null, default: 'mock']
+  is_simulated boolean [not null, default: true]
+  status payout_status [not null, default: 'pending']
+  idempotency_key varchar(150) [not null, unique]
+  provider_reference varchar(150) [unique]
+  failure_reason text
+  created_at timestamptz [not null]
+  processing_at timestamptz
+  completed_at timestamptz
+  updated_at timestamptz [not null]
+
+  indexes {
+    (user_id, status, created_at)
+  }
+}
+
+Table payout_attempts {
+  id uuid [pk]
+  payout_id uuid [not null]
+  attempt_no int [not null]
+  provider varchar(50) [not null, default: 'mock']
+  status attempt_status [not null, default: 'pending']
+  provider_reference varchar(150)
+  failure_reason text
+  attempted_at timestamptz [not null]
+  completed_at timestamptz
+
+  indexes {
+    (payout_id, attempt_no) [unique]
+  }
+}
+
+// Refund requires funding/reversal policy. Never mint Point without backing.
+Table refunds {
+  id uuid [pk]
+  payment_id uuid [not null]
+  requested_by_user_id uuid [note: 'Logical reference -> User & Trust.users.id']
+  amount_vnd bigint [not null]
+  status refund_status [not null, default: 'pending']
+  reason text [not null]
+  idempotency_key varchar(150) [not null, unique]
+  wallet_transfer_id uuid [note: 'Logical reference -> Wallet.wallet_transfers.id']
+  provider_refund_id varchar(150)
+  failure_reason text
+  created_at timestamptz [not null]
+  refunded_at timestamptz
+  updated_at timestamptz [not null]
+
+  indexes {
+    (payment_id, created_at)
+  }
+}
+
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(60) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(120) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(120) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: commission_rules.id < payments.commission_rule_id
+Ref: payments.id < payment_attempts.payment_id
+Ref: payments.id - payment_settlements.payment_id
+Ref: payments.id - commission_receivables.payment_id
+Ref: payments.id < refunds.payment_id
+Ref: topup_requests.id < topup_attempts.topup_id
+Ref: topup_requests.id < provider_notifications.related_topup_id
+Ref: payouts.id < payout_attempts.payout_id
+
+// REQUIRED MIGRATION / SERVICE GUARDS:
+// 1. amounts > 0; payments: platform_fee >= 0; worker_earning >= 0;
+//    platform_fee + worker_earning = amount; commission_rate in [0,100].
+// 2. round fee using PostgreSQL ROUND_HALF_UP semantics in VND; store snapshot at
+//    order.created. Publish new non-overlapping commission rule for changes.
+// 3. Do not permit payment before Order.completed; 'awaiting_customer_confirmation'
+//    is NOT paid and Order.completed may precede Payment.succeeded.
+// 4. POINT: Wallet executes debit(customer), credit(worker), credit(platform) as
+//    ONE atomic internal transfer; Payment.succeeded only after Wallet confirms.
+// 5. CASH: worker confirms money received outside system. Do NOT credit worker
+//    wallet. Mark payment succeeded, commission receivable due; collect from worker
+//    Point wallet if available; leave receivable if not enough. Payment can be
+//    succeeded while settlement is receivable.
+// 6. Topup: use authenticated VNPAY IPN + amount/reference verification. 'paid'
+//    is NOT 'completed': Wallet must credit once and acknowledge. Return URL is UI only.
+// 7. Payout: Mock provider returns SIMULATED outcomes, not actual bank receipts.
+//    Payment emits result; Wallet captures/releases its hold idempotently.
+// 8. Partial refunds: sum of completed/in-flight refundable amounts <= payment.amount.
+//    POINT reversal requires funded transfers; otherwise needs_review/manual handling.
+// 9. Only refund or change fees with explicit audited authorization and rule guards.
+// 10. Provider event signatures, duplicates, timeouts, late callbacks and reconciliation
+//     must be handled explicitly. Consume/emit events with inbox/outbox patterns.
+// 11. Service-to-service requests use authentication, idempotency, timeouts and retry.
+// 12. If partial refunds are supported, add partially_refunded to the Order Service
+//     payment_state read projection (Order v3.1 currently has only paid/refunded).
+// 13. All TIMESTAMPTZ fields are stored UTC; display dates localized at the edge.

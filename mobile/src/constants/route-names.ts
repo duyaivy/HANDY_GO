@@ -51,6 +51,7 @@ export const RouteNames = {
   CUSTOMER_SUPPORT: '/customer/support',
   CUSTOMER_ASK_ME: '/customer/ask-me',
   CUSTOMER_SEARCH_ADDRESS: '/customer/search-address',
+  CUSTOMER_SAVED_ADDRESSES: '/customer/saved-addresses',
   CUSTOMER_CHAT: '/customer/chat',
   WORKER: '/worker',
   WORKER_HOME: '/worker',
