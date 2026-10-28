@@ -51,7 +51,9 @@ describe('Matching REST API Controllers', () => {
     };
 
     mockProjectionService = {
-      getProjection: vi.fn(),
+      getProjection: vi
+        .fn()
+        .mockResolvedValue({ matchingRevision: 1, status: 'open_for_bidding' }),
       findMatchingRequestsForWorker: vi.fn(),
     };
 
@@ -179,21 +181,23 @@ describe('Matching REST API Controllers', () => {
         serviceAreas: [{ latitude: 10.77, longitude: 106.7, radiusKm: 15.0 }],
       });
 
-      mockProjectionService.findMatchingRequestsForWorker.mockResolvedValueOnce({
-        items: [
-          {
-            id: 'req-10',
-            requestCode: 'REQ-10',
-            serviceId: 'srv-plumbing',
-            description: 'Sửa bồn rửa chén',
-            distanceKm: 3.2,
-            createdAt: new Date(),
-          },
-        ],
-        total: 1,
-        page: 1,
-        limit: 10,
-      });
+      mockProjectionService.findMatchingRequestsForWorker.mockResolvedValueOnce(
+        {
+          items: [
+            {
+              id: 'req-10',
+              requestCode: 'REQ-10',
+              serviceId: 'srv-plumbing',
+              description: 'Sửa bồn rửa chén',
+              distanceKm: 3.2,
+              createdAt: new Date(),
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 10,
+        },
+      );
 
       const response = await customerController.getDiscoverableRequests(
         mockWorkerUser,
@@ -229,7 +233,13 @@ describe('Matching REST API Controllers', () => {
         workerUserId: `worker-${i + 1}`,
         rank: i + 1,
         matchingScore: 99 - i * 2,
-        scoreBreakdown: { semanticScore: 90, geoScore: 90, ratingScore: 90, experienceScore: 90, completionScore: 90 },
+        scoreBreakdown: {
+          semanticScore: 90,
+          geoScore: 90,
+          ratingScore: 90,
+          experienceScore: 90,
+          completionScore: 90,
+        },
       }));
 
       mockMatchRunRepo.getLatestCompletedRun.mockResolvedValueOnce({
@@ -244,7 +254,8 @@ describe('Matching REST API Controllers', () => {
         modelVersion: 'mock-ai-v1.0',
       });
 
-      const response = await internalController.getInternalRecommendations('req-1');
+      const response =
+        await internalController.getInternalRecommendations('req-1');
 
       expect(response.resultCount).toBe(15);
       expect(response.recommendations).toHaveLength(15);
@@ -268,16 +279,20 @@ describe('Matching REST API Controllers', () => {
         workerUserId: 'worker-1',
         matchingScore: 95.0,
         matchRun: {
+          id: 'run-1',
+          status: 'completed',
           serviceRequestId: 'req-1',
           requestRevision: 1,
         },
       });
 
       mockMatchRunRepo.getLatestCompletedRun.mockResolvedValueOnce({
+        id: 'run-1',
         requestRevision: 1, // matches current revision
       });
 
       mockProjectionService.getProjection.mockResolvedValueOnce({
+        matchingRevision: 1,
         status: 'open_for_bidding',
       });
 
@@ -295,7 +310,8 @@ describe('Matching REST API Controllers', () => {
     it('should return isEligible = false if result does not exist', async () => {
       mockMatchRunRepo.getResultById.mockResolvedValueOnce(null);
 
-      const response = await internalController.checkResultEligibility('res-missing');
+      const response =
+        await internalController.checkResultEligibility('res-missing');
       expect(response.isEligible).toBe(false);
       expect(response.reason).toContain('không tồn tại');
     });
@@ -305,6 +321,8 @@ describe('Matching REST API Controllers', () => {
         id: 'res-1',
         workerUserId: 'worker-A',
         matchRun: {
+          id: 'run-1',
+          status: 'completed',
           serviceRequestId: 'req-1',
           requestRevision: 1,
         },
@@ -325,12 +343,19 @@ describe('Matching REST API Controllers', () => {
         id: 'res-stale',
         workerUserId: 'worker-1',
         matchRun: {
+          id: 'run-1',
+          status: 'completed',
           serviceRequestId: 'req-1',
           requestRevision: 1, // Result from revision 1
         },
       });
 
+      mockProjectionService.getProjection.mockResolvedValueOnce({
+        matchingRevision: 2,
+        status: 'open_for_bidding',
+      });
       mockMatchRunRepo.getLatestCompletedRun.mockResolvedValueOnce({
+        id: 'run-1',
         requestRevision: 2, // Latest completed revision is revision 2!
       });
 
@@ -344,4 +369,70 @@ describe('Matching REST API Controllers', () => {
       expect(response.reason).toContain('đã bị thay thế bởi revision 2');
     });
   });
+  it('returns pending for revision 2 when only revision 1 has a completed run', async () => {
+    mockProjectionService.getProjection.mockResolvedValue({
+      customerUserId: 'cust-123',
+      matchingRevision: 2,
+      status: 'open_for_bidding',
+    });
+    const old = {
+      id: 'run-1',
+      status: 'completed',
+      requestRevision: 1,
+      results: [],
+      createdAt: new Date(),
+    };
+    mockMatchRunRepo.getLatestCompletedRun.mockResolvedValue(old);
+    mockMatchRunRepo.getLatestRun.mockResolvedValue(old);
+    expect(
+      (await customerController.getRecommendations('req-1', mockCustomerUser))
+        .data,
+    ).toMatchObject({
+      requestRevision: 2,
+      status: 'pending',
+      recommendations: [],
+    });
+    mockMatchRunRepo.getResultById.mockResolvedValue({
+      workerUserId: 'worker-1',
+      matchRun: { ...old, serviceRequestId: 'req-1' },
+    });
+    expect(
+      (await internalController.checkResultEligibility('res-1')).isEligible,
+    ).toBe(false);
+  });
+
+  it('fails closed for internal reads when projection is missing', async () => {
+    mockProjectionService.getProjection.mockResolvedValue(null);
+    mockMatchRunRepo.getLatestCompletedRun.mockResolvedValue({
+      id: 'run-1',
+      requestRevision: 1,
+    });
+    mockMatchRunRepo.getResultById.mockResolvedValue({
+      matchRun: { id: 'run-1', status: 'completed', requestRevision: 1 },
+    });
+    await expect(
+      internalController.getInternalRecommendations('req-1'),
+    ).rejects.toThrow(NotFoundException);
+    expect(
+      (await internalController.checkResultEligibility('res-1')).isEligible,
+    ).toBe(false);
+  });
+
+  it.each(['cancelled', 'expired', 'converted_to_order'])(
+    'does not expose internal recommendations for %s',
+    async (status) => {
+      mockProjectionService.getProjection.mockResolvedValue({
+        matchingRevision: 1,
+        status,
+      });
+      mockMatchRunRepo.getLatestCompletedRun.mockResolvedValue({
+        id: 'run-1',
+        requestRevision: 1,
+        results: [],
+      });
+      await expect(
+        internalController.getInternalRecommendations('req-1'),
+      ).rejects.toThrow(NotFoundException);
+    },
+  );
 });

@@ -12,6 +12,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
   beforeEach(() => {
     mockConsumedEvents = {
       isEventConsumed: vi.fn().mockResolvedValue(false),
+      recordFailure: vi.fn().mockResolvedValue(false),
       markEventConsumed: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -22,7 +23,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
     };
 
     mockJobQueue = {
-      enqueue: vi.fn().mockResolvedValue(undefined),
+      enqueueAndWait: vi.fn().mockResolvedValue(undefined),
     };
 
     mockChannel = {
@@ -66,9 +67,13 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
     );
 
     expect(res.status).toBe('enqueued');
-    expect(mockConsumedEvents.isEventConsumed).toHaveBeenCalledWith('evt-pub-123');
-    expect(mockProjectionService.upsertPublishedRequest).toHaveBeenCalledTimes(1);
-    expect(mockJobQueue.enqueue).toHaveBeenCalledWith(
+    expect(mockConsumedEvents.isEventConsumed).toHaveBeenCalledWith(
+      'evt-pub-123',
+    );
+    expect(mockProjectionService.upsertPublishedRequest).toHaveBeenCalledTimes(
+      1,
+    );
+    expect(mockJobQueue.enqueueAndWait).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: 'MATCH-req-001-REV1-RUN1',
         serviceRequestId: 'req-001',
@@ -111,7 +116,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
         customerUserId: 'cust-456',
       }),
     );
-    expect(mockJobQueue.enqueue).toHaveBeenCalledWith(
+    expect(mockJobQueue.enqueueAndWait).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: 'MATCH-req-from-order-service-REV1-RUN1',
         serviceRequestId: 'req-from-order-service',
@@ -129,7 +134,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
     );
 
     expect(res.status).toBe('duplicate');
-    expect(mockJobQueue.enqueue).not.toHaveBeenCalled();
+    expect(mockJobQueue.enqueueAndWait).not.toHaveBeenCalled();
     expect(mockProjectionService.upsertPublishedRequest).not.toHaveBeenCalled();
     expect(mockChannel.ack).toHaveBeenCalledTimes(1);
   });
@@ -163,7 +168,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
         matchingRevision: 2,
       }),
     );
-    expect(mockJobQueue.enqueue).toHaveBeenCalledWith(
+    expect(mockJobQueue.enqueueAndWait).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: 'MATCH-req-001-REV2-RUN1',
         serviceRequestId: 'req-001',
@@ -217,5 +222,54 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
       'converted_to_order',
     );
     expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+  });
+  it('holds ACK and inbox until the queued processor actually completes', async () => {
+    let complete!: () => void;
+    mockJobQueue.enqueueAndWait.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+    );
+    const pending = consumer.handleServiceRequestPublished(
+      samplePublishedEvent,
+      mockContext,
+    );
+    await vi.waitFor(() =>
+      expect(mockJobQueue.enqueueAndWait).toHaveBeenCalled(),
+    );
+    expect(mockChannel.ack).not.toHaveBeenCalled();
+    expect(mockConsumedEvents.markEventConsumed).not.toHaveBeenCalled();
+    complete();
+    await pending;
+    expect(mockChannel.ack).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'handleServiceRequestBiddingClosed',
+    'handleServiceRequestExpired',
+  ] as const)('requeues %s on a transient projection error', async (method) => {
+    mockProjectionService.updateRequestStatus.mockRejectedValueOnce(
+      new Error('DB offline'),
+    );
+    await expect(
+      consumer[method](samplePublishedEvent, mockContext),
+    ).rejects.toThrow('DB offline');
+    expect(mockChannel.nack).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      true,
+    );
+    expect(mockChannel.ack).not.toHaveBeenCalled();
+  });
+
+  it('ACKs an exhausted delivery only after durable dead-letter persistence', async () => {
+    mockJobQueue.enqueueAndWait.mockRejectedValueOnce(new Error('offline'));
+    mockConsumedEvents.recordFailure.mockResolvedValueOnce(true);
+    await expect(
+      consumer.handleServiceRequestPublished(samplePublishedEvent, mockContext),
+    ).rejects.toThrow('offline');
+    expect(mockConsumedEvents.recordFailure).toHaveBeenCalledOnce();
+    expect(mockChannel.ack).toHaveBeenCalledOnce();
+    expect(mockChannel.nack).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,7 @@ for (const envPath of candidateEnvPaths) {
 
 function getDatabaseUrl(): string {
   const urlStr =
+    process.env.DIRECT_URL_MATCHING ||
     process.env.DATABASE_URL_MATCHING ||
     process.env.DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/handygo?schema=matching_service';

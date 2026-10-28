@@ -1,9 +1,11 @@
 import {
   Controller,
+  BadRequestException,
   ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Query,
   UseGuards,
@@ -16,11 +18,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import {
-  CurrentUser,
-  JwtAuthGuard,
-  type AuthenticatedUser,
-} from '@app/auth';
+import { CurrentUser, JwtAuthGuard, type AuthenticatedUser } from '@app/auth';
 import { MatchRunRepository } from '../persistence/match-run.repository.js';
 import { ServiceRequestProjectionService } from '../projections/service-request-projection.service.js';
 import {
@@ -70,7 +68,10 @@ export class CustomerMatchingController {
     type: CustomerRecommendationResponseDtoEnvelope,
   })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
-  @ApiResponse({ status: 403, description: 'Không đủ quyền xem đề xuất của yêu cầu này' })
+  @ApiResponse({
+    status: 403,
+    description: 'Không đủ quyền xem đề xuất của yêu cầu này',
+  })
   @ApiResponse({ status: 404, description: 'Không tìm thấy yêu cầu dịch vụ' })
   async getRecommendations(
     @Param('id') requestId: string,
@@ -78,61 +79,59 @@ export class CustomerMatchingController {
   ): Promise<ApiResponseEnvelope<CustomerRecommendationResponseDto>> {
     const projection = await this.projectionService.getProjection(requestId);
 
-    // If projection exists, verify ownership (Customer or Admin)
-    if (projection) {
-      const isOwner = projection.customerUserId === user.userId;
-      const isAdmin = user.roles?.includes('Admin');
-      if (!isOwner && !isAdmin) {
-        throw new ForbiddenException(
-          'Bạn không có quyền truy cập kết quả đề xuất của yêu cầu dịch vụ này',
-        );
-      }
+    // Fail-closed when projection is missing (PR34-04)
+    if (!projection) {
+      throw new NotFoundException('Không tìm thấy yêu cầu dịch vụ');
+    }
 
-      // If request was cancelled or converted, do not expose active recommendations
-      if (['cancelled', 'converted_to_order'].includes(projection.status)) {
-        return buildSuccessResponse(
-          {
-            requestId,
-            requestRevision: projection.matchingRevision,
-            status: projection.status,
-            displayLimit: 5,
-            recommendations: [],
-            generatedAt: new Date().toISOString(),
-          },
-          'Lấy danh sách đề xuất thành công',
-        );
-      }
+    // Verify ownership (Customer or Admin)
+    const isOwner = projection.customerUserId === user.userId;
+    const isAdmin = user.roles?.includes('Admin');
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException(
+        'Bạn không có quyền truy cập kết quả đề xuất của yêu cầu dịch vụ này',
+      );
+    }
+
+    // If request was cancelled, converted, or expired, do not expose active recommendations
+    if (!['open_for_bidding', 'bidding_closed'].includes(projection.status)) {
+      return buildSuccessResponse(
+        {
+          requestId,
+          requestRevision: projection.matchingRevision,
+          status: projection.status,
+          displayLimit: 5,
+          recommendations: [],
+          generatedAt: new Date().toISOString(),
+        },
+        'Lấy danh sách đề xuất thành công',
+      );
     }
 
     const latestCompletedRun =
       await this.matchRunRepo.getLatestCompletedRun(requestId);
 
-    if (!latestCompletedRun) {
-      // Check if there is an in-progress or pending run
-      const latestRun = await this.matchRunRepo.getLatestRun(requestId);
-      if (latestRun) {
-        return buildSuccessResponse(
-          {
-            requestId,
-            requestRevision: latestRun.requestRevision,
-            status: latestRun.status,
-            displayLimit: latestRun.displayLimit,
-            recommendations: [],
-            generatedAt: latestRun.createdAt.toISOString(),
-            modelVersion: latestRun.modelVersion || undefined,
-          },
-          'Lấy danh sách đề xuất thành công',
-        );
-      }
+    const currentRevision = projection.matchingRevision || 1;
 
-      // No run found
+    // Stale revision check (PR34-04):
+    // Only return completed results if they match the current active projection revision
+    if (
+      !latestCompletedRun ||
+      latestCompletedRun.requestRevision !== currentRevision
+    ) {
+      // Check if there is an in-progress or pending run for the current revision
+      const run = await this.matchRunRepo.getLatestRun(requestId);
+      const latestRun = run?.requestRevision === currentRevision ? run : null;
       return buildSuccessResponse(
         {
           requestId,
-          requestRevision: projection?.matchingRevision || 1,
-          status: 'pending',
+          requestRevision: currentRevision,
+          status: latestRun?.status || 'pending',
           displayLimit: 5,
           recommendations: [],
+          generatedAt:
+            latestRun?.createdAt.toISOString() || new Date().toISOString(),
+          modelVersion: latestRun?.modelVersion || undefined,
         },
         'Lấy danh sách đề xuất thành công',
       );
@@ -185,7 +184,10 @@ export class CustomerMatchingController {
     type: WorkerRequestDiscoveryResponseDtoEnvelope,
   })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
-  @ApiResponse({ status: 403, description: 'Chỉ dành cho tài khoản Thợ đã xác minh' })
+  @ApiResponse({
+    status: 403,
+    description: 'Chỉ dành cho tài khoản Thợ đã xác minh',
+  })
   async getDiscoverableRequests(
     @CurrentUser() user: AuthenticatedUser,
     @Query('page') pageStr?: string,
@@ -194,6 +196,9 @@ export class CustomerMatchingController {
     const page = Math.max(1, parseInt(pageStr || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(limitStr || '10', 10)));
 
+    if (!Number.isSafeInteger(page) || !Number.isSafeInteger(limit)) {
+      throw new BadRequestException('page and limit must be positive integers');
+    }
     // Retrieve worker's active profile and areas from candidate provider
     const profile = await this.candidateProvider.getWorkerMatchProfile(
       user.userId,
@@ -227,7 +232,9 @@ export class CustomerMatchingController {
           serviceId: item.serviceId,
           description: item.description || '',
           distanceKm: item.distanceKm,
-          scheduledAt: item.scheduledAt ? item.scheduledAt.toISOString() : undefined,
+          scheduledAt: item.scheduledAt
+            ? item.scheduledAt.toISOString()
+            : undefined,
           addressText: item.addressText || undefined,
           createdAt: item.createdAt.toISOString(),
         })),
@@ -239,4 +246,3 @@ export class CustomerMatchingController {
     );
   }
 }
-

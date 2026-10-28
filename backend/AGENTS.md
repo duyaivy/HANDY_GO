@@ -108,7 +108,7 @@ pnpm run lint
 | | `HttpExceptionFilter` | **Global Exception Filter & Detailed Error Logger.** Catches all exceptions, formats standardized JSON error responses, logs full 5xx/4xx error context with method, URL, message & stack traces, and injects error details into `pino-http`. |
 | | `OutboxPublisherService`<br>`OutboxRepository` | **Reliable Transactional Outbox Pattern.** Persists domain events into the database within the same transaction and asynchronously dispatches to RabbitMQ with DLQ & retry support. |
 | | `renderEmailTemplate(template, vars)` | **HTML Email Template Renderer.** Injects dynamic placeholders `{{variable}}` into branded HANDY GO responsive HTML email layouts. |
-| | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.USER_REGISTERED` (eventVersion: 3, unified payload containing `roles: ["Customer", "Worker"]`). |
+| | `EVENT_PATTERNS` | **Standardized Domain Event Constants.** E.g., `EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED` and `SERVICE_REQUEST_EXPIRED` drive Matching lifecycle projections; `EVENT_PATTERNS.USER_REGISTERED` (eventVersion: 3, unified payload containing `roles: ["Customer", "Worker"]`). |
 | | `ApiResponseEnvelope`<br>`ApiErrorResponseEnvelope`<br>`ApiResponseDto`<br>`ApiErrorResponseDto`<br>`buildSuccessResponse(data, message, statusCode)`<br>`buildErrorResponse(statusCode, code, message, data)` | **Standardized API Response Envelope Engine.** Wraps every HTTP response in `{ statusCode, message, data }`; errors additionally expose a stable `code`. Error `data` is always present (`null` when empty) and contains business metadata such as `verification` or `fieldErrors`. |
 | **`@app/auth`**<br>`libs/auth/src/` | `@Public()` | Disables default JWT authentication guard for open endpoints (e.g., login, register, health). |
 | | `@RequirePermissions(...)` | Enforces declarative RBAC permission codes on routes. E.g., `@RequirePermissions(StandardPermissions.AUTH_ME)`. |
@@ -222,6 +222,21 @@ pnpm run lint
 | `UserTrustRpcClient` | `apps/notification-service/src/common/rpc/user-trust-rpc.client.ts` | **User & Trust RPC Client.** Fetches active user IDs via RabbitMQ RPC (`user.get-all-active-ids`). `userTrustClient.getAllActiveUserIds(targetGroup)`. |
 | `getAllActiveUserIds` | `apps/user-trust-service/src/user-trust-service.controller.ts`<br>`apps/user-trust-service/src/user-trust-service.service.ts` | **Active User IDs RPC Provider.** Microservice message pattern `user.get-all-active-ids` querying active users filtered by target group (`ALL`, `CUSTOMERS`, `WORKERS`). |
 | `AdminBroadcastNotificationDto`<br>`BroadcastResponseDto` | `apps/notification-service/src/notifications/dto/broadcast-notification.dto.ts` | **Broadcast DTOs.** Validates title, body, category, targetGroup, optional recipientUserIds, and sendPush flag. |
+
+### 4.7. Matching reliability and candidate aggregation
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `MatchRunRepository`, `MatchRunBusyError` | `apps/matching-service/src/persistence/match-run.repository.ts` | Claims a bounded execution lease with an attempt token; fences completion/failure, preserves completed result IDs and writes notification outbox events atomically. `claimRun(run.id, token, deadline)`; pass `attemptToken` and `signal` to `persistMatchResults`. |
+| `ConsumedEventRepository` | `apps/matching-service/src/persistence/consumed-event.repository.ts` | Durable inbox and bounded delivery failures; exhausted messages are retained in `event_deliveries` for operator replay before ACK. `recordFailure(eventId, eventType, payload, error)`. |
+| `MatchingJobQueueService` | `apps/matching-service/src/queue/matching-job-queue.service.ts` | Bounded execution with abort/deadline propagation. Consumers call `enqueueAndWait(job)` and retain broker ownership until completion. |
+| `ServiceRequestProjectionService` | `apps/matching-service/src/projections/service-request-projection.service.ts` | Monotonic revision/lifecycle updates and database-side geographic filtering/pagination. `findMatchingRequestsForWorker(params)`. |
+| `UserTrustCandidateProvider` | `apps/matching-service/src/candidates/user-trust-candidate.provider.ts` | Bounded candidate discovery, distinguishing upstream errors from successful empty results. `findCandidates(params, signal)`. |
+| `InternalServiceGuard` | `apps/user-trust-service/src/common/guards/internal-service.guard.ts` | Fail-closed timing-safe service authentication for both worker matching endpoints. `@UseGuards(InternalServiceGuard)`. |
+| `MatchingOrchestratorService`, `FastApiAiRankingProvider` | `apps/matching-service/src/orchestrator/matching-orchestrator.service.ts`, `apps/matching-service/src/ranking/fastapi-ai-ranking.provider.ts` | Deadline-aware execution with a token-fenced commit; selects the nearest 100 eligible workers deterministically before AI ranking. `processMatchingJob(job, signal)` / `rank(request, signal)`. |
+| `MatchingOutboxPublisherService` | `apps/matching-service/src/outbox/matching-outbox-publisher.service.ts` | Retries the original durable outbox event with stable IDs; never treats an unbound DLQ routing key as successful delivery. `triggerPublish()`. |
+| `InternalMatchingController`, `CustomerMatchingController` | `apps/matching-service/src/controllers/` | Recommendations and eligibility require the current projection revision and an available lifecycle; worker discovery uses bounded database pagination. `checkResultEligibility(resultId, requestId, workerId)`. |
+| `BidsService.getBidsForRequest`, `BiddingClient`, `CandidatesAggregationService` | `apps/bidding-service/src/bids/bids.service.ts`, `apps/api-gateway/src/candidates/` | Request-wide bidder IDs for cross-page deduplication and explicit partial failure reporting. `aggregateCandidates(requestId, query, user)`. |
 
 ## 5. Feature Blueprint & Implementation Template
 

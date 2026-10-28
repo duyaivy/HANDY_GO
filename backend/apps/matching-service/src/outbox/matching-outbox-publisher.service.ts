@@ -62,34 +62,14 @@ export class MatchingOutboxPublisherService
 
           await this.repository.incrementPublishAttempts(event.id);
 
-          if (attempts >= 5) {
-            // Route to DLQ
-            try {
-              await this.rabbitmq.emit('handy-go.dlq', {
-                failedEventId: event.id,
-                aggregateType: event.aggregateType,
-                aggregateId: event.aggregateId,
-                eventType: event.eventType,
-                payload: event.payload,
-                attempts,
-                failedAt: new Date().toISOString(),
-                error: msg,
-              });
-              await this.repository.markPublished(event.id);
-            } catch (dlqErr) {
-              this.logger.error(
-                `Failed to route event ${event.id} to DLQ: ${(dlqErr as Error).message}`,
-              );
-            }
-          }
+          // Keep the original durable outbox row pending. A routing-key emission is
+          // not proof that a DLQ exists; never mark an undelivered event published.
         }
       }
 
       return publishedCount;
     } catch (err) {
-      this.logger.debug(
-        `Outbox poll cycle skipped: ${(err as Error).message}`,
-      );
+      this.logger.debug(`Outbox poll cycle skipped: ${(err as Error).message}`);
       return 0;
     } finally {
       this.isProcessing = false;

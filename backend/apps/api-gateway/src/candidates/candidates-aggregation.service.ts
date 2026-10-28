@@ -47,6 +47,7 @@ export class CandidatesAggregationService {
 
     // 2. Lifecycle check: Cancelled or converted requests cannot expose actionable candidates
     if (
+      serviceRequest.status === 'expired' ||
       serviceRequest.status === 'cancelled' ||
       serviceRequest.status === 'converted_to_order'
     ) {
@@ -54,7 +55,8 @@ export class CandidatesAggregationService {
         requestId,
         requestStatus: serviceRequest.status,
         bidding: {
-          status: serviceRequest.status === 'cancelled' ? 'cancelled' : 'closed',
+          status:
+            serviceRequest.status === 'cancelled' ? 'cancelled' : 'closed',
           closesAt: null,
           total: 0,
           page: query.page,
@@ -72,7 +74,12 @@ export class CandidatesAggregationService {
 
     // 3. Concurrent execution of Bidding & Matching queries
     const [biddingResult, matchingResult] = await Promise.all([
-      this.biddingClient.getBidsAndStatus(requestId, query, user, correlationId),
+      this.biddingClient.getBidsAndStatus(
+        requestId,
+        query,
+        user,
+        correlationId,
+      ),
       this.matchingClient.getRecommendations(requestId, correlationId),
     ]);
 
@@ -92,6 +99,14 @@ export class CandidatesAggregationService {
         statusCode: matchingResult.statusCode,
       });
     }
+    const missingBidderIndex =
+      biddingResult.total > biddingResult.items.length &&
+      !Array.isArray(biddingResult.allBidderWorkerIds);
+    if (missingBidderIndex)
+      partialFailures.push({
+        service: 'bidding',
+        reason: 'Request-wide bidder index unavailable',
+      });
     const isPartial = partialFailures.length > 0;
 
     // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections)
@@ -108,9 +123,7 @@ export class CandidatesAggregationService {
         workerId,
         amount: typeof b.amount === 'number' ? b.amount : Number(b.amount || 0),
         message: b.message ?? null,
-        validUntil: b.validUntil
-          ? new Date(b.validUntil).toISOString()
-          : null,
+        validUntil: b.validUntil ? new Date(b.validUntil).toISOString() : null,
         status: b.status,
         version: b.version,
         submittedAt: b.submittedAt
@@ -128,14 +141,23 @@ export class CandidatesAggregationService {
     // - Exclude that Worker from Matching recommendations
     // - Continue down the Top 20 results to replenish up to 5 recommendations
     // - Preserve relative AI rank order
-    const biddingWorkerIds = new Set<string>(
-      biddingItems.map((b) => b.workerUserId).filter(Boolean),
-    );
+    // Global deduplication across all bidding pages (PR34-07):
+    // Use allBidderWorkerIds from Bidding Service if available, otherwise fall back to current page items
+    const allBiddersList =
+      Array.isArray(biddingResult.allBidderWorkerIds) &&
+      biddingResult.allBidderWorkerIds.length > 0
+        ? biddingResult.allBidderWorkerIds
+        : biddingItems.map((b) => b.workerUserId).filter(Boolean);
+
+    const biddingWorkerIds = new Set<string>(allBiddersList);
 
     const matchingRecommendations: MatchingRecommendationDto[] = [];
     const seenMatchingWorkers = new Set<string>();
 
-    for (const rec of matchingResult.recommendations) {
+    const canDeduplicate =
+      !missingBidderIndex &&
+      (Array.isArray(biddingResult.allBidderWorkerIds) || !biddingResult.error);
+    for (const rec of canDeduplicate ? matchingResult.recommendations : []) {
       if (matchingRecommendations.length >= 5) {
         break;
       }

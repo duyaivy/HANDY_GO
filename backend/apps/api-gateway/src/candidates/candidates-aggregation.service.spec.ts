@@ -277,12 +277,75 @@ describe('CandidatesAggregationService', () => {
 
     // Excluded from matching recommendations
     expect(result.matching.recommendations).toHaveLength(1);
-    expect(result.matching.recommendations[0].workerUserId).toBe('worker-unique');
+    expect(result.matching.recommendations[0].workerUserId).toBe(
+      'worker-unique',
+    );
     expect(
       result.matching.recommendations.some(
         (r) => r.workerUserId === 'worker-duplicate',
       ),
     ).toBe(false);
+  });
+
+  it('PR34-07: Worker who bid on page 3 is globally deduplicated and excluded from Top 5 matching on page 1', async () => {
+    mockOrderClient.getServiceRequest.mockResolvedValue({
+      id: requestId,
+      customerUserId: 'cust-uuid-1',
+      status: 'open_for_bidding',
+    });
+
+    // Page 1 bidding query returns worker-page1-bidder in items,
+    // but allBidderWorkerIds contains worker-page3-bidder from page 3!
+    mockBiddingClient.getBidsAndStatus.mockResolvedValue({
+      status: 'open',
+      total: 25,
+      page: 1,
+      limit: 10,
+      items: [
+        {
+          id: 'bid-page1',
+          workerId: 'worker-page1-bidder',
+          amount: 200000,
+          submittedAt: '2026-10-28T10:00:00.000Z',
+        },
+      ],
+      allBidderWorkerIds: ['worker-page1-bidder', 'worker-page3-bidder'],
+    });
+
+    mockMatchingClient.getRecommendations.mockResolvedValue({
+      status: 'completed',
+      recommendations: [
+        {
+          matchResultId: 'match-p3',
+          workerUserId: 'worker-page3-bidder', // Should be excluded because they bid on page 3!
+          rank: 1,
+          matchingScore: 99.0,
+        },
+        {
+          matchResultId: 'match-clean',
+          workerUserId: 'worker-non-bidder',
+          rank: 2,
+          matchingScore: 92.0,
+        },
+      ],
+    });
+
+    const result = await service.aggregateCandidates(
+      requestId,
+      { page: 1, limit: 10 },
+      customerUser,
+    );
+
+    // worker-page3-bidder MUST be excluded from matching recommendations
+    expect(
+      result.matching.recommendations.some(
+        (r) => r.workerUserId === 'worker-page3-bidder',
+      ),
+    ).toBe(false);
+    expect(result.matching.recommendations).toHaveLength(1);
+    expect(result.matching.recommendations[0].workerUserId).toBe(
+      'worker-non-bidder',
+    );
   });
 
   // 6. Top 5 recommendations are replenished from later ranked results after deduplication
@@ -327,7 +390,9 @@ describe('CandidatesAggregationService', () => {
     );
 
     expect(result.matching.recommendations).toHaveLength(5);
-    const workerIds = result.matching.recommendations.map((r) => r.workerUserId);
+    const workerIds = result.matching.recommendations.map(
+      (r) => r.workerUserId,
+    );
     expect(workerIds).toEqual(['w2', 'w4', 'w5', 'w6', 'w7']);
   });
 
@@ -427,9 +492,24 @@ describe('CandidatesAggregationService', () => {
     mockMatchingClient.getRecommendations.mockResolvedValue({
       status: 'completed',
       recommendations: [
-        { matchResultId: 'm1', workerUserId: 'w1', rank: 1, matchingScore: 99.1 },
-        { matchResultId: 'm2', workerUserId: 'w2', rank: 2, matchingScore: 88.4 },
-        { matchResultId: 'm3', workerUserId: 'w3', rank: 3, matchingScore: 77.2 },
+        {
+          matchResultId: 'm1',
+          workerUserId: 'w1',
+          rank: 1,
+          matchingScore: 99.1,
+        },
+        {
+          matchResultId: 'm2',
+          workerUserId: 'w2',
+          rank: 2,
+          matchingScore: 88.4,
+        },
+        {
+          matchResultId: 'm3',
+          workerUserId: 'w3',
+          rank: 3,
+          matchingScore: 77.2,
+        },
       ],
     });
 
@@ -585,7 +665,9 @@ describe('CandidatesAggregationService', () => {
       total: 1,
       page: 1,
       limit: 20,
-      items: [{ id: 'b1', workerId: 'w1', amount: 200000, submittedAt: '2026-10-28' }],
+      items: [
+        { id: 'b1', workerId: 'w1', amount: 200000, submittedAt: '2026-10-28' },
+      ],
     });
 
     // Client maps 404 to status 'processing' without error
@@ -618,7 +700,9 @@ describe('CandidatesAggregationService', () => {
       total: 1,
       page: 1,
       limit: 20,
-      items: [{ id: 'b1', workerId: 'w1', amount: 200000, submittedAt: '2026-10-28' }],
+      items: [
+        { id: 'b1', workerId: 'w1', amount: 200000, submittedAt: '2026-10-28' },
+      ],
     });
 
     mockMatchingClient.getRecommendations.mockResolvedValue({
@@ -642,7 +726,7 @@ describe('CandidatesAggregationService', () => {
   });
 
   // 15. Bidding Service timeout or failure
-  it('Requirement 15: Bidding Service timeout or failure returns valid recommendations with partial failure', async () => {
+  it('Bidding failure suppresses recommendations that cannot be globally deduplicated', async () => {
     mockOrderClient.getServiceRequest.mockResolvedValue({
       id: requestId,
       customerUserId: 'cust-uuid-1',
@@ -673,7 +757,7 @@ describe('CandidatesAggregationService', () => {
 
     expect(result.bidding.status).toBe('unavailable');
     expect(result.bidding.items).toHaveLength(0);
-    expect(result.matching.recommendations).toHaveLength(1);
+    expect(result.matching.recommendations).toHaveLength(0);
     expect(result.partial).toBe(true);
     expect(result.partialFailures?.[0].service).toBe('bidding');
   });
@@ -728,7 +812,9 @@ describe('CandidatesAggregationService', () => {
     // Matching proposal reference check
     const matchingCandidate = result.matching.recommendations[0];
     expect(matchingCandidate.selectionSource).toBe('recommendation');
-    expect(matchingCandidate.sourceMatchResultId).toBe('match-result-uuid-9999');
+    expect(matchingCandidate.sourceMatchResultId).toBe(
+      'match-result-uuid-9999',
+    );
     expect(matchingCandidate.workerUserId).toBe('worker-user-8888');
   });
 

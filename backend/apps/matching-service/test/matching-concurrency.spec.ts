@@ -59,7 +59,6 @@ describe('MatchingJobQueue Concurrency & Reliability Scenarios', () => {
     process.env.MATCHING_JOB_TIMEOUT_MS = '100';
     const queueService = new MatchingJobQueueService();
 
-
     // Processor that never finishes within 100ms
     queueService.setProcessor(async () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -83,7 +82,10 @@ describe('MatchingJobQueue Concurrency & Reliability Scenarios', () => {
     // Wait for timeout to fire
     await new Promise((res) => setTimeout(res, 300));
 
+    expect(queueService.activeCount).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     expect(queueService.activeCount).toBe(0);
+    delete process.env.MATCHING_JOB_TIMEOUT_MS;
     await queueService.onModuleDestroy();
   });
 });

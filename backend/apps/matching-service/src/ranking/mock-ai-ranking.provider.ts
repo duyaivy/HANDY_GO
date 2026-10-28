@@ -34,8 +34,12 @@ export class MockAiRankingProvider implements IRankingProvider {
       return 50.0; // neutral synthetic baseline for missing descriptions
     }
 
-    const reqTokens = new Set(cleanReq.split(/\s+/).filter((t) => t.length > 1));
-    const offTokens = new Set(cleanOff.split(/\s+/).filter((t) => t.length > 1));
+    const reqTokens = new Set(
+      cleanReq.split(/\s+/).filter((t) => t.length > 1),
+    );
+    const offTokens = new Set(
+      cleanOff.split(/\s+/).filter((t) => t.length > 1),
+    );
 
     if (reqTokens.size === 0 || offTokens.size === 0) {
       return 50.0;
@@ -53,11 +57,24 @@ export class MockAiRankingProvider implements IRankingProvider {
 
     // Scale Jaccard from [0.0, 1.0] to a realistic semantic score range [40.0, 98.0]
     const semanticScore = 40.0 + jaccard * 58.0;
-    return Math.round(Math.max(0.0, Math.min(100.0, semanticScore)) * 100) / 100;
+    return (
+      Math.round(Math.max(0.0, Math.min(100.0, semanticScore)) * 100) / 100
+    );
   }
 
-  async rank(request: RankingRequestDto): Promise<RankingResponseDto> {
-    const { candidates, requestDescription, simulationOptions, topN = 20 } = request;
+  async rank(
+    request: RankingRequestDto,
+    signal?: AbortSignal,
+  ): Promise<RankingResponseDto> {
+    if (signal?.aborted) {
+      throw new Error(`Mock AI Ranking aborted: ${signal.reason || 'aborted'}`);
+    }
+    const {
+      candidates,
+      requestDescription,
+      simulationOptions,
+      topN = 20,
+    } = request;
 
     // 1. Simulation Controls (for automated resilience and failure tests)
     if (simulationOptions?.simulateTimeoutMs) {
@@ -128,7 +145,8 @@ export class MockAiRankingProvider implements IRankingProvider {
         weights.completion * completionScore;
 
       const matchingScore =
-        Math.round(Math.max(0.0, Math.min(100.0, matchingScoreRaw)) * 100) / 100;
+        Math.round(Math.max(0.0, Math.min(100.0, matchingScoreRaw)) * 100) /
+        100;
 
       scoredCandidates.push({
         candidate,

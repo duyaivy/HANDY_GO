@@ -37,7 +37,7 @@ describe('MatchingOrchestratorService E2E Workflow', () => {
         status: 'pending',
         displayLimit: 5,
       }),
-      updateRunStatus: vi.fn().mockResolvedValue({}),
+      claimRun: vi.fn().mockResolvedValue(true),
       persistMatchResults: vi.fn().mockResolvedValue({
         isStaleRevision: false,
         savedResultCount: 3,
@@ -109,9 +109,10 @@ describe('MatchingOrchestratorService E2E Workflow', () => {
     await orchestrator.processMatchingJob(baseJob);
 
     // Verify status updated to processing
-    expect(mockMatchRunRepo.updateRunStatus).toHaveBeenCalledWith(
+    expect(mockMatchRunRepo.claimRun).toHaveBeenCalledWith(
       'run-uuid-1',
-      'processing',
+      expect.any(String),
+      expect.any(Date),
     );
 
     // Verify persistMatchResults called with Top ranked workers
@@ -210,5 +211,113 @@ describe('MatchingOrchestratorService E2E Workflow', () => {
     expect(failArgs.errorMessage).toContain('Database connectivity failure');
     expect(failArgs.outboxPayload.eventType).toBe('matching.failed');
     expect(mockOutboxPublisher.triggerPublish).toHaveBeenCalledTimes(1);
+  });
+
+  it('User Requirement / PR34-03: should activate RuleBasedFallbackRanker when AI returns empty rankedWorkers to avoid empty results', async () => {
+    candidateAdapter.setTestCandidates([
+      {
+        workerUserId: 'worker-A',
+        workerProfileId: 'profile-A',
+        offeringTitle: 'Thợ sửa điện',
+        offeringDescription: 'Sửa điện',
+        experienceYears: 5,
+        centerLatitude: 10.775,
+        centerLongitude: 106.7,
+        radiusKm: 10.0,
+        distanceKm: 0.8,
+        averageRating: 4.8,
+        ratingCount: 15,
+        completedOrderCount: 20,
+      },
+    ]);
+
+    // Primary AI returns empty array
+    vi.spyOn(primaryRanker, 'rank').mockResolvedValueOnce({
+      modelVersion: 'intfloat/multilingual-e5-small-hybrid-v1.0',
+      providerType: 'real_ai',
+      rankedWorkers: [],
+      generatedAt: new Date().toISOString(),
+    });
+
+    const fallbackSpy = vi.spyOn(fallbackRanker, 'rank');
+
+    await orchestrator.processMatchingJob(baseJob);
+
+    // Fallback ranker was invoked to avoid empty results
+    expect(fallbackSpy).toHaveBeenCalledTimes(1);
+    expect(mockMatchRunRepo.persistMatchResults).toHaveBeenCalledTimes(1);
+    const persistArgs = mockMatchRunRepo.persistMatchResults.mock.calls[0][0];
+    expect(persistArgs.results).toHaveLength(1);
+    expect(persistArgs.results[0].workerUserId).toBe('worker-A');
+  });
+
+  it('PR34-09: Idempotency: should skip processing as no-op if MatchRun is already completed', async () => {
+    mockMatchRunRepo.createOrGetRun.mockResolvedValueOnce({
+      id: 'run-uuid-completed',
+      serviceRequestId: 'req-1',
+      serviceId: 'srv-1',
+      requestRevision: 1,
+      runNumber: 1,
+      status: 'completed', // Already completed!
+      displayLimit: 5,
+    });
+
+    const candidateSpy = vi.spyOn(candidateAdapter, 'findCandidates');
+
+    await orchestrator.processMatchingJob(baseJob);
+
+    // Should return immediately without querying candidates or updating status
+    expect(candidateSpy).not.toHaveBeenCalled();
+    expect(mockMatchRunRepo.claimRun).not.toHaveBeenCalled();
+    expect(mockMatchRunRepo.persistMatchResults).not.toHaveBeenCalled();
+  });
+  it('never persists zero results when discovery resolves after cancellation', async () => {
+    const controller = new AbortController();
+    vi.spyOn(candidateAdapter, 'findCandidates').mockImplementationOnce(
+      async () => {
+        controller.abort(new Error('deadline'));
+        return [];
+      },
+    );
+    await expect(
+      orchestrator.processMatchingJob(baseJob, controller.signal),
+    ).rejects.toThrow('deadline');
+    expect(mockMatchRunRepo.persistMatchResults).not.toHaveBeenCalled();
+  });
+
+  it('does not turn an upstream failure into completed zero', async () => {
+    vi.spyOn(candidateAdapter, 'findCandidates').mockRejectedValueOnce(
+      new Error('User Trust offline'),
+    );
+    await expect(orchestrator.processMatchingJob(baseJob)).rejects.toThrow(
+      'User Trust offline',
+    );
+    expect(mockMatchRunRepo.persistMatchResults).not.toHaveBeenCalled();
+    expect(mockMatchRunRepo.failMatchRun).toHaveBeenCalledOnce();
+  });
+
+  it('passes at most 100 deterministic nearest candidates to AI', async () => {
+    vi.spyOn(candidateAdapter, 'findCandidates').mockResolvedValueOnce(
+      Array.from({ length: 125 }, (_, i) => ({
+        workerUserId: `worker-${i}`,
+        workerProfileId: `profile-${i}`,
+        serviceId: 'srv-1',
+        centerLatitude: 10.772,
+        centerLongitude: 106.6983,
+        radiusKm: 10,
+        offeringTitle: 'plumber',
+        offeringDescription: 'repair',
+        averageRating: 4,
+        ratingCount: 1,
+        experienceYears: 1,
+        distanceKm: 0,
+      })),
+    );
+    const rank = vi.spyOn(primaryRanker, 'rank');
+    await orchestrator.processMatchingJob(baseJob);
+    expect(rank.mock.calls[0][0].candidates).toHaveLength(100);
+    expect(
+      mockMatchRunRepo.persistMatchResults.mock.calls[0][0].eligibleWorkerIds,
+    ).toHaveLength(125);
   });
 });

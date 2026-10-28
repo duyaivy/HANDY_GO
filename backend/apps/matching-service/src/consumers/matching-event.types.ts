@@ -11,6 +11,8 @@ export interface ServiceRequestPublishedEventData {
   latitude: number;
   longitude: number;
   matchingRevision?: number;
+  biddingClosesAt?: string;
+  selectionExpiresAt?: string;
 }
 
 export interface ServiceRequestInputsChangedEventData {

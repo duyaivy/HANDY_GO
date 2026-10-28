@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/notification-client';
 import { NotificationPrismaService } from '../common/notification-prisma.service.js';
 import type { RegisterDeviceDto } from './dto/register-device.dto.js';
@@ -131,10 +131,7 @@ export class DevicesRepository {
     });
   }
 
-  findActiveByUserIds(
-    userIds: string[],
-    tx?: Prisma.TransactionClient,
-  ) {
+  findActiveByUserIds(userIds: string[], tx?: Prisma.TransactionClient) {
     const client = tx ?? this.db;
     return client.deviceToken.findMany({
       where: {
@@ -151,4 +148,3 @@ export class DevicesRepository {
     });
   }
 }
-

@@ -1,3 +1,5 @@
+import { MatchRunBusyError } from '../persistence/match-run.repository.js';
+import { createHash } from 'node:crypto';
 import { Controller, Logger } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
 import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
@@ -41,6 +43,43 @@ export class MatchingEventConsumer {
     }
   }
 
+  private async handleFailure(
+    event: any,
+    eventType: string,
+    error: Error,
+    context: any,
+  ): Promise<void> {
+    // A crashed worker's lease must expire before recovery; contention is not a failed delivery.
+    if (error instanceof MatchRunBusyError) {
+      if (process.env.NODE_ENV !== 'test')
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      this.nack(context, true);
+      return;
+    }
+    // A DB-backed dead letter is committed before ACK, including payload for explicit replay.
+    const key =
+      event?.eventId ||
+      createHash('sha256')
+        .update(JSON.stringify(event ?? null))
+        .digest('hex');
+    try {
+      if (
+        await this.consumedEvents.recordFailure(key, eventType, event, error)
+      ) {
+        this.ack(context);
+        return;
+      }
+    } catch (storageError) {
+      this.logger.error(
+        `Cannot retain failed event: ${(storageError as Error).message}`,
+      );
+    }
+    // DB unavailable: retain broker ownership through requeue, never silently discard.
+    if (process.env.NODE_ENV !== 'test')
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    this.nack(context, true);
+  }
+
   /**
    * Consumer for 'service_request.published'
    * Initiates initial Matching execution for revision 1.
@@ -51,10 +90,12 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestPublishedEventData = event?.data || event?.payload || event;
+    const data: ServiceRequestPublishedEventData =
+      event?.data || event?.payload || event;
 
     try {
-      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      const reqId =
+        data?.serviceRequestId || data?.requestId || (data as any)?.id;
       if (!reqId) {
         this.logger.warn(
           `Missing serviceRequestId/requestId in service_request.published (${eventId})`,
@@ -82,7 +123,8 @@ export class MatchingEventConsumer {
       // 2. Update read-model projection
       await this.projectionService.upsertPublishedRequest({
         id: reqId,
-        requestCode: data.requestCode || `REQ-${reqId.slice(0, 8).toUpperCase()}`,
+        requestCode:
+          data.requestCode || `REQ-${reqId.slice(0, 8).toUpperCase()}`,
         customerUserId: data.customerUserId,
         serviceId: data.serviceId,
         description: data.description,
@@ -92,10 +134,13 @@ export class MatchingEventConsumer {
         longitude: Number(data.longitude),
         matchingRevision: data.matchingRevision || 1,
         status: 'open_for_bidding',
+        biddingClosesAt: data.biddingClosesAt,
+        selectionExpiresAt: data.selectionExpiresAt,
       });
 
-      // 3. Enqueue asynchronous bounded matching job
-      await this.jobQueue.enqueue({
+      // 3. Enqueue and await bounded matching job (ensures durability and no premature ACK)
+      await this.jobQueue.enqueueAndWait({
+        maxAttempts: 1,
         jobId: `MATCH-${reqId}-REV${data.matchingRevision || 1}-RUN1`,
         serviceRequestId: reqId,
         serviceId: data.serviceId,
@@ -121,7 +166,12 @@ export class MatchingEventConsumer {
       this.logger.error(
         `Failed to process service_request.published: ${(err as Error).message}`,
       );
-      this.nack(context, true);
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
+        err as Error,
+        context,
+      );
       throw err;
     }
   }
@@ -136,10 +186,12 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestInputsChangedEventData = event?.data || event?.payload || event;
+    const data: ServiceRequestInputsChangedEventData =
+      event?.data || event?.payload || event;
 
     try {
-      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      const reqId =
+        data?.serviceRequestId || data?.requestId || (data as any)?.id;
       if (!reqId) {
         this.logger.warn(
           `Missing serviceRequestId/requestId in service_request.matching_inputs_changed (${eventId})`,
@@ -170,8 +222,9 @@ export class MatchingEventConsumer {
         longitude: Number(data.longitude),
       });
 
-      // 2. Enqueue asynchronous background matching job for new revision
-      await this.jobQueue.enqueue({
+      // 2. Enqueue and await background matching job for new revision
+      await this.jobQueue.enqueueAndWait({
+        maxAttempts: 1,
         jobId: `MATCH-${reqId}-REV${data.matchingRevision}-RUN1`,
         serviceRequestId: reqId,
         serviceId: data.serviceId,
@@ -196,7 +249,12 @@ export class MatchingEventConsumer {
       this.logger.error(
         `Failed to process service_request.matching_inputs_changed: ${(err as Error).message}`,
       );
-      this.nack(context, true);
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_MATCHING_INPUTS_CHANGED,
+        err as Error,
+        context,
+      );
       throw err;
     }
   }
@@ -211,10 +269,12 @@ export class MatchingEventConsumer {
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestCancelledEventData = event?.data || event?.payload || event;
+    const data: ServiceRequestCancelledEventData =
+      event?.data || event?.payload || event;
 
     try {
-      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      const reqId =
+        data?.serviceRequestId || data?.requestId || (data as any)?.id;
       if (!reqId) {
         this.logger.warn(
           `Missing serviceRequestId/requestId in service_request.cancelled (${eventId})`,
@@ -251,7 +311,12 @@ export class MatchingEventConsumer {
       this.logger.error(
         `Failed to process service_request.cancelled: ${(err as Error).message}`,
       );
-      this.nack(context, false);
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED,
+        err as Error,
+        context,
+      );
       throw err;
     }
   }
@@ -262,14 +327,17 @@ export class MatchingEventConsumer {
    */
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CONVERTED_TO_ORDER)
   async handleServiceRequestConverted(
-    @Payload() event: DomainEvent<ServiceRequestConvertedToOrderEventData> | any,
+    @Payload()
+    event: DomainEvent<ServiceRequestConvertedToOrderEventData> | any,
     @Ctx() context?: any,
   ): Promise<{ status: string; eventId?: string }> {
     const eventId = event?.eventId;
-    const data: ServiceRequestConvertedToOrderEventData = event?.data || event?.payload || event;
+    const data: ServiceRequestConvertedToOrderEventData =
+      event?.data || event?.payload || event;
 
     try {
-      const reqId = data?.serviceRequestId || data?.requestId || (data as any)?.id;
+      const reqId =
+        data?.serviceRequestId || data?.requestId || (data as any)?.id;
       if (!reqId) {
         this.logger.warn(
           `Missing serviceRequestId/requestId in service_request.converted_to_order (${eventId})`,
@@ -308,7 +376,128 @@ export class MatchingEventConsumer {
       this.logger.error(
         `Failed to process service_request.converted_to_order: ${(err as Error).message}`,
       );
-      this.nack(context, false);
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_CONVERTED_TO_ORDER,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'service_request.bidding_closed' (PR34-08)
+   * Updates projection status to 'bidding_closed' so worker feed removes the request.
+   */
+  @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED)
+  async handleServiceRequestBiddingClosed(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.bidding_closed (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming service_request.bidding_closed for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(reqId, 'bidding_closed');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process service_request.bidding_closed: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'service_request.expired' (PR34-08)
+   * Updates projection status to 'expired'.
+   */
+  @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED)
+  async handleServiceRequestExpired(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in service_request.expired (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(`Consuming service_request.expired for request ${reqId}`);
+
+      await this.projectionService.updateRequestStatus(reqId, 'expired');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process service_request.expired: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED,
+        err as Error,
+        context,
+      );
       throw err;
     }
   }

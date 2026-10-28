@@ -1,11 +1,15 @@
-import {
-  Injectable,
-  Logger,
-  type OnModuleDestroy,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import type { MatchingJobPayload } from './matching-job.types.js';
 
-export type JobProcessorFn = (job: MatchingJobPayload) => Promise<void>;
+export type JobProcessorFn = (
+  job: MatchingJobPayload,
+  signal?: AbortSignal,
+) => Promise<void>;
+
+interface InternalQueuedJob extends MatchingJobPayload {
+  _resolve?: () => void;
+  _reject?: (err: Error) => void;
+}
 
 @Injectable()
 export class MatchingJobQueueService implements OnModuleDestroy {
@@ -16,9 +20,10 @@ export class MatchingJobQueueService implements OnModuleDestroy {
   private readonly maxAttempts: number;
 
   private activeWorkers = 0;
-  private queue: MatchingJobPayload[] = [];
+  private queue: InternalQueuedJob[] = [];
   private processor: JobProcessorFn | null = null;
   private isShuttingDown = false;
+  private readonly controllers = new Set<AbortController>();
 
   constructor() {
     this.maxConcurrency = parseInt(
@@ -33,6 +38,15 @@ export class MatchingJobQueueService implements OnModuleDestroy {
       process.env.MATCHING_MAX_RETRY_ATTEMPTS || '5',
       10,
     );
+    if (
+      ![this.maxConcurrency, this.jobTimeoutMs, this.maxAttempts].every(
+        (value) => Number.isSafeInteger(value) && value > 0,
+      )
+    ) {
+      throw new Error(
+        'Matching concurrency, timeout and retry attempts must be positive integers',
+      );
+    }
   }
 
   setProcessor(processor: JobProcessorFn): void {
@@ -44,7 +58,9 @@ export class MatchingJobQueueService implements OnModuleDestroy {
    */
   async enqueue(job: MatchingJobPayload): Promise<void> {
     if (this.isShuttingDown) {
-      throw new Error('MatchingJobQueue is shutting down. Cannot accept new jobs.');
+      throw new Error(
+        'MatchingJobQueue is shutting down. Cannot accept new jobs.',
+      );
     }
 
     job.attempt = job.attempt || 1;
@@ -56,6 +72,21 @@ export class MatchingJobQueueService implements OnModuleDestroy {
     );
 
     this.processNext();
+  }
+
+  /**
+   * Enqueues a matching job and waits until execution completes or permanently fails.
+   * Keeps upstream consumers (e.g. RabbitMQ) from ACKing prematurely.
+   */
+  async enqueueAndWait(job: MatchingJobPayload): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const internalJob: InternalQueuedJob = {
+        ...job,
+        _resolve: resolve,
+        _reject: reject,
+      };
+      this.enqueue(internalJob).catch(reject);
+    });
   }
 
   get queueDepth(): number {
@@ -82,32 +113,49 @@ export class MatchingJobQueueService implements OnModuleDestroy {
     });
   }
 
-  private async executeJobWithTimeout(job: MatchingJobPayload): Promise<void> {
+  private async executeJobWithTimeout(job: InternalQueuedJob): Promise<void> {
     if (!this.processor) {
-      this.logger.error('No job processor registered in MatchingJobQueueService');
+      this.logger.error(
+        'No job processor registered in MatchingJobQueueService',
+      );
+      job._reject?.(
+        new Error('No job processor registered in MatchingJobQueueService'),
+      );
       return;
     }
 
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `Matching job ${job.jobId} timed out after ${this.jobTimeoutMs}ms`,
-          ),
-        );
-      }, this.jobTimeoutMs);
-      timer.unref?.();
-    });
+    const abortController = new AbortController();
+    job.deadlineAt = Date.now() + this.jobTimeoutMs;
+    this.controllers.add(abortController);
+    let timeoutTimer: NodeJS.Timeout | null = null;
+
+    timeoutTimer = setTimeout(() => {
+      abortController.abort(
+        new Error(
+          `Matching job ${job.jobId} timed out after ${this.jobTimeoutMs}ms`,
+        ),
+      );
+    }, this.jobTimeoutMs);
+    timeoutTimer.unref?.();
 
     try {
-      await Promise.race([this.processor(job), timeoutPromise]);
+      // Do not release a concurrency slot while a timed-out processor is still running.
+      await this.processor(job, abortController.signal);
+      abortController.signal.throwIfAborted();
+
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+
       this.logger.log(
         `Matching job ${job.jobId} completed successfully for request ${job.serviceRequestId} (revision ${job.requestRevision})`,
       );
+      job._resolve?.();
     } catch (error) {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+
       const currentAttempt = job.attempt || 1;
       const maxAttempts = job.maxAttempts || this.maxAttempts;
-      const errorMessage = (error as Error).message || 'Unknown processing error';
+      const errorMessage =
+        (error as Error).message || 'Unknown processing error';
 
       this.logger.error(
         `Matching job ${job.jobId} failed (attempt ${currentAttempt}/${maxAttempts}): ${errorMessage}`,
@@ -125,18 +173,30 @@ export class MatchingJobQueueService implements OnModuleDestroy {
             job.attempt = currentAttempt + 1;
             this.queue.push(job);
             this.processNext();
+          } else {
+            job._reject?.(
+              new Error('MatchingJobQueue shutting down during retry'),
+            );
           }
         }, delayMs);
       } else {
         this.logger.error(
           `Matching job ${job.jobId} permanently failed after ${currentAttempt} attempts.`,
         );
+        job._reject?.(error as Error);
       }
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      this.controllers.delete(abortController);
     }
   }
 
   async onModuleDestroy(): Promise<void> {
     this.isShuttingDown = true;
+    for (const controller of this.controllers)
+      controller.abort(new Error('Matching worker shutting down'));
+    for (const job of this.queue.splice(0))
+      job._reject?.(new Error('Matching worker shutting down'));
     this.logger.log('Gracefully shutting down MatchingJobQueueService...');
 
     // Wait for in-flight workers to finish (up to 5 seconds)

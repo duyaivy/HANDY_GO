@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { MatchRunRepository } from '../persistence/match-run.repository.js';
+import {
+  MatchRunRepository,
+  MatchRunBusyError,
+} from '../persistence/match-run.repository.js';
 import {
   CANDIDATE_PROVIDER,
   type ICandidateProvider,
@@ -39,7 +42,10 @@ export class MatchingOrchestratorService {
   /**
    * Orchestrates the complete matching workflow for a service request revision.
    */
-  async processMatchingJob(job: MatchingJobPayload): Promise<void> {
+  async processMatchingJob(
+    job: MatchingJobPayload,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const startTime = Date.now();
     const {
       serviceRequestId,
@@ -50,14 +56,18 @@ export class MatchingOrchestratorService {
       description,
       latitude,
       longitude,
-      simulationOptions,
     } = job;
+
+    // Strip simulationOptions in production to prevent external callers (e.g. crafted RabbitMQ
+    // events) from triggering simulated failures/delays.
+    const simulationOptions =
+      process.env.NODE_ENV !== 'production' ? job.simulationOptions : undefined;
 
     this.logger.log(
       `Starting matching orchestration for request ${serviceRequestId} (revision ${requestRevision}, run ${runNumber})`,
     );
 
-    // 1. Locate or create MatchRun record and transition to 'processing'
+    // 1. Locate or create MatchRun record
     const matchRun = await this.matchRunRepo.createOrGetRun({
       serviceRequestId,
       serviceId,
@@ -66,16 +76,41 @@ export class MatchingOrchestratorService {
       displayLimit: 5,
     });
 
-    await this.matchRunRepo.updateRunStatus(matchRun.id, 'processing');
+    // Idempotency: If already completed, no-op to avoid rewriting results
+    if (matchRun.status === 'completed') {
+      this.logger.log(
+        `MatchRun for request ${serviceRequestId} (revision ${requestRevision}, run ${runNumber}) is already completed. Skipping processing.`,
+      );
+      return;
+    }
+
+    signal?.throwIfAborted();
+    const attemptToken = crypto.randomUUID();
+    const deadline = new Date(job.deadlineAt ?? Date.now() + 30000);
+    if (
+      !(await this.matchRunRepo.claimRun(matchRun.id, attemptToken, deadline))
+    ) {
+      throw new MatchRunBusyError();
+    }
 
     try {
+      if (signal?.aborted) {
+        throw new Error(
+          `Orchestration aborted before candidate discovery: ${signal.reason || 'aborted'}`,
+        );
+      }
+
       // 2. Discover potential worker candidates from upstream service
-      const rawCandidates = await this.candidateProvider.findCandidates({
-        serviceId,
-        latitude,
-        longitude,
-        customerUserId,
-      });
+      const rawCandidates = await this.candidateProvider.findCandidates(
+        {
+          serviceId,
+          latitude,
+          longitude,
+          customerUserId,
+        },
+        signal,
+      );
+      signal?.throwIfAborted();
 
       this.logger.debug(
         `Retrieved ${rawCandidates.length} candidate workers from upstream provider`,
@@ -117,7 +152,8 @@ export class MatchingOrchestratorService {
             workerUserId: candidate.workerUserId,
             offeringTitle: candidate.offeringTitle,
             offeringDescription: candidate.offeringDescription,
-            distanceKm: eligibilityResult.minimumDistanceKm ?? candidate.distanceKm,
+            distanceKm:
+              eligibilityResult.minimumDistanceKm ?? candidate.distanceKm,
             radiusKm: candidate.radiusKm,
             averageRating: candidate.averageRating,
             ratingCount: candidate.ratingCount,
@@ -145,6 +181,9 @@ export class MatchingOrchestratorService {
         const durationMs = Date.now() - startTime;
         await this.matchRunRepo.persistMatchResults({
           matchRunId: matchRun.id,
+          attemptToken,
+          signal,
+          eligibleWorkerIds: [...eligibleWorkerIds],
           serviceRequestId,
           requestRevision,
           candidateCount: 0,
@@ -169,51 +208,102 @@ export class MatchingOrchestratorService {
         return;
       }
 
-      // 5. Invoke Ranking Provider (Mock AI or Fallback)
+      const rankingCandidates = [...eligibleCandidates]
+        .sort(
+          (a, b) =>
+            a.distanceKm - b.distanceKm ||
+            a.workerUserId.localeCompare(b.workerUserId),
+        )
+        .slice(0, 100);
+
+      // 5. Invoke Ranking Provider (Mock AI or Real AI, with automatic Rule-Based Fallback)
       let rankingResponse: RankingResponseDto;
 
       try {
-        rankingResponse = await this.primaryRanker.rank({
-          serviceRequestId,
-          requestRevision,
-          serviceId,
-          requestDescription: description,
-          requestLatitude: latitude,
-          requestLongitude: longitude,
-          candidates: eligibleCandidates,
-          topN: 20,
-          simulationOptions,
-        });
-      } catch (rankingErr) {
-        this.logger.error(
-          `Primary ranker failed: ${(rankingErr as Error).message}. Activating RuleBasedFallbackRanker...`,
+        if (signal?.aborted) {
+          throw new Error(
+            `Orchestration aborted before ranking: ${signal.reason || 'aborted'}`,
+          );
+        }
+
+        rankingResponse = await this.primaryRanker.rank(
+          {
+            serviceRequestId,
+            requestRevision,
+            serviceId,
+            requestDescription: description,
+            requestLatitude: latitude,
+            requestLongitude: longitude,
+            candidates: rankingCandidates,
+            topN: 20,
+            simulationOptions,
+          },
+          signal,
         );
 
-        // Fallback ranker execution
-        rankingResponse = await this.fallbackRanker.rank({
-          serviceRequestId,
-          requestRevision,
-          serviceId,
-          requestDescription: description,
-          requestLatitude: latitude,
-          requestLongitude: longitude,
-          candidates: eligibleCandidates,
-          topN: 20,
-        });
+        // Fallback guard: If real AI returned 0 ranked workers while eligible candidates exist,
+        // trigger fallback so recommendations are not empty
+        if (
+          (!rankingResponse ||
+            !Array.isArray(rankingResponse.rankedWorkers) ||
+            rankingResponse.rankedWorkers.length === 0) &&
+          eligibleCandidates.length > 0
+        ) {
+          throw new Error(
+            'Primary AI ranker returned empty ranked workers for non-empty candidates',
+          );
+        }
+
+        this.rankingValidator.validateRankingOutput(
+          rankingResponse,
+          eligibleWorkerIds,
+          20,
+        );
+      } catch (rankingErr) {
+        if (signal?.aborted) {
+          throw rankingErr;
+        }
+
+        this.logger.error(
+          `Primary ranker failed or returned empty: ${(rankingErr as Error).message}. Activating RuleBasedFallbackRanker to guarantee non-empty results...`,
+        );
+
+        // Fallback ranker execution: ensures we never leave empty results if candidates exist
+        rankingResponse = await this.fallbackRanker.rank(
+          {
+            serviceRequestId,
+            requestRevision,
+            serviceId,
+            requestDescription: description,
+            requestLatitude: latitude,
+            requestLongitude: longitude,
+            candidates: rankingCandidates,
+            topN: 20,
+          },
+          signal,
+        );
+
+        this.rankingValidator.validateRankingOutput(
+          rankingResponse,
+          eligibleWorkerIds,
+          20,
+        );
       }
 
-      // 6. Validate Ranking Output Invariants
-      this.rankingValidator.validateRankingOutput(
-        rankingResponse,
-        eligibleWorkerIds,
-        20,
-      );
+      if (signal?.aborted) {
+        throw new Error(
+          `Orchestration aborted before persisting results: ${signal.reason || 'aborted'}`,
+        );
+      }
 
       // 7. Persist Results (Top 20) and update MatchRun status transactionally
       const durationMs = Date.now() - startTime;
       const { isStaleRevision, savedResultCount } =
         await this.matchRunRepo.persistMatchResults({
           matchRunId: matchRun.id,
+          attemptToken,
+          signal,
+          eligibleWorkerIds: [...eligibleWorkerIds],
           serviceRequestId,
           requestRevision,
           candidateCount: eligibleCandidates.length,
@@ -249,6 +339,7 @@ export class MatchingOrchestratorService {
 
       await this.matchRunRepo.failMatchRun({
         matchRunId: matchRun.id,
+        attemptToken,
         errorMessage,
         outboxPayload: {
           eventId: crypto.randomUUID(),

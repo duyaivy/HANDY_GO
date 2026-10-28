@@ -11,6 +11,7 @@ export interface BiddingClientResult {
   page: number;
   limit: number;
   items: any[];
+  allBidderWorkerIds?: string[];
   error?: string;
   statusCode?: number;
 }
@@ -61,6 +62,7 @@ export class BiddingClient {
     ]);
 
     let roundStatus = 'pending';
+    let statusError: string | undefined;
     let closesAt: string | null = null;
     let opensAt: string | null = null;
 
@@ -71,15 +73,22 @@ export class BiddingClient {
           const body = (await res.json()) as { data?: any };
           const data = body.data || body;
           roundStatus = data.status || 'open';
-          closesAt = data.closesAt ? new Date(data.closesAt).toISOString() : null;
+          closesAt = data.closesAt
+            ? new Date(data.closesAt).toISOString()
+            : null;
           opensAt = data.opensAt ? new Date(data.opensAt).toISOString() : null;
         } catch {
-          // ignore parsing error
+          statusError = 'Invalid bidding status response';
         }
       } else if (res.status === 404) {
         roundStatus = 'pending';
+      } else {
+        statusError = `Bidding status returned HTTP ${res.status}`;
       }
+    } else {
+      statusError = 'Bidding status unavailable';
     }
+    if (statusError) roundStatus = 'unavailable';
 
     if (bidsOutcome.status === 'rejected') {
       const err = bidsOutcome.reason as Error;
@@ -106,12 +115,16 @@ export class BiddingClient {
         const data = body.data || body;
         return {
           status: roundStatus,
+          error: statusError,
           closesAt,
           opensAt,
           total: Number(data.total ?? (data.items?.length || 0)),
           page: Number(data.page ?? query.page),
           limit: Number(data.limit ?? query.limit),
           items: Array.isArray(data.items) ? data.items : [],
+          allBidderWorkerIds: Array.isArray(data.allBidderWorkerIds)
+            ? data.allBidderWorkerIds
+            : undefined,
         };
       } catch (parseErr: any) {
         return {
@@ -129,7 +142,12 @@ export class BiddingClient {
 
     if (bidsRes.status === 404) {
       return {
-        status: roundStatus === 'pending' ? 'pending' : 'no_bid',
+        status: statusError
+          ? 'unavailable'
+          : roundStatus === 'pending'
+            ? 'pending'
+            : 'no_bid',
+        error: statusError,
         closesAt,
         opensAt,
         total: 0,

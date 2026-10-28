@@ -45,7 +45,8 @@ export class InternalMatchingController {
   @Get('requests/:id/recommendations')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Internal: Lấy danh sách Top 20 đề xuất cho Gateway/BFF kết hợp Bids',
+    summary:
+      'Internal: Lấy danh sách Top 20 đề xuất cho Gateway/BFF kết hợp Bids',
     description:
       'Lấy đầy đủ Top 20 ứng viên được xếp hạng bởi FastAPI AI Service (hoặc Rule-Based Fallback) ' +
       'cho revision hoàn thành mới nhất. Kết quả bao gồm điểm composite matchingScore và scoreBreakdown 5 chiều.',
@@ -56,15 +57,26 @@ export class InternalMatchingController {
     description: 'Danh sách Top 20 đề xuất',
     type: InternalRecommendationResponseDto,
   })
-  @ApiResponse({ status: 403, description: 'Yêu cầu quyền truy cập nội bộ (x-internal-secret)' })
+  @ApiResponse({
+    status: 403,
+    description: 'Yêu cầu quyền truy cập nội bộ (x-internal-secret)',
+  })
   @ApiResponse({ status: 404, description: 'Không tìm thấy kết quả đề xuất' })
   async getInternalRecommendations(
     @Param('id') requestId: string,
   ): Promise<InternalRecommendationResponseDto> {
+    const projection = await this.projectionService.getProjection(requestId);
     const latestCompletedRun =
       await this.matchRunRepo.getLatestCompletedRun(requestId);
 
-    if (!latestCompletedRun) {
+    const activeRevision = projection?.matchingRevision;
+
+    if (
+      !projection ||
+      !['open_for_bidding', 'bidding_closed'].includes(projection.status) ||
+      !latestCompletedRun ||
+      latestCompletedRun.requestRevision !== activeRevision
+    ) {
       throw new NotFoundException(
         `Không tìm thấy kết quả matching hoàn thành cho yêu cầu ${requestId}`,
       );
@@ -81,7 +93,9 @@ export class InternalMatchingController {
         workerUserId: r.workerUserId,
         rank: r.rank,
         matchingScore: Number(r.matchingScore),
-        scoreBreakdown: r.scoreBreakdown ? (r.scoreBreakdown as any) : undefined,
+        scoreBreakdown: r.scoreBreakdown
+          ? (r.scoreBreakdown as any)
+          : undefined,
       })),
       generatedAt: latestCompletedRun.completedAt
         ? latestCompletedRun.completedAt.toISOString()
@@ -97,13 +111,26 @@ export class InternalMatchingController {
   @Get('results/:id/eligibility')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Internal: Kiểm tra tính hợp lệ của kết quả Matching trước khi tạo Booking Proposal/Order',
+    summary:
+      'Internal: Kiểm tra tính hợp lệ của kết quả Matching trước khi tạo Booking Proposal/Order',
     description:
       'Xác thực kết quả đề xuất tồn tại, thuộc đúng yêu cầu và thợ, thuộc revision mới nhất, và yêu cầu còn hiệu lực.',
   })
-  @ApiParam({ name: 'id', description: 'ID kết quả matching (match_results.id)', type: String })
-  @ApiQuery({ name: 'serviceRequestId', required: false, description: 'ID yêu cầu dự kiến' })
-  @ApiQuery({ name: 'workerUserId', required: false, description: 'ID tài khoản thợ dự kiến' })
+  @ApiParam({
+    name: 'id',
+    description: 'ID kết quả matching (match_results.id)',
+    type: String,
+  })
+  @ApiQuery({
+    name: 'serviceRequestId',
+    required: false,
+    description: 'ID yêu cầu dự kiến',
+  })
+  @ApiQuery({
+    name: 'workerUserId',
+    required: false,
+    description: 'ID tài khoản thợ dự kiến',
+  })
   @ApiResponse({
     status: 200,
     description: 'Kết quả kiểm tra tính hợp lệ',
@@ -151,30 +178,44 @@ export class InternalMatchingController {
       };
     }
 
-    // Check if a newer revision has already completed (Stale result check)
+    // 1. Check projection and latest completed run
+    const projection = await this.projectionService.getProjection(
+      matchRun.serviceRequestId,
+    );
     const latestCompletedRun = await this.matchRunRepo.getLatestCompletedRun(
       matchRun.serviceRequestId,
     );
 
     if (
-      latestCompletedRun &&
-      latestCompletedRun.requestRevision > matchRun.requestRevision
+      !projection ||
+      matchRun.status !== 'completed' ||
+      !latestCompletedRun ||
+      latestCompletedRun.id !== matchRun.id
     ) {
       return {
         matchResultId: resultId,
         isEligible: false,
-        reason: `Kết quả thuộc revision ${matchRun.requestRevision} đã bị thay thế bởi revision ${latestCompletedRun.requestRevision}`,
+        reason:
+          'Không có projection hoặc kết quả matching hiện hành đã hoàn thành',
+      };
+    }
+
+    // Active revision check (PR34-04): If current projection or completed run has a newer revision
+    const activeRevision = projection?.matchingRevision;
+
+    if (activeRevision && matchRun.requestRevision !== activeRevision) {
+      return {
+        matchResultId: resultId,
+        isEligible: false,
+        reason: `Kết quả thuộc revision ${matchRun.requestRevision} đã bị thay thế bởi revision ${activeRevision}`,
         workerUserId: result.workerUserId,
         serviceRequestId: matchRun.serviceRequestId,
         requestRevision: matchRun.requestRevision,
       };
     }
 
-    // Check request status from projection
-    const projection = await this.projectionService.getProjection(
-      matchRun.serviceRequestId,
-    );
-    if (projection && ['cancelled', 'converted_to_order'].includes(projection.status)) {
+    // 2. Request status check: Cancelled, converted, or expired requests cannot generate booking proposals
+    if (!['open_for_bidding', 'bidding_closed'].includes(projection.status)) {
       return {
         matchResultId: resultId,
         isEligible: false,

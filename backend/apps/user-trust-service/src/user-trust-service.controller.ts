@@ -10,8 +10,18 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Ctx,
+  EventPattern,
+  MessagePattern,
+  Payload,
+} from '@nestjs/microservices';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   CurrentUser,
   JwtAuthGuard,
@@ -29,6 +39,7 @@ import {
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
 import { ConfigService } from '@app/config';
+import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 
 @ApiTags('User & Trust')
 @Controller()
@@ -84,7 +95,10 @@ export class UserTrustServiceController {
     @Ctx() context?: any,
   ): Promise<{ exists: boolean; status: string; isProvisioned: boolean }> {
     try {
-      return await this.userTrustService.getUserAuthStatus(data.userId, data.roles);
+      return await this.userTrustService.getUserAuthStatus(
+        data.userId,
+        data.roles,
+      );
     } finally {
       if (context && typeof context.getChannelRef === 'function') {
         const channel = context.getChannelRef();
@@ -126,9 +140,7 @@ export class UserTrustServiceController {
   @ApiResponse({ status: 200, description: 'Lấy hồ sơ thành công' })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Không đủ quyền truy cập' })
-  async getMyProfile(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<unknown> {
+  async getMyProfile(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.userTrustService.getProfile(
       user.userId,
       user.userId,
@@ -164,7 +176,10 @@ export class UserTrustServiceController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy thông tin hồ sơ theo ID người dùng' })
   @ApiResponse({ status: 200, description: 'Lấy hồ sơ thành công' })
-  @ApiResponse({ status: 403, description: 'Không có quyền xem hồ sơ người khác' })
+  @ApiResponse({
+    status: 403,
+    description: 'Không có quyền xem hồ sơ người khác',
+  })
   async getUserProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -342,9 +357,12 @@ export class UserTrustServiceController {
    * GET /internal/v1/workers/candidates?serviceId=...&latitude=...&longitude=...&customerUserId=...
    */
   @Public()
+  @UseGuards(InternalServiceGuard)
   @Get('internal/v1/workers/candidates')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Internal: Find eligible worker candidates for matching' })
+  @ApiOperation({
+    summary: 'Internal: Find eligible worker candidates for matching',
+  })
   async findWorkerCandidates(
     @Query('serviceId') serviceId: string,
     @Query('latitude') latitude: string,
@@ -364,7 +382,13 @@ export class UserTrustServiceController {
    */
   @MessagePattern('workers.find-candidates')
   async findWorkerCandidatesRpc(
-    @Payload() data: { serviceId: string; latitude: number; longitude: number; customerUserId?: string },
+    @Payload()
+    data: {
+      serviceId: string;
+      latitude: number;
+      longitude: number;
+      customerUserId?: string;
+    },
     @Ctx() context?: any,
   ): Promise<unknown> {
     try {
@@ -384,10 +408,15 @@ export class UserTrustServiceController {
    * Internal REST API for worker matching profile lookup (offerings, areas, verification).
    */
   @Public()
+  @UseGuards(InternalServiceGuard)
   @Get('internal/v1/workers/:id/matching-profile')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Internal: Get worker match profile for request discovery' })
-  async getWorkerMatchProfile(@Param('id') workerUserId: string): Promise<unknown> {
+  @ApiOperation({
+    summary: 'Internal: Get worker match profile for request discovery',
+  })
+  async getWorkerMatchProfile(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
     return this.userTrustService.getWorkerMatchProfile(workerUserId);
   }
 
@@ -400,7 +429,9 @@ export class UserTrustServiceController {
     @Ctx() context?: any,
   ): Promise<unknown> {
     try {
-      return await this.userTrustService.getWorkerMatchProfile(data.workerUserId);
+      return await this.userTrustService.getWorkerMatchProfile(
+        data.workerUserId,
+      );
     } finally {
       if (context && typeof context.getChannelRef === 'function') {
         const channel = context.getChannelRef();
@@ -412,5 +443,3 @@ export class UserTrustServiceController {
     }
   }
 }
-
-

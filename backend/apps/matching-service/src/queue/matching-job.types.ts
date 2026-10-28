@@ -8,6 +8,7 @@ export interface MatchingJobPayload {
   description: string;
   latitude: number;
   longitude: number;
+  deadlineAt?: number;
   attempt?: number;
   maxAttempts?: number;
   simulationOptions?: {

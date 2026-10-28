@@ -2,6 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { MatchingPrismaService, MatchingPrisma } from '@app/database';
 import type { RankedWorkerOutput } from '../ranking/ranking.dto.js';
 
+export class MatchRunBusyError extends Error {
+  constructor() {
+    super('Matching run already leased by another worker');
+  }
+}
+
 @Injectable()
 export class MatchRunRepository {
   private readonly logger = new Logger(MatchRunRepository.name);
@@ -26,7 +32,7 @@ export class MatchRunRepository {
       displayLimit = 5,
     } = params;
 
-    const existing = await this.prisma.matchRun.findUnique({
+    return this.prisma.matchRun.upsert({
       where: {
         serviceRequestId_requestRevision_runNumber: {
           serviceRequestId,
@@ -34,14 +40,7 @@ export class MatchRunRepository {
           runNumber,
         },
       },
-    });
-
-    if (existing) {
-      return existing;
-    }
-
-    return this.prisma.matchRun.create({
-      data: {
+      create: {
         serviceRequestId,
         serviceId,
         requestRevision,
@@ -49,31 +48,31 @@ export class MatchRunRepository {
         status: 'pending',
         displayLimit,
       },
+      update: {},
     });
   }
 
-  /**
-   * Updates MatchRun status with atomic timestamp tracking.
-   */
-  async updateRunStatus(
+  async claimRun(
     runId: string,
-    status: MatchingPrisma.MatchRunStatus,
-    errorMessage?: string,
-  ): Promise<MatchingPrisma.MatchRun> {
-    const data: any = { status };
-    if (status === 'processing') {
-      data.startedAt = new Date();
-    } else if (status === 'completed' || status === 'failed') {
-      data.completedAt = new Date();
-    }
-    if (errorMessage !== undefined) {
-      data.errorMessage = errorMessage;
-    }
-
-    return this.prisma.matchRun.update({
-      where: { id: runId },
-      data,
+    attemptToken: string,
+    deadline: Date,
+  ): Promise<boolean> {
+    const claimed = await this.prisma.matchRun.updateMany({
+      where: {
+        id: runId,
+        status: { not: 'completed' },
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: new Date() } }],
+      },
+      data: {
+        status: 'processing',
+        attemptToken,
+        leaseExpiresAt: deadline,
+        startedAt: new Date(),
+        completedAt: null,
+        errorMessage: null,
+      },
     });
+    return claimed.count === 1;
   }
 
   /**
@@ -83,6 +82,9 @@ export class MatchRunRepository {
    */
   async persistMatchResults(params: {
     matchRunId: string;
+    attemptToken: string;
+    signal?: AbortSignal;
+    eligibleWorkerIds?: string[];
     serviceRequestId: string;
     requestRevision: number;
     candidateCount: number;
@@ -101,6 +103,40 @@ export class MatchRunRepository {
     } = params;
 
     return this.prisma.$transaction(async (tx) => {
+      params.signal?.throwIfAborted();
+      // This conditional UPDATE takes the row lock before any result/outbox writes.
+      // A stale attempt or a parallel completion cannot pass this fence.
+      const claimed = await tx.matchRun.updateMany({
+        where: {
+          id: matchRunId,
+          status: 'processing',
+          attemptToken: params.attemptToken,
+          leaseExpiresAt: { gt: new Date() },
+        },
+        data: { status: 'completed' },
+      });
+      if (claimed.count !== 1) throw new Error('Matching execution lease lost');
+      const projectionTable = MatchingPrisma.Prisma.raw(
+        `"${this.prisma.schema.replaceAll('"', '""')}"."service_request_projections"`,
+      );
+      await tx.$queryRaw(MatchingPrisma.Prisma
+        .sql`SELECT id FROM ${projectionTable}
+        WHERE id = ${serviceRequestId}::uuid FOR SHARE`);
+      const projection = await tx.serviceRequestProjection.findUnique({
+        where: { id: serviceRequestId },
+      });
+      if (
+        !projection ||
+        projection.matchingRevision !== requestRevision ||
+        !['open_for_bidding', 'bidding_closed'].includes(projection.status) ||
+        (projection.selectionExpiresAt &&
+          projection.selectionExpiresAt.getTime() <= Date.now())
+      ) {
+        throw new Error(
+          'Matching request revision or lifecycle is no longer available',
+        );
+      }
+
       // 1. Revision Protection: Check if a newer revision has already completed
       const newerCompletedRun = await tx.matchRun.findFirst({
         where: {
@@ -164,10 +200,52 @@ export class MatchRunRepository {
         },
       });
 
-      return {
-        isStaleRevision,
-        savedResultCount: resultsToPersist.length,
-      };
+      // Notification consumes bounded chunks; event IDs are stable across outbox retries.
+      const workers = [...new Set(params.eligibleWorkerIds ?? [])];
+      if (
+        !isStaleRevision &&
+        projection.status === 'open_for_bidding' &&
+        (!projection.biddingClosesAt ||
+          projection.biddingClosesAt.getTime() > Date.now())
+      ) {
+        for (let offset = 0; offset < workers.length; offset += 100) {
+          const eventId = crypto.randomUUID();
+          await tx.outboxEvent.create({
+            data: {
+              id: eventId,
+              aggregateType: 'MatchRun',
+              aggregateId: matchRunId,
+              eventType: 'matching.eligible_workers.ready',
+              payload: {
+                eventId,
+                eventType: 'matching.eligible_workers.ready',
+                eventVersion: 1,
+                source: 'matching-service',
+                occurredAt: new Date().toISOString(),
+                data: {
+                  requestId: serviceRequestId,
+                  matchingRunId: matchRunId,
+                  chunkId: crypto.randomUUID(),
+                  eligibleWorkerIds: workers.slice(offset, offset + 100),
+                },
+              },
+            },
+          });
+        }
+      }
+      params.signal?.throwIfAborted();
+      // Use wall-clock time, not PostgreSQL's transaction-start timestamp.
+      const table = MatchingPrisma.Prisma.raw(
+        `"${this.prisma.schema.replaceAll('"', '""')}"."match_runs"`,
+      );
+      const valid = await tx.$queryRaw<Array<{ id: string }>>(MatchingPrisma
+        .Prisma.sql`
+        SELECT id FROM ${table} WHERE id = ${matchRunId}::uuid
+          AND attempt_token = ${params.attemptToken}::uuid
+          AND lease_expires_at > clock_timestamp()`);
+      if (valid.length !== 1)
+        throw new Error('Matching execution deadline exceeded');
+      return { isStaleRevision, savedResultCount: resultsToPersist.length };
     });
   }
 
@@ -177,20 +255,28 @@ export class MatchRunRepository {
   async failMatchRun(params: {
     matchRunId: string;
     errorMessage: string;
+    attemptToken: string;
     outboxPayload: any;
   }): Promise<void> {
     const { matchRunId, errorMessage, outboxPayload } = params;
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.matchRun.update({
-        where: { id: matchRunId },
+      const failed = await tx.matchRun.updateMany({
+        where: {
+          id: matchRunId,
+          status: 'processing',
+          attemptToken: params.attemptToken,
+        },
         data: {
           status: 'failed',
+          leaseExpiresAt: null,
+          attemptToken: null,
           errorMessage,
           completedAt: new Date(),
         },
       });
 
+      if (failed.count !== 1) return;
       await tx.outboxEvent.create({
         data: {
           aggregateType: 'MatchRun',

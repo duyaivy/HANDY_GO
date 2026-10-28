@@ -16,7 +16,13 @@ export class RuleBasedFallbackRanker implements IRankingProvider {
 
   constructor(private readonly featureBuilder: FeatureBuilderService) {}
 
-  async rank(request: RankingRequestDto): Promise<RankingResponseDto> {
+  async rank(
+    request: RankingRequestDto,
+    signal?: AbortSignal,
+  ): Promise<RankingResponseDto> {
+    if (signal?.aborted) {
+      throw new Error(`Fallback Ranker aborted: ${signal.reason || 'aborted'}`);
+    }
     const { candidates, topN = 20 } = request;
 
     this.logger.warn(
@@ -46,7 +52,7 @@ export class RuleBasedFallbackRanker implements IRankingProvider {
       const experienceScore = ratingFeatures.experienceScore;
 
       const fallbackScore =
-        0.45 * geoScore + 0.35 * ratingScore + 0.20 * experienceScore;
+        0.45 * geoScore + 0.35 * ratingScore + 0.2 * experienceScore;
 
       return {
         candidate,

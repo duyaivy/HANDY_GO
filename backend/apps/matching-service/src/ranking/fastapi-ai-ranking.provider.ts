@@ -15,19 +15,26 @@ export class FastApiAiRankingProvider implements IRankingProvider {
 
   constructor() {
     this.aiServiceUrl =
-      process.env.AI_SERVICE_URL?.replace(/\/+$/, '') || 'http://localhost:8000';
+      process.env.AI_SERVICE_URL?.replace(/\/+$/, '') ||
+      'http://localhost:8000';
 
-    // Parse configured timeout. While backend env provides AI_SERVICE_TIMEOUT_MS=360000,
-    // we allow an override or use a bounded HTTP client timeout for inference.
+    // Bounded HTTP client timeout for AI inference.
+    // Default to 10000ms (max 15000ms) to ensure inference cannot exceed the 30s queue job timeout.
     const rawTimeout = process.env.AI_SERVICE_TIMEOUT_MS
       ? parseInt(process.env.AI_SERVICE_TIMEOUT_MS, 10)
-      : 360000;
-    this.timeoutMs = !isNaN(rawTimeout) && rawTimeout > 0 ? rawTimeout : 360000;
+      : 10000;
+    this.timeoutMs =
+      !isNaN(rawTimeout) && rawTimeout > 0
+        ? Math.min(rawTimeout, 15000)
+        : 10000;
 
     this.internalServiceSecret = process.env.INTERNAL_SERVICE_SECRET || '';
   }
 
-  async rank(request: RankingRequestDto): Promise<RankingResponseDto> {
+  async rank(
+    request: RankingRequestDto,
+    parentSignal?: AbortSignal,
+  ): Promise<RankingResponseDto> {
     const { serviceRequestId, requestRevision, candidates } = request;
     const endpoint = `${this.aiServiceUrl}/internal/ai/matching/rank`;
 
@@ -40,6 +47,31 @@ export class FastApiAiRankingProvider implements IRankingProvider {
     let lastError: Error | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (parentSignal?.aborted) {
+        throw new Error(
+          `FastAPI AI Ranking aborted by parent signal: ${parentSignal.reason || 'aborted'}`,
+        );
+      }
+
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(
+        () =>
+          timeoutController.abort(
+            new Error(`AI Service HTTP timeout after ${this.timeoutMs}ms`),
+          ),
+        this.timeoutMs,
+      );
+      timeoutId.unref?.();
+
+      const onParentAbort = () => {
+        timeoutController.abort(
+          parentSignal?.reason || new Error('Aborted by parent signal'),
+        );
+      };
+      if (parentSignal) {
+        parentSignal.addEventListener('abort', onParentAbort, { once: true });
+      }
+
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -48,7 +80,7 @@ export class FastApiAiRankingProvider implements IRankingProvider {
             'x-internal-secret': this.internalServiceSecret,
           },
           body: JSON.stringify(request),
-          signal: AbortSignal.timeout(this.timeoutMs),
+          signal: timeoutController.signal,
         });
 
         if (response.ok) {
@@ -90,6 +122,7 @@ export class FastApiAiRankingProvider implements IRankingProvider {
         const error = err as Error;
         lastError = error;
 
+        parentSignal?.throwIfAborted();
         // If it's a 4xx error we threw above, rethrow immediately without retrying
         if (error.message.includes('FastAPI AI client error')) {
           throw error;
@@ -109,6 +142,11 @@ export class FastApiAiRankingProvider implements IRankingProvider {
         }
         // Brief backoff before transient retry
         await new Promise((resolve) => setTimeout(resolve, 200));
+      } finally {
+        clearTimeout(timeoutId);
+        if (parentSignal) {
+          parentSignal.removeEventListener('abort', onParentAbort);
+        }
       }
     }
 

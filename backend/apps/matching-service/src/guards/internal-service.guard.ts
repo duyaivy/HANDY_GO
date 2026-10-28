@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
 
 @Injectable()
@@ -17,27 +18,21 @@ export class InternalServiceGuard implements CanActivate {
 
     const configuredSecret = process.env.INTERNAL_SERVICE_SECRET;
 
-    // 1. Secret header match
-    if (configuredSecret && secret === configuredSecret) {
-      return true;
-    }
+    // 1. Secret header match with timing-safe comparison
+    if (configuredSecret && secret) {
+      const secretBuf = Buffer.from(String(secret));
+      const configuredBuf = Buffer.from(String(configuredSecret));
 
-    // 2. Authenticated user with Admin role
-    const user = (request as any).user;
-    if (user && Array.isArray(user.roles) && user.roles.includes('Admin')) {
-      return true;
-    }
-
-    // 3. In test/dev environment when secret is not configured, permit internal calls
-    if (
-      process.env.NODE_ENV === 'test' ||
-      (!configuredSecret && process.env.NODE_ENV !== 'production')
-    ) {
-      return true;
+      if (
+        secretBuf.length === configuredBuf.length &&
+        timingSafeEqual(secretBuf, configuredBuf)
+      ) {
+        return true;
+      }
     }
 
     throw new ForbiddenException(
-      'Access denied: internal service authorization required',
+      'Access denied: internal service authorization required (x-internal-secret)',
     );
   }
 }

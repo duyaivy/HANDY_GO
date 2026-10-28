@@ -6,12 +6,15 @@ import type {
 export const CANDIDATE_PROVIDER = 'CANDIDATE_PROVIDER';
 
 export interface ICandidateProvider {
-  findCandidates(params: {
-    serviceId: string;
-    latitude: number;
-    longitude: number;
-    customerUserId?: string;
-  }): Promise<WorkerCandidateDto[]>;
+  findCandidates(
+    params: {
+      serviceId: string;
+      latitude: number;
+      longitude: number;
+      customerUserId?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<WorkerCandidateDto[]>;
 
   getWorkerMatchProfile(
     workerUserId: string,

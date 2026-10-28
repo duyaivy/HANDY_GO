@@ -1,18 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { ICandidateProvider } from './candidate.provider.interface.js';
 import type {
   WorkerCandidateDto,
   WorkerMatchProfileDto,
 } from './candidate.dto.js';
-import { RabbitMQService } from '@app/rabbitmq';
 
 @Injectable()
 export class UserTrustCandidateProvider implements ICandidateProvider {
-  private readonly logger = new Logger(UserTrustCandidateProvider.name);
-  private readonly userTrustServiceUrl: string;
-
-  constructor(private readonly rabbitmq?: RabbitMQService) {}
-
   private getBaseUrl(): string {
     const raw = (
       process.env.USER_TRUST_SERVICE_URL || 'http://localhost:3002'
@@ -20,116 +14,67 @@ export class UserTrustCandidateProvider implements ICandidateProvider {
     return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
   }
 
-  async findCandidates(params: {
-    serviceId: string;
-    latitude: number;
-    longitude: number;
-    customerUserId?: string;
-  }): Promise<WorkerCandidateDto[]> {
-    const { serviceId, latitude, longitude, customerUserId } = params;
-
-    // 1. Try HTTP internal endpoint first
+  private async request(path: string, signal?: AbortSignal): Promise<Response> {
+    signal?.throwIfAborted();
     try {
-      const url = new URL(
-        `${this.getBaseUrl()}/internal/v1/workers/candidates`,
-      );
-      url.searchParams.set('serviceId', serviceId);
-      url.searchParams.set('latitude', latitude.toString());
-      url.searchParams.set('longitude', longitude.toString());
-      if (customerUserId) {
-        url.searchParams.set('customerUserId', customerUserId);
-      }
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
+      return await fetch(`${this.getBaseUrl()}${path}`, {
         headers: {
-          'Content-Type': 'application/json',
           'x-internal-secret': process.env.INTERNAL_SERVICE_SECRET || '',
         },
-        signal: AbortSignal.timeout(5000),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(5000)])
+          : AbortSignal.timeout(5000),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          return data as WorkerCandidateDto[];
-        }
-      }
-    } catch (httpErr) {
-      this.logger.debug(
-        `HTTP candidate query to User & Trust failed: ${(httpErr as Error).message}. Attempting RPC fallback...`,
-      );
+    } catch (error) {
+      signal?.throwIfAborted();
+      throw new ServiceUnavailableException('User Trust unavailable', {
+        cause: error,
+      });
     }
+  }
 
-    // 2. Try RabbitMQ RPC fallback
-    if (this.rabbitmq) {
-      try {
-        const rpcResult = await this.rabbitmq.send<
-          { serviceId: string; latitude: number; longitude: number; customerUserId?: string },
-          WorkerCandidateDto[]
-        >('workers.find-candidates', {
-          serviceId,
-          latitude,
-          longitude,
-          customerUserId,
-        });
-
-        if (Array.isArray(rpcResult)) {
-          return rpcResult;
-        }
-      } catch (rpcErr) {
-        this.logger.warn(
-          `RPC candidate query to User & Trust failed: ${(rpcErr as Error).message}`,
-        );
-      }
-    }
-
-    this.logger.warn(
-      `No upstream candidates could be retrieved for service ${serviceId}. Returning empty array.`,
+  async findCandidates(
+    params: {
+      serviceId: string;
+      latitude: number;
+      longitude: number;
+      customerUserId?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<WorkerCandidateDto[]> {
+    const query = new URLSearchParams({
+      serviceId: params.serviceId,
+      latitude: String(params.latitude),
+      longitude: String(params.longitude),
+    });
+    if (params.customerUserId)
+      query.set('customerUserId', params.customerUserId);
+    const response = await this.request(
+      `/internal/v1/workers/candidates?${query}`,
+      signal,
     );
-    return [];
+    if (!response.ok)
+      throw new ServiceUnavailableException(
+        'User Trust candidate query failed',
+      );
+    const body: unknown = await response.json();
+    signal?.throwIfAborted();
+    if (!Array.isArray(body))
+      throw new ServiceUnavailableException(
+        'Invalid User Trust candidate response',
+      );
+    return body as WorkerCandidateDto[];
   }
 
   async getWorkerMatchProfile(
     workerUserId: string,
   ): Promise<WorkerMatchProfileDto | null> {
-    try {
-      const url = new URL(
-        `${this.getBaseUrl()}/internal/v1/workers/${workerUserId}/matching-profile`,
-      );
-
-      const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-internal-secret': process.env.INTERNAL_SERVICE_SECRET || '',
-        },
-        signal: AbortSignal.timeout(5000),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data as WorkerMatchProfileDto;
-      }
-    } catch (err) {
-      this.logger.debug(
-        `Failed to fetch worker profile via HTTP for ${workerUserId}: ${(err as Error).message}`,
-      );
-    }
-
-    if (this.rabbitmq) {
-      try {
-        return await this.rabbitmq.send<
-          { workerUserId: string },
-          WorkerMatchProfileDto | null
-        >('workers.get-matching-profile', { workerUserId });
-      } catch (rpcErr) {
-        this.logger.warn(
-          `RPC worker profile lookup failed for ${workerUserId}: ${(rpcErr as Error).message}`,
-        );
-      }
-    }
-
-    return null;
+    const response = await this.request(
+      `/internal/v1/workers/${encodeURIComponent(workerUserId)}/matching-profile`,
+    );
+    if (response.status === 404) return null;
+    if (!response.ok)
+      throw new ServiceUnavailableException('User Trust profile query failed');
+    return (await response.json()) as WorkerMatchProfileDto | null;
   }
 }

@@ -9,6 +9,8 @@ import { UserTrustDatabaseModule } from '@app/database';
 import { AuthModule } from '@app/auth';
 import { KycModule } from './kyc/kyc.module.js';
 
+import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -23,7 +25,7 @@ import { KycModule } from './kyc/kyc.module.js';
     KycModule,
   ],
   controllers: [UserTrustServiceController],
-  providers: [UserTrustServiceService],
-  exports: [UserTrustServiceService],
+  providers: [UserTrustServiceService, InternalServiceGuard],
+  exports: [UserTrustServiceService, InternalServiceGuard],
 })
 export class UserTrustServiceModule {}

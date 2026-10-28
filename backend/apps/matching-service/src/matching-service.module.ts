@@ -1,7 +1,4 @@
-import {
-  Module,
-  type OnModuleInit,
-} from '@nestjs/common';
+import { Module, type OnModuleInit } from '@nestjs/common';
 import { ConfigModule } from '@app/config';
 import { LoggerModule } from '@app/logger';
 import { RabbitMQModule } from '@app/rabbitmq';
@@ -34,7 +31,7 @@ import { RankingValidatorService } from './ranking/ranking-validator.service.js'
 // Candidate Providers
 import { CANDIDATE_PROVIDER } from './candidates/candidate.provider.interface.js';
 import { UserTrustCandidateProvider } from './candidates/user-trust-candidate.provider.js';
-import { TestCandidateAdapter } from './candidates/test-candidate.adapter.js';
+
 
 // Orchestration & Queue
 import { MatchingOrchestratorService } from './orchestrator/matching-orchestrator.service.js';
@@ -103,7 +100,6 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
 
     // Candidates
     UserTrustCandidateProvider,
-    TestCandidateAdapter,
     {
       provide: CANDIDATE_PROVIDER,
       useClass: UserTrustCandidateProvider,
@@ -127,7 +123,6 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
     RANKING_PROVIDER,
     MockAiRankingProvider,
     FastApiAiRankingProvider,
-    TestCandidateAdapter,
   ],
 })
 export class MatchingServiceModule implements OnModuleInit {
@@ -138,8 +133,8 @@ export class MatchingServiceModule implements OnModuleInit {
 
   onModuleInit(): void {
     // Connect background queue worker to orchestrator
-    this.jobQueue.setProcessor((job) =>
-      this.orchestrator.processMatchingJob(job),
+    this.jobQueue.setProcessor((job, signal) =>
+      this.orchestrator.processMatchingJob(job, signal),
     );
   }
 }
