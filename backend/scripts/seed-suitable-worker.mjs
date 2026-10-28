@@ -77,6 +77,11 @@ async function seedAllWorkers() {
 
     const emails = WORKERS.map((w) => w.email);
     await client.query(`
+      DELETE FROM auth_service.refresh_sessions WHERE account_id IN (
+        SELECT id FROM auth_service.accounts WHERE email = ANY($1::text[])
+      )
+    `, [emails]);
+    await client.query(`
       DELETE FROM auth_service.account_roles WHERE account_id IN (
         SELECT id FROM auth_service.accounts WHERE email = ANY($1::text[])
       )
@@ -162,7 +167,39 @@ async function seedAllWorkers() {
         ]);
       }
 
-      console.log(`✔ Worker ${worker.fullName} (${worker.userId}) fully seeded and verified.`);
+      // 6. Ensure Service Area covering Da Nang
+      await client.query(`
+        DELETE FROM user_trust_service.worker_service_areas WHERE worker_profile_id = $1;
+      `, [worker.workerProfileId]);
+
+      const areaId = crypto.randomUUID();
+      await client.query(`
+        INSERT INTO user_trust_service.worker_service_areas (
+          id, worker_profile_id, latitude, longitude, radius_km, is_active, created_at, updated_at
+        )
+        VALUES ($1, $2, 16.0748, 108.1499, 30.00, true, NOW(), NOW());
+      `, [areaId, worker.workerProfileId]);
+
+      // 7. Ensure Approved KYC Case
+      const existingKyc = await client.query(`
+        SELECT id FROM user_trust_service.kyc_cases WHERE worker_profile_id = $1 LIMIT 1;
+      `, [worker.workerProfileId]);
+
+      if (existingKyc.rows.length === 0) {
+        const kycId = crypto.randomUUID();
+        await client.query(`
+          INSERT INTO user_trust_service.kyc_cases (
+            id, worker_profile_id, id_document_type, document_front_ref, selfie_ref, status, version, created_at, updated_at
+          )
+          VALUES ($1, $2, 'CCCD', 'https://example.com/front.jpg', 'https://example.com/selfie.jpg', 'approved', 1, NOW(), NOW());
+        `, [kycId, worker.workerProfileId]);
+      } else {
+        await client.query(`
+          UPDATE user_trust_service.kyc_cases SET status = 'approved', updated_at = NOW() WHERE worker_profile_id = $1;
+        `, [worker.workerProfileId]);
+      }
+
+      console.log(`✔ Worker ${worker.fullName} (${worker.userId}) fully seeded, area set, and KYC approved.`);
     }
 
     await client.query('COMMIT');

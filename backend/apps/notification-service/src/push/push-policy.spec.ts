@@ -3,6 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { PushPolicyResolver } from './push-policy.resolver.js';
 import type { NotificationEvent } from '../events/event-contracts.js';
 
+// Unit policy fixtures must not inherit unrelated policy settings from a loaded .env.
+function testConfig(values: Record<string, unknown>) {
+  const config = new ConfigService(values);
+  config.skipProcessEnv = true;
+  return config;
+}
+
 describe('PushPolicyResolver', () => {
   const dummyEvent = {
     eventId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
@@ -14,7 +21,7 @@ describe('PushPolicyResolver', () => {
   } as unknown as NotificationEvent;
 
   it('defaults to disabled when no configuration is provided', () => {
-    const resolver = new PushPolicyResolver(new ConfigService({}));
+    const resolver = new PushPolicyResolver(testConfig({}));
     const decision = resolver.resolve(dummyEvent);
     expect(decision.enabled).toBe(false);
     expect(decision.mode).toBe('disabled');
@@ -22,7 +29,7 @@ describe('PushPolicyResolver', () => {
 
   it('enables simulated policies when PUSH_SIMULATED_POLICIES=true in test env', () => {
     const resolver = new PushPolicyResolver(
-      new ConfigService({
+      testConfig({
         NODE_ENV: 'test',
         PUSH_SIMULATED_POLICIES: 'true',
       }),
@@ -34,7 +41,7 @@ describe('PushPolicyResolver', () => {
 
   it('respects explicit PUSH_EVENT_POLICIES configuration', () => {
     const resolver = new PushPolicyResolver(
-      new ConfigService({
+      testConfig({
         PUSH_EVENT_POLICIES: JSON.stringify({
           'order.created': { enabled: true, mode: 'optional' },
           'matching.found': { enabled: false, mode: 'disabled' },
@@ -55,7 +62,7 @@ describe('PushPolicyResolver', () => {
 
   it('fails safe to disabled on corrupted JSON configuration', () => {
     const resolver = new PushPolicyResolver(
-      new ConfigService({
+      testConfig({
         PUSH_EVENT_POLICIES: 'invalid{json',
       }),
     );

@@ -182,6 +182,11 @@ services:
       <<: *development-environment
       NEST_PROJECT: matching-service
       PORT: '3006'
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '3006:3006'
 

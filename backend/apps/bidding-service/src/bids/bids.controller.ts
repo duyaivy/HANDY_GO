@@ -21,7 +21,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ConfigService } from '@app/config';
-import { buildSuccessResponse } from '@app/common';
+import { buildSuccessResponse, type ApiResponseEnvelope } from '@app/common';
 import { Public } from '@app/auth';
 import { BidsService } from './bids.service.js';
 import { SubmitBidDto } from './dto/submit-bid.dto.js';
@@ -30,11 +30,14 @@ import { WithdrawBidDto } from './dto/withdraw-bid.dto.js';
 import { QueryBidsDto } from './dto/query-bids.dto.js';
 import {
   BidListResponseDto,
+  BidListResponseDtoEnvelope,
   BidResponseDto,
+  BidResponseDtoEnvelope,
 } from './dto/bid-response.dto.js';
 import {
   BidEligibilityQueryDto,
   BidEligibilityResponseDto,
+  BidEligibilityResponseDtoEnvelope,
 } from './dto/bid-eligibility.dto.js';
 import {
   assertTrustedGateway,
@@ -68,7 +71,7 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.CREATED,
     description: 'Gửi báo giá thành công',
-    type: BidResponseDto,
+    type: BidResponseDtoEnvelope,
   })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
@@ -80,7 +83,7 @@ export class BidsController {
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidResponseDto>> {
     assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.submitBid(workerId, serviceRequestId, dto);
@@ -100,7 +103,7 @@ export class BidsController {
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidResponseDto>> {
     return this.submitBid(serviceRequestId, dto, userId, userRoles, internalSecret);
   }
 
@@ -119,7 +122,7 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Điều chỉnh báo giá thành công',
-    type: BidResponseDto,
+    type: BidResponseDtoEnvelope,
   })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
@@ -131,7 +134,7 @@ export class BidsController {
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidResponseDto>> {
     assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.reviseBid(workerId, bidId, dto);
@@ -154,7 +157,7 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Rút báo giá thành công',
-    type: BidResponseDto,
+    type: BidResponseDtoEnvelope,
   })
   async withdrawBid(
     @Param('id', new ParseUUIDPipe({ version: '4' })) bidId: string,
@@ -162,7 +165,7 @@ export class BidsController {
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidResponseDto>> {
     assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.withdrawBid(workerId, bidId, dto);
@@ -189,7 +192,7 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lấy danh sách báo giá thành công',
-    type: BidListResponseDto,
+    type: BidListResponseDtoEnvelope,
   })
   async getBidsForRequest(
     @Param('id', new ParseUUIDPipe({ version: '4' })) serviceRequestId: string,
@@ -197,7 +200,7 @@ export class BidsController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidListResponseDto>> {
     const data = await this.bidsService.getBidsForRequest(
       serviceRequestId,
       query,
@@ -222,7 +225,7 @@ export class BidsController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidListResponseDto>> {
     return this.getBidsForRequest(serviceRequestId, query, userId, userRoles, internalSecret);
   }
 
@@ -235,14 +238,14 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lấy danh sách báo giá của thợ thành công',
-    type: BidListResponseDto,
+    type: BidListResponseDtoEnvelope,
   })
   async getMyBids(
     @Query() query: QueryBidsDto,
     @Headers('x-user-id') userId: string | undefined,
     @Headers('x-user-roles') userRoles: string | undefined,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidListResponseDto>> {
     assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const workerId = extractWorkerIdentity(userId, userRoles);
     const data = await this.bidsService.getMyBids(workerId, query);
@@ -264,7 +267,7 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lấy thông tin báo giá thành công',
-    type: BidResponseDto,
+    type: BidResponseDtoEnvelope,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
@@ -275,7 +278,7 @@ export class BidsController {
     @Headers('x-user-id') userId?: string,
     @Headers('x-user-roles') userRoles?: string,
     @Headers('x-internal-secret') internalSecret?: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidResponseDto>> {
     const data = await this.bidsService.getBidById(
       bidId,
       userId,
@@ -305,13 +308,13 @@ export class BidsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Kết quả kiểm tra tính hợp lệ của báo giá',
-    type: BidEligibilityResponseDto,
+    type: BidEligibilityResponseDtoEnvelope,
   })
   async checkEligibility(
     @Param('bidId', new ParseUUIDPipe({ version: '4' })) bidId: string,
     @Query() query: BidEligibilityQueryDto,
     @Headers('x-internal-secret') internalSecret: string | undefined,
-  ) {
+  ): Promise<ApiResponseEnvelope<BidEligibilityResponseDto>> {
     assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
     const data = await this.bidsService.checkEligibility(bidId, query);
     return buildSuccessResponse(
@@ -321,3 +324,4 @@ export class BidsController {
     );
   }
 }
+

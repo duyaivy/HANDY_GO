@@ -58,5 +58,23 @@ describe('AI identity proxy route', () => {
         '/api/v1/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b',
       ),
     ).toBe(false);
+
+    // Candidates aggregation route should be excluded from order-service proxy
+    expect(
+      orderRoute?.excludeMatch?.(
+        '/api/v1/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/candidates',
+      ),
+    ).toBe(true);
+    expect(
+      orderRoute?.excludeMatch?.(
+        '/api/v1/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/candidates?page=1&limit=20',
+      ),
+    ).toBe(true);
+    expect(
+      orderRoute?.excludeMatch?.(
+        '/api/v1/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b',
+      ),
+    ).toBe(false);
+    expect(orderRoute?.excludeMatch?.('/api/v1/requests')).toBe(false);
   });
 });

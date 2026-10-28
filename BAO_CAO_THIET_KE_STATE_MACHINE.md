@@ -34,7 +34,7 @@ Sau khi có Order: thực hiện → báo hoàn thành → khách xác nhận ho
 | **Booking Proposal** (Order) | `proposed → finalized` **khi Worker accept và tạo Order cùng transaction**; hoặc `proposed → changes_requested / worker_rejected / withdrawn / expired / superseded` | Proposal đã gửi **bất biến** về giá/phạm vi/lịch. Worker yêu cầu sửa bằng lý do; Customer tạo Proposal mới (`supersedes_proposal_id`, `revision_no`) thay vì sửa đè. **Không cần `worker_accepted` trung gian**. |
 | **Bidding Round** (Bidding) | `pending → open → closed / no_bid`; khi có `order.created` → `finalized` | Round kết thúc không kích hoạt AI. AI gợi ý mặc định khi Request publish. |
 | **Bid** (Bidding) | `active → withdrawn / expired / selected / rejected` | `selected` **chỉ sau `order.created` có `selected_bid_id` tương ứng**. Click vào Bid để trao đổi không thay đổi trạng thái Bid. |
-| **Matching Run** (Matching) | `pending → processing → completed / failed` | Chạy khi Request publish; lưu Top 3 và bảng xếp hạng. Không chờ `no_bid`. |
+| **Matching Run** (Matching) | `pending → processing → completed / failed` | Chạy khi Request publish; lưu Top 5 và bảng xếp hạng. Không chờ `no_bid`. |
 | **Order** (Order) | `created → confirmed → in_progress → awaiting_customer_confirmation → completed` (có thể `cancelled / disputed` theo guard) | `confirmed` nếu dùng chỉ là xác nhận sẵn sàng thực hiện, **không phải xác nhận lại Proposal**. |
 | **Tracking** (Tracking) | Không có state machine chung | Chỉ append timeline theo `service_request_id` của Request, Matching, Bid, Proposal, Order; **không tự sửa trạng thái nghiệp vụ**. |
 
@@ -44,7 +44,7 @@ Sau khi có Order: thực hiện → báo hoàn thành → khách xác nhận ho
 
 ## 3. Khi nào dùng REST API, khi nào dùng RabbitMQ?
 
-- **REST API qua API Gateway**: client thực hiện command hoặc query **cần kết quả ngay**, ví dụ đăng Request, gửi Bid, gửi Proposal, Worker yêu cầu sửa / đồng ý, lấy Top 3, lấy Timeline.
+- **REST API qua API Gateway**: client thực hiện command hoặc query **cần kết quả ngay**, ví dụ đăng Request, gửi Bid, gửi Proposal, Worker yêu cầu sửa / đồng ý, lấy Top 5, lấy Timeline.
 - **Internal HTTP/RPC**: gọi **đồng bộ để kiểm tra điều kiện tại thời điểm quyết định**, ví dụ Order xác thực Bid thuộc Request/Worker hoặc Bidding kiểm tra Request còn mở. API nội bộ **không public ra client**.
 - **RabbitMQ (topic exchange, event-driven)**: phát sự kiện **sau khi commit** để Matching, Bidding, Tracking, Notification/Gateway cập nhật độc lập. **RabbitMQ không dùng để quyết định đồng bộ việc tạo Order**; chính Order Service phải làm transaction và trả response cho Worker.
 - **WebSocket tới frontend**: đẩy Bid mới/Matching hoàn tất; RabbitMQ là kênh **giữa backend services**, không phải kết nối trực tiếp với trình duyệt/mobile.
@@ -54,7 +54,7 @@ Sau khi có Order: thực hiện → báo hoàn thành → khách xác nhận ho
 | Team sở hữu | API (Method + Path) | Mục đích |
 |---|---|---|
 | **Order** | `POST /service-requests`, `POST /service-requests/:id/publish`, `POST /service-requests/:id/cancel` | Tạo, công bố, hủy Request khi chưa có Order. |
-| **Matching** | `GET /matching/requests/:id/recommendations` | Top 3 phù hợp theo Request revision hiện tại. |
+| **Matching** | `GET /matching/requests/:id/recommendations` | Top 5 phù hợp theo Request revision hiện tại. |
 | **Bidding** | `POST /requests/:id/bids`, `GET /requests/:id/bids`, `PATCH /bids/:id`, `POST /bids/:id/withdraw` | Thợ gửi/sửa/rút Bid; khách xem danh sách Bid. |
 | **Order** | `POST /booking-proposals`, `GET /booking-proposals/:id` | Tạo và xem điều khoản Proposal chính xác; Customer đề nghị giá/phạm vi/lịch, `selectionSource=bid|recommendation`; khi sửa gửi `supersedesProposalId`. |
 | **Order** | `POST /booking-proposals/:id/request-changes` | Worker yêu cầu Customer sửa (body gồm `reason` / trường cần điều chỉnh); **chưa có Order**. |
@@ -83,10 +83,10 @@ Sau khi có Order: thực hiện → báo hoàn thành → khách xác nhận ho
 | Event do service phát | Consumer / Team nhận | Tác dụng |
 |---|---|---|
 | **Order:** `service_request.created` | **Tracking** | Ghi bước tạo Request (kể cả draft). |
-| **Order:** `service_request.published` | **Matching, Bidding, Tracking** | Matching tạo Top 3, Bidding mở round; Tracking ghi timeline. Hai tác vụ chạy **song song**. |
+| **Order:** `service_request.published` | **Matching, Bidding, Tracking** | Matching tạo Top 5, Bidding mở round; Tracking ghi timeline. Hai tác vụ chạy **song song**. |
 | **Order:** `service_request.cancelled` | **Bidding, Matching, Tracking** | Dừng nhận Bid/đề xuất; ghi lịch sử. |
 | **Bidding:** `bid.submitted`, `bid.revised`, `bid.withdrawn` | **Tracking, Notification/Gateway** | Ghi timeline và đẩy cập nhật Bid qua WebSocket. Không tạo Order. |
-| **Matching:** `matching.completed`, `matching.failed` | **Tracking, Notification/Gateway** | Ghi kết quả / trạng thái AI; frontend cập nhật Top 3. |
+| **Matching:** `matching.completed`, `matching.failed` | **Tracking, Notification/Gateway** | Ghi kết quả / trạng thái AI; frontend cập nhật Top 5. |
 | **Order:** `booking_proposal.created`, `booking_proposal.changes_requested`, `booking_proposal.rejected`, `booking_proposal.withdrawn` | **Tracking, Notification** | Timeline và nhắc Customer/Worker xử lý; **chưa có Order**. |
 | **Order:** `booking_proposal.finalized` + `order.created` | **Tracking; Bidding nhận `order.created`** | Chỉ phát sau transaction accept thành công. Bidding `finalized` round, đánh dấu Bid thắng (nếu từ Bid); Tracking liên kết `order_id`. |
 | **Order:** `order.status.changed`, `order.completed`, `order.cancelled` | **Tracking, Notification; Payment/Review khi cần** | Cập nhật timeline và tác vụ hậu xử lý. |
@@ -99,11 +99,11 @@ Sau khi có Order: thực hiện → báo hoàn thành → khách xác nhận ho
 |---|---|---|
 | **Order** | `service_requests`, `booking_proposals`, `orders`; Worker accept **tạo Order atomically**; publish events | Không sửa Bid/Matching DB. |
 | **Bidding** | `bidding_rounds`, `bids`, `bid_revisions`; nghe Request publish / Order created | Không tự tạo Order, không coi click chọn Bid là chốt. |
-| **Matching** | `match_runs`, `match_results`; gợi ý Top 3 mặc định | Không chỉ chạy khi hết Bid và không tạo Order. |
+| **Matching** | `match_runs`, `match_results`; gợi ý Top 5 mặc định | Không chỉ chạy khi hết Bid và không tạo Order. |
 | **Tracking** | `tracking_flows`, `tracking_events`; consume toàn bộ event flow | Không sở hữu hay chuyển state của Request/Bid/Order. |
 
 **Cần cập nhật DBML Order v3 (đã đồng bộ trong gói đi kèm):** thêm `booking_proposal_status.changes_requested`, thêm `supersedes_proposal_id`, `revision_no`; bỏ trạng thái trung gian `worker_accepted` và API Customer finalize. Các enum còn lại và DBML Bidding/Matching/Tracking không đổi. Nếu đã có dữ liệu cũ, thiết kế migration riêng trước khi chạy thật.
 
-**Kiểm thử tối thiểu:** (1) click Chat không tạo Order; (2) Worker yêu cầu sửa → Customer gửi Proposal v2 → Worker duyệt v2, không thể accept v1; (3) Worker accept tạo duy nhất một Order và trả `orderId`; (4) hai Worker accept song song cùng Request chỉ một thành công; (5) không chốt được thì chỉ cancel Request/Proposal; (6) RabbitMQ duplicate/reordered events không tạo trùng Order/Tracking; (7) Bid UI cập nhật realtime, Matching Top 3 vẫn tồn tại.
+**Kiểm thử tối thiểu:** (1) click Chat không tạo Order; (2) Worker yêu cầu sửa → Customer gửi Proposal v2 → Worker duyệt v2, không thể accept v1; (3) Worker accept tạo duy nhất một Order và trả `orderId`; (4) hai Worker accept song song cùng Request chỉ một thành công; (5) không chốt được thì chỉ cancel Request/Proposal; (6) RabbitMQ duplicate/reordered events không tạo trùng Order/Tracking; (7) Bid UI cập nhật realtime, Matching Top 5 vẫn tồn tại.
 
 > **Ghi chú:** DBML mô tả schema, không tự enforce transition. Team Order cần thực thi State Machine guards bằng NestJS + PostgreSQL transaction; các service khác xử lý events theo contract thống nhất. Chưa kiểm chứng DBML bằng migration PostgreSQL thực tế.

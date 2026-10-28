@@ -25,6 +25,7 @@ services:
       # Cache models để không phải tải lại mỗi lần khởi động
       - ai-face-models:/home/app/.insightface
       - ai-ocr-models:/home/app/.EasyOCR
+      - ai-hf-models:/home/app/.cache/huggingface
     healthcheck:
       test:
         - CMD
@@ -39,3 +40,4 @@ services:
 volumes:
   ai-face-models:
   ai-ocr-models:
+  ai-hf-models:

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ConfigService } from '@app/config';
 import { deleteApp, getApps } from 'firebase-admin/app';
 import { FirebasePushProvider } from './firebase-push.provider.js';
@@ -8,14 +8,25 @@ describe('FirebasePushProvider', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    for (const key of [
+      'FIREBASE_SA_BASE64',
+      'GOOGLE_APPLICATION_CREDENTIALS',
+      'FIREBASE_PROJECT_ID',
+    ]) {
+      vi.stubEnv(key, undefined);
+    }
     for (const app of getApps()) {
       await deleteApp(app);
     }
   });
 
+  afterEach(() => vi.unstubAllEnvs());
+
   it('skips initialization when PUSH_ENABLED is not true', async () => {
     configService = {
-      get: vi.fn((key: string) => (key === 'PUSH_ENABLED' ? 'false' : undefined)),
+      get: vi.fn((key: string) =>
+        key === 'PUSH_ENABLED' ? 'false' : undefined,
+      ),
     } as unknown as ConfigService;
 
     const provider = new FirebasePushProvider(configService);
@@ -47,7 +58,9 @@ describe('FirebasePushProvider', () => {
 
   it('throws descriptive error when PUSH_ENABLED is true but all credentials are missing', async () => {
     configService = {
-      get: vi.fn((key: string) => (key === 'PUSH_ENABLED' ? 'true' : undefined)),
+      get: vi.fn((key: string) =>
+        key === 'PUSH_ENABLED' ? 'true' : undefined,
+      ),
     } as unknown as ConfigService;
 
     const provider = new FirebasePushProvider(configService);
