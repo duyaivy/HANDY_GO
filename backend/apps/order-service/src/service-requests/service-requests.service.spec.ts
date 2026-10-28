@@ -468,6 +468,39 @@ describe('ServiceRequestsService', () => {
         service.publish(mockRequestId, mockUserId),
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
     });
+
+    it('should reject publish and not emit outbox event if concurrent updateDraft made draft invalid before row lock', async () => {
+      let findUniqueCallCount = 0;
+      prismaMock.serviceRequest.findUnique.mockImplementation(async () => {
+        findUniqueCallCount++;
+        if (findUniqueCallCount === 1) {
+          // Pre-check outside transaction sees valid draft
+          return validDraft;
+        }
+        // Under lock inside transaction: concurrent updateDraft removed serviceId and description
+        return {
+          ...validDraft,
+          serviceId: null,
+          description: '',
+          version: 1,
+        };
+      });
+
+      try {
+        await service.publish(mockRequestId, mockUserId);
+        expect.unreachable();
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(AppException);
+        expect(err.getStatus()).toBe(422);
+        const resp = err.getResponse();
+        expect(resp.code).toBe(ORDER_ERROR_CODES.INCOMPLETE_PUBLISH_PAYLOAD);
+      }
+
+      // Outbox event must NOT be emitted
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+      // Status update must NOT be executed
+      expect(prismaMock.serviceRequest.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('cancel', () => {
@@ -578,6 +611,34 @@ describe('ServiceRequestsService', () => {
         }),
       ).rejects.toThrow(AppException);
     });
+
+    it('should reject addMedia if request was concurrently published between check and lock', async () => {
+      let callCount = 0;
+      prismaMock.serviceRequest.findUnique.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            id: mockRequestId,
+            customerUserId: mockUserId,
+            status: RequestStatus.draft,
+          };
+        }
+        return {
+          id: mockRequestId,
+          customerUserId: mockUserId,
+          status: RequestStatus.open_for_bidding,
+        };
+      });
+
+      await expect(
+        service.addMedia(mockRequestId, mockUserId, {
+          mediaUrl: 'https://cloudinary.com/test.jpg',
+          mediaType: 'image',
+        }),
+      ).rejects.toThrow(AppException);
+
+      expect(prismaMock.requestMedia.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteMedia', () => {
@@ -612,6 +673,31 @@ describe('ServiceRequestsService', () => {
       await expect(
         service.deleteMedia(mockRequestId, 'media-999', mockUserId),
       ).rejects.toThrow(AppException);
+    });
+
+    it('should reject deleteMedia if request was concurrently published between check and lock', async () => {
+      let callCount = 0;
+      prismaMock.serviceRequest.findUnique.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          return {
+            id: mockRequestId,
+            customerUserId: mockUserId,
+            status: RequestStatus.draft,
+          };
+        }
+        return {
+          id: mockRequestId,
+          customerUserId: mockUserId,
+          status: RequestStatus.open_for_bidding,
+        };
+      });
+
+      await expect(
+        service.deleteMedia(mockRequestId, 'media-1', mockUserId),
+      ).rejects.toThrow(AppException);
+
+      expect(prismaMock.requestMedia.delete).not.toHaveBeenCalled();
     });
   });
 

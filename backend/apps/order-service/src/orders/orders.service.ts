@@ -1287,7 +1287,7 @@ export class OrdersService {
       ];
     }
 
-    if (query.status) {
+    if (typeof query.status === 'string' && query.status.trim().length > 0) {
       const statuses = query.status
         .split(',')
         .map((s) => s.trim())
@@ -1358,7 +1358,7 @@ export class OrdersService {
       where.workerUserId = query.workerUserId;
     }
 
-    if (query.status) {
+    if (typeof query.status === 'string' && query.status.trim().length > 0) {
       const statuses = query.status
         .split(',')
         .map((s) => s.trim())

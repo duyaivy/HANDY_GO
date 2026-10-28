@@ -385,8 +385,8 @@ export class BookingProposalsService {
           }),
     };
 
-    if (query.status) {
-      const statuses = (query.status as string)
+    if (typeof query.status === 'string' && query.status.trim().length > 0) {
+      const statuses = query.status
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
@@ -442,8 +442,8 @@ export class BookingProposalsService {
         : {}),
     };
 
-    if (query.status) {
-      const statuses = (query.status as string)
+    if (typeof query.status === 'string' && query.status.trim().length > 0) {
+      const statuses = query.status
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);

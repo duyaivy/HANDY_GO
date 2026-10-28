@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { OrderStatus } from '@prisma/order-client';
+import { IsCommaSeparatedEnum } from '../../common/validators/is-comma-separated-enum.validator.js';
 
 export class QueryOrderDto {
   @ApiPropertyOptional({
@@ -30,9 +32,11 @@ export class QueryOrderDto {
   @ApiPropertyOptional({
     description: 'Filter by Order Status (single or comma-separated)',
     example: 'created,confirmed,in_progress',
+    enum: OrderStatus,
   })
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'status must be a string' })
+  @IsCommaSeparatedEnum(OrderStatus)
   status?: string;
 
   @ApiPropertyOptional({

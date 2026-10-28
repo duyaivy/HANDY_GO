@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { AppException } from '@app/common';
 import {
   RequestStatus,
   BookingProposalStatus,
@@ -37,6 +38,7 @@ describe('D2 Concurrency & Transaction Regression Suite (BE-08, BE-09)', () => {
     orders = new Map<string, any>();
     evidences = new Map<string, any[]>();
     history = new Map<string, any[]>();
+    requestMedia = new Map<string, any>();
     outboxEvents: any[] = [];
 
     createTx = () => {
@@ -46,12 +48,16 @@ describe('D2 Concurrency & Transaction Regression Suite (BE-08, BE-09)', () => {
 
         serviceRequest: {
           findUnique: vi.fn(async ({ where }: any) => {
-            return this.serviceRequests.get(where.id) ?? null;
+            const req = this.serviceRequests.get(where.id);
+            if (!req) return null;
+            const media = Array.from(this.requestMedia.values()).filter((m) => m.serviceRequestId === where.id);
+            return { ...req, media: req.media?.length ? req.media : media };
           }),
           findUniqueOrThrow: vi.fn(async ({ where }: any) => {
             const req = this.serviceRequests.get(where.id);
             if (!req) throw new Error('ServiceRequest not found');
-            return req;
+            const media = Array.from(this.requestMedia.values()).filter((m) => m.serviceRequestId === where.id);
+            return { ...req, media: req.media?.length ? req.media : media };
           }),
           findMany: vi.fn(async ({ where }: any) => {
             const all = Array.from(this.serviceRequests.values());
@@ -207,6 +213,39 @@ describe('D2 Concurrency & Transaction Regression Suite (BE-08, BE-09)', () => {
             return data;
           }),
         },
+
+        requestMedia: {
+          create: vi.fn(async ({ data }: any) => {
+            const id = data.id ?? 'media-' + Math.random().toString(36).substring(7);
+            const record = { ...data, id, createdAt: new Date() };
+            this.requestMedia.set(id, record);
+            const req = this.serviceRequests.get(data.serviceRequestId);
+            if (req) {
+              req.media = req.media ?? [];
+              req.media.push(record);
+            }
+            return record;
+          }),
+          findFirst: vi.fn(async ({ where }: any) => {
+            for (const item of this.requestMedia.values()) {
+              if (where.id && item.id !== where.id) continue;
+              if (where.serviceRequestId && item.serviceRequestId !== where.serviceRequestId) continue;
+              return item;
+            }
+            return null;
+          }),
+          delete: vi.fn(async ({ where }: any) => {
+            const item = this.requestMedia.get(where.id);
+            if (item) {
+              this.requestMedia.delete(where.id);
+              const req = this.serviceRequests.get(item.serviceRequestId);
+              if (req && req.media) {
+                req.media = req.media.filter((m: any) => m.id !== where.id);
+              }
+            }
+            return item ?? null;
+          }),
+        },
       };
     }
   }
@@ -229,8 +268,34 @@ describe('D2 Concurrency & Transaction Regression Suite (BE-08, BE-09)', () => {
         return await cb(tx);
       }),
       serviceRequest: {
-        findUnique: vi.fn(async ({ where }: any) => db.serviceRequests.get(where.id) ?? null),
+        findUnique: vi.fn(async ({ where }: any) => {
+          const req = db.serviceRequests.get(where.id);
+          if (!req) return null;
+          const media = Array.from(db.requestMedia.values()).filter((m) => m.serviceRequestId === where.id);
+          return { ...req, media: req.media?.length ? req.media : media };
+        }),
         findMany: vi.fn(async (args: any) => db.createTx().serviceRequest.findMany(args)),
+      },
+      requestMedia: {
+        findFirst: vi.fn(async ({ where }: any) => {
+          for (const item of db.requestMedia.values()) {
+            if (where.id && item.id !== where.id) continue;
+            if (where.serviceRequestId && item.serviceRequestId !== where.serviceRequestId) continue;
+            return item;
+          }
+          return null;
+        }),
+        delete: vi.fn(async ({ where }: any) => {
+          const item = db.requestMedia.get(where.id);
+          if (item) {
+            db.requestMedia.delete(where.id);
+            const req = db.serviceRequests.get(item.serviceRequestId);
+            if (req && req.media) {
+              req.media = req.media.filter((m: any) => m.id !== where.id);
+            }
+          }
+          return item ?? null;
+        }),
       },
       bookingProposal: {
         findUnique: vi.fn(async ({ where }: any) => db.bookingProposals.get(where.id) ?? null),
@@ -541,4 +606,152 @@ describe('D2 Concurrency & Transaction Regression Suite (BE-08, BE-09)', () => {
     expect(biddingClosedEvents).toHaveLength(1);
     expect(db.serviceRequests.get(requestId).status).toBe(RequestStatus.bidding_closed);
   });
+
+  // =========================================================================
+  // Scenario 7: Concurrent publish vs updateDraft (RECHECK-01)
+  // =========================================================================
+  it('Scenario 7: Concurrent publish vs updateDraft -> if updateDraft makes draft invalid between read and lock, publish is rejected and no event is emitted', async () => {
+    const requestId = 'req-concurrency-7';
+    const futureDate = new Date(Date.now() + 86400000);
+
+    const validDraft = {
+      id: requestId,
+      requestCode: 'REQ-CONC-007',
+      customerUserId: CUSTOMER_ID,
+      serviceId: 'service-uuid-7',
+      description: 'Mô tả hợp lệ ban đầu',
+      addressText: '123 Đường ABC, Đà Nẵng',
+      latitude: 16.05,
+      longitude: 108.2,
+      scheduledAt: futureDate,
+      status: RequestStatus.draft,
+      version: 0,
+      media: [],
+    };
+
+    db.serviceRequests.set(requestId, validDraft);
+
+    const originalFindUnique = prismaMock.serviceRequest.findUnique;
+
+    // Simulate concurrent updateDraft modifying draft right after initial read
+    prismaMock.serviceRequest.findUnique = vi.fn(async (_args: any) => {
+      const current = db.serviceRequests.get(requestId);
+      // Concurrent updateDraft commits before transaction lock is handled:
+      // Clearing description and serviceId, incrementing version
+      const invalidDraft = {
+        ...current,
+        serviceId: null,
+        description: '',
+        version: (current.version ?? 0) + 1,
+      };
+      db.serviceRequests.set(requestId, invalidDraft);
+      // Initial read returns the valid snapshot before updateDraft
+      return current;
+    });
+
+    try {
+      await expect(
+        serviceRequestsService.publish(requestId, CUSTOMER_ID),
+      ).rejects.toThrow(AppException);
+
+      // Ensure request was NOT transitioned to open_for_bidding
+      const currentReq = db.serviceRequests.get(requestId);
+      expect(currentReq.status).toBe(RequestStatus.draft);
+
+      // Ensure no service_request.published outbox event was emitted
+      const publishedEvents = db.outboxEvents.filter(
+        (e) => e.eventType === ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_PUBLISHED,
+      );
+      expect(publishedEvents).toHaveLength(0);
+    } finally {
+      prismaMock.serviceRequest.findUnique = originalFindUnique;
+    }
+  });
+
+  // =========================================================================
+  // Scenario 8: Concurrent publish vs addMedia / deleteMedia (RECHECK-02)
+  // =========================================================================
+  it('Scenario 8a: When publish wins first -> concurrent addMedia and deleteMedia must be rejected with 400', async () => {
+    const requestId = 'req-concurrency-8a';
+    const mediaId = 'media-concurrency-8a';
+    const futureDate = new Date(Date.now() + 86400000);
+
+    db.serviceRequests.set(requestId, {
+      id: requestId,
+      requestCode: 'REQ-CONC-008A',
+      customerUserId: CUSTOMER_ID,
+      serviceId: 'service-uuid-8',
+      description: 'Mô tả hợp lệ',
+      addressText: '123 Đường ABC, Đà Nẵng',
+      latitude: 16.05,
+      longitude: 108.2,
+      scheduledAt: futureDate,
+      status: RequestStatus.draft,
+      version: 0,
+      media: [{ id: mediaId, serviceRequestId: requestId, mediaType: 'image', mediaUrl: 'https://test/1.jpg' }],
+    });
+    db.requestMedia.set(mediaId, {
+      id: mediaId,
+      serviceRequestId: requestId,
+      mediaType: 'image',
+      mediaUrl: 'https://test/1.jpg',
+    });
+
+    // 1. Publish wins first
+    await serviceRequestsService.publish(requestId, CUSTOMER_ID);
+
+    const reqAfterPublish = db.serviceRequests.get(requestId);
+    expect(reqAfterPublish.status).toBe(RequestStatus.open_for_bidding);
+
+    // 2. addMedia must be rejected because status is no longer draft
+    await expect(
+      serviceRequestsService.addMedia(requestId, CUSTOMER_ID, {
+        mediaType: 'image',
+        mediaUrl: 'https://test/2.jpg',
+      }),
+    ).rejects.toThrow(AppException);
+
+    // 3. deleteMedia must be rejected because status is no longer draft
+    await expect(
+      serviceRequestsService.deleteMedia(requestId, mediaId, CUSTOMER_ID),
+    ).rejects.toThrow(AppException);
+
+    // Media must not be modified
+    expect(db.requestMedia.get(mediaId)).toBeDefined();
+  });
+
+  it('Scenario 8b: When addMedia wins first -> publish sees committed media in payload', async () => {
+    const requestId = 'req-concurrency-8b';
+    const futureDate = new Date(Date.now() + 86400000);
+
+    db.serviceRequests.set(requestId, {
+      id: requestId,
+      requestCode: 'REQ-CONC-008B',
+      customerUserId: CUSTOMER_ID,
+      serviceId: 'service-uuid-8',
+      description: 'Mô tả hợp lệ',
+      addressText: '123 Đường ABC, Đà Nẵng',
+      latitude: 16.05,
+      longitude: 108.2,
+      scheduledAt: futureDate,
+      status: RequestStatus.draft,
+      version: 0,
+      media: [],
+    });
+
+    // 1. addMedia wins first
+    const addedMedia = await serviceRequestsService.addMedia(requestId, CUSTOMER_ID, {
+      mediaType: 'image',
+      mediaUrl: 'https://test/media-committed.jpg',
+    });
+    expect(addedMedia).toBeDefined();
+
+    // 2. Publish follows and sees the newly added media
+    const published = await serviceRequestsService.publish(requestId, CUSTOMER_ID);
+    expect(published.status).toBe(RequestStatus.open_for_bidding);
+    expect(published.media).toHaveLength(1);
+    expect(published.media[0].mediaUrl).toBe('https://test/media-committed.jpg');
+  });
 });
+
+

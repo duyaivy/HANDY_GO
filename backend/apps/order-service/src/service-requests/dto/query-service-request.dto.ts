@@ -1,19 +1,25 @@
 import {
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { RequestStatus } from '@prisma/order-client';
+import { IsCommaSeparatedEnum } from '../../common/validators/is-comma-separated-enum.validator.js';
 
 export class QueryServiceRequestDto {
   @ApiPropertyOptional({
     description: 'Filter by request status (single or comma-separated)',
     example: 'open_for_bidding,draft,bidding_closed',
+    enum: RequestStatus,
   })
   @IsOptional()
+  @IsString({ message: 'status must be a string' })
+  @IsCommaSeparatedEnum(RequestStatus)
   status?: string;
 
   @ApiPropertyOptional({

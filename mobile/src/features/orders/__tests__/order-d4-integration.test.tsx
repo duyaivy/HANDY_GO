@@ -451,20 +451,137 @@ describe('d4 — Mobile P2 và Nghiệm thu toàn luồng (MOB-01 & MOB-02)', ()
       expect(loc).toBeNull();
     });
 
-    it('does NOT silently save fallback address on mount and requires user confirmation', async () => {
-      // Store initially empty
+    it('[RECHECK-03] requires valid address before confirmation and does NOT replace empty address with hardcoded string', async () => {
+      const alertSpy = jest.spyOn(require('react-native').Alert, 'alert');
       expect(useBookingDraftStore.getState().addressText).toBe('');
 
       render(<CustomerBookingSelectAddressScreen />);
 
-      // On initial render without user interaction, store addressText remains unsaved
+      // On initial render without user interaction, store addressText remains empty
       expect(useBookingDraftStore.getState().addressText).toBe('');
 
-      // User must explicitly press confirm button to save address
+      // Pressing confirm with empty address shows Alert and does NOT navigate or save
       const confirmBtn = screen.getByTestId('select-address-confirm-btn');
       fireEvent.press(confirmBtn);
 
-      expect(useBookingDraftStore.getState().addressText).toBeTruthy();
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Chưa có địa chỉ',
+        'Vui lòng nhập địa chỉ hoặc định vị vị trí của bạn.',
+      );
+      expect(useBookingDraftStore.getState().addressText).toBe('');
+      expect(mockPush).not.toHaveBeenCalled();
+
+      // After user types valid address, confirmation succeeds
+      fireEvent.changeText(screen.getByTestId('booking-address-input'), '456 Hoàng Diệu, Hải Châu, Đà Nẵng');
+      fireEvent.press(confirmBtn);
+
+      expect(useBookingDraftStore.getState().addressText).toBe('456 Hoàng Diệu, Hải Châu, Đà Nẵng');
+      expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
+    });
+
+    it('[RECHECK-03] saves new GPS coordinates and address when GPS returns coords different from draft', async () => {
+      // Draft has default coords (16.0748, 108.1499)
+      useBookingDraftStore.setState({
+        addressText: 'Địa chỉ cũ',
+        latitude: 16.0748,
+        longitude: 108.1499,
+      });
+
+      // GPS returns completely different coords & address (e.g. HCM)
+      const gpsCoords = {
+        latitude: 10.7769,
+        longitude: 106.7009,
+        addressText: '72 Lê Thánh Tôn, Bến Nghé, Quận 1, TP.HCM',
+      };
+      jest.spyOn(DeviceLocationService, 'getDeviceLocationResult').mockResolvedValue({
+        status: 'gps_success',
+        isRealGps: true,
+        coordinates: gpsCoords,
+      });
+
+      render(<CustomerBookingSelectAddressScreen />);
+
+      // Trigger GPS location
+      const locateBtn = screen.getByTestId('locate-me-btn');
+      fireEvent.press(locateBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText('GPS thiết bị: Đã định vị chính xác')).toBeOnTheScreen();
+      });
+
+      // At this point, store still has old coords until user confirms
+      expect(useBookingDraftStore.getState().latitude).toBe(16.0748);
+      expect(useBookingDraftStore.getState().longitude).toBe(108.1499);
+
+      // Press confirm
+      const confirmBtn = screen.getByTestId('select-address-confirm-btn');
+      fireEvent.press(confirmBtn);
+
+      // Store MUST now have new GPS coords and corresponding address
+      expect(useBookingDraftStore.getState().latitude).toBe(10.7769);
+      expect(useBookingDraftStore.getState().longitude).toBe(106.7009);
+      expect(useBookingDraftStore.getState().addressText).toBe('72 Lê Thánh Tôn, Bến Nghé, Quận 1, TP.HCM');
+      expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
+    });
+
+    it('[RECHECK-03] saves currently selected coordinates even if reverse geocoding throws or fails', async () => {
+      useBookingDraftStore.setState({
+        addressText: '100 Nguyễn Văn Linh, Đà Nẵng',
+        latitude: 16.0748,
+        longitude: 108.1499,
+      });
+
+      // Mock reverse geocode failure
+      const MapboxServiceMod = require('@/services/map/mapbox-service').MapboxService;
+      jest.spyOn(MapboxServiceMod, 'reverseGeocode').mockRejectedValue(new Error('Network failure'));
+
+      render(<CustomerBookingSelectAddressScreen />);
+
+      // Map moves to new coordinates (16.0820, 108.2200)
+      const mapView = screen.getByTestId('mapbox-map-view');
+      fireEvent(mapView, 'regionDidChange', {
+        geometry: { coordinates: [108.2200, 16.0820] },
+      });
+
+      // User presses confirm while reverse geocoding fails
+      const confirmBtn = screen.getByTestId('select-address-confirm-btn');
+      fireEvent.press(confirmBtn);
+
+      // Store MUST contain the newly selected coordinates (16.0820, 108.2200), NOT the old 16.0748
+      expect(useBookingDraftStore.getState().latitude).toBe(16.0820);
+      expect(useBookingDraftStore.getState().longitude).toBe(108.2200);
+      expect(useBookingDraftStore.getState().addressText).toBe('100 Nguyễn Văn Linh, Đà Nẵng');
+      expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
+    });
+
+    it('[RECHECK-03] saves active coordinates immediately when geocoding is pending and clears timers', async () => {
+      useBookingDraftStore.setState({
+        addressText: 'Số 10 Nguyễn Huệ, Huế',
+        latitude: 16.0748,
+        longitude: 108.1499,
+      });
+
+      const MapboxServiceMod = require('@/services/map/mapbox-service').MapboxService;
+      jest.spyOn(MapboxServiceMod, 'reverseGeocode').mockImplementation(
+        () => new Promise(resolve => setTimeout(() => resolve('Delayed Address'), 2000)),
+      );
+
+      render(<CustomerBookingSelectAddressScreen />);
+
+      // Map moves to new coordinates
+      const mapView = screen.getByTestId('mapbox-map-view');
+      fireEvent(mapView, 'regionDidChange', {
+        geometry: { coordinates: [108.2500, 16.0900] },
+      });
+
+      // User immediately confirms before reverseGeocode completes (still within 500ms debounce)
+      const confirmBtn = screen.getByTestId('select-address-confirm-btn');
+      fireEvent.press(confirmBtn);
+
+      // Store has the selected coordinates (16.0900, 108.2500)
+      expect(useBookingDraftStore.getState().latitude).toBe(16.0900);
+      expect(useBookingDraftStore.getState().longitude).toBe(108.2500);
+      expect(useBookingDraftStore.getState().addressText).toBe('Số 10 Nguyễn Huệ, Huế');
       expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
     });
 

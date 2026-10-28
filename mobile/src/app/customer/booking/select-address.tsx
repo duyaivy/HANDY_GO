@@ -181,10 +181,36 @@ export default function CustomerBookingSelectAddressRoute() {
 
   const handleBottomConfirm = () => {
     Keyboard.dismiss();
-    const finalAddress = currentAddress.trim() || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng';
-    const currentLat = useBookingDraftStore.getState().latitude;
-    const currentLng = useBookingDraftStore.getState().longitude;
-    setAddress(finalAddress, currentLat, currentLng);
+    const finalAddress = currentAddress.trim();
+    if (!finalAddress) {
+      Alert.alert(
+        'Chưa có địa chỉ',
+        'Vui lòng nhập địa chỉ hoặc định vị vị trí của bạn.',
+      );
+      return;
+    }
+
+    if (
+      typeof currentCoords?.latitude !== 'number'
+      || typeof currentCoords?.longitude !== 'number'
+      || Number.isNaN(currentCoords.latitude)
+      || Number.isNaN(currentCoords.longitude)
+    ) {
+      Alert.alert(
+        'Chưa có vị trí',
+        'Vui lòng chọn vị trí hợp lệ trên bản đồ hoặc định vị GPS.',
+      );
+      return;
+    }
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    if (forwardGeocodeTimerRef.current) {
+      clearTimeout(forwardGeocodeTimerRef.current);
+    }
+
+    setAddress(finalAddress, currentCoords.latitude, currentCoords.longitude);
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_TIME as any);
   };
 

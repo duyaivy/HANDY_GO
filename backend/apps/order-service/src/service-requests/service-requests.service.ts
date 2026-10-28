@@ -86,8 +86,8 @@ export class ServiceRequestsService {
       ...(query.serviceId ? { serviceId: query.serviceId } : {}),
     };
 
-    if (query.status) {
-      const statuses = (query.status as string)
+    if (typeof query.status === 'string' && query.status.trim().length > 0) {
+      const statuses = query.status
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
@@ -319,13 +319,15 @@ export class ServiceRequestsService {
 
   /**
    * Add a media link to draft service request (ORD-02).
+   * Executes in a transaction and acquires a pessimistic row-level lock on ServiceRequest
+   * to synchronize with publish/updateDraft.
    */
   async addMedia(id: string, userId: string, dto: ServiceRequestMediaDto) {
-    const request = await this.prisma.serviceRequest.findUnique({
+    const initialRequest = await this.prisma.serviceRequest.findUnique({
       where: { id },
     });
 
-    if (!request) {
+    if (!initialRequest) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
@@ -333,7 +335,7 @@ export class ServiceRequestsService {
       );
     }
 
-    if (request.customerUserId !== userId) {
+    if (initialRequest.customerUserId !== userId) {
       throw new AppException(
         HttpStatus.FORBIDDEN,
         ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
@@ -341,35 +343,80 @@ export class ServiceRequestsService {
       );
     }
 
-    if (request.status !== RequestStatus.draft) {
+    if (initialRequest.status !== RequestStatus.draft) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        `Cannot add media to a request in ${request.status} status. Media can only be modified in draft status.`,
+        `Cannot add media to a request in ${initialRequest.status} status. Media can only be modified in draft status.`,
       );
     }
 
-    const createdMedia = await this.prisma.requestMedia.create({
-      data: {
-        serviceRequestId: id,
-        mediaType: dto.mediaType,
-        mediaUrl: dto.mediaUrl,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Pessimistic row-level locking on ServiceRequest
+      if (typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${id}::uuid
+            FOR UPDATE
+          `;
+        } catch {}
+      }
 
-    this.logger.log(`Added media ${createdMedia.id} to request ${id}`);
-    return createdMedia;
+      // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
+      const request = await tx.serviceRequest.findUnique({
+        where: { id },
+      });
+
+      if (!request) {
+        throw new AppException(
+          HttpStatus.NOT_FOUND,
+          ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
+          ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
+        );
+      }
+
+      if (request.customerUserId !== userId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+          ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
+        );
+      }
+
+      if (request.status !== RequestStatus.draft) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot add media to a request in ${request.status} status. Media can only be modified in draft status.`,
+        );
+      }
+
+      // 3. Create media record within the transaction while holding row lock
+      const createdMedia = await tx.requestMedia.create({
+        data: {
+          serviceRequestId: id,
+          mediaType: dto.mediaType,
+          mediaUrl: dto.mediaUrl,
+        },
+      });
+
+      this.logger.log(`Added media ${createdMedia.id} to request ${id}`);
+      return createdMedia;
+    });
   }
 
   /**
    * Delete a media item from draft service request (ORD-02).
+   * Executes in a transaction and acquires a pessimistic row-level lock on ServiceRequest
+   * to synchronize with publish/updateDraft.
    */
   async deleteMedia(id: string, mediaId: string, userId: string) {
-    const request = await this.prisma.serviceRequest.findUnique({
+    const initialRequest = await this.prisma.serviceRequest.findUnique({
       where: { id },
     });
 
-    if (!request) {
+    if (!initialRequest) {
       throw new AppException(
         HttpStatus.NOT_FOUND,
         ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
@@ -377,7 +424,7 @@ export class ServiceRequestsService {
       );
     }
 
-    if (request.customerUserId !== userId) {
+    if (initialRequest.customerUserId !== userId) {
       throw new AppException(
         HttpStatus.FORBIDDEN,
         ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
@@ -385,92 +432,121 @@ export class ServiceRequestsService {
       );
     }
 
-    if (request.status !== RequestStatus.draft) {
+    if (initialRequest.status !== RequestStatus.draft) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        `Cannot delete media from a request in ${request.status} status. Media can only be modified in draft status.`,
+        `Cannot delete media from a request in ${initialRequest.status} status. Media can only be modified in draft status.`,
       );
     }
 
-    const media = await this.prisma.requestMedia.findFirst({
-      where: { id: mediaId, serviceRequestId: id },
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Pessimistic row-level locking on ServiceRequest
+      if (typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`
+            SELECT id FROM order_service.service_requests
+            WHERE id = ${id}::uuid
+            FOR UPDATE
+          `;
+        } catch {}
+      }
+
+      // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
+      const request = await tx.serviceRequest.findUnique({
+        where: { id },
+      });
+
+      if (!request) {
+        throw new AppException(
+          HttpStatus.NOT_FOUND,
+          ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
+          ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
+        );
+      }
+
+      if (request.customerUserId !== userId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+          ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
+        );
+      }
+
+      if (request.status !== RequestStatus.draft) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          `Cannot delete media from a request in ${request.status} status. Media can only be modified in draft status.`,
+        );
+      }
+
+      // 3. Find and delete media record within the transaction while holding row lock
+      const media = await tx.requestMedia.findFirst({
+        where: { id: mediaId, serviceRequestId: id },
+      });
+
+      if (!media) {
+        throw new AppException(
+          HttpStatus.NOT_FOUND,
+          ORDER_ERROR_CODES.MEDIA_NOT_FOUND,
+          ORDER_ERROR_MESSAGES.MEDIA_NOT_FOUND,
+        );
+      }
+
+      await tx.requestMedia.delete({
+        where: { id: mediaId },
+      });
+
+      this.logger.log(`Deleted media ${mediaId} from request ${id}`);
     });
-
-    if (!media) {
-      throw new AppException(
-        HttpStatus.NOT_FOUND,
-        ORDER_ERROR_CODES.MEDIA_NOT_FOUND,
-        ORDER_ERROR_MESSAGES.MEDIA_NOT_FOUND,
-      );
-    }
-
-    await this.prisma.requestMedia.delete({
-      where: { id: mediaId },
-    });
-
-    this.logger.log(`Deleted media ${mediaId} from request ${id}`);
   }
 
   /**
-   * Publish a draft service request (ORD-03).
-   * Validates mandatory fields and establishes 24h bidding deadline + 48h selection deadline.
-   * Emits `service_request.published` event atomically via Outbox.
+   * Helper to validate that all mandatory fields for publishing are present and valid.
    */
-  async publish(id: string, userId: string) {
-    const request = await this.prisma.serviceRequest.findUnique({
-      where: { id },
-      include: { media: true },
-    });
-
-    if (!request) {
-      throw new AppException(
-        HttpStatus.NOT_FOUND,
-        ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
-        ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
-      );
-    }
-
-    if (request.customerUserId !== userId) {
-      throw new AppException(
-        HttpStatus.FORBIDDEN,
-        ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
-        ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
-      );
-    }
-
-    if (request.status !== RequestStatus.draft) {
-      throw new AppException(
-        HttpStatus.BAD_REQUEST,
-        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-        'Only draft service requests can be published',
-      );
-    }
-
-    // Strict validation for publishing
+  private validatePublishableDraft(request: {
+    serviceId?: string | null;
+    addressText?: string | null;
+    latitude?: number | Prisma.Decimal | null;
+    longitude?: number | Prisma.Decimal | null;
+    description?: string | null;
+    scheduledAt?: Date | string | null;
+  }) {
     const missingFields: string[] = [];
-    if (!request.serviceId) missingFields.push('serviceId');
-    if (!request.addressText?.trim()) missingFields.push('addressText');
-    if (request.latitude === null || request.latitude === undefined)
+    if (!request.serviceId || (typeof request.serviceId === 'string' && !request.serviceId.trim())) {
+      missingFields.push('serviceId');
+    }
+    if (!request.addressText?.trim()) {
+      missingFields.push('addressText');
+    }
+    if (request.latitude === null || request.latitude === undefined) {
       missingFields.push('latitude');
-    if (request.longitude === null || request.longitude === undefined)
+    }
+    if (request.longitude === null || request.longitude === undefined) {
       missingFields.push('longitude');
-    if (!request.description?.trim()) missingFields.push('description');
+    }
+    if (!request.description?.trim()) {
+      missingFields.push('description');
+    }
 
     const CLOCK_SKEW_TOLERANCE_MS = 2 * 60 * 1000;
     if (!request.scheduledAt) {
       missingFields.push('scheduledAt');
-    } else if (new Date(request.scheduledAt).getTime() < Date.now() - CLOCK_SKEW_TOLERANCE_MS) {
-      throw new AppException(
-        HttpStatus.UNPROCESSABLE_ENTITY,
-        ORDER_ERROR_CODES.INCOMPLETE_PUBLISH_PAYLOAD,
-        'Scheduled appointment time must be in the future',
-        {
-          fieldErrors: {
-            scheduledAt: ['Scheduled appointment time must be in the future'],
+    } else {
+      const scheduledTime = new Date(request.scheduledAt).getTime();
+      if (Number.isNaN(scheduledTime) || scheduledTime < Date.now() - CLOCK_SKEW_TOLERANCE_MS) {
+        throw new AppException(
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          ORDER_ERROR_CODES.INCOMPLETE_PUBLISH_PAYLOAD,
+          'Scheduled appointment time must be in the future',
+          {
+            fieldErrors: {
+              scheduledAt: ['Scheduled appointment time must be in the future'],
+            },
           },
-        },
-      );
+        );
+      }
     }
 
     if (missingFields.length > 0) {
@@ -488,6 +564,45 @@ export class ServiceRequestsService {
         { fieldErrors },
       );
     }
+  }
+
+  /**
+   * Publish a draft service request (ORD-03).
+   * Validates mandatory fields after locking row and establishes 24h bidding deadline + 48h selection deadline.
+   * Emits `service_request.published` event atomically via Outbox only after validating the locked row.
+   */
+  async publish(id: string, userId: string) {
+    const initialRequest = await this.prisma.serviceRequest.findUnique({
+      where: { id },
+      include: { media: true },
+    });
+
+    if (!initialRequest) {
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
+        ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
+      );
+    }
+
+    if (initialRequest.customerUserId !== userId) {
+      throw new AppException(
+        HttpStatus.FORBIDDEN,
+        ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+        ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
+      );
+    }
+
+    if (initialRequest.status !== RequestStatus.draft) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        'Only draft service requests can be published',
+      );
+    }
+
+    // Fail-fast validation before acquiring transaction lock
+    this.validatePublishableDraft(initialRequest);
 
     const now = new Date();
     const biddingClosesAt = new Date(
@@ -500,6 +615,7 @@ export class ServiceRequestsService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      // 1. Pessimistic row-level locking
       if (typeof tx.$queryRaw === 'function') {
         try {
           await tx.$queryRaw`
@@ -510,8 +626,46 @@ export class ServiceRequestsService {
         } catch {}
       }
 
+      // 2. Re-read the latest state after acquiring the lock to prevent TOCTOU race with updateDraft
+      const lockedRequest = await tx.serviceRequest.findUnique({
+        where: { id },
+        include: { media: true },
+      });
+
+      if (!lockedRequest) {
+        throw new AppException(
+          HttpStatus.NOT_FOUND,
+          ORDER_ERROR_CODES.SERVICE_REQUEST_NOT_FOUND,
+          ORDER_ERROR_MESSAGES.SERVICE_REQUEST_NOT_FOUND,
+        );
+      }
+
+      if (lockedRequest.customerUserId !== userId) {
+        throw new AppException(
+          HttpStatus.FORBIDDEN,
+          ORDER_ERROR_CODES.NOT_REQUEST_OWNER,
+          ORDER_ERROR_MESSAGES.NOT_REQUEST_OWNER,
+        );
+      }
+
+      if (lockedRequest.status !== RequestStatus.draft) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          'Only draft service requests can be published',
+        );
+      }
+
+      // 3. Re-validate all required fields on the locked row inside the transaction
+      this.validatePublishableDraft(lockedRequest);
+
+      // 4. Update status with version CAS guard
       const updateResult = await tx.serviceRequest.updateMany({
-        where: { id, status: RequestStatus.draft },
+        where: {
+          id,
+          status: RequestStatus.draft,
+          ...(lockedRequest.version !== undefined ? { version: lockedRequest.version } : {}),
+        },
         data: {
           status: RequestStatus.open_for_bidding,
           publishedAt: now,
@@ -536,6 +690,7 @@ export class ServiceRequestsService {
         },
       });
 
+      // 5. Emit outbox event only after row is verified valid and updated
       await this.outboxRepo.createEvent(
         {
           aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,

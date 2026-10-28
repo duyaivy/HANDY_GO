@@ -163,13 +163,14 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerBookingSelectAddressScreen (booking/select-address)', () => {
-    it('renders select address skeleton and navigates to select time on confirm', () => {
+    it('renders select address skeleton and navigates to select time on confirm with valid address', () => {
       render(<CustomerBookingSelectAddressScreen />);
 
       expect(screen.getByText('Chọn địa chỉ')).toBeOnTheScreen();
       expect(screen.getByTestId('gps-status-badge')).toBeOnTheScreen();
       expect(screen.getByTestId('locate-me-btn')).toBeOnTheScreen();
 
+      fireEvent.changeText(screen.getByTestId('booking-address-input'), '123 Nguyễn Lương Bằng, Đà Nẵng');
       fireEvent.press(screen.getByTestId('select-address-confirm-btn'));
       expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
     });

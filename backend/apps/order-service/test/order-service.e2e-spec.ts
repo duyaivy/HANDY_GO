@@ -829,4 +829,130 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
       expect(resolveRes.body.data.status).toBe('completed');
     });
   });
+
+  describe('RECHECK-04: Status Query Validation (HTTP Regression)', () => {
+    describe('Service Requests Query (?status=...)', () => {
+      it('accepts single valid status -> returns 200 OK', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=draft')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(200);
+      });
+
+      it('accepts multiple valid comma-separated statuses -> returns 200 OK', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=draft,open_for_bidding,bidding_closed')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(200);
+      });
+
+      it('rejects array query (duplicate status param) -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=draft&status=open_for_bidding')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects unknown or invalid status token -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=draft,invalid_status')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects string with only commas or whitespace -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=%20,%20,%20')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=,')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects empty tokens / trailing commas -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/service-requests?status=draft,')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+    });
+
+    describe('Orders Query (?status=...)', () => {
+      it('accepts multiple valid order statuses -> returns 200 OK', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/orders?status=created,confirmed,in_progress')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(200);
+      });
+
+      it('rejects array query on orders -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/orders?status=created&status=confirmed')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects invalid order status token -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/orders?status=created,fake_status')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects string with only whitespace or commas -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/orders?status=%20,%20')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+    });
+
+    describe('Booking Proposals Query (?status=...)', () => {
+      it('accepts multiple valid proposal statuses -> returns 200 OK', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/booking-proposals?status=proposed,changes_requested')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(200);
+      });
+
+      it('rejects array query on proposals -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/booking-proposals?status=proposed&status=changes_requested')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects invalid proposal status token -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/booking-proposals?status=proposed,bogus')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+
+      it('rejects string with only commas or whitespace -> returns 400 Bad Request', async () => {
+        await request(app.getHttpServer())
+          .get('/api/v1/booking-proposals?status=,,')
+          .set('x-user-id', CUSTOMER_ID)
+          .set('x-user-roles', 'customer')
+          .expect(400);
+      });
+    });
+  });
 });

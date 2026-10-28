@@ -1,12 +1,15 @@
 import {
   IsInt,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { BookingProposalStatus } from '@prisma/order-client';
+import { IsCommaSeparatedEnum } from '../../common/validators/is-comma-separated-enum.validator.js';
 
 export class QueryBookingProposalDto {
   @ApiPropertyOptional({
@@ -33,8 +36,11 @@ export class QueryBookingProposalDto {
   @ApiPropertyOptional({
     description: 'Filter by booking proposal status (single or comma-separated)',
     example: 'proposed,changes_requested',
+    enum: BookingProposalStatus,
   })
   @IsOptional()
+  @IsString({ message: 'status must be a string' })
+  @IsCommaSeparatedEnum(BookingProposalStatus)
   status?: string;
 
   @ApiPropertyOptional({
