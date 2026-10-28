@@ -198,7 +198,9 @@ jobs:
         run: python -m compileall app tests
 
       - name: Run unit tests
-        run: pytest tests -v
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests -v
 
   ci-gate:
     name: CI Gate
