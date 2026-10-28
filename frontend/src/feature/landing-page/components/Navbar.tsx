@@ -1,42 +1,53 @@
 "use client";
-import React, { useState, useEffect } from "react";
+
+import React, { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
   Menu,
   X,
-  Smartphone,
   Home,
   Info,
   Users,
   Wrench,
+  Search,
   Star,
-  PhoneCall,
+  Smartphone,
   ChevronRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLenis } from "lenis/react";
-import { useRouter } from "next/navigation";
-declare global {
-  interface Window {
-    __handyGoLenis?: ReturnType<typeof useLenis>;
-  }
-}
+
 interface NavbarProps {
   onOpenDownload: () => void;
 }
 
+const navLinks = [
+  { id: "about", label: "Về chúng tôi", icon: Info },
+  {
+    id: "services",
+    label: "Khám phá dịch vụ",
+    icon: Search,
+    href: "/services",
+  },
+  { id: "customers", label: "Khách hàng", icon: Users },
+  { id: "craftsmen", label: "Thợ HandyGo", icon: Wrench },
+  { id: "reviews", label: "Đánh giá", icon: Star },
+  {
+    id: "download",
+    label: "Tải ứng dụng",
+    icon: Smartphone,
+  },
+] as const;
+
 export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<string>("");
   const lenis = useLenis();
+
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("");
 
   useEffect(() => {
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
-
-      // Track active section for indicator
       const sections = [
         "about",
         "customers",
@@ -44,25 +55,32 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
         "reviews",
         "download",
       ];
-      const scrollPos = window.scrollY + 160;
 
-      for (let i = sections.length - 1; i >= 0; i--) {
-        const el = document.getElementById(sections[i]);
-        if (el && el.offsetTop <= scrollPos) {
-          setActiveSection(sections[i]);
-          return;
+      const scrollPosition = window.scrollY + 140;
+      let current = "";
+
+      for (const id of sections) {
+        const element = document.getElementById(id);
+
+        if (element && element.offsetTop <= scrollPosition) {
+          current = id;
         }
       }
-      if (window.scrollY < 200) {
-        setActiveSection("");
-      }
+
+      setActiveSection(current);
     };
 
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
+    handleScroll();
+
+    window.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
-  // Butter-smooth Lenis scroll with zero-jump guarantee
   const handleScrollTo = (
     e: React.MouseEvent<HTMLAnchorElement>,
     targetId: string,
@@ -70,19 +88,23 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
     e.preventDefault();
     setIsMobileMenuOpen(false);
 
-    const activeLenis =
-      lenis || (typeof window !== "undefined" ? window.__handyGoLenis : null);
+    if (targetId === "download") {
+      const downloadSection = document.getElementById("download");
+
+      if (!downloadSection) {
+        onOpenDownload();
+        return;
+      }
+    }
 
     if (targetId === "top") {
-      if (activeLenis) {
-        activeLenis.scrollTo(0, {
-          duration: 1.4,
-          immediate: false,
-          lock: false,
-          easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-        });
+      if (lenis) {
+        lenis.scrollTo(0, { duration: 1.2 });
       } else {
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
       }
       return;
     }
@@ -90,274 +112,212 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
     const element = document.getElementById(targetId);
     if (!element) return;
 
-    const headerOffset = 90;
-
-    if (activeLenis) {
-      activeLenis.scrollTo(element, {
-        offset: -headerOffset,
-        duration: 1.4,
-        immediate: false,
-        lock: false,
-        easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+    if (lenis) {
+      lenis.scrollTo(element, {
+        offset: -88,
+        duration: 1.2,
       });
-      return;
+    } else {
+      const top = element.getBoundingClientRect().top + window.scrollY - 88;
+
+      window.scrollTo({
+        top,
+        behavior: "smooth",
+      });
     }
-
-    // High-precision RAF smooth scroll fallback
-    const startY = window.pageYOffset;
-    const targetY = element.getBoundingClientRect().top + startY - headerOffset;
-    const distance = targetY - startY;
-    const duration = 1400;
-    let startTime: number | null = null;
-
-    const easeInOutCubic = (t: number) =>
-      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-
-    const animationStep = (currentTime: number) => {
-      if (!startTime) startTime = currentTime;
-      const timeElapsed = currentTime - startTime;
-      const progress = Math.min(timeElapsed / duration, 1);
-      const ease = easeInOutCubic(progress);
-
-      window.scrollTo(0, startY + distance * ease);
-
-      if (progress < 1) {
-        requestAnimationFrame(animationStep);
-      }
-    };
-
-    requestAnimationFrame(animationStep);
   };
 
-  const navLinks = [
-    { id: "about", label: "Về chúng tôi", icon: Info },
-    { id: "customers", label: "Khách hàng", icon: Users },
-    { id: "craftsmen", label: "Thợ Handy Go", icon: Wrench },
-    { id: "reviews", label: "Đánh giá", icon: Star },
-    { id: "download", label: "Download App", icon: Smartphone, isBadge: true },
-  ];
-  const router = useRouter();
   return (
     <>
-      <header
-        className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
-          isScrolled
-            ? "bg-white/95 backdrop-blur-md shadow-md border-b border-slate-100 py-3 sm:py-4"
-            : "bg-white/95 backdrop-blur-sm py-4 sm:py-5"
-        }`}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between">
-            {/* Brand Logo - ĐƯỜNG DẪN ẢNH TRỰC TIẾP */}
-            <motion.a
-              href="#"
+      {/* HEADER */}
+      <header className="fixed inset-x-0 top-0 z-50 w-full border-b border-slate-100 bg-white/95 shadow-sm backdrop-blur-md">
+        <div className="mx-auto max-w-[1600px] px-4 sm:px-6 xl:px-8">
+          <div className="flex h-[88px] items-center justify-between gap-5">
+            {/* LOGO */}
+            <a
+              href="#top"
               onClick={(e) => handleScrollTo(e, "top")}
-              className="flex items-center shrink-0 cursor-pointer"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              aria-label="HandyGo Trang chủ"
+              aria-label="HandyGo - Trang chủ"
+              className="flex shrink-0 items-center"
             >
-              {/* 👉 BẠN CÓ THỂ ĐỔI TRỰC TIẾP ĐƯỜNG DẪN ẢNH TẠI THUỘC TÍNH src DƯỚI ĐÂY: */}
               <Image
                 src="/handygo-logo-horizontal.svg"
-                alt="HandyGo Logo"
-                width={2000}
-                height={100}
+                alt="HandyGo"
+                width={270}
+                height={90}
                 priority
-                className="h-18 sm:h-20 w-auto object-contain"
+                className="h-auto w-[190px] object-contain sm:w-[210px]"
               />
-            </motion.a>
+            </a>
 
-            {/* DESKTOP ONLY: Horizontal Navigation Links (>= 1024px) */}
-            <nav className="hidden lg:flex items-center gap-7 xl:gap-8 text-base lg:text-[16px] xl:text-[17px] font-bold text-slate-800">
+            {/* DESKTOP MENU */}
+            <nav className="hidden min-w-0 items-center justify-center gap-1 xl:flex 2xl:gap-1.5">
               {navLinks.map((link) => {
                 const isActive = activeSection === link.id;
+
+                const linkClass = `relative inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-xl px-2.5 py-3 text-[15px] font-extrabold transition-all duration-200 2xl:px-3 2xl:text-base ${
+                  isActive
+                    ? "bg-orange-50 text-[#FF5E14]"
+                    : "text-slate-700 hover:bg-orange-50 hover:text-[#FF5E14]"
+                }`;
+
+                if ("href" in link && link.href) {
+                  return (
+                    <Link key={link.id} href={link.href} className={linkClass}>
+                      {link.label}
+                    </Link>
+                  );
+                }
+
                 return (
                   <a
                     key={link.id}
                     href={`#${link.id}`}
                     onClick={(e) => handleScrollTo(e, link.id)}
-                    className={`relative py-2 px-1 transition-colors flex items-center gap-1.5 cursor-pointer group ${
-                      isActive
-                        ? "text-[#FF5E14]"
-                        : "text-slate-800 hover:text-[#FF5E14]"
-                    }`}
+                    className={linkClass}
                   >
-                    <span>{link.label}</span>
-                    {link.isBadge && (
-                      <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-orange-100 text-[#FF5E14] group-hover:bg-[#FF5E14] group-hover:text-white transition-colors">
-                        App
-                      </span>
-                    )}
-                    <span
-                      className={`absolute bottom-0 left-0 h-0.5 bg-[#FF5E14] transition-all duration-300 ${
-                        isActive ? "w-full" : "w-0 group-hover:w-full"
-                      }`}
-                    />
+                    {link.label}
                   </a>
                 );
               })}
             </nav>
 
-            {/* DESKTOP ONLY: Auth Action Button (>= 1024px) */}
-            <div className="hidden lg:flex items-center gap-3">
-              <motion.div
-                whileHover={{ scale: 1.04, y: -1 }}
-                whileTap={{ scale: 0.97 }}
-                transition={{ type: "spring", stiffness: 400, damping: 25 }}
-              >
-                <Link
-                  href="/login"
-                  className="block px-6 py-2.5 rounded-2xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white font-bold text-sm lg:text-base shadow-md shadow-orange-500/25 hover:shadow-orange-500/40 transition-all cursor-pointer"
-                >
-                  Đăng nhập
-                </Link>
-              </motion.div>
-            </div>
-
-            {/* MOBILE & TABLET (< 1024px): Có nút Đăng nhập cho Tablet + Nút Dấu 3 gạch */}
-            <div className="flex lg:hidden items-center gap-2 sm:gap-3">
-              {/* Nút Đăng nhập cho Tablet (không logo) */}
+            {/* DESKTOP DOWNLOAD BUTTON */}
+            <div className="hidden shrink-0 xl:flex">
               <button
                 type="button"
-                onClick={() => router.push("/login")}
-                className="hidden sm:inline-flex px-4 py-2 rounded-xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white font-bold text-sm shadow-xs hover:opacity-95 transition-all cursor-pointer"
+                onClick={onOpenDownload}
+                className="group inline-flex h-12 items-center gap-3 rounded-full bg-[#FFBA08] py-1.5 pl-1.5 pr-5 text-slate-950 shadow-sm transition-all duration-300 hover:bg-[#FFCA36] hover:shadow-md active:scale-[0.97]"
               >
-                Đăng nhập
-              </button>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white">
+                  <Image
+                    src="/ggplay.svg"
+                    alt=""
+                    width={24}
+                    height={24}
+                    className="h-6 w-6 object-contain"
+                  />
+                </span>
 
+                <span className="whitespace-nowrap text-sm font-bold">
+                  Tải ứng dụng
+                </span>
+              </button>
+            </div>
+
+            {/* MOBILE / TABLET */}
+            <div className="flex shrink-0 items-center gap-2 xl:hidden">
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
-                className="p-2 sm:p-2.5 rounded-xl sm:rounded-2xl bg-slate-100 text-slate-800 hover:bg-slate-200 transition-all cursor-pointer flex items-center justify-center"
-                aria-label="Mở menu điều hướng (dấu 3 gạch)"
+                aria-label="Mở menu"
                 aria-expanded={isMobileMenuOpen}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-800 transition-colors hover:bg-orange-50 hover:text-[#FF5E14]"
               >
-                <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
+                <Menu size={23} />
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* KHI BẤM DẤU 3 GẠCH: HIỆN MENU TRƯỢT TỪ PHẢI QUA TRÁI (RIGHT-TO-LEFT SIDE DRAWER) */}
+      {/* MOBILE DRAWER */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden flex justify-end">
-            {/* Lớp nền tối mờ (Backdrop overlay) */}
+          <div className="fixed inset-0 z-[60] flex justify-end xl:hidden">
+            {/* OVERLAY */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
               onClick={() => setIsMobileMenuOpen(false)}
-              className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs cursor-pointer"
-              aria-hidden="true"
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-[2px]"
             />
 
-            {/* Khung Menu trượt mượt mà TỪ PHẢI QUA TRÁI:
-                - Mobile: chiếm 1/2 màn hình (w-1/2)
-                - Tablet: chiếm 1/3 màn hình (sm:w-1/3 md:w-1/3)
-            */}
+            {/* DRAWER */}
             <motion.div
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
               exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 280 }}
-              className="relative w-1/2 sm:w-1/3 md:w-1/3 h-full bg-white shadow-2xl flex flex-col justify-between overflow-y-auto z-10 border-l border-slate-100"
+              transition={{
+                type: "spring",
+                damping: 30,
+                stiffness: 300,
+              }}
+              className="relative flex h-full w-[min(360px,85vw)] flex-col bg-white shadow-2xl"
             >
-              {/* Đầu Drawer: Tiêu đề & Nút đóng X */}
-              <div className="p-3 sm:p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
-                <div className="flex items-center gap-2 overflow-hidden">
-                  <Image
-                    src="/logo.png"
-                    alt="HandyGo Logo"
-                    width={800}
-                    height={600}
-                    onError={(e) => {
-                      e.currentTarget.src = "/handygo-logo-horizontal.png";
-                    }}
-                    className="h-7 sm:h-8 w-auto object-contain max-w-30"
-                  />
-                </div>
+              {/* DRAWER HEADER */}
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-5">
+                <Image
+                  src="/handygo-logo-horizontal.svg"
+                  alt="HandyGo"
+                  width={200}
+                  height={65}
+                  className="h-auto w-[180px] object-contain"
+                />
+
                 <button
                   type="button"
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="p-1.5 sm:p-2 rounded-lg bg-slate-200/80 hover:bg-orange-500 hover:text-white text-slate-700 transition-colors cursor-pointer shrink-0"
                   aria-label="Đóng menu"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-700 hover:bg-orange-50 hover:text-[#FF5E14]"
                 >
-                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  <X size={21} />
                 </button>
               </div>
 
-              {/* Thân Drawer: Các tab menu theo cột dọc trượt từ phải sang */}
-              <div className="p-3 sm:p-4 space-y-2 flex-1 overflow-y-auto">
-                <div className="flex flex-col space-y-1">
-                  <a
-                    href="#"
-                    onClick={(e) => handleScrollTo(e, "top")}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-800 hover:bg-orange-50 hover:text-[#FF5E14] transition-colors cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 sm:gap-2.5 truncate">
-                      <Home className="w-4 h-4 text-[#FF5E14] shrink-0" />
-                      <span className="truncate">Trang chủ</span>
-                    </div>
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  </a>
+              {/* DRAWER LINKS */}
+              <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
+                <a
+                  href="#top"
+                  onClick={(e) => handleScrollTo(e, "top")}
+                  className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-bold text-slate-700 hover:bg-orange-50 hover:text-[#FF5E14]"
+                >
+                  <Home size={19} />
+                  Trang chủ
+                </a>
 
-                  {navLinks.map((link) => (
+                {navLinks.map((link) => {
+                  const Icon = link.icon;
+
+                  const content = (
+                    <>
+                      <Icon size={19} className="shrink-0" />
+
+                      <span className="flex-1">{link.label}</span>
+
+                      <ChevronRight size={16} className="text-slate-400" />
+                    </>
+                  );
+
+                  const className =
+                    "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-bold text-slate-700 transition-colors hover:bg-orange-50 hover:text-[#FF5E14]";
+
+                  if ("href" in link && link.href) {
+                    return (
+                      <Link
+                        key={link.id}
+                        href={link.href}
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className={className}
+                      >
+                        {content}
+                      </Link>
+                    );
+                  }
+
+                  return (
                     <a
                       key={link.id}
                       href={`#${link.id}`}
-                      onClick={(e) => {
-                        if (link.id === "download") {
-                          e.preventDefault();
-                          setIsMobileMenuOpen(false);
-                          onOpenDownload();
-                        } else {
-                          handleScrollTo(e, link.id);
-                        }
-                      }}
-                      className="flex items-center justify-between px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-800 hover:bg-orange-50 hover:text-[#FF5E14] transition-colors cursor-pointer"
+                      onClick={(e) => handleScrollTo(e, link.id)}
+                      className={className}
                     >
-                      <div className="flex items-center gap-2 sm:gap-2.5 truncate">
-                        <link.icon className="w-4 h-4 text-[#FF5E14] shrink-0" />
-                        <span className="truncate">{link.label}</span>
-                      </div>
-                      {link.isBadge ? (
-                        <span className="text-[10px] sm:text-xs font-black px-1.5 sm:px-2 py-0.5 rounded-full bg-orange-100 text-[#FF5E14] shrink-0">
-                          Tải Ngay
-                        </span>
-                      ) : (
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      )}
+                      {content}
                     </a>
-                  ))}
-                </div>
-              </div>
-
-              {/* Chân Drawer: Nút Đăng nhập (không logo) & Hotline */}
-              <div className="p-3 sm:p-4 border-t border-slate-100 bg-slate-50/70 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    router.push("/login");
-                  }}
-                  className="w-full py-2.5 sm:py-3 px-3 rounded-xl bg-linear-to-r from-[#FF5E14] to-[#FF772E] text-white text-xs sm:text-sm font-bold text-center shadow-md shadow-orange-500/20 cursor-pointer hover:opacity-95"
-                >
-                  Đăng nhập
-                </button>
-
-                <a
-                  href="tel:19006868"
-                  className="flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl bg-white border border-slate-200 text-[11px] sm:text-xs font-bold text-emerald-700"
-                >
-                  <PhoneCall className="w-3.5 h-3.5 shrink-0" />
-                  <span>1900 6868 (Miễn cước)</span>
-                </a>
-              </div>
+                  );
+                })}
+              </nav>
             </motion.div>
           </div>
         )}
@@ -365,3 +325,5 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
     </>
   );
 };
+
+export default Navbar;
