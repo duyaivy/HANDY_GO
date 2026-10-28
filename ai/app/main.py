@@ -75,12 +75,15 @@ app = create_app()
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
+
+    port = int(os.getenv("PORT", settings.ai_service_port))
 
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=settings.ai_service_port,
+        port=port,
         reload=settings.debug,
     )
 
