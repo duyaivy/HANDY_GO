@@ -33,15 +33,64 @@ export function NotificationLifecycle() {
     const id = notificationIdFromData(pending.notification.request.content.data);
     if (!id)
       return;
+
+    const pendingData = pending.notification.request.content.data as Record<string, unknown> | undefined;
+    const fallbackEventType = String(pendingData?.eventType || pendingData?.type || '');
+    const fallbackRequestId = String(pendingData?.requestId || pendingData?.serviceRequestId || '');
+    const fallbackCategory = String(pendingData?.category || '');
+
+    const handleDeepLink = (eventType: string, requestId: string, category?: string) => {
+      try {
+        const mode = useAuthStore.getState().activeMode;
+        const userRoles = useAuthStore.getState().user?.roles || [];
+
+        // Route bid notifications to Customer Radar
+        if (
+          (eventType === 'bid.submitted' || eventType === 'bid.revised' || category === 'bidding')
+          && requestId
+        ) {
+          if (userRoles.includes('Customer') && mode !== 'Customer') {
+            useAuthStore.getState().setActiveMode('Customer');
+          }
+          router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as Href);
+        }
+        // Route matching job discovery notifications to Worker Home
+        else if (
+          eventType === 'matching.eligible_workers.ready'
+          || (category === 'matching' && (mode === 'Worker' || userRoles.includes('Worker')))
+        ) {
+          if (userRoles.includes('Worker') && mode !== 'Worker') {
+            useAuthStore.getState().setActiveMode('Worker');
+          }
+          router.push('/worker' as Href);
+        }
+        else {
+          router.push((mode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications') as Href);
+        }
+      }
+      catch (navErr) {
+        console.warn('[NOTIF_DEEP_LINK] Navigation error:', navErr);
+      }
+    };
+
     const controller = new AbortController();
     // Verify ownership before using an OS tray payload (which may predate login).
-    NotificationApi.detail(id, controller.signal).then(() => {
+    NotificationApi.detail(id, controller.signal).then((record) => {
       if (controller.signal.aborted || sessionUser() !== userId)
         return;
-      const mode = useAuthStore.getState().activeMode;
-      router.push((mode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications') as Href);
+
+      const eventType = String(record?.payload?.eventType || fallbackEventType);
+      const requestId = String(record?.payload?.requestId || record?.payload?.serviceRequestId || fallbackRequestId);
+      const category = String(record?.category || fallbackCategory);
+
+      handleDeepLink(eventType, requestId, category);
       void refreshNotifications(userId);
-    }).catch(() => {}).finally(() => {
+    }).catch((_err) => {
+      // Safe fallback for cold-start or offline/failed detail fetch: navigate using notification payload
+      if (sessionUser() === userId && (fallbackEventType || fallbackRequestId)) {
+        handleDeepLink(fallbackEventType, fallbackRequestId, fallbackCategory);
+      }
+    }).finally(() => {
       if (!controller.signal.aborted)
         setPending(null);
     });
