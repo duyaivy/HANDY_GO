@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 
 export class WorkerDiscoverableRequestItemDto {
   @ApiProperty({ description: 'ID yêu cầu dịch vụ', example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' })
@@ -39,3 +40,9 @@ export class WorkerRequestDiscoveryResponseDto {
   @ApiProperty({ description: 'Số lượng mục trên một trang', example: 10 })
   limit!: number;
 }
+
+export class WorkerRequestDiscoveryResponseDtoEnvelope extends ApiResponseDto<WorkerRequestDiscoveryResponseDto> {
+  @ApiProperty({ type: WorkerRequestDiscoveryResponseDto })
+  declare data: WorkerRequestDiscoveryResponseDto;
+}
+

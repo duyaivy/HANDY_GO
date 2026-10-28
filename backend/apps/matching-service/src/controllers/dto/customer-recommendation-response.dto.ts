@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 
 export class RecommendedWorkerDto {
   @ApiProperty({ description: 'ID kết quả matching', example: 'd3b07384-d113-4c91-9e8a-02d6b38c227f' })
@@ -40,3 +41,9 @@ export class CustomerRecommendationResponseDto {
   @ApiProperty({ description: 'Phiên bản mô hình xếp hạng', example: 'mock-ai-v1.0' })
   modelVersion?: string;
 }
+
+export class CustomerRecommendationResponseDtoEnvelope extends ApiResponseDto<CustomerRecommendationResponseDto> {
+  @ApiProperty({ type: CustomerRecommendationResponseDto })
+  declare data: CustomerRecommendationResponseDto;
+}
+

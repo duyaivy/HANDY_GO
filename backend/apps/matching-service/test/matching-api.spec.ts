@@ -105,12 +105,13 @@ describe('Matching REST API Controllers', () => {
         mockCustomerUser,
       );
 
-      expect(response.status).toBe('completed');
-      expect(response.displayLimit).toBe(5);
+      expect(response.statusCode).toBe(200);
+      expect(response.data.status).toBe('completed');
+      expect(response.data.displayLimit).toBe(5);
       // Strictly limited to Top 5 for customer display
-      expect(response.recommendations).toHaveLength(5);
-      expect(response.recommendations[0].workerUserId).toBe('worker-1');
-      expect(response.recommendations[4].workerUserId).toBe('worker-5');
+      expect(response.data.recommendations).toHaveLength(5);
+      expect(response.data.recommendations[0].workerUserId).toBe('worker-1');
+      expect(response.data.recommendations[4].workerUserId).toBe('worker-5');
     });
 
     it('should throw 403 Forbidden if non-owner Customer tries to access recommendations', async () => {
@@ -145,7 +146,8 @@ describe('Matching REST API Controllers', () => {
         'req-1',
         mockAdminUser,
       );
-      expect(response.status).toBe('completed');
+      expect(response.statusCode).toBe(200);
+      expect(response.data.status).toBe('completed');
     });
 
     it('should not expose active recommendations if request is cancelled', async () => {
@@ -160,8 +162,9 @@ describe('Matching REST API Controllers', () => {
         'req-1',
         mockCustomerUser,
       );
-      expect(response.status).toBe('cancelled');
-      expect(response.recommendations).toHaveLength(0);
+      expect(response.statusCode).toBe(200);
+      expect(response.data.status).toBe('cancelled');
+      expect(response.data.recommendations).toHaveLength(0);
       expect(mockMatchRunRepo.getLatestCompletedRun).not.toHaveBeenCalled();
     });
   });
@@ -198,9 +201,10 @@ describe('Matching REST API Controllers', () => {
         '10',
       );
 
-      expect(response.items).toHaveLength(1);
-      expect(response.items[0].id).toBe('req-10');
-      expect(response.items[0].distanceKm).toBe(3.2);
+      expect(response.statusCode).toBe(200);
+      expect(response.data.items).toHaveLength(1);
+      expect(response.data.items[0].id).toBe('req-10');
+      expect(response.data.items[0].distanceKm).toBe(3.2);
     });
 
     it('should throw 403 Forbidden if worker is unverified', async () => {

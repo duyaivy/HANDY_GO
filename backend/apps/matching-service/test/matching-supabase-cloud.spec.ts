@@ -113,17 +113,18 @@ describe('Manual Supabase Cloud Matching Flow Verification', () => {
       { userId: customerUserId, roles: ['Customer'] } as any,
     );
 
-    expect(res.recommendations.length).toBeLessThanOrEqual(5);
-    expect(res.recommendations.length).toBeGreaterThan(0);
+    expect(res.statusCode).toBe(200);
+    expect(res.data.recommendations.length).toBeLessThanOrEqual(5);
+    expect(res.data.recommendations.length).toBeGreaterThan(0);
 
-    const topRank = res.recommendations[0];
+    const topRank = res.data.recommendations[0];
     expect(topRank.rank).toBe(1);
     expect(topRank.matchingScore).toBeGreaterThan(0);
     expect(topRank.workerUserId).toBe(testWorkerUserId);
 
     console.log('\n[SUPABASE TEST] Top 5 Customer Recommendations from Supabase Cloud:');
     console.table(
-      res.recommendations.map((r) => ({
+      res.data.recommendations.map((r) => ({
         Rank: r.rank,
         WorkerUserId: r.workerUserId,
         MatchResultId: r.matchResultId,
@@ -137,9 +138,10 @@ describe('Manual Supabase Cloud Matching Flow Verification', () => {
       { userId: testWorkerUserId, roles: ['Worker'] } as any,
     );
 
-    expect(feed.items.length).toBeGreaterThan(0);
+    expect(feed.statusCode).toBe(200);
+    expect(feed.data.items.length).toBeGreaterThan(0);
 
-    const matchedJob = feed.items.find((r) => r.id === testRequestId);
+    const matchedJob = feed.data.items.find((r) => r.id === testRequestId);
     expect(matchedJob).toBeDefined();
     expect(matchedJob?.requestCode).toBe('REQ-20261025-AIRCON');
     expect(matchedJob?.distanceKm).toBeDefined();
@@ -147,11 +149,12 @@ describe('Manual Supabase Cloud Matching Flow Verification', () => {
 
     console.log('\n[SUPABASE TEST] Worker Feed Matching Open Requests from Supabase Cloud:');
     console.table(
-      feed.items.map((r) => ({
+      feed.data.items.map((r) => ({
         Code: r.requestCode,
         Address: r.addressText,
         Distance: r.distanceKm + ' km',
       })),
     );
   });
+
 });

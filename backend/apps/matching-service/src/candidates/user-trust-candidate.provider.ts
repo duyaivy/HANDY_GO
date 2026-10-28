@@ -11,9 +11,13 @@ export class UserTrustCandidateProvider implements ICandidateProvider {
   private readonly logger = new Logger(UserTrustCandidateProvider.name);
   private readonly userTrustServiceUrl: string;
 
-  constructor(private readonly rabbitmq?: RabbitMQService) {
-    this.userTrustServiceUrl =
-      process.env.USER_TRUST_SERVICE_URL || 'http://localhost:3002';
+  constructor(private readonly rabbitmq?: RabbitMQService) {}
+
+  private getBaseUrl(): string {
+    const raw = (
+      process.env.USER_TRUST_SERVICE_URL || 'http://localhost:3002'
+    ).replace(/\/+$/, '');
+    return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
   }
 
   async findCandidates(params: {
@@ -27,8 +31,7 @@ export class UserTrustCandidateProvider implements ICandidateProvider {
     // 1. Try HTTP internal endpoint first
     try {
       const url = new URL(
-        '/internal/v1/workers/candidates',
-        this.userTrustServiceUrl,
+        `${this.getBaseUrl()}/internal/v1/workers/candidates`,
       );
       url.searchParams.set('serviceId', serviceId);
       url.searchParams.set('latitude', latitude.toString());
@@ -92,8 +95,7 @@ export class UserTrustCandidateProvider implements ICandidateProvider {
   ): Promise<WorkerMatchProfileDto | null> {
     try {
       const url = new URL(
-        `/internal/v1/workers/${workerUserId}/matching-profile`,
-        this.userTrustServiceUrl,
+        `${this.getBaseUrl()}/internal/v1/workers/${workerUserId}/matching-profile`,
       );
 
       const response = await fetch(url.toString(), {

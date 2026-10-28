@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 
 export class BidRevisionDto {
   @ApiProperty({ description: 'Mã định danh duy nhất (UUID) của bản sửa đổi' })
@@ -135,3 +136,14 @@ export class BidListResponseDto {
   @ApiProperty({ description: 'Số lượng phần tử trên trang' })
   limit!: number;
 }
+
+export class BidResponseDtoEnvelope extends ApiResponseDto<BidResponseDto> {
+  @ApiProperty({ type: BidResponseDto })
+  declare data: BidResponseDto;
+}
+
+export class BidListResponseDtoEnvelope extends ApiResponseDto<BidListResponseDto> {
+  @ApiProperty({ type: BidListResponseDto })
+  declare data: BidListResponseDto;
+}
+

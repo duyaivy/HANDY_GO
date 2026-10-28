@@ -82,6 +82,44 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
     expect(mockChannel.ack).toHaveBeenCalledTimes(1);
   });
 
+  it('Payload Compatibility: should correctly extract requestId when serviceRequestId is absent', async () => {
+    const eventWithRequestId = {
+      eventId: 'evt-pub-requestId-only',
+      eventVersion: 1,
+      occurredAt: new Date(),
+      producer: 'order-service',
+      payload: {
+        requestId: 'req-from-order-service',
+        requestCode: 'REQ-ORD-001',
+        customerUserId: 'cust-456',
+        serviceId: 'srv-cleaning',
+        description: 'Vệ sinh',
+        latitude: 10.77,
+        longitude: 106.69,
+      },
+    };
+
+    const res = await consumer.handleServiceRequestPublished(
+      eventWithRequestId,
+      mockContext,
+    );
+
+    expect(res.status).toBe('enqueued');
+    expect(mockProjectionService.upsertPublishedRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'req-from-order-service',
+        customerUserId: 'cust-456',
+      }),
+    );
+    expect(mockJobQueue.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: 'MATCH-req-from-order-service-REV1-RUN1',
+        serviceRequestId: 'req-from-order-service',
+      }),
+    );
+    expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+  });
+
   it('Idempotency: duplicate publication event should be ACKed without re-enqueuing', async () => {
     mockConsumedEvents.isEventConsumed.mockResolvedValueOnce(true); // already consumed!
 

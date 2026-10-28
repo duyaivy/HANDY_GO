@@ -6,7 +6,8 @@ import { ConfigModule } from '@app/config';
 import { LoggerModule } from '@app/logger';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { MatchingDatabaseModule } from '@app/database';
-import { AuthModule } from '@app/auth';
+import { JwtModule } from '@nestjs/jwt';
+import { TokenVerifierService, JwtAuthGuard } from '@app/auth';
 
 import { HealthModule } from './health/health.module.js';
 
@@ -57,7 +58,7 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
     HealthModule,
     RabbitMQModule,
     MatchingDatabaseModule,
-    AuthModule,
+    JwtModule.register({}),
   ],
   controllers: [
     CustomerMatchingController,
@@ -112,8 +113,10 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
     MatchingOrchestratorService,
     MatchingJobQueueService,
 
-    // Guards
+    // Guards & Auth
     InternalServiceGuard,
+    TokenVerifierService,
+    JwtAuthGuard,
   ],
   exports: [
     MatchingOrchestratorService,

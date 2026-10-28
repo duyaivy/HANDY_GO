@@ -28,8 +28,15 @@ import {
   type ICandidateProvider,
 } from '../candidates/candidate.provider.interface.js';
 import { Inject } from '@nestjs/common';
-import { CustomerRecommendationResponseDto } from './dto/customer-recommendation-response.dto.js';
-import { WorkerRequestDiscoveryResponseDto } from './dto/worker-request-discovery-response.dto.js';
+import { buildSuccessResponse, type ApiResponseEnvelope } from '@app/common';
+import {
+  CustomerRecommendationResponseDto,
+  CustomerRecommendationResponseDtoEnvelope,
+} from './dto/customer-recommendation-response.dto.js';
+import {
+  WorkerRequestDiscoveryResponseDto,
+  WorkerRequestDiscoveryResponseDtoEnvelope,
+} from './dto/worker-request-discovery-response.dto.js';
 
 @ApiTags('Matching Service (Customer & Worker)')
 @Controller('matching')
@@ -60,7 +67,7 @@ export class CustomerMatchingController {
   @ApiResponse({
     status: 200,
     description: 'Lấy đề xuất thành công',
-    type: CustomerRecommendationResponseDto,
+    type: CustomerRecommendationResponseDtoEnvelope,
   })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Không đủ quyền xem đề xuất của yêu cầu này' })
@@ -68,7 +75,7 @@ export class CustomerMatchingController {
   async getRecommendations(
     @Param('id') requestId: string,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<CustomerRecommendationResponseDto> {
+  ): Promise<ApiResponseEnvelope<CustomerRecommendationResponseDto>> {
     const projection = await this.projectionService.getProjection(requestId);
 
     // If projection exists, verify ownership (Customer or Admin)
@@ -83,14 +90,17 @@ export class CustomerMatchingController {
 
       // If request was cancelled or converted, do not expose active recommendations
       if (['cancelled', 'converted_to_order'].includes(projection.status)) {
-        return {
-          requestId,
-          requestRevision: projection.matchingRevision,
-          status: projection.status,
-          displayLimit: 5,
-          recommendations: [],
-          generatedAt: new Date().toISOString(),
-        };
+        return buildSuccessResponse(
+          {
+            requestId,
+            requestRevision: projection.matchingRevision,
+            status: projection.status,
+            displayLimit: 5,
+            recommendations: [],
+            generatedAt: new Date().toISOString(),
+          },
+          'Lấy danh sách đề xuất thành công',
+        );
       }
     }
 
@@ -101,25 +111,31 @@ export class CustomerMatchingController {
       // Check if there is an in-progress or pending run
       const latestRun = await this.matchRunRepo.getLatestRun(requestId);
       if (latestRun) {
-        return {
-          requestId,
-          requestRevision: latestRun.requestRevision,
-          status: latestRun.status,
-          displayLimit: latestRun.displayLimit,
-          recommendations: [],
-          generatedAt: latestRun.createdAt.toISOString(),
-          modelVersion: latestRun.modelVersion || undefined,
-        };
+        return buildSuccessResponse(
+          {
+            requestId,
+            requestRevision: latestRun.requestRevision,
+            status: latestRun.status,
+            displayLimit: latestRun.displayLimit,
+            recommendations: [],
+            generatedAt: latestRun.createdAt.toISOString(),
+            modelVersion: latestRun.modelVersion || undefined,
+          },
+          'Lấy danh sách đề xuất thành công',
+        );
       }
 
       // No run found
-      return {
-        requestId,
-        requestRevision: projection?.matchingRevision || 1,
-        status: 'pending',
-        displayLimit: 5,
-        recommendations: [],
-      };
+      return buildSuccessResponse(
+        {
+          requestId,
+          requestRevision: projection?.matchingRevision || 1,
+          status: 'pending',
+          displayLimit: 5,
+          recommendations: [],
+        },
+        'Lấy danh sách đề xuất thành công',
+      );
     }
 
     // Restrict to Top 5 for customer display
@@ -128,22 +144,25 @@ export class CustomerMatchingController {
       latestCompletedRun.displayLimit || 5,
     );
 
-    return {
-      requestId,
-      requestRevision: latestCompletedRun.requestRevision,
-      status: latestCompletedRun.status,
-      displayLimit: latestCompletedRun.displayLimit,
-      recommendations: top5Results.map((r) => ({
-        matchResultId: r.id,
-        workerUserId: r.workerUserId,
-        rank: r.rank,
-        matchingScore: Number(r.matchingScore),
-      })),
-      generatedAt: latestCompletedRun.completedAt
-        ? latestCompletedRun.completedAt.toISOString()
-        : latestCompletedRun.createdAt.toISOString(),
-      modelVersion: latestCompletedRun.modelVersion || undefined,
-    };
+    return buildSuccessResponse(
+      {
+        requestId,
+        requestRevision: latestCompletedRun.requestRevision,
+        status: latestCompletedRun.status,
+        displayLimit: latestCompletedRun.displayLimit,
+        recommendations: top5Results.map((r) => ({
+          matchResultId: r.id,
+          workerUserId: r.workerUserId,
+          rank: r.rank,
+          matchingScore: Number(r.matchingScore),
+        })),
+        generatedAt: latestCompletedRun.completedAt
+          ? latestCompletedRun.completedAt.toISOString()
+          : latestCompletedRun.createdAt.toISOString(),
+        modelVersion: latestCompletedRun.modelVersion || undefined,
+      },
+      'Lấy danh sách đề xuất thành công',
+    );
   }
 
   /**
@@ -163,7 +182,7 @@ export class CustomerMatchingController {
   @ApiResponse({
     status: 200,
     description: 'Danh sách yêu cầu phù hợp',
-    type: WorkerRequestDiscoveryResponseDto,
+    type: WorkerRequestDiscoveryResponseDtoEnvelope,
   })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Chỉ dành cho tài khoản Thợ đã xác minh' })
@@ -171,7 +190,7 @@ export class CustomerMatchingController {
     @CurrentUser() user: AuthenticatedUser,
     @Query('page') pageStr?: string,
     @Query('limit') limitStr?: string,
-  ): Promise<WorkerRequestDiscoveryResponseDto> {
+  ): Promise<ApiResponseEnvelope<WorkerRequestDiscoveryResponseDto>> {
     const page = Math.max(1, parseInt(pageStr || '1', 10));
     const limit = Math.min(50, Math.max(1, parseInt(limitStr || '10', 10)));
 
@@ -200,20 +219,24 @@ export class CustomerMatchingController {
       limit,
     });
 
-    return {
-      items: result.items.map((item) => ({
-        id: item.id,
-        requestCode: item.requestCode,
-        serviceId: item.serviceId,
-        description: item.description || '',
-        distanceKm: item.distanceKm,
-        scheduledAt: item.scheduledAt ? item.scheduledAt.toISOString() : undefined,
-        addressText: item.addressText || undefined,
-        createdAt: item.createdAt.toISOString(),
-      })),
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-    };
+    return buildSuccessResponse(
+      {
+        items: result.items.map((item) => ({
+          id: item.id,
+          requestCode: item.requestCode,
+          serviceId: item.serviceId,
+          description: item.description || '',
+          distanceKm: item.distanceKm,
+          scheduledAt: item.scheduledAt ? item.scheduledAt.toISOString() : undefined,
+          addressText: item.addressText || undefined,
+          createdAt: item.createdAt.toISOString(),
+        })),
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+      },
+      'Lấy danh sách yêu cầu phù hợp thành công',
+    );
   }
 }
+
