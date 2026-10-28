@@ -21,6 +21,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 export type CustomerBookingScreenProps = {
   serviceId?: string;
@@ -90,6 +91,7 @@ export function CustomerBookingScreen({
     setDescription,
   } = useBookingDraftStore();
 
+  const isAuthenticated = useAuthStore.use.isAuthenticated();
   const [isUploading, setIsUploading] = React.useState(false);
   const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(false);
 
@@ -178,8 +180,36 @@ export function CustomerBookingScreen({
         replaceMediaUrl(localUri, uploadedUrl);
       }
     }
-    catch (err) {
-      console.warn('[BOOKING] Upload ảnh lên cloud thất bại, giữ ảnh cục bộ:', err);
+    catch (err: any) {
+      console.warn('[BOOKING] Upload ảnh lên cloud thất bại:', err);
+      // Xóa ảnh lỗi khỏi danh sách để tránh gửi local URI lên server
+      removeMediaUrl(localUri);
+
+      const is401
+        = err?.statusCode === 401
+        || err?.response?.status === 401
+        || err?.message?.includes('401')
+        || err?.message?.includes('UNAUTHORIZED');
+
+      if (is401) {
+        Alert.alert(
+          'Phiên làm việc hết hạn',
+          'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại để tải ảnh.',
+          [
+            { text: 'Đóng', style: 'cancel' },
+            {
+              text: 'Đăng nhập',
+              onPress: () => router.push(RouteNames.LOGIN as any),
+            },
+          ],
+        );
+      }
+      else {
+        Alert.alert(
+          'Tải ảnh thất bại',
+          'Không thể tải ảnh lên máy chủ. Vui lòng thử lại sau hoặc kiểm tra kết nối mạng.',
+        );
+      }
     }
     finally {
       setIsUploading(false);
@@ -227,7 +257,22 @@ export function CustomerBookingScreen({
   };
 
   const handleAddPhotoPress = () => {
-    if (process.env.NODE_ENV === 'test') {
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Yêu cầu đăng nhập',
+        'Bạn cần đăng nhập tài khoản để tải ảnh sự cố và tiếp tục đặt dịch vụ.',
+        [
+          { text: 'Hủy', style: 'cancel' },
+          {
+            text: 'Đăng nhập ngay',
+            onPress: () => router.push(RouteNames.LOGIN as any),
+          },
+        ],
+      );
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'test' && !(global as any).__USE_REAL_PHOTO_PICKER__) {
       const nextSample = SAMPLE_PHOTO_URLS[mediaUrls.length % SAMPLE_PHOTO_URLS.length];
       addMediaUrl(nextSample);
       return;
@@ -316,6 +361,37 @@ export function CustomerBookingScreen({
   };
 
   const handleNext = () => {
+    if (!isAuthenticated) {
+      Alert.alert(
+        'Yêu cầu đăng nhập',
+        'Vui lòng đăng nhập để tiếp tục tạo yêu cầu dịch vụ.',
+        [
+          { text: 'Hủy', style: 'cancel' },
+          {
+            text: 'Đăng nhập ngay',
+            onPress: () => router.push(RouteNames.LOGIN as any),
+          },
+        ],
+      );
+      return;
+    }
+
+    if (isUploading) {
+      Alert.alert('Đang tải ảnh', 'Vui lòng đợi ảnh hiện trường tải lên hoàn tất.');
+      return;
+    }
+
+    const hasLocalUri = mediaUrls.some(
+      url => url.startsWith('file:') || url.startsWith('content:') || !url.startsWith('http'),
+    );
+    if (hasLocalUri) {
+      Alert.alert(
+        'Ảnh chưa được lưu',
+        'Có ảnh chưa tải lên máy chủ thành công. Vui lòng xóa hoặc tải lại ảnh trước khi tiếp tục.',
+      );
+      return;
+    }
+
     if (!description.trim()) {
       setDescription(generateQuickDescription(serviceName));
     }

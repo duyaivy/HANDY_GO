@@ -170,9 +170,7 @@ export const OrdersApi = {
       statusCode: number;
       message: string;
       data: { url: string };
-    }>('/uploads/image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
+    }>('/uploads/image', formData);
 
     if (!response?.data?.url) {
       throw new Error('Upload ảnh thất bại.');

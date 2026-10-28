@@ -1,4 +1,4 @@
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { TokenVerifierService } from '@app/auth';
 import { ConfigService } from '@app/config';
@@ -29,6 +29,8 @@ function buildUnauthorizedResponse(
 
 @Injectable()
 export class GatewayAuthMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(GatewayAuthMiddleware.name);
+
   constructor(
     private readonly tokenVerifier: TokenVerifierService,
     private readonly config: ConfigService,
@@ -37,6 +39,7 @@ export class GatewayAuthMiddleware implements NestMiddleware {
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const pathname = req.originalUrl || req.url;
     const method = req.method;
+    const clientIp = req.ip ?? req.socket?.remoteAddress ?? '127.0.0.1';
 
     // Remove client identity headers on public routes as well as protected routes.
     for (const header of Object.keys(req.headers)) {
@@ -54,6 +57,9 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     // 2. Kiểm tra Authorization header
     const authHeader = req.headers['authorization'];
     if (!authHeader || typeof authHeader !== 'string') {
+      this.logger.warn(
+        `[401] Thiếu Authorization header từ ${clientIp} tới [${method}] ${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,
@@ -63,6 +69,9 @@ export class GatewayAuthMiddleware implements NestMiddleware {
 
     const [scheme, token] = authHeader.split(' ');
     if (scheme !== 'Bearer' || !token) {
+      this.logger.warn(
+        `[401] Mã truy cập không đúng định dạng Bearer (${scheme}) từ ${clientIp} tới [${method}] ${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,
@@ -75,6 +84,9 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     try {
       payload = await this.tokenVerifier.verifyAccessToken(token);
     } catch (error: any) {
+      this.logger.warn(
+        `[401] Xác thực token thất bại (${error?.message || 'invalid token'}) từ ${clientIp} tới [${method}] ${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,

@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUrl,
   IsUUID,
   Max,
   MaxLength,
@@ -19,6 +20,10 @@ export class ServiceRequestMediaDto {
     description: 'Direct CDN/Cloudinary URL of uploaded media',
     example: 'https://res.cloudinary.com/handygo/image/upload/v1/req/photo1.webp',
   })
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { message: 'mediaUrl phải là URL http/https hợp lệ' },
+  )
   @IsString()
   @IsNotEmpty()
   mediaUrl: string;

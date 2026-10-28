@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { CreateServiceRequestDto } from './create-service-request.dto.js';
+import { CreateServiceRequestDto, ServiceRequestMediaDto } from './create-service-request.dto.js';
 import { UpdateServiceRequestDto } from './update-service-request.dto.js';
 
 describe('ServiceRequest DTO GPS Validation', () => {
@@ -132,6 +132,27 @@ describe('ServiceRequest DTO GPS Validation', () => {
       const lngError = errors.find((e) => e.property === 'longitude');
       expect(latError?.constraints).toHaveProperty('max');
       expect(lngError?.constraints).toHaveProperty('min');
+    });
+  });
+  describe('ServiceRequestMediaDto URL validation', () => {
+    it('should accept valid http/https URLs', async () => {
+      const dto = plainToInstance(ServiceRequestMediaDto, {
+        mediaUrl: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+        mediaType: 'image',
+      });
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('should reject local file URIs (file:///...)', async () => {
+      const dto = plainToInstance(ServiceRequestMediaDto, {
+        mediaUrl: 'file:///data/user/0/com.handygo/cache/IMG_001.jpg',
+        mediaType: 'image',
+      });
+      const errors = await validate(dto);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].property).toBe('mediaUrl');
+      expect(errors[0].constraints).toHaveProperty('isUrl');
     });
   });
 });

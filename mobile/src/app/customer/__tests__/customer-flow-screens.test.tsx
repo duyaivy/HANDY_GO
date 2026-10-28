@@ -146,6 +146,7 @@ describe('customer Skeleton & Route Flow', () => {
     });
 
     it('navigates to select address when pressing Next button', () => {
+      useAuthStore.setState({ isAuthenticated: true });
       render(<CustomerBookingScreen />);
 
       const nextBtn = screen.getByTestId('booking-next-btn');
