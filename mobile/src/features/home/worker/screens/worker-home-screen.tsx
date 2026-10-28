@@ -6,6 +6,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
+import { NotificationBell } from '@/features/notifications/components/notification-bell';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerGuestOverview } from '../components/worker-guest-overview';
 
@@ -40,6 +41,7 @@ export function WorkerHomeScreen() {
               Nhận việc
             </Text>
           </View>
+          <NotificationBell />
           <Pressable
             testID="home-role-switch-chip"
             onPress={switchRole}

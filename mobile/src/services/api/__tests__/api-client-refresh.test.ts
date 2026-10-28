@@ -81,6 +81,52 @@ describe('apiClient 401 refresh flow', () => {
     expect(result.authHeader).toBe('Bearer new-access-token');
   });
 
+  it.each([undefined, { headers: { 'Content-Type': 'multipart/form-data' } }])('preserves multipart body and authorization through refresh and retry with config %s', async (config) => {
+    const body = new FormData();
+    body.append('file', { uri: 'file:///photo.jpg', name: 'photo.jpg', type: 'image/jpeg' } as any);
+    const attempts: any[] = [];
+    axiosInstance.defaults.adapter = async (config: any) => {
+      attempts.push(config);
+      if (attempts.length === 1) {
+        const error: any = new Error('401');
+        error.config = config;
+        error.response = { status: 401, config, data: {} };
+        throw error;
+      }
+      return { data: { ok: true }, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    (axios.post as jest.Mock).mockResolvedValueOnce({ data: { data: {
+      accessToken: 'new-access-token',
+      refreshToken: 'new-refresh-token',
+    } } });
+
+    await ApiClient.post('/uploads/image', body, config);
+    expect(attempts).toHaveLength(2);
+    for (const request of attempts) {
+      expect(request.data).toBe(body);
+      expect(request.data.get('file')).toBeTruthy();
+      expect(request.headers.getContentType()).toBe(false);
+    }
+    expect(attempts[1].headers.Authorization).toBe('Bearer new-access-token');
+  });
+
+  it('strips Content-Type for React Native style FormData with _parts', async () => {
+    const fakeRnFormData = {
+      _parts: [['file', { uri: 'file:///photo.jpg', name: 'photo.jpg', type: 'image/jpeg' }]],
+      append: jest.fn(),
+      [Symbol.toStringTag]: 'FormData',
+      toString: () => '[object FormData]',
+    };
+    let capturedConfig: any;
+    axiosInstance.defaults.adapter = async (config: any) => {
+      capturedConfig = config;
+      return { data: { ok: true }, status: 200, statusText: 'OK', headers: {}, config };
+    };
+    await ApiClient.post('/uploads/image', fakeRnFormData);
+    expect(capturedConfig.data).toBe(fakeRnFormData);
+    expect(capturedConfig.headers.getContentType()).toBe(false);
+  });
+
   it('merges concurrent 401 requests into a single refresh request', async () => {
     const attempts = new Map<string, number>();
 

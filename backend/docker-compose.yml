@@ -2,6 +2,9 @@ name: handy-go-backend
 
 x-app: &app
   image: handy-go-backend-dev:local
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
   pull_policy: never
   init: true
   restart: unless-stopped
@@ -146,15 +149,26 @@ services:
 
   order-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/order-service/prisma/schema.prisma && exec node --enable-source-maps /app/dist/apps/order-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: order-service
       PORT: '3004'
+      ORDER_ENABLE_MOCK_VERIFIER: ${ORDER_ENABLE_MOCK_VERIFIER:-true}
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
     ports:
       - '3004:3004'
 
   bidding-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts && exec node --enable-source-maps /app/dist/apps/bidding-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: bidding-service
@@ -168,6 +182,11 @@ services:
       <<: *development-environment
       NEST_PROJECT: matching-service
       PORT: '3006'
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '3006:3006'
 
@@ -182,10 +201,41 @@ services:
 
   notification-service:
     <<: *app
+    # Source is bind-mounted but generated clients live inside the image/container.
+    # Generate before each build so existing dev images and schema edits work too.
+    command:
+      - sh
+      - -c
+      - >-
+        exec pnpm exec nodemon
+        --watch apps/notification-service
+        --watch libs
+        --watch nest-cli.json
+        --watch tsconfig.json
+        --ext ts,json,prisma
+        --delay 300ms
+        --signal SIGTERM
+        --exec "pnpm exec prisma generate --schema=apps/notification-service/prisma/schema.prisma && pnpm exec nest build notification-service && exec node --enable-source-maps dist/apps/notification-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: notification-service
       PORT: '3008'
+      DATABASE_URL_NOTIFICATION: ${DATABASE_URL_NOTIFICATION:-}
+      NOTIFICATION_EVENTS_ENABLED: ${NOTIFICATION_EVENTS_ENABLED:-true}
+      NOTIFICATION_EVENT_PREFETCH: ${NOTIFICATION_EVENT_PREFETCH:-10}
+      NOTIFICATION_EVENT_POLICIES: ${NOTIFICATION_EVENT_POLICIES:-}
+      NOTIFICATION_SIMULATED_POLICIES: ${NOTIFICATION_SIMULATED_POLICIES:-false}
+      PUSH_ENABLED: ${PUSH_ENABLED:-false}
+      PUSH_WORKER_ENABLED: ${PUSH_WORKER_ENABLED:-true}
+      PUSH_WORKER_POLL_INTERVAL_MS: ${PUSH_WORKER_POLL_INTERVAL_MS:-3000}
+      PUSH_WORKER_BATCH_SIZE: ${PUSH_WORKER_BATCH_SIZE:-50}
+      PUSH_MAX_RETRY_ATTEMPTS: ${PUSH_MAX_RETRY_ATTEMPTS:-5}
+      PUSH_WORKER_LEASE_TIMEOUT_MS: ${PUSH_WORKER_LEASE_TIMEOUT_MS:-120000}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_SA_BASE64: ${FIREBASE_SA_BASE64:-}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      PUSH_EVENT_POLICIES: ${PUSH_EVENT_POLICIES:-}
+      PUSH_SIMULATED_POLICIES: ${PUSH_SIMULATED_POLICIES:-false}
     ports:
       - '3008:3008'
 

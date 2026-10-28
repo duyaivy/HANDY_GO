@@ -93,9 +93,7 @@ async function uploadImageToStorage(uri: string, fieldName: string): Promise<str
     statusCode: number;
     message: string;
     data: { url: string };
-  }>('/uploads/image', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
+  }>('/uploads/image', formData);
 
   if (!response?.data?.url) {
     throw new Error(`Tải ảnh ${fieldName} lên máy chủ thất bại.`);

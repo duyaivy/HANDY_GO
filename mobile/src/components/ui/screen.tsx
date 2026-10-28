@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
-import type { ViewStyle } from 'react-native';
+import type { ReactElement, ReactNode } from 'react';
+import type { RefreshControlProps, ViewStyle } from 'react-native';
+import type { Edge } from 'react-native-safe-area-context';
 import { ScrollView, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,11 +14,13 @@ export type ScreenProps = {
   scrollable?: boolean;
   keyboardAware?: boolean;
   safeArea?: boolean;
+  edges?: readonly Edge[];
   className?: string;
   style?: ViewStyle;
   contentContainerStyle?: ViewStyle;
   bottomOffset?: number;
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
+  refreshControl?: ReactElement<RefreshControlProps>;
 };
 
 export function Screen({
@@ -25,11 +28,13 @@ export function Screen({
   scrollable = false,
   keyboardAware = true,
   safeArea = true,
+  edges,
   className = '',
   style,
   contentContainerStyle,
   bottomOffset = 60,
   keyboardShouldPersistTaps = 'handled',
+  refreshControl,
 }: ScreenProps) {
   const Container = safeArea ? StyledSafeAreaView : View;
 
@@ -51,6 +56,7 @@ export function Screen({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps={keyboardShouldPersistTaps}
           bottomOffset={bottomOffset}
+          refreshControl={refreshControl}
         >
           {children}
         </KeyboardAwareScrollView>
@@ -64,6 +70,7 @@ export function Screen({
         contentContainerStyle={[{ flexGrow: 1 }, contentContainerStyle]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        refreshControl={refreshControl}
       >
         {children}
       </ScrollView>
@@ -71,7 +78,11 @@ export function Screen({
   };
 
   return (
-    <Container className={`flex-1 bg-white dark:bg-neutral-950 ${className}`} style={[{ flex: 1 }, style]}>
+    <Container
+      {...(safeArea && edges ? { edges } : {})}
+      className={`flex-1 bg-white dark:bg-neutral-950 ${className}`}
+      style={[{ flex: 1 }, style]}
+    >
       <FocusAwareStatusBar />
       {renderContent()}
     </Container>

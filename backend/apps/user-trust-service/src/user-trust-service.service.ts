@@ -32,6 +32,24 @@ export interface UserRegisteredData {
   role?: RegisterRole;
 }
 
+export interface WorkerCandidateDto {
+  workerUserId: string;
+  workerProfileId: string;
+  offeringTitle: string;
+  offeringDescription: string;
+  experienceYears: number;
+  centerLatitude: number;
+  centerLongitude: number;
+  radiusKm: number;
+  distanceKm: number;
+  averageRating: number;
+  ratingCount: number;
+  completedOrderCount: number;
+  userStatus?: string;
+  workerProfileStatus?: string;
+  hasApprovedKyc?: boolean;
+}
+
 @Injectable()
 export class UserTrustServiceService {
   private readonly logger = new Logger(UserTrustServiceService.name);
@@ -201,6 +219,25 @@ export class UserTrustServiceService {
         (!roles.includes(RegisterRole.CUSTOMER) || Boolean(user.customerProfile)) &&
         (!roles.includes(RegisterRole.WORKER) || Boolean(user.workerProfile)),
     };
+  }
+
+  async getAllActiveUserIds(
+    targetGroup?: 'ALL' | 'CUSTOMERS' | 'WORKERS',
+  ): Promise<{ userIds: string[] }> {
+    const where: any = { status: 'active' };
+
+    if (targetGroup === 'CUSTOMERS') {
+      where.customerProfile = { isNot: null };
+    } else if (targetGroup === 'WORKERS') {
+      where.workerProfile = { isNot: null };
+    }
+
+    const users = await this.db.user.findMany({
+      where,
+      select: { id: true },
+    });
+
+    return { userIds: users.map((u) => u.id) };
   }
 
   async getProfile(
@@ -1042,6 +1079,157 @@ export class UserTrustServiceService {
       statusCode: 200,
       message: isApproved ? 'Đã phê duyệt KYC thành công' : 'Đã từ chối KYC',
       data: updated,
+    };
+  }
+
+  /**
+   * Internal candidate discovery for Matching Service.
+   * Adheres to microservice data boundaries and MATCHING_DATA_CONTRACTS.md.
+   */
+  async findWorkerCandidates(params: {
+    serviceId: string;
+    latitude: number;
+    longitude: number;
+    customerUserId?: string;
+  }): Promise<WorkerCandidateDto[]> {
+    const { serviceId, latitude, longitude, customerUserId } = params;
+
+    const workers = await this.db.workerProfile.findMany({
+      where: {
+        status: 'verified',
+        user: {
+          status: 'active',
+          ...(customerUserId ? { id: { not: customerUserId } } : {}),
+        },
+        serviceOfferings: {
+          some: {
+            serviceId,
+            isActive: true,
+          },
+        },
+        serviceAreas: {
+          some: {
+            isActive: true,
+          },
+        },
+        kycCases: {
+          some: {
+            status: 'approved',
+          },
+        },
+      },
+      include: {
+        user: true,
+        serviceOfferings: {
+          where: { serviceId, isActive: true },
+        },
+        serviceAreas: {
+          where: { isActive: true },
+        },
+      },
+    });
+
+    const candidates: WorkerCandidateDto[] = [];
+
+    for (const worker of workers) {
+      const offering = worker.serviceOfferings[0];
+      if (!offering) continue;
+
+      let minDistance = Infinity;
+      let matchedArea: (typeof worker.serviceAreas)[0] | null = null;
+
+      for (const area of worker.serviceAreas) {
+        const areaLat = Number(area.latitude);
+        const areaLon = Number(area.longitude);
+        const radius = Number(area.radiusKm);
+
+        // Haversine formula
+        const R = 6371;
+        const dLat = (areaLat - latitude) * (Math.PI / 180);
+        const dLon = (areaLon - longitude) * (Math.PI / 180);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(latitude * (Math.PI / 180)) *
+            Math.cos(areaLat * (Math.PI / 180)) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const dist = R * c;
+
+        if (dist <= radius && dist < minDistance) {
+          minDistance = dist;
+          matchedArea = area;
+        }
+      }
+
+      if (matchedArea && minDistance !== Infinity) {
+        candidates.push({
+          workerUserId: worker.userId,
+          workerProfileId: worker.id,
+          offeringTitle: offering.title || '',
+          offeringDescription: offering.description || '',
+          experienceYears: offering.experienceYears || 0,
+          centerLatitude: Number(matchedArea.latitude),
+          centerLongitude: Number(matchedArea.longitude),
+          radiusKm: Number(matchedArea.radiusKm),
+          distanceKm: Math.round(minDistance * 100) / 100,
+          averageRating: Number(worker.averageRating),
+          ratingCount: worker.ratingCount,
+          completedOrderCount: worker.completedOrderCount,
+        });
+      }
+    }
+
+    return candidates;
+  }
+
+  /**
+   * Internal worker match profile lookup for worker job discovery.
+   */
+  async getWorkerMatchProfile(workerUserId: string): Promise<{
+    workerUserId: string;
+    workerProfileId: string;
+    isVerified: boolean;
+    serviceIds: string[];
+    serviceAreas: Array<{
+      latitude: number;
+      longitude: number;
+      radiusKm: number;
+    }>;
+  } | null> {
+    const worker = await this.db.workerProfile.findUnique({
+      where: { userId: workerUserId },
+      include: {
+        user: true,
+        serviceOfferings: {
+          where: { isActive: true },
+        },
+        serviceAreas: {
+          where: { isActive: true },
+        },
+        kycCases: {
+          where: { status: 'approved' },
+        },
+      },
+    });
+
+    if (!worker || worker.user.status !== 'active') {
+      return null;
+    }
+
+    const hasApprovedKyc = worker.kycCases.length > 0;
+    const isVerified = worker.status === 'verified' && hasApprovedKyc;
+
+    return {
+      workerUserId: worker.userId,
+      workerProfileId: worker.id,
+      isVerified,
+      serviceIds: worker.serviceOfferings.map((o: any) => o.serviceId),
+      serviceAreas: worker.serviceAreas.map((a: any) => ({
+        latitude: Number(a.latitude),
+        longitude: Number(a.longitude),
+        radiusKm: Number(a.radiusKm),
+      })),
     };
   }
 }

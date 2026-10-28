@@ -1,0 +1,155 @@
+// ========================================================
+// Bidding Service Database Schema (v2)
+// ========================================================
+// HANDYGO V3 — FULL DBML | [NEW] added | [CHANGED] modified | [REMOVED] removed
+
+Project handygo_bidding_service {
+  database_type: 'PostgreSQL'
+  Note: 'Owns bidding rounds, quotes and quote revisions. Chat clicks are NOT bid selections; Orders are finalized by the Order Service.'
+}
+
+// [CHANGED] pending -> open | finalized | cancelled
+// finalized is permitted if an Order is confirmed before public bid window opens.
+// open -> closed | no_bid | finalized | cancelled
+// closed/no_bid -> finalized | cancelled
+// finalized, cancelled are terminal; no_bid is NOT a Matching trigger.
+Enum round_status {
+  pending
+  open
+  closed
+  no_bid
+  finalized
+  cancelled
+}
+
+// active -> withdrawn | expired | selected | rejected
+// [REMOVED] bid_status.revised: updating a quote keeps it active
+// [NEW] bid_revisions records the previous/new quote values.
+// selected, rejected, withdrawn, expired are terminal.
+Enum bid_status {
+  active
+  withdrawn
+  selected
+  rejected
+  expired
+}
+
+Table bidding_rounds {
+  id uuid [pk]
+
+  service_request_id uuid [not null, unique,
+    note: 'Logical reference -> Order Service.service_requests.id; one public round per request']
+
+  opens_at timestamptz [not null]
+  closes_at timestamptz [not null]
+  status round_status [not null, default: 'pending']
+
+  bid_count int [not null, default: 0]
+  // Total number of distinct bids ever submitted, including withdrawn bids.
+  // Do NOT use this field alone to detect whether any valid bid exists.
+
+  closed_at timestamptz
+  finalized_order_id uuid [note: 'Logical reference -> Order Service.orders.id']
+  finalized_at timestamptz
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (status, closes_at)
+  }
+}
+
+Table bids {
+  id uuid [pk]
+  bidding_round_id uuid [not null]
+
+  worker_user_id uuid [not null,
+    note: 'Logical reference -> User & Trust Service.users.id']
+
+  amount decimal(12,2) [not null]
+  message text
+  status bid_status [not null, default: 'active']
+
+  valid_until timestamptz
+  // [NEW] Quote validity may outlive the public bidding round.
+  // Optional validity of THIS quote. Closing the public round does not
+  // automatically expire previously received quotes.
+
+  version int [not null, default: 1]
+  // [NEW] Prevents concurrent quote revisions from overwriting one another.
+  // Optimistic version, incremented each time the worker edits the quote.
+
+  selected_order_id uuid [note: 'Logical reference -> Order Service.orders.id; set only after order.created']
+
+  submitted_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (bidding_round_id, worker_user_id) [unique]
+    (bidding_round_id, status, submitted_at)
+  }
+}
+
+// [NEW] Immutable quote revision history.
+Table bid_revisions {
+  id uuid [pk]
+  bid_id uuid [not null]
+  revision_no int [not null]
+
+  previous_amount decimal(12,2) [not null]
+  new_amount decimal(12,2) [not null]
+  previous_message text
+  new_message text
+
+  revised_at timestamptz [not null]
+
+  indexes {
+    (bid_id, revision_no) [unique]
+  }
+}
+
+// [REMOVED] bid_selections: the original table incorrectly treated click-to-chat
+// as the customer awarding a job. Only Order Service finalizes a worker.
+// On order.created, consume the event idempotently, set round.finalized,
+// mark the chosen bid selected (if any) and other active bids rejected.
+// [NEW] Transactional outbox for bid/round domain events.
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(50) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(100) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+// Consumer inbox prevents processing the same RabbitMQ event more than once.
+// [NEW] Inbound idempotency for request/order events.
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(100) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: bidding_rounds.id < bids.bidding_round_id
+Ref: bids.id < bid_revisions.bid_id
+
+// MUST validate in DB migration / service logic:
+// 1. closes_at > opens_at, amount > 0, bid_count >= 0, version >= 1.
+// 2. Only the worker owning the bid can revise/withdraw while round=open.
+// 3. A round can close with valid bids. no_bid means zero valid bids at close,
+//    NOT a reason to run Matching (Matching runs at request publication).
+// 4. A quote may be negotiated AFTER round close until its own valid_until
+//    or Request selection_expires_at, subject to Order Service policy.
+// 5. Clicking a Bid to open Chat does NOT update its bid_status.
+// 6. Bid selected/rejected is a projection of Order creation, not an
+//    independent command that creates Order. A recommended worker may win
+//    without a bid; then all still-active quotes become rejected.
+// 7. When accepting new bids check Request is still open via a current
+//    authoritative command/read contract; event updates alone can lag.
+// 8. Add CHECK(valid_until > submitted_at) when valid_until is set.

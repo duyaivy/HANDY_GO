@@ -83,7 +83,71 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
 
         // status === 'pending'
         try {
-          await this.rabbitmq.emit(event.eventType, event.payload);
+          const payloadObj =
+            event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+              ? (event.payload as Record<string, any>)
+              : { value: event.payload };
+
+          const aggType = event.aggregateType || 'event';
+          const defaultSource =
+            aggType === 'bid' || aggType === 'bidding_round'
+              ? 'bidding-service'
+              : `${aggType}-service`;
+
+          const occurredAt =
+            payloadObj.occurredAt ||
+            (event.createdAt
+              ? new Date(event.createdAt).toISOString()
+              : new Date().toISOString());
+
+          // Check if payload is ALREADY a structured DomainEvent/Envelope (e.g. from auth-service, user-trust-service)
+          const isAlreadyEnveloped = Boolean(
+            payloadObj &&
+              typeof payloadObj === 'object' &&
+              payloadObj.data &&
+              typeof payloadObj.data === 'object' &&
+              !Array.isArray(payloadObj.data),
+          );
+
+          let envelope: Record<string, any>;
+
+          if (isAlreadyEnveloped) {
+            // Preserve the existing DomainEvent envelope structure without double wrapping data
+            const producer =
+              payloadObj.producer ||
+              payloadObj.source ||
+              payloadObj.sourceService ||
+              defaultSource;
+
+            envelope = {
+              ...payloadObj,
+              eventId: payloadObj.eventId || event.id,
+              eventType: payloadObj.eventType || event.eventType,
+              eventVersion: payloadObj.eventVersion || event.eventVersion || 1,
+              producer,
+              source: producer,
+              occurredAt: payloadObj.occurredAt || occurredAt,
+              data: payloadObj.data,
+              payload: payloadObj.data,
+            };
+          } else {
+            // Raw business payload (e.g. from bidding-service): wrap into standard CloudEvent envelope
+            const source =
+              payloadObj.source || payloadObj.producer || defaultSource;
+
+            envelope = {
+              eventId: event.id,
+              eventType: event.eventType,
+              eventVersion: event.eventVersion || 1,
+              source,
+              producer: source,
+              occurredAt,
+              data: payloadObj,
+              payload: payloadObj,
+            };
+          }
+
+          await this.rabbitmq.emit(event.eventType, envelope);
 
           await this.repository.markPublished(event.id, new Date());
           publishedCount++;

@@ -1,10 +1,10 @@
+/* eslint-disable max-lines-per-function */
+/* eslint-disable perfectionist/sort-imports -- Register TypeScript and load .env before evaluating build modules. */
 import type { ConfigContext, ExpoConfig } from '@expo/config';
-
 import 'tsx/cjs';
-
-// adding lint exception as we need to import tsx/cjs before env.ts is imported
-// eslint-disable-next-line perfectionist/sort-imports
+import 'dotenv/config';
 import Env from './env';
+import { resolveGoogleServicesFile } from './scripts/firebase-config';
 
 const EXPO_ACCOUNT_OWNER = 'handygo';
 const EAS_PROJECT_ID = 'c3e1075b-6fe7-4686-aa49-35b46a229044';
@@ -41,6 +41,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#FFFFFF',
     },
     package: Env.EXPO_PUBLIC_PACKAGE,
+    googleServicesFile: resolveGoogleServicesFile({
+      projectRoot: __dirname,
+      androidPackage: Env.EXPO_PUBLIC_PACKAGE,
+      base64: process.env.GOOGLE_SERVICES_JSON_BASE64,
+      filePath: process.env.GOOGLE_SERVICES_JSON,
+    }),
   },
   web: {
     favicon: './assets/favicon.png',
@@ -102,8 +108,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         recordAudioAndroid: false,
       },
     ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Cho phép HANDY GO truy cập thư viện ảnh để tải ảnh hiện trường.',
+      },
+    ],
+    ['expo-notifications', { defaultChannel: 'default' }],
     'expo-router',
     ['react-native-edge-to-edge'],
+    [
+      '@rnmapbox/maps',
+      {
+        RNMapboxMapsDownloadToken:
+          process.env.MAPBOX_DOWNLOADS_TOKEN || Env.MAPBOX_DOWNLOADS_TOKEN || '',
+      },
+    ],
   ],
   extra: {
     eas: {

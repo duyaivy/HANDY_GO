@@ -1,5 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import * as React from 'react';
+import { Alert } from 'react-native';
+import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 
@@ -38,8 +40,27 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(() => mockParams),
 }));
 
+jest.mock('@/features/orders/api/orders.api', () => ({
+  OrdersApi: {
+    createRequest: jest.fn().mockResolvedValue({ data: { id: 'req-001' } }),
+    publishRequest: jest.fn().mockResolvedValue({ success: true }),
+    getMyRequests: jest.fn().mockResolvedValue({ data: [] }),
+    createProposal: jest.fn().mockResolvedValue({ success: true }),
+  },
+}));
+
+const initialAuthState = useAuthStore.getState();
+
+beforeEach(() => {
+  useAuthStore.setState(initialAuthState, true);
+  useBookingDraftStore.getState().resetDraft();
+});
+
 afterEach(() => {
   cleanup();
+  useAuthStore.setState(initialAuthState, true);
+  useBookingDraftStore.getState().resetDraft();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   mockParams = { id: 'demo-001' };
 });
@@ -136,7 +157,23 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByTestId('booking-next-btn')).toBeOnTheScreen();
     });
 
-    it('navigates to select address when pressing Next button', () => {
+    it('shows login alert and blocks navigation when guest presses Next button', () => {
+      useAuthStore.setState({ isAuthenticated: false });
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      render(<CustomerBookingScreen />);
+
+      const nextBtn = screen.getByTestId('booking-next-btn');
+      fireEvent.press(nextBtn);
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Yêu cầu đăng nhập',
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('navigates to select address when pressing Next button as authenticated user', () => {
+      useAuthStore.setState({ isAuthenticated: true });
       render(<CustomerBookingScreen />);
 
       const nextBtn = screen.getByTestId('booking-next-btn');
@@ -154,12 +191,14 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerBookingSelectAddressScreen (booking/select-address)', () => {
-    it('renders select address skeleton and navigates to select time on confirm', () => {
+    it('renders select address skeleton and navigates to select time on confirm with valid address', () => {
       render(<CustomerBookingSelectAddressScreen />);
 
       expect(screen.getByText('Chọn địa chỉ')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByTestId('gps-status-badge')).toBeOnTheScreen();
+      expect(screen.getByTestId('locate-me-btn')).toBeOnTheScreen();
 
+      fireEvent.changeText(screen.getByTestId('booking-address-input'), '123 Nguyễn Lương Bằng, Đà Nẵng');
       fireEvent.press(screen.getByTestId('select-address-confirm-btn'));
       expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-time');
     });
@@ -199,14 +238,19 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerBookingSummaryScreen (booking/summary)', () => {
-    it('renders booking summary skeleton and navigates to radar on start finding', () => {
+    it('renders booking summary skeleton and navigates to radar on start finding', async () => {
       render(<CustomerBookingSummaryScreen />);
 
       expect(screen.getByText('Tóm tắt đơn đặt việc')).toBeOnTheScreen();
       expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
 
       fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
-      expect(mockPush).toHaveBeenCalledWith('/customer/booking/radar');
+      await waitFor(() => {
+        expect(mockPush).toHaveBeenCalledWith({
+          pathname: '/customer/booking/radar',
+          params: { requestId: 'req-001' },
+        });
+      });
     });
 
     it('navigates back using app bar back button', () => {
@@ -234,6 +278,19 @@ describe('customer Skeleton & Route Flow', () => {
       fireEvent.press(screen.getByTestId('app-bar-back-btn'));
       expect(mockBack).toHaveBeenCalled();
     });
+
+    it('opens service order details modal when pressing document button', () => {
+      render(<CustomerBookingRadarScreen />);
+
+      const orderDetailsBtn = screen.getByTestId('radar-order-details-btn');
+      fireEvent.press(orderDetailsBtn);
+
+      expect(screen.getByText('Service order details')).toBeOnTheScreen();
+      expect(screen.getByText('Estimated cost')).toBeOnTheScreen();
+      expect(screen.getByText('Cancel order')).toBeOnTheScreen();
+
+      fireEvent.press(screen.getByTestId('close-order-modal-btn'));
+    });
   });
 
   describe('customerWorkerDetailScreen (workers/[id])', () => {
@@ -252,11 +309,11 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerNotificationsScreen ((tabs)/notifications)', () => {
-    it('renders notifications placeholder frame and app bar', () => {
+    it('renders notification inbox frame and app bar', () => {
       render(<CustomerNotificationsScreen />);
 
       expect(screen.getByText('Thông báo')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Đăng nhập để xem thông báo')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-notifications-screen')).toBeOnTheScreen();
     });
   });
@@ -322,6 +379,9 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByText('Cài đặt')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-change-password-btn')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-biometrics-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-push-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-inapp-switch')).toBeOnTheScreen();
+      expect(screen.getByTestId('settings-email-switch')).toBeOnTheScreen();
       expect(screen.getByTestId('settings-logout-btn')).toBeOnTheScreen();
     });
 

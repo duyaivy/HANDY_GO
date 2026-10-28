@@ -6,6 +6,11 @@
   },
   "include": [
     "apps/auth-service/prisma/prisma.config.ts",
-    "apps/user-trust-service/prisma/prisma.config.ts"
+    "apps/catalog-service/prisma.config.ts",
+    "apps/user-trust-service/prisma/prisma.config.ts",
+    "apps/order-service/prisma/prisma.config.ts",
+    "apps/bidding-service/prisma/prisma.config.ts",
+    "apps/notification-service/prisma/prisma.config.ts",
+    "apps/matching-service/prisma/prisma.config.ts"
   ]
 }

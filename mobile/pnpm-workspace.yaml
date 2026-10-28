@@ -1,0 +1,8 @@
+shellEmulator: true
+
+trustPolicy: no-downgrade
+
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - esbuild
+  - unrs-resolver

@@ -240,7 +240,7 @@ export class LoginFlowService {
     if (['suspended', 'locked', 'deleted'].includes(account.status)) {
       throw new AppException(
         HttpStatus.FORBIDDEN,
-        ERROR_CODES.ACCOUNT_LOCKED,
+        ERROR_CODES.ACCOUNT_BLOCKED,
         'Tài khoản đang bị khóa hoặc vô hiệu hóa',
       );
     }

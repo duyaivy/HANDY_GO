@@ -138,6 +138,85 @@ jest.mock('react-native-keyboard-controller', () => {
   };
 });
 
+// Mock @rnmapbox/maps
+jest.mock('@rnmapbox/maps', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+
+  return {
+    __esModule: true,
+    default: {
+      setAccessToken: jest.fn(),
+      setTelemetryEnabled: jest.fn(),
+      requestAndroidLocationPermissions: jest.fn(async () => true),
+      MapView: (props: any) => React.createElement(View, { testID: 'mapbox-map-view', ...props }),
+      Camera: (props: any) => React.createElement(View, { testID: 'mapbox-camera', ...props }),
+      PointAnnotation: (props: any) => React.createElement(View, { testID: 'mapbox-point-annotation', ...props }),
+      MarkerView: (props: any) => React.createElement(View, { testID: 'mapbox-marker-view', ...props }),
+      ShapeSource: (props: any) => React.createElement(View, { testID: 'mapbox-shape-source', ...props }),
+      LineLayer: (props: any) => React.createElement(View, { testID: 'mapbox-line-layer', ...props }),
+      CircleLayer: (props: any) => React.createElement(View, { testID: 'mapbox-circle-layer', ...props }),
+      UserLocation: (props: any) => React.createElement(View, { testID: 'mapbox-user-location', ...props }),
+      StyleURL: {
+        Street: 'mapbox://styles/mapbox/streets-v12',
+        Outdoors: 'mapbox://styles/mapbox/outdoors-v12',
+        Light: 'mapbox://styles/mapbox/light-v11',
+        Dark: 'mapbox://styles/mapbox/dark-v11',
+        Satellite: 'mapbox://styles/mapbox/satellite-v9',
+      },
+    },
+    MapView: (props: any) => React.createElement(View, { testID: 'mapbox-map-view', ...props }),
+    Camera: (props: any) => React.createElement(View, { testID: 'mapbox-camera', ...props }),
+    PointAnnotation: (props: any) => React.createElement(View, { testID: 'mapbox-point-annotation', ...props }),
+    MarkerView: (props: any) => React.createElement(View, { testID: 'mapbox-marker-view', ...props }),
+    UserLocation: (props: any) => React.createElement(View, { testID: 'mapbox-user-location', ...props }),
+    StyleURL: {
+      Street: 'mapbox://styles/mapbox/streets-v12',
+      Outdoors: 'mapbox://styles/mapbox/outdoors-v12',
+      Light: 'mapbox://styles/mapbox/light-v11',
+      Dark: 'mapbox://styles/mapbox/dark-v11',
+      Satellite: 'mapbox://styles/mapbox/satellite-v9',
+    },
+  };
+});
+
+// Mock expo-camera
+jest.mock('expo-camera', () => {
+  const React = require('react');
+  const View = require('react-native').View;
+  return {
+    CameraView: ({ ref, ...props }: any) => {
+      React.useImperativeHandle(ref, () => ({
+        takePictureAsync: jest.fn(async () => ({ uri: 'https://res.cloudinary.com/demo/image/upload/sample_camera.jpg', width: 800, height: 600 })),
+      }));
+      return React.createElement(View, { testID: 'mock-camera-view', ...props });
+    },
+    useCameraPermissions: jest.fn(() => [
+      { granted: true, canAskAgain: true },
+      jest.fn(async () => ({ granted: true })),
+    ]),
+  };
+});
+
+// Mock expo-image-picker
+jest.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true })),
+  requestCameraPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true })),
+  launchImageLibraryAsync: jest.fn(async () => ({
+    canceled: false,
+    assets: [{ uri: 'https://res.cloudinary.com/demo/image/upload/sample_picker.jpg', width: 800, height: 600 }],
+  })),
+  launchCameraAsync: jest.fn(async () => ({
+    canceled: false,
+    assets: [{ uri: 'https://res.cloudinary.com/demo/image/upload/sample_camera.jpg', width: 800, height: 600 }],
+  })),
+  MediaTypeOptions: {
+    Images: 'images',
+    Videos: 'videos',
+    All: 'all',
+  },
+}));
+
 // Teardown react-query cache, active queries, and timers after each test
 afterEach(() => {
   try {
@@ -151,3 +230,19 @@ afterEach(() => {
   jest.clearAllTimers();
   jest.useRealTimers();
 });
+
+jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
+jest.mock('expo-notifications', () => ({
+  AndroidImportance: { HIGH: 4 },
+  DEFAULT_ACTION_IDENTIFIER: 'default',
+  setNotificationChannelAsync: jest.fn(async () => null),
+  getPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true, canAskAgain: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true, canAskAgain: true })),
+  getDevicePushTokenAsync: jest.fn(async () => ({ type: 'android', data: 'test-native-token' })),
+  setNotificationHandler: jest.fn(),
+  addNotificationReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
+  addPushTokenListener: jest.fn(() => ({ remove: jest.fn() })),
+  getLastNotificationResponseAsync: jest.fn(async () => null),
+  clearLastNotificationResponseAsync: jest.fn(async () => {}),
+}));
