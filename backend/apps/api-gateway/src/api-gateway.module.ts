@@ -21,6 +21,7 @@ import { CloudinaryModule } from '@app/cloudinary';
 import { UploadsController, UploadsModule } from './uploads/index.js';
 import { SwaggerSpecsController } from './swagger/index.js';
 import { DevVideoUploadController } from './dev/dev-video-upload.controller.js';
+import { CandidatesController, CandidatesModule } from './candidates/index.js';
 
 @Module({
   imports: [
@@ -39,10 +40,12 @@ import { DevVideoUploadController } from './dev/dev-video-upload.controller.js';
     HealthModule,
     CloudinaryModule,
     UploadsModule,
+    CandidatesModule,
   ],
   controllers: [
     ApiGatewayController,
     UploadsController,
+    CandidatesController,
     SwaggerSpecsController,
     DevVideoUploadController,
     FallbackController,

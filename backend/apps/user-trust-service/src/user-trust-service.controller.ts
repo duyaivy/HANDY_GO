@@ -2,9 +2,7 @@ import {
   Body,
   BadRequestException,
   Controller,
-  ForbiddenException,
   Get,
-  Headers,
   HttpCode,
   HttpStatus,
   Logger,
@@ -16,8 +14,18 @@ import {
 } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { ConfigService } from '@app/config';
-import { Ctx, EventPattern, MessagePattern, Payload } from '@nestjs/microservices';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  Ctx,
+  EventPattern,
+  MessagePattern,
+  Payload,
+} from '@nestjs/microservices';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import {
   CurrentUser,
   JwtAuthGuard,
@@ -33,6 +41,9 @@ import {
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+
+import { ConfigService } from '@app/config';
+import crypto from 'node:crypto';
 
 @ApiTags('User & Trust')
 @Controller()
@@ -116,7 +127,10 @@ export class UserTrustServiceController {
     @Ctx() context?: any,
   ): Promise<{ exists: boolean; status: string; isProvisioned: boolean }> {
     try {
-      return await this.userTrustService.getUserAuthStatus(data.userId, data.roles);
+      return await this.userTrustService.getUserAuthStatus(
+        data.userId,
+        data.roles,
+      );
     } finally {
       if (context && typeof context.getChannelRef === 'function') {
         const channel = context.getChannelRef();
@@ -158,9 +172,7 @@ export class UserTrustServiceController {
   @ApiResponse({ status: 200, description: 'Lấy hồ sơ thành công' })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Không đủ quyền truy cập' })
-  async getMyProfile(
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<unknown> {
+  async getMyProfile(@CurrentUser() user: AuthenticatedUser): Promise<unknown> {
     return this.userTrustService.getProfile(
       user.userId,
       user.userId,
@@ -196,7 +208,10 @@ export class UserTrustServiceController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy thông tin hồ sơ theo ID người dùng' })
   @ApiResponse({ status: 200, description: 'Lấy hồ sơ thành công' })
-  @ApiResponse({ status: 403, description: 'Không có quyền xem hồ sơ người khác' })
+  @ApiResponse({
+    status: 403,
+    description: 'Không có quyền xem hồ sơ người khác',
+  })
   async getUserProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
@@ -370,30 +385,84 @@ export class UserTrustServiceController {
   }
 
   /**
-   * Internal endpoint for BFF / Inter-service worker profile enrichment (F12)
+   * Internal REST API for Matching Service candidate discovery.
+   * GET /internal/v1/workers/candidates?serviceId=...&latitude=...&longitude=...&customerUserId=...
    */
   @Public()
-  @Get('internal/workers/batch-summary')
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/v1/workers/candidates')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Lấy tóm tắt hồ sơ thợ (Inter-service / BFF enrichment)' })
-  @ApiResponse({ status: 200, description: 'Lấy danh sách tóm tắt thợ thành công' })
-  async getWorkersBatchSummary(
-    @Query('ids') ids?: string,
-    @Headers('x-internal-secret') internalSecret?: string,
-  ): Promise<any[]> {
-    const expectedSecret = this.config.internalServiceSecret;
-    const isValid =
-      !!expectedSecret &&
-      !!internalSecret &&
-      internalSecret.length === expectedSecret.length &&
-      crypto.timingSafeEqual(
-        Buffer.from(internalSecret),
-        Buffer.from(expectedSecret),
-      );
+  @ApiOperation({
+    summary: 'Internal: Find eligible worker candidates for matching',
+  })
+  async findWorkerCandidates(
+    @Query('serviceId') serviceId: string,
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+    @Query('customerUserId') customerUserId?: string,
+  ): Promise<unknown> {
+    return this.userTrustService.findWorkerCandidates({
+      serviceId,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      customerUserId,
+    });
+  }
 
-    if (!isValid) {
-      throw new ForbiddenException(
-        'Request must originate from trusted internal service with valid x-internal-secret',
+  /**
+   * Internal RabbitMQ RPC to discover eligible worker candidates.
+   */
+  @MessagePattern('workers.find-candidates')
+  async findWorkerCandidatesRpc(
+    @Payload()
+    data: {
+      serviceId: string;
+      latitude: number;
+      longitude: number;
+      customerUserId?: string;
+    },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.findWorkerCandidates(data);
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+    }
+  }
+
+  /**
+   * Internal REST API for worker matching profile lookup (offerings, areas, verification).
+   */
+  @Public()
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/v1/workers/:id/matching-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Internal: Get worker match profile for request discovery',
+  })
+  async getWorkerMatchProfile(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerMatchProfile(workerUserId);
+  }
+
+  /**
+   * Internal RabbitMQ RPC for worker match profile lookup.
+   */
+  @MessagePattern('workers.get-matching-profile')
+  async getWorkerMatchProfileRpc(
+    @Payload() data: { workerUserId: string },
+    @Ctx() context?: any,
+  ): Promise<unknown> {
+    try {
+      return await this.userTrustService.getWorkerMatchProfile(
+        data.workerUserId,
       );
     }
 
@@ -409,3 +478,5 @@ export class UserTrustServiceController {
     return this.userTrustService.getWorkersBatchSummary(workerIds);
   }
 }
+
+

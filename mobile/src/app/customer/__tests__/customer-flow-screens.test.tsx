@@ -1,5 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import * as React from 'react';
+import { Alert } from 'react-native';
+import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 
@@ -47,8 +49,18 @@ jest.mock('@/features/orders/api/orders.api', () => ({
   },
 }));
 
+const initialAuthState = useAuthStore.getState();
+
+beforeEach(() => {
+  useAuthStore.setState(initialAuthState, true);
+  useBookingDraftStore.getState().resetDraft();
+});
+
 afterEach(() => {
   cleanup();
+  useAuthStore.setState(initialAuthState, true);
+  useBookingDraftStore.getState().resetDraft();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   mockParams = { id: 'demo-001' };
 });
@@ -145,7 +157,23 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByTestId('booking-next-btn')).toBeOnTheScreen();
     });
 
-    it('navigates to select address when pressing Next button', () => {
+    it('shows login alert and blocks navigation when guest presses Next button', () => {
+      useAuthStore.setState({ isAuthenticated: false });
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      render(<CustomerBookingScreen />);
+
+      const nextBtn = screen.getByTestId('booking-next-btn');
+      fireEvent.press(nextBtn);
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Yêu cầu đăng nhập',
+        expect.any(String),
+        expect.any(Array),
+      );
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it('navigates to select address when pressing Next button as authenticated user', () => {
+      useAuthStore.setState({ isAuthenticated: true });
       render(<CustomerBookingScreen />);
 
       const nextBtn = screen.getByTestId('booking-next-btn');

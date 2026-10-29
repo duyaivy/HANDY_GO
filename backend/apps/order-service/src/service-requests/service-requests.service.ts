@@ -698,6 +698,7 @@ export class ServiceRequestsService {
           eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_PUBLISHED,
           eventVersion: 1,
           payload: {
+            serviceRequestId: published.id,
             requestId: published.id,
             requestCode: published.requestCode,
             customerUserId: published.customerUserId,
@@ -836,6 +837,7 @@ export class ServiceRequestsService {
           eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_CANCELLED,
           eventVersion: 1,
           payload: {
+            serviceRequestId: cancelled.id,
             requestId: cancelled.id,
             requestCode: cancelled.requestCode,
             customerUserId: cancelled.customerUserId,

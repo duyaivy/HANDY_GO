@@ -138,9 +138,34 @@ export async function refreshTokens(): Promise<string> {
   return refreshPromise;
 }
 
+export function isFormDataPayload(val: unknown): boolean {
+  if (!val || typeof val !== 'object') {
+    return false;
+  }
+  if (typeof FormData !== 'undefined' && val instanceof FormData) {
+    return true;
+  }
+  const duckVal = val as { append?: unknown; _parts?: unknown };
+  return (
+    typeof duckVal.append === 'function'
+    && (Array.isArray(duckVal._parts) || Object.prototype.toString.call(val) === '[object FormData]')
+  );
+}
+
 // Request Interceptor: Auto attach Bearer token and log
 axiosInstance.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    if (isFormDataPayload(config.data)) {
+      // Let the native networking layer generate the multipart boundary.
+      if (typeof config.headers?.setContentType === 'function') {
+        config.headers.setContentType(false);
+      }
+      else if (config.headers) {
+        delete (config.headers as any)['Content-Type'];
+        delete (config.headers as any)['content-type'];
+      }
+    }
+
     try {
       const token = getToken();
       if (token?.access && config.headers) {

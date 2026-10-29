@@ -27,7 +27,7 @@ export const ACTIVITY_FILTER_TABS = [
 
 export type ActivityFilterTab = (typeof ACTIVITY_FILTER_TABS)[number];
 
-export const ACTIVITY_TAB_LABELS: Record<ActivityFilterTab, string> = {
+const ACTIVITY_TAB_LABELS: Record<ActivityFilterTab, string> = {
   'Searching': 'Đang tìm',
   'In process': 'Đang làm',
   'Reorder': 'Đặt lại',
