@@ -79,6 +79,9 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
   const getActiveItem = () => {
     if (currentPath.includes("/customers")) return "customers";
     if (currentPath.includes("/workers")) return "workers";
+    if (currentPath.includes("/kyc-verification")) {
+      return "kyc-verification";
+    }
     if (currentPath.includes("/worker-applications"))
       return "worker-applications";
     if (currentPath.includes("/service-catalogs")) return "service-catalogs";
@@ -173,6 +176,14 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                 >
                   <span>└</span>
                   <span>Thợ</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTo("/manager/kyc-verification")}
+                  className={subMenuClass(activeItem === "kyc-verification")}
+                >
+                  <span>└</span>
+                  <span>Xác minh thợ</span>
                 </button>
               </div>
             )}
@@ -430,9 +441,9 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
 
                           <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-2xl border border-slate-200 bg-white py-1.5 shadow-xl">
                             <div className="border-b border-slate-100 px-4 py-2.5">
-                              <p className="text-xs font-semibold text-slate-400">
+                              {/* <p className="text-xs font-semibold text-slate-400">
                                 Tài khoản quản trị
-                              </p>
+                              </p> */}
                               <p className="text-sm font-bold text-slate-800">
                                 {accountLabel}
                               </p>
@@ -446,8 +457,8 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                               onClick={() => navigateTo("/manager/setting")}
                               className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
                             >
-                              <Settings size={16} />
-                              Cài đặt hệ thống
+                              {/* <Settings size={16} />
+                              Cài đặt hệ thống */}
                             </button>
 
                             <button
@@ -459,8 +470,8 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                               disabled={isLoggingOut}
                               className="flex w-full items-center gap-2.5 border-t border-slate-100 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
                             >
-                              <LogOut size={16} />
-                              {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+                              {/* <LogOut size={16} />
+                              {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"} */}
                             </button>
                           </div>
                         </>
