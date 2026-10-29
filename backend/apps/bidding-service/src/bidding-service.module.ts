@@ -12,7 +12,12 @@ import { SseModule } from './sse/sse.module.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005 }),
+    ConfigModule.forRoot({
+      serviceName: 'bidding-service',
+      defaultPort: 3005,
+      requiredUrls: ['ORDER_SERVICE_URL'],
+      requiredKeys: ['INTERNAL_SERVICE_SECRET'],
+    }),
     LoggerModule.forRoot('bidding-service'),
     HealthModule,
     RabbitMQModule,

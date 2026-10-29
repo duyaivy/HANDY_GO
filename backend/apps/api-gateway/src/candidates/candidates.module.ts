@@ -4,6 +4,7 @@ import { CandidatesAggregationService } from './candidates-aggregation.service.j
 import { OrderClient } from './clients/order.client.js';
 import { BiddingClient } from './clients/bidding.client.js';
 import { MatchingClient } from './clients/matching.client.js';
+import { WorkerProfilesClient } from './clients/worker-profiles.client.js';
 
 @Module({
   controllers: [CandidatesController],
@@ -12,6 +13,7 @@ import { MatchingClient } from './clients/matching.client.js';
     OrderClient,
     BiddingClient,
     MatchingClient,
+    WorkerProfilesClient,
   ],
   exports: [CandidatesAggregationService],
 })

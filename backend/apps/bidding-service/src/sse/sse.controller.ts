@@ -18,7 +18,7 @@ import { SseService } from './sse.service.js';
 import { isTrustedGateway } from '../common/utils/security.util.js';
 import { RequestEligibilityVerifierService } from '../bids/services/request-eligibility-verifier.service.js';
 
-@Controller('api/v1/bids/requests')
+@Controller('bids/requests')
 export class SseController {
   private readonly logger = new Logger(SseController.name);
 

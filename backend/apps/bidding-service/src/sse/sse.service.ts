@@ -25,7 +25,10 @@ export class SseService implements OnModuleDestroy {
   public readonly MAX_CONNECTIONS_PER_REQUEST = 100;
   public readonly MAX_TOTAL_CONNECTIONS = 5000;
 
-  private readonly clientsByRequest = new Map<string, Set<SseClientConnection>>();
+  private readonly clientsByRequest = new Map<
+    string,
+    Set<SseClientConnection>
+  >();
   private readonly clientsById = new Map<string, SseClientConnection>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
 
@@ -52,7 +55,10 @@ export class SseService implements OnModuleDestroy {
     }
 
     const currentRequestSet = this.clientsByRequest.get(connection.requestId);
-    if (currentRequestSet && currentRequestSet.size >= this.MAX_CONNECTIONS_PER_REQUEST) {
+    if (
+      currentRequestSet &&
+      currentRequestSet.size >= this.MAX_CONNECTIONS_PER_REQUEST
+    ) {
       this.logger.warn(
         `Max SSE connections per request reached (${this.MAX_CONNECTIONS_PER_REQUEST}) for request ${connection.requestId}.`,
       );
@@ -65,7 +71,7 @@ export class SseService implements OnModuleDestroy {
     connection.res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
     });
@@ -100,7 +106,9 @@ export class SseService implements OnModuleDestroy {
     connection.res.on('close', cleanup);
     connection.res.on('finish', cleanup);
     connection.res.on('error', (err) => {
-      this.logger.warn(`SSE client socket error for ${connection.id}: ${err.message}`);
+      this.logger.warn(
+        `SSE client socket error for ${connection.id}: ${err.message}`,
+      );
       cleanup();
     });
   }
@@ -134,7 +142,7 @@ export class SseService implements OnModuleDestroy {
   broadcastBidChanged(
     requestId: string,
     kind: BidChangedKind,
-    eventId = crypto.randomUUID(),
+    eventId: string = crypto.randomUUID(),
     occurredAt = new Date().toISOString(),
   ): void {
     const payload: SseBidChangedEvent = {
@@ -152,7 +160,7 @@ export class SseService implements OnModuleDestroy {
   broadcastRoundChanged(
     requestId: string,
     kind: RoundChangedKind,
-    eventId = crypto.randomUUID(),
+    eventId: string = crypto.randomUUID(),
     occurredAt = new Date().toISOString(),
   ): void {
     const payload: SseRoundChangedEvent = {
@@ -170,7 +178,7 @@ export class SseService implements OnModuleDestroy {
   broadcastMatchingChanged(
     requestId: string,
     kind: MatchingChangedKind,
-    eventId = crypto.randomUUID(),
+    eventId: string = crypto.randomUUID(),
     occurredAt = new Date().toISOString(),
   ): void {
     const payload: SseMatchingChangedEvent = {
@@ -185,7 +193,11 @@ export class SseService implements OnModuleDestroy {
   /**
    * Broadcasts a named event frame to all subscribers of a request.
    */
-  broadcastToRequest(requestId: string, eventName: string, data: unknown): void {
+  broadcastToRequest(
+    requestId: string,
+    eventName: string,
+    data: unknown,
+  ): void {
     const set = this.clientsByRequest.get(requestId);
     if (!set || set.size === 0) {
       return;

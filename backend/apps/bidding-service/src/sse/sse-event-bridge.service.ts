@@ -46,7 +46,8 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     const isTest = process.env.NODE_ENV === 'test';
     const rabbitMqUrl =
-      this.config.get('RABBITMQ_URL') || 'amqp://handygo:handygo@localhost:5672';
+      this.config.get('RABBITMQ_URL') ||
+      'amqp://handygo:handygo@localhost:5672';
 
     if (isTest && !process.env.RABBITMQ_URL) {
       this.isDegraded = true;
@@ -135,7 +136,9 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
         this.connection = null;
       }
     } catch (err) {
-      this.logger.warn(`Error during SSE bridge shutdown: ${(err as Error).message}`);
+      this.logger.warn(
+        `Error during SSE bridge shutdown: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -157,11 +160,7 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
     const rawBuffer = Buffer.from(JSON.stringify(event));
 
     try {
-      await this.channelWrapper.publish(
-        exchange,
-        event.eventType,
-        rawBuffer,
-      );
+      await this.channelWrapper.publish(exchange, event.eventType, rawBuffer);
     } catch (err) {
       this.isDegraded = true;
       this.logger.error(
@@ -178,13 +177,22 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const eventType: string = message.eventType || message.pattern || '';
-    const payload = message.payload || message.data || message;
+    // Nest ClientRMQ wraps Outbox envelopes in { pattern, data: envelope }.
+    // Matching also publishes raw envelopes, so unwrap only the transport packet.
+    const envelope =
+      typeof message.pattern === 'string' &&
+      message.data &&
+      typeof message.data === 'object' &&
+      typeof message.data.eventType === 'string'
+        ? message.data
+        : message;
+    const eventType: string = envelope.eventType || message.pattern || '';
+    const payload = envelope.payload || envelope.data || envelope;
     const requestId: string =
       payload.requestId ||
       payload.serviceRequestId ||
-      message.requestId ||
-      message.serviceRequestId;
+      envelope.requestId ||
+      envelope.serviceRequestId;
 
     if (!requestId) {
       this.logger.warn(`Fanout message missing requestId (${eventType})`);
@@ -192,9 +200,9 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     const eventId: string =
-      message.eventId || payload.eventId || crypto.randomUUID();
+      envelope.eventId || payload.eventId || crypto.randomUUID();
     const occurredAt: string =
-      message.occurredAt || payload.occurredAt || new Date().toISOString();
+      envelope.occurredAt || payload.occurredAt || new Date().toISOString();
 
     // Deduplication check
     this.cleanExpiredEventIds();
@@ -202,6 +210,14 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     this.recentEventIds.set(eventId, Date.now() + 60000);
+
+    this.logger.debug({
+      event: 'sse_domain_event_received',
+      eventType,
+      eventId,
+      requestId,
+      subscribers: this.sseService.getClientCount(requestId),
+    });
 
     // Map domain event to SSE event frame
     switch (eventType) {

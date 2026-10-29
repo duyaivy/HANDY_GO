@@ -173,6 +173,7 @@ services:
       <<: *development-environment
       NEST_PROJECT: bidding-service
       PORT: '3005'
+      ORDER_SERVICE_URL: http://order-service:3004
     ports:
       - '3005:3005'
 

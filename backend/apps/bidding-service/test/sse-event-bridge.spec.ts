@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SseEventBridgeService } from '../src/sse/sse-event-bridge.service.js';
-import type { SseService } from '../src/sse/sse.service.js';
+import { SseService } from '../src/sse/sse.service.js';
 import type { ConfigService } from '@app/config';
 
 describe('SseEventBridgeService (BE-02 / BE-07)', () => {
@@ -9,6 +9,7 @@ describe('SseEventBridgeService (BE-02 / BE-07)', () => {
     broadcastBidChanged: ReturnType<typeof vi.fn>;
     broadcastRoundChanged: ReturnType<typeof vi.fn>;
     broadcastMatchingChanged: ReturnType<typeof vi.fn>;
+    getClientCount: ReturnType<typeof vi.fn>;
   };
   let mockConfig: { get: ReturnType<typeof vi.fn> };
 
@@ -17,6 +18,7 @@ describe('SseEventBridgeService (BE-02 / BE-07)', () => {
       broadcastBidChanged: vi.fn(),
       broadcastRoundChanged: vi.fn(),
       broadcastMatchingChanged: vi.fn(),
+      getClientCount: vi.fn().mockReturnValue(1),
     };
     mockConfig = {
       get: vi.fn().mockReturnValue('amqp://localhost:5672'),
@@ -29,6 +31,63 @@ describe('SseEventBridgeService (BE-02 / BE-07)', () => {
   });
 
   describe('handleFanoutMessage event mappings', () => {
+    it('writes a lightweight bid.changed frame only to subscribers of the matching request', () => {
+      const hub = new SseService();
+      const frames: string[] = [];
+      const otherFrames: string[] = [];
+      const response = (target: string[]) => ({
+        writeHead: vi.fn(),
+        flushHeaders: vi.fn(),
+        on: vi.fn(),
+        end: vi.fn(),
+        write: vi.fn((frame: string) => {
+          target.push(frame);
+          return true;
+        }),
+      });
+      try {
+        for (const [requestId, target] of [
+          ['request-live', frames],
+          ['other-request', otherFrames],
+        ] as const) {
+          hub.registerClient({
+            id: requestId,
+            requestId,
+            userId: 'customer',
+            roles: ['customer'],
+            connectedAt: new Date(),
+            res: response(target) as any,
+          });
+        }
+        frames.length = 0;
+        otherFrames.length = 0;
+        const liveBridge = new SseEventBridgeService(
+          hub,
+          mockConfig as unknown as ConfigService,
+        );
+        liveBridge.handleFanoutMessage({
+          pattern: 'bid.submitted',
+          data: {
+            eventId: 'outbox-live',
+            eventType: 'bid.submitted',
+            occurredAt: '2026-10-29T05:30:40.000Z',
+            payload: {
+              requestId: 'request-live',
+              workerId: 'confidential-worker',
+              amount: 250000,
+            },
+          },
+        });
+        expect(frames).toHaveLength(1);
+        expect(frames[0]).toBe(
+          'event: bid.changed\ndata: {"eventId":"outbox-live","requestId":"request-live","kind":"submitted","occurredAt":"2026-10-29T05:30:40.000Z"}\n\n',
+        );
+        expect(otherFrames).toEqual([]);
+      } finally {
+        hub.onModuleDestroy();
+      }
+    });
+
     it('should map bid.submitted to sseService.broadcastBidChanged(kind=submitted)', () => {
       bridge.handleFanoutMessage({
         eventType: 'bid.submitted',
@@ -200,5 +259,34 @@ describe('SseEventBridgeService (BE-02 / BE-07)', () => {
         '2026-10-29T00:00:00.000Z',
       );
     });
+
+    it.each(['submitted', 'revised', 'withdrawn'])(
+      'unwraps Nest RMQ packets for bid.%s and preserves the event identity',
+      (kind) => {
+        const envelope = {
+          eventId: `outbox-${kind}`,
+          eventType: `bid.${kind}`,
+          occurredAt: '2026-10-29T05:30:40.000Z',
+          data: { serviceRequestId: 'request-live', bidId: 'bid-live' },
+        };
+        bridge.handleFanoutMessage({ pattern: `bid.${kind}`, data: envelope });
+        expect(mockSseService.broadcastBidChanged).toHaveBeenCalledWith(
+          'request-live',
+          kind,
+          `outbox-${kind}`,
+          '2026-10-29T05:30:40.000Z',
+        );
+        // The same event may also arrive as a raw envelope; dispatch it only once.
+        bridge.handleFanoutMessage(envelope);
+        expect(
+          mockSseService.broadcastBidChanged,
+        ).toHaveBeenCalledExactlyOnceWith(
+          'request-live',
+          kind,
+          `outbox-${kind}`,
+          '2026-10-29T05:30:40.000Z',
+        );
+      },
+    );
   });
 });

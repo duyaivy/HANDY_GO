@@ -133,8 +133,6 @@ export default function CustomerBookingRadarRoute() {
   const {
     bids,
     biddingStatus,
-    candidates,
-    closesAt,
     isLoading: isLoadingCandidates,
     isPartial,
     recommendations,
@@ -283,12 +281,12 @@ export default function CustomerBookingRadarRoute() {
     const defaultRecPrice = typeof aiRefPriceMin === 'number' && aiRefPriceMin > 0 ? aiRefPriceMin : 200000;
     return recommendations.map((r: RecommendationCandidate) => ({
       id: r.workerUserId,
-      name: r.workerProfile?.fullName || `Thợ gợi ý #${r.rank}`,
-      rating: r.workerProfile?.averageRating ?? 4.9,
-      totalOrders: r.workerProfile?.completedOrderCount ?? 15,
+      name: r.workerProfile?.fullName?.trim() || 'Thợ đối tác HandyGo',
+      rating: r.workerProfile?.averageRating ?? 0,
+      totalOrders: r.workerProfile?.completedOrderCount ?? 0,
       completionRate: 95,
       price: defaultRecPrice,
-      priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ (Giá ước tính)`,
+      priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
       distance: typeof r.workerProfile?.distanceKm === 'number'
         ? `${r.workerProfile.distanceKm.toFixed(1)}km`
         : 'Gần bạn',
@@ -426,7 +424,8 @@ export default function CustomerBookingRadarRoute() {
             {serviceName || 'Plumber'}
           </Text>
           <Text className="mt-0.5 text-xs font-semibold text-neutral-400">
-            #{orderCode}
+            #
+            {orderCode}
           </Text>
         </View>
 
@@ -555,7 +554,11 @@ export default function CustomerBookingRadarRoute() {
             Chi phí ước tính tham khảo
           </Text>
           <Text className="mt-0.5 text-2xl font-black text-neutral-900 dark:text-white">
-            {aiRefPriceMin.toLocaleString('vi-VN')} - {aiRefPriceMax.toLocaleString('vi-VN')}đ
+            {aiRefPriceMin.toLocaleString('vi-VN')}
+            {' '}
+            -
+            {aiRefPriceMax.toLocaleString('vi-VN')}
+            đ
           </Text>
         </View>
 
@@ -566,316 +569,342 @@ export default function CustomerBookingRadarRoute() {
             className="mt-3 max-h-[300px]"
             contentContainerStyle={{ paddingBottom: 6, gap: 10 }}
           >
-            {isLoadingCandidates && displayList.length === 0 ? (
-              <View className="items-center justify-center py-8">
-                <ActivityIndicator size="small" color="#F5A524" />
-                <Text className="mt-2 text-xs text-neutral-500">Đang tải danh sách báo giá...</Text>
-              </View>
-            ) : displayList.length === 0 ? (
-              <View className="items-center justify-center py-8">
-                <Text className="text-center text-sm font-bold text-neutral-700 dark:text-neutral-300">
-                  Đang chờ thợ gửi báo giá...
-                </Text>
-                <Text className="mt-1 text-center text-xs text-neutral-400">
-                  Các thợ đủ điều kiện trong khu vực đang nhận thông báo yêu cầu của bạn.
-                </Text>
-              </View>
-            ) : (
-              <>
-                {/* ── Section A: Báo giá từ thợ (Bidding) ── */}
-                {mappedBids.length > 0 && (
-                  <View className="mb-3">
-                    <View className="mb-2 flex-row items-center justify-between">
-                      <Text className="text-xs font-bold text-neutral-700 uppercase dark:text-neutral-300">
-                        Báo giá từ thợ ({mappedBids.length})
+            {isLoadingCandidates && displayList.length === 0
+              ? (
+                  <View className="items-center justify-center py-8">
+                    <ActivityIndicator size="small" color="#F5A524" />
+                    <Text className="mt-2 text-xs text-neutral-500">Đang tải danh sách báo giá...</Text>
+                  </View>
+                )
+              : displayList.length === 0
+                ? (
+                    <View className="items-center justify-center py-8">
+                      <Text className="text-center text-sm font-bold text-neutral-700 dark:text-neutral-300">
+                        Đang chờ thợ gửi báo giá...
                       </Text>
-                      <View className="rounded-full bg-blue-100 px-2 py-0.5 dark:bg-blue-900/40">
-                        <Text className="text-[10px] font-bold text-blue-700 dark:text-blue-300">
-                          Đấu thầu
-                        </Text>
-                      </View>
+                      <Text className="mt-1 text-center text-xs text-neutral-400">
+                        Các thợ đủ điều kiện trong khu vực đang nhận thông báo yêu cầu của bạn.
+                      </Text>
                     </View>
+                  )
+                : (
+                    <>
+                      {/* ── Section A: Báo giá từ thợ (Bidding) ── */}
+                      {mappedBids.length > 0 && (
+                        <View className="mb-3">
+                          <View className="mb-2 flex-row items-center justify-between">
+                            <Text className="text-xs font-bold text-neutral-700 uppercase dark:text-neutral-300">
+                              Báo giá từ thợ (
+                              {mappedBids.length}
+                              )
+                            </Text>
+                            <View className="rounded-full bg-blue-100 px-2 py-0.5 dark:bg-blue-900/40">
+                              <Text className="text-[10px] font-bold text-blue-700 dark:text-blue-300">
+                                Đấu thầu
+                              </Text>
+                            </View>
+                          </View>
 
-                    <View className="gap-2.5">
-                      {mappedBids.map((worker, idx) => (
-                        <View
-                          key={worker.sourceBidId || worker.id}
-                          className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
-                        >
-                          <View className="flex-row items-start">
-                            {/* Avatar */}
-                            <Pressable
-                              testID={idx === 0 ? 'radar-worker-profile-btn' : undefined}
-                              onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
-                              className="relative mr-3"
-                            >
-                              <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
-                                <Image
-                                  source={{ uri: worker.avatarUrl }}
-                                  className="size-full"
-                                  resizeMode="cover"
-                                />
-                              </View>
-                              <View className="absolute inset-x-0 -bottom-1 items-center">
-                                <View className="rounded-full bg-secondary-800 px-1.5 py-0.5 shadow-xs">
-                                  <Text className="text-[7px] font-black tracking-wider text-white uppercase">
-                                    HandyGo
-                                  </Text>
-                                </View>
-                              </View>
-                            </Pressable>
+                          <View className="gap-2.5">
+                            {mappedBids.map((worker, idx) => (
+                              <View
+                                key={worker.sourceBidId || worker.id}
+                                className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
+                              >
+                                <View className="flex-row items-start">
+                                  {/* Avatar */}
+                                  <Pressable
+                                    testID={idx === 0 ? 'radar-worker-profile-btn' : undefined}
+                                    onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                    className="relative mr-3"
+                                  >
+                                    <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
+                                      <Image
+                                        source={{ uri: worker.avatarUrl }}
+                                        className="size-full"
+                                        resizeMode="cover"
+                                      />
+                                    </View>
+                                    <View className="absolute inset-x-0 -bottom-1 items-center">
+                                      <View className="rounded-full bg-secondary-800 px-1.5 py-0.5 shadow-xs">
+                                        <Text className="text-[7px] font-black tracking-wider text-white uppercase">
+                                          HandyGo
+                                        </Text>
+                                      </View>
+                                    </View>
+                                  </Pressable>
 
-                            {/* Thông tin thợ */}
-                            <View className="flex-1">
-                              <View className="flex-row items-center justify-between">
-                                <Pressable
-                                  onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
-                                  className="flex-1 flex-row items-center"
-                                >
-                                  <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                                    {worker.name}
-                                  </Text>
-                                  <View className="ml-2 flex-row items-center">
-                                    <Text className="text-xs font-bold text-[#EAB308]">
-                                      {worker.rating.toFixed(1)}
-                                    </Text>
-                                    <Svg width={11} height={11} viewBox="0 0 24 24" fill="#EAB308" stroke="#EAB308" className="ml-0.5">
-                                      <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                    </Svg>
+                                  {/* Thông tin thợ */}
+                                  <View className="min-w-0 flex-1">
+                                    <View className="flex-row items-center justify-between">
+                                      <Pressable
+                                        onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                        className="min-w-0 flex-1 flex-row items-center pr-2"
+                                      >
+                                        <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
+                                          {worker.name}
+                                        </Text>
+                                        {worker.rating > 0
+                                          ? (
+                                              <View className="ml-2 flex-row items-center">
+                                                <Text className="text-xs font-bold text-[#EAB308]">
+                                                  {worker.rating.toFixed(1)}
+                                                </Text>
+                                                <Svg width={11} height={11} viewBox="0 0 24 24" fill="#EAB308" stroke="#EAB308" className="ml-0.5">
+                                                  <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </Svg>
+                                              </View>
+                                            )
+                                          : null}
+                                      </Pressable>
+
+                                      <Pressable
+                                        onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                        className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
+                                      >
+                                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                                          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                        </Svg>
+                                      </Pressable>
+                                    </View>
+
+                                    {/* Tags */}
+                                    <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+                                      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
+                                        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
+                                          {worker.totalOrders}
+                                          {' '}
+                                          đơn
+                                        </Text>
+                                      </View>
+                                      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
+                                        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
+                                          {worker.completionRate}
+                                          % hoàn thành
+                                        </Text>
+                                      </View>
+                                    </View>
+
+                                    {/* Tin nhắn từ thợ */}
+                                    {worker.message
+                                      ? (
+                                          <Text className="mt-1.5 text-xs text-neutral-600 italic dark:text-neutral-300" numberOfLines={2}>
+                                            "
+                                            {worker.message}
+                                            "
+                                          </Text>
+                                        )
+                                      : null}
+
                                   </View>
-                                </Pressable>
-
-                                <Pressable
-                                  onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                  className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                >
-                                  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                    <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                  </Svg>
-                                </Pressable>
-                              </View>
-
-                              {/* Tags */}
-                              <View className="mt-1 flex-row items-center gap-1.5">
-                                <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
-                                  <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
-                                    {worker.totalOrders} đơn
-                                  </Text>
                                 </View>
-                                <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
-                                  <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
-                                    {worker.completionRate}% hoàn thành
-                                  </Text>
-                                </View>
-                              </View>
-
-                              {/* Tin nhắn từ thợ */}
-                              {worker.message ? (
-                                <Text className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-300 italic" numberOfLines={2}>
-                                  "{worker.message}"
-                                </Text>
-                              ) : null}
-
-                              {/* Giá báo bên trái và Khoảng cách / Nút chọn bên phải */}
-                              <View className="mt-2.5 flex-row items-center justify-between border-t border-neutral-100 pt-2 dark:border-neutral-700/60">
-                                <Text className="text-base font-black text-secondary-700 dark:text-blue-400">
-                                  {worker.priceText}
-                                </Text>
-
-                                <View className="flex-row items-center gap-2">
-                                  <Text className="text-xs text-neutral-400">
-                                    {worker.distance}
-                                  </Text>
-
+                                {/* Price and action span the card width on compact screens. */}
+                                <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
+                                  <View className="min-w-0 flex-1">
+                                    <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
+                                      {worker.priceText}
+                                    </Text>
+                                    <Text className="mt-0.5 text-xs text-neutral-400">
+                                      {worker.distance}
+                                    </Text>
+                                  </View>
                                   <Pressable
                                     testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
                                     onPress={() => handleSelectWorkerAndSendProposal(worker)}
                                     disabled={isSubmitting}
-                                    className="rounded-lg bg-[#F5A524] px-3 py-1.5 active:opacity-80"
+                                    className="min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#F5A524] px-4 active:opacity-80"
                                   >
-                                    <Text className="text-xs font-bold text-white">
-                                      {isSubmitting ? '...' : 'Chọn thợ'}
+                                    <Text className="text-sm font-bold text-white">
+                                      {isSubmitting ? 'Đang gửi...' : 'Chọn thợ'}
                                     </Text>
                                   </Pressable>
                                 </View>
                               </View>
-                            </View>
+                            ))}
                           </View>
                         </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
+                      )}
 
-                {/* ── Section B: Gợi ý thợ tối ưu (AI Top 5 Recommendations) ── */}
-                {mappedRecommendations.length > 0 && (
-                  <View className="mt-2 mb-3">
-                    <View className="mb-2 flex-row items-center justify-between">
-                      <Text className="text-xs font-bold text-purple-700 uppercase dark:text-purple-300">
-                        Gợi ý thợ tối ưu (AI Top 5) ({mappedRecommendations.length})
-                      </Text>
-                      <View className="rounded-full bg-purple-100 px-2 py-0.5 dark:bg-purple-900/40">
-                        <Text className="text-[10px] font-bold text-purple-700 dark:text-purple-300">
-                          AI Match
-                        </Text>
-                      </View>
-                    </View>
+                      {/* ── Section B: Gợi ý thợ tối ưu (AI Top 5 Recommendations) ── */}
+                      {mappedRecommendations.length > 0 && (
+                        <View className="mt-2 mb-3">
+                          <View className="mb-2 flex-row items-center justify-between">
+                            <Text className="text-xs font-bold text-purple-700 uppercase dark:text-purple-300">
+                              Thợ phù hợp (
+                              {mappedRecommendations.length}
+                              )
+                            </Text>
+                            <View className="rounded-full bg-purple-100 px-2 py-0.5 dark:bg-purple-900/40">
+                              <Text className="text-[10px] font-bold text-purple-700 dark:text-purple-300">
+                                AI Match
+                              </Text>
+                            </View>
+                          </View>
 
-                    <View className="gap-2.5">
-                      {mappedRecommendations.map((worker, idx) => {
-                        const globalIdx = mappedBids.length + idx;
-                        return (
-                          <View
-                            key={worker.sourceMatchResultId || worker.id}
-                            className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
-                          >
-                            <View className="flex-row items-start">
-                              {/* Avatar */}
-                              <Pressable
-                                testID={globalIdx === 0 ? 'radar-worker-profile-btn' : undefined}
-                                onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
-                                className="relative mr-3"
-                              >
-                                <View className="size-12 overflow-hidden rounded-full border-2 border-purple-500">
-                                  <Image
-                                    source={{ uri: worker.avatarUrl }}
-                                    className="size-full"
-                                    resizeMode="cover"
-                                  />
-                                </View>
-                                <View className="absolute inset-x-0 -bottom-1 items-center">
-                                  <View className="rounded-full bg-purple-600 px-1.5 py-0.5 shadow-xs">
-                                    <Text className="text-[7px] font-black tracking-wider text-white uppercase">
-                                      AI Match
-                                    </Text>
-                                  </View>
-                                </View>
-                              </Pressable>
+                          <View className="gap-2.5">
+                            {mappedRecommendations.map((worker, idx) => {
+                              const globalIdx = mappedBids.length + idx;
+                              return (
+                                <View
+                                  key={worker.sourceMatchResultId || worker.id}
+                                  className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
+                                >
+                                  <View className="flex-row items-start">
+                                    {/* Avatar */}
+                                    <Pressable
+                                      testID={globalIdx === 0 ? 'radar-worker-profile-btn' : undefined}
+                                      onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                      className="relative mr-3"
+                                    >
+                                      <View className="size-12 overflow-hidden rounded-full border-2 border-purple-500">
+                                        <Image
+                                          source={{ uri: worker.avatarUrl }}
+                                          className="size-full"
+                                          resizeMode="cover"
+                                        />
+                                      </View>
+                                      <View className="absolute inset-x-0 -bottom-1 items-center">
+                                        <View className="rounded-full bg-purple-600 px-1.5 py-0.5 shadow-xs">
+                                          <Text className="text-[7px] font-black tracking-wider text-white uppercase">
+                                            AI Match
+                                          </Text>
+                                        </View>
+                                      </View>
+                                    </Pressable>
 
-                              {/* Thông tin thợ */}
-                              <View className="flex-1">
-                                <View className="flex-row items-center justify-between">
-                                  <Pressable
-                                    onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
-                                    className="flex-1 flex-row items-center"
-                                  >
-                                    <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                                      {worker.name}
-                                    </Text>
-                                    <View className="ml-2 flex-row items-center">
-                                      <Text className="text-xs font-bold text-[#EAB308]">
-                                        {worker.rating.toFixed(1)}
-                                      </Text>
-                                      <Svg width={11} height={11} viewBox="0 0 24 24" fill="#EAB308" stroke="#EAB308" className="ml-0.5">
-                                        <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                      </Svg>
+                                    {/* Thông tin thợ */}
+                                    <View className="min-w-0 flex-1">
+                                      <View className="flex-row items-center justify-between">
+                                        <Pressable
+                                          onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                          className="min-w-0 flex-1 flex-row items-center pr-2"
+                                        >
+                                          <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
+                                            {worker.name}
+                                          </Text>
+                                          {worker.rating > 0
+                                            ? (
+                                                <View className="ml-2 flex-row items-center">
+                                                  <Text className="text-xs font-bold text-[#EAB308]">
+                                                    {worker.rating.toFixed(1)}
+                                                  </Text>
+                                                  <Svg width={11} height={11} viewBox="0 0 24 24" fill="#EAB308" stroke="#EAB308" className="ml-0.5">
+                                                    <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                  </Svg>
+                                                </View>
+                                              )
+                                            : null}
+                                        </Pressable>
+
+                                        <Pressable
+                                          onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
+                                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                          className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
+                                        >
+                                          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                                            <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                          </Svg>
+                                        </Pressable>
+                                      </View>
+
+                                      {/* Tags */}
+                                      <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+                                        {typeof worker.matchingScore === 'number'
+                                          ? (
+                                              <View className="rounded-md bg-purple-50 px-2 py-0.5 dark:bg-purple-950/40">
+                                                <Text className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
+                                                  Phù hợp AI:
+                                                  {' '}
+                                                  {worker.matchingScore.toFixed(0)}
+                                                  %
+                                                </Text>
+                                              </View>
+                                            )
+                                          : null}
+                                        <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
+                                          <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
+                                            {worker.totalOrders}
+                                            {' '}
+                                            đơn
+                                          </Text>
+                                        </View>
+                                      </View>
+
                                     </View>
-                                  </Pressable>
-
-                                  <Pressable
-                                    onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                    className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                  >
-                                    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                      <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                    </Svg>
-                                  </Pressable>
-                                </View>
-
-                                {/* Tags */}
-                                <View className="mt-1 flex-row items-center gap-1.5">
-                                  {typeof worker.matchingScore === 'number' ? (
-                                    <View className="rounded-md bg-purple-50 px-2 py-0.5 dark:bg-purple-950/40">
-                                      <Text className="text-[11px] font-bold text-purple-700 dark:text-purple-300">
-                                        Phù hợp AI: {worker.matchingScore.toFixed(0)}%
+                                  </View>
+                                  {/* Price and action span the card width on compact screens. */}
+                                  <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
+                                    <View className="min-w-0 flex-1">
+                                      <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
+                                        {worker.priceText}
+                                      </Text>
+                                      <Text className="mt-0.5 text-xs text-neutral-400">
+                                        {worker.distance}
                                       </Text>
                                     </View>
-                                  ) : null}
-                                  <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
-                                    <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
-                                      {worker.totalOrders} đơn
-                                    </Text>
-                                  </View>
-                                </View>
-
-                                {/* Giá ước tính bên trái và Khoảng cách / Nút chọn bên phải */}
-                                <View className="mt-2.5 flex-row items-center justify-between border-t border-neutral-100 pt-2 dark:border-neutral-700/60">
-                                  <Text className="text-base font-black text-secondary-700 dark:text-blue-400">
-                                    {worker.priceText}
-                                  </Text>
-
-                                  <View className="flex-row items-center gap-2">
-                                    <Text className="text-xs text-neutral-400">
-                                      {worker.distance}
-                                    </Text>
-
                                     <Pressable
                                       testID={globalIdx === 0 ? 'radar-select-worker-btn' : undefined}
                                       onPress={() => handleSelectWorkerAndSendProposal(worker)}
                                       disabled={isSubmitting}
-                                      className="rounded-lg bg-[#F5A524] px-3 py-1.5 active:opacity-80"
+                                      className="min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#F5A524] px-4 active:opacity-80"
                                     >
-                                      <Text className="text-xs font-bold text-white">
-                                        {isSubmitting ? '...' : 'Chọn thợ'}
+                                      <Text className="text-sm font-bold text-white">
+                                        {isSubmitting ? 'Đang gửi...' : 'Chọn thợ'}
                                       </Text>
                                     </Pressable>
                                   </View>
                                 </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Fallback Test Worker for test environment */}
+                      {mappedBids.length === 0 && mappedRecommendations.length === 0 && displayList.length > 0 && (
+                        <View
+                          key={displayList[0].id}
+                          className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
+                        >
+                          <View className="flex-row items-start">
+                            <Pressable
+                              testID="radar-worker-profile-btn"
+                              onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any)}
+                              className="relative mr-3"
+                            >
+                              <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
+                                <Image
+                                  source={{ uri: displayList[0].avatarUrl }}
+                                  className="size-full"
+                                  resizeMode="cover"
+                                />
+                              </View>
+                            </Pressable>
+
+                            <View className="min-w-0 flex-1">
+                              <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
+                                {displayList[0].name}
+                              </Text>
+                              <View className="mt-2.5 flex-row items-center justify-between border-t border-neutral-100 pt-2">
+                                <Text className="text-base font-black text-secondary-700">
+                                  {displayList[0].priceText}
+                                </Text>
+                                <Pressable
+                                  testID="radar-select-worker-btn"
+                                  onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
+                                  disabled={isSubmitting}
+                                  className="rounded-lg bg-[#F5A524] px-3 py-1.5"
+                                >
+                                  <Text className="text-xs font-bold text-white">Chọn thợ</Text>
+                                </Pressable>
                               </View>
                             </View>
                           </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-
-                {/* Fallback Test Worker for test environment */}
-                {mappedBids.length === 0 && mappedRecommendations.length === 0 && displayList.length > 0 && (
-                  <View
-                    key={displayList[0].id}
-                    className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
-                  >
-                    <View className="flex-row items-start">
-                      <Pressable
-                        testID="radar-worker-profile-btn"
-                        onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any)}
-                        className="relative mr-3"
-                      >
-                        <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
-                          <Image
-                            source={{ uri: displayList[0].avatarUrl }}
-                            className="size-full"
-                            resizeMode="cover"
-                          />
                         </View>
-                      </Pressable>
-
-                      <View className="flex-1">
-                        <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                          {displayList[0].name}
-                        </Text>
-                        <View className="mt-2.5 flex-row items-center justify-between border-t border-neutral-100 pt-2">
-                          <Text className="text-base font-black text-secondary-700">
-                            {displayList[0].priceText}
-                          </Text>
-                          <Pressable
-                            testID="radar-select-worker-btn"
-                            onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
-                            disabled={isSubmitting}
-                            className="rounded-lg bg-[#F5A524] px-3 py-1.5"
-                          >
-                            <Text className="text-xs font-bold text-white">Chọn thợ</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                )}
-              </>
-            )}
+                      )}
+                    </>
+                  )}
           </ScrollView>
         )}
       </View>
@@ -902,13 +931,14 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
 
-                  <View className="flex-1">
+                  <View className="min-w-0 flex-1">
                     <Text className="text-[17px] font-extrabold text-neutral-900 dark:text-white">
                       Service order details
                     </Text>
                     <View className="mt-0.5 flex-row items-center">
                       <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                        #{orderCode}
+                        #
+                        {orderCode}
                       </Text>
                       <Pressable
                         testID="copy-order-code-btn"
@@ -942,7 +972,11 @@ export default function CustomerBookingRadarRoute() {
                   Estimated cost
                 </Text>
                 <Text className="mt-2 text-lg font-extrabold text-neutral-900 dark:text-white">
-                  {aiRefPriceMin.toLocaleString('vi-VN')} - {aiRefPriceMax.toLocaleString('vi-VN')}đ
+                  {aiRefPriceMin.toLocaleString('vi-VN')}
+                  {' '}
+                  -
+                  {aiRefPriceMax.toLocaleString('vi-VN')}
+                  đ
                 </Text>
               </View>
 
