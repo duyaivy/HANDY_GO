@@ -11,8 +11,10 @@ import {
   Query,
   Post,
   UseGuards,
+  ForbiddenException,
+  Headers
 } from '@nestjs/common';
-
+import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 import { ConfigService } from '@app/config';
 import {
   Ctx,
