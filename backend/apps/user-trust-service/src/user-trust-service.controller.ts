@@ -12,7 +12,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
-import crypto from 'node:crypto';
+
 import { ConfigService } from '@app/config';
 import {
   Ctx,
@@ -42,7 +42,7 @@ import {
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
-import { ConfigService } from '@app/config';
+
 import crypto from 'node:crypto';
 
 @ApiTags('User & Trust')
@@ -464,19 +464,17 @@ export class UserTrustServiceController {
       return await this.userTrustService.getWorkerMatchProfile(
         data.workerUserId,
       );
+    } finally {
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
     }
-
-    if (!ids) return [];
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    const workerIds = ids
-      .split(',')
-      .map((id) => id.trim())
-      .filter((id) => uuidRegex.test(id))
-      .slice(0, 100); // Giới hạn tối đa 100 IDs
-
-    return this.userTrustService.getWorkersBatchSummary(workerIds);
   }
+
 }
 
 
