@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -8,8 +9,13 @@ import {
   Param,
   Patch,
   Query,
+  Post,
   UseGuards,
+  ForbiddenException,
+  Headers
 } from '@nestjs/common';
+import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
+import { ConfigService } from '@app/config';
 import {
   Ctx,
   EventPattern,
@@ -38,8 +44,8 @@ import {
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
-import { ConfigService } from '@app/config';
-import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
+
+import crypto from 'node:crypto';
 
 @ApiTags('User & Trust')
 @Controller()
@@ -50,6 +56,34 @@ export class UserTrustServiceController {
   ) {}
 
   private readonly logger = new Logger(UserTrustServiceController.name);
+
+  @Post('internal/users/verify-bank-account')
+  @HttpCode(HttpStatus.OK)
+  async verifyBankAccount(
+    @Headers('x-internal-secret') secret: string | undefined,
+    @Body() body: { userId?: string; bankAccountId?: string },
+  ): Promise<{ owned: boolean; active: boolean }> {
+    this.assertInternalSecret(secret);
+    if (!body?.userId || !body.bankAccountId) {
+      throw new BadRequestException('userId and bankAccountId are required');
+    }
+    return this.userTrustService.verifyBankAccountOwnership(
+      body.userId,
+      body.bankAccountId,
+    );
+  }
+
+  private assertInternalSecret(secret?: string): void {
+    const expected = this.config.internalServiceSecret;
+    if (
+      !expected ||
+      !secret ||
+      secret.length !== expected.length ||
+      !crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(expected))
+    ) {
+      throw new ForbiddenException('Trusted service authentication required');
+    }
+  }
 
   /**
    * RabbitMQ Event Consumer for 'user.registered'.
@@ -442,4 +476,7 @@ export class UserTrustServiceController {
       }
     }
   }
+
 }
+
+
