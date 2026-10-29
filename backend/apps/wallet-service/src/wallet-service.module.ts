@@ -5,6 +5,16 @@ import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { WalletQueryModule } from './wallet-query/wallet-query.module.js';
+import { WalletLedgerModule } from './wallet-ledger/wallet-ledger.module.js';
+import { PaymentDebitModule } from './payment-debit/payment-debit.module.js';
+import { RefundAdjustmentModule } from './refund-adjustment/refund-adjustment.module.js';
+import { WalletProvisioningModule } from './wallet-provisioning/wallet-provisioning.module.js';
+import { TopupSettlementModule } from './topup-settlement/topup-settlement.module.js';
+import { WithdrawalModule } from './withdrawal/withdrawal.module.js';
+import { WorkerCommissionModule } from './worker-commission/worker-commission.module.js';
+import { WalletEventsModule } from './wallet-events/wallet-events.module.js';
+import { DeadLetterModule } from './dead-letter/dead-letter.module.js';
 
 @Module({
   imports: [
@@ -12,6 +22,16 @@ import { RabbitMQModule } from '@app/rabbitmq';
     LoggerModule.forRoot('wallet-service'),
     HealthModule,
     RabbitMQModule,
+    WalletLedgerModule,
+    PaymentDebitModule,
+    RefundAdjustmentModule,
+    WalletProvisioningModule,
+    TopupSettlementModule,
+    WithdrawalModule,
+    WorkerCommissionModule,
+    WalletEventsModule,
+    DeadLetterModule,
+    WalletQueryModule,
   ],
   controllers: [WalletServiceController],
   providers: [WalletServiceService],
