@@ -419,7 +419,7 @@ Nếu đã có container handygo từ bộ deploy cũ nhưng chưa có stable.js
 
 Manifest lưu commit/tree, Run ID/Attempt, CI evidence, digests, scope, exclusions, VPS mapping, config hash, migration hash, file checksums và verification scope. Execution journal ở artifact ghi từng host/step, snapshot previous manifest và rollback status. CI evidence ghi rõ PR, tested checkout, Run ID/Attempt và artifact đã sử dụng. Stable chỉ được commit sau các probes; commit/unlock đa host vẫn không atomic.
 
-Pending transaction không tự hết hạn khi runner chết, timeout hoặc workflow bị cancel: đó là khóa bảo vệ tránh rollout chồng lên trạng thái chưa rõ. Không xóa pending.json chỉ để chạy lại workflow; xem mục 14 để reconcile.
+Pending transaction không tự hết hạn khi runner chết, timeout hoặc workflow bị cancel: đó là khóa bảo vệ tránh rollout chồng lên trạng thái chưa rõ. Không xóa pending.json chỉ để chạy lại workflow; xem mục 14 để reconcile. Luồng refresh ENV có recovery tự động và mode recovery thủ công trên Actions; xem [ENV-REFRESH.md](ENV-REFRESH.md) để vận hành và đọc thiết kế reconciliation đề xuất cho luồng production.
 
 ## 13. Rollback tự động và thủ công
 
