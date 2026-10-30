@@ -8,6 +8,7 @@ import { CloseIcon } from '@/components/ui/icons';
 import { Text } from '@/components/ui/text';
 import { OrdersApi } from '../../api/orders.api';
 import { ordersQueryKeys } from '../../hooks/orders-query-keys';
+import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderCancelDialogProps = {
   orderId?: string;
@@ -91,13 +92,10 @@ export function CustomerOrderCancelDialog({
       }
 
       // True failure: DO NOT show fake success!
-      const errObj = error as { message?: string; response?: { data?: { message?: string } } };
-      const msg = errObj?.response?.data?.message || errObj?.message;
+      const msg = getCancelErrorMessage(error);
       Alert.alert(
         'Hủy đơn thất bại',
-        typeof msg === 'string' && msg
-          ? msg
-          : 'Không thể hủy đơn hàng lúc này. Vui lòng kiểm tra kết nối mạng và thử lại.',
+        msg,
         [{ text: 'Thử lại' }],
       );
     }
@@ -153,7 +151,7 @@ export function CustomerOrderCancelDialog({
         <View className="gap-2">
           <Button
             testID="cancel-dialog-confirm-btn"
-            label={isSubmitting ? 'Đang hủy...' : 'Xác nhận hủy đơn'}
+            label={isSubmitting ? 'Đang xử lý hủy...' : 'Xác nhận hủy'}
             variant="default"
             disabled={isSubmitting || !orderId}
             className="h-11 rounded-2xl bg-rose-600"
@@ -163,7 +161,7 @@ export function CustomerOrderCancelDialog({
 
           <Button
             testID="cancel-dialog-dismiss-btn"
-            label="Đóng"
+            label="Quay lại"
             variant="outline"
             className="h-11 rounded-2xl border-neutral-300 dark:border-neutral-700"
             textClassName="text-xs font-semibold text-neutral-700 dark:text-neutral-300"

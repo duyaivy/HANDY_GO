@@ -15,6 +15,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
+import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderDetailScreenProps = {
   orderId?: string;
@@ -128,8 +129,8 @@ export function CustomerOrderDetailScreen({
               ]);
             }
             catch (err) {
-              const msg = (err as any)?.response?.data?.message || (err as any)?.message;
-              Alert.alert('Không thể hủy đơn', msg || 'Đã có lỗi xảy ra khi hủy đơn.');
+              const msg = getCancelErrorMessage(err);
+              Alert.alert('Không thể hủy đơn', msg);
             }
           },
         },
@@ -351,7 +352,7 @@ export function CustomerOrderDetailScreen({
           <View className="mb-6">
             <Button
               testID="customer-cancel-order-btn"
-              label={isCancelling ? 'Đang hủy đơn...' : 'Hủy đơn hàng'}
+              label={isCancelling ? 'Đang xử lý hủy...' : 'Hủy đơn đặt việc'}
               variant="outline"
               disabled={isCancelling}
               className="h-11 w-full rounded-2xl border-rose-300 active:bg-rose-50 dark:border-rose-800 dark:active:bg-rose-950/30"

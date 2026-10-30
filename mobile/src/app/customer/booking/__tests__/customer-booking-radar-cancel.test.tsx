@@ -76,14 +76,14 @@ describe('customerBookingRadarScreen cancellation flow (TASK-04)', () => {
     fireEvent.press(screen.getByTestId('cancel-order-modal-btn'));
 
     expect(alertSpy).toHaveBeenCalledWith(
-      'Hủy đơn đặt việc',
-      'Bạn có chắc chắn muốn hủy đơn tìm thợ này không?',
+      'Hủy tìm thợ',
+      'Bạn có chắc chắn muốn hủy yêu cầu tìm thợ này không?',
       expect.any(Array),
     );
 
     // Confirm cancel in confirmation Alert
     const confirmAlertButtons = alertSpy.mock.calls[0][2];
-    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Hủy đơn');
+    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Xác nhận hủy');
     await act(async () => {
       if (typeof confirmAction?.onPress === 'function') {
         await confirmAction.onPress();
@@ -113,7 +113,7 @@ describe('customerBookingRadarScreen cancellation flow (TASK-04)', () => {
     fireEvent.press(screen.getByTestId('cancel-order-modal-btn'));
 
     const confirmAlertButtons = alertSpy.mock.calls[0][2];
-    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Hủy đơn');
+    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Xác nhận hủy');
     await act(async () => {
       if (typeof confirmAction?.onPress === 'function') {
         await confirmAction.onPress();
@@ -123,7 +123,7 @@ describe('customerBookingRadarScreen cancellation flow (TASK-04)', () => {
     await waitFor(() => {
       expect(alertSpy).toHaveBeenCalledWith(
         'Không thể hủy yêu cầu',
-        'Network connection timeout',
+        'Yêu cầu xử lý quá thời gian chờ. Vui lòng kiểm tra lại danh sách đơn hàng.',
         expect.any(Array),
       );
     });
@@ -153,7 +153,7 @@ describe('customerBookingRadarScreen cancellation flow (TASK-04)', () => {
     fireEvent.press(screen.getByTestId('cancel-order-modal-btn'));
 
     const confirmAlertButtons = alertSpy.mock.calls[0][2];
-    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Hủy đơn');
+    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Xác nhận hủy');
     await act(async () => {
       if (typeof confirmAction?.onPress === 'function') {
         await confirmAction.onPress();
@@ -188,7 +188,7 @@ describe('customerBookingRadarScreen cancellation flow (TASK-04)', () => {
     fireEvent.press(screen.getByTestId('cancel-order-modal-btn'));
 
     const confirmAlertButtons = alertSpy.mock.calls[0][2];
-    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Hủy đơn');
+    const confirmAction = confirmAlertButtons?.find((b: any) => b.text === 'Xác nhận hủy');
     await act(async () => {
       if (typeof confirmAction?.onPress === 'function') {
         await confirmAction.onPress();

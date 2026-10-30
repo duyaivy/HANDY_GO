@@ -29,6 +29,7 @@ import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
+import { getCancelErrorMessage } from '@/features/orders/utils/cancel-error-message';
 import { MapboxService } from '@/services/map/mapbox-service';
 
 type QuotedWorker = {
@@ -213,13 +214,10 @@ export default function CustomerBookingRadarRoute() {
       }
 
       // True failure: Keep screen, keep draft, notify user in Vietnamese
-      const errObj = error as { message?: string; response?: { data?: { message?: string } } };
-      const msg = errObj?.response?.data?.message || errObj?.message;
+      const msg = getCancelErrorMessage(error);
       Alert.alert(
         'Không thể hủy yêu cầu',
-        typeof msg === 'string' && msg
-          ? msg
-          : 'Không thể hủy yêu cầu lúc này. Vui lòng kiểm tra kết nối mạng và thử lại.',
+        msg,
         [{ text: 'Đóng', style: 'cancel' }],
       );
     }
@@ -252,12 +250,12 @@ export default function CustomerBookingRadarRoute() {
     }
 
     Alert.alert(
-      'Hủy đơn đặt việc',
-      'Bạn có chắc chắn muốn hủy đơn tìm thợ này không?',
+      'Hủy tìm thợ',
+      'Bạn có chắc chắn muốn hủy yêu cầu tìm thợ này không?',
       [
         { text: 'Không', style: 'cancel' },
         {
-          text: isCancelling ? 'Đang hủy...' : 'Hủy đơn',
+          text: isCancelling ? 'Đang xử lý hủy...' : 'Xác nhận hủy',
           style: 'destructive',
           onPress: async () => {
             await executeCancelOrder(activeRequestId);
@@ -411,7 +409,7 @@ export default function CustomerBookingRadarRoute() {
         {/* Khối Tên dịch vụ & Mã đơn đặt */}
         <View className="mx-2.5 flex-1 rounded-2xl border border-neutral-100 bg-white/95 px-4 py-2 shadow-sm backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/90">
           <Text className="text-base font-extrabold text-neutral-900 dark:text-white" numberOfLines={1}>
-            {serviceName || 'Plumber'}
+            {serviceName || 'Sửa ống nước'}
           </Text>
           <Text className="mt-0.5 text-xs font-semibold text-neutral-400">
             #
@@ -742,7 +740,7 @@ export default function CustomerBookingRadarRoute() {
         )}
       </View>
 
-      {/* ── 4. Modal Chi tiết đơn đặt việc (Service order details) chuẩn Vua Thợ ── */}
+      {/* ── 4. Modal Chi tiết đơn đặt việc chuẩn Vua Thợ ── */}
       <Modal
         testID="service-order-details-modal"
         visible={isOrderModalVisible}
@@ -774,7 +772,7 @@ export default function CustomerBookingRadarRoute() {
 
                   <View className="flex-1">
                     <Text className="text-[17px] font-extrabold text-neutral-900 dark:text-white">
-                      Service order details
+                      Chi tiết đơn đặt việc
                     </Text>
                     <View className="mt-0.5 flex-row items-center">
                       <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
@@ -809,7 +807,7 @@ export default function CustomerBookingRadarRoute() {
                 </Pressable>
               </View>
 
-              {/* Card 1: Estimated cost */}
+              {/* Card 1: Chi phí ước tính */}
               <View className="mb-3 rounded-2xl bg-[#F8FAFC] p-3.5 dark:bg-neutral-800/60">
                 <View className="flex-row items-center">
                   <View className="mr-2.5 size-7 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40">
@@ -819,7 +817,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                    Estimated cost
+                    Chi phí ước tính
                   </Text>
                 </View>
                 <Text className="mt-2 text-lg font-extrabold text-neutral-900 dark:text-white">
@@ -840,12 +838,12 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                    Service
+                    Dịch vụ
                   </Text>
                 </View>
 
                 <Text className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
-                  {serviceName || 'Electrician'}
+                  {serviceName || 'Sửa điện'}
                 </Text>
 
                 <View className="mt-2 flex-row items-start">
@@ -855,7 +853,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="flex-1 text-xs text-neutral-600 dark:text-neutral-300">
-                    {description || `I need a worker for ${serviceName || 'Electrician'}`}
+                    {description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
                   </Text>
                 </View>
               </View>
@@ -872,7 +870,7 @@ export default function CustomerBookingRadarRoute() {
                   </View>
                   <View className="flex-1">
                     <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                      Appointment time
+                      Thời gian hẹn
                     </Text>
                     <Text className="mt-0.5 text-xs font-bold text-neutral-900 dark:text-white">
                       {formattedTime}
@@ -892,7 +890,7 @@ export default function CustomerBookingRadarRoute() {
                   </View>
                   <View className="flex-1">
                     <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                      Location
+                      Địa điểm
                     </Text>
                     <Text className="mt-0.5 text-xs font-bold text-neutral-900 dark:text-white" numberOfLines={2}>
                       {addressText || '11 Hà Văn Tính Phường Hòa Khánh,Thành phố Đà Nẵng'}
@@ -921,7 +919,7 @@ export default function CustomerBookingRadarRoute() {
                           <Path d="M18 6 6 18M6 6l12 12" />
                         </Svg>
                         <Text className="ml-2 text-sm font-semibold text-neutral-600 dark:text-neutral-300">
-                          Cancel order
+                          Hủy tìm thợ
                         </Text>
                       </>
                     )}

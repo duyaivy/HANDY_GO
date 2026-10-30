@@ -86,7 +86,7 @@ describe('customerOrderCancelDialog', () => {
     await waitFor(() => {
       expect(alertSpy).toHaveBeenCalledWith(
         'Hủy đơn thất bại',
-        'Network error',
+        'Lỗi kết nối mạng. Vui lòng kiểm tra internet và thử lại.',
         expect.any(Array),
       );
     });
