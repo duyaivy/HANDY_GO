@@ -96,12 +96,20 @@ export default function CustomerBookingRadarRoute() {
     searchParams?.requestId || createdRequestId || null,
   );
 
+  const isLocationValid = Boolean(
+    typeof latitude === 'number'
+    && !Number.isNaN(latitude)
+    && typeof longitude === 'number'
+    && !Number.isNaN(longitude)
+    && (latitude !== 0 || longitude !== 0),
+  );
+
   const radarCoords = React.useMemo(() => {
-    if (typeof latitude === 'number' && !Number.isNaN(latitude) && typeof longitude === 'number' && !Number.isNaN(longitude)) {
+    if (isLocationValid) {
       return { latitude, longitude };
     }
-    return { latitude: 16.0748, longitude: 108.1499 };
-  }, [latitude, longitude]);
+    return null;
+  }, [isLocationValid, latitude, longitude]);
 
   React.useEffect(() => {
     if (searchParams?.requestId || createdRequestId) {
@@ -117,6 +125,36 @@ export default function CustomerBookingRadarRoute() {
   }, [searchParams?.requestId, createdRequestId]);
 
   const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
+
+  // Đồng bộ tọa độ chính xác từ yêu cầu thật trên máy chủ nếu có
+  React.useEffect(() => {
+    let isMounted = true;
+    if (activeRequestId && !activeRequestId.startsWith('req-mock')) {
+      OrdersApi.getRequestDetail(activeRequestId)
+        .then((res) => {
+          if (!isMounted) {
+            return;
+          }
+          const req = res?.data;
+          if (
+            req
+            && typeof req.latitude === 'number'
+            && typeof req.longitude === 'number'
+            && (req.latitude !== 0 || req.longitude !== 0)
+          ) {
+            useBookingDraftStore.getState().setAddress(
+              req.addressText || addressText,
+              req.latitude,
+              req.longitude,
+            );
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [activeRequestId, addressText]);
   const orderCode = activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---';
 
   const [isCancelling, setIsCancelling] = React.useState(false);
@@ -451,16 +489,32 @@ export default function CustomerBookingRadarRoute() {
       </View>
 
       {/* ── 2. Khu vực Radar Toàn màn hình (Map Background + Radar Scanner) ── */}
-      <View testID="booking-radar-screen" className="relative flex-1 items-center justify-center overflow-hidden bg-[#F8FAFC] dark:bg-neutral-950">
+      <View testID="booking-radar-screen" pointerEvents="box-none" className="relative flex-1 items-center justify-center overflow-hidden bg-[#F8FAFC] dark:bg-neutral-950">
         {/* Bản đồ Mapbox thực tế làm nền */}
-        <HandyMap
-          initialCenter={radarCoords}
-          zoomLevel={11.5}
-          interactive={true}
-          showCenterPin={false}
-          style={StyleSheet.absoluteFillObject}
-          mapStyle={MapboxService.styles.light}
-        />
+        {radarCoords
+          ? (
+              <HandyMap
+                initialCenter={radarCoords}
+                center={radarCoords}
+                zoomLevel={11.5}
+                interactive={true}
+                panEnabled={false}
+                pinchPanEnabled={false}
+                rotateEnabled={false}
+                pitchEnabled={false}
+                zoomEnabled={true}
+                showCenterPin={false}
+                style={StyleSheet.absoluteFillObject}
+                mapStyle={MapboxService.styles.light}
+              />
+            )
+          : (
+              <View className="absolute z-10 rounded-2xl bg-white/95 px-4 py-3 shadow-md dark:bg-neutral-900">
+                <Text className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+                  Đang tải vị trí yêu cầu...
+                </Text>
+              </View>
+            )}
 
         {/* Lớp phủ radial gradient radar mờ nhẹ trên bản đồ tạo hiệu ứng thấu kính Radar (như Vua Thợ) */}
         <Svg pointerEvents="none" width="100%" height="100%" className="absolute inset-0">
@@ -487,23 +541,6 @@ export default function CustomerBookingRadarRoute() {
             <Path d="M 170 10 L 170 330 M 10 170 L 330 170" stroke="#94A3B8" strokeWidth="0.8" opacity={0.5} />
             <Path d="M 55 55 L 285 285 M 55 285 L 285 55" stroke="#94A3B8" strokeWidth="0.8" opacity={0.35} />
           </Svg>
-
-          {/* Nhãn khoảng cách bán kính (2km, 4km, 6km, 8km, 10km) */}
-          <View className="absolute top-[70px] right-[74px] rounded-md bg-white/90 px-1.5 py-0.5 shadow-xs">
-            <Text className="text-[9px] font-bold text-neutral-600">10km</Text>
-          </View>
-          <View className="absolute top-[92px] right-[96px] rounded-md bg-white/90 px-1.5 py-0.5 shadow-xs">
-            <Text className="text-[9px] font-bold text-neutral-600">8km</Text>
-          </View>
-          <View className="absolute top-[114px] right-[118px] rounded-md bg-white/90 px-1.5 py-0.5 shadow-xs">
-            <Text className="text-[9px] font-bold text-neutral-600">6km</Text>
-          </View>
-          <View className="absolute top-[134px] right-[140px] rounded-md bg-white/90 px-1.5 py-0.5 shadow-xs">
-            <Text className="text-[9px] font-bold text-neutral-600">4km</Text>
-          </View>
-          <View className="absolute top-[152px] right-[160px] rounded-md bg-white/90 px-1.5 py-0.5 shadow-xs">
-            <Text className="text-[9px] font-bold text-neutral-600">2km</Text>
-          </View>
         </View>
 
         {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
