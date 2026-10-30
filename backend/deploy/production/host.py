@@ -19,6 +19,8 @@ ROOT = Path('/opt/handygo')
 RELEASE_ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 DIGEST = r'(?:ghcr\.io/[a-z0-9._/-]+|nginx)@sha256:[a-f0-9]{64}'
 ROLES = ('vps1', 'vps2', 'vps3')
+# One migration owner per service; application replicas never run migrations.
+MIGRATIONS = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog', 'wallet')}
 NGINX_PREFLIGHT = '''\
 for directory in /etc/nginx/tls /var/www/certbot; do
     if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
@@ -286,7 +288,7 @@ class Host:
         state = self.owner(transaction)
         state.update(touched=True, phase='APPLYING')
         write(ROOT / 'pending.json', state)  # before mutation, including uncertain SSH outcomes
-        migrations = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog',)}[self.role]
+        migrations = MIGRATIONS[self.role]
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
             self.compose('stop', *self.names)
             for service in migrations:
