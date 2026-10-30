@@ -146,6 +146,8 @@ class Coordinator:
         module.validate_env(Path(self.args.env_file))
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
+        # A newly enabled migration owner must require review even when SQL is unchanged.
+        migration_bytes += b'\0owners\0' + json.dumps(module.MIGRATIONS, sort_keys=True).encode()
         manifest = {
             'schema_version': 1, 'release_id': self.target, 'commit_sha': self.args.commit, 'domain': domain,
             'tree_sha': self.args.tree, 'run_id': self.args.run_id, 'run_attempt': self.args.attempt,
