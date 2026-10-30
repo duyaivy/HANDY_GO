@@ -1,11 +1,24 @@
 import * as React from 'react';
 
-import { cleanup, render, screen } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerHomeScreen } from '../screens/worker-home-screen';
 
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+
+jest.mock('expo-router', () => ({
+  useRouter: jest.fn(() => ({
+    push: mockPush,
+    replace: mockReplace,
+    back: jest.fn(),
+  })),
+  useLocalSearchParams: jest.fn(() => ({})),
+}));
+
 afterEach(() => {
   cleanup();
+  jest.clearAllMocks();
   useAuthStore.setState({ isAuthenticated: false, user: null });
 });
 
@@ -20,6 +33,24 @@ describe('workerHomeScreen', () => {
     expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
     expect(screen.getByTestId('worker-guest-cta-bottom')).toBeOnTheScreen();
     expect(screen.getByText('Bắt đầu ngay')).toBeOnTheScreen();
+  });
+
+  it('handles worker guest actions: login navigation and role switching', () => {
+    useAuthStore.setState({ isAuthenticated: false, user: null });
+    render(<WorkerHomeScreen />);
+
+    // Press start button
+    fireEvent.press(screen.getByTestId('worker-guest-start-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
+
+    // Press bottom CTA
+    fireEvent.press(screen.getByTestId('worker-guest-cta-bottom'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
+
+    // Press switch to customer role chip
+    fireEvent.press(screen.getByTestId('worker-guest-role-switch-chip'));
+    expect(mockReplace).toHaveBeenCalledWith('/customer');
+    expect(useAuthStore.getState().guestRole).toBe('Customer');
   });
 
   it('renders authenticated worker home screen when logged in', () => {

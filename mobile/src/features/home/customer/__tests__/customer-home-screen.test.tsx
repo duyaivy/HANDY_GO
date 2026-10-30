@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
@@ -33,6 +34,38 @@ describe('customerHomeScreen', () => {
     expect(screen.getByTestId('customer-guest-search-input')).toBeOnTheScreen();
     expect(screen.getByTestId('customer-guest-cta-bottom')).toBeOnTheScreen();
     expect(screen.getByText('Bắt đầu ngay')).toBeOnTheScreen();
+  });
+
+  it('handles guest actions: login navigation and role switching', () => {
+    useAuthStore.setState({ isAuthenticated: false, user: null });
+    render(<CustomerHomeScreen />);
+
+    // Press sticky bottom CTA
+    fireEvent.press(screen.getByTestId('customer-guest-cta-bottom'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
+
+    // Press card start button
+    fireEvent.press(screen.getByTestId('customer-guest-start-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
+
+    // Press role switch chip
+    fireEvent.press(screen.getByTestId('customer-guest-role-switch-chip'));
+    expect(mockReplace).toHaveBeenCalledWith('/worker');
+    expect(useAuthStore.getState().guestRole).toBe('Worker');
+  });
+
+  it('handles guest search input and submission', () => {
+    useAuthStore.setState({ isAuthenticated: false, user: null });
+    render(<CustomerHomeScreen />);
+
+    const searchInput = screen.getByTestId('customer-guest-search-input');
+    fireEvent.changeText(searchInput, 'sửa điện');
+    fireEvent(searchInput, 'submitEditing');
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/category',
+      params: { q: 'sửa điện' },
+    });
   });
 
   it('renders greeting, search bar, and popular services section when authenticated', () => {

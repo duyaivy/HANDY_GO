@@ -16,7 +16,13 @@ export function WorkerGuestOverview() {
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen
+      safeArea
+      edges={['top', 'bottom']}
+      scrollable
+      contentContainerStyle={{ paddingBottom: 16 }}
+      className="bg-neutral-50 dark:bg-neutral-950"
+    >
       <View testID="worker-guest-overview-screen" className="flex-1 p-4">
         {/* ── HEADER ── */}
         <View className="mb-3 flex-row items-center justify-between pt-1">
