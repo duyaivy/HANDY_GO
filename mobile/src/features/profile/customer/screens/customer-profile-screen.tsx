@@ -101,7 +101,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Quản lý thanh toán"
               onPress={() => router.push(RouteNames.CUSTOMER_PAYMENT as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/50">
@@ -124,7 +124,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Lịch sử giao dịch"
               onPress={() => router.push(RouteNames.CUSTOMER_PAYMENT_TRANSACTION_HISTORY as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-950/50">
@@ -147,7 +147,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Địa chỉ đã lưu"
               onPress={() => router.push(RouteNames.CUSTOMER_SAVED_ADDRESSES as any)}
-              className="flex-row items-center justify-between p-4 active:bg-neutral-50 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between p-4 active:bg-amber-50/80 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
@@ -179,7 +179,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Cài đặt"
               onPress={() => router.push(RouteNames.CUSTOMER_SETTINGS as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50">
@@ -204,7 +204,7 @@ export function CustomerProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Đổi mật khẩu"
                 onPress={() => router.push(RouteNames.AUTH_CHANGE_PASSWORD as any)}
-                className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+                className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
               >
                 <View className="flex-1 flex-row items-center pr-3">
                   <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
@@ -228,7 +228,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Trung tâm hỗ trợ"
               onPress={() => router.push(RouteNames.CUSTOMER_SUPPORT as any)}
-              className="flex-row items-center justify-between p-4 active:bg-neutral-50 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between p-4 active:bg-amber-50/80 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/50">
