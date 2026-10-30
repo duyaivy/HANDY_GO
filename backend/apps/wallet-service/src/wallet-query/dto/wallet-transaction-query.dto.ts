@@ -11,20 +11,20 @@ import {
 } from 'class-validator';
 
 export class WalletTransactionQueryDto {
-  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @ApiPropertyOptional({ type: Number, minimum: 1, default: 1 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @IsOptional()
-  page = 1;
+  page: number = 1;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @ApiPropertyOptional({ type: Number, minimum: 1, maximum: 100, default: 20 })
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
   @IsOptional()
-  limit = 20;
+  limit: number = 20;
 
   @ApiPropertyOptional({ description: 'Filter by transaction type' })
   @IsString()
