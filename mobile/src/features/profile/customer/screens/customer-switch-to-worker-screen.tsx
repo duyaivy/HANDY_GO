@@ -5,8 +5,8 @@ import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
-import { RouteNames } from '@/constants/route-names';
-import { useAuthStore } from '@/stores/use-auth-store';
+
+import { useAppModeSwitch } from '../../hooks/use-app-mode-switch';
 
 export type CustomerSwitchToWorkerScreenProps = {
   onBack?: () => void;
@@ -18,6 +18,7 @@ export function CustomerSwitchToWorkerScreen({
   onProceed,
 }: CustomerSwitchToWorkerScreenProps = {}) {
   const router = useRouter();
+  const { switchToMode } = useAppModeSwitch();
 
   const handleBack = () => {
     if (onBack) {
@@ -33,15 +34,7 @@ export function CustomerSwitchToWorkerScreen({
       onProceed();
       return;
     }
-
-    const { isAuthenticated, user } = useAuthStore.getState();
-    if (isAuthenticated && user) {
-      useAuthStore.getState().setActiveMode('Worker');
-    }
-    else {
-      useAuthStore.getState().setGuestRole('Worker');
-    }
-    router.replace(RouteNames.WORKER_HOME as any);
+    switchToMode('Worker');
   };
 
   return (

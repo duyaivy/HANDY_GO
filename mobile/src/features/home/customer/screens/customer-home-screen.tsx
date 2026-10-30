@@ -10,6 +10,7 @@ import { MapPinIcon, SparklesIcon } from '@/components/ui/icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { usePopularServices } from '@/features/catalog/hooks/use-services';
+import { useAppModeSwitch } from '@/features/profile/hooks/use-app-mode-switch';
 import { useAuthStore } from '@/stores/use-auth-store';
 import {
   AiDiagnosisBanner,
@@ -26,6 +27,11 @@ const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 export function CustomerHomeScreen() {
   const router = useRouter();
+  const { finishSwitch, switchToMode } = useAppModeSwitch();
+
+  React.useEffect(() => {
+    finishSwitch();
+  }, [finishSwitch]);
   const user = useAuthStore.use.user();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
 
@@ -76,14 +82,7 @@ export function CustomerHomeScreen() {
   );
 
   const handleSwitchToWorker = () => {
-    const { isAuthenticated: isAuth, user: currentUser } = useAuthStore.getState();
-    if (isAuth && currentUser) {
-      useAuthStore.getState().setActiveMode('Worker');
-    }
-    else {
-      useAuthStore.getState().setGuestRole('Worker');
-    }
-    router.replace(RouteNames.WORKER_HOME as any);
+    switchToMode('Worker');
   };
   if (!isAuthenticated || !user) {
     return <CustomerGuestOverview />;

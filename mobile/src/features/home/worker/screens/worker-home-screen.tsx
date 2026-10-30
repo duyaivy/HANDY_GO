@@ -7,11 +7,17 @@ import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { NotificationBell } from '@/features/notifications/components/notification-bell';
+import { useAppModeSwitch } from '@/features/profile/hooks/use-app-mode-switch';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerGuestOverview } from '../components/worker-guest-overview';
 
 export function WorkerHomeScreen() {
   const router = useRouter();
+  const { finishSwitch } = useAppModeSwitch();
+
+  React.useEffect(() => {
+    finishSwitch();
+  }, [finishSwitch]);
   const user = useAuthStore.use.user();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
 

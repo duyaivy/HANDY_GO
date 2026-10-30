@@ -11,6 +11,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useThemeConfig } from '@/components/ui/use-theme-config';
 import { NotificationLifecycle } from '@/features/notifications/notification-lifecycle';
+import { AppModeSwitchOverlay } from '@/features/profile/components/app-mode-switch-overlay';
 import { APIProvider } from '@/lib/api';
 import { loadSelectedTheme } from '@/lib/hooks/use-selected-theme';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -92,6 +93,7 @@ function Providers({
             <BottomSheetModalProvider>
               {children}
               <FlashMessage position="top" />
+              <AppModeSwitchOverlay />
             </BottomSheetModalProvider>
           </APIProvider>
         </ThemeProvider>

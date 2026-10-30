@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
@@ -5,7 +6,7 @@ import { ArrowRight } from '@/components/ui/icons/arrow-right';
 import { UserIcon, WrenchIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
-import { useAuthStore } from '@/stores/use-auth-store';
+import { useAppModeSwitch } from '../hooks/use-app-mode-switch';
 
 export type AppSwitchCardProps = {
   currentMode: 'Customer' | 'Worker';
@@ -23,6 +24,7 @@ export function AppSwitchCard({
   onPressSwitchArrow,
 }: AppSwitchCardProps) {
   const router = useRouter();
+  const { isSwitching, switchToMode } = useAppModeSwitch();
 
   if (currentMode === 'Customer') {
     // Check if user has Worker role to allow switching
@@ -31,9 +33,15 @@ export function AppSwitchCard({
     }
 
     const handleSwitchToWorker = () => {
-      useAuthStore.getState().setActiveMode('Worker');
-      onSwitch?.('Worker');
-      router.replace(RouteNames.WORKER_HOME as any);
+      if (isSwitching) {
+        return;
+      }
+      if (onSwitch) {
+        onSwitch('Worker');
+      }
+      else {
+        switchToMode('Worker');
+      }
     };
 
     return (
@@ -41,6 +49,7 @@ export function AppSwitchCard({
         testID="switch-to-worker-btn"
         accessibilityRole="button"
         accessibilityLabel="Chuyển sang App Thợ"
+        disabled={isSwitching}
         onPress={handleSwitchToWorker}
         className="mt-4 flex-row items-center justify-between rounded-2xl bg-blue-600 p-4 shadow-md shadow-blue-600/30 active:opacity-90 dark:bg-blue-600"
       >
@@ -84,9 +93,15 @@ export function AppSwitchCard({
   }
 
   const handleSwitchToCustomer = () => {
-    useAuthStore.getState().setActiveMode('Customer');
-    onSwitch?.('Customer');
-    router.replace(RouteNames.CUSTOMER_HOME as any);
+    if (isSwitching) {
+      return;
+    }
+    if (onSwitch) {
+      onSwitch('Customer');
+    }
+    else {
+      switchToMode('Customer');
+    }
   };
 
   return (
@@ -94,6 +109,7 @@ export function AppSwitchCard({
       testID="switch-to-customer-btn"
       accessibilityRole="button"
       accessibilityLabel="Chuyển sang App Khách"
+      disabled={isSwitching}
       onPress={handleSwitchToCustomer}
       className="mt-4 flex-row items-center justify-between rounded-2xl bg-amber-400 p-4 shadow-md shadow-amber-400/30 active:opacity-90 dark:bg-amber-500"
     >

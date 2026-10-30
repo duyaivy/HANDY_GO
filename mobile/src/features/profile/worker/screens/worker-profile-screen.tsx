@@ -11,9 +11,11 @@ import { RouteNames } from '@/constants/route-names';
 import { ProfileHeaderCard } from '@/features/profile/components';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { useAppModeSwitch } from '../../hooks/use-app-mode-switch';
 
 export function WorkerProfileScreen() {
   const router = useRouter();
+  const { switchToMode } = useAppModeSwitch();
   const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
   const isLoading = useAuthStore.use.isLoading();
@@ -35,14 +37,7 @@ export function WorkerProfileScreen() {
   };
 
   const handleSwitchToCustomer = () => {
-    const { isAuthenticated, user: currentUser } = useAuthStore.getState();
-    if (isAuthenticated && currentUser) {
-      useAuthStore.getState().setActiveMode('Customer');
-    }
-    else {
-      useAuthStore.getState().setGuestRole('Customer');
-    }
-    router.replace(RouteNames.CUSTOMER_HOME as any);
+    switchToMode('Customer');
   };
 
   return (
