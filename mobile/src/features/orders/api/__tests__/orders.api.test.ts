@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 import { ApiClient, axiosInstance } from '@/services/api/api-client';
 import { OrdersApi } from '../orders.api';
 
@@ -91,5 +92,75 @@ describe('ordersApi.uploadImage', () => {
     });
 
     await expect(OrdersApi.uploadImage('file:///path/to/photo.jpg')).rejects.toThrow('Upload ảnh thất bại.');
+  });
+
+  it('forwards onUploadProgress and calculates percentage correctly', async () => {
+    let capturedConfig: any = null;
+    const progressSpy = jest.fn();
+
+    jest.spyOn(ApiClient, 'post').mockImplementation(async (_url: string, _data?: any, config?: any) => {
+      capturedConfig = config;
+      // Simulate progress events
+      config.onUploadProgress?.({ loaded: 25, total: 100 });
+      config.onUploadProgress?.({ loaded: 50, total: 100 });
+      config.onUploadProgress?.({ loaded: 100, total: 100 });
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: { url: 'https://res.cloudinary.com/demo/image/upload/photo.jpg' },
+      } as any;
+    });
+
+    const url = await OrdersApi.uploadImage('file:///photo.jpg', 'booking_issue', {
+      onProgress: progressSpy,
+    });
+
+    expect(url).toBe('https://res.cloudinary.com/demo/image/upload/photo.jpg');
+    expect(capturedConfig?.onUploadProgress).toBeDefined();
+    expect(progressSpy).toHaveBeenCalledWith(25);
+    expect(progressSpy).toHaveBeenCalledWith(50);
+    expect(progressSpy).toHaveBeenCalledWith(100);
+    expect(progressSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not emit progress when event.total is missing or zero (indeterminate)', async () => {
+    const progressSpy = jest.fn();
+
+    jest.spyOn(ApiClient, 'post').mockImplementation(async (_url: string, _data?: any, config?: any) => {
+      config.onUploadProgress?.({ loaded: 50 });
+      config.onUploadProgress?.({ loaded: 50, total: 0 });
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: { url: 'https://res.cloudinary.com/demo/image/upload/photo.jpg' },
+      } as any;
+    });
+
+    await OrdersApi.uploadImage('file:///photo.jpg', { onProgress: progressSpy });
+    expect(progressSpy).not.toHaveBeenCalled();
+  });
+
+  it('forwards AbortSignal to ApiClient.post and supports abort cancellation', async () => {
+    let capturedConfig: any = null;
+    const controller = new AbortController();
+
+    jest.spyOn(ApiClient, 'post').mockImplementation(async (_url: string, _data?: any, config?: any) => {
+      capturedConfig = config;
+      if (config?.signal?.aborted) {
+        throw new Error('canceled');
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: { url: 'https://res.cloudinary.com/demo/image/upload/photo.jpg' },
+      } as any;
+    });
+
+    controller.abort();
+    await expect(
+      OrdersApi.uploadImage('file:///photo.jpg', 'booking_issue', { signal: controller.signal }),
+    ).rejects.toThrow('canceled');
+
+    expect(capturedConfig?.signal).toBe(controller.signal);
   });
 });
