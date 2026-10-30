@@ -41,9 +41,10 @@ export const OrdersApi = {
     );
   },
 
-  cancelRequest: async (id: string) => {
+  cancelRequest: async (id: string, reason?: string) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       `/service-requests/${id}/cancel`,
+      reason ? { reason } : undefined,
     );
   },
 
@@ -58,6 +59,10 @@ export const OrdersApi = {
     return ApiClient.get<{ statusCode: number; message: string; data: ServiceRequest }>(
       `/service-requests/${id}`,
     );
+  },
+
+  getRequestById: async (id: string) => {
+    return OrdersApi.getRequestDetail(id);
   },
 
   // --- Booking Proposals ---

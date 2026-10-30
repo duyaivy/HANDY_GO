@@ -115,9 +115,10 @@ export default function CustomerBookingRadarRoute() {
     });
   }, [searchParams?.requestId, createdRequestId]);
 
-  const activeRequestId = resolvedRequestId || searchParams?.requestId || createdRequestId || '00225617';
-  const orderCode = activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId;
+  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
+  const orderCode = activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---';
 
+  const [isCancelling, setIsCancelling] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isWorkerSheetOpen, setIsWorkerSheetOpen] = React.useState(true);
   const [isOrderModalVisible, setIsOrderModalVisible] = React.useState(false);
@@ -145,31 +146,121 @@ export default function CustomerBookingRadarRoute() {
     Alert.alert('Đã sao chép', `Đã sao chép mã đơn #${orderCode}`);
   };
 
+  const onCancelSuccess = async () => {
+    setIsOrderModalVisible(false);
+    useBookingDraftStore.getState().resetDraft();
+    try {
+      await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+    }
+    catch {
+      // Refetch failure does not invalidate the successful cancellation
+    }
+    router.replace({
+      pathname: RouteNames.CUSTOMER_ORDERS,
+      params: { tab: 'Cancelled' },
+    } as any);
+  };
+
+  const executeCancelOrder = async (id: string) => {
+    if (isCancelling) {
+      return;
+    }
+    setIsCancelling(true);
+    try {
+      await OrdersApi.cancelRequest(id);
+      await onCancelSuccess();
+    }
+    catch (error: unknown) {
+      // Check if server actually cancelled or if conflict/timeout occurred
+      let isActuallyCancelled = false;
+      let isConvertedToOrder = false;
+
+      try {
+        const detail = await OrdersApi.getRequestDetail(id);
+        const status = detail?.data?.status;
+        if (status === 'cancelled') {
+          isActuallyCancelled = true;
+        }
+        else if (status === 'converted_to_order') {
+          isConvertedToOrder = true;
+        }
+      }
+      catch {
+        // Verification query failed, proceed with original error
+      }
+
+      if (isActuallyCancelled) {
+        await onCancelSuccess();
+        return;
+      }
+
+      if (isConvertedToOrder) {
+        setIsOrderModalVisible(false);
+        Alert.alert(
+          'Yêu cầu đã được tiếp nhận',
+          'Yêu cầu dịch vụ đã được thợ tiếp nhận thành đơn hàng, không thể hủy tự động.',
+          [
+            {
+              text: 'Xem đơn hàng',
+              onPress: () => router.replace({
+                pathname: RouteNames.CUSTOMER_ORDERS,
+                params: { tab: 'In process' },
+              } as any),
+            },
+          ],
+        );
+        return;
+      }
+
+      // True failure: Keep screen, keep draft, notify user in Vietnamese
+      const errObj = error as { message?: string; response?: { data?: { message?: string } } };
+      const msg = errObj?.response?.data?.message || errObj?.message;
+      Alert.alert(
+        'Không thể hủy yêu cầu',
+        typeof msg === 'string' && msg
+          ? msg
+          : 'Không thể hủy yêu cầu lúc này. Vui lòng kiểm tra kết nối mạng và thử lại.',
+        [{ text: 'Đóng', style: 'cancel' }],
+      );
+    }
+    finally {
+      setIsCancelling(false);
+    }
+  };
+
   const handleCancelOrder = () => {
+    if (isCancelling) {
+      return;
+    }
+
+    if (!activeRequestId || activeRequestId.startsWith('req-mock')) {
+      Alert.alert(
+        'Không tìm thấy mã yêu cầu',
+        'Không tìm thấy mã yêu cầu dịch vụ hợp lệ để hủy. Vui lòng quay lại danh sách yêu cầu.',
+        [
+          {
+            text: 'Về danh sách yêu cầu',
+            onPress: () => {
+              setIsOrderModalVisible(false);
+              router.replace(RouteNames.CUSTOMER_ORDERS as any);
+            },
+          },
+          { text: 'Đóng', style: 'cancel' },
+        ],
+      );
+      return;
+    }
+
     Alert.alert(
       'Hủy đơn đặt việc',
       'Bạn có chắc chắn muốn hủy đơn tìm thợ này không?',
       [
         { text: 'Không', style: 'cancel' },
         {
-          text: 'Hủy đơn',
+          text: isCancelling ? 'Đang hủy...' : 'Hủy đơn',
           style: 'destructive',
           onPress: async () => {
-            setIsOrderModalVisible(false);
-            try {
-              if (activeRequestId && !activeRequestId.startsWith('req-mock')) {
-                await OrdersApi.cancelRequest(activeRequestId);
-              }
-            }
-            catch {
-              // ignore
-            }
-            await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
-            useBookingDraftStore.getState().resetDraft();
-            router.replace({
-              pathname: RouteNames.CUSTOMER_ORDERS,
-              params: { tab: 'Cancelled' },
-            } as any);
+            await executeCancelOrder(activeRequestId);
           },
         },
       ],
@@ -234,15 +325,15 @@ export default function CustomerBookingRadarRoute() {
   const handleSelectWorkerAndSendProposal = async (worker: QuotedWorker = QUOTED_WORKERS[0]) => {
     setIsSubmitting(true);
     try {
-      let targetRequestId = resolvedRequestId || searchParams?.requestId || createdRequestId;
-      if (!targetRequestId || targetRequestId === '00225617') {
+      let targetRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId;
+      if (!targetRequestId) {
         const fallbackId = await fetchLatestActiveRequestId();
         if (fallbackId) {
           targetRequestId = fallbackId;
         }
       }
 
-      if (!targetRequestId || targetRequestId.startsWith('req-mock') || targetRequestId === '00225617') {
+      if (!targetRequestId || targetRequestId.startsWith('req-mock')) {
         Alert.alert(
           'Không tìm thấy yêu cầu dịch vụ',
           'Chưa xác định được yêu cầu dịch vụ hợp lệ để gửi đề xuất cho thợ. Vui lòng quay lại tạo yêu cầu.',
@@ -814,15 +905,26 @@ export default function CustomerBookingRadarRoute() {
               <Pressable
                 testID="cancel-order-modal-btn"
                 onPress={handleCancelOrder}
+                disabled={isCancelling}
                 hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
                 className="flex-row items-center justify-center py-2 active:opacity-60"
               >
-                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                  <Path d="M18 6 6 18M6 6l12 12" />
-                </Svg>
-                <Text className="ml-2 text-sm font-semibold text-neutral-600 dark:text-neutral-300">
-                  Cancel order
-                </Text>
+                {isCancelling
+                  ? (
+                      <Text className="ml-2 text-sm font-semibold text-rose-600">
+                        Đang xử lý hủy...
+                      </Text>
+                    )
+                  : (
+                      <>
+                        <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#4B5563" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                          <Path d="M18 6 6 18M6 6l12 12" />
+                        </Svg>
+                        <Text className="ml-2 text-sm font-semibold text-neutral-600 dark:text-neutral-300">
+                          Cancel order
+                        </Text>
+                      </>
+                    )}
               </Pressable>
             </ScrollView>
           </View>
