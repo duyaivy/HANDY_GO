@@ -234,6 +234,10 @@ services:
 
   tracking-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/tracking-service/prisma/schema.prisma --config=apps/tracking-service/prisma/prisma.config.ts && exec node --enable-source-maps /app/dist/apps/$$NEST_PROJECT/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: tracking-service
