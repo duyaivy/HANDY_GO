@@ -307,18 +307,33 @@ export function WorkerBidModal({
               </View>
             )}
 
+            {/* Withdrawn Bid Warning */}
+            {existingBid && existingBid.status === 'withdrawn' && (
+              <View className="mb-4 rounded-xl border border-neutral-200 bg-neutral-100 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/60">
+                <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                  Bạn đã rút báo giá cho yêu cầu này
+                </Text>
+                <Text className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                  Theo quy chế của phiên đấu giá kín, sau khi đã rút báo giá, bạn không thể gửi lại báo giá cho yêu cầu này.
+                </Text>
+              </View>
+            )}
+
             {/* Amount Input */}
             <View className="mb-3">
               <Text className="mb-1 text-sm font-bold text-neutral-700 dark:text-neutral-300">
                 Mức giá đề xuất (VNĐ) <Text className="text-red-500">*</Text>
               </Text>
               <TextInput
+                editable={existingBid?.status !== 'withdrawn'}
                 keyboardType="numeric"
                 value={amountStr}
                 onChangeText={handleFormatAmount}
                 placeholder="Nhập số tiền (VD: 250000)"
                 placeholderTextColor="#9CA3AF"
-                className="h-12 rounded-xl border border-neutral-300 bg-neutral-50 px-4 text-base font-bold text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                className={`h-12 rounded-xl border border-neutral-300 px-4 text-base font-bold dark:border-neutral-700 ${
+                  existingBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
+                }`}
               />
               {displayFormattedAmount ? (
                 <Text className="mt-1 text-sm font-black text-[#F5A524]">
@@ -333,6 +348,7 @@ export function WorkerBidModal({
                 Tin nhắn tới khách hàng (Tùy chọn)
               </Text>
               <TextInput
+                editable={existingBid?.status !== 'withdrawn'}
                 multiline
                 numberOfLines={3}
                 value={message}
@@ -340,7 +356,9 @@ export function WorkerBidModal({
                 maxLength={1000}
                 placeholder="Thời gian có thể đến, cam kết bảo hành, kinh nghiệm..."
                 placeholderTextColor="#9CA3AF"
-                className="min-h-[80px] rounded-xl border border-neutral-300 bg-neutral-50 p-3 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
+                className={`min-h-[80px] rounded-xl border border-neutral-300 p-3 text-sm dark:border-neutral-700 ${
+                  existingBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
+                }`}
                 textAlignVertical="top"
               />
               <Text className="mt-1 text-right text-xs text-neutral-400">
@@ -363,14 +381,16 @@ export function WorkerBidModal({
               <Button
                 variant="primary"
                 onPress={handleSubmit}
-                disabled={isSubmitting || !amountStr || (existingBid?.status === 'active' && !canRevise)}
+                disabled={isSubmitting || !amountStr || (existingBid?.status === 'active' && !canRevise) || existingBid?.status === 'withdrawn'}
                 loading={isSubmitting}
                 label={
-                  isCooldownActive
-                    ? `Chờ ${cooldownRemainingSec}s để cập nhật`
-                    : existingBid && existingBid.status === 'active'
-                      ? 'Cập nhật báo giá'
-                      : 'Gửi báo giá'
+                  existingBid?.status === 'withdrawn'
+                    ? 'Đã rút báo giá'
+                    : isCooldownActive
+                      ? `Chờ ${cooldownRemainingSec}s để cập nhật`
+                      : existingBid && existingBid.status === 'active'
+                        ? 'Cập nhật báo giá'
+                        : 'Gửi báo giá'
                 }
               />
 

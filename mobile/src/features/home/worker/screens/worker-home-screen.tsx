@@ -159,7 +159,7 @@ export function WorkerHomeScreen() {
   const getExistingBidForJob = (jobId: string) => {
     if (!myBids || !Array.isArray(myBids))
       return null;
-    return myBids.find(b => b.serviceRequestId === jobId && b.status === 'active') || null;
+    return myBids.find(b => b.serviceRequestId === jobId) || null;
   };
 
   return (
@@ -347,11 +347,18 @@ export function WorkerHomeScreen() {
 
                   {/* Action Bar */}
                   <View className="mt-3.5 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    {hasBid ? (
+                    {existingBid?.status === 'active' ? (
                       <View className="flex-row items-center">
                         <View className="mr-1.5 size-2 rounded-full bg-emerald-500" />
                         <Text className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
                           Đã gửi: {existingBid?.amount.toLocaleString('vi-VN')} đ
+                        </Text>
+                      </View>
+                    ) : existingBid?.status === 'withdrawn' ? (
+                      <View className="flex-row items-center">
+                        <View className="mr-1.5 size-2 rounded-full bg-neutral-400" />
+                        <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                          Đã rút báo giá
                         </Text>
                       </View>
                     ) : (
@@ -360,16 +367,27 @@ export function WorkerHomeScreen() {
                       </Text>
                     )}
 
-                    <Pressable
-                      onPress={() => handleOpenBidModal(job)}
-                      className={`rounded-xl px-4 py-2 ${
-                        hasBid ? 'bg-neutral-800 dark:bg-neutral-700' : 'bg-[#F5A524]'
-                      } active:opacity-80`}
-                    >
-                      <Text className={`text-xs font-black ${hasBid ? 'text-white' : 'text-neutral-950'}`}>
-                        {hasBid ? 'Điều chỉnh giá' : 'Gửi báo giá'}
-                      </Text>
-                    </Pressable>
+                    {existingBid?.status === 'withdrawn' ? (
+                      <Pressable
+                        onPress={() => handleOpenBidModal(job)}
+                        className="rounded-xl bg-neutral-100 px-4 py-2 dark:bg-neutral-800 active:opacity-80"
+                      >
+                        <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                          Xem chi tiết
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        onPress={() => handleOpenBidModal(job)}
+                        className={`rounded-xl px-4 py-2 ${
+                          existingBid?.status === 'active' ? 'bg-neutral-800 dark:bg-neutral-700' : 'bg-[#F5A524]'
+                        } active:opacity-80`}
+                      >
+                        <Text className={`text-xs font-black ${existingBid?.status === 'active' ? 'text-white' : 'text-neutral-950'}`}>
+                          {existingBid?.status === 'active' ? 'Điều chỉnh giá' : 'Gửi báo giá'}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 </Pressable>
               );

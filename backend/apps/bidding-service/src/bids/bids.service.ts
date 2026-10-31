@@ -185,6 +185,11 @@ export class BidsService {
             })
           : null;
       if (existingInTx) {
+        if (existingInTx.status === 'withdrawn') {
+          throw new ConflictException(
+            'Bạn đã rút báo giá cho yêu cầu này. Theo quy định đấu thầu, bạn không thể nộp lại báo giá.',
+          );
+        }
         throw new ConflictException(
           'Bạn đã gửi báo giá cho yêu cầu này rồi. Vui lòng sử dụng chức năng điều chỉnh báo giá.',
         );

@@ -118,6 +118,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
               zoomEnabled={interactive}
               onMapIdle={handleRegionDidChange}
               onCameraChanged={handleRegionDidChange}
+              onRegionDidChange={handleRegionDidChange}
             >
               <Mapbox.Camera
                 ref={cameraRef}
