@@ -114,7 +114,18 @@ export function Button({ ref, label: text, loading = false, variant = 'default',
     >
       {props.children
         ? (
-            props.children
+            typeof props.children === 'string' || typeof props.children === 'number'
+              ? (
+                  <Text
+                    testID={testID ? `${testID}-label` : undefined}
+                    className={styles.label({ className: textClassName })}
+                  >
+                    {props.children}
+                  </Text>
+                )
+              : (
+                  props.children
+                )
           )
         : (
             <>

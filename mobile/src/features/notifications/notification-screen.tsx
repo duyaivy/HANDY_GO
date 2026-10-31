@@ -1,5 +1,6 @@
 /* eslint-disable max-lines-per-function */
 import type { NotificationRecord } from '@/services/notifications/notification-api';
+import { useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';
 import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,6 +11,7 @@ import { LoadingState } from '@/components/ui/loading-state';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { syncPushRegistration } from '@/services/notifications/push-registration';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationItem } from './components/notification-item';
 import { useNotifications, useNotificationUserId, useReadNotification, useUnreadNotifications } from './hooks/use-notifications';
 
@@ -31,6 +33,7 @@ function formatDateHeader(isoString: string): string {
 }
 
 export function NotificationScreen({ worker = false }: { worker?: boolean }) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const userId = useNotificationUserId();
   const list = useNotifications();
@@ -44,11 +47,93 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
     paddingBottom: 24 + (worker ? insets.bottom : 16),
   }), [worker, insets.bottom]);
 
-  const markRead = useCallback((item: NotificationRecord) => {
+  const handleItemPress = useCallback((item: NotificationRecord) => {
     if (!item.readAt) {
       read.mutate(item.id);
     }
-  }, [read]);
+
+    try {
+      const payload = item.payload || {};
+      const eventType = String(payload.eventType || '');
+      const requestId = String(payload.requestId || payload.serviceRequestId || payload.entityId || '');
+      const category = item.category;
+      const mode = useAuthStore.getState().activeMode;
+      const userRoles = useAuthStore.getState().user?.roles || [];
+
+      // Route matching job discovery notifications directly to Worker Home / Bidding
+      if (
+        eventType === 'matching.eligible_workers.ready'
+        || category === 'matching'
+        || (category === 'request' && (worker || mode === 'Worker' || userRoles.includes('Worker')))
+      ) {
+        if (userRoles.includes('Worker') && mode !== 'Worker') {
+          useAuthStore.getState().setActiveMode('Worker');
+        }
+        if (requestId) {
+          router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as any);
+        }
+        else {
+          router.push('/worker' as any);
+        }
+        return;
+      }
+
+      // Bid notifications -> Customer Radar
+      if (
+        (eventType === 'bid.submitted' || eventType === 'bid.revised' || category === 'bidding')
+        && requestId
+      ) {
+        if (userRoles.includes('Customer') && mode !== 'Customer') {
+          useAuthStore.getState().setActiveMode('Customer');
+        }
+        router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as any);
+        return;
+      }
+
+      // Proposal notification
+      if (category === 'proposal') {
+        if (worker || mode === 'Worker') {
+          if (requestId) {
+            router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as any);
+          }
+          else {
+            router.push('/worker' as any);
+          }
+        }
+        else if (requestId) {
+          router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as any);
+        }
+        return;
+      }
+
+      // Order notification -> Order detail
+      if (category === 'order') {
+        const orderId = String(payload.entityId || payload.orderId || '');
+        if (orderId) {
+          if (worker || mode === 'Worker') {
+            router.push(`/worker/jobs/${encodeURIComponent(orderId)}` as any);
+          }
+          else {
+            router.push(`/customer/orders/${encodeURIComponent(orderId)}` as any);
+          }
+        }
+        return;
+      }
+
+      // Wallet / Payment notification -> Wallet
+      if (category === 'wallet' || category === 'payment') {
+        if (worker || mode === 'Worker') {
+          router.push('/worker/wallet' as any);
+        }
+        else {
+          router.push('/customer/payment' as any);
+        }
+      }
+    }
+    catch (err) {
+      console.warn('[NOTIF_CLICK] Navigation error:', err);
+    }
+  }, [read, router, worker]);
 
   const renderItem = useCallback(({ item, index }: { item: NotificationRecord; index: number }) => {
     const currentDate = formatDateHeader(item.createdAt);
@@ -65,10 +150,10 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
             </Text>
           </View>
         )}
-        <NotificationItem item={item} onPress={markRead} />
+        <NotificationItem item={item} onPress={handleItemPress} />
       </View>
     );
-  }, [items, markRead]);
+  }, [items, handleItemPress]);
   const refresh = () => {
     void list.refetch();
     void unread.refetch();

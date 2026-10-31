@@ -258,4 +258,30 @@ describe('BiddingEventsConsumer', () => {
       expect(channelMock.ack).toHaveBeenCalled();
     });
   });
+
+  describe('handleMatchingCompleted & handleMatchingFailed (BE-FIX-06)', () => {
+    it('should acknowledge matching.completed event', async () => {
+      const eventPayload = {
+        eventId: 'evt-match-1',
+        serviceRequestId: 'req-1',
+        payload: { requestId: 'req-1' },
+      };
+
+      await consumer.handleMatchingCompleted(eventPayload, contextMock);
+
+      expect(channelMock.ack).toHaveBeenCalled();
+    });
+
+    it('should acknowledge matching.failed event', async () => {
+      const eventPayload = {
+        eventId: 'evt-match-2',
+        serviceRequestId: 'req-1',
+        payload: { requestId: 'req-1' },
+      };
+
+      await consumer.handleMatchingFailed(eventPayload, contextMock);
+
+      expect(channelMock.ack).toHaveBeenCalled();
+    });
+  });
 });

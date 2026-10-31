@@ -13,6 +13,10 @@ const templates = {
     'Có công việc mới phù hợp',
     'Một yêu cầu dịch vụ phù hợp với bạn vừa xuất hiện.',
   ],
+  'matching.completed': [
+    'Đã tìm thấy thợ phù hợp',
+    'Hệ thống đã hoàn tất tìm kiếm thợ phù hợp cho yêu cầu của bạn.',
+  ],
   'bid.submitted': [
     'Bạn có báo giá mới',
     'Một thợ vừa gửi báo giá cho yêu cầu của bạn.',

@@ -3,6 +3,7 @@ import { AppException, ERROR_CODES } from '@app/common';
 import { OrderClient, type UserContext } from './clients/order.client.js';
 import { BiddingClient } from './clients/bidding.client.js';
 import { MatchingClient } from './clients/matching.client.js';
+import { WorkerProfilesClient } from './clients/worker-profiles.client.js';
 import type { QueryCandidatesDto } from './dto/query-candidates.dto.js';
 import type {
   BidCandidateDto,
@@ -19,6 +20,7 @@ export class CandidatesAggregationService {
     private readonly orderClient: OrderClient,
     private readonly biddingClient: BiddingClient,
     private readonly matchingClient: MatchingClient,
+    private readonly workerProfilesClient: WorkerProfilesClient,
   ) {}
 
   async aggregateCandidates(
@@ -109,8 +111,10 @@ export class CandidatesAggregationService {
       });
     const isPartial = partialFailures.length > 0;
 
-    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections)
-    const biddingItems: BidCandidateDto[] = biddingResult.items.map((b) => {
+    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections, only include active bids)
+    const biddingItems: BidCandidateDto[] = biddingResult.items
+      .filter((b) => !b.status || b.status === 'active')
+      .map((b) => {
       const bidId = b.id;
       const workerId = b.workerId || b.workerUserId;
       return {
@@ -186,6 +190,13 @@ export class CandidatesAggregationService {
         scoreBreakdown: rec.scoreBreakdown,
         workerProfile: null,
       });
+    }
+
+    const profiles = await this.workerProfilesClient.getSummaries(
+      matchingRecommendations.map((worker) => worker.workerUserId),
+    );
+    for (const worker of matchingRecommendations) {
+      worker.workerProfile = profiles.get(worker.workerUserId) ?? null;
     }
 
     return {

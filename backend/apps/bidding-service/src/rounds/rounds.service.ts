@@ -3,17 +3,25 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { BiddingStatusResponseDto } from './dto/bidding-status-response.dto.js';
-import { EVENT_PATTERNS } from '@app/common';
+import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
+import { SseEventBridgeService } from '../sse/sse-event-bridge.service.js';
 import type { BiddingRound, Prisma } from '@prisma/bidding-client';
 
 @Injectable()
 export class RoundsService {
   private readonly logger = new Logger(RoundsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    private readonly sseBridge?: SseEventBridgeService,
+    @Optional()
+    private readonly outboxPublisher?: OutboxPublisherService,
+  ) {}
 
   /**
    * Retrieves the current bidding status for a service request.
@@ -72,7 +80,7 @@ export class RoundsService {
       status: currentRound.status,
       opensAt: currentRound.opensAt,
       closesAt: currentRound.closesAt,
-      bidCount: currentRound.bidCount,
+      bidCount: activeBidCount,
       activeBidCount,
       timeRemainingSeconds,
       isExpired: now >= currentRound.closesAt,
@@ -91,7 +99,7 @@ export class RoundsService {
       return round;
     }
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (typeof tx.biddingRound.updateMany === 'function') {
         const result = await tx.biddingRound.updateMany({
           where: {
@@ -115,11 +123,11 @@ export class RoundsService {
         });
       }
 
-      const updated = await tx.biddingRound.findUnique({
+      const updatedRecord = await tx.biddingRound.findUnique({
         where: { id: round.id },
       });
 
-      if (updated) {
+      if (updatedRecord) {
         await tx.outboxEvent.create({
           data: {
             aggregateType: 'bidding_round',
@@ -129,6 +137,7 @@ export class RoundsService {
             payload: {
               roundId: round.id,
               serviceRequestId: round.serviceRequestId,
+              requestId: round.serviceRequestId,
               status: 'open',
               opensAt: round.opensAt.toISOString(),
               closesAt: round.closesAt.toISOString(),
@@ -139,8 +148,14 @@ export class RoundsService {
       }
 
       this.logger.log(`Activated pending round ${round.id} to open`);
-      return updated;
+      return updatedRecord;
     });
+
+    if (updated) {
+      void this.outboxPublisher?.triggerPublish();
+    }
+
+    return updated;
   }
 
   /**
@@ -152,7 +167,7 @@ export class RoundsService {
     round: BiddingRound,
     now: Date = new Date(),
   ): Promise<BiddingRound | null> {
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1. Mark bids that passed validUntil as 'expired'
       if (typeof tx.bid.updateMany === 'function') {
         await tx.bid.updateMany({
@@ -224,6 +239,7 @@ export class RoundsService {
           payload: {
             roundId: round.id,
             serviceRequestId: round.serviceRequestId,
+            requestId: round.serviceRequestId,
             status: newStatus,
             activeBidsCount: validActiveBidsCount,
             closedAt: now.toISOString(),
@@ -233,6 +249,12 @@ export class RoundsService {
 
       return updated;
     });
+
+    if (updated) {
+      void this.outboxPublisher?.triggerPublish();
+    }
+
+    return updated;
   }
 
   /**
@@ -304,7 +326,7 @@ export class RoundsService {
     const now = new Date();
     const initialStatus = opensAt > now ? 'pending' : 'open';
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const round = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Atomic inbox check & record if eventId provided
       if (params.eventId && typeof tx.consumedEvent?.findUnique === 'function') {
         const consumed = await tx.consumedEvent.findUnique({
@@ -387,6 +409,7 @@ export class RoundsService {
             payload: {
               roundId: round.id,
               serviceRequestId: round.serviceRequestId,
+              requestId: round.serviceRequestId,
               status: 'open',
               opensAt: round.opensAt.toISOString(),
               closesAt: round.closesAt.toISOString(),
@@ -403,6 +426,7 @@ export class RoundsService {
             payload: {
               roundId: round.id,
               serviceRequestId: round.serviceRequestId,
+              requestId: round.serviceRequestId,
               status: 'pending',
               opensAt: round.opensAt.toISOString(),
               closesAt: round.closesAt.toISOString(),
@@ -413,6 +437,12 @@ export class RoundsService {
 
       return round;
     });
+
+    if (round) {
+      void this.outboxPublisher?.triggerPublish();
+    }
+
+    return round;
   }
 
   /**
@@ -426,7 +456,7 @@ export class RoundsService {
       typeof param === 'string' ? param : param.serviceRequestId;
     const eventId = typeof param === 'string' ? undefined : param.eventId;
 
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (eventId && typeof tx.consumedEvent?.findUnique === 'function') {
         const consumed = await tx.consumedEvent.findUnique({
           where: { eventId },
@@ -513,6 +543,7 @@ export class RoundsService {
           payload: {
             roundId: existing.id,
             serviceRequestId,
+            requestId: serviceRequestId,
             status: 'cancelled',
             cancelledAt: new Date().toISOString(),
           },
@@ -521,6 +552,12 @@ export class RoundsService {
 
       return updated;
     });
+
+    if (updated) {
+      void this.outboxPublisher?.triggerPublish();
+    }
+
+    return updated;
   }
 
   /**
@@ -535,7 +572,7 @@ export class RoundsService {
     winningWorkerId?: string;
     eventId?: string;
   }): Promise<BiddingRound | null> {
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updatedRound = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       if (params.eventId && typeof tx.consumedEvent?.findUnique === 'function') {
         const consumed = await tx.consumedEvent.findUnique({
           where: { eventId: params.eventId },
@@ -684,6 +721,7 @@ export class RoundsService {
           payload: {
             roundId: round.id,
             serviceRequestId: params.serviceRequestId,
+            requestId: params.serviceRequestId,
             orderId: params.orderId,
             selectedBidId: params.selectedBidId ?? null,
             winningWorkerId: params.winningWorkerId ?? null,
@@ -694,5 +732,11 @@ export class RoundsService {
 
       return updatedRound;
     });
+
+    if (updatedRound) {
+      void this.outboxPublisher?.triggerPublish();
+    }
+
+    return updatedRound;
   }
 }

@@ -501,4 +501,237 @@ export class MatchingEventConsumer {
       throw err;
     }
   }
+
+  /**
+   * Consumer for 'bidding.round.closed'
+   * Updates projection status to 'bidding_closed' so worker feed removes the request.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_CLOSED)
+  async handleBiddingRoundClosed(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in bidding.round.closed (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.closed for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(reqId, 'bidding_closed');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.BIDDING_ROUND_CLOSED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.closed: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.BIDDING_ROUND_CLOSED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'bidding.round.finalized'
+   * Updates projection status to 'converted_to_order' when bidding finalizes.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_FINALIZED)
+  async handleBiddingRoundFinalized(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in bidding.round.finalized (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.finalized for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(
+        reqId,
+        'converted_to_order',
+      );
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.finalized: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'bidding.round.cancelled'
+   */
+  @EventPattern('bidding.round.cancelled')
+  async handleBiddingRoundCancelled(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.cancelled for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(reqId, 'cancelled');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          'bidding.round.cancelled',
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.cancelled: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        'bidding.round.cancelled',
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'order.created'
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
+  async handleOrderCreated(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId;
+      if (!reqId) {
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(`Consuming order.created for request ${reqId}`);
+
+      await this.projectionService.updateRequestStatus(
+        reqId,
+        'converted_to_order',
+      );
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.ORDER_CREATED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process order.created: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.ORDER_CREATED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
 }
+

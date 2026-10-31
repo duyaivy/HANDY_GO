@@ -6,6 +6,7 @@ export interface ServiceRouteConfig {
   prefixes: readonly string[];
   pathRewrite?: (path: string, req: Request) => string;
   timeoutEnvKey?: string;
+  timeoutMs?: number;
   customMatch?: (pathname: string) => boolean;
   excludeMatch?: (pathname: string) => boolean;
 }
@@ -34,6 +35,14 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     upstreamName: 'catalog-service',
     envKey: 'CATALOG_SERVICE_URL',
     prefixes: ['/api/v1/catalog', '/api/v1/categories', '/api/v1/services'],
+  },
+  {
+    upstreamName: 'bidding-service-sse',
+    envKey: 'BIDDING_SERVICE_URL',
+    prefixes: [],
+    timeoutMs: 0,
+    customMatch: (pathname: string) =>
+      /^\/api\/v1\/bids\/requests\/[^/?#]+\/events(\/.*)?(\?.*)?$/.test(pathname),
   },
   {
     upstreamName: 'bidding-service',

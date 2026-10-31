@@ -8,10 +8,16 @@ import { BiddingCommonModule } from './common/bidding-common.module.js';
 import { RoundsModule } from './rounds/rounds.module.js';
 import { BidsModule } from './bids/bids.module.js';
 import { BiddingEventsModule } from './events/bidding-events.module.js';
+import { SseModule } from './sse/sse.module.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005 }),
+    ConfigModule.forRoot({
+      serviceName: 'bidding-service',
+      defaultPort: 3005,
+      requiredUrls: ['ORDER_SERVICE_URL'],
+      requiredKeys: ['INTERNAL_SERVICE_SECRET'],
+    }),
     LoggerModule.forRoot('bidding-service'),
     HealthModule,
     RabbitMQModule,
@@ -20,6 +26,7 @@ import { BiddingEventsModule } from './events/bidding-events.module.js';
     RoundsModule,
     BidsModule,
     BiddingEventsModule,
+    SseModule,
   ],
   controllers: [],
   providers: [],
