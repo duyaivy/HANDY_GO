@@ -1,5 +1,5 @@
 import type { DiscoverableJobItem } from '@/features/bidding/api/worker-discovery.api';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
@@ -8,7 +8,7 @@ import {
   ScrollView,
   View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
 import { WrenchIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
@@ -47,6 +47,30 @@ export function WorkerHomeScreen() {
   });
 
   const { data: myBids, refetch: refetchMyBids } = useMyBids(undefined, Boolean(isAuthenticated && user));
+
+  // Auto-refresh upon focusing "Nhận việc" tab
+  useFocusEffect(
+    React.useCallback(() => {
+      if (isAuthenticated && user) {
+        void refetch();
+        void refetchMyBids();
+      }
+    }, [isAuthenticated, user, refetch, refetchMyBids]),
+  );
+
+  // Client-side guard: Only show jobs whose bidding round has NOT ended
+  const activeJobs = React.useMemo(() => {
+    const now = Date.now();
+    return jobs.filter((job) => {
+      if (job.biddingClosesAt) {
+        const closesAtMs = new Date(job.biddingClosesAt).getTime();
+        if (!Number.isNaN(closesAtMs) && closesAtMs <= now) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [jobs]);
 
   if (!isAuthenticated || !user) {
     return <WorkerGuestOverview />;
@@ -126,8 +150,8 @@ export function WorkerHomeScreen() {
             Việc làm xung quanh bạn
           </Text>
           <Text className="mt-0.5 text-xs text-slate-300">
-            {total > 0
-              ? `Tìm thấy ${total} yêu cầu dịch vụ phù hợp trong bán kính hoạt động`
+            {activeJobs.length > 0
+              ? `Tìm thấy ${activeJobs.length} yêu cầu dịch vụ phù hợp trong bán kính hoạt động`
               : 'Đang theo dõi các yêu cầu mới trong khu vực của bạn'}
           </Text>
         </View>
@@ -158,7 +182,7 @@ export function WorkerHomeScreen() {
         )}
 
         {/* Empty State */}
-        {!isLoading && !isError && jobs.length === 0 && (
+        {!isLoading && !isError && activeJobs.length === 0 && (
           <View className="items-center justify-center py-16 px-4">
             <View className="size-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
               <Svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth={2}>
@@ -178,9 +202,9 @@ export function WorkerHomeScreen() {
         )}
 
         {/* Job Items List */}
-        {!isLoading && !isError && jobs.length > 0 && (
+        {!isLoading && !isError && activeJobs.length > 0 && (
           <View className="gap-3 pb-6">
-            {jobs.map((job) => {
+            {activeJobs.map((job) => {
               const existingBid = getExistingBidForJob(job.id);
               const hasBid = Boolean(existingBid);
 
@@ -244,6 +268,19 @@ export function WorkerHomeScreen() {
                       </Svg>
                       <Text className="text-xs text-neutral-500">
                         Hẹn: {new Date(job.scheduledAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Bidding Closes Time */}
+                  {job.biddingClosesAt && (
+                    <View className="mt-1 flex-row items-center">
+                      <Svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth={2} className="mr-1.5 shrink-0">
+                        <Circle cx="12" cy="12" r="10" />
+                        <Path d="M12 6v6l4 2" />
+                      </Svg>
+                      <Text className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                        Hạn báo giá: {new Date(job.biddingClosesAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
                       </Text>
                     </View>
                   )}

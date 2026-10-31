@@ -9,18 +9,21 @@ import { WorkerDiscoveryApi } from '../api/worker-discovery.api';
 
 export type UseWorkerDiscoveryOptions = WorkerDiscoveryParams & {
   enabled?: boolean;
+  refetchInterval?: number | false;
 };
 
 export function useWorkerDiscovery(options?: UseWorkerDiscoveryOptions) {
   const page = options?.page ?? 1;
   const limit = options?.limit ?? 10;
   const isEnabled = options?.enabled ?? true;
+  const refetchInterval = options?.refetchInterval ?? 10000;
 
   const query = useQuery<DiscoverableJobsResponseData, Error>({
     queryKey: workerBiddingKeys.discoverableRequests({ page, limit }),
     queryFn: ({ signal }) =>
       WorkerDiscoveryApi.getDiscoverableRequestsData({ page, limit }, signal),
     enabled: isEnabled,
+    refetchInterval,
   });
 
   return {

@@ -25,6 +25,9 @@ export class WorkerDiscoverableRequestItemDto {
 
   @ApiProperty({ description: 'Thời điểm tạo yêu cầu', example: '2026-10-25T00:15:00.000Z' })
   createdAt!: string;
+
+  @ApiProperty({ description: 'Thời điểm kết thúc phiên báo giá', example: '2026-10-26T00:15:00.000Z', required: false })
+  biddingClosesAt?: string;
 }
 
 export class WorkerRequestDiscoveryResponseDto {

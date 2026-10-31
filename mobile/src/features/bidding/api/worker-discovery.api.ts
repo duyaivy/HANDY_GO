@@ -10,6 +10,7 @@ export type DiscoverableJobItem = {
   distanceKm?: number | null;
   scheduledAt?: string | null;
   addressText?: string | null;
+  biddingClosesAt?: string | null;
   createdAt: string;
 };
 

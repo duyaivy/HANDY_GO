@@ -4,6 +4,23 @@ import { cleanup, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerHomeScreen } from '../screens/worker-home-screen';
 
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, back: jest.fn(), canGoBack: jest.fn() };
+
+jest.mock('expo-router', () => {
+  const React = require('react');
+  return {
+    useRouter: jest.fn(() => mockRouter),
+    useLocalSearchParams: jest.fn(() => ({})),
+    useFocusEffect: (cb: any) => {
+      React.useEffect(() => {
+        cb();
+      }, [cb]);
+    },
+  };
+});
+
 afterEach(() => {
   cleanup();
   useAuthStore.setState({ isAuthenticated: false, user: null });
@@ -29,7 +46,7 @@ describe('workerHomeScreen', () => {
     });
     render(<WorkerHomeScreen />);
     expect(screen.getByTestId('home-worker-screen')).toBeOnTheScreen();
-    expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+    expect(screen.getByText('Việc làm xung quanh bạn')).toBeOnTheScreen();
     expect(screen.getByText('Nhận việc')).toBeOnTheScreen();
     expect(screen.getByText('App Khách ⇄')).toBeOnTheScreen();
     expect(screen.queryByTestId('worker-online-toggle')).toBeNull();

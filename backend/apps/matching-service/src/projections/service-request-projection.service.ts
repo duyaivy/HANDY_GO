@@ -100,7 +100,12 @@ export class ServiceRequestProjectionService {
       where: { id },
     });
 
-    if (!existing) throw new Error('Request projection not yet available');
+    if (!existing) {
+      this.logger.warn(
+        `Request projection ${id} not found when updating status to ${status}`,
+      );
+      return;
+    }
     const predecessors =
       status === 'bidding_closed'
         ? ['open_for_bidding']
@@ -204,11 +209,15 @@ export class ServiceRequestProjectionService {
         ))))) AS distance
         FROM ${table} p
         CROSS JOIN jsonb_to_recordset(${areas}::jsonb) AS a(latitude float8, longitude float8, "radiusKm" float8)
+        LEFT JOIN bidding_service.bidding_rounds b ON b.service_request_id = p.id
+        LEFT JOIN order_service.service_requests o ON o.id = p.id
         WHERE p.service_id IN (${MatchingPrisma.Prisma.join(serviceIds.map((id) => MatchingPrisma.Prisma.sql`${id}::uuid`))})
           AND p.status = 'open_for_bidding'
           AND (p.bidding_closes_at IS NULL OR p.bidding_closes_at > clock_timestamp())
           AND (p.selection_expires_at IS NULL OR p.selection_expires_at > clock_timestamp())
           AND p.customer_user_id <> ${workerUserId}::uuid
+          AND (b.id IS NULL OR (b.status = 'open' AND b.closes_at > clock_timestamp()))
+          AND (o.id IS NULL OR (o.status = 'open_for_bidding' AND (o.bidding_closes_at IS NULL OR o.bidding_closes_at > clock_timestamp())))
           AND 6371 * 2 * asin(sqrt(LEAST(1.0, GREATEST(0.0,
             power(sin(radians(p.latitude::float8 - a.latitude) / 2), 2) +
             cos(radians(p.latitude::float8)) * cos(radians(a.latitude)) *
