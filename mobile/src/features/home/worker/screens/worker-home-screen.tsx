@@ -1,5 +1,5 @@
 import type { DiscoverableJobItem } from '@/features/bidding/api/worker-discovery.api';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +15,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
+import { WorkerBiddingApi } from '@/features/bidding/api/worker-bidding.api';
 import { WorkerBidModal } from '@/features/bidding/components/worker-bid-modal';
 import { useMyBids } from '@/features/bidding/hooks/use-worker-bidding';
 import { useWorkerDiscovery } from '@/features/bidding/hooks/use-worker-discovery';
@@ -24,12 +25,14 @@ import { WorkerGuestOverview } from '../components/worker-guest-overview';
 
 export function WorkerHomeScreen() {
   const router = useRouter();
+  const { requestId } = useLocalSearchParams<{ requestId?: string }>();
   const user = useAuthStore.use.user();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
 
   const [page, setPage] = React.useState(1);
   const [selectedJob, setSelectedJob] = React.useState<DiscoverableJobItem | null>(null);
   const [isBidModalVisible, setIsBidModalVisible] = React.useState(false);
+  const handledRequestIdRef = React.useRef<string | null>(null);
 
   const {
     error,
@@ -72,6 +75,53 @@ export function WorkerHomeScreen() {
     });
   }, [jobs]);
 
+  // Auto-open bidding modal when navigated with ?requestId=... (e.g. from matching notification)
+  React.useEffect(() => {
+    if (!requestId || !isAuthenticated || !user) {
+      return;
+    }
+
+    if (handledRequestIdRef.current === requestId) {
+      return;
+    }
+
+    // 1. Try finding in loaded jobs
+    const foundInList = jobs.find(j => j.id === requestId);
+    if (foundInList) {
+      handledRequestIdRef.current = requestId;
+      setSelectedJob(foundInList);
+      setIsBidModalVisible(true);
+      return;
+    }
+
+    // 2. Fetch directly from API if not yet in current page
+    let isCancelled = false;
+    WorkerBiddingApi.getServiceRequest(requestId)
+      .then((req) => {
+        if (isCancelled || !req)
+          return;
+        handledRequestIdRef.current = requestId;
+        setSelectedJob({
+          id: req.id,
+          requestCode: req.requestCode,
+          serviceId: req.serviceId,
+          description: req.description,
+          scheduledAt: req.scheduledAt,
+          addressText: req.addressText,
+          biddingClosesAt: req.biddingClosesAt,
+          createdAt: req.createdAt,
+        });
+        setIsBidModalVisible(true);
+      })
+      .catch((err) => {
+        console.warn('[WORKER_HOME] Could not fetch request details for bidding:', err);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [requestId, isAuthenticated, user, jobs]);
+
   if (!isAuthenticated || !user) {
     return <WorkerGuestOverview />;
   }
@@ -88,8 +138,18 @@ export function WorkerHomeScreen() {
   };
 
   const handleOpenBidModal = (job: DiscoverableJobItem) => {
+    handledRequestIdRef.current = job.id;
     setSelectedJob(job);
     setIsBidModalVisible(true);
+  };
+
+  const handleCloseBidModal = () => {
+    setIsBidModalVisible(false);
+    setSelectedJob(null);
+    handledRequestIdRef.current = null;
+    if (requestId) {
+      router.setParams({ requestId: '' });
+    }
   };
 
   const handleRefresh = async () => {
@@ -345,10 +405,7 @@ export function WorkerHomeScreen() {
       {selectedJob && (
         <WorkerBidModal
           visible={isBidModalVisible}
-          onClose={() => {
-            setIsBidModalVisible(false);
-            setSelectedJob(null);
-          }}
+          onClose={handleCloseBidModal}
           request={selectedJob}
           existingBid={getExistingBidForJob(selectedJob.id)}
           onSuccess={() => {

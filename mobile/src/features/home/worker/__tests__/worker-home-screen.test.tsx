@@ -2,11 +2,14 @@ import * as React from 'react';
 
 import { cleanup, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { useLocalSearchParams } from 'expo-router';
+import { WorkerBiddingApi } from '@/features/bidding/api/worker-bidding.api';
 import { WorkerHomeScreen } from '../screens/worker-home-screen';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
-const mockRouter = { push: mockPush, replace: mockReplace, back: jest.fn(), canGoBack: jest.fn() };
+const mockSetParams = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, setParams: mockSetParams, back: jest.fn(), canGoBack: jest.fn() };
 
 jest.mock('expo-router', () => {
   const React = require('react');
@@ -20,6 +23,17 @@ jest.mock('expo-router', () => {
     },
   };
 });
+
+jest.mock('@/features/bidding/api/worker-bidding.api', () => ({
+  WorkerBiddingApi: {
+    getServiceRequest: jest.fn(),
+    getRoundStatus: jest.fn().mockResolvedValue({ status: 'open', isExpired: false, bidCount: 1, timeRemainingSeconds: 300 }),
+    getMyBids: jest.fn().mockResolvedValue([]),
+    submitBid: jest.fn(),
+    reviseBid: jest.fn(),
+    withdrawBid: jest.fn(),
+  },
+}));
 
 afterEach(() => {
   cleanup();
@@ -50,5 +64,28 @@ describe('workerHomeScreen', () => {
     expect(screen.getByText('Nhận việc')).toBeOnTheScreen();
     expect(screen.getByText('App Khách ⇄')).toBeOnTheScreen();
     expect(screen.queryByTestId('worker-online-toggle')).toBeNull();
+  });
+
+  it('automatically opens bidding modal when navigated with requestId query param', async () => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({ requestId: 'req-deep-123' });
+    jest.mocked(WorkerBiddingApi.getServiceRequest).mockResolvedValueOnce({
+      id: 'req-deep-123',
+      requestCode: 'REQ-123',
+      description: 'Sửa đường ống nước bị vỡ',
+      addressText: '123 Lê Duẩn, Đà Nẵng',
+      status: 'open_for_bidding',
+      createdAt: '2026-10-31T10:00:00Z',
+    } as any);
+
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: { id: 'w-1', phone: '0988776655', email: 'worker@handygo.vn', roles: ['Worker'], permissions: [] },
+    });
+
+    render(<WorkerHomeScreen />);
+
+    expect(await screen.findByText('Gửi báo giá dịch vụ')).toBeOnTheScreen();
+    expect(screen.getByText('Sửa đường ống nước bị vỡ')).toBeOnTheScreen();
+    expect(screen.getByText('Địa chỉ: 123 Lê Duẩn, Đà Nẵng')).toBeOnTheScreen();
   });
 });

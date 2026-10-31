@@ -36,7 +36,7 @@ export function NotificationLifecycle() {
 
     const pendingData = pending.notification.request.content.data as Record<string, unknown> | undefined;
     const fallbackEventType = String(pendingData?.eventType || pendingData?.type || '');
-    const fallbackRequestId = String(pendingData?.requestId || pendingData?.serviceRequestId || '');
+    const fallbackRequestId = String(pendingData?.requestId || pendingData?.serviceRequestId || pendingData?.entityId || '');
     const fallbackCategory = String(pendingData?.category || '');
 
     const handleDeepLink = (eventType: string, requestId: string, category?: string) => {
@@ -54,7 +54,7 @@ export function NotificationLifecycle() {
           }
           router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as Href);
         }
-        // Route matching job discovery notifications to Worker Home
+        // Route matching job discovery notifications to Worker Home with bidding requestId
         else if (
           eventType === 'matching.eligible_workers.ready'
           || (category === 'matching' && (mode === 'Worker' || userRoles.includes('Worker')))
@@ -62,7 +62,12 @@ export function NotificationLifecycle() {
           if (userRoles.includes('Worker') && mode !== 'Worker') {
             useAuthStore.getState().setActiveMode('Worker');
           }
-          router.push('/worker' as Href);
+          if (requestId) {
+            router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as Href);
+          }
+          else {
+            router.push('/worker' as Href);
+          }
         }
         else {
           router.push((mode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications') as Href);
@@ -80,7 +85,7 @@ export function NotificationLifecycle() {
         return;
 
       const eventType = String(record?.payload?.eventType || fallbackEventType);
-      const requestId = String(record?.payload?.requestId || record?.payload?.serviceRequestId || fallbackRequestId);
+      const requestId = String(record?.payload?.requestId || record?.payload?.serviceRequestId || record?.payload?.entityId || fallbackRequestId);
       const category = String(record?.category || fallbackCategory);
 
       handleDeepLink(eventType, requestId, category);
