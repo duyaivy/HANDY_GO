@@ -364,26 +364,23 @@ export function WorkerBidModal({
                 variant="primary"
                 onPress={handleSubmit}
                 disabled={isSubmitting || !amountStr || (existingBid?.status === 'active' && !canRevise)}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : isCooldownActive ? (
-                  `Chờ ${cooldownRemainingSec}s để cập nhật`
-                ) : existingBid && existingBid.status === 'active' ? (
-                  'Cập nhật báo giá'
-                ) : (
-                  'Gửi báo giá'
-                )}
-              </Button>
+                loading={isSubmitting}
+                label={
+                  isCooldownActive
+                    ? `Chờ ${cooldownRemainingSec}s để cập nhật`
+                    : existingBid && existingBid.status === 'active'
+                      ? 'Cập nhật báo giá'
+                      : 'Gửi báo giá'
+                }
+              />
 
               {existingBid && existingBid.status === 'active' && (
                 <Button
                   variant="destructive"
                   onPress={handleWithdraw}
                   disabled={isSubmitting}
-                >
-                  Rút báo giá
-                </Button>
+                  label="Rút báo giá"
+                />
               )}
             </View>
           </ScrollView>

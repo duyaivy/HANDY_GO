@@ -55,9 +55,8 @@ describe('Worker Discovery Feed & Hook Tests', () => {
     });
   });
 
-  const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
 
   describe('WorkerDiscoveryApi', () => {
     it('calls GET /api/v1/matching/me/requests with pagination', async () => {

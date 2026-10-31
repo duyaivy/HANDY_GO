@@ -88,9 +88,8 @@ describe('Candidates Aggregation & useCandidates Hook Tests', () => {
     });
   });
 
-  const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
 
   describe('candidateQueryKeys contract', () => {
     it('should generate expected query keys per Contract Section 11', () => {

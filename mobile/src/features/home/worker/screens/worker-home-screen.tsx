@@ -152,9 +152,7 @@ export function WorkerHomeScreen() {
               {error?.message || 'Vui lòng kiểm tra lại kết nối mạng.'}
             </Text>
             <View className="mt-4 w-32">
-              <Button variant="outline" size="default" onPress={() => refetch()}>
-                Thử lại
-              </Button>
+              <Button variant="outline" size="default" label="Thử lại" onPress={() => refetch()} />
             </View>
           </View>
         )}
@@ -174,9 +172,7 @@ export function WorkerHomeScreen() {
               Hiện tại chưa có khách hàng nào đặt lịch trong bán kính phục vụ của bạn. Hãy quay lại sau ít phút!
             </Text>
             <View className="mt-4 w-36">
-              <Button variant="outline" size="default" onPress={handleRefresh}>
-                Làm mới
-              </Button>
+              <Button variant="outline" size="default" label="Làm mới" onPress={handleRefresh} />
             </View>
           </View>
         )}
@@ -289,10 +285,9 @@ export function WorkerHomeScreen() {
                   variant="outline"
                   size="default"
                   disabled={page <= 1}
+                  label="Trang trước"
                   onPress={() => setPage(p => Math.max(1, p - 1))}
-                >
-                  Trang trước
-                </Button>
+                />
                 <Text className="text-xs font-bold text-neutral-600 dark:text-neutral-400">
                   {page} / {totalPages}
                 </Text>
@@ -300,10 +295,9 @@ export function WorkerHomeScreen() {
                   variant="outline"
                   size="default"
                   disabled={page >= totalPages}
+                  label="Trang sau"
                   onPress={() => setPage(p => Math.min(totalPages, p + 1))}
-                >
-                  Trang sau
-                </Button>
+                />
               </View>
             )}
           </View>

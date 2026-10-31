@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook } from '@testing-library/react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
 import { WorkerBiddingApi } from '../api/worker-bidding.api';
 import {
@@ -32,9 +32,8 @@ describe('Worker Bidding API & Hooks Tests', () => {
     });
   });
 
-  const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
 
   describe('WorkerBiddingApi endpoints', () => {
     it('submitBid calls POST /api/v1/requests/:id/bids with positive amount', async () => {
@@ -180,7 +179,9 @@ describe('Worker Bidding API & Hooks Tests', () => {
         });
       });
 
-      expect(result.current.isSuccess).toBe(true);
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
       expect(invalidateSpy).toHaveBeenCalled();
     });
 
@@ -203,7 +204,9 @@ describe('Worker Bidding API & Hooks Tests', () => {
         });
       });
 
-      expect(result.current.isSuccess).toBe(true);
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
       expect(invalidateSpy).toHaveBeenCalled();
     });
   });

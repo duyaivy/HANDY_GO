@@ -74,9 +74,8 @@ describe('useBiddingEvents Hook Tests', () => {
     jest.spyOn(queryClient, 'invalidateQueries');
   });
 
-  const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-  );
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client: queryClient }, children);
 
   it('enforces a single active connection per request ID when multiple components mount', () => {
     const requestId = 'req-shared-123';
