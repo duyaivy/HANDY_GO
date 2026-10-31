@@ -76,14 +76,17 @@ class Coordinator:
             lines += ['', 'Lock cleanup pending: ' + ', '.join(self.journal['unlock_pending'])]
         (self.output / 'summary.md').write_text('\n'.join(lines) + '\n')
 
-    def ssh_run(self, role, command, data=None, label='remote command'):
+    def ssh_run(self, role, command, data=None, label='remote command', timeout=1800):
+        deadline = getattr(self, 'rollout_deadline', None)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RuntimeError('Rollout deadline reached; starting rollback with reserved job time')
         print(f'[{role}] SSH start: {label}', flush=True)
         try:
             # Keep stdout for the JSON protocol; remote stderr streams redacted diagnostics live.
             result = subprocess.run([*self.ssh, '-i', self.identities[role], self.targets[role], command], input=data,
-                                    stdout=subprocess.PIPE, timeout=1800)
+                                    stdout=subprocess.PIPE, timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            print(f'[{role}] SSH failed: {label} timed out after 1800 seconds', flush=True)
+            print(f'[{role}] SSH failed: {label} timed out after {timeout} seconds', flush=True)
             raise RuntimeError(f'{role}: {label} timed out') from error
         except OSError as error:
             print(f'[{role}] SSH could not start: {label} ({error.__class__.__name__})', flush=True)
@@ -94,11 +97,15 @@ class Coordinator:
         print(f'[{role}] SSH complete: {label}', flush=True)
         return result.stdout
 
-    def remote(self, role, action, target=None):
+    def remote(self, role, action, target=None, wait_lock=False):
         release_id = target or self.target
-        command = shlex.join(['python3', '-u', f'{ROOT}/releases/{release_id}/host.py',
-                              action, role, release_id, self.transaction])
-        response = json.loads(self.ssh_run(role, command, label=f'{action} release {release_id}'))
+        command = ['python3', '-u', f'{ROOT}/releases/{release_id}/host.py',
+                   action, role, release_id, self.transaction]
+        if wait_lock:
+            command.append('--wait-lock')
+        options = {'timeout': 3600} if wait_lock else {}
+        response = json.loads(self.ssh_run(role, shlex.join(command),
+                                            label=f'{action} release {release_id}', **options))
         self.journal['hosts'].setdefault(role, {})[action] = response
         self.persist()
         print(f'{role}: {action} completed', flush=True)
@@ -139,6 +146,8 @@ class Coordinator:
         module.validate_env(Path(self.args.env_file))
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
+        # A newly enabled migration owner must require review even when SQL is unchanged.
+        migration_bytes += b'\0owners\0' + json.dumps(module.MIGRATIONS, sort_keys=True).encode()
         manifest = {
             'schema_version': 1, 'release_id': self.target, 'commit_sha': self.args.commit, 'domain': domain,
             'tree_sha': self.args.tree, 'run_id': self.args.run_id, 'run_attempt': self.args.attempt,
@@ -223,6 +232,7 @@ class Coordinator:
             self.journal['status'] = 'STABLE'
             self.persist()
         except (Exception, KeyboardInterrupt) as error:
+            self.rollout_deadline = None  # The forward budget must never prevent compensation.
             emit('deploy', f'FAILED: {type(error).__name__}: {error}; starting compensation')
             self.journal['error'] = redact(error)
             self.journal['status'] = 'FAILED'

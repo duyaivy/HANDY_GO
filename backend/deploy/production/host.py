@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 
 from release_log import emit, load_secrets, redact
 
@@ -18,6 +19,8 @@ ROOT = Path('/opt/handygo')
 RELEASE_ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 DIGEST = r'(?:ghcr\.io/[a-z0-9._/-]+|nginx)@sha256:[a-f0-9]{64}'
 ROLES = ('vps1', 'vps2', 'vps3')
+# One migration owner per service; application replicas never run migrations.
+MIGRATIONS = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog', 'wallet')}
 NGINX_PREFLIGHT = '''\
 for directory in /etc/nginx/tls /var/www/certbot; do
     if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
@@ -175,9 +178,11 @@ class Host:
             if key in ('MemTotal', 'SwapTotal'):
                 info[key] = int(value.split()[0]) // 1024
         memory, swap = info['MemTotal'], info.get('SwapTotal', 0)
-        required = self.manifest['memory_mib'][self.role] + 280
+        preflight = 128 if self.manifest.get('env_refresh') else 0
+        required = self.manifest['memory_mib'][self.role] + 280 + preflight
         emit(self.role, f'Memory capacity: RAM={memory} MiB, active swap={swap} MiB, '
-                        f'required={required} MiB including 280 MiB host reserve')
+                        f'required={required} MiB including 280 MiB host reserve '
+                        f'and {preflight} MiB candidate ENV preflight')
         if memory < 280:
             raise RuntimeError(f'Insufficient physical RAM for host reserve: {memory} MiB < 280 MiB')
         if memory + swap < required:
@@ -252,18 +257,38 @@ class Host:
         if shutil.disk_usage(ROOT).free < 2 * 1024 ** 3:
             raise RuntimeError('At least 2 GiB free disk is required before pulling a release')
         self.compose('config', '--quiet')
-        self.compose('pull', *self.names)
+        if self.manifest.get('env_refresh'):
+            # A configuration refresh must work with the exact images already deployed,
+            # including during a registry outage. Fail before touching live containers.
+            images = {self.manifest['app_image']}
+            if 'nginx' in self.names:
+                images.add(self.manifest['nginx_image'])
+            for image in sorted(images):
+                run(['docker', 'image', 'inspect', image], label=f'{self.role} check cached image')
+            self.check_env_dependencies()
+        else:
+            self.compose('pull', *self.names)
         if self.manifest['run_migrations'] and self.release_id == transaction:
             run(['docker', 'pull', self.manifest['migration_image']])
         if self.role == 'vps1':
             self.check_nginx()
         return {'prepared': True, 'memory': memory}
 
+    def check_env_dependencies(self):
+        script = (self.bundle / 'env-preflight.mjs').read_text()
+        run(['docker', 'run', '--rm', '--pull=never', '--network', 'handygo_default',
+             '--user', '1000:1000', '--read-only', '--memory=128m', '--memory-swap=256m', '--cpus=0.25',
+             '--pids-limit=64', '--cap-drop=ALL', '--security-opt=no-new-privileges',
+             '--env-file', str(self.bundle / 'shared.env'),
+             '-e', 'NODE_OPTIONS=--max-old-space-size=64',
+             self.manifest['app_image'], 'node', '--input-type=module', '-e', script, self.role],
+            label=f'{self.role} validate candidate ENV dependencies (no application writes)')
+
     def apply(self, transaction):
         state = self.owner(transaction)
         state.update(touched=True, phase='APPLYING')
         write(ROOT / 'pending.json', state)  # before mutation, including uncertain SSH outcomes
-        migrations = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog',)}[self.role]
+        migrations = MIGRATIONS[self.role]
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
             self.compose('stop', *self.names)
             for service in migrations:
@@ -275,7 +300,9 @@ class Host:
         order = sorted(self.names, key=lambda n: {'user-trust-service': -3, 'auth-service': -2,
                                                 'api-gateway': 1, 'nginx': 2}.get(n, 0))
         for name in order:
-            self.compose('up', '-d', '--no-build', '--no-deps', '--wait', '--wait-timeout', '240', name)
+            refresh = ('--force-recreate', '--pull', 'never') if self.manifest.get('env_refresh') else ()
+            self.compose('up', '-d', '--no-build', '--no-deps', *refresh,
+                         '--wait', '--wait-timeout', '240', name)
         old = state['previous']
         if old:
             old_host = Host(self.role, old['release_id'])
@@ -337,7 +364,9 @@ class Host:
         old.compose('config', '--quiet')
         # Pull may fail during registry outage; local digest cache remains usable.
         for name in old.names:
-            old.compose('up', '-d', '--no-build', '--no-deps', '--pull', 'missing', '--wait', '--wait-timeout', '240', name)
+            pull = 'never' if self.manifest.get('env_refresh') else 'missing'
+            old.compose('up', '-d', '--no-build', '--no-deps', '--pull', pull,
+                        '--wait', '--wait-timeout', '240', name)
         added = sorted(set(self.names) - set(old.names))
         if added:
             self.compose('rm', '-s', '-f', *added)
@@ -374,12 +403,24 @@ class Host:
 
 def main():
     os.umask(0o077)
-    action, role, release_id, transaction = sys.argv[1:]
+    arguments = sys.argv[1:]
+    wait_lock = arguments[-1:] == ['--wait-lock']
+    if wait_lock:
+        arguments.pop()
+    action, role, release_id, transaction = arguments
     if not re.fullmatch(RELEASE_ID, transaction):
         raise ValueError('Invalid transaction ID')
     ROOT.mkdir(parents=True, exist_ok=True)
     with (ROOT / 'deploy.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        deadline = time.monotonic() + (900 if wait_lock else 0)
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('Host operation still running; leave pending.json intact and retry recovery')
+                time.sleep(1)
         host = Host(role, release_id)
         emit(role, f'Start {action}: {release_id}')
         try:

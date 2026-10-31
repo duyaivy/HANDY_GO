@@ -49,6 +49,17 @@ jobs:
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      wallet-migration-db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wallet_test
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: wallet_migration_test
+        ports: ['55439:5432']
+        options: >-
+          --health-cmd "pg_isready -U wallet_test -d wallet_migration_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -76,6 +87,14 @@ jobs:
 
       - name: Generate Prisma clients
         run: pnpm run prisma:generate
+
+      - name: Verify wallet migrations on disposable PostgreSQL
+        env:
+          WALLET_MIGRATION_TEST_URL: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test
+        run: node scripts/tests/wallet-migrations.mjs
+
+      - name: Verify deployment migration ordering and rollback
+        run: python3 -m unittest discover -s deploy/production/tests -v
 
       - name: Lint
         run: pnpm run lint

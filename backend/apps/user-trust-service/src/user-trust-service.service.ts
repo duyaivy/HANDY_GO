@@ -60,6 +60,26 @@ export class UserTrustServiceService {
     private readonly rabbitmq?: RabbitMQService,
   ) {}
 
+  /**
+   * `active` chỉ nghĩa là user đang active; KHÔNG chứng minh tài khoản ngân hàng đã được ngân hàng xác minh.
+   * Việc xác minh thật với ngân hàng/provider sẽ bổ sung sau.
+   */
+  async verifyBankAccountOwnership(
+    userId: string,
+    bankAccountId: string,
+  ): Promise<{ owned: boolean; active: boolean }> {
+    const account = await this.db.userBankAccount.findFirst({
+      where: {
+        id: bankAccountId,
+        userId,
+        user: { status: 'active' },
+      },
+      select: { id: true },
+    });
+
+    return { owned: account !== null, active: account !== null };
+  }
+
   async handleUserRegistered(
     event: DomainEvent<UserRegisteredData>,
   ): Promise<{ processed: boolean; idempotent: boolean }> {
@@ -1233,4 +1253,3 @@ export class UserTrustServiceService {
     };
   }
 }
-

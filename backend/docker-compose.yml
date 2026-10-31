@@ -246,6 +246,8 @@ services:
       <<: *development-environment
       NEST_PROJECT: wallet-service
       PORT: '3009'
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      WALLET_WITHDRAWALS_ENABLED: ${WALLET_WITHDRAWALS_ENABLED:-false}
     ports:
       - '3009:3009'
 
@@ -257,4 +259,3 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
-
