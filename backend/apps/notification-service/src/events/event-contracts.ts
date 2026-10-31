@@ -267,6 +267,12 @@ export function validateNotificationEvent(
     if (typeof rawData.referenceType === 'string')
       data.referenceType = rawData.referenceType;
   }
+  if (type === 'matching.completed') {
+    const customerId = resolveField(rawData, 'customerId');
+    if (typeof customerId === 'string' && isUUID(customerId)) {
+      data.customerId = customerId.toLowerCase();
+    }
+  }
   // Whitelist metadata; unknown business fields and secrets never reach storage/logs.
   return {
     eventId: envelope.eventId.toLowerCase(),
