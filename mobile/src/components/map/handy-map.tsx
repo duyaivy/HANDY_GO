@@ -116,7 +116,6 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
               pitchEnabled={interactive}
               rotateEnabled={interactive}
               zoomEnabled={interactive}
-              onRegionDidChange={handleRegionDidChange}
               onMapIdle={handleRegionDidChange}
               onCameraChanged={handleRegionDidChange}
             >
