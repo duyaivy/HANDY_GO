@@ -1,7 +1,7 @@
 /* eslint-disable max-lines-per-function */
 import type { BidCandidate, RecommendationCandidate } from '@/features/candidates/types/candidate.types';
 import type { CreateBookingProposalPayload } from '@/features/orders/types/order.types';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -144,6 +144,38 @@ export default function CustomerBookingRadarRoute() {
   useBiddingEvents(validRequestId, {
     enabled: Boolean(validRequestId),
   });
+
+  // Query existing proposals for this request to track proposed workers
+  const { data: requestProposals } = useQuery({
+    queryKey: ['orders', 'request-proposals', validRequestId],
+    queryFn: async () => {
+      if (!validRequestId)
+        return [];
+      const res = await OrdersApi.getProposalsForRequest(validRequestId);
+      return res?.data || [];
+    },
+    enabled: Boolean(validRequestId),
+    refetchInterval: 5000,
+  });
+
+  const [locallyProposedWorkerIds, setLocallyProposedWorkerIds] = React.useState<Set<string>>(new Set());
+
+  const proposedWorkerIds = React.useMemo(() => {
+    const set = new Set<string>(locallyProposedWorkerIds);
+    if (Array.isArray(requestProposals)) {
+      requestProposals.forEach((p) => {
+        if (p.status === 'proposed') {
+          set.add(p.workerUserId);
+        }
+      });
+    }
+    return set;
+  }, [requestProposals, locallyProposedWorkerIds]);
+
+  const isWorkerProposed = React.useCallback(
+    (workerId: string) => proposedWorkerIds.has(workerId),
+    [proposedWorkerIds],
+  );
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isWorkerSheetOpen, setIsWorkerSheetOpen] = React.useState(true);
@@ -361,8 +393,12 @@ export default function CustomerBookingRadarRoute() {
       // Call Booking Proposal API (Never create Order directly)
       await OrdersApi.createProposal(proposalPayload);
 
-      // Invalidate React Query cache
+      // Mark this worker as proposed locally and refresh queries
+      setLocallyProposedWorkerIds(prev => new Set(prev).add(worker.id));
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      if (targetRequestId) {
+        await queryClient.invalidateQueries({ queryKey: ['orders', 'request-proposals', targetRequestId] });
+      }
       useBookingDraftStore.getState().resetDraft();
 
       Alert.alert(
@@ -376,14 +412,44 @@ export default function CustomerBookingRadarRoute() {
               params: { tab: 'Draft' },
             } as any),
           },
+          {
+            text: 'Ở lại màn hình',
+            style: 'cancel',
+          },
         ],
       );
     }
     catch (err: unknown) {
       const errorObj = err as { code?: string; message?: string; response?: { data?: { code?: string; message?: string } } };
+      const errorCode = errorObj?.response?.data?.code || errorObj?.code;
       const errorMsg = String(errorObj?.response?.data?.message || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
+
+      const isConflict = errorCode === 'PROPOSAL_REVISION_CONFLICT'
+        || errorMsg.includes('already awaiting response');
+
+      if (isConflict) {
+        setLocallyProposedWorkerIds(prev => new Set(prev).add(worker.id));
+        Alert.alert(
+          'Đang chờ thợ phản hồi',
+          `Bạn đã gửi đề xuất cho thợ ${worker.name} rồi và đang chờ thợ xác nhận. Vui lòng kiểm tra trạng thái trong mục Hoạt động.`,
+          [
+            {
+              text: 'Xem hoạt động',
+              onPress: () => router.push({
+                pathname: RouteNames.CUSTOMER_ORDERS,
+                params: { tab: 'Draft' },
+              } as any),
+            },
+            {
+              text: 'Đóng',
+              style: 'cancel',
+            },
+          ],
+        );
+        return;
+      }
 
       console.error('[RADAR] Error while sending proposal:', errorMsg || err);
       Alert.alert(
@@ -712,11 +778,25 @@ export default function CustomerBookingRadarRoute() {
                                   <Pressable
                                     testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
                                     onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                    disabled={isSubmitting}
-                                    className="min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#F5A524] px-4 active:opacity-80"
+                                    disabled={isSubmitting || isWorkerProposed(worker.id)}
+                                    className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
+                                      isWorkerProposed(worker.id)
+                                        ? 'bg-neutral-200 dark:bg-neutral-800'
+                                        : 'bg-[#F5A524] active:opacity-80'
+                                    }`}
                                   >
-                                    <Text className="text-sm font-bold text-white">
-                                      {isSubmitting ? 'Đang gửi...' : 'Chọn thợ'}
+                                    <Text
+                                      className={`text-sm font-bold ${
+                                        isWorkerProposed(worker.id)
+                                          ? 'text-neutral-500 dark:text-neutral-400'
+                                          : 'text-white'
+                                      }`}
+                                    >
+                                      {isWorkerProposed(worker.id)
+                                        ? 'Đang chờ thợ...'
+                                        : isSubmitting
+                                          ? 'Đang gửi...'
+                                          : 'Chọn thợ'}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -846,11 +926,25 @@ export default function CustomerBookingRadarRoute() {
                                     <Pressable
                                       testID={globalIdx === 0 ? 'radar-select-worker-btn' : undefined}
                                       onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                      disabled={isSubmitting}
-                                      className="min-h-10 shrink-0 items-center justify-center rounded-xl bg-[#F5A524] px-4 active:opacity-80"
+                                      disabled={isSubmitting || isWorkerProposed(worker.id)}
+                                      className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
+                                        isWorkerProposed(worker.id)
+                                          ? 'bg-neutral-200 dark:bg-neutral-800'
+                                          : 'bg-[#F5A524] active:opacity-80'
+                                      }`}
                                     >
-                                      <Text className="text-sm font-bold text-white">
-                                        {isSubmitting ? 'Đang gửi...' : 'Chọn thợ'}
+                                      <Text
+                                        className={`text-sm font-bold ${
+                                          isWorkerProposed(worker.id)
+                                            ? 'text-neutral-500 dark:text-neutral-400'
+                                            : 'text-white'
+                                        }`}
+                                      >
+                                        {isWorkerProposed(worker.id)
+                                          ? 'Đang chờ thợ...'
+                                          : isSubmitting
+                                            ? 'Đang gửi...'
+                                            : 'Chọn thợ'}
                                       </Text>
                                     </Pressable>
                                   </View>
@@ -893,10 +987,22 @@ export default function CustomerBookingRadarRoute() {
                                 <Pressable
                                   testID="radar-select-worker-btn"
                                   onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
-                                  disabled={isSubmitting}
-                                  className="rounded-lg bg-[#F5A524] px-3 py-1.5"
+                                  disabled={isSubmitting || isWorkerProposed(displayList[0].id)}
+                                  className={`rounded-lg px-3 py-1.5 ${
+                                    isWorkerProposed(displayList[0].id)
+                                      ? 'bg-neutral-200 dark:bg-neutral-800'
+                                      : 'bg-[#F5A524]'
+                                  }`}
                                 >
-                                  <Text className="text-xs font-bold text-white">Chọn thợ</Text>
+                                  <Text
+                                    className={`text-xs font-bold ${
+                                      isWorkerProposed(displayList[0].id)
+                                        ? 'text-neutral-500 dark:text-neutral-400'
+                                        : 'text-white'
+                                    }`}
+                                  >
+                                    {isWorkerProposed(displayList[0].id) ? 'Đang chờ thợ...' : 'Chọn thợ'}
+                                  </Text>
                                 </Pressable>
                               </View>
                             </View>
