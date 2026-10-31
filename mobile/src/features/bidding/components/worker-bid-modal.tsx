@@ -257,7 +257,7 @@ export function WorkerBidModal({
                 </Text>
                 {roundStatus && (
                   <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                    {roundStatus.bidCount} thợ đã báo giá
+                    {roundStatus.activeBidCount ?? roundStatus.bidCount} thợ đã báo giá
                   </Text>
                 )}
               </View>

@@ -111,8 +111,10 @@ export class CandidatesAggregationService {
       });
     const isPartial = partialFailures.length > 0;
 
-    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections)
-    const biddingItems: BidCandidateDto[] = biddingResult.items.map((b) => {
+    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections, only include active bids)
+    const biddingItems: BidCandidateDto[] = biddingResult.items
+      .filter((b) => !b.status || b.status === 'active')
+      .map((b) => {
       const bidId = b.id;
       const workerId = b.workerId || b.workerUserId;
       return {

@@ -714,6 +714,23 @@ export class BidsService {
         });
       }
 
+      // Decrement round bidCount when a bid is withdrawn
+      if (typeof tx.biddingRound?.updateMany === 'function') {
+        await tx.biddingRound.updateMany({
+          where: { id: bid.biddingRoundId, bidCount: { gt: 0 } },
+          data: {
+            bidCount: { decrement: 1 },
+          },
+        });
+      } else if (typeof tx.biddingRound?.update === 'function') {
+        await tx.biddingRound.update({
+          where: { id: bid.biddingRoundId },
+          data: {
+            bidCount: { decrement: 1 },
+          },
+        });
+      }
+
       // Write Outbox Event: bid.withdrawn
       await tx.outboxEvent.create({
         data: {
@@ -806,7 +823,7 @@ export class BidsService {
         select: { customerId: true },
       }),
       this.prisma.bid.findMany({
-        where: { serviceRequestId },
+        where: { serviceRequestId, status: 'active' },
         select: { workerId: true },
         distinct: ['workerId'],
       }),

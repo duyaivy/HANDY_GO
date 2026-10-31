@@ -80,7 +80,7 @@ export class RoundsService {
       status: currentRound.status,
       opensAt: currentRound.opensAt,
       closesAt: currentRound.closesAt,
-      bidCount: currentRound.bidCount,
+      bidCount: activeBidCount,
       activeBidCount,
       timeRemainingSeconds,
       isExpired: now >= currentRound.closesAt,

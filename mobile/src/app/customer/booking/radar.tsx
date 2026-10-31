@@ -288,24 +288,26 @@ export default function CustomerBookingRadarRoute() {
     }
   };
 
-  // Map Bid Candidates (Section A)
+  // Map Bid Candidates (Section A - only active bids)
   const mappedBids: DisplayWorkerCandidate[] = React.useMemo(() => {
-    return bids.map((b: BidCandidate) => ({
-      id: b.workerUserId,
-      name: b.workerProfile?.fullName || 'Thợ đối tác',
-      rating: b.workerProfile?.averageRating ?? 5.0,
-      totalOrders: b.workerProfile?.completedOrderCount ?? 0,
-      completionRate: 98,
-      price: b.amount,
-      priceText: `${b.amount.toLocaleString('vi-VN')}đ`,
-      distance: typeof b.workerProfile?.distanceKm === 'number'
-        ? `${b.workerProfile.distanceKm.toFixed(1)}km`
-        : 'Gần bạn',
-      avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-      selectionSource: 'bid' as const,
-      sourceBidId: b.sourceBidId,
-      message: b.message || undefined,
-    }));
+    return bids
+      .filter((b: BidCandidate) => !b.status || b.status === 'active')
+      .map((b: BidCandidate) => ({
+        id: b.workerUserId,
+        name: b.workerProfile?.fullName || 'Thợ đối tác',
+        rating: b.workerProfile?.averageRating ?? 5.0,
+        totalOrders: b.workerProfile?.completedOrderCount ?? 0,
+        completionRate: 98,
+        price: b.amount,
+        priceText: `${b.amount.toLocaleString('vi-VN')}đ`,
+        distance: typeof b.workerProfile?.distanceKm === 'number'
+          ? `${b.workerProfile.distanceKm.toFixed(1)}km`
+          : 'Gần bạn',
+        avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
+        selectionSource: 'bid' as const,
+        sourceBidId: b.sourceBidId,
+        message: b.message || undefined,
+      }));
   }, [bids]);
 
   // Map AI Recommendations (Section B)
