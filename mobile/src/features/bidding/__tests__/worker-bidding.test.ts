@@ -154,7 +154,9 @@ describe('Worker Bidding API & Hooks Tests', () => {
         await result.current.mutateAsync({ amount: 250000 });
       });
 
-      expect(result.current.isSuccess).toBe(true);
+      await waitFor(() => {
+        expect(result.current.isSuccess).toBe(true);
+      });
       expect(invalidateSpy).toHaveBeenCalled();
     });
 
