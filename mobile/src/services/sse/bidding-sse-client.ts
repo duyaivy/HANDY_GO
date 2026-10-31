@@ -314,7 +314,7 @@ export class BiddingSseClient {
       const useFetch = transport === 'fetch' || (transport === 'auto' && isWeb && typeof fetch !== 'undefined');
 
       if (useFetch) {
-        await this.streamViaFetch(url, token, parser, signal);
+        await this.streamViaFetch(url, parser, { token, signal });
       }
       else {
         this.streamViaXhr(url, token, parser);
@@ -332,10 +332,10 @@ export class BiddingSseClient {
 
   private async streamViaFetch(
     url: string,
-    token: string | undefined,
     parser: SseStreamParser,
-    signal: AbortSignal,
+    options: { signal: AbortSignal; token?: string },
   ): Promise<void> {
+    const { signal, token } = options;
     const headers: Record<string, string> = {
       Accept: 'text/event-stream',
     };
@@ -410,7 +410,7 @@ export class BiddingSseClient {
 
   private streamViaXhr(url: string, token: string | undefined, parser: SseStreamParser): void {
     if (typeof XMLHttpRequest === 'undefined') {
-      throw new Error('Neither fetch nor XMLHttpRequest is available in this environment');
+      throw new TypeError('Neither fetch nor XMLHttpRequest is available in this environment');
     }
 
     const xhr = new XMLHttpRequest();

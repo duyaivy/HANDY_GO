@@ -1,8 +1,7 @@
-import type { DiscoverableJobItem } from '../api/worker-discovery.api';
 import type { BidDetail } from '../api/worker-bidding.api';
+import type { DiscoverableJobItem } from '../api/worker-discovery.api';
 import * as React from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -52,7 +51,6 @@ export function WorkerBidModal({
   const [amountStr, setAmountStr] = React.useState('');
   const [message, setMessage] = React.useState('');
   const [withdrawReason, setWithdrawReason] = React.useState('');
-  const [showWithdrawInput, setShowWithdrawInput] = React.useState(false);
 
   // Initialize or reset form fields when modal opens or existingBid changes
   React.useEffect(() => {
@@ -65,7 +63,6 @@ export function WorkerBidModal({
         setAmountStr('');
         setMessage('');
       }
-      setShowWithdrawInput(false);
       setWithdrawReason('');
     }
   }, [visible, existingBid]);
@@ -230,12 +227,13 @@ export function WorkerBidModal({
         <View className="max-h-[90%] rounded-t-3xl bg-white p-5 shadow-2xl dark:bg-neutral-900">
           {/* Header */}
           <View className="flex-row items-center justify-between border-b border-neutral-100 pb-3 dark:border-neutral-800">
-            <View className="flex-1 mr-3">
+            <View className="mr-3 flex-1">
               <Text className="text-lg font-black text-neutral-900 dark:text-white" numberOfLines={1}>
                 {existingBid && existingBid.status === 'active' ? 'Điều chỉnh báo giá' : 'Gửi báo giá dịch vụ'}
               </Text>
               <Text className="text-xs font-semibold text-neutral-400">
-                #{request?.requestCode || request?.id?.slice(0, 8)}
+                #
+                {request?.requestCode || request?.id?.slice(0, 8)}
               </Text>
             </View>
             <Pressable
@@ -257,15 +255,23 @@ export function WorkerBidModal({
                 </Text>
                 {roundStatus && (
                   <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                    {roundStatus.activeBidCount ?? roundStatus.bidCount} thợ đã báo giá
+                    {roundStatus.activeBidCount ?? roundStatus.bidCount}
+                    {' '}
+                    thợ đã báo giá
                   </Text>
                 )}
               </View>
-              {roundStatus?.timeRemainingSeconds ? (
-                <Text className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
-                  Thời gian còn lại: {Math.floor(roundStatus.timeRemainingSeconds / 60)} phút
-                </Text>
-              ) : null}
+              {roundStatus?.timeRemainingSeconds
+                ? (
+                    <Text className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
+                      Thời gian còn lại:
+                      {' '}
+                      {Math.floor(roundStatus.timeRemainingSeconds / 60)}
+                      {' '}
+                      phút
+                    </Text>
+                  )
+                : null}
             </View>
 
             {/* Request Summary */}
@@ -277,12 +283,17 @@ export function WorkerBidModal({
                 </Text>
                 {request.addressText && (
                   <Text className="mt-1.5 text-xs text-neutral-500" numberOfLines={2}>
-                    Địa chỉ: {request.addressText}
+                    Địa chỉ:
+                    {' '}
+                    {request.addressText}
                   </Text>
                 )}
                 {typeof request.distanceKm === 'number' && (
                   <Text className="mt-1 text-xs font-semibold text-[#2563EB]">
-                    Khoảng cách: ~{request.distanceKm.toFixed(1)} km
+                    Khoảng cách: ~
+                    {request.distanceKm.toFixed(1)}
+                    {' '}
+                    km
                   </Text>
                 )}
               </View>
@@ -292,15 +303,29 @@ export function WorkerBidModal({
             {existingBid && existingBid.status === 'active' && (
               <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
                 <Text className="text-xs font-bold text-amber-800 dark:text-amber-300">
-                  Báo giá hiện tại: {existingBid.amount.toLocaleString('vi-VN')} đ (Phiên bản v{existingBid.version})
+                  Báo giá hiện tại:
+                  {' '}
+                  {existingBid.amount.toLocaleString('vi-VN')}
+                  {' '}
+                  đ (Phiên bản v
+                  {existingBid.version}
+                  )
                 </Text>
                 <Text className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                  Số lần sửa còn lại: {revisionsLeft}/{MAX_REVISIONS}. Giãn cách tối thiểu giữa 2 lần sửa: 2 phút.
+                  Số lần sửa còn lại:
+                  {' '}
+                  {revisionsLeft}
+                  /
+                  {MAX_REVISIONS}
+                  . Giãn cách tối thiểu giữa 2 lần sửa: 2 phút.
                 </Text>
                 {isCooldownActive && (
                   <View className="mt-2 flex-row items-center rounded-md bg-amber-100 px-2.5 py-1.5 dark:bg-amber-900/60">
                     <Text className="text-xs font-black text-amber-900 dark:text-amber-200">
-                      ⏱ Đang trong thời gian chờ: còn {cooldownRemainingSec}s mới được sửa tiếp
+                      ⏱ Đang trong thời gian chờ: còn
+                      {' '}
+                      {cooldownRemainingSec}
+                      s mới được sửa tiếp
                     </Text>
                   </View>
                 )}
@@ -322,7 +347,9 @@ export function WorkerBidModal({
             {/* Amount Input */}
             <View className="mb-3">
               <Text className="mb-1 text-sm font-bold text-neutral-700 dark:text-neutral-300">
-                Mức giá đề xuất (VNĐ) <Text className="text-red-500">*</Text>
+                Mức giá đề xuất (VNĐ)
+                {' '}
+                <Text className="text-red-500">*</Text>
               </Text>
               <TextInput
                 editable={existingBid?.status !== 'withdrawn'}
@@ -335,11 +362,13 @@ export function WorkerBidModal({
                   existingBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
                 }`}
               />
-              {displayFormattedAmount ? (
-                <Text className="mt-1 text-sm font-black text-[#F5A524]">
-                  {displayFormattedAmount}
-                </Text>
-              ) : null}
+              {displayFormattedAmount
+                ? (
+                    <Text className="mt-1 text-sm font-black text-[#F5A524]">
+                      {displayFormattedAmount}
+                    </Text>
+                  )
+                : null}
             </View>
 
             {/* Message Input */}
@@ -362,7 +391,8 @@ export function WorkerBidModal({
                 textAlignVertical="top"
               />
               <Text className="mt-1 text-right text-xs text-neutral-400">
-                {message.length}/1000 ký tự
+                {message.length}
+                /1000 ký tự
               </Text>
             </View>
 

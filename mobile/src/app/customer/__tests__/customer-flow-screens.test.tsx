@@ -265,8 +265,7 @@ describe('customer Skeleton & Route Flow', () => {
     it('renders radar skeleton and navigates to worker profile on card click', () => {
       render(<CustomerBookingRadarScreen />);
 
-      expect(screen.getByText('Tìm thợ radar')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Đang tìm thợ & nhận báo giá')).toBeOnTheScreen();
 
       fireEvent.press(screen.getByTestId('radar-worker-profile-btn'));
       expect(mockPush).toHaveBeenCalledWith('/customer/workers/th-01');

@@ -41,7 +41,6 @@ export function WorkerHomeScreen() {
     isRefetching,
     jobs,
     refetch,
-    total,
     totalPages,
   } = useWorkerDiscovery({
     page,
@@ -61,19 +60,20 @@ export function WorkerHomeScreen() {
     }, [isAuthenticated, user, refetch, refetchMyBids]),
   );
 
+  const [mountTime] = React.useState(() => Date.now());
+
   // Client-side guard: Only show jobs whose bidding round has NOT ended
   const activeJobs = React.useMemo(() => {
-    const now = Date.now();
     return jobs.filter((job) => {
       if (job.biddingClosesAt) {
         const closesAtMs = new Date(job.biddingClosesAt).getTime();
-        if (!Number.isNaN(closesAtMs) && closesAtMs <= now) {
+        if (!Number.isNaN(closesAtMs) && closesAtMs <= mountTime) {
           return false;
         }
       }
       return true;
     });
-  }, [jobs]);
+  }, [jobs, mountTime]);
 
   // Auto-open bidding modal when navigated with ?requestId=... (e.g. from matching notification)
   React.useEffect(() => {
@@ -228,7 +228,7 @@ export function WorkerHomeScreen() {
 
         {/* Error State */}
         {!isLoading && isError && (
-          <View className="items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-6 my-8 dark:border-red-900 dark:bg-red-950/30">
+          <View className="my-8 items-center justify-center rounded-2xl border border-red-200 bg-red-50 p-6 dark:border-red-900 dark:bg-red-950/30">
             <Text className="text-center text-sm font-bold text-red-700 dark:text-red-300">
               Không thể tải danh sách công việc
             </Text>
@@ -243,7 +243,7 @@ export function WorkerHomeScreen() {
 
         {/* Empty State */}
         {!isLoading && !isError && activeJobs.length === 0 && (
-          <View className="items-center justify-center py-16 px-4">
+          <View className="items-center justify-center px-4 py-16">
             <View className="size-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
               <Svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth={2}>
                 <Path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -252,7 +252,7 @@ export function WorkerHomeScreen() {
             <Text className="mt-4 text-center text-base font-bold text-neutral-800 dark:text-neutral-200">
               Chưa có yêu cầu mới
             </Text>
-            <Text className="mt-1 text-center text-xs text-neutral-500 max-w-[260px]">
+            <Text className="mt-1 max-w-[260px] text-center text-xs text-neutral-500">
               Hiện tại chưa có khách hàng nào đặt lịch trong bán kính phục vụ của bạn. Hãy quay lại sau ít phút!
             </Text>
             <View className="mt-4 w-36">
@@ -266,7 +266,6 @@ export function WorkerHomeScreen() {
           <View className="gap-3 pb-6">
             {activeJobs.map((job) => {
               const existingBid = getExistingBidForJob(job.id);
-              const hasBid = Boolean(existingBid);
 
               return (
                 <Pressable
@@ -279,7 +278,8 @@ export function WorkerHomeScreen() {
                     <View className="flex-row items-center gap-1.5">
                       <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
                         <Text className="text-[11px] font-black text-neutral-700 dark:text-neutral-300">
-                          #{job.requestCode || job.id.slice(0, 8)}
+                          #
+                          {job.requestCode || job.id.slice(0, 8)}
                         </Text>
                       </View>
                       <View className="rounded-md bg-amber-50 px-2 py-0.5 dark:bg-amber-950/40">
@@ -296,7 +296,9 @@ export function WorkerHomeScreen() {
                           <Path d="M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
                         </Svg>
                         <Text className="ml-1 text-[11px] font-bold text-[#2563EB] dark:text-blue-400">
-                          {job.distanceKm.toFixed(1)} km
+                          {job.distanceKm.toFixed(1)}
+                          {' '}
+                          km
                         </Text>
                       </View>
                     )}
@@ -327,7 +329,9 @@ export function WorkerHomeScreen() {
                         <Path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
                       </Svg>
                       <Text className="text-xs text-neutral-500">
-                        Hẹn: {new Date(job.scheduledAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
+                        Hẹn:
+                        {' '}
+                        {new Date(job.scheduledAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
                       </Text>
                     </View>
                   )}
@@ -340,54 +344,66 @@ export function WorkerHomeScreen() {
                         <Path d="M12 6v6l4 2" />
                       </Svg>
                       <Text className="text-xs font-semibold text-amber-700 dark:text-amber-400">
-                        Hạn báo giá: {new Date(job.biddingClosesAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
+                        Hạn báo giá:
+                        {' '}
+                        {new Date(job.biddingClosesAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
                       </Text>
                     </View>
                   )}
 
                   {/* Action Bar */}
                   <View className="mt-3.5 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    {existingBid?.status === 'active' ? (
-                      <View className="flex-row items-center">
-                        <View className="mr-1.5 size-2 rounded-full bg-emerald-500" />
-                        <Text className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                          Đã gửi: {existingBid?.amount.toLocaleString('vi-VN')} đ
-                        </Text>
-                      </View>
-                    ) : existingBid?.status === 'withdrawn' ? (
-                      <View className="flex-row items-center">
-                        <View className="mr-1.5 size-2 rounded-full bg-neutral-400" />
-                        <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                          Đã rút báo giá
-                        </Text>
-                      </View>
-                    ) : (
-                      <Text className="text-xs text-neutral-400">
-                        Chưa gửi báo giá
-                      </Text>
-                    )}
+                    {existingBid?.status === 'active'
+                      ? (
+                          <View className="flex-row items-center">
+                            <View className="mr-1.5 size-2 rounded-full bg-emerald-500" />
+                            <Text className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                              Đã gửi:
+                              {' '}
+                              {existingBid?.amount.toLocaleString('vi-VN')}
+                              {' '}
+                              đ
+                            </Text>
+                          </View>
+                        )
+                      : existingBid?.status === 'withdrawn'
+                        ? (
+                            <View className="flex-row items-center">
+                              <View className="mr-1.5 size-2 rounded-full bg-neutral-400" />
+                              <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                                Đã rút báo giá
+                              </Text>
+                            </View>
+                          )
+                        : (
+                            <Text className="text-xs text-neutral-400">
+                              Chưa gửi báo giá
+                            </Text>
+                          )}
 
-                    {existingBid?.status === 'withdrawn' ? (
-                      <Pressable
-                        onPress={() => handleOpenBidModal(job)}
-                        className="rounded-xl bg-neutral-100 px-4 py-2 dark:bg-neutral-800 active:opacity-80"
-                      >
-                        <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                          Xem chi tiết
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        onPress={() => handleOpenBidModal(job)}
-                        className={`rounded-xl px-4 py-2 ${
-                          existingBid?.status === 'active' ? 'bg-neutral-800 dark:bg-neutral-700' : 'bg-[#F5A524]'
-                        } active:opacity-80`}
-                      >
-                        <Text className={`text-xs font-black ${existingBid?.status === 'active' ? 'text-white' : 'text-neutral-950'}`}>
-                          {existingBid?.status === 'active' ? 'Điều chỉnh giá' : 'Gửi báo giá'}
-                        </Text>
-                      </Pressable>
-                    )}
+                    {existingBid?.status === 'withdrawn'
+                      ? (
+                          <Pressable
+                            onPress={() => handleOpenBidModal(job)}
+                            className="rounded-xl bg-neutral-100 px-4 py-2 active:opacity-80 dark:bg-neutral-800"
+                          >
+                            <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                              Xem chi tiết
+                            </Text>
+                          </Pressable>
+                        )
+                      : (
+                          <Pressable
+                            onPress={() => handleOpenBidModal(job)}
+                            className={`rounded-xl px-4 py-2 ${
+                              existingBid?.status === 'active' ? 'bg-neutral-800 dark:bg-neutral-700' : 'bg-[#F5A524]'
+                            } active:opacity-80`}
+                          >
+                            <Text className={`text-xs font-black ${existingBid?.status === 'active' ? 'text-white' : 'text-neutral-950'}`}>
+                              {existingBid?.status === 'active' ? 'Điều chỉnh giá' : 'Gửi báo giá'}
+                            </Text>
+                          </Pressable>
+                        )}
                   </View>
                 </Pressable>
               );
@@ -404,7 +420,10 @@ export function WorkerHomeScreen() {
                   onPress={() => setPage(p => Math.max(1, p - 1))}
                 />
                 <Text className="text-xs font-bold text-neutral-600 dark:text-neutral-400">
-                  {page} / {totalPages}
+                  {page}
+                  {' '}
+                  /
+                  {totalPages}
                 </Text>
                 <Button
                   variant="outline"

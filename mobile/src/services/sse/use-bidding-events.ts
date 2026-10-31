@@ -1,3 +1,4 @@
+import type { AppStateStatus } from 'react-native';
 import type {
   SseBidChangedEvent,
   SseMatchingChangedEvent,
@@ -6,7 +7,7 @@ import type {
 } from './bidding-sse-client';
 import { useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState } from 'react-native';
 import { candidateQueryKeys, workerBiddingKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { Logger } from '@/services/logger/logger';
 import { useAuthStore } from '@/stores/use-auth-store';

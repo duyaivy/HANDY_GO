@@ -158,7 +158,7 @@ export default function CustomerBookingRadarRoute() {
     refetchInterval: 5000,
   });
 
-  const [locallyProposedWorkerIds, setLocallyProposedWorkerIds] = React.useState<Set<string>>(new Set());
+  const [locallyProposedWorkerIds, setLocallyProposedWorkerIds] = React.useState<Set<string>>(() => new Set());
 
   const proposedWorkerIds = React.useMemo(() => {
     const set = new Set<string>(locallyProposedWorkerIds);

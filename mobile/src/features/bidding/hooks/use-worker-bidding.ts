@@ -61,7 +61,7 @@ export function useSubmitBid(requestId: string) {
 
   return useMutation<BidDetail, Error, SubmitBidPayload>({
     mutationFn: (payload: SubmitBidPayload) => WorkerBiddingApi.submitBid(requestId, payload),
-    onSuccess: (newBid) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workerBiddingKeys.requestBids(requestId),
       });
