@@ -8,6 +8,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Modal,
   Pressable,
@@ -122,6 +123,7 @@ export function CustomerBookingScreen({
   const imageItemsRef = React.useRef(imageItems);
   imageItemsRef.current = imageItems;
   const isMountedRef = React.useRef(true);
+  const isProceedingToNextStepRef = React.useRef(false);
 
   const isAnyLoading = imageItems.some(
     item => item.status === 'pending' || item.status === 'uploading' || item.status === 'processing',
@@ -129,7 +131,7 @@ export function CustomerBookingScreen({
   const isUploading = isAnyLoading;
   const hasError = imageItems.some(item => item.status === 'error');
 
-  // Lifecycle & Cleanup: abort all in-flight upload tasks when unmounting
+  // Lifecycle & Cleanup: abort tasks and reset draft if abandoning booking
   React.useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -140,12 +142,18 @@ export function CustomerBookingScreen({
           removeMediaUrl(item.localUri);
         }
       });
+      if (!isProceedingToNextStepRef.current) {
+        useBookingDraftStore.getState().resetDraft();
+      }
     };
   }, [removeMediaUrl]);
 
   // Sync if draft is reset or if mediaUrls is updated externally (e.g., sample photo in tests)
   React.useEffect(() => {
-    if (mediaUrls.length === 0 && imageItemsRef.current.length > 0 && !isAnyLoading) {
+    const hasInFlightOrError = imageItemsRef.current.some(
+      item => item.status === 'pending' || item.status === 'uploading' || item.status === 'processing' || item.status === 'error',
+    );
+    if (mediaUrls.length === 0 && imageItemsRef.current.length > 0 && !hasInFlightOrError) {
       setImageItems([]);
       return;
     }
@@ -419,14 +427,29 @@ export function CustomerBookingScreen({
     setDescription(quickText);
   };
 
-  const handleBack = () => {
+  const handleBack = React.useCallback(() => {
+    isProceedingToNextStepRef.current = false;
+    imageItemsRef.current.forEach((item) => {
+      item.abortController?.abort();
+    });
+    useBookingDraftStore.getState().resetDraft();
+    setImageItems([]);
     if (onBack) {
       onBack();
     }
     else {
       router.back();
     }
-  };
+  }, [onBack, router]);
+
+  React.useEffect(() => {
+    const onHardwareBack = () => {
+      handleBack();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [handleBack]);
 
   // In-app Camera states
   const [isCameraOpen, setIsCameraOpen] = React.useState(false);
@@ -623,6 +646,7 @@ export function CustomerBookingScreen({
     if (!description.trim()) {
       setDescription(generateQuickDescription(serviceName));
     }
+    isProceedingToNextStepRef.current = true;
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_ADDRESS as any);
   };
 
@@ -847,12 +871,6 @@ export function CustomerBookingScreen({
                 /5)
               </Text>
             </View>
-            {(isUploading || isAnyLoading) && (
-              <View className="flex-row items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 dark:bg-amber-950/40">
-                <ActivityIndicator size="small" color="#F5A524" />
-                <Text className="text-[11px] font-semibold text-[#F5A524]">Đang tải...</Text>
-              </View>
-            )}
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} className="gap-3">
@@ -870,26 +888,13 @@ export function CustomerBookingScreen({
               <Pressable
                 testID="booking-add-photo-btn"
                 onPress={handleAddPhotoPress}
-                disabled={isAnyLoading}
-                className={`size-20 items-center justify-center rounded-2xl border-2 border-dashed active:opacity-75 ${
-                  isAnyLoading
-                    ? 'border-neutral-300 bg-neutral-100 opacity-60 dark:border-neutral-700 dark:bg-neutral-800'
-                    : 'border-primary-200 bg-primary-50/40 active:bg-primary-50 dark:border-amber-800 dark:bg-amber-950/20'
-                }`}
+                className="size-20 items-center justify-center rounded-2xl border-2 border-dashed border-primary-200 bg-primary-50/40 active:bg-primary-50 active:opacity-75 dark:border-amber-800 dark:bg-amber-950/20"
               >
-                {isAnyLoading
-                  ? (
-                      <ActivityIndicator size="small" color="#F5A524" />
-                    )
-                  : (
-                      <>
-                        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                          <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
-                          <Circle cx="12" cy="13" r="3" />
-                        </Svg>
-                        <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
-                      </>
-                    )}
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
+                  <Circle cx="12" cy="13" r="3" />
+                </Svg>
+                <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
               </Pressable>
             )}
           </ScrollView>

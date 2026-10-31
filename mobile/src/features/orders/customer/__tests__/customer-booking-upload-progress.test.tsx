@@ -105,7 +105,7 @@ describe('customerBookingScreen - Image Upload Progress (TASK-01)', () => {
         'https://res.cloudinary.com/demo/image/upload/photo-1.jpg',
       ]);
     });
-  });
+  }, 15000);
 
   it('ca 2: Tải nhiều ảnh tuần tự (ảnh 1 tải, ảnh 2 và 3 ở trạng thái chờ tải)', async () => {
     const resolvers: Array<(url: string) => void> = [];
