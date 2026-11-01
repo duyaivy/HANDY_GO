@@ -141,7 +141,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
               className="flex shrink-0 items-center"
             >
               <Image
-                src="/handygo-logo-horizontal.svg"
+                src="/handygo.svg"
                 alt="HandyGo"
                 width={270}
                 height={90}

@@ -41,6 +41,7 @@ const kycApiRequest = {
   detail: (id: string) =>
     http.get<KycDetailResponse>(`/api/kyc-cases/${encodeURIComponent(id)}`, {
       baseUrl: "",
+      cache: "no-store",
     }),
 
   review: (id: string, body: ReviewKycBodyType) =>

@@ -9,7 +9,18 @@ import {
 } from "../hooks/use-services";
 import { useServiceQueryConfig } from "../hooks/use-service-query-config";
 import { useCategoryListQuery } from "@/feature/catagories/hooks/use-categories";
-import { Plus, Search, Layers, ChevronDown, Power, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Layers,
+  ChevronDown,
+  Power,
+  Trash2,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Wrench,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Pagination,
@@ -23,7 +34,6 @@ import {
 
 import { ServiceCategory, ServiceItem } from "../types";
 
-import ServiceCard from "./service-card";
 import AddServiceModal from "./add-service";
 import EditServiceModal from "./edit-service";
 import DetailServiceModal from "./detail-service";
@@ -98,6 +108,7 @@ export default function ServiceTable() {
     null,
   );
   const [deleteError, setDeleteError] = useState("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(
     null,
   );
@@ -157,7 +168,7 @@ export default function ServiceTable() {
   };
 
   return (
-    <div className="min-w-0 w-full space-y-5 sm:space-y-6">
+    <div className="min-w-0 w-full space-y-5 sm:space-y-6 font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* HEADER */}
       <div className="flex min-w-0 flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div className="min-w-0">
@@ -167,11 +178,11 @@ export default function ServiceTable() {
             <span className="text-slate-600">Dịch vụ</span>
           </div>
 
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          <h1 className="text-[24px] font-semibold tracking-tight leading-[1.3] text-[#0F172A]">
             Quản lý dịch vụ
           </h1>
 
-          <p className="mt-1 text-sm leading-5 text-slate-500">
+          <p className="mt-1 text-[14px] font-normal text-[#64748B]">
             Quản lý dịch vụ theo từng danh mục trên HandyGo.
           </p>
         </div>
@@ -298,103 +309,220 @@ export default function ServiceTable() {
           </div>
         </div>
 
-        {/* SERVICE GROUPS */}
-        <div className="space-y-7 p-4 sm:p-5">
-          {(isPending || isCategoryPending) && <ServiceListSkeleton />}
-          {isError && (
-            <p className="text-sm text-red-500">
-              Không thể tải danh sách dịch vụ.
-            </p>
-          )}
-          {!isPending &&
-            !isCategoryPending &&
-            !isError &&
-            categories
-              .filter(
-                (category) =>
-                  categoryFilter === "all" || category.id === categoryFilter,
-              )
-              .map((category) => {
-                const categoryServices = filteredServices.filter(
-                  (service) => service.categoryId === category.id,
-                );
-
-                if (categoryServices.length === 0) return null;
-
-                return (
-                  <section key={category.id} className="min-w-0">
-                    <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#FF5E14] sm:h-10 sm:w-10">
-                          <Layers size={19} />
+        {/* SERVICE TABLE — layout theo CategoryTable; giữ nguyên dữ liệu và handlers */}
+        <div className="p-4 sm:p-5">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[850px] text-left">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
+                  <th className="px-4 py-3.5 font-semibold">Dịch vụ</th>
+                  <th className="px-4 py-3.5 font-semibold">Danh mục</th>
+                  <th className="px-4 py-3.5 font-semibold">Trạng thái</th>
+                  <th className="px-4 py-3.5 text-right font-semibold">
+                    Thao tác
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-[14px]">
+                {isPending || isCategoryPending ? (
+                  Array.from({ length: limit }, (_, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-5 w-44" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-4 w-28" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-6 w-24 rounded-full" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex justify-end">
+                          <Skeleton className="h-8 w-8 rounded-lg" />
                         </div>
-
-                        <div className="min-w-0">
-                          <h3 className="truncate text-sm font-bold text-slate-900">
-                            {category.name}
-                          </h3>
-                          <p className="mt-0.5 text-xs text-slate-400">
-                            {categoryServices.length} dịch vụ
-                          </p>
+                      </td>
+                    </tr>
+                  ))
+                ) : isError ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-4 py-12 text-center text-sm text-red-500"
+                    >
+                      Không thể tải danh sách dịch vụ.
+                    </td>
+                  </tr>
+                ) : filteredServices.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center">
+                      <p className="text-sm font-semibold text-gray-700">
+                        Không tìm thấy dịch vụ
+                      </p>
+                      <p className="mt-1 text-[12px] text-[#64748B]">
+                        Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearch("");
+                          updateQuery({
+                            search: undefined,
+                            categoryId: undefined,
+                            isActive: undefined,
+                            page: "1",
+                          });
+                        }}
+                        className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
+                      >
+                        Xóa bộ lọc
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredServices.map((service) => (
+                    <tr
+                      key={service.id}
+                      onClick={() => openDetailModal(service)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openDetailModal(service);
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-label={`Xem chi tiết dịch vụ ${service.name}`}
+                      className="cursor-pointer transition hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
+                    >
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDetailModal(service);
+                          }}
+                          className="flex items-center gap-3 text-left"
+                        >
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-orange-50">
+                            {service.iconUrl ? (
+                              <img
+                                src={service.iconUrl}
+                                alt={service.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Wrench size={22} className="text-[#FF5E14]" />
+                            )}
+                          </div>
+                          <span className="font-medium text-[#0F172A] hover:text-[#FF5E14]">
+                            {service.name}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-600">
+                        {categories.find(
+                          (category) => category.id === service.categoryId,
+                        )?.name ?? "—"}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
+                            service.isActive
+                              ? "bg-green-50 text-green-700"
+                              : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {service.isActive ? "Active" : "Disabled"}
+                        </span>
+                      </td>
+                      <td
+                        className="px-4 py-4 text-right"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            aria-label={`Thao tác với ${service.name}`}
+                            onClick={() =>
+                              setOpenMenuId(
+                                openMenuId === service.id ? null : service.id,
+                              )
+                            }
+                            className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
+                          >
+                            <MoreVertical size={18} />
+                          </button>
+                          {openMenuId === service.id && (
+                            <>
+                              <button
+                                type="button"
+                                aria-label="Đóng menu"
+                                className="fixed inset-0 z-10"
+                                onClick={() => setOpenMenuId(null)}
+                              />
+                              <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openDetailModal(service);
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                                >
+                                  <Eye size={16} /> Xem chi tiết
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    openEditModal(service);
+                                    setOpenMenuId(null);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                                >
+                                  <Pencil size={16} /> Chỉnh sửa
+                                </button>
+                                <div className="my-1 border-t border-gray-100" />
+                                <button
+                                  type="button"
+                                  disabled={updateServiceStatus.isPending}
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    void handleToggleStatus(service);
+                                  }}
+                                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+                                    service.isActive
+                                      ? "text-orange-600"
+                                      : "text-green-600"
+                                  }`}
+                                >
+                                  <Power size={16} />{" "}
+                                  {service.isActive
+                                    ? "Vô hiệu hóa"
+                                    : "Kích hoạt"}
+                                </button>
+                                <div className="my-1 border-t border-gray-100" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    handleDeleteService(service);
+                                  }}
+                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 size={16} /> Xóa vĩnh viễn
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
-                      </div>
-
-                      <span className="hidden shrink-0 rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 min-[420px]:inline-flex">
-                        Danh mục
-                      </span>
-                    </div>
-
-                    <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                      {categoryServices.map((service) => (
-                        <ServiceCard
-                          key={service.id}
-                          service={service}
-                          onView={openDetailModal}
-                          onEdit={openEditModal}
-                          onToggleStatus={handleToggleStatus}
-                          onDelete={handleDeleteService}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-
-          {/* EMPTY STATE */}
-          {!isPending &&
-            !isCategoryPending &&
-            !isError &&
-            filteredServices.length === 0 && (
-              <div className="flex flex-col items-center justify-center px-3 py-12 text-center sm:py-16">
-                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                  <Search size={24} />
-                </div>
-
-                <p className="text-sm font-bold text-slate-700">
-                  Không tìm thấy dịch vụ
-                </p>
-
-                <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
-                  Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch("");
-                    updateQuery({
-                      search: undefined,
-                      categoryId: undefined,
-                      isActive: undefined,
-                      page: "1",
-                    });
-                  }}
-                  className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
-                >
-                  Xóa bộ lọc
-                </button>
-              </div>
-            )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
         {!isPending && !isError && (
           <div className="flex flex-col gap-3 border-t border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
@@ -571,45 +699,6 @@ export default function ServiceTable() {
           onEdit={openEditModal}
         />
       )}
-    </div>
-  );
-}
-
-function ServiceListSkeleton() {
-  return (
-    <div
-      className="space-y-7"
-      role="status"
-      aria-label="Đang tải danh sách dịch vụ"
-    >
-      {Array.from({ length: 2 }, (_, group) => (
-        <section key={group} className="min-w-0">
-          <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-3">
-            <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-          </div>
-          <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {Array.from({ length: group === 0 ? 5 : 3 }, (_, index) => (
-              <div
-                key={index}
-                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"
-              >
-                <Skeleton className="h-11 w-11 rounded-xl" />
-                <Skeleton className="h-4 w-4/5" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-                <div className="flex justify-between pt-2">
-                  <Skeleton className="h-6 w-16 rounded-lg" />
-                  <Skeleton className="h-6 w-7 rounded-lg" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
     </div>
   );
 }

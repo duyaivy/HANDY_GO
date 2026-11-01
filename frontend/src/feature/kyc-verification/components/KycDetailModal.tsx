@@ -5,24 +5,23 @@ import {
   X,
   Copy,
   Check,
-  Star,
-  Briefcase,
   AlertCircle,
   CheckCircle2,
   ChevronDown,
   History,
   ScanText,
-  Cpu,
+  ScanFace,
 } from "lucide-react";
 import { KYC_STATUS_CONFIG, KycRecord } from "../types/type";
 import { useKycDetailQuery } from "../hooks/use-kyc";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface KycDetailModalProps {
+export interface KycDetailModalProps {
   isOpen: boolean;
   record: KycRecord | null;
   onClose: () => void;
-  onApprove: (id: string, note: string) => void;
-  onReject: (id: string, reason: string) => void;
+  onApprove: (id: string, note: string) => void | Promise<void>;
+  onReject: (id: string, reason: string) => void | Promise<void>;
 }
 
 interface VerificationImageProps {
@@ -102,6 +101,22 @@ const formatDocumentType = (value: unknown): string => {
   return labels[value.toUpperCase()] ?? value;
 };
 
+const getDocumentImageLabels = (value: string | null) => {
+  const documentType = value?.trim().toUpperCase();
+
+  if (documentType === "CCCD") {
+    return ["CCCD mặt trước", "CCCD mặt sau"] as const;
+  }
+  if (documentType === "CMND") {
+    return ["CMND mặt trước", "CMND mặt sau"] as const;
+  }
+  if (documentType === "PASSPORT") {
+    return ["Hộ chiếu - trang thông tin", "Hộ chiếu - trang bổ sung"] as const;
+  }
+
+  return ["Giấy tờ - mặt trước", "Giấy tờ - mặt sau"] as const;
+};
+
 const formatMatchStatus = (value: unknown): string => {
   if (value === "review-ready") return "Sẵn sàng xét duyệt";
   if (value === "pending") return "Đang chờ xử lý";
@@ -112,12 +127,23 @@ const formatMatchStatus = (value: unknown): string => {
   return "Chưa có dữ liệu";
 };
 
+const formatYesNo = (value: unknown): string =>
+  value === true ? "Có" : value === false ? "Không" : "Chưa có dữ liệu";
+
+const formatJobStatus = (value: unknown): string => {
+  if (value === "completed") return "Hoàn thành";
+  if (value === "failed") return "Thất bại";
+  if (value === "processing") return "Đang xử lý";
+  if (value === "pending") return "Đang chờ";
+  return displayValue(value);
+};
+
 const displayValue = (value: unknown): string => {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "boolean") return String(value);
+  if (typeof value === "boolean") return value ? "Có" : "Không";
   if (typeof value === "string" || typeof value === "number")
     return String(value);
-  return JSON.stringify(value);
+  return "Dữ liệu chi tiết";
 };
 
 const InfoRow = ({ label, value }: { label: string; value: unknown }) => (
@@ -186,22 +212,24 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
   // Chỉ sử dụng dữ liệu từ API chi tiết để xét duyệt.
   // record chỉ dùng làm dữ liệu dự phòng trong lúc tải.
   const kyc = detailRecord ?? record;
+  const workerName =
+    kyc.workerProfile?.user?.fullName ??
+    record.workerProfile?.user?.fullName ??
+    "Thợ";
+  const workerAvatarUrl =
+    kyc.workerProfile?.user?.avatarUrl ?? record.workerProfile?.user?.avatarUrl;
   // Các trường mở rộng lấy nguyên từ response chi tiết BE; không suy diễn dữ liệu.
   const detail = kyc as KycRecord & Record<string, unknown>;
   const ocr = isAiObject(detail.rawOcrData) ? detail.rawOcrData : null;
   const aiResult = isAiObject(detail.aiResult) ? detail.aiResult : null;
-  const aiOcr = isAiObject(aiResult?.ocr) ? aiResult.ocr : null;
   const face = isAiObject(aiResult?.faceVerification)
     ? aiResult.faceVerification
     : null;
+  const documentImageLabels = getDocumentImageLabels(kyc.idDocumentType);
   const jobs = Array.isArray(detail.jobs) ? detail.jobs : [];
   const histories = Array.isArray(detail.reviewHistories)
     ? detail.reviewHistories
     : [];
-  const profile = isAiObject(detail.workerProfile)
-    ? detail.workerProfile
-    : null;
-  const workerUser = isAiObject(profile?.user) ? profile.user : null;
   const detailReady = !!detailRecord && !isDetailError;
 
   const canReview =
@@ -268,17 +296,25 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
           {/* ========================================================================= */}
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
             {isDetailPending ? (
-              <div className="space-y-4 animate-pulse" role="status">
-                <div className="h-16 rounded-xl bg-slate-100" />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div
+                className="space-y-4"
+                role="status"
+                aria-label="Đang tải chi tiết hồ sơ"
+              >
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-16 w-16 rounded-full" />
+                  <div className="space-y-2">
+                    <Skeleton className="h-5 w-44" />
+                    <Skeleton className="h-4 w-28" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
                   {[1, 2, 3].map((item) => (
-                    <div key={item} className="h-36 rounded-xl bg-slate-100" />
+                    <Skeleton key={item} className="h-32 rounded-xl" />
                   ))}
                 </div>
-                <div className="h-40 rounded-xl bg-slate-100" />
-                <p className="text-center text-sm text-slate-500">
-                  Đang tải chi tiết hồ sơ...
-                </p>
+                <Skeleton className="h-10 w-full rounded-xl" />
+                <Skeleton className="h-40 w-full rounded-xl" />
               </div>
             ) : isDetailError ? (
               <div className="py-12 text-center space-y-3" role="alert">
@@ -298,37 +334,21 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                 {/* A. THÔNG TIN THỢ */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
-                    {kyc.workerProfile.user.avatarUrl ? (
+                    {workerAvatarUrl ? (
                       <img
-                        src={kyc.workerProfile.user.avatarUrl}
-                        alt={kyc.workerProfile.user.fullName}
+                        src={workerAvatarUrl}
+                        alt={workerName}
                         className="w-16 h-16 sm:w-18 sm:h-18 rounded-full object-cover border border-slate-200 shrink-0 shadow-2xs"
                       />
                     ) : (
                       <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-slate-200 text-slate-700 font-bold text-xl flex items-center justify-center shrink-0">
-                        {kyc.workerProfile.user.fullName.charAt(0)}
+                        {workerName.charAt(0)}
                       </div>
                     )}
                     <div>
                       <h3 className="text-[18px] sm:text-[19px] font-bold text-[#0F172A] leading-tight">
-                        {kyc.workerProfile.user.fullName}
+                        {workerName}
                       </h3>
-                      <div className="flex flex-wrap items-center gap-3 text-[12px] mt-2">
-                        <div className="flex items-center gap-1 font-semibold text-slate-800">
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                          <span>{kyc.workerProfile.averageRating}</span>
-                          <span className="font-normal text-slate-500">
-                            ({kyc.workerProfile.ratingCount} đánh giá)
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-slate-600 font-medium">
-                          <Briefcase className="w-3.5 h-3.5 text-slate-500" />
-                          <span>
-                            {kyc.workerProfile.completedOrderCount} đơn hoàn
-                            thành
-                          </span>
-                        </div>
-                      </div>
                     </div>
                   </div>
 
@@ -354,503 +374,651 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                         {formatDateTime(kyc.updatedAt)}
                       </span>
                     </div>
+                    {(kyc.status === "approved" || kyc.status === "rejected") &&
+                      kyc.reviewedAt && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500">Ngày xét duyệt</span>
+                          <span className="text-slate-700 font-medium">
+                            {formatDateTime(kyc.reviewedAt)}
+                          </span>
+                        </div>
+                      )}
                   </div>
                 </div>
 
-                {/* B. ẢNH GIẤY TỜ VÀ ẢNH SELFIE: 3 ô ngang hàng */}
-                <div>
-                  <h4 className="text-[14px] sm:text-[15px] font-semibold text-[#0F172A] mb-3">
-                    Ảnh giấy tờ và ảnh selfie
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                    {(
-                      [
-                        ["CCCD mặt trước", kyc.documentFrontRef],
-                        ["CCCD mặt sau", kyc.documentBackRef],
-                        ["Ảnh selfie", kyc.selfieRef],
-                      ] as const
-                    ).map(([label, url]) => {
-                      const title = `${label} - ${kyc.workerProfile.user.fullName}`;
-                      const openPreview = () =>
-                        url && setPreviewImage({ url, title });
-                      return (
-                        <div
-                          key={label}
-                          className="rounded-xl border border-slate-200/80 p-2.5 bg-white flex flex-col justify-between shadow-2xs"
-                        >
-                          <span className="text-[12px] font-medium text-slate-600 mb-2 block">
-                            {label}
-                          </span>
-                          <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center border border-slate-100">
-                            {url ? (
-                              <button
-                                type="button"
-                                onClick={openPreview}
-                                aria-label={`Xem ảnh lớn ${label}`}
-                                className="h-full w-full cursor-zoom-in"
-                              >
+                <div className="space-y-5">
+                  {/* B. ẢNH GIẤY TỜ VÀ ẢNH SELFIE: 3 ô ngang hàng */}
+                  <div>
+                    <h4 className="text-[14px] sm:text-[15px] font-semibold text-[#0F172A] mb-3">
+                      Ảnh giấy tờ và ảnh selfie
+                    </h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                      {(
+                        [
+                          [documentImageLabels[0], kyc.documentFrontRef],
+                          [documentImageLabels[1], kyc.documentBackRef],
+                          ["Ảnh selfie", kyc.selfieRef],
+                        ] as const
+                      ).map(([label, url]) => {
+                        const title = `${label} - ${workerName}`;
+                        const openPreview = () =>
+                          url && setPreviewImage({ url, title });
+                        return (
+                          <div
+                            key={label}
+                            className="rounded-xl border border-slate-200/80 p-2.5 bg-white flex flex-col justify-between shadow-2xs"
+                          >
+                            <span className="text-[12px] font-medium text-slate-600 mb-2 block">
+                              {label}
+                            </span>
+                            <div className="relative w-full aspect-[4/3] rounded-lg overflow-hidden bg-slate-50 flex items-center justify-center border border-slate-100">
+                              {url ? (
+                                <button
+                                  type="button"
+                                  onClick={openPreview}
+                                  aria-label={`Xem ảnh lớn ${label}`}
+                                  className="h-full w-full cursor-zoom-in"
+                                >
+                                  <VerificationImage
+                                    key={url}
+                                    url={url}
+                                    title={title}
+                                  />
+                                </button>
+                              ) : (
                                 <VerificationImage
-                                  key={url}
-                                  url={url}
+                                  key={label}
+                                  url={null}
                                   title={title}
                                 />
-                              </button>
-                            ) : (
-                              <VerificationImage
-                                key={label}
-                                url={null}
-                                title={title}
-                              />
-                            )}
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* C. 2 CỘT: Thông tin hồ sơ (Trái) & Kết quả phân tích AI (Phải) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-                  {/* CỘT TRÁI: Thông tin hồ sơ */}
-                  <div>
-                    <h4 className="text-[14px] sm:text-[15px] font-semibold text-[#0F172A] mb-2.5">
-                      Thông tin hồ sơ
-                    </h4>
-                    <div className="rounded-xl border border-slate-200/80 bg-white overflow-hidden text-[12px] divide-y divide-slate-100">
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Mã hồ sơ</span>
-                        <div className="flex min-w-0 items-center gap-1.5 font-medium text-slate-800">
-                          <span
-                            className="truncate font-mono"
-                            title={displayCode}
-                          >
-                            {shortDisplayCode}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={handleCopyCode}
-                            className="shrink-0 p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                            title="Sao chép UUID đầy đủ"
-                          >
-                            {isCopied ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Loại giấy tờ</span>
-                        <span className="font-medium text-slate-800">
-                          {kyc.idDocumentType || "-"}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Số giấy tờ</span>
-                        <span className="font-medium font-mono text-slate-800">
-                          {kyc.idNumberMasked || "-"}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Ngày nộp</span>
-                        <span className="text-slate-800">
-                          {formatDateTime(kyc.submittedAt)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Ngày xét duyệt</span>
-                        <span className="text-slate-400">
-                          {formatDateTime(kyc.reviewedAt)}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <span className="text-slate-500">Ghi chú</span>
-                        <span className="text-slate-400">
-                          {kyc.reviewNote || "-"}
-                        </span>
-                      </div>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* CỘT PHẢI: Kết quả phân tích AI - nhãn tiếng Việt */}
-                  <div>
-                    <h4 className="text-[14px] sm:text-[15px] font-semibold text-[#0F172A] mb-2.5">
-                      Kết quả phân tích AI
-                    </h4>
-                    {(() => {
-                      const similarity = kyc.aiSimilarityScore;
-                      const faceVerification = getAiField(
-                        kyc.aiResult,
-                        "faceVerification",
-                      );
-                      const faceMatch = getAiField(faceVerification, "isMatch");
-                      const faceStatus = getAiField(faceVerification, "status");
-                      const documentType = kyc.idDocumentType;
-                      const hasAiData =
-                        similarity !== null ||
-                        kyc.aiResult !== null ||
-                        kyc.rawOcrData !== null;
-
-                      if (!hasAiData) {
-                        return (
-                          <div className="rounded-xl bg-[#F0F7FF] border border-blue-100/70 p-4">
-                            <p className="text-[12px] text-slate-500">
-                              Chưa có kết quả phân tích AI
-                            </p>
+                  {/* Thông tin giấy tờ và kết quả AI nằm ngang hàng */}
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-stretch">
+                    <section className="min-w-0 flex flex-col gap-2.5">
+                      <h4 className="flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
+                        <ScanText className="h-4 w-4 text-[#FF5E14]" /> Thông
+                        tin giấy tờ
+                      </h4>
+                      <div className="flex-1 overflow-hidden rounded-xl border border-slate-200/80 bg-white divide-y divide-slate-100">
+                        <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-[12px]">
+                          <span className="text-slate-500">Mã hồ sơ</span>
+                          <div className="flex min-w-0 items-center gap-1.5 font-medium text-slate-800">
+                            <span
+                              className="truncate font-mono"
+                              title={displayCode}
+                            >
+                              {shortDisplayCode}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleCopyCode}
+                              aria-label="Sao chép mã hồ sơ"
+                              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            >
+                              {isCopied ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-3.5 w-3.5" />
+                              )}
+                            </button>
                           </div>
-                        );
-                      }
-
-                      return (
-                        <div className="rounded-xl bg-[#F0F7FF] border border-blue-100/70 p-3.5 space-y-3 text-[12px]">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">
-                              Độ tương đồng khuôn mặt
-                            </span>
-                            <span className="font-bold text-slate-900">
-                              {formatSimilarity(similarity)}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">
-                              Kết quả đối chiếu khuôn mặt
-                            </span>
-                            <span className="font-medium text-slate-800 text-right">
-                              {formatDocumentMatch(faceMatch)}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">Loại giấy tờ</span>
-                            <span className="font-medium text-slate-800 text-right">
-                              {formatDocumentType(documentType)}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-600">
-                              Trạng thái đối chiếu khuôn mặt
-                            </span>
-                            <span className="font-medium text-slate-800 text-right">
-                              {formatMatchStatus(faceStatus)}
-                            </span>
-                          </div>
-                          <p className="border-t border-blue-100 pt-2.5 text-[11px] text-slate-500 leading-relaxed">
-                            Kết quả AI chỉ mang tính hỗ trợ. Admin cần kiểm tra
-                            hồ sơ trước khi đưa ra quyết định.
-                          </p>
                         </div>
-                      );
-                    })()}
+                        <InfoRow
+                          label="Loại giấy tờ"
+                          value={formatDocumentType(kyc.idDocumentType)}
+                        />
+                        <InfoRow
+                          label="Số giấy tờ"
+                          value={kyc.idNumberMasked}
+                        />
+                        <InfoRow label="Họ tên OCR" value={ocr?.fullName} />
+                        <InfoRow label="Ngày sinh" value={ocr?.dateOfBirth} />
+                        <InfoRow label="Giới tính" value={ocr?.gender} />
+                        <InfoRow
+                          label="Ngày hết hạn"
+                          value={ocr?.dateOfExpiry}
+                        />
+                      </div>
+                    </section>
+                    <section className="min-w-0 flex flex-col gap-2.5">
+                      <h4 className="flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
+                        <ScanFace className="h-4 w-4 text-[#FF5E14]" /> Kết quả
+                        xác minh khuôn mặt
+                      </h4>
+                      <div className="flex-1 rounded-xl border border-slate-200/80 bg-white p-3.5 space-y-3">
+                        {(() => {
+                          const match = face?.isMatch;
+                          const score =
+                            kyc.aiSimilarityScore ?? face?.similarity;
+                          const numericScore =
+                            typeof score === "string" ? Number(score) : score;
+                          const progress =
+                            typeof numericScore === "number" &&
+                            Number.isFinite(numericScore)
+                              ? Math.max(
+                                  0,
+                                  Math.min(
+                                    100,
+                                    numericScore <= 1 && numericScore >= 0
+                                      ? numericScore * 100
+                                      : numericScore,
+                                  ),
+                                )
+                              : null;
+                          return (
+                            <>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="text-[12px] font-medium text-slate-700">
+                                  Kết quả đối chiếu
+                                </span>
+                                <span
+                                  className={`rounded-md px-2 py-1 text-[11px] font-semibold ${match === true ? "bg-emerald-50 text-emerald-700" : match === false ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-600"}`}
+                                >
+                                  {formatDocumentMatch(match)}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="text-[27px] font-bold leading-tight text-slate-900">
+                                  {formatSimilarity(score)}
+                                </div>
+                                <p className="mt-1 text-[12px] text-slate-500">
+                                  Độ tương đồng khuôn mặt
+                                </p>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className="h-full rounded-full bg-[#FF5E14]"
+                                  style={{ width: `${progress ?? 0}%` }}
+                                />
+                              </div>
+                              {typeof face?.message === "string" &&
+                                face.message.trim() && (
+                                  <div className="rounded-lg bg-orange-50 p-2.5 text-[12px] text-slate-700 break-words">
+                                    {face.message}
+                                  </div>
+                                )}
+                              <div className="border-t border-slate-100 pt-2 space-y-2.5">
+                                <div className="text-[12px] font-semibold text-slate-800">
+                                  Chi tiết xác minh
+                                </div>
+                                {(
+                                  [
+                                    [
+                                      "Trạng thái AI",
+                                      formatMatchStatus(face?.status),
+                                    ],
+                                    [
+                                      "Khuôn mặt trùng khớp",
+                                      formatYesNo(match),
+                                    ],
+                                    [
+                                      "Độ tin cậy",
+                                      formatSimilarity(face?.confidence),
+                                    ],
+                                    [
+                                      "AI yêu cầu kiểm tra thêm",
+                                      formatYesNo(face?.needsReview),
+                                    ],
+                                  ] as [string, string][]
+                                ).map(([label, value]) => (
+                                  <div
+                                    key={label}
+                                    className="flex items-start justify-between gap-3 text-[12px]"
+                                  >
+                                    <span className="text-slate-500">
+                                      {label}
+                                    </span>
+                                    <span className="text-right font-medium text-slate-800">
+                                      {value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="border-t border-slate-100 pt-2 text-[11px] leading-relaxed text-slate-500">
+                                AI chỉ hỗ trợ đánh giá. Admin cần kiểm tra ảnh
+                                và thông tin trước khi xét duyệt.
+                              </p>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </section>
                   </div>
-                </div>
 
-                {/* D. THÔNG TIN OCR - đúng rawOcrData từ BE */}
-                <section className="space-y-2.5">
-                  <h4 className="flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
-                    <ScanText className="h-4 w-4 text-[#FF5E14]" /> Thông tin
-                    OCR từ giấy tờ
-                  </h4>
-                  {ocr ? (
-                    <InfoRows
-                      rows={[
-                        ["Họ tên OCR", ocr.fullName],
-                        ["Số giấy tờ OCR", ocr.idNumber],
-                        ["Giới tính", ocr.gender],
-                        ["Ngày sinh", ocr.dateOfBirth],
-                        ["Quốc tịch", ocr.nationality],
-                        ["Ngày hết hạn", ocr.dateOfExpiry],
-                        ["Quê quán", ocr.placeOfOrigin],
-                        ["Nơi thường trú", ocr.placeOfResidence],
-                      ]}
-                    />
-                  ) : (
-                    <p className="text-[12px] text-slate-400">
-                      Chưa có dữ liệu OCR
-                    </p>
-                  )}
-                </section>
+                  <CollapsibleSection title="Thông tin OCR bổ sung">
+                    {ocr ? (
+                      <InfoRows
+                        rows={[
+                          ["Số giấy tờ OCR", ocr.idNumber],
+                          ["Quốc tịch", ocr.nationality],
+                          ["Quê quán", ocr.placeOfOrigin],
+                          ["Nơi thường trú", ocr.placeOfResidence],
+                        ]}
+                      />
+                    ) : (
+                      <p className="text-[12px] text-slate-400">
+                        Chưa có dữ liệu OCR
+                      </p>
+                    )}
+                  </CollapsibleSection>
 
-                {/* E. CHI TIẾT AI - tách riêng trạng thái duyệt hồ sơ và kết quả AI */}
-                <section className="space-y-2.5">
-                  <h4 className="flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
-                    <Cpu className="h-4 w-4 text-[#FF5E14]" /> Chi tiết xác minh
-                    khuôn mặt
-                  </h4>
-                  {face ? (
-                    <InfoRows
-                      rows={[
-                        ["Trạng thái AI", face.status],
-                        ["Có trùng khớp", face.isMatch],
-                        ["Thông báo từ AI", face.message],
-                        ["Confidence", face.confidence],
-                        ["Similarity", face.similarity],
-                        ["Needs review", face.needsReview],
-                        ["Quality adjusted", face.qualityAdjusted],
-                      ]}
-                    />
-                  ) : (
-                    <p className="text-[12px] text-slate-400">
-                      Chưa có dữ liệu đối chiếu khuôn mặt
-                    </p>
-                  )}
-                </section>
+                  {/* Timeline có thể thu gọn, đồng bộ với các mục bên dưới */}
+                  <CollapsibleSection
+                    title={`Lịch sử xét duyệt (${histories.length})`}
+                  >
+                    <div className="rounded-xl border border-slate-200/80 bg-white p-4 sm:p-5">
+                      {histories.length ? (
+                        <ol className="space-y-0">
+                          {[...histories]
+                            .sort((a, b) => {
+                              const getTime = (item: unknown) => {
+                                const value = getAiField(item, "createdAt");
+                                const time =
+                                  typeof value === "string"
+                                    ? Date.parse(value)
+                                    : NaN;
+                                return Number.isFinite(time) ? time : 0;
+                              };
+                              return getTime(b) - getTime(a);
+                            })
+                            .map((item, index, all) => {
+                              const history = isAiObject(item) ? item : {};
+                              const action =
+                                typeof history.action === "string"
+                                  ? history.action.toLowerCase()
+                                  : "";
+                              const toStatus =
+                                typeof history.toStatus === "string"
+                                  ? history.toStatus.toLowerCase()
+                                  : "";
+                              const approved =
+                                action.includes("approv") ||
+                                toStatus === "approved";
+                              const rejected =
+                                action.includes("reject") ||
+                                toStatus === "rejected";
+                              const submitted =
+                                action.includes("submit") ||
+                                toStatus === "submitted";
+                              const title = approved
+                                ? "Hồ sơ được phê duyệt"
+                                : rejected
+                                  ? "Hồ sơ bị từ chối"
+                                  : submitted
+                                    ? "Hồ sơ được gửi lên"
+                                    : toStatus === "reviewing"
+                                      ? "Hồ sơ chuyển sang chờ xét duyệt"
+                                      : "Cập nhật trạng thái hồ sơ";
+                              const iconStyle = approved
+                                ? "bg-emerald-100 text-emerald-700"
+                                : rejected
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-orange-100 text-[#FF5E14]";
+                              return (
+                                <li
+                                  key={displayValue(history.id ?? index)}
+                                  className="relative flex gap-3.5"
+                                >
+                                  <div className="flex w-8 shrink-0 flex-col items-center">
+                                    <div
+                                      className={`z-10 flex h-8 w-8 items-center justify-center rounded-full ${iconStyle}`}
+                                    >
+                                      {approved ? (
+                                        <Check className="h-4 w-4" />
+                                      ) : rejected ? (
+                                        <X className="h-4 w-4" />
+                                      ) : (
+                                        <History className="h-4 w-4" />
+                                      )}
+                                    </div>
+                                    {index < all.length - 1 && (
+                                      <div className="min-h-6 w-px flex-1 bg-slate-200" />
+                                    )}
+                                  </div>
+                                  <div
+                                    className={`min-w-0 flex-1 ${index < all.length - 1 ? "pb-5" : "pb-0"}`}
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="text-[13px] font-semibold text-slate-900">
+                                        {title}
+                                      </p>
+                                      {(approved || rejected) && (
+                                        <span
+                                          className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${approved ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}
+                                        >
+                                          {approved ? "Đã duyệt" : "Đã từ chối"}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="mt-1 text-[11px] text-slate-500">
+                                      {formatDateTime(
+                                        typeof history.createdAt === "string"
+                                          ? history.createdAt
+                                          : null,
+                                      )}
+                                    </p>
+                                    {history.fromStatus != null &&
+                                      history.toStatus != null && (
+                                        <p className="mt-2 text-[12px] text-slate-600">
+                                          {formatMatchStatus(
+                                            history.fromStatus,
+                                          ) === "Chưa có dữ liệu"
+                                            ? displayValue(history.fromStatus)
+                                            : formatMatchStatus(
+                                                history.fromStatus,
+                                              )}
+                                          {" → "}
+                                          {formatMatchStatus(
+                                            history.toStatus,
+                                          ) === "Chưa có dữ liệu"
+                                            ? displayValue(history.toStatus)
+                                            : formatMatchStatus(
+                                                history.toStatus,
+                                              )}
+                                        </p>
+                                      )}
+                                    {((typeof history.note === "string" &&
+                                      history.note.trim()) ||
+                                      history.performedByUserId != null) && (
+                                      <div className="mt-2 space-y-1.5 rounded-lg bg-slate-50 px-3 py-2.5 text-[12px] text-slate-700">
+                                        {history.performedByUserId != null && (
+                                          <p className="break-all text-slate-500">
+                                            Người thực hiện (ID):{" "}
+                                            {displayValue(
+                                              history.performedByUserId,
+                                            )}
+                                          </p>
+                                        )}
+                                        {typeof history.note === "string" &&
+                                          history.note.trim() && (
+                                            <p className="break-words">
+                                              <span className="font-medium">
+                                                Ghi chú:
+                                              </span>{" "}
+                                              {history.note}
+                                            </p>
+                                          )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </li>
+                              );
+                            })}
+                        </ol>
+                      ) : (
+                        <div className="flex items-center gap-2 py-2 text-[12px] text-slate-500">
+                          <History className="h-4 w-4 shrink-0" /> Chưa có lịch
+                          sử xét duyệt
+                        </div>
+                      )}
+                    </div>
+                  </CollapsibleSection>
 
-                {/* F. LỊCH SỬ & DỮ LIỆU BỔ SUNG - thu gọn để giữ bố cục */}
-                <section className="space-y-2.5">
-                  <h4 className="flex items-center gap-2 text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
-                    <History className="h-4 w-4 text-[#FF5E14]" /> Lịch sử và
-                    thông tin bổ sung
-                  </h4>
+                  <section className="space-y-2.5">
+                    <h4 className="text-[14px] sm:text-[15px] font-semibold text-[#0F172A]">
+                      Ghi chú xét duyệt
+                    </h4>
+                    <div className="rounded-xl border border-slate-200/80 bg-white p-3 text-[12px] text-slate-700 break-words">
+                      {kyc.reviewNote || "Chưa có ghi chú xét duyệt"}
+                    </div>
+                  </section>
+
                   <CollapsibleSection
                     title={`Lịch sử xử lý AI (${jobs.length})`}
                   >
                     {jobs.length ? (
-                      jobs.map((item, index) => {
-                        const job = isAiObject(item) ? item : {};
-                        return (
-                          <div
-                            key={displayValue(job.id ?? index)}
-                            className="space-y-2 rounded-lg border border-slate-100 p-2"
-                          >
-                            <InfoRows
-                              rows={[
-                                ["Mã job", job.id],
-                                ["Trạng thái", job.status],
-                                ["Số lần thử", job.retryCount],
-                                ["Số lần thử tối đa", job.maxRetries],
-                                ["Lý do thất bại", job.failureReason],
-                                [
-                                  "Bắt đầu",
-                                  formatDateTime(
-                                    typeof job.startedAt === "string"
-                                      ? job.startedAt
-                                      : null,
-                                  ),
-                                ],
-                                [
-                                  "Hoàn thành",
-                                  formatDateTime(
-                                    typeof job.completedAt === "string"
-                                      ? job.completedAt
-                                      : null,
-                                  ),
-                                ],
-                                [
-                                  "Tạo lúc",
-                                  formatDateTime(
-                                    typeof job.createdAt === "string"
-                                      ? job.createdAt
-                                      : null,
-                                  ),
-                                ],
-                                [
-                                  "Cập nhật lúc",
-                                  formatDateTime(
-                                    typeof job.updatedAt === "string"
-                                      ? job.updatedAt
-                                      : null,
-                                  ),
-                                ],
-                              ]}
-                            />
-                            <details className="text-[12px]">
-                              <summary className="cursor-pointer text-slate-600">
-                                Dữ liệu AI của job
-                              </summary>
-                              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-[11px]">
-                                {JSON.stringify(job.aiResult ?? null, null, 2)}
-                              </pre>
-                            </details>
-                          </div>
-                        );
-                      })
+                      <div className="space-y-3">
+                        {jobs.map((item, index) => {
+                          const job = isAiObject(item) ? item : {};
+                          const result = isAiObject(job.aiResult)
+                            ? job.aiResult
+                            : null;
+                          const jobFace = isAiObject(result?.faceVerification)
+                            ? result.faceVerification
+                            : null;
+                          const jobOcr = isAiObject(result?.ocr)
+                            ? result.ocr
+                            : null;
+                          const status = formatJobStatus(job.status);
+                          const match = jobFace
+                            ? formatDocumentMatch(jobFace.isMatch)
+                            : "Chưa có dữ liệu";
+                          const retry =
+                            job.retryCount == null
+                              ? "-"
+                              : String(job.retryCount);
+                          const maxRetry =
+                            job.maxRetries == null
+                              ? "-"
+                              : String(job.maxRetries);
+
+                          return (
+                            <div
+                              key={displayValue(job.id ?? index)}
+                              className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+                            >
+                              <div className="space-y-3 p-3.5">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="text-[13px] font-semibold text-slate-900">
+                                    Lần xử lý #{jobs.length - index}
+                                  </span>
+                                  <span
+                                    className={`rounded-md px-2 py-1 text-[11px] font-semibold ${job.status === "completed" ? "bg-emerald-50 text-emerald-700" : job.status === "failed" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}
+                                  >
+                                    {status}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] text-slate-500">
+                                      Bắt đầu
+                                    </p>
+                                    <p className="text-[12px] font-medium text-slate-800">
+                                      {formatDateTime(
+                                        typeof job.startedAt === "string"
+                                          ? job.startedAt
+                                          : null,
+                                      )}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] text-slate-500">
+                                      Hoàn thành
+                                    </p>
+                                    <p className="text-[12px] font-medium text-slate-800">
+                                      {formatDateTime(
+                                        typeof job.completedAt === "string"
+                                          ? job.completedAt
+                                          : null,
+                                      )}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] text-slate-500">
+                                      Số lần thử lại / tối đa
+                                    </p>
+                                    <p className="text-[12px] font-medium text-slate-800">
+                                      {retry} / {maxRetry}
+                                    </p>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] text-slate-500">
+                                      Đối chiếu khuôn mặt
+                                    </p>
+                                    <p className="text-[12px] font-medium text-slate-800">
+                                      {match}
+                                    </p>
+                                  </div>
+                                </div>
+                                {typeof job.failureReason === "string" &&
+                                  job.failureReason.trim() && (
+                                    <p className="rounded-lg bg-rose-50 px-3 py-2 text-[12px] text-rose-700 break-words">
+                                      <span className="font-semibold">
+                                        Lý do thất bại:{" "}
+                                      </span>
+                                      {job.failureReason}
+                                    </p>
+                                  )}
+                              </div>
+                              <details className="group border-t border-slate-100">
+                                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3.5 py-3 text-[12px] font-medium text-[#FF5E14] hover:bg-orange-50/40 [&::-webkit-details-marker]:hidden">
+                                  Xem chi tiết lần xử lý
+                                  <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                                </summary>
+                                <div className="border-t border-slate-100 bg-slate-50/60 p-3">
+                                  <InfoRows
+                                    rows={(
+                                      [
+                                        ["Mã xử lý", job.id],
+                                        ["Trạng thái xử lý", status],
+                                        [
+                                          "Trạng thái khuôn mặt",
+                                          jobFace
+                                            ? formatMatchStatus(jobFace.status)
+                                            : "Chưa có dữ liệu",
+                                        ],
+                                        ["Kết quả đối chiếu", match],
+                                        [
+                                          "Độ tương đồng",
+                                          jobFace
+                                            ? formatSimilarity(
+                                                jobFace.similarity,
+                                              )
+                                            : "Chưa có dữ liệu",
+                                        ],
+                                        [
+                                          "Độ tin cậy",
+                                          jobFace
+                                            ? formatSimilarity(
+                                                jobFace.confidence,
+                                              )
+                                            : "Chưa có dữ liệu",
+                                        ],
+                                        ["Thông báo AI", jobFace?.message],
+                                        [
+                                          "AI yêu cầu xem xét thêm",
+                                          jobFace
+                                            ? formatYesNo(jobFace.needsReview)
+                                            : "Chưa có dữ liệu",
+                                        ],
+                                        [
+                                          "Có điều chỉnh chất lượng",
+                                          jobFace
+                                            ? formatYesNo(
+                                                jobFace.qualityAdjusted,
+                                              )
+                                            : "Chưa có dữ liệu",
+                                        ],
+                                        [
+                                          "Tạo lúc",
+                                          formatDateTime(
+                                            typeof job.createdAt === "string"
+                                              ? job.createdAt
+                                              : null,
+                                          ),
+                                        ],
+                                        [
+                                          "Cập nhật lúc",
+                                          formatDateTime(
+                                            typeof job.updatedAt === "string"
+                                              ? job.updatedAt
+                                              : null,
+                                          ),
+                                        ],
+                                        ["Lý do thất bại", job.failureReason],
+                                      ] satisfies [string, unknown][]
+                                    ).filter(
+                                      ([, value]) =>
+                                        value !== undefined &&
+                                        value !== null &&
+                                        value !== "-",
+                                    )}
+                                  />
+                                  {jobOcr && (
+                                    <div className="mt-3 space-y-2">
+                                      <p className="text-[12px] font-semibold text-slate-800">
+                                        Thông tin OCR của lần xử lý
+                                      </p>
+                                      <InfoRows
+                                        rows={(
+                                          [
+                                            ["Họ tên", jobOcr.fullName],
+                                            ["Số giấy tờ", jobOcr.idNumber],
+                                            ["Ngày sinh", jobOcr.dateOfBirth],
+                                            ["Giới tính", jobOcr.gender],
+                                            [
+                                              "Ngày hết hạn",
+                                              jobOcr.dateOfExpiry,
+                                            ],
+                                            ["Quốc tịch", jobOcr.nationality],
+                                            ["Quê quán", jobOcr.placeOfOrigin],
+                                            [
+                                              "Nơi thường trú",
+                                              jobOcr.placeOfResidence,
+                                            ],
+                                          ] satisfies [string, unknown][]
+                                        ).filter(
+                                          ([, value]) =>
+                                            value !== undefined &&
+                                            value !== null &&
+                                            value !== "",
+                                        )}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            </div>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <p className="text-[12px] text-slate-400">
                         Chưa có lịch sử xử lý AI
                       </p>
                     )}
                   </CollapsibleSection>
-                  <CollapsibleSection
-                    title={`Lịch sử xét duyệt (${histories.length})`}
-                  >
-                    {histories.length ? (
-                      histories.map((item, index) => {
-                        const history = isAiObject(item) ? item : {};
-                        return (
-                          <div
-                            key={displayValue(history.id ?? index)}
-                            className="space-y-2 rounded-lg border border-slate-100 p-2"
-                          >
-                            <InfoRows
-                              rows={[
-                                ["Hành động", history.action],
-                                ["Từ trạng thái", history.fromStatus],
-                                ["Đến trạng thái", history.toStatus],
-                                [
-                                  "Người thực hiện (ID)",
-                                  history.performedByUserId,
-                                ],
-                                ["Ghi chú", history.note],
-                                [
-                                  "Thời gian",
-                                  formatDateTime(
-                                    typeof history.createdAt === "string"
-                                      ? history.createdAt
-                                      : null,
-                                  ),
-                                ],
-                              ]}
-                            />
-                            <details className="text-[12px]">
-                              <summary className="cursor-pointer text-slate-600">
-                                Metadata
-                              </summary>
-                              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-[11px]">
-                                {JSON.stringify(
-                                  history.metadata ?? null,
-                                  null,
-                                  2,
-                                )}
-                              </pre>
-                            </details>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <p className="text-[12px] text-slate-400">
-                        Chưa có lịch sử xét duyệt
-                      </p>
-                    )}
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Thông tin kỹ thuật và dữ liệu bổ sung">
-                    <InfoRows
-                      rows={[
-                        ["Worker Profile ID", detail.workerProfileId],
-                        ["Phiên bản", detail.version],
-                        ["Idempotency Key", detail.idempotencyKey],
-                        ["Active Job ID", detail.activeJobId],
-                        ["Người duyệt (ID)", detail.reviewedByUserId],
-                        [
-                          "Reviewer",
-                          detail.reviewer === null
-                            ? null
-                            : JSON.stringify(detail.reviewer),
-                        ],
-                        ["Tạo hồ sơ", formatDateTime(kyc.createdAt)],
-                        ["Cập nhật hồ sơ", formatDateTime(kyc.updatedAt)],
-                        ["Trạng thái thợ", profile?.status],
-                        ["Tổng số đơn", profile?.orderCountTotal],
-                        [
-                          "Thợ được xác minh",
-                          formatDateTime(
-                            typeof profile?.verifiedAt === "string"
-                              ? profile.verifiedAt
-                              : null,
-                          ),
-                        ],
-                        [
-                          "Thợ được duyệt",
-                          formatDateTime(
-                            typeof profile?.approvedAt === "string"
-                              ? profile.approvedAt
-                              : null,
-                          ),
-                        ],
-                        [
-                          "Ngày tạo profile",
-                          formatDateTime(
-                            typeof profile?.createdAt === "string"
-                              ? profile.createdAt
-                              : null,
-                          ),
-                        ],
-                        [
-                          "Cập nhật profile",
-                          formatDateTime(
-                            typeof profile?.updatedAt === "string"
-                              ? profile.updatedAt
-                              : null,
-                          ),
-                        ],
-                        ["User ID", profile?.userId],
-                        ["Trạng thái tài khoản", workerUser?.status],
-                        [
-                          "Ngày tạo tài khoản",
-                          formatDateTime(
-                            typeof workerUser?.createdAt === "string"
-                              ? workerUser.createdAt
-                              : null,
-                          ),
-                        ],
-                        [
-                          "Cập nhật tài khoản",
-                          formatDateTime(
-                            typeof workerUser?.updatedAt === "string"
-                              ? workerUser.updatedAt
-                              : null,
-                          ),
-                        ],
-                      ]}
-                    />
-                    <details className="text-[12px]">
-                      <summary className="cursor-pointer text-slate-600">
-                        OCR trong aiResult (dữ liệu gốc)
-                      </summary>
-                      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-slate-50 p-3 text-[11px]">
-                        {JSON.stringify(aiOcr, null, 2)}
-                      </pre>
-                    </details>
-                  </CollapsibleSection>
-                </section>
+                </div>
               </>
             )}
           </div>
 
-          {/* ========================================================================= */}
-          {/* 3. FOOTER CỐ ĐỊNH: Đóng bên trái, Từ chối và Phê duyệt bên phải */}
-          {/* ========================================================================= */}
-          <div className="px-6 py-3.5 border-t border-slate-100 bg-white flex items-center justify-between shrink-0">
-            {/* <button
-              type="button"
-              onClick={onClose}
-              className="px-6 py-2 rounded-lg border border-slate-200 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-            >
-              Đóng
-            </button> */}
-
+          {/* FOOTER: Hai nút xét duyệt nhỏ gọn, căn phải */}
+          <div className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 sm:px-6">
             {!detailReady || isDetailFetching ? (
-              <div className="text-[12px] text-slate-500 italic">
+              <p className="text-center text-[12px] italic text-slate-500">
                 {isDetailError
                   ? "Không thể xác minh trạng thái hồ sơ"
                   : "Đang kiểm tra hồ sơ..."}
-              </div>
+              </p>
             ) : canReview ? (
-              <div className="flex items-center gap-3">
+              <div className="flex w-full items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsRejectOpen(true)}
-                  className="px-5 py-2 rounded-lg border border-rose-200 text-rose-600 bg-rose-50/50 hover:bg-rose-100 text-[13px] font-medium transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="inline-flex h-9 min-w-[96px] cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
                 >
-                  <X className="w-4 h-4" />
+                  {/* <X className="h-4 w-4 shrink-0" /> */}
                   <span>Từ chối</span>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => setIsApproveOpen(true)}
-                  className="px-6 py-2 rounded-lg bg-[#FF5E14] hover:bg-[#E04F0E] text-white text-[13px] font-medium shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                  className="inline-flex h-9 min-w-[108px] cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-[#E6530F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
                 >
-                  <Check className="w-4 h-4" />
+                  {/* <Check className="h-4 w-4 shrink-0" /> */}
                   <span>Phê duyệt</span>
                 </button>
               </div>
             ) : (
-              <div className="text-[12px] text-slate-500 italic">
+              <p className="text-center text-[12px] italic text-slate-500">
                 {kyc.status === "draft"
                   ? "Hồ sơ chưa được nộp"
                   : kyc.status === "submitted"
@@ -858,7 +1026,7 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                     : kyc.status === "approved"
                       ? "Hồ sơ đã được phê duyệt"
                       : "Hồ sơ đã bị từ chối"}
-              </div>
+              </p>
             )}
           </div>
         </div>
@@ -877,10 +1045,8 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
               </h3>
               <p className="text-[14px] text-[#64748B] mt-1 leading-relaxed">
                 Bạn có chắc chắn muốn phê duyệt hồ sơ xác minh KYC của thợ{" "}
-                <strong className="text-[#0F172A]">
-                  {kyc.workerProfile.user.fullName}
-                </strong>{" "}
-                (mã hồ sơ {kyc.id}) không?
+                <strong className="text-[#0F172A]">{workerName}</strong> (mã hồ
+                sơ {kyc.id}) không?
               </p>
             </div>
             <div className="space-y-2">
@@ -936,10 +1102,8 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
               </h3>
               <p className="text-[14px] text-[#64748B] mt-1 leading-relaxed">
                 Vui lòng nhập lý do từ chối hồ sơ của thợ{" "}
-                <strong className="text-[#0F172A]">
-                  {kyc.workerProfile.user.fullName}
-                </strong>
-                . Lý do này là bắt buộc.
+                <strong className="text-[#0F172A]">{workerName}</strong>. Lý do
+                này là bắt buộc.
               </p>
             </div>
 

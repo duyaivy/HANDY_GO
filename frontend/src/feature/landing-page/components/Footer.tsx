@@ -283,10 +283,7 @@ export const Footer: React.FC<FooterProps> = ({ onOpenDownload }) => {
             © 2026 Handy Go Platform Joint Stock Company. All rights reserved.
           </p>
           <div className="flex items-center gap-4 flex-wrap">
-            <span className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-bold bg-emerald-950/80 px-3 py-1 rounded-lg border border-emerald-800">
-              <ShieldCheck className="w-4 h-4" />
-              Đã đăng ký Bộ Công Thương
-            </span>
+            
             <span className="text-xs text-slate-400">
               Bảo mật thanh toán PCI-DSS
             </span>

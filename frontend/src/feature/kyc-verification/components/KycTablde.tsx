@@ -1,15 +1,18 @@
 "use client";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
+  AlertCircle,
+  X,
   Copy,
 } from "lucide-react";
 import { KYC_STATUS_CONFIG, KycFilterStatus, KycRecord } from "../types/type";
 
 import KycDetailModal from "./KycDetailModal";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useKycListQuery, useReviewKyc } from "../hooks/use-kyc";
 
 export const KycTable: React.FC = () => {
@@ -22,7 +25,10 @@ export const KycTable: React.FC = () => {
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [selectedRecordSnapshot, setSelectedRecordSnapshot] =
     useState<KycRecord | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
 
   const { data, isPending, isFetching, isError, error, refetch } =
     useKycListQuery({
@@ -56,14 +62,49 @@ export const KycTable: React.FC = () => {
       ? selectedRecordSnapshot
       : null);
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
+  const openRecord = (record: KycRecord) => {
+    setSelectedRecordId(record.id);
+    setSelectedRecordSnapshot(record);
   };
+
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ message, type });
+  };
+
+  // Tự động ẩn thông báo sau 3 giây; dọn timer khi thông báo thay đổi.
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   // Swagger chưa hỗ trợ search/sort: chỉ xử lý trong trang hiện tại.
   const filteredRecords = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    return records
+
+    const getSortDate = (record: KycRecord) => {
+      switch (filterStatus) {
+        case "approved":
+        case "rejected":
+          return record.reviewedAt ?? record.submittedAt ?? record.createdAt;
+
+        case "reviewing":
+        case "submitted":
+          return record.submittedAt ?? record.createdAt;
+
+        case "draft":
+          return record.createdAt;
+
+        case "all":
+        default:
+          return record.updatedAt ?? record.submittedAt ?? record.createdAt;
+      }
+    };
+
+    return [...records]
       .filter(
         (record) =>
           !query ||
@@ -71,13 +112,12 @@ export const KycTable: React.FC = () => {
           record.id.toLowerCase().includes(query),
       )
       .sort((a, b) => {
-        const aDate = a.submittedAt ?? a.createdAt;
-        const bDate = b.submittedAt ?? b.createdAt;
-        return sortBy === "newest"
-          ? bDate.localeCompare(aDate)
-          : aDate.localeCompare(bDate);
+        const aTime = new Date(getSortDate(a)).getTime();
+        const bTime = new Date(getSortDate(b)).getTime();
+
+        return sortBy === "newest" ? bTime - aTime : aTime - bTime;
       });
-  }, [records, searchQuery, sortBy]);
+  }, [records, searchQuery, sortBy, filterStatus]);
 
   const totalPages = Math.max(1, data?.pagination.totalPages ?? 1);
   const safeCurrentPage = currentPage;
@@ -97,6 +137,7 @@ export const KycTable: React.FC = () => {
     } catch (err) {
       showToast(
         err instanceof Error ? err.message : "Phê duyệt hồ sơ thất bại",
+        "error",
       );
     }
   };
@@ -118,7 +159,10 @@ export const KycTable: React.FC = () => {
       setSelectedRecordId(null);
       setSelectedRecordSnapshot(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Từ chối hồ sơ thất bại");
+      showToast(
+        err instanceof Error ? err.message : "Từ chối hồ sơ thất bại",
+        "error",
+      );
     }
   };
 
@@ -160,10 +204,25 @@ export const KycTable: React.FC = () => {
   return (
     <div className="w-full font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* Toast thông báo */}
-      {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-80 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-[13px] font-medium animate-in slide-in-from-bottom-2 duration-200">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+      {toast && (
+        <div
+          role={toast.type === "error" ? "alert" : "status"}
+          className="fixed bottom-6 right-6 z-80 flex w-[calc(100vw-3rem)] max-w-[420px] items-start gap-3 rounded-xl bg-slate-900 px-4 py-3 text-[13px] font-medium text-white shadow-xl animate-in slide-in-from-bottom-2 duration-200"
+        >
+          {toast.type === "success" ? (
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+          ) : (
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" />
+          )}
+          <span className="min-w-0 flex-1 break-words">{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            aria-label="Đóng thông báo"
+            className="shrink-0 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-700 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -236,23 +295,52 @@ export const KycTable: React.FC = () => {
       {/* ========================================================================= */}
       <div className="w-full bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full min-w-[760px] table-fixed text-left border-collapse">
+            <colgroup>
+              <col className="w-[29%]" />
+              <col className="w-[20%]" />
+              <col className="w-[19%]" />
+              <col className="w-[18%]" />
+              <col className="w-[14%]" />
+            </colgroup>
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
                 <th className="py-3.5 px-6">Thợ</th>
                 <th className="py-3.5 px-4">Mã hồ sơ</th>
                 <th className="py-3.5 px-4">Ngày nộp</th>
                 <th className="py-3.5 px-4">Trạng thái</th>
-                <th className="py-3.5 px-6 text-right">Thao tác</th>
+                <th className="py-3.5 px-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-[14px]">
               {isPending ? (
-                <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-500">
-                    Đang tải hồ sơ...
-                  </td>
-                </tr>
+                Array.from({ length: 5 }, (_, index) => (
+                  <tr key={`kyc-skeleton-${index}`} aria-hidden="true">
+                    <td className="py-4 px-6">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-10 w-10 shrink-0 rounded-full" />
+                        <Skeleton className="h-4 w-32 rounded-md" />
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <Skeleton className="h-4 w-28 rounded-md" />
+                    </td>
+                    <td className="py-4 px-4">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-24 rounded-md" />
+                        <Skeleton className="h-3 w-16 rounded-md" />
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <Skeleton className="h-7 w-24 rounded-full" />
+                    </td>
+                    <td className="py-4 px-3">
+                      <div className="flex justify-center">
+                        <Skeleton className="h-8 w-24 rounded-lg" />
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ) : isError ? (
                 <tr>
                   <td colSpan={5} className="py-12 text-center text-red-600">
@@ -284,7 +372,17 @@ export const KycTable: React.FC = () => {
                   return (
                     <tr
                       key={record.id}
-                      className="hover:bg-slate-50/60 transition-colors group"
+                      onClick={() => openRecord(record)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openRecord(record);
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-label={`Xem chi tiết hồ sơ của ${record.workerProfile.user.fullName}`}
+                      className="group cursor-pointer transition-colors hover:bg-slate-50/60 focus-visible:bg-slate-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-slate-400"
                     >
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-3">
@@ -310,11 +408,12 @@ export const KycTable: React.FC = () => {
                       <td className="py-4 px-4">
                         <button
                           type="button"
-                          onClick={() =>
-                            navigator.clipboard?.writeText(record.id)
-                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void navigator.clipboard?.writeText(record.id);
+                          }}
                           title={record.id}
-                          className="inline-flex items-center gap-1.5 font-mono text-[13px] text-slate-700 whitespace-nowrap cursor-pointer"
+                          className="inline-flex items-center gap-1.5 font-mono text-[13px] text-slate-700 whitespace-nowrap cursor-pointer hover:text-[#FF5E14]"
                         >
                           <span>{record.id.slice(0, 8)}…</span>
                           <Copy className="w-3.5 h-3.5 text-slate-400" />
@@ -333,18 +432,21 @@ export const KycTable: React.FC = () => {
                         </span>
                       </td>
 
-                      <td className="py-4 px-6 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedRecordId(record.id);
-                            setSelectedRecordSnapshot(record);
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-[13px] font-medium text-[#0F172A] hover:bg-slate-50 hover:border-slate-300 transition-all cursor-pointer whitespace-nowrap"
-                        >
-                          <span>Xem chi tiết</span>
-                          <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                        </button>
+                      <td className="py-4 px-3 whitespace-nowrap">
+                        <div className="flex items-center justify-center">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openRecord(record);
+                            }}
+                            aria-label={`Xem chi tiết hồ sơ ${record.id}`}
+                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] font-semibold text-slate-700 transition-all hover:border-slate-300 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                          >
+                            <span>Chi tiết</span>
+                            <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -404,7 +506,9 @@ export const KycTable: React.FC = () => {
               <button
                 type="button"
                 disabled={safeCurrentPage >= totalPages || isPending}
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Sau

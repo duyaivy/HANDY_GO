@@ -12,7 +12,7 @@ import { CraftsmanSection } from "./components/CraftsmanSection";
 import { Testimonials } from "./components/Testimonials";
 import { DownloadCTA } from "./components/DownloadCTA";
 import { Footer } from "./components/Footer";
-import { FloatingWidget } from "./components/FloatingWidget";
+// import { FloatingWidget } from "./components/FloatingWidget";
 import { DownloadModal } from "./components/DownloadModal";
 
 // Import all sub-components belonging to landing-page feature
@@ -138,7 +138,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <Footer onOpenDownload={handleOpenDownload} />
 
               {/* Nút Hotline 24/7 và tải app nổi */}
-              <FloatingWidget onOpenDownload={handleOpenDownload} />
+              {/* <FloatingWidget onOpenDownload={handleOpenDownload} /> */}
 
               {/* Modal tải App HandyGo với mã QR */}
               <DownloadModal

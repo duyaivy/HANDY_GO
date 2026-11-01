@@ -40,10 +40,6 @@ const SkeletonRow = () => (
     </td>
 
     <td className="px-4 py-4">
-      <Skeleton className="h-4 w-20" />
-    </td>
-
-    <td className="px-4 py-4">
       <Skeleton className="h-4 w-8" />
     </td>
 
@@ -139,14 +135,14 @@ export const CategoryTable = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-[24px] font-semibold tracking-tight leading-[1.3] text-[#0F172A]">
             Quản lý danh mục dịch vụ
           </h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-[14px] font-normal text-[#64748B]">
             Quản lý các danh mục dịch vụ trên hệ thống HandyGo
           </p>
         </div>
@@ -211,20 +207,21 @@ export const CategoryTable = () => {
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[900px] text-left">
             <thead>
-              <tr className="border-b border-gray-100 text-xs uppercase text-gray-500">
-                <th className="px-4 py-3 font-medium">Danh mục</th>
-                <th className="px-4 py-3 font-medium">Mã danh mục</th>
-                <th className="px-4 py-3 font-medium">Số dịch vụ</th>
-                <th className="px-4 py-3 font-medium">Cập nhật lần cuối</th>
-                <th className="px-4 py-3 font-medium">Trạng thái</th>
-                <th className="px-4 py-3 text-right font-medium">Thao tác</th>
+              <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
+                <th className="px-4 py-3.5 font-semibold">Danh mục</th>
+                <th className="px-4 py-3.5 font-semibold">Số dịch vụ</th>
+                <th className="px-4 py-3.5 font-semibold">Cập nhật lần cuối</th>
+                <th className="px-4 py-3.5 font-semibold">Trạng thái</th>
+                <th className="px-4 py-3.5 text-right font-semibold">
+                  Thao tác
+                </th>
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-100 text-[14px]">
               {isError ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td colSpan={5} className="px-4 py-12 text-center">
                     <p className="text-sm text-red-600">
                       {error instanceof Error
                         ? error.message
@@ -246,7 +243,24 @@ export const CategoryTable = () => {
                 ))
               ) : categories.length ? (
                 categories.map((category) => (
-                  <tr key={category.id} className="transition hover:bg-gray-50">
+                  <tr
+                    key={category.id}
+                    className="cursor-pointer transition hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-[#FF5E14]"
+                    onClick={() => {
+                      setSelectedCategory(category);
+                      setIsDetailOpen(true);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedCategory(category);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                    tabIndex={0}
+                    aria-label={`Xem chi tiết danh mục ${category.name}`}
+                  >
                     {/* Danh mục */}
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
@@ -265,48 +279,45 @@ export const CategoryTable = () => {
                         </div>
 
                         <div>
-                          <p className="font-semibold text-gray-900">
+                          <p className="font-medium text-[#0F172A]">
                             {category.name}
                           </p>
-                          <p className="mt-1 max-w-[260px] truncate text-xs text-gray-500">
+                          <p className="mt-1 max-w-[260px] truncate text-[12px] text-[#64748B]">
                             {category.description || "Chưa có mô tả"}
                           </p>
                         </div>
                       </div>
                     </td>
 
-                    {/* Mã danh mục */}
-                    <td className="px-4 py-4 text-sm text-gray-500">
-                      {category.code ?? "—"}
-                    </td>
-
                     {/* Số dịch vụ */}
-                    <td className="px-4 py-4 text-sm text-gray-700">
+                    <td className="px-4 py-4 text-[14px] text-[#0F172A]">
                       {category.servicesCount}
                     </td>
 
                     {/* Ngày cập nhật */}
-                    <td className="px-4 py-4 text-sm text-gray-500">
+                    <td className="px-4 py-4 text-[14px] text-[#64748B]">
                       {formatDate(category.updatedAt)}
                     </td>
 
                     {/* Trạng thái */}
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                        className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
                           category.isActive
                             ? "bg-green-50 text-green-700"
                             : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {category.isActive
-                          ? "Active"
-                          : "Disabled"}
+                        {category.isActive ? "Active" : "Disabled"}
                       </span>
                     </td>
 
                     {/* Thao tác */}
-                    <td className="px-4 py-4 text-right">
+                    <td
+                      className="px-4 py-4 text-right"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
                       <div className="relative inline-block">
                         <button
                           type="button"
@@ -336,7 +347,7 @@ export const CategoryTable = () => {
                                   setIsDetailOpen(true);
                                   setOpenMenuId(null);
                                 }}
-                                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                                className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
                               >
                                 <Eye size={16} />
                                 Xem chi tiết
@@ -349,7 +360,7 @@ export const CategoryTable = () => {
                                   setIsEditOpen(true);
                                   setOpenMenuId(null);
                                 }}
-                                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                                className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
                               >
                                 <Pencil size={16} />
                                 Chỉnh sửa
@@ -415,8 +426,8 @@ export const CategoryTable = () => {
               ) : (
                 <tr>
                   <td
-                    colSpan={6}
-                    className="px-4 py-12 text-center text-sm text-gray-500"
+                    colSpan={5}
+                    className="px-4 py-12 text-center text-[14px] text-[#64748B]"
                   >
                     Không tìm thấy danh mục phù hợp.
                   </td>
@@ -428,7 +439,7 @@ export const CategoryTable = () => {
 
         {/* Pagination */}
         <div className="mt-4 flex flex-col gap-3 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-gray-500">
+          <p className="text-[14px] text-[#64748B]">
             Hiển thị {total === 0 ? 0 : (page - 1) * limit + 1}
             {" - "}
             {Math.min(page * limit, total)} trong tổng số {total} danh mục

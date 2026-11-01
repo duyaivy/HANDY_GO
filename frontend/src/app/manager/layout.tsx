@@ -115,7 +115,7 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="flex h-20 shrink-0 items-center justify-between gap-3 border-b border-slate-800/60 px-5 sm:px-6">
           <Image
-            src="/handygo-logo-horizontal.svg"
+            src="/handygo-white.svg"
             alt="HandyGo Logo"
             width={180}
             height={56}
