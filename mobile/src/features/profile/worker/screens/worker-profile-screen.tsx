@@ -89,7 +89,7 @@ export function WorkerProfileScreen() {
           accessibilityRole="button"
           accessibilityLabel="HANDY_GO balance"
           onPress={() => router.push(RouteNames.WORKER_BALANCE as any)}
-          className="mt-4 flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs active:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900"
+          className="mt-4 flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs active:bg-blue-50/80 dark:border-neutral-800 dark:bg-neutral-900 dark:active:bg-blue-950/30"
         >
           <View className="flex-1 flex-row items-center pr-3">
             <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
@@ -116,7 +116,7 @@ export function WorkerProfileScreen() {
             accessibilityRole="button"
             accessibilityLabel="Professional skills"
             onPress={() => router.push(RouteNames.WORKER_SKILLS as any)}
-            className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800"
+            className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
           >
             <View>
               <Text className="text-sm font-bold text-neutral-900 dark:text-white">
@@ -134,7 +134,7 @@ export function WorkerProfileScreen() {
             accessibilityRole="button"
             accessibilityLabel="Setting"
             onPress={() => router.push(RouteNames.WORKER_SETTINGS as any)}
-            className="flex-row items-center justify-between p-4 active:bg-neutral-50 dark:active:bg-neutral-800"
+            className="flex-row items-center justify-between p-4 active:bg-blue-50/80 dark:active:bg-blue-950/30"
           >
             <View>
               <Text className="text-sm font-bold text-neutral-900 dark:text-white">

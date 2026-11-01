@@ -132,9 +132,13 @@ describe('handyMap component', () => {
 
     expect(refHolder.current).toBeDefined();
     expect(typeof refHolder.current?.flyTo).toBe('function');
+    expect(typeof refHolder.current?.zoomIn).toBe('function');
+    expect(typeof refHolder.current?.zoomOut).toBe('function');
 
     act(() => {
       refHolder.current?.flyTo({ latitude: 10.762622, longitude: 106.660172 }, 16);
+      refHolder.current?.zoomIn();
+      refHolder.current?.zoomOut();
     });
   });
 });

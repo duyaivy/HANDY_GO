@@ -14,6 +14,8 @@ export type HandyCoordinates = {
 
 export type HandyMapRef = {
   flyTo: (coords: HandyCoordinates, zoom?: number) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
 };
 
 export type HandyMapProps = {
@@ -92,9 +94,16 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
     }
   }, [center, zoomLevel]);
 
+  const currentZoomRef = React.useRef(zoomLevel);
+
+  React.useEffect(() => {
+    currentZoomRef.current = zoomLevel;
+  }, [zoomLevel]);
+
   React.useImperativeHandle(ref, () => ({
     flyTo: (targetCoords: HandyCoordinates, zoom = zoomLevel) => {
       setCoords(targetCoords);
+      currentZoomRef.current = zoom;
       if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
         isInternalCameraUpdate.current = true;
         cameraRef.current.setCamera({
@@ -105,14 +114,65 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         });
       }
     },
+    zoomIn: () => {
+      if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+        isInternalCameraUpdate.current = true;
+        currentZoomRef.current = Math.min((currentZoomRef.current ?? zoomLevel) + 1, 20);
+        cameraRef.current.setCamera({
+          centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+          zoomLevel: currentZoomRef.current,
+          animationDuration: 300,
+        });
+      }
+    },
+    zoomOut: () => {
+      if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+        isInternalCameraUpdate.current = true;
+        currentZoomRef.current = Math.max((currentZoomRef.current ?? zoomLevel) - 1, 3);
+        cameraRef.current.setCamera({
+          centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+          zoomLevel: currentZoomRef.current,
+          animationDuration: 300,
+        });
+      }
+    },
   }));
 
-  const handleRegionDidChange = React.useCallback(
+  const handleCameraChanged = React.useCallback(
     (payload: any) => {
       if (isInternalCameraUpdate.current) {
         isInternalCameraUpdate.current = false;
         return;
       }
+
+      const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
+      if (typeof newZoom === 'number') {
+        currentZoomRef.current = newZoom;
+      }
+
+      if (panEnabled === false) {
+        let featureCoords = payload?.geometry?.coordinates;
+        if (!featureCoords && Array.isArray(payload?.properties?.center)) {
+          featureCoords = payload.properties.center;
+        }
+
+        if (Array.isArray(featureCoords) && featureCoords.length >= 2) {
+          const [longitude, latitude] = featureCoords;
+          const dist = Math.abs(longitude - targetCenter.longitude) + Math.abs(latitude - targetCenter.latitude);
+          if (dist > 0.00002) {
+            if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+              isInternalCameraUpdate.current = true;
+              cameraRef.current.setCamera({
+                centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+                zoomLevel: currentZoomRef.current,
+                animationDuration: 0,
+              });
+            }
+          }
+        }
+        return;
+      }
+
       if (!onRegionDidChange) {
         return;
       }
@@ -130,9 +190,6 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
             && !Number.isNaN(latitude)
             && !Number.isNaN(longitude)
           ) {
-            if (panEnabled === false) {
-              return;
-            }
             setCoords({ latitude, longitude });
             onRegionDidChange({ latitude, longitude });
           }
@@ -142,7 +199,44 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         // Safe fallback
       }
     },
-    [onRegionDidChange, panEnabled],
+    [onRegionDidChange, panEnabled, targetCenter.latitude, targetCenter.longitude],
+  );
+
+  const handleMapIdle = React.useCallback(
+    (payload: any) => {
+      if (isInternalCameraUpdate.current) {
+        isInternalCameraUpdate.current = false;
+        return;
+      }
+
+      const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
+      if (typeof newZoom === 'number') {
+        currentZoomRef.current = newZoom;
+      }
+
+      if (panEnabled === false) {
+        let featureCoords = payload?.geometry?.coordinates;
+        if (!featureCoords && Array.isArray(payload?.properties?.center)) {
+          featureCoords = payload.properties.center;
+        }
+
+        if (Array.isArray(featureCoords) && featureCoords.length >= 2) {
+          const [longitude, latitude] = featureCoords;
+          const dist = Math.abs(longitude - targetCenter.longitude) + Math.abs(latitude - targetCenter.latitude);
+          if (dist > 0.00001) {
+            if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+              isInternalCameraUpdate.current = true;
+              cameraRef.current.setCamera({
+                centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+                zoomLevel: currentZoomRef.current,
+                animationDuration: 150,
+              });
+            }
+          }
+        }
+      }
+    },
+    [panEnabled, targetCenter.latitude, targetCenter.longitude],
   );
 
   const styleURL = mapStyle || (theme === 'dark' ? MapboxService.styles.dark : MapboxService.styles.street);
@@ -168,9 +262,9 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
                 panEnabled: isPan,
                 pinchZoomEnabled: isZoom,
               }}
-              onRegionDidChange={handleRegionDidChange}
-              onMapIdle={handleRegionDidChange}
-              onCameraChanged={handleRegionDidChange}
+              onRegionDidChange={handleCameraChanged}
+              onMapIdle={handleMapIdle}
+              onCameraChanged={handleCameraChanged}
             >
               <Mapbox.Camera
                 ref={cameraRef}

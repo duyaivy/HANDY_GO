@@ -1,8 +1,10 @@
 /* eslint-disable max-lines-per-function */
+import type { HandyMapRef } from '@/components/map/handy-map';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Easing,
@@ -30,6 +32,7 @@ import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { getCancelErrorMessage } from '@/features/orders/utils/cancel-error-message';
+import { DeviceLocationService } from '@/services/location/device-location';
 import { MapboxService } from '@/services/map/mapbox-service';
 
 type QuotedWorker = {
@@ -349,6 +352,43 @@ export default function CustomerBookingRadarRoute() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const mapRef = React.useRef<HandyMapRef>(null);
+  const [isLocating, setIsLocating] = React.useState(false);
+
+  const handleRecenter = React.useCallback(async () => {
+    setIsLocating(true);
+    try {
+      if (radarCoords) {
+        mapRef.current?.flyTo(radarCoords, 11.5);
+      }
+      else {
+        const result = await DeviceLocationService.getDeviceLocationResult();
+        if (result.coordinates) {
+          useBookingDraftStore.getState().setAddress(
+            result.coordinates.addressText || addressText,
+            result.coordinates.latitude,
+            result.coordinates.longitude,
+          );
+          mapRef.current?.flyTo(
+            {
+              latitude: result.coordinates.latitude,
+              longitude: result.coordinates.longitude,
+            },
+            11.5,
+          );
+        }
+      }
+    }
+    catch {
+      // Safe fallback
+    }
+    finally {
+      setTimeout(() => {
+        setIsLocating(false);
+      }, 400);
+    }
+  }, [radarCoords, addressText]);
+
   const handleBack = () => {
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
       router.replace(RouteNames.CUSTOMER_BOOKING_SUMMARY as any);
@@ -494,6 +534,7 @@ export default function CustomerBookingRadarRoute() {
         {radarCoords
           ? (
               <HandyMap
+                ref={mapRef}
                 initialCenter={radarCoords}
                 center={radarCoords}
                 zoomLevel={11.5}
@@ -517,7 +558,7 @@ export default function CustomerBookingRadarRoute() {
             )}
 
         {/* Lớp phủ radial gradient radar mờ nhẹ trên bản đồ tạo hiệu ứng thấu kính Radar (như Vua Thợ) */}
-        <Svg pointerEvents="none" width="100%" height="100%" className="absolute inset-0">
+        <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
           <Defs>
             <RadialGradient id="radarVignette" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
               <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.05" />
@@ -583,11 +624,60 @@ export default function CustomerBookingRadarRoute() {
         {/* Điểm định vị trung tâm của Khách (Bulls-eye Target chuẩn Vua Thợ) */}
         <Animated.View
           pointerEvents="none"
-          style={{ transform: [{ scale: pulseAnim }] }}
-          className="relative z-20 size-8 items-center justify-center rounded-full border-2 border-neutral-900 bg-white shadow-md"
+          style={[
+            { transform: [{ scale: pulseAnim }] },
+            { position: 'absolute' },
+          ]}
+          className="z-20 size-8 items-center justify-center rounded-full border-2 border-neutral-900 bg-white shadow-md"
         >
           <View className="size-3 rounded-full bg-neutral-900" />
         </Animated.View>
+
+        {/* Cụm nút điều khiển bản đồ nổi: Phóng to (+), Thu nhỏ (-), Định vị vị trí */}
+        <View className="absolute right-4 bottom-4 z-30 items-center gap-2.5">
+          <View className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-md dark:border-neutral-700 dark:bg-neutral-800">
+            <Pressable
+              testID="radar-zoom-in-btn"
+              onPress={() => mapRef.current?.zoomIn()}
+              hitSlop={6}
+              className="size-10 items-center justify-center active:bg-neutral-100 dark:active:bg-neutral-700"
+            >
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#1F2937" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <Path d="M12 5v14M5 12h14" />
+              </Svg>
+            </Pressable>
+            <View className="h-px w-full bg-neutral-200 dark:bg-neutral-700" />
+            <Pressable
+              testID="radar-zoom-out-btn"
+              onPress={() => mapRef.current?.zoomOut()}
+              hitSlop={6}
+              className="size-10 items-center justify-center active:bg-neutral-100 dark:active:bg-neutral-700"
+            >
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#1F2937" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                <Path d="M5 12h14" />
+              </Svg>
+            </Pressable>
+          </View>
+
+          {/* Nút định vị nhanh GPS / quay về vị trí tìm thợ (Floating Action Button giống select-address) */}
+          <Pressable
+            testID="locate-me-btn"
+            onPress={handleRecenter}
+            hitSlop={10}
+            className="size-12 items-center justify-center rounded-full border border-neutral-200 bg-white shadow-md active:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800"
+          >
+            {isLocating
+              ? (
+                  <ActivityIndicator size="small" color="#F5A524" />
+                )
+              : (
+                  <Svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="#F5A524" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+                    <Circle cx="12" cy="12" r="3" />
+                    <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+                  </Svg>
+                )}
+          </Pressable>
+        </View>
       </View>
 
       {/* ── 3. Bottom Sheet Thông tin đơn & Giá ước tính (Chuẩn Vua Thợ) ── */}
