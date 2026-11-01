@@ -125,7 +125,7 @@ export const KycTable: React.FC = () => {
 
   const handleApprove = async (id: string, note: string) => {
     if (selectedRecord?.id !== id || selectedRecord.status !== "reviewing")
-      return;
+      throw new Error("Hồ sơ không còn đủ điều kiện phê duyệt");
     try {
       await reviewMutation.mutateAsync({
         id,
@@ -139,22 +139,27 @@ export const KycTable: React.FC = () => {
         err instanceof Error ? err.message : "Phê duyệt hồ sơ thất bại",
         "error",
       );
+      throw err;
     }
   };
 
   const handleReject = async (id: string, reason: string) => {
     const note = reason.trim();
+
     if (
       !note ||
       selectedRecord?.id !== id ||
       selectedRecord.status !== "reviewing"
-    )
-      return;
+    ) {
+      throw new Error("Hồ sơ không hợp lệ hoặc thiếu lý do từ chối");
+    }
+
     try {
       await reviewMutation.mutateAsync({
         id,
         body: { decision: "rejected", note },
       });
+
       showToast(`Đã từ chối hồ sơ ${id}`);
       setSelectedRecordId(null);
       setSelectedRecordSnapshot(null);
@@ -163,6 +168,8 @@ export const KycTable: React.FC = () => {
         err instanceof Error ? err.message : "Từ chối hồ sơ thất bại",
         "error",
       );
+
+      throw err;
     }
   };
 
@@ -521,16 +528,19 @@ export const KycTable: React.FC = () => {
       {/* ========================================================================= */}
       {/* 4. MODAL CHI TIẾT HỒ SƠ KYC (CENTER MODAL) */}
       {/* ========================================================================= */}
-      <KycDetailModal
-        isOpen={Boolean(selectedRecordId)}
-        record={selectedRecord}
-        onClose={() => {
-          setSelectedRecordId(null);
-          setSelectedRecordSnapshot(null);
-        }}
-        onApprove={handleApprove}
-        onReject={handleReject}
-      />
+      {selectedRecord && (
+        <KycDetailModal
+          key={selectedRecord.id}
+          isOpen={true}
+          record={selectedRecord}
+          onClose={() => {
+            setSelectedRecordId(null);
+            setSelectedRecordSnapshot(null);
+          }}
+          onApprove={handleApprove}
+          onReject={handleReject}
+        />
+      )}
     </div>
   );
 };

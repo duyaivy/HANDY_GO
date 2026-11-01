@@ -124,7 +124,23 @@ const formatMatchStatus = (value: unknown): string => {
   if (value === "completed") return "Đã phân tích";
   if (value === "match") return "Trùng khớp";
   if (value === "not_match") return "Không trùng khớp";
+
   return "Chưa có dữ liệu";
+};
+const formatKycStatus = (value: unknown): string => {
+  if (typeof value !== "string" || !value.trim()) {
+    return "Chưa có dữ liệu";
+  }
+
+  const statusLabels: Record<string, string> = {
+    draft: "Bản nháp",
+    submitted: "Chờ xử lý",
+    reviewing: "Chờ xét duyệt",
+    approved: "Đã duyệt",
+    rejected: "Đã từ chối",
+  };
+
+  return statusLabels[value.toLowerCase()] ?? value;
 };
 
 const formatYesNo = (value: unknown): string =>
@@ -194,6 +210,8 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
   const [isRejectOpen, setIsRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [previewImage, setPreviewImage] = useState<{
     url: string | null;
     title: string;
@@ -246,23 +264,62 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
     }
   };
 
-  const handleApproveConfirm = () => {
-    if (!canReview) return;
-    onApprove(kyc.id, approveNote.trim());
-    setIsApproveOpen(false);
-    setApproveNote("");
+  const handleApproveConfirm = async () => {
+    if (!canReview || isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitError("");
+    try {
+      await onApprove(kyc.id, approveNote.trim());
+      setIsApproveOpen(false);
+      setApproveNote("");
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Phê duyệt thất bại. Vui lòng thử lại.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleRejectConfirm = () => {
-    if (!canReview) return;
+  const handleRejectConfirm = async () => {
+    if (!canReview || isSubmitting) return;
     if (!rejectReason.trim()) {
       setRejectError("Vui lòng nhập lý do từ chối hồ sơ này");
       return;
     }
-    onReject(kyc.id, rejectReason.trim());
+    setIsSubmitting(true);
+    setSubmitError("");
+    try {
+      await onReject(kyc.id, rejectReason.trim());
+      setIsRejectOpen(false);
+      setRejectReason("");
+      setRejectError("");
+    } catch (error) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "Từ chối thất bại. Vui lòng thử lại.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const cancelApprove = () => {
+    if (isSubmitting) return;
+    setIsApproveOpen(false);
+    setApproveNote("");
+    setSubmitError("");
+  };
+
+  const cancelReject = () => {
+    if (isSubmitting) return;
     setIsRejectOpen(false);
     setRejectReason("");
     setRejectError("");
+    setSubmitError("");
   };
 
   return (
@@ -284,6 +341,7 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               className="p-1.5 rounded-lg text-slate-400 hover:text-[#0F172A] hover:bg-slate-100 transition-colors cursor-pointer"
               aria-label="Đóng modal"
             >
@@ -707,21 +765,9 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                                     {history.fromStatus != null &&
                                       history.toStatus != null && (
                                         <p className="mt-2 text-[12px] text-slate-600">
-                                          {formatMatchStatus(
-                                            history.fromStatus,
-                                          ) === "Chưa có dữ liệu"
-                                            ? displayValue(history.fromStatus)
-                                            : formatMatchStatus(
-                                                history.fromStatus,
-                                              )}
+                                          {formatKycStatus(history.fromStatus)}
                                           {" → "}
-                                          {formatMatchStatus(
-                                            history.toStatus,
-                                          ) === "Chưa có dữ liệu"
-                                            ? displayValue(history.toStatus)
-                                            : formatMatchStatus(
-                                                history.toStatus,
-                                              )}
+                                          {formatKycStatus(history.toStatus)}
                                         </p>
                                       )}
                                     {((typeof history.note === "string" &&
@@ -1002,7 +1048,10 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
               <div className="flex w-full items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setIsRejectOpen(true)}
+                  onClick={() => {
+                    setSubmitError("");
+                    setIsRejectOpen(true);
+                  }}
                   className="inline-flex h-9 min-w-[96px] cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
                 >
                   {/* <X className="h-4 w-4 shrink-0" /> */}
@@ -1010,7 +1059,10 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsApproveOpen(true)}
+                  onClick={() => {
+                    setSubmitError("");
+                    setIsApproveOpen(true);
+                  }}
                   className="inline-flex h-9 min-w-[108px] cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-[#E6530F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
                 >
                   {/* <Check className="h-4 w-4 shrink-0" /> */}
@@ -1059,30 +1111,38 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
               <textarea
                 id="kyc-approve-note"
                 value={approveNote}
+                disabled={isSubmitting}
                 onChange={(e) => setApproveNote(e.target.value)}
-                maxLength={500}
+                maxLength={1000}
                 rows={3}
                 placeholder="Nhập ghi chú cho hồ sơ..."
                 className="w-full rounded-xl border border-slate-200 p-3 text-[13px] text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14] resize-none"
               />
               <p className="text-right text-[11px] text-slate-400">
-                {approveNote.length}/500
+                {approveNote.length}/1000
               </p>
             </div>
+            {submitError && (
+              <p role="alert" className="text-[12px] text-rose-600">
+                {submitError}
+              </p>
+            )}
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setIsApproveOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-[14px] font-medium text-[#0F172A] hover:bg-slate-50 transition-colors cursor-pointer"
+                onClick={cancelApprove}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-[14px] font-medium text-[#0F172A] hover:bg-slate-50 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Hủy
               </button>
               <button
                 type="button"
-                onClick={handleApproveConfirm}
-                className="px-5 py-2 rounded-xl bg-[#FF5E14] hover:bg-[#E04F0E] text-white text-[14px] font-medium transition-colors cursor-pointer shadow-xs"
+                onClick={() => void handleApproveConfirm()}
+                disabled={isSubmitting}
+                className="px-5 py-2 rounded-xl bg-[#FF5E14] hover:bg-[#E04F0E] text-white text-[14px] font-medium transition-colors cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Xác nhận phê duyệt
+                {isSubmitting ? "Đang phê duyệt..." : "Xác nhận phê duyệt"}
               </button>
             </div>
           </div>
@@ -1110,10 +1170,12 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
             <div>
               <textarea
                 value={rejectReason}
+                disabled={isSubmitting}
                 onChange={(e) => {
                   setRejectReason(e.target.value);
                   if (rejectError) setRejectError("");
                 }}
+                maxLength={1000}
                 rows={3}
                 placeholder="Nhập lý do từ chối cụ thể..."
                 className="w-full p-3 rounded-xl border border-slate-200 text-[13px] text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500"
@@ -1133,6 +1195,7 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                   <button
                     key={item}
                     type="button"
+                    disabled={isSubmitting}
                     onClick={() => {
                       setRejectReason(item);
                       if (rejectError) setRejectError("");
@@ -1145,20 +1208,27 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
               </div>
             </div>
 
+            {submitError && (
+              <p role="alert" className="text-[12px] text-rose-600">
+                {submitError}
+              </p>
+            )}
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => setIsRejectOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-[14px] font-medium text-[#0F172A] hover:bg-slate-50 transition-colors cursor-pointer"
+                onClick={cancelReject}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-[14px] font-medium text-[#0F172A] hover:bg-slate-50 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Hủy
               </button>
               <button
                 type="button"
-                onClick={handleRejectConfirm}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[14px] font-medium transition-colors cursor-pointer shadow-xs"
+                onClick={() => void handleRejectConfirm()}
+                disabled={isSubmitting}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[14px] font-medium transition-colors cursor-pointer shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Xác nhận từ chối
+                {isSubmitting ? "Đang từ chối..." : "Xác nhận từ chối"}
               </button>
             </div>
           </div>

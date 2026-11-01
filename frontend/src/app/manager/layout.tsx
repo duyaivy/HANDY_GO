@@ -454,15 +454,6 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
 
                             <button
                               type="button"
-                              onClick={() => navigateTo("/manager/setting")}
-                              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-                            >
-                              {/* <Settings size={16} />
-                              Cài đặt hệ thống */}
-                            </button>
-
-                            <button
-                              type="button"
                               onClick={() => {
                                 setLogoutError("");
                                 setIsLogoutDialogOpen(true);
@@ -470,8 +461,8 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                               disabled={isLoggingOut}
                               className="flex w-full items-center gap-2.5 border-t border-slate-100 px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50"
                             >
-                              {/* <LogOut size={16} />
-                              {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"} */}
+                              <LogOut size={16} />
+                              {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
                             </button>
                           </div>
                         </>
