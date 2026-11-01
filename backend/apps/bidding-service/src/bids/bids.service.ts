@@ -69,12 +69,22 @@ export class BidsService {
     serviceRequestId: string,
     dto: SubmitBidDto,
   ): Promise<BidResponseDto> {
-    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04)
+    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04 / PR42-06)
     if (this.requestEligibilityVerifier) {
-      await this.requestEligibilityVerifier.verifyEligibility(
-        serviceRequestId,
-        workerId,
-      );
+      const eligibility =
+        await this.requestEligibilityVerifier.verifyEligibility(
+          serviceRequestId,
+          workerId,
+        );
+      if (
+        typeof this.requestEligibilityVerifier.verifyWorkerHardEligibility ===
+        'function'
+      ) {
+        await this.requestEligibilityVerifier.verifyWorkerHardEligibility(
+          workerId,
+          (eligibility as any)?.serviceId,
+        );
+      }
     }
 
     let round = await this.prisma.biddingRound.findUnique({
@@ -801,10 +811,16 @@ export class BidsService {
     const isAdminOrOperator =
       roles.includes('admin') || roles.includes('operator');
 
+    const now = new Date();
     const where: Prisma.BidWhereInput = {
       serviceRequestId,
       ...(query.status && query.status !== 'all'
-        ? { status: query.status as any }
+        ? query.status === 'active'
+          ? {
+              status: 'active',
+              OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+            }
+          : { status: query.status as any }
         : {}),
     };
 
@@ -828,7 +844,11 @@ export class BidsService {
         select: { customerId: true },
       }),
       this.prisma.bid.findMany({
-        where: { serviceRequestId, status: 'active' },
+        where: {
+          serviceRequestId,
+          status: 'active',
+          OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        },
         select: { workerId: true },
         distinct: ['workerId'],
       }),
@@ -1003,6 +1023,9 @@ export class BidsService {
   ): Promise<BidListResponseDto> {
     const where: Prisma.BidWhereInput = {
       workerId,
+      ...(query.serviceRequestId
+        ? { serviceRequestId: query.serviceRequestId }
+        : {}),
       ...(query.status && query.status !== 'all'
         ? { status: query.status as any }
         : {}),

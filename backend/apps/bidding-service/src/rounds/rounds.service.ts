@@ -685,11 +685,27 @@ export class RoundsService {
           );
         }
 
-        // Mark the selected bid
-        await tx.bid.update({
-          where: { id: selectedBid.id },
-          data: { status: 'selected' },
-        });
+        // PR42-03: Reconcile bid selection status based on authoritative state machine.
+        // If already 'selected', this is an idempotent replay.
+        // If 'active' (or unpopulated in test mocks), transition to 'selected'.
+        // If 'withdrawn', 'expired', or 'rejected', the order was committed by Order Service
+        // but the event arrived after status change. Do NOT forcefully overwrite historical audit state.
+        const isEligibleForSelection =
+          !selectedBid.status || selectedBid.status === 'active';
+        if (isEligibleForSelection) {
+          await tx.bid.update({
+            where: { id: selectedBid.id },
+            data: { status: 'selected' },
+          });
+        } else if (selectedBid.status !== 'selected') {
+          this.logger.warn({
+            event: 'round_finalized_with_inactive_bid',
+            roundId: round.id,
+            bidId: selectedBid.id,
+            bidStatus: selectedBid.status,
+            message: `Selected bid ${selectedBid.id} has status '${selectedBid.status}'. Preserving audit integrity.`,
+          });
+        }
 
         // Mark all other active bids of THIS round as rejected
         await tx.bid.updateMany({

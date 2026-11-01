@@ -9,6 +9,8 @@ export class ServiceRequestProjectionService {
 
   /**
    * Upserts the projection when a service request is published.
+   * If a terminal tombstone already exists (from an early cancelled / order.created event),
+   * updates the projection metadata while strictly preserving the terminal status.
    */
   async upsertPublishedRequest(data: {
     id: string;
@@ -29,10 +31,37 @@ export class ServiceRequestProjectionService {
       ? new Date(data.scheduledAt)
       : null;
 
-    return this.prisma.serviceRequestProjection.upsert({
+    const existing = await this.prisma.serviceRequestProjection.findUnique({
       where: { id: data.id },
-      update: {}, // A replay must never reopen or roll back an existing projection.
-      create: {
+    });
+
+    if (existing) {
+      // If projection already exists in a terminal state (tombstone or finalized/cancelled earlier),
+      // update details for data consistency but strictly preserve terminal status.
+      if (['cancelled', 'converted_to_order'].includes(existing.status)) {
+        return this.prisma.serviceRequestProjection.update({
+          where: { id: data.id },
+          data: {
+            requestCode: data.requestCode,
+            customerUserId: data.customerUserId,
+            serviceId: data.serviceId,
+            description: data.description,
+            scheduledAt: scheduledAtDate,
+            addressText: data.addressText,
+            latitude: data.latitude,
+            longitude: data.longitude,
+            matchingRevision: data.matchingRevision ?? existing.matchingRevision,
+            // Keep existing terminal status
+          },
+        });
+      }
+
+      // If already exists and not terminal, replay must never reopen or roll back
+      return existing;
+    }
+
+    return this.prisma.serviceRequestProjection.create({
+      data: {
         biddingClosesAt: data.biddingClosesAt
           ? new Date(data.biddingClosesAt)
           : null,
@@ -94,6 +123,8 @@ export class ServiceRequestProjectionService {
 
   /**
    * Updates request status (e.g. cancelled, converted_to_order).
+   * PR42-02: If projection does not exist yet when a terminal event arrives (out-of-order broker queues),
+   * creates a durable tombstone to prevent late published events from resurrecting this request.
    */
   async updateRequestStatus(id: string, status: string): Promise<void> {
     const existing = await this.prisma.serviceRequestProjection.findUnique({
@@ -102,10 +133,31 @@ export class ServiceRequestProjectionService {
 
     if (!existing) {
       this.logger.warn(
-        `Request projection ${id} not found when updating status to ${status}`,
+        `Request projection ${id} not found when updating status to ${status}. Creating durable tombstone.`,
+      );
+      await this.prisma.serviceRequestProjection.create({
+        data: {
+          id,
+          requestCode: 'TOMBSTONE',
+          customerUserId: '00000000-0000-0000-0000-000000000000',
+          serviceId: '00000000-0000-0000-0000-000000000000',
+          latitude: 0,
+          longitude: 0,
+          status,
+          matchingRevision: 0,
+        },
+      });
+      return;
+    }
+
+    // Terminal statuses (cancelled, converted_to_order) are irreversible
+    if (['cancelled', 'converted_to_order'].includes(existing.status)) {
+      this.logger.warn(
+        `Request projection ${id} already in terminal state '${existing.status}', ignoring transition to '${status}'.`,
       );
       return;
     }
+
     const predecessors =
       status === 'bidding_closed'
         ? ['open_for_bidding']
@@ -149,6 +201,8 @@ export class ServiceRequestProjectionService {
   /**
    * Worker job discovery: queries open requests matching the worker's offered services
    * and within at least one of the worker's active geographical service areas.
+   * PR42-01: Uses matching_service.service_request_projections as the sole read model,
+   * without cross-service database JOINs to order_service or bidding_service.
    */
   async findMatchingRequestsForWorker(params: {
     workerUserId: string;
@@ -209,15 +263,11 @@ export class ServiceRequestProjectionService {
         ))))) AS distance
         FROM ${table} p
         CROSS JOIN jsonb_to_recordset(${areas}::jsonb) AS a(latitude float8, longitude float8, "radiusKm" float8)
-        LEFT JOIN bidding_service.bidding_rounds b ON b.service_request_id = p.id
-        LEFT JOIN order_service.service_requests o ON o.id = p.id
         WHERE p.service_id IN (${MatchingPrisma.Prisma.join(serviceIds.map((id) => MatchingPrisma.Prisma.sql`${id}::uuid`))})
           AND p.status = 'open_for_bidding'
           AND (p.bidding_closes_at IS NULL OR p.bidding_closes_at > clock_timestamp())
           AND (p.selection_expires_at IS NULL OR p.selection_expires_at > clock_timestamp())
           AND p.customer_user_id <> ${workerUserId}::uuid
-          AND (b.id IS NULL OR (b.status = 'open' AND b.closes_at > clock_timestamp()))
-          AND (o.id IS NULL OR (o.status = 'open_for_bidding' AND (o.bidding_closes_at IS NULL OR o.bidding_closes_at > clock_timestamp())))
           AND 6371 * 2 * asin(sqrt(LEAST(1.0, GREATEST(0.0,
             power(sin(radians(p.latitude::float8 - a.latitude) / 2), 2) +
             cos(radians(p.latitude::float8)) * cos(radians(a.latitude)) *

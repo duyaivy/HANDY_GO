@@ -29,6 +29,8 @@ jest.mock('@/features/bidding/api/worker-bidding.api', () => ({
     getServiceRequest: jest.fn(),
     getRoundStatus: jest.fn().mockResolvedValue({ status: 'open', isExpired: false, bidCount: 1, timeRemainingSeconds: 300 }),
     getMyBids: jest.fn().mockResolvedValue([]),
+    getMyBidForRequest: jest.fn().mockResolvedValue(null),
+    getBidDetail: jest.fn(),
     submitBid: jest.fn(),
     reviseBid: jest.fn(),
     withdrawBid: jest.fn(),

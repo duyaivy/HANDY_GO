@@ -152,6 +152,8 @@ export class BiddingSseClient {
 
   private activeXhr: any = null;
 
+  private connectionPromise: Promise<void> | null = null;
+
   private readonly listeners: Map<string, Set<SseListener<any>>> = new Map();
 
   constructor(requestId: string, options?: BiddingSseClientOptions) {
@@ -197,13 +199,31 @@ export class BiddingSseClient {
 
   /**
    * Connect to the SSE stream.
+   * PR42-08: Protected by single-flight connectionPromise to prevent concurrent duplicate socket creations.
    */
   public async connect(): Promise<void> {
     if (this.isClosed) {
       this.isClosed = false;
     }
-    this.clearTimers();
-    await this.startStream();
+    if (this.isConnected) {
+      return;
+    }
+    if (this.connectionPromise) {
+      return this.connectionPromise;
+    }
+
+    this.connectionPromise = (async () => {
+      try {
+        this.clearTimers();
+        this.cleanupActiveConnection();
+        await this.startStream();
+      }
+      finally {
+        this.connectionPromise = null;
+      }
+    })();
+
+    return this.connectionPromise;
   }
 
   /**
@@ -211,6 +231,7 @@ export class BiddingSseClient {
    */
   public disconnect(): void {
     this.isClosed = true;
+    this.connectionPromise = null;
     this.cleanupActiveConnection();
     this.clearTimers();
   }

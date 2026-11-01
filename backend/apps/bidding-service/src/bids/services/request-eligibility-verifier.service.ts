@@ -140,4 +140,111 @@ export class RequestEligibilityVerifierService {
       );
     }
   }
+
+  /**
+   * PR42-06: Verifies worker hard eligibility via User & Trust Service.
+   * Checks that worker account is active, KYC is approved, and the worker offers the requested service.
+   * Strictly fail-closed on service unavailability, timeout, or network failure.
+   */
+  async verifyWorkerHardEligibility(
+    workerId: string,
+    requiredServiceId?: string,
+  ): Promise<void> {
+    const rawUserTrustUrl =
+      (typeof this.config.getUrl === 'function'
+        ? this.config.getUrl('USER_TRUST_SERVICE_URL')
+        : (this.config as any).get?.('USER_TRUST_SERVICE_URL')) ||
+      'http://localhost:3002';
+    const userTrustUrl = rawUserTrustUrl.replace(/\/+$/, '');
+    const internalSecret = this.config.internalServiceSecret;
+
+    const url = `${userTrustUrl}/api/v1/internal/v1/workers/${encodeURIComponent(workerId)}/matching-profile`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'x-internal-secret': internalSecret || '',
+        },
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (response.status === 200) {
+        const body: unknown = await response.json().catch(() => null);
+        const data =
+          typeof body === 'object' && body !== null && 'data' in body
+            ? (body as any).data
+            : body;
+
+        if (!data || typeof data !== 'object') {
+          throw new ForbiddenException(
+            'Hồ sơ thợ không tồn tại hoặc không ở trạng thái hoạt động',
+          );
+        }
+
+        // Hard check: KYC verified
+        if (!data.isVerified) {
+          throw new ForbiddenException(
+            'Thợ chưa hoàn tất xác thực danh tính (KYC) để gửi báo giá',
+          );
+        }
+
+        // Hard check: Service offering matches requested service
+        if (
+          requiredServiceId &&
+          Array.isArray(data.serviceIds) &&
+          !data.serviceIds.includes(requiredServiceId)
+        ) {
+          throw new ForbiddenException(
+            'Thợ chưa đăng ký ngành nghề dịch vụ phù hợp với yêu cầu này',
+          );
+        }
+
+        return;
+      }
+
+      if (response.status === 404) {
+        throw new ForbiddenException('Hồ sơ thợ không tồn tại hoặc đã bị khóa');
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        this.logger.warn({
+          event: 'worker_profile_verification_auth_failed',
+          httpStatus: response.status,
+          workerId,
+        });
+        throw new ForbiddenException(
+          'Không đủ quyền hạn để xác thực hồ sơ thợ',
+        );
+      }
+
+      // 5xx -> fail closed
+      this.logger.error({
+        event: 'worker_profile_verification_failed',
+        category: 'http_5xx',
+        httpStatus: response.status,
+        workerId,
+      });
+      throw new ServiceUnavailableException(
+        'Không thể kết nối tới User & Trust Service để xác minh điều kiện thợ. Vui lòng thử lại sau.',
+      );
+    } catch (err: unknown) {
+      if (
+        err instanceof ForbiddenException ||
+        err instanceof ServiceUnavailableException
+      ) {
+        throw err;
+      }
+
+      this.logger.error({
+        event: 'worker_profile_verification_failed',
+        category: 'network_error',
+        message: (err as Error).message,
+        workerId,
+      });
+      throw new ServiceUnavailableException(
+        'Dịch vụ User & Trust tạm thời không phản hồi. Xác minh điều kiện thợ thất bại (fail-closed).',
+      );
+    }
+  }
 }

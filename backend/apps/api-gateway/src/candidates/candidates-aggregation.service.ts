@@ -111,9 +111,19 @@ export class CandidatesAggregationService {
       });
     const isPartial = partialFailures.length > 0;
 
-    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections, only include active bids)
+    // 5. Map Bidding Candidates (preserve Bid ordering and sealed-bid protections, only include active & unexpired bids)
+    const nowMs = Date.now();
     const biddingItems: BidCandidateDto[] = biddingResult.items
-      .filter((b) => !b.status || b.status === 'active')
+      .filter((b) => {
+        if (b.status && b.status !== 'active') return false;
+        if (b.validUntil) {
+          const validUntilMs = new Date(b.validUntil).getTime();
+          if (!Number.isNaN(validUntilMs) && validUntilMs <= nowMs) {
+            return false;
+          }
+        }
+        return true;
+      })
       .map((b) => {
       const bidId = b.id;
       const workerId = b.workerId || b.workerUserId;

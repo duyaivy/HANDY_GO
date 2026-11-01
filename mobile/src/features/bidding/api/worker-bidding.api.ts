@@ -130,6 +130,15 @@ export const WorkerBiddingApi = {
   },
 
   /**
+   * Get authoritative bid for a specific request by the current worker.
+   * Uses server-side serviceRequestId filter to prevent pagination misses (PR42-07).
+   */
+  getMyBidForRequest: async (requestId: string, signal?: AbortSignal): Promise<BidDetail | null> => {
+    const bids = await WorkerBiddingApi.getMyBids({ serviceRequestId: requestId, limit: 1 }, signal);
+    return bids[0] || null;
+  },
+
+  /**
    * Get bid detail by ID.
    * GET /api/v1/bids/:id
    */

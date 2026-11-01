@@ -1,4 +1,4 @@
-import type { BidDetail } from '../api/worker-bidding.api';
+import { type BidDetail, WorkerBiddingApi } from '../api/worker-bidding.api';
 import type { DiscoverableJobItem } from '../api/worker-discovery.api';
 import * as React from 'react';
 import {
@@ -52,12 +52,41 @@ export function WorkerBidModal({
   const [message, setMessage] = React.useState('');
   const [withdrawReason, setWithdrawReason] = React.useState('');
 
-  // Initialize or reset form fields when modal opens or existingBid changes
+  const [fetchedBid, setFetchedBid] = React.useState<BidDetail | null>(null);
+  const effectiveBid = fetchedBid ?? existingBid ?? null;
+
+  // PR42-07: Fetch authoritative bid by serviceRequestId when modal opens,
+  // preventing stale or missing state if the bid was beyond page 1 of /bids/me
+  React.useEffect(() => {
+    if (!visible || !requestId) {
+      setFetchedBid(null);
+      return;
+    }
+
+    let isCancelled = false;
+    if (typeof WorkerBiddingApi.getMyBidForRequest === 'function') {
+      WorkerBiddingApi.getMyBidForRequest(requestId)
+        .then((bid) => {
+          if (!isCancelled && bid) {
+            setFetchedBid(bid);
+          }
+        })
+        .catch((err) => {
+          console.warn('[WORKER_BID_MODAL] Could not fetch authoritative bid:', err);
+        });
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [visible, requestId]);
+
+  // Initialize or reset form fields when modal opens or effectiveBid changes
   React.useEffect(() => {
     if (visible) {
-      if (existingBid && existingBid.status === 'active') {
-        setAmountStr(String(existingBid.amount));
-        setMessage(existingBid.message || '');
+      if (effectiveBid && effectiveBid.status === 'active') {
+        setAmountStr(String(effectiveBid.amount));
+        setMessage(effectiveBid.message || '');
       }
       else {
         setAmountStr('');
@@ -65,22 +94,22 @@ export function WorkerBidModal({
       }
       setWithdrawReason('');
     }
-  }, [visible, existingBid]);
+  }, [visible, effectiveBid]);
 
   const isRoundOpen = roundStatus?.status === 'open' && !roundStatus?.isExpired;
-  const revisionsCount = existingBid?.revisionsCount ?? 0;
+  const revisionsCount = effectiveBid?.revisionsCount ?? 0;
   const revisionsLeft = Math.max(0, MAX_REVISIONS - revisionsCount);
 
   // 2-minute cooldown tracking between revisions
   const lastUpdateTimestamp = React.useMemo(() => {
-    if (!existingBid)
+    if (!effectiveBid)
       return null;
-    if (existingBid.revisions && existingBid.revisions.length > 0) {
-      const lastRev = existingBid.revisions[existingBid.revisions.length - 1];
+    if (effectiveBid.revisions && effectiveBid.revisions.length > 0) {
+      const lastRev = effectiveBid.revisions[effectiveBid.revisions.length - 1];
       return new Date(lastRev.revisedAt).getTime();
     }
-    return existingBid.submittedAt ? new Date(existingBid.submittedAt).getTime() : null;
-  }, [existingBid]);
+    return effectiveBid.submittedAt ? new Date(effectiveBid.submittedAt).getTime() : null;
+  }, [effectiveBid]);
 
   const [cooldownRemainingSec, setCooldownRemainingSec] = React.useState(0);
 
@@ -107,7 +136,7 @@ export function WorkerBidModal({
   }, [visible, lastUpdateTimestamp]);
 
   const isCooldownActive = cooldownRemainingSec > 0;
-  const canRevise = Boolean(existingBid && existingBid.status === 'active' && revisionsLeft > 0 && !isCooldownActive);
+  const canRevise = Boolean(effectiveBid && effectiveBid.status === 'active' && revisionsLeft > 0 && !isCooldownActive);
 
   const handleFormatAmount = (text: string) => {
     // Only allow numbers
@@ -134,7 +163,7 @@ export function WorkerBidModal({
       return;
     }
 
-    if (existingBid && existingBid.status === 'active') {
+    if (effectiveBid && effectiveBid.status === 'active') {
       if (revisionsLeft <= 0) {
         Alert.alert('Giới hạn điều chỉnh', `Bạn đã đạt tối đa ${MAX_REVISIONS} lần điều chỉnh báo giá cho phiên này.`);
         return;
@@ -149,12 +178,12 @@ export function WorkerBidModal({
     }
 
     try {
-      if (existingBid && existingBid.status === 'active') {
+      if (effectiveBid && effectiveBid.status === 'active') {
         // Revision flow with optimistic locking version
         await reviseBidMutation.mutateAsync({
-          bidId: existingBid.id,
+          bidId: effectiveBid.id,
           payload: {
-            version: existingBid.version,
+            version: effectiveBid.version,
             amount,
             message: message.trim() || undefined,
           },
@@ -180,7 +209,7 @@ export function WorkerBidModal({
   };
 
   const handleWithdraw = () => {
-    if (!existingBid)
+    if (!effectiveBid)
       return;
 
     Alert.alert(
@@ -194,9 +223,9 @@ export function WorkerBidModal({
           onPress: async () => {
             try {
               await withdrawBidMutation.mutateAsync({
-                bidId: existingBid.id,
+                bidId: effectiveBid.id,
                 payload: {
-                  version: existingBid.version,
+                  version: effectiveBid.version,
                   reason: withdrawReason.trim() || undefined,
                 },
               });
@@ -229,7 +258,7 @@ export function WorkerBidModal({
           <View className="flex-row items-center justify-between border-b border-neutral-100 pb-3 dark:border-neutral-800">
             <View className="mr-3 flex-1">
               <Text className="text-lg font-black text-neutral-900 dark:text-white" numberOfLines={1}>
-                {existingBid && existingBid.status === 'active' ? 'Điều chỉnh báo giá' : 'Gửi báo giá dịch vụ'}
+                {effectiveBid && effectiveBid.status === 'active' ? 'Điều chỉnh báo giá' : 'Gửi báo giá dịch vụ'}
               </Text>
               <Text className="text-xs font-semibold text-neutral-400">
                 #
@@ -300,15 +329,15 @@ export function WorkerBidModal({
             )}
 
             {/* Existing Bid Warning / Revision limits */}
-            {existingBid && existingBid.status === 'active' && (
+            {effectiveBid && effectiveBid.status === 'active' && (
               <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
                 <Text className="text-xs font-bold text-amber-800 dark:text-amber-300">
                   Báo giá hiện tại:
                   {' '}
-                  {existingBid.amount.toLocaleString('vi-VN')}
+                  {effectiveBid.amount.toLocaleString('vi-VN')}
                   {' '}
                   đ (Phiên bản v
-                  {existingBid.version}
+                  {effectiveBid.version}
                   )
                 </Text>
                 <Text className="mt-1 text-xs text-amber-700 dark:text-amber-400">
@@ -333,7 +362,7 @@ export function WorkerBidModal({
             )}
 
             {/* Withdrawn Bid Warning */}
-            {existingBid && existingBid.status === 'withdrawn' && (
+            {effectiveBid && effectiveBid.status === 'withdrawn' && (
               <View className="mb-4 rounded-xl border border-neutral-200 bg-neutral-100 p-3.5 dark:border-neutral-800 dark:bg-neutral-800/60">
                 <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
                   Bạn đã rút báo giá cho yêu cầu này
@@ -352,14 +381,14 @@ export function WorkerBidModal({
                 <Text className="text-red-500">*</Text>
               </Text>
               <TextInput
-                editable={existingBid?.status !== 'withdrawn'}
+                editable={effectiveBid?.status !== 'withdrawn'}
                 keyboardType="numeric"
                 value={amountStr}
                 onChangeText={handleFormatAmount}
                 placeholder="Nhập số tiền (VD: 250000)"
                 placeholderTextColor="#9CA3AF"
                 className={`h-12 rounded-xl border border-neutral-300 px-4 text-base font-bold dark:border-neutral-700 ${
-                  existingBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
+                  effectiveBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
                 }`}
               />
               {displayFormattedAmount
@@ -377,7 +406,7 @@ export function WorkerBidModal({
                 Tin nhắn tới khách hàng (Tùy chọn)
               </Text>
               <TextInput
-                editable={existingBid?.status !== 'withdrawn'}
+                editable={effectiveBid?.status !== 'withdrawn'}
                 multiline
                 numberOfLines={3}
                 value={message}
@@ -386,7 +415,7 @@ export function WorkerBidModal({
                 placeholder="Thời gian có thể đến, cam kết bảo hành, kinh nghiệm..."
                 placeholderTextColor="#9CA3AF"
                 className={`min-h-[80px] rounded-xl border border-neutral-300 p-3 text-sm dark:border-neutral-700 ${
-                  existingBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
+                  effectiveBid?.status === 'withdrawn' ? 'bg-neutral-200 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-500' : 'bg-neutral-50 text-neutral-900 dark:bg-neutral-800 dark:text-white'
                 }`}
                 textAlignVertical="top"
               />
@@ -411,20 +440,20 @@ export function WorkerBidModal({
               <Button
                 variant="primary"
                 onPress={handleSubmit}
-                disabled={isSubmitting || !amountStr || (existingBid?.status === 'active' && !canRevise) || existingBid?.status === 'withdrawn'}
+                disabled={isSubmitting || !amountStr || (effectiveBid?.status === 'active' && !canRevise) || effectiveBid?.status === 'withdrawn'}
                 loading={isSubmitting}
                 label={
-                  existingBid?.status === 'withdrawn'
+                  effectiveBid?.status === 'withdrawn'
                     ? 'Đã rút báo giá'
                     : isCooldownActive
                       ? `Chờ ${cooldownRemainingSec}s để cập nhật`
-                      : existingBid && existingBid.status === 'active'
+                      : effectiveBid && effectiveBid.status === 'active'
                         ? 'Cập nhật báo giá'
                         : 'Gửi báo giá'
                 }
               />
 
-              {existingBid && existingBid.status === 'active' && (
+              {effectiveBid && effectiveBid.status === 'active' && (
                 <Button
                   variant="destructive"
                   onPress={handleWithdraw}
