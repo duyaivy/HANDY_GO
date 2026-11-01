@@ -261,4 +261,84 @@ describe('TrackingEventsService', () => {
       );
     });
   });
+
+  describe('Live SSE Stream Broadcasting', () => {
+    it('should call streamService.broadcastEvent with created event details after commit', async () => {
+      const serviceRequestId = randomUUID();
+      const eventId = randomUUID();
+      const streamMock: any = {
+        broadcastEvent: vi.fn(),
+      };
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+      });
+
+      const createdEventRecord = {
+        id: randomUUID(),
+        eventId,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        fromStatus: 'arrived',
+        toStatus: 'in_progress',
+        actorUserId: randomUUID(),
+        reason: null,
+        metadata: { workerId: 'w1' },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+      prismaMock.trackingEvent.create.mockResolvedValue(createdEventRecord);
+
+      const streamingService = new TrackingEventsService(
+        prismaMock,
+        undefined,
+        streamMock,
+      );
+
+      await streamingService.recordDomainEvent({
+        eventId,
+        eventType: 'order.in_progress',
+        serviceRequestId,
+        payload: {
+          fromStatus: 'arrived',
+          toStatus: 'in_progress',
+        },
+      });
+
+      expect(streamMock.broadcastEvent).toHaveBeenCalledTimes(1);
+      expect(streamMock.broadcastEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          serviceRequestId,
+          eventId,
+          eventType: 'order.in_progress',
+          entityType: TrackingEntityType.order,
+          fromStatus: 'arrived',
+          toStatus: 'in_progress',
+        }),
+      );
+    });
+
+    it('should not throw if streamService is not provided (optional dependency)', async () => {
+      const serviceRequestId = randomUUID();
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+      });
+
+      const noStreamService = new TrackingEventsService(prismaMock);
+      const result = await noStreamService.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'service_request.created',
+        serviceRequestId,
+      });
+
+      expect(result.recorded).toBe(true);
+    });
+  });
 });
+

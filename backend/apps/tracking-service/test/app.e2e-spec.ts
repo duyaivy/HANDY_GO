@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { TrackingServiceModule } from '../src/tracking-service.module.js';
 import { PrismaService } from '../src/common/prisma/prisma.service.js';
@@ -49,6 +50,8 @@ describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1', { exclude: ['health'] });
     await app.init();
+    await app.listen(0);
+
 
     const config = moduleFixture.get<ConfigService>(ConfigService);
     actualSecret = config.internalServiceSecret;
@@ -244,5 +247,104 @@ describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
       expect(res.body.data).toHaveProperty('items');
       expect(res.body.data).toHaveProperty('total', 0);
     });
+  });
+
+  // ========================================================================
+  // 7. REAL-TIME TIMELINE SSE STREAM (GET /requests/:id/live)
+  // ========================================================================
+  describe('Real-time Timeline SSE Stream Endpoint', () => {
+    it('GET /api/v1/tracking/requests/:id/live should reject untrusted caller without secret', async () => {
+      const requestId = randomUUID();
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tracking/requests/${requestId}/live`)
+        .set('x-user-id', randomUUID())
+        .set('x-user-roles', 'customer');
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /api/v1/tracking/requests/:id/live should return 404 when request does not exist', async () => {
+      const requestId = randomUUID();
+      mockPrismaService.trackingFlow.findUnique.mockResolvedValue(null);
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tracking/requests/${requestId}/live`)
+        .set('x-internal-secret', actualSecret)
+        .set('x-user-id', randomUUID())
+        .set('x-user-roles', 'customer');
+
+      expect(res.status).toBe(404);
+    });
+
+    it('GET /api/v1/tracking/requests/:id/live should return 403 when customer does not own request', async () => {
+      const requestId = randomUUID();
+      mockPrismaService.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId: requestId,
+        customerId: randomUUID(), // different owner
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/tracking/requests/${requestId}/live`)
+        .set('x-internal-secret', actualSecret)
+        .set('x-user-id', randomUUID()) // caller
+        .set('x-user-roles', 'customer');
+
+      expect(res.status).toBe(403);
+    });
+
+    it('GET /api/v1/tracking/requests/:id/live should establish SSE stream with text/event-stream header and initial connected message', async () => {
+      const requestId = randomUUID();
+      const userId = randomUUID();
+
+      mockPrismaService.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId: requestId,
+        customerId: userId,
+      });
+
+      const address: any = app.getHttpServer().address();
+      const port = address.port;
+
+      const res = await new Promise<any>((resolve, reject) => {
+        const clientReq = http.get(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: `/api/v1/tracking/requests/${requestId}/live`,
+            headers: {
+              'x-internal-secret': actualSecret,
+              'x-user-id': userId,
+              'x-user-roles': 'customer',
+            },
+          },
+          (clientRes) => {
+            let data = '';
+            clientRes.on('data', (chunk: Buffer) => {
+              data += chunk.toString();
+              if (data.includes('connected')) {
+                clientReq.destroy();
+                resolve({
+                  statusCode: clientRes.statusCode,
+                  headers: clientRes.headers,
+                  data,
+                });
+              }
+            });
+          },
+        );
+
+        clientReq.on('error', (err) => {
+          if ((err as any).code === 'ECONNRESET') return;
+          reject(err);
+        });
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/event-stream');
+      expect(res.data).toContain('connected');
+      expect(res.data).toContain(requestId);
+    });
+
   });
 });
