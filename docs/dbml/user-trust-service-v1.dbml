@@ -1,0 +1,493 @@
+// ========================================================
+// User & Trust Service Database Schema (v1)
+// ========================================================
+Project handygo_user_trust_service {
+
+  database_type: 'PostgreSQL'
+
+}
+
+// Trạng thái hoạt động của user trên hệ thống.
+Enum user_status {
+
+  active
+  // User đang hoạt động bình thường trên hệ thống.
+
+  suspended
+  // User bị tạm ngừng quyền sử dụng hệ thống.
+
+  deleted
+  // User đã bị xóa hoặc vô hiệu hóa khỏi hệ thống.
+}
+
+// Trạng thái hồ sơ và khả năng hoạt động của worker.
+Enum worker_status {
+
+  draft
+  // Hồ sơ worker mới tạo và chưa gửi đăng ký KYC.
+
+  pending_kyc
+  // Worker đã gửi hồ sơ và đang chờ xử lý KYC.
+
+  under_review
+  // Hồ sơ worker đang được hệ thống hoặc quản trị viên kiểm tra.
+
+  verified
+  // Worker đã được xác minh danh tính và đủ điều kiện hoạt động.
+
+  rejected
+  // Hồ sơ worker bị từ chối trong quá trình xác minh.
+
+  suspended
+  // Worker đã được xác minh nhưng hiện đang bị tạm ngừng hoạt động.
+}
+
+// Trạng thái xử lý của hồ sơ KYC.
+Enum kyc_status {
+
+  draft
+  // Hồ sơ KYC đang được tạo và chưa gửi.
+
+  submitted
+  // Worker đã gửi hồ sơ KYC để kiểm tra.
+
+  reviewing
+  // Hồ sơ KYC đang được hệ thống hoặc quản trị viên xem xét.
+
+  approved
+  // Hồ sơ KYC đã được phê duyệt.
+
+  rejected
+  // Hồ sơ KYC bị từ chối.
+}
+
+// Trạng thái hiển thị và kiểm duyệt đánh giá worker.
+Enum review_status {
+
+  published
+  // Đánh giá đang được công khai.
+
+  hidden
+  // Đánh giá bị ẩn và không hiển thị công khai.
+
+  flagged
+  // Đánh giá bị đánh dấu để kiểm tra hoặc kiểm duyệt.
+
+  removed
+  // Đánh giá đã bị xóa khỏi hệ thống hiển thị.
+}
+
+// Trạng thái xử lý của khiếu nại.
+Enum complaint_status {
+
+  submitted
+  // Khiếu nại đã được gửi và đang chờ xử lý.
+
+  reviewing
+  // Khiếu nại đang được nhân viên hoặc quản trị viên xem xét.
+
+  awaiting_information
+  // Đang chờ người dùng cung cấp thêm thông tin hoặc bằng chứng.
+
+  resolved
+  // Khiếu nại đã được xử lý và có kết quả.
+
+  rejected
+  // Khiếu nại bị từ chối do không đủ căn cứ hoặc không hợp lệ.
+
+  closed
+  // Khiếu nại đã kết thúc và không còn được xử lý tiếp.
+}
+
+// Phân loại nội dung của khiếu nại.
+Enum complaint_category {
+
+  service_quality
+  // Khiếu nại liên quan đến chất lượng dịch vụ.
+
+  worker_behavior
+  // Khiếu nại liên quan đến hành vi của worker.
+
+  customer_behavior
+  // Khiếu nại liên quan đến hành vi của customer.
+
+  payment
+  // Khiếu nại liên quan đến thanh toán hoặc tiền.
+
+  fraud
+  // Khiếu nại liên quan đến hành vi gian lận.
+
+  safety
+  // Khiếu nại liên quan đến an toàn của người dùng.
+
+  other
+  // Các loại khiếu nại khác.
+}
+
+// Lưu thông tin cơ bản của tất cả user trên hệ thống.
+Table users {
+
+  id uuid [pk]
+  // ID duy nhất của user trong toàn hệ thống HandyGo.
+
+  full_name varchar(150) [not null]
+  // Họ và tên hiển thị của user.
+
+  avatar_url text
+  // Đường dẫn đến ảnh đại diện của user.
+
+  status user_status [not null, default: 'active']
+  // Trạng thái hoạt động hiện tại của user.
+
+  created_at timestamp [not null]
+  // Thời điểm user được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin user được cập nhật lần cuối.
+}
+
+// Lưu thông tin bổ sung dành cho customer.
+Table customer_profiles {
+
+  id uuid [pk]
+  // ID duy nhất của customer profile.
+
+  user_id uuid [not null, unique]
+  // ID user sở hữu profile; mỗi user chỉ có một customer profile.
+
+  bio text
+  // Thông tin giới thiệu hoặc mô tả ngắn về customer.
+
+  created_at timestamp [not null]
+  // Thời điểm customer profile được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm customer profile được cập nhật lần cuối.
+}
+
+// Lưu thông tin bổ sung và trạng thái hoạt động của worker.
+Table worker_profiles {
+
+  id uuid [pk]
+  // ID duy nhất của worker profile.
+
+  user_id uuid [not null, unique]
+  // ID user sở hữu profile; mỗi user chỉ có một worker profile.
+
+  status worker_status [not null, default: 'draft']
+  // Trạng thái hồ sơ và khả năng hoạt động của worker.
+
+  average_rating decimal(3,2) [not null, default: 0]
+  // Điểm đánh giá trung bình của worker.
+
+  rating_count int [not null, default: 0]
+  // Tổng số lượt đánh giá worker đã nhận.
+
+  completed_order_count int [not null, default: 0]
+  // Số đơn hàng worker đã hoàn thành thành công.
+
+  order_count_total int [not null, default: 0]
+  // Tổng số đơn hàng worker đã tham gia hoặc được ghi nhận.
+
+  verified_at timestamp
+  // Thời điểm danh tính của worker được xác minh thành công.
+
+  approved_at timestamp
+  // Thời điểm hồ sơ worker được phê duyệt để hoạt động.
+
+  created_at timestamp [not null]
+  // Thời điểm worker profile được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm worker profile được cập nhật lần cuối.
+}
+
+// Lưu thông tin tài khoản ngân hàng của user để nhận hoặc rút tiền.
+Table user_bank_accounts {
+
+  id uuid [pk]
+  // ID duy nhất của tài khoản ngân hàng.
+
+  user_id uuid [not null]
+  // ID user sở hữu tài khoản ngân hàng.
+
+  bank_code varchar(20) [not null]
+  // Mã ngân hàng, ví dụ VCB, TCB hoặc MB. đổi thành enum có vài ngân hàng.
+
+  bank_name varchar(100) [not null]
+  // Tên ngân hàng.
+
+  account_number varchar(50) [not null]
+  // Số tài khoản ngân hàng.
+
+  account_holder_name varchar(150) [not null]
+  // Tên chủ tài khoản ngân hàng.
+
+  is_default boolean [not null, default: false]
+  // Xác định đây có phải tài khoản ngân hàng mặc định của user hay không.
+
+  created_at timestamp [not null]
+  // Thời điểm user thêm tài khoản ngân hàng.
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin tài khoản được cập nhật lần cuối.
+}
+
+// Lưu loại dịch vụ mà worker đăng ký cung cấp.
+Table worker_service_offerings {
+
+  id uuid [pk]
+  // ID duy nhất của dịch vụ mà worker cung cấp.
+
+  worker_profile_id uuid [not null]
+  // ID worker profile cung cấp dịch vụ này.
+
+  service_id uuid [
+    not null,
+    note: 'Logical reference -> Catalog Service.services.id'
+  ]
+  // ID dịch vụ worker đăng ký cung cấp, tham chiếu logic đến Catalog Service.
+
+  title varchar(200)
+  // Tiêu đề giới thiệu dịch vụ do worker cung cấp.
+
+  description text
+  // Mô tả chi tiết cách worker cung cấp dịch vụ.
+
+  experience_years int [default: 0]
+  // Số năm kinh nghiệm của worker đối với dịch vụ này.
+
+  is_active boolean [not null, default: true]
+  // Xác định worker hiện có đang cung cấp dịch vụ này hay không.
+
+  created_at timestamp [not null]
+  // Thời điểm worker đăng ký cung cấp dịch vụ.
+
+  updated_at timestamp [not null]
+  // Thời điểm thông tin dịch vụ được cập nhật lần cuối.
+
+  indexes {
+    (worker_profile_id, service_id) [unique]
+    // Đảm bảo một worker chỉ đăng ký một lần cho mỗi loại dịch vụ.
+  }
+}
+
+// Lưu hồ sơ xác minh danh tính KYC của worker.
+Table kyc_cases {
+
+  id uuid [pk]
+  // ID duy nhất của hồ sơ KYC.
+
+  worker_profile_id uuid [not null]
+  // ID worker profile thực hiện xác minh KYC.
+
+  id_document_type varchar(50) [not null]
+  // Loại giấy tờ tùy thân được sử dụng để xác minh.
+
+  id_number_masked varchar(100)
+  // Số giấy tờ tùy thân đã được che một phần.
+
+  document_front_ref text [not null]
+  // Tham chiếu đến file ảnh mặt trước giấy tờ.
+
+  document_back_ref text
+  // Tham chiếu đến file ảnh mặt sau giấy tờ.
+
+  selfie_ref text [not null]
+  // Tham chiếu đến ảnh selfie dùng để xác minh khuôn mặt.
+
+  status kyc_status [not null, default: 'draft']
+  // Trạng thái hiện tại của hồ sơ KYC.
+
+  ai_similarity_score decimal(5,4)
+  // Điểm tương đồng khuôn mặt do AI tạo ra.
+
+  reviewed_by_user_id uuid
+  // ID admin hoặc nhân viên thực hiện kiểm tra KYC.
+
+  review_note text
+  // Ghi chú hoặc nhận xét về kết quả KYC.
+
+  submitted_at timestamp
+  // Thời điểm worker gửi hồ sơ KYC.
+
+  reviewed_at timestamp
+  // Thời điểm hồ sơ KYC được xem xét.
+
+  created_at timestamp [not null]
+  // Thời điểm hồ sơ KYC được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm hồ sơ KYC được cập nhật lần cuối.
+}
+
+// Lưu đánh giá của customer đối với worker sau khi hoàn thành order.
+Table worker_reviews {
+
+  id uuid [pk]
+  // ID duy nhất của đánh giá.
+
+  order_id uuid [
+    not null,
+    note: 'Logical reference -> Order Service.orders.id'
+  ]
+  // ID order được đánh giá.
+
+  customer_user_id uuid [not null]
+  // ID customer thực hiện đánh giá.
+
+  worker_user_id uuid [not null]
+  // ID worker được đánh giá.
+
+  rating int [not null]
+  // Điểm đánh giá tổng thể dành cho worker.
+
+  attitude_rating text [not null]
+  // Đánh giá về thái độ và cách ứng xử của worker.
+
+  quality_rating text [not null]
+  // Đánh giá về chất lượng công việc.
+
+  speed_rating text [not null]
+  // Đánh giá về tốc độ hoặc thời gian hoàn thành.
+
+  comment text
+  // Nhận xét chi tiết của customer.
+
+  status review_status [not null, default: 'published']
+  // Trạng thái hiển thị và kiểm duyệt của đánh giá.
+
+  moderated_by_user_id uuid
+  // ID admin hoặc nhân viên kiểm duyệt đánh giá.
+
+  moderation_note text
+  // Ghi chú của admin hoặc nhân viên về quá trình kiểm duyệt.
+
+  created_at timestamp [not null]
+  // Thời điểm đánh giá được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm đánh giá được cập nhật lần cuối.
+
+  indexes {
+
+    order_id [unique]
+    // Đảm bảo mỗi order chỉ có một đánh giá worker.
+
+    worker_user_id
+    // Hỗ trợ truy vấn các đánh giá của worker.
+
+    customer_user_id
+    // Hỗ trợ truy vấn các đánh giá do customer tạo.
+  }
+}
+
+// Lưu thông tin khiếu nại liên quan đến order và user.
+Table complaints {
+
+  id uuid [pk]
+  // ID duy nhất của khiếu nại.
+
+  order_id uuid [
+    not null,
+    note: 'Logical reference -> Order Service.orders.id'
+  ]
+  // ID order liên quan đến khiếu nại.
+
+  complainant_user_id uuid [not null]
+  // ID user gửi khiếu nại.
+
+  reported_user_id uuid
+  // ID user bị khiếu nại hoặc bị phản ánh.
+
+  category complaint_category [not null]
+  // Nhóm nội dung của khiếu nại.
+
+  subject varchar(200) [not null]
+  // Tiêu đề ngắn của khiếu nại.
+
+  description text [not null]
+  // Nội dung chi tiết của khiếu nại.
+
+  status complaint_status [not null, default: 'submitted']
+  // Trạng thái xử lý hiện tại của khiếu nại.
+
+  assigned_admin_user_id uuid
+  // ID admin được phân công xử lý khiếu nại.
+
+  resolution text
+  // Nội dung kết luận hoặc phương án xử lý.
+
+  resolved_at timestamp
+  // Thời điểm khiếu nại được giải quyết.
+
+  created_at timestamp [not null]
+  // Thời điểm khiếu nại được tạo.
+
+  updated_at timestamp [not null]
+  // Thời điểm khiếu nại được cập nhật lần cuối.
+}
+
+// Lưu các file bằng chứng được đính kèm vào khiếu nại.
+Table complaint_evidence {
+
+  id uuid [pk]
+  // ID duy nhất của bằng chứng.
+
+  complaint_id uuid [not null]
+  // ID khiếu nại mà bằng chứng thuộc về.
+
+  uploaded_by_user_id uuid [not null]
+  // ID user tải bằng chứng lên hệ thống.
+
+  file_url text [not null]
+  // Đường dẫn đến file bằng chứng.
+
+  note text
+  // Mô tả hoặc ghi chú về bằng chứng.
+
+  created_at timestamp [not null]
+  // Thời điểm bằng chứng được tải lên.
+}
+
+// Một user có tối đa một customer profile.
+Ref: users.id - customer_profiles.user_id
+
+// Một user có tối đa một worker profile.
+Ref: users.id - worker_profiles.user_id
+
+// Một user có thể có nhiều tài khoản ngân hàng.
+Ref: users.id < user_bank_accounts.user_id
+
+// Một worker profile có thể cung cấp nhiều loại dịch vụ.
+Ref: worker_profiles.id < worker_service_offerings.worker_profile_id
+
+// Một worker profile có thể có nhiều hồ sơ hoặc lần KYC.
+Ref: worker_profiles.id < kyc_cases.worker_profile_id
+
+// Một user có thể thực hiện review nhiều hồ sơ KYC.
+Ref: users.id < kyc_cases.reviewed_by_user_id
+
+// Một customer có thể tạo nhiều đánh giá.
+Ref: users.id < worker_reviews.customer_user_id
+
+// Một worker có thể nhận nhiều đánh giá.
+Ref: users.id < worker_reviews.worker_user_id
+
+// Một admin hoặc nhân viên có thể kiểm duyệt nhiều đánh giá.
+Ref: users.id < worker_reviews.moderated_by_user_id
+
+// Một user có thể gửi nhiều khiếu nại.
+Ref: users.id < complaints.complainant_user_id
+
+// Một user có thể bị phản ánh trong nhiều khiếu nại.
+Ref: users.id < complaints.reported_user_id
+
+// Một admin có thể được phân công xử lý nhiều khiếu nại.
+Ref: users.id < complaints.assigned_admin_user_id
+
+// Một khiếu nại có thể có nhiều bằng chứng.
+Ref: complaints.id < complaint_evidence.complaint_id
+
+// Một user có thể tải lên nhiều bằng chứng khiếu nại.
+Ref: users.id < complaint_evidence.uploaded_by_user_id

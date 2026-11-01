@@ -149,15 +149,26 @@ services:
 
   order-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/order-service/prisma/schema.prisma && exec node --enable-source-maps /app/dist/apps/order-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: order-service
       PORT: '3004'
+      ORDER_ENABLE_MOCK_VERIFIER: ${ORDER_ENABLE_MOCK_VERIFIER:-true}
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
     ports:
       - '3004:3004'
 
   bidding-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts && exec node --enable-source-maps /app/dist/apps/bidding-service/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: bidding-service
@@ -171,6 +182,11 @@ services:
       <<: *development-environment
       NEST_PROJECT: matching-service
       PORT: '3006'
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '3006:3006'
 
@@ -229,6 +245,8 @@ services:
       <<: *development-environment
       NEST_PROJECT: wallet-service
       PORT: '3009'
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      WALLET_WITHDRAWALS_ENABLED: ${WALLET_WITHDRAWALS_ENABLED:-false}
     ports:
       - '3009:3009'
 
@@ -244,4 +262,3 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
-

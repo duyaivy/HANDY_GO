@@ -8,6 +8,7 @@ import {
   Pencil,
   Power,
   Wrench,
+  Trash2,
 } from "lucide-react";
 import { ServiceItem } from "../types";
 
@@ -16,6 +17,7 @@ interface ServiceCardProps {
   onView: (service: ServiceItem) => void;
   onEdit: (service: ServiceItem) => void;
   onToggleStatus: (service: ServiceItem) => void;
+  onDelete: (service: ServiceItem) => void;
 }
 
 export default function ServiceCard({
@@ -23,6 +25,7 @@ export default function ServiceCard({
   onView,
   onEdit,
   onToggleStatus,
+  onDelete,
 }: ServiceCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -32,6 +35,7 @@ export default function ServiceCard({
         <button
           type="button"
           aria-label="Thao tác dịch vụ"
+          aria-expanded={menuOpen}
           onClick={() => setMenuOpen((prev) => !prev)}
           className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
         >
@@ -76,6 +80,16 @@ export default function ServiceCard({
                 }}
               >
                 {service.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+              </MenuItem>
+
+              <MenuItem
+                icon={<Trash2 size={15} />}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete(service);
+                }}
+              >
+                Xóa vĩnh viễn
               </MenuItem>
             </div>
           </>

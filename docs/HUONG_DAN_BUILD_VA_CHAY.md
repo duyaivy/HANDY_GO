@@ -215,3 +215,22 @@ Chọn đúng điện thoại. Lệnh sinh native project nếu chưa có, build
 - `Ctrl+C` ở terminal Metro và ba terminal backend.
 - Muốn dừng hạ tầng: vào `backend` chạy `docker compose stop`.
 - Giữ env, RSA keys và DB volumes để hôm sau chạy lại.
+
+
+---
+
+## Chạy integration test Wallet (Docker local)
+
+Hạ tầng test riêng (Postgres 16 cổng `55432`, RabbitMQ cổng AMQP `56672`, UI `http://localhost:56673`), không dùng chung với `.env` thật/Supabase. Redis: không cần cho Wallet.
+
+```powershell
+cd backend
+Copy-Item scripts\wallet-test.env.template .env.wallet-test   # lần đầu (file bị .gitignore)
+pnpm run test:wallet:up           # compose up + tạo schema wallet_service + prisma migrate deploy
+pnpm run test:integration:wallet  # vitest integration (apps/wallet-service/test/integration)
+pnpm run typecheck:wallet         # typecheck riêng Wallet
+pnpm run test:wallet:down         # compose down -v (xóa sạch dữ liệu)
+```
+
+- Script guard từ chối chạy nếu `DATABASE_URL_WALLET` không phải `localhost:55432` với tên DB chứa `test`, hoặc RabbitMQ không phải `localhost:56672`.
+- Nếu hạ tầng chưa chạy, `test:integration:wallet` báo lỗi và dừng ngay.

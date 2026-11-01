@@ -109,7 +109,7 @@ ehthumbs.db
 # =========================
 # Local AI / Model files
 # =========================
-models/
+/models/
 *.onnx
 *.pt
 *.pth

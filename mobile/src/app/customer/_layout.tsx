@@ -146,6 +146,13 @@ export default function CustomerLayout() {
           }}
         />
         <Stack.Screen
+          name="saved-addresses"
+          options={{
+            title: 'Địa chỉ đã lưu',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
           name="chat"
           options={{
             title: 'Trò chuyện',

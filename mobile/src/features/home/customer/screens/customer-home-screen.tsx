@@ -85,7 +85,6 @@ export function CustomerHomeScreen() {
     }
     router.replace(RouteNames.WORKER_HOME as any);
   };
-
   if (!isAuthenticated || !user) {
     return <CustomerGuestOverview />;
   }

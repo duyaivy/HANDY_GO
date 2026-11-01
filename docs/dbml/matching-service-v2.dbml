@@ -1,0 +1,122 @@
+// ========================================================
+// Matching Service Database Schema (v2)
+// ========================================================
+// HANDYGO V3 — FULL DBML | [NEW] added | [CHANGED] modified
+
+Project handygo_matching_service {
+  database_type: 'PostgreSQL'
+  Note: 'Always-on AI worker recommendations. Run on request publication, independently from bidding.'
+}
+
+// [NEW] Matching calculation execution state; not a business request/order status.
+// pending -> processing -> completed | failed
+// failed may be retried by a new match_run; do not overwrite historical runs.
+Enum match_run_status {
+  pending
+  processing
+  completed
+  failed
+}
+
+// [CHANGED] Extended original match_runs with revision, score-run state,
+// model version and result count.
+Table match_runs {
+  id uuid [pk]
+
+  service_request_id uuid [not null,
+    note: 'Logical reference -> Order Service.service_requests.id']
+  service_id uuid [not null,
+    note: 'Logical reference -> Catalog Service.services.id']
+
+  request_revision int [not null, default: 1]
+  // Increment on material request changes; prevents reusing stale results.
+
+  run_number int [not null, default: 1]
+  // Separate retries / reruns for the same request revision.
+
+  status match_run_status [not null, default: 'pending']
+
+  candidate_count int [not null, default: 0]
+  // Number of eligible workers evaluated (not display count).
+
+  result_count int [not null, default: 0]
+  // Number of persisted ranked results.
+
+  display_limit int [not null, default: 3]
+  // API presents top 3 workers, possibly skipping workers already bidding.
+
+  model_version varchar(100)
+  error_message text
+
+  created_at timestamptz [not null]
+  started_at timestamptz
+  completed_at timestamptz
+
+  indexes {
+    (service_request_id, request_revision, run_number) [unique]
+    (service_request_id, status, created_at)
+  }
+}
+
+// Persist top-N ranked workers (e.g. 10) so UI can reliably show Top 3.
+// [NEW] Stores ranked workers for each run, so the UI can show Top 3.
+Table match_results {
+  id uuid [pk]
+  match_run_id uuid [not null]
+
+  worker_user_id uuid [not null,
+    note: 'Logical reference -> User & Trust Service.users.id']
+
+  rank int [not null]
+  matching_score decimal(5,2) [not null]
+  // Normalize scoring to [0,100].
+
+  score_breakdown jsonb
+  // Optional category/distance/rating/experience score components.
+
+  created_at timestamptz [not null]
+
+  indexes {
+    (match_run_id, worker_user_id) [unique]
+    (match_run_id, rank) [unique]
+  }
+}
+
+// [NEW] Outbox to publish recommendations ready/failed events.
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(50) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(100) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+// [NEW] Inbox to deduplicate request events.
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(100) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: match_runs.id < match_results.match_run_id
+
+// MUST validate in DB migration / service logic:
+// 1. request_revision > 0, run_number > 0, candidate_count >= 0,
+//    result_count >= 0, display_limit > 0; rank > 0; score between 0 and 100.
+// 2. Trigger on service_request.published (not on bidding.no_bid).
+// 3. Top 3 come from the latest SUCCESSFUL run for the current revision.
+// 4. AI failure can fall back to deterministic rule-based ranking; record
+//    the model_version/algorithm to explain the result.
+// 5. Verify worker eligibility against Worker/User services before display
+//    or finalization. No direct cross-service database joins.
+// 6. A click on a recommendation starts conversation, NOT Order creation.
+// 7. With status=completed, result_count must equal stored rows; update
+//    results and run.status in a single transaction.
+// 8. Do NOT update Matching status when a new Bid arrives; Gateway/BFF
+//    joins the two independent read views for the customer UI.

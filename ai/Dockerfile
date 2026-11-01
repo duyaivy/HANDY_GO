@@ -36,8 +36,8 @@ RUN pip install -r requirements.txt
 
 # Create non-root user and prepare persistent cache directories for models
 RUN useradd --create-home --uid 10001 app \
-    && mkdir -p /app/storage /home/app/.insightface /home/app/.EasyOCR \
-    && chown -R app:app /app /home/app/.insightface /home/app/.EasyOCR
+    && mkdir -p /app/storage /home/app/.insightface /home/app/.EasyOCR /home/app/.cache/huggingface \
+    && chown -R app:app /app /home/app/.insightface /home/app/.EasyOCR /home/app/.cache
 
 # Copy application source
 COPY --chown=app:app app ./app
@@ -46,6 +46,6 @@ USER app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
-    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.getenv('AI_SERVICE_PORT','8000')+'/health',timeout=3)"
+    CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.getenv('PORT', os.getenv('AI_SERVICE_PORT','8000'))+'/health',timeout=3)"
 
 CMD ["python", "-m", "app.main"]

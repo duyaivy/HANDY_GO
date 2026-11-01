@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 
 export class BiddingStatusResponseDto {
   @ApiProperty({ description: 'Mã định danh duy nhất (UUID) của phiên báo giá' })
@@ -32,3 +33,9 @@ export class BiddingStatusResponseDto {
   @ApiProperty({ description: 'Đánh dấu phiên báo giá đã quá thời hạn hay chưa' })
   isExpired!: boolean;
 }
+
+export class BiddingStatusResponseDtoEnvelope extends ApiResponseDto<BiddingStatusResponseDto> {
+  @ApiProperty({ type: BiddingStatusResponseDto })
+  declare data: BiddingStatusResponseDto;
+}
+

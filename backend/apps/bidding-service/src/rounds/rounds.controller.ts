@@ -13,8 +13,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { RoundsService } from './rounds.service.js';
-import { BiddingStatusResponseDto } from './dto/bidding-status-response.dto.js';
-import { buildSuccessResponse } from '@app/common';
+import {
+  BiddingStatusResponseDto,
+  BiddingStatusResponseDtoEnvelope,
+} from './dto/bidding-status-response.dto.js';
+import { buildSuccessResponse, type ApiResponseEnvelope } from '@app/common';
 import { Public } from '@app/auth';
 
 @ApiTags('Phiên báo giá (Bidding Rounds)')
@@ -38,13 +41,15 @@ export class RoundsController {
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Lấy trạng thái phiên báo giá thành công',
-    type: BiddingStatusResponseDto,
+    type: BiddingStatusResponseDtoEnvelope,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
     description: 'Không tìm thấy phiên báo giá cho yêu cầu dịch vụ này',
   })
-  async getStatus(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string) {
+  async getStatus(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<ApiResponseEnvelope<BiddingStatusResponseDto>> {
     const data = await this.roundsService.getBiddingStatus(id);
     return buildSuccessResponse(
       data,
@@ -62,7 +67,8 @@ export class RoundsController {
   })
   async getStatusAlias(
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
-  ) {
+  ): Promise<ApiResponseEnvelope<BiddingStatusResponseDto>> {
     return this.getStatus(id);
   }
 }
+

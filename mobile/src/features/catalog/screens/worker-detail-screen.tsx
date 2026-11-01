@@ -23,7 +23,13 @@ export function WorkerDetailScreen({
   const workerId = propWorkerId || searchParams?.id || 'th-01';
 
   const isCanhVan = workerId === 'a-canh-van' || workerId === 'canh-van';
-  const workerName = propWorkerName || (isCanhVan ? 'A CẢNH VĂN' : undefined);
+  const isThanhLong = workerId === 'a7d8c9e0-1122-3344-5566-778899aabbcc' || workerId === 'a7d8c9e0-1122-4344-8566-778899aabbcc';
+  const workerName = propWorkerName
+    || (isCanhVan
+      ? 'A CẢNH VĂN'
+      : isThanhLong
+        ? 'Võ Thành Long (Thợ Kỹ Thuật Đa Năng)'
+        : undefined);
   const pageTitle = propTitle || (isCanhVan ? 'Hồ sơ thợ / Worker profile (A CẢNH VĂN)' : 'Hồ sơ thợ');
   const pageSubtitle = isCanhVan ? 'Worker profile' : `Mã thợ: #${workerId}`;
 

@@ -10,10 +10,17 @@ import { NotificationRouter } from './notification-router.js';
 import { NotificationPolicy } from './notification-policy.js';
 import { renderNotificationTemplate } from './notification-templates.js';
 
+// Unit policy fixtures must not inherit unrelated policy settings from a loaded .env.
+function testConfig(values: Record<string, unknown>) {
+  const config = new ConfigService(values);
+  config.skipProcessEnv = true;
+  return config;
+}
+
 describe('Notification event contracts, routing, templates and policies', () => {
   const router = new NotificationRouter();
   const simulated = new NotificationPolicy(
-    new ConfigService({
+    testConfig({
       NODE_ENV: 'test',
       NOTIFICATION_SIMULATED_POLICIES: 'true',
     }),
@@ -136,7 +143,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
 
   it('keeps unapproved business rules pending and forbids simulated policies in production', () => {
     const pending = new NotificationPolicy(
-      new ConfigService({ NOTIFICATION_SIMULATED_POLICIES: 'false' }),
+      testConfig({ NOTIFICATION_SIMULATED_POLICIES: 'false' }),
     );
     expect(() => pending.resolve(eventFixture('order.created'))).toThrow(
       'BUSINESS_POLICY_PENDING',
@@ -144,7 +151,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
     expect(
       () =>
         new NotificationPolicy(
-          new ConfigService({
+          testConfig({
             NODE_ENV: 'production',
             NOTIFICATION_SIMULATED_POLICIES: 'true',
           }),
@@ -171,7 +178,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
 
   it('uses a reviewed transition allowlist without inventing an order state machine', () => {
     const policies = new NotificationPolicy(
-      new ConfigService({
+      testConfig({
         NOTIFICATION_EVENT_POLICIES: JSON.stringify({
           events: {},
           transitions: {
@@ -210,7 +217,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
     expect(
       () =>
         new NotificationPolicy(
-          new ConfigService({ NOTIFICATION_EVENT_POLICIES: raw }),
+          testConfig({ NOTIFICATION_EVENT_POLICIES: raw }),
         ),
     ).toThrow();
   });

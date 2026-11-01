@@ -1,10 +1,13 @@
 "use client";
 import React, { useState } from "react";
-import { Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, Phone, Lock } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+
+import { HttpError } from "@/shared/api/http";
+import { useLoginMutation } from "../hook/use-auth";
 
 export interface LoginFormProps {
   /** Đường dẫn file logo để bạn có thể tự đổi tên hoặc thay đổi file ảnh */
@@ -28,35 +31,41 @@ export const LoginForm: React.FC<LoginFormProps> = ({
 }) => {
   const router = useRouter();
 
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [remember30Days, setRemember30Days] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const loginMutation = useLoginMutation();
+  const isLoading = loginMutation.isPending;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        router.push("/manager/dashboard");
-      }
-    }, 600);
-  };
+    setLoginError("");
 
-  const handleGoogleLogin = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      await loginMutation.mutateAsync({
+        phone: phone.trim(),
+        password,
+      });
+
+      // Cookie HttpOnly được thiết lập bởi /api/auth/login.
+      // Không lưu token vào localStorage.
       if (onSuccess) {
         onSuccess();
       } else {
-        router.push("/manager/dashboard");
+        router.replace("/manager/dashboard");
+        router.refresh();
       }
-    }, 600);
+    } catch (error) {
+      setLoginError(
+        error instanceof HttpError
+          ? error.message
+          : error instanceof Error
+            ? error.message
+            : "Đăng nhập thất bại. Vui lòng thử lại.",
+      );
+    }
   };
 
   return (
@@ -198,20 +207,21 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                 onSubmit={handleSubmit}
                 className="space-y-4 sm:space-y-4.5"
               >
-                {/* FIELD EMAIL */}
+                {/* FIELD SỐ ĐIỆN THOẠI */}
                 <div>
                   <label className="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5 text-left">
-                    Email hoặc Tên đăng nhập
+                    Số điện thoại
                   </label>
                   <div className="relative">
                     <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-                      <Mail className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <Phone className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="vidu@handygo.vn"
+                      type="tel"
+                      autoComplete="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="0912345678"
                       required
                       className="w-full pl-11 pr-4 py-3 sm:py-3.5 bg-slate-50/80 hover:bg-white focus:bg-white border border-slate-200 focus:border-[#F79A38] rounded-2xl text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-4 focus:ring-orange-500/10 transition-all shadow-2xs"
                     />
@@ -229,6 +239,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                     </div>
                     <input
                       type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
@@ -274,6 +285,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                   </a>
                 </div>
 
+                {loginError && (
+                  <p role="alert" className="text-sm text-red-600">
+                    {loginError}
+                  </p>
+                )}
+
                 {/* NÚT ĐĂNG NHẬP MÀU VÀNG CAM BO TRÒN THEO ẢNH MẪU */}
                 <button
                   type="submit"
@@ -299,8 +316,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
               {/* NÚT ĐĂNG NHẬP GOOGLE (ĐẶT Ở DƯỚI CÙNG THEO YÊU CẦU) */}
               <button
                 type="button"
-                onClick={handleGoogleLogin}
-                className="w-full py-3 sm:py-3.5 px-4 border border-slate-200 hover:border-slate-300 hover:bg-slate-50/80 rounded-2xl text-xs sm:text-sm font-semibold text-slate-700 flex items-center justify-center gap-3 transition-all shadow-xs active:scale-[0.99] cursor-pointer"
+                disabled
+                title="Đăng nhập Google chưa được tích hợp"
+                className="w-full py-3 sm:py-3.5 px-4 border border-slate-200 rounded-2xl text-xs sm:text-sm font-semibold text-slate-700 flex items-center justify-center gap-3 transition-all shadow-xs opacity-60 cursor-not-allowed"
               >
                 <svg
                   className="w-4 h-4 sm:w-5 sm:h-5 shrink-0"

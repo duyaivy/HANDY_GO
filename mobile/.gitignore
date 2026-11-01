@@ -31,3 +31,4 @@ google-services.json
 
 # Firebase client files generated from build-time environment variables
 .firebase/
+google-services.com.handygo.json

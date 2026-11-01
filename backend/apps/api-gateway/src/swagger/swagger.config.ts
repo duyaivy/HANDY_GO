@@ -33,6 +33,7 @@ export function setupSwagger(app: INestApplication): void {
     )
     .addTag('Gateway', 'Health check và root endpoints của API Gateway')
     .addTag('Uploads & Media', 'Endpoints upload hình ảnh và khởi tạo chữ ký upload video Cloudinary')
+    .addTag('Candidates', 'BFF Candidate Aggregation API kết hợp Bids và AI Matching recommendations')
     .build();
 
   const gatewayDocument = SwaggerModule.createDocument(app, config);
@@ -41,7 +42,7 @@ export function setupSwagger(app: INestApplication): void {
     swaggerOptions: {
       persistAuthorization: true,
       layout: 'StandaloneLayout',
-      urlsPrimaryName: '🔐 Auth Service',
+      urlsPrimaryName: 'Auth Service',
       urls: [
         {
           name: 'Uploads & Gateway Endpoints',

@@ -1,0 +1,32 @@
+name: handygo-wallet-test
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: handygo_test
+      POSTGRES_PASSWORD: handygo_test_pw
+      POSTGRES_DB: handygo_wallet_test
+    ports:
+      - '55432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U handygo_test -d handygo_wallet_test']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  rabbitmq-test:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo_test
+      RABBITMQ_DEFAULT_PASS: handygo_test_pw
+    ports:
+      - '56672:5672'
+      - '56673:15672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 10s
+      retries: 20

@@ -1,7 +1,7 @@
 // src/app/(auth)/login/page.tsx
 
-import LoginForm from "@/feature/auth/component/LoginForm";
+import LoginSessionGuard from "@/feature/auth/component/login-session-guard";
 
 export default function LoginPage() {
-  return <LoginForm />;
+  return <LoginSessionGuard />;
 }

@@ -58,6 +58,31 @@ describe('GatewayAuthMiddleware (Unit)', () => {
     next = vi.fn();
   });
 
+  it('does not log query parameters or token verifier errors', async () => {
+    const warn = vi.spyOn((middleware as any).logger, 'warn').mockImplementation(() => {});
+    const req = buildReq({ originalUrl: '/api/v1/orders?token=secret', headers: { authorization: 'Bearer token' } });
+    tokenVerifier.verifyAccessToken.mockRejectedValue(new Error('sensitive error'));
+    const { res, json } = buildRes();
+    await middleware.use(req, res, next);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('INVALID_TOKEN'));
+    expect(warn.mock.calls[0][0]).not.toContain('secret');
+    expect(warn.mock.calls[0][0]).not.toContain('sensitive error');
+    expect(warn.mock.calls[0][0]).toContain(json.mock.calls[0][0].data.requestId);
+    warn.mockRestore();
+  });
+
+  it('logs TOKEN_EXPIRED when token has expired', async () => {
+    const warn = vi.spyOn((middleware as any).logger, 'warn').mockImplementation(() => {});
+    const req = buildReq({ originalUrl: '/api/v1/orders?param=1', headers: { authorization: 'Bearer expired.token' } });
+    const expiredError = Object.assign(new Error('jwt expired'), { name: 'TokenExpiredError' });
+    tokenVerifier.verifyAccessToken.mockRejectedValue(expiredError);
+    const { res } = buildRes();
+    await middleware.use(req, res, next);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('TOKEN_EXPIRED'));
+    expect(warn.mock.calls[0][0]).not.toContain('param=1');
+    warn.mockRestore();
+  });
+
   describe('public route', () => {
     it('bypasses verifier và inject internal headers cho public route', async () => {
       const req = buildReq({ originalUrl: '/api/v1/catalog', method: 'GET' });

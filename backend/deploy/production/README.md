@@ -387,12 +387,12 @@ Trước khi bấm Run workflow, hoàn tất checklist:
 4. Thêm secrets/variable ở mục 9; xác minh database migrations là expand/contract và backup/PITR có thể phục hồi.
 5. Actions → Backend production → Run workflow → branch release → **run_migrations=true**; rollback_release để trống.
 6. Workflow build/push; tạo `prod-YYYYMMDD-<run_id>-a<attempt>`; stage cùng bundle/ENV trên ba host; snapshot stable trước khi đổi ứng dụng; pull trước rollout.
-7. Khi migration chạy, nhóm container trên host sở hữu DB được dừng để CLI có RAM. VPS3 migrate Catalog; VPS1 migrate User Trust rồi Auth. Có maintenance window. Không tự rollback database.
+7. Khi migration chạy, nhóm container trên host sở hữu DB được dừng để CLI có RAM. VPS3 migrate Catalog rồi Wallet; VPS1 migrate User Trust rồi Auth. Có maintenance window. Không tự rollback database.
 8. Workflow kiểm tra status/digest/health, SQL, User Trust consumer, Auth→User Trust RPC, Gateway→các host, public HTTPS và Catalog DB API; lặp lại sau 20 giây trước commit stable.
 9. Xem job Summary và download artifact backend-release-<run>-<attempt>: manifest.json, execution.json, summary.md, deploy.log; không chứa file ENV.
 10. Tự kiểm thử business acceptance register/OTP/login/profile/refresh/logout và Catalog CRUD bằng tài khoản chuyên dụng trước khi đưa người dùng thật vào. Script không giả lập các nghiệp vụ chưa có.
 
-Sau đó push release khi backend/config thay đổi sẽ tự deploy. Không có migration mới thì để run_migrations=false. Migration hash khác stable sẽ chặn automatic push deployment và yêu cầu dispatch với run_migrations=true sau review. Hash migration cần đồng nhất ba host.
+Sau đó push release khi backend/config thay đổi sẽ tự deploy. Không có migration mới thì để run_migrations=false. Migration hash khác stable sẽ chặn automatic push deployment và yêu cầu dispatch với run_migrations=true sau review. Hash migration (SQL và danh sách host sở hữu migration) cần đồng nhất ba host.
 
 Push release lần đầu cũng kích hoạt workflow nhưng input migration mặc định false; nếu DB chưa khởi tạo thì preflight chặn và không rollout. Sau đó dispatch với `run_migrations=true` như trên. Khi merge main vào release, giữ merge ancestry bằng fast-forward hoặc merge commit; không squash/cherry-pick riêng source sang release vì verifier yêu cầu merge commit của PR main nằm trong lịch sử release.
 
@@ -419,7 +419,7 @@ Nếu đã có container handygo từ bộ deploy cũ nhưng chưa có stable.js
 
 Manifest lưu commit/tree, Run ID/Attempt, CI evidence, digests, scope, exclusions, VPS mapping, config hash, migration hash, file checksums và verification scope. Execution journal ở artifact ghi từng host/step, snapshot previous manifest và rollback status. CI evidence ghi rõ PR, tested checkout, Run ID/Attempt và artifact đã sử dụng. Stable chỉ được commit sau các probes; commit/unlock đa host vẫn không atomic.
 
-Pending transaction không tự hết hạn khi runner chết, timeout hoặc workflow bị cancel: đó là khóa bảo vệ tránh rollout chồng lên trạng thái chưa rõ. Không xóa pending.json chỉ để chạy lại workflow; xem mục 14 để reconcile.
+Pending transaction không tự hết hạn khi runner chết, timeout hoặc workflow bị cancel: đó là khóa bảo vệ tránh rollout chồng lên trạng thái chưa rõ. Không xóa pending.json chỉ để chạy lại workflow; xem mục 14 để reconcile. Luồng refresh ENV có recovery tự động và mode recovery thủ công trên Actions; xem [ENV-REFRESH.md](ENV-REFRESH.md) để vận hành và đọc thiết kế reconciliation đề xuất cho luồng production.
 
 ## 13. Rollback tự động và thủ công
 

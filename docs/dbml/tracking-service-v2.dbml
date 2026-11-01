@@ -1,0 +1,84 @@
+// ========================================================
+// Tracking Service Database Schema (v2)
+// ========================================================
+// HANDYGO V3 — FULL DBML | [NEW] added | [REMOVED] old order_tracking/status_history
+
+Project handygo_tracking_service {
+  database_type: 'PostgreSQL'
+  Note: 'Append-only business timeline for Service Request, Bid, Matching and Order. No GPS and no authoritative domain state transitions.'
+}
+
+Enum tracking_entity_type {
+  service_request
+  bid
+  bidding_round
+  matching
+  booking_proposal
+  order
+}
+
+// [CHANGED] Tracking starts from service_request.created (even draft),
+// capturing the ENTIRE flow, before Bid, Matching and Order exist.
+// [NEW] Replaces original order_tracking: flow is request-centric.
+Table tracking_flows {
+  id uuid [pk]
+
+  service_request_id uuid [not null, unique,
+    note: 'Logical reference -> Order Service.service_requests.id']
+
+  order_id uuid [unique,
+    note: 'Nullable logical reference -> Order Service.orders.id; filled on order.created']
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+// Append-only events. Unlike order_tracking.current_status, these rows
+// do not represent the source-of-truth status of any business aggregate.
+// [NEW] Replaces original tracking_status_history: append-only cross-service timeline.
+Table tracking_events {
+  id uuid [pk]
+  tracking_flow_id uuid [not null]
+
+  event_id uuid [not null, unique]
+  // Unique publisher outbox event ID, for idempotency.
+
+  entity_type tracking_entity_type [not null]
+  entity_id uuid [not null]
+  event_type varchar(100) [not null]
+  source_service varchar(100) [not null]
+
+  aggregate_version int
+  // Optional producer aggregate version to detect missing/out-of-order events.
+
+  from_status varchar(50)
+  to_status varchar(50)
+
+  actor_user_id uuid [note: 'Nullable for automatic/system actions']
+  reason text
+  metadata jsonb
+
+  occurred_at timestamptz [not null]
+  recorded_at timestamptz [not null]
+
+  indexes {
+    (tracking_flow_id, occurred_at)
+    (entity_type, entity_id, occurred_at)
+  }
+}
+
+Ref: tracking_flows.id < tracking_events.tracking_flow_id
+
+// CONSUMER RULES:
+// 1. Every event contains event_id, service_request_id, aggregate_id,
+//    entity_type, occurred_at, source_service and event_type.
+// 2. Create/upsert tracking_flow on first event (request.created); order_id remains NULL
+//    until order.created. Events may arrive out of order.
+// 3. Deduplicate by event_id. Keep event history append-only.
+// 4. For a combined timeline sort by occurred_at and event_id as tie-breaker;
+//    cross-service timestamps are approximate and may not be causal.
+// 5. Only expose timeline to authorized customer / related worker / admin.
+// 6. Do not store secrets or unnecessary personal data in metadata.
+// 7. [REMOVED] order_tracking, tracking_status_history, tracking_status enum.
+//    No quoted/accepted/in_progress global tracking_status enum:
+//    each upstream service owns its authoritative state machine.

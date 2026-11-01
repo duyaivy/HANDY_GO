@@ -1,3 +1,4 @@
+/* eslint-disable max-lines-per-function */
 /* eslint-disable perfectionist/sort-imports -- Register TypeScript and load .env before evaluating build modules. */
 import type { ConfigContext, ExpoConfig } from '@expo/config';
 import 'tsx/cjs';
@@ -107,9 +108,22 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         recordAudioAndroid: false,
       },
     ],
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'Cho phép HANDY GO truy cập thư viện ảnh để tải ảnh hiện trường.',
+      },
+    ],
     ['expo-notifications', { defaultChannel: 'default' }],
     'expo-router',
     ['react-native-edge-to-edge'],
+    [
+      '@rnmapbox/maps',
+      {
+        RNMapboxMapsDownloadToken:
+          process.env.MAPBOX_DOWNLOADS_TOKEN || Env.MAPBOX_DOWNLOADS_TOKEN || '',
+      },
+    ],
   ],
   extra: {
     eas: {
