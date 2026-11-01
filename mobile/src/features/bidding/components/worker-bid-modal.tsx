@@ -1,4 +1,4 @@
-import { type BidDetail, WorkerBiddingApi } from '../api/worker-bidding.api';
+import type { BidDetail } from '../api/worker-bidding.api';
 import type { DiscoverableJobItem } from '../api/worker-discovery.api';
 import * as React from 'react';
 import {
@@ -12,6 +12,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
+import { WorkerBiddingApi } from '../api/worker-bidding.api';
 import {
   useReviseBid,
   useRoundStatus,
