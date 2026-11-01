@@ -4,6 +4,7 @@ import { isUUID } from 'class-validator';
 import { TrackingEntityType } from '@prisma/tracking-client';
 import { RedisService } from '@app/redis';
 import { PrismaService } from '../common/prisma/prisma.service.js';
+import { TimelineStreamService } from '../common/stream/timeline-stream.service.js';
 import type { EventEnvelope } from './dto/event-envelope.dto.js';
 
 @Injectable()
@@ -13,7 +14,9 @@ export class TrackingEventsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly redis?: RedisService,
+    @Optional() private readonly streamService?: TimelineStreamService,
   ) {}
+
 
   /**
    * Ingests any domain event into the tracking timeline.
@@ -148,6 +151,8 @@ export class TrackingEventsService {
 
     // 6. Transactional Append & Flow Linking
     try {
+      let createdRecord: any = null;
+
       await this.prisma.$transaction(async (tx) => {
         // Record in consumed_events first for fast lock / dedupe
         await tx.consumedEvent.create({
@@ -175,7 +180,7 @@ export class TrackingEventsService {
         });
 
         // Insert append-only timeline event
-        await tx.trackingEvent.create({
+        createdRecord = await tx.trackingEvent.create({
           data: {
             id: randomUUID(),
             trackingFlowId: flow.id,
@@ -202,6 +207,26 @@ export class TrackingEventsService {
       // Invalidate active cache keys for this serviceRequestId
       if (this.redis && serviceRequestId) {
         await this.redis.delByPattern(`tracking:*:${serviceRequestId}:*`);
+      }
+
+      // Broadcast real-time event to SSE subscribers
+      if (this.streamService && createdRecord) {
+        this.streamService.broadcastEvent({
+          serviceRequestId,
+          id: createdRecord.id,
+          eventId: createdRecord.eventId,
+          entityType: createdRecord.entityType,
+          entityId: createdRecord.entityId,
+          eventType: createdRecord.eventType,
+          sourceService: createdRecord.sourceService,
+          fromStatus: createdRecord.fromStatus,
+          toStatus: createdRecord.toStatus,
+          actorUserId: createdRecord.actorUserId,
+          reason: createdRecord.reason,
+          metadata: createdRecord.metadata as Record<string, any> | null,
+          occurredAt: createdRecord.occurredAt,
+          recordedAt: createdRecord.recordedAt,
+        });
       }
 
       return { recorded: true };

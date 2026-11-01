@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { HttpStatus } from '@nestjs/common';
+import { of } from 'rxjs';
 import { TimelineController } from './timeline.controller.js';
 import type { TimelineService } from './timeline.service.js';
+import type { TimelineStreamService } from '../common/stream/timeline-stream.service.js';
 import type { GatewayUser } from '../common/security/tracking-security.util.js';
 import type { TimelineQueryDto } from './dto/timeline-query.dto.js';
 
 describe('TimelineController', () => {
   let controller: TimelineController;
   let timelineServiceMock: any;
+  let streamServiceMock: any;
 
   beforeEach(() => {
     timelineServiceMock = {
@@ -17,10 +20,17 @@ describe('TimelineController', () => {
       getOrderTimeline: vi.fn(),
     };
 
+    streamServiceMock = {
+      getLiveStream: vi.fn(),
+      broadcastEvent: vi.fn(),
+    };
+
     controller = new TimelineController(
       timelineServiceMock as unknown as TimelineService,
+      streamServiceMock as unknown as TimelineStreamService,
     );
   });
+
 
   describe('getRequestTimeline', () => {
     it('should return wrapped success response with timeline data', async () => {
@@ -139,4 +149,29 @@ describe('TimelineController', () => {
       expect(response.message).toBe('Lấy lịch sử đơn hàng thành công');
     });
   });
+
+  describe('streamLiveTimeline', () => {
+    it('should delegate to timelineStreamService.getLiveStream', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: randomUUID(),
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const mockObservable = of({ data: { type: 'connected' } });
+      streamServiceMock.getLiveStream.mockResolvedValue(mockObservable);
+
+      const result = await controller.streamLiveTimeline(serviceRequestId, user);
+
+      expect(streamServiceMock.getLiveStream).toHaveBeenCalledWith(
+        serviceRequestId,
+        user,
+      );
+      expect(result).toBe(mockObservable);
+    });
+  });
 });
+

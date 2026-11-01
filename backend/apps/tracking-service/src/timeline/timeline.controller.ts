@@ -7,7 +7,10 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Sse,
+  type MessageEvent,
 } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -19,6 +22,7 @@ import { buildSuccessResponse } from '@app/common';
 import { TrustedGatewayGuard } from '../common/security/trusted-gateway.guard.js';
 import { CurrentGatewayUser } from '../common/security/gateway-user.decorator.js';
 import type { GatewayUser } from '../common/security/tracking-security.util.js';
+import { TimelineStreamService } from '../common/stream/timeline-stream.service.js';
 import { TimelineService } from './timeline.service.js';
 import { TimelineQueryDto } from './dto/timeline-query.dto.js';
 import { TimelineListResponseDto } from './dto/timeline-response.dto.js';
@@ -28,7 +32,35 @@ import { TimelineListResponseDto } from './dto/timeline-response.dto.js';
 @UseGuards(TrustedGatewayGuard)
 @Controller('tracking')
 export class TimelineController {
-  constructor(private readonly timelineService: TimelineService) {}
+  constructor(
+    private readonly timelineService: TimelineService,
+    private readonly timelineStreamService: TimelineStreamService,
+  ) {}
+
+  @Sse('requests/:id/live')
+  @ApiOperation({
+    summary: 'Đăng ký dòng thời gian sự kiện theo thời gian thực (SSE Live Stream)',
+    description:
+      'Mở kết nối Server-Sent Events (SSE) theo dõi sự kiện của Service Request theo thời gian thực. Tự động gửi heartbeat ping mỗi 25s, bảo vệ Bid Shielding cho thợ.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    format: 'uuid',
+    description: 'Service Request ID',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Kết nối SSE thành công (Content-Type: text/event-stream)',
+  })
+  @ApiResponse({ status: 403, description: 'Không có quyền theo dõi yêu cầu' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy tiến trình theo dõi' })
+  async streamLiveTimeline(
+    @Param('id', ParseUUIDPipe) serviceRequestId: string,
+    @CurrentGatewayUser() user: GatewayUser,
+  ): Promise<Observable<MessageEvent>> {
+    return this.timelineStreamService.getLiveStream(serviceRequestId, user);
+  }
 
   @Get('requests/:id/timeline')
   @HttpCode(HttpStatus.OK)
