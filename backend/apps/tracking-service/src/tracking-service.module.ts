@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
+import { RedisModule } from '@app/redis';
 import { TrackingCommonModule } from './common/index.js';
 import { HealthModule } from './health/health.module.js';
 import { TrackingEventsModule } from './events/index.js';
@@ -14,6 +15,7 @@ import { SummaryModule } from './summary/index.js';
       defaultPort: 3010,
     }),
     LoggerModule.forRoot('tracking-service'),
+    RedisModule,
     TrackingCommonModule,
     HealthModule,
     TrackingEventsModule,

@@ -31,7 +31,6 @@ model TrackingFlow {
 
   events           TrackingEvent[]
 
-  @@index([orderId])
   @@index([customerId])
   @@map("tracking_flows")
   @@schema("tracking_service")

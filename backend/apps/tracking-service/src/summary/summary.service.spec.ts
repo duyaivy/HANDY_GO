@@ -235,4 +235,93 @@ describe('SummaryService', () => {
       service.getRequestSummary(serviceRequestId, user),
     ).rejects.toThrow(ForbiddenException);
   });
+
+  describe('Redis Caching', () => {
+    it('should return cached summary immediately if present in Redis', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: randomUUID(),
+        roles: ['Admin'],
+        isAdmin: true,
+        isCustomer: false,
+        isWorker: false,
+      };
+
+      const cachedData = {
+        flowId: randomUUID(),
+        serviceRequestId,
+        currentPhase: 'COMPLETED',
+      } as any;
+
+      const redisMock: any = {
+        get: vi.fn().mockResolvedValue(cachedData),
+        set: vi.fn(),
+      };
+
+      const cachedService = new SummaryService(prismaMock, redisMock);
+      const result = await cachedService.getRequestSummary(serviceRequestId, user);
+
+      expect(result).toBe(cachedData);
+      expect(redisMock.get).toHaveBeenCalledWith(
+        `tracking:summary:${serviceRequestId}:admin`,
+      );
+      // DB should not be called on cache hit
+      expect(prismaMock.trackingFlow.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should cache summary in Redis with TTL when currentPhase is COMPLETED', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const redisMock: any = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn(),
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: randomUUID(),
+            occurredAt: new Date(),
+          },
+          {
+            eventType: 'order.completed',
+            entityType: TrackingEntityType.order,
+            entityId: randomUUID(),
+            occurredAt: new Date(),
+          },
+          {
+            eventType: 'payment.succeeded',
+            entityType: TrackingEntityType.payment,
+            entityId: randomUUID(),
+            occurredAt: new Date(),
+          },
+        ],
+      });
+
+      const cachedService = new SummaryService(prismaMock, redisMock);
+      const result = await cachedService.getRequestSummary(serviceRequestId, user);
+
+      expect(result.currentPhase).toBe('COMPLETED');
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `tracking:summary:${serviceRequestId}:cust:${customerId}`,
+        expect.objectContaining({ currentPhase: 'COMPLETED' }),
+        7 * 24 * 3600,
+      );
+    });
+  });
 });

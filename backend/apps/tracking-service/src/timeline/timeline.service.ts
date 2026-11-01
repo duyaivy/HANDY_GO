@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { Prisma, TrackingEntityType } from '@prisma/tracking-client';
+import { RedisService } from '@app/redis';
 import { PrismaService } from '../common/prisma/prisma.service.js';
 import type { GatewayUser } from '../common/security/tracking-security.util.js';
 import type { TimelineQueryDto } from './dto/timeline-query.dto.js';
@@ -16,18 +18,32 @@ import type {
 @Injectable()
 export class TimelineService {
   private readonly logger = new Logger(TimelineService.name);
+  private static readonly IMMUTABLE_TTL_SECONDS = 7 * 24 * 3600; // 7 ngày
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   /**
    * Retrieves the combined timeline of a Service Request flow.
    * Enforces role-based visibility rules (TRK-03 & TRK-04).
+   * Caches completed / cancelled flows in Redis for fast retrieval.
    */
   async getRequestTimeline(
     serviceRequestId: string,
     query: TimelineQueryDto,
     user: GatewayUser,
   ): Promise<TimelineListResponseDto> {
+    const cacheKey = this.buildTimelineCacheKey(serviceRequestId, user, query);
+    if (this.redis) {
+      const cached = await this.redis.get<TimelineListResponseDto>(cacheKey);
+      if (cached) {
+        this.logger.debug(`Cache hit for timeline: ${cacheKey}`);
+        return cached;
+      }
+    }
+
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
     });
@@ -122,7 +138,17 @@ export class TimelineService {
 
     const where: Prisma.TrackingEventWhereInput = { AND: whereConditions };
 
-    return this.queryPaginatedTimeline(where, query);
+    const result = await this.queryPaginatedTimeline(where, query);
+
+    const isImmutable = await this.isFlowImmutable(flow.id);
+    if (isImmutable && this.redis) {
+      await this.redis.set(cacheKey, result, TimelineService.IMMUTABLE_TTL_SECONDS);
+      this.logger.debug(
+        `Cached immutable timeline for ${cacheKey} (TTL: ${TimelineService.IMMUTABLE_TTL_SECONDS}s)`,
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -296,5 +322,42 @@ export class TimelineService {
       limit,
       totalPages,
     };
+  }
+
+  private buildTimelineCacheKey(
+    serviceRequestId: string,
+    user: GatewayUser,
+    query: TimelineQueryDto,
+  ): string {
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(100, Math.max(1, query.limit || 20));
+    const sort = query.sortOrder === 'desc' ? 'desc' : 'asc';
+    const type = query.entityType || 'all';
+
+    let userScope = 'admin';
+    if (user.isCustomer) {
+      userScope = `cust:${user.userId}`;
+    } else if (user.isWorker) {
+      userScope = `wrk:${user.userId}`;
+    }
+    return `tracking:timeline:${serviceRequestId}:${userScope}:p${page}:l${limit}:s${sort}:t${type}`;
+  }
+
+  private async isFlowImmutable(trackingFlowId: string): Promise<boolean> {
+    const terminalEvent = await this.prisma.trackingEvent.findFirst({
+      where: {
+        trackingFlowId,
+        eventType: {
+          in: [
+            'order.completed',
+            'order.cancelled',
+            'service_request.cancelled',
+            'service_request.expired',
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return Boolean(terminalEvent);
   }
 }

@@ -3,8 +3,10 @@ import {
   NotFoundException,
   ForbiddenException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { TrackingEntityType } from '@prisma/tracking-client';
+import { RedisService } from '@app/redis';
 import { PrismaService } from '../common/prisma/prisma.service.js';
 import type { GatewayUser } from '../common/security/tracking-security.util.js';
 import type {
@@ -20,17 +22,32 @@ import type {
 @Injectable()
 export class SummaryService {
   private readonly logger = new Logger(SummaryService.name);
+  private static readonly IMMUTABLE_TTL_SECONDS = 7 * 24 * 3600; // 7 ngày
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   /**
    * Generates a high-level summary of the entire Service Request flow for UI display.
    * Enforces data minimization and privacy (TRK-04).
+   * Caches completed / cancelled flows in Redis for fast retrieval.
    */
   async getRequestSummary(
     serviceRequestId: string,
     user: GatewayUser,
   ): Promise<TrackingSummaryResponseDto> {
+    const cacheKey = this.buildSummaryCacheKey(serviceRequestId, user);
+
+    if (this.redis) {
+      const cached = await this.redis.get<TrackingSummaryResponseDto>(cacheKey);
+      if (cached) {
+        this.logger.debug(`Cache hit for summary: ${cacheKey}`);
+        return cached;
+      }
+    }
+
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
       include: {
@@ -255,7 +272,7 @@ export class SummaryService {
     const lastEvent = events[events.length - 1];
     const lastActivityAt = lastEvent ? lastEvent.occurredAt : flow.updatedAt;
 
-    return {
+    const result: TrackingSummaryResponseDto = {
       flowId: flow.id,
       serviceRequestId: flow.serviceRequestId,
       orderId: flow.orderId,
@@ -272,6 +289,29 @@ export class SummaryService {
       createdAt: flow.createdAt,
       updatedAt: flow.updatedAt,
     };
+
+    const isImmutable = ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(currentPhase);
+    if (isImmutable && this.redis) {
+      await this.redis.set(cacheKey, result, SummaryService.IMMUTABLE_TTL_SECONDS);
+      this.logger.debug(
+        `Cached immutable summary for ${cacheKey} (TTL: ${SummaryService.IMMUTABLE_TTL_SECONDS}s)`,
+      );
+    }
+
+    return result;
+  }
+
+  private buildSummaryCacheKey(
+    serviceRequestId: string,
+    user: GatewayUser,
+  ): string {
+    let userScope = 'admin';
+    if (user.isCustomer) {
+      userScope = `cust:${user.userId}`;
+    } else if (user.isWorker) {
+      userScope = `wrk:${user.userId}`;
+    }
+    return `tracking:summary:${serviceRequestId}:${userScope}`;
   }
 
   private computeCurrentPhase(

@@ -301,4 +301,87 @@ describe('TimelineService', () => {
       );
     });
   });
+
+  describe('Redis Caching', () => {
+    it('should return cached timeline immediately when key exists in Redis', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: randomUUID(),
+        roles: ['Admin'],
+        isAdmin: true,
+        isCustomer: false,
+        isWorker: false,
+      };
+
+      const cachedTimeline = {
+        items: [],
+        total: 10,
+        page: 1,
+        limit: 20,
+        totalPages: 1,
+      };
+
+      const redisMock: any = {
+        get: vi.fn().mockResolvedValue(cachedTimeline),
+        set: vi.fn(),
+      };
+
+      const cachedService = new TimelineService(prismaMock, redisMock);
+      const result = await cachedService.getRequestTimeline(
+        serviceRequestId,
+        { page: 1, limit: 20 },
+        user,
+      );
+
+      expect(result).toBe(cachedTimeline);
+      expect(redisMock.get).toHaveBeenCalledWith(
+        `tracking:timeline:${serviceRequestId}:admin:p1:l20:sasc:tall`,
+      );
+      // DB should not be hit on cache hit
+      expect(prismaMock.trackingFlow.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('should cache timeline in Redis when flow contains terminal event (COMPLETED)', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const redisMock: any = {
+        get: vi.fn().mockResolvedValue(null),
+        set: vi.fn(),
+      };
+
+      const flowId = randomUUID();
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      prismaMock.trackingEvent.count.mockResolvedValue(2);
+      prismaMock.trackingEvent.findMany.mockResolvedValue([]);
+      // Mock terminal event finding
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({ id: randomUUID() });
+
+      const cachedService = new TimelineService(prismaMock, redisMock);
+      const result = await cachedService.getRequestTimeline(
+        serviceRequestId,
+        { page: 1, limit: 10 },
+        user,
+      );
+
+      expect(result.total).toBe(2);
+      expect(redisMock.set).toHaveBeenCalledWith(
+        `tracking:timeline:${serviceRequestId}:cust:${customerId}:p1:l10:sasc:tall`,
+        expect.objectContaining({ total: 2 }),
+        7 * 24 * 3600,
+      );
+    });
+  });
 });

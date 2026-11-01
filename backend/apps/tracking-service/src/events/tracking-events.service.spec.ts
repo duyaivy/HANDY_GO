@@ -235,4 +235,30 @@ describe('TrackingEventsService', () => {
       expect(passedMetadata.password).toBeUndefined();
     });
   });
+
+  describe('Cache Invalidation', () => {
+    it('should invalidate active Redis cache keys for serviceRequestId when new event is recorded', async () => {
+      const serviceRequestId = randomUUID();
+      const redisMock: any = {
+        delByPattern: vi.fn().mockResolvedValue(undefined),
+      };
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+      });
+
+      const cachedService = new TrackingEventsService(prismaMock, redisMock);
+      await cachedService.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'service_request.published',
+        serviceRequestId,
+      });
+
+      expect(redisMock.delByPattern).toHaveBeenCalledWith(
+        `tracking:*:${serviceRequestId}:*`,
+      );
+    });
+  });
 });

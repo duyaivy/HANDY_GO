@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { isUUID } from 'class-validator';
 import { TrackingEntityType } from '@prisma/tracking-client';
+import { RedisService } from '@app/redis';
 import { PrismaService } from '../common/prisma/prisma.service.js';
 import type { EventEnvelope } from './dto/event-envelope.dto.js';
 
@@ -9,7 +10,10 @@ import type { EventEnvelope } from './dto/event-envelope.dto.js';
 export class TrackingEventsService {
   private readonly logger = new Logger(TrackingEventsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
 
   /**
    * Ingests any domain event into the tracking timeline.
@@ -194,6 +198,12 @@ export class TrackingEventsService {
       this.logger.log(
         `Recorded event ${eventType} (${rawEventId}) for flow ${serviceRequestId}`,
       );
+
+      // Invalidate active cache keys for this serviceRequestId
+      if (this.redis && serviceRequestId) {
+        await this.redis.delByPattern(`tracking:*:${serviceRequestId}:*`);
+      }
+
       return { recorded: true };
     } catch (error: any) {
       // Prisma unique constraint violation (code P2002) -> idempotent duplicate
