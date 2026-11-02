@@ -289,7 +289,14 @@ export class TrackingEventsConsumer {
   ): Promise<void> {
     const eventId = data?.eventId || data?.id;
     try {
-      await this.eventsService.recordDomainEvent(data, fallbackPattern);
+      const result = await this.eventsService.recordDomainEvent(data, fallbackPattern);
+      if (result.reason === 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW') {
+        this.logger.warn(
+          `Message ${eventId} (${fallbackPattern}) acknowledged without recording: invalid payload missing serviceRequestId and orderId.`,
+        );
+        this.ackMessage(context);
+        return;
+      }
       this.ackMessage(context);
     } catch (error: any) {
       this.logger.error(

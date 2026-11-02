@@ -64,6 +64,10 @@ export class TrackingEventsService {
     let orderId: string | undefined =
       data.orderId ||
       rawPayload.orderId ||
+      (data.aggregateType === 'order' && data.aggregateId ? data.aggregateId : undefined) ||
+      (rawPayload.aggregateType === 'order' && rawPayload.aggregateId ? rawPayload.aggregateId : undefined) ||
+      (rawPayload.order?.id ? rawPayload.order.id : undefined) ||
+      (rawPayload.payment?.orderId ? rawPayload.payment.orderId : undefined) ||
       (eventType.startsWith('order.') && rawPayload.id ? rawPayload.id : undefined);
 
     let customerId: string | undefined =
@@ -91,7 +95,7 @@ export class TrackingEventsService {
         // Buffer event until order.created arrives to link orderId with serviceRequestId
         const pendingKey = `tracking:pending_order_events:${orderId}`;
         await this.redis.rpush(pendingKey, { data, forcedEventType });
-        await this.redis.expire(pendingKey, 3600); // 1 hour TTL buffer
+        await this.redis.expire(pendingKey, 86400); // 24 hours TTL buffer
         this.logger.log(
           `Event ${rawEventId} (${eventType}) buffered for pending order ${orderId}`,
         );
@@ -105,9 +109,9 @@ export class TrackingEventsService {
 
     if (!serviceRequestId) {
       this.logger.warn(
-        `Event ${rawEventId} (${eventType}) dropped: neither serviceRequestId nor recognized orderId could be resolved.`,
+        `Event ${rawEventId} (${eventType}) dropped as invalid payload: neither serviceRequestId nor recognized orderId could be resolved.`,
       );
-      return { recorded: false, reason: 'MISSING_SERVICE_REQUEST_ID' };
+      return { recorded: false, reason: 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW' };
     }
 
     // 3. Resolve Entity Type, Entity ID and Source Service
@@ -135,6 +139,7 @@ export class TrackingEventsService {
     const toStatus =
       rawPayload.toStatus ||
       rawPayload.newStatus ||
+      rawPayload.nextStatus ||
       rawPayload.status ||
       null;
 

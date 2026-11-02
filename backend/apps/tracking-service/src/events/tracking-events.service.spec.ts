@@ -233,7 +233,43 @@ describe('TrackingEventsService', () => {
       );
       expect(redisMock.expire).toHaveBeenCalledWith(
         `tracking:pending_order_events:${orderId}`,
-        3600,
+        86400,
+      );
+    });
+
+    it('should buffer order.status.changed arriving before order.created with nextStatus', async () => {
+      const orderId = randomUUID();
+      const eventId = randomUUID();
+
+      const redisMock: any = {
+        rpush: vi.fn(),
+        expire: vi.fn(),
+        delByPattern: vi.fn(),
+      };
+
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
+
+      const result = await bufferedService.recordDomainEvent({
+        eventId,
+        eventType: 'order.status.changed',
+        payload: {
+          orderId,
+          previousStatus: 'created',
+          nextStatus: 'confirmed',
+        },
+      });
+
+      expect(result.recorded).toBe(false);
+      expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
+      expect(redisMock.rpush).toHaveBeenCalledWith(
+        `tracking:pending_order_events:${orderId}`,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'order.status.changed',
+          }),
+        }),
       );
     });
 
@@ -257,6 +293,21 @@ describe('TrackingEventsService', () => {
           },
         }),
       ).rejects.toThrow('ORDER_FLOW_NOT_READY');
+    });
+
+    it('should drop truly invalid payload without serviceRequestId or orderId as INVALID_PAYLOAD_UNRESOLVABLE_FLOW', async () => {
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+
+      const result = await service.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'order.status.changed',
+        payload: {
+          invalidField: 'random-value',
+        },
+      });
+
+      expect(result.recorded).toBe(false);
+      expect(result.reason).toBe('INVALID_PAYLOAD_UNRESOLVABLE_FLOW');
     });
   });
 

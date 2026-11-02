@@ -83,6 +83,25 @@ describe('TrackingEventsConsumer', () => {
     expect(channelMock.ack).not.toHaveBeenCalled();
   });
 
+  it('should nack with requeue = true on ORDER_FLOW_NOT_READY to retry out-of-order events', async () => {
+    const flowNotReadyError = new Error('ORDER_FLOW_NOT_READY: Flow not yet created for orderId 123');
+    eventsServiceMock.recordDomainEvent.mockRejectedValue(flowNotReadyError);
+
+    const payload = {
+      eventId: randomUUID(),
+      orderId: randomUUID(),
+    };
+
+    await consumer.handleOrderStatusChanged(payload, contextMock);
+
+    expect(channelMock.nack).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      true, // requeue = true for retry when order.created arrives
+    );
+    expect(channelMock.ack).not.toHaveBeenCalled();
+  });
+
   it('should nack with requeue = false on permanent error for DLQ forwarding', async () => {
     const permanentError = new Error('Invalid JSON structure');
     eventsServiceMock.recordDomainEvent.mockRejectedValue(permanentError);
