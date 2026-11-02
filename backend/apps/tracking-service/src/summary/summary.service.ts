@@ -67,28 +67,22 @@ export class SummaryService {
       );
     }
 
-    // Role-based authorization: fail-closed if ownership cannot be confirmed
+    // Role-based authorization: fail-closed if ownership or participation cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer) {
-        if (!flow.customerId || flow.customerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
-          );
-        }
-      } else if (user.isWorker) {
-        const hasParticipated = flow.events.some(
+      const isOwner =
+        user.isCustomer && flow.customerId && flow.customerId === user.userId;
+
+      let isParticipatingWorker = false;
+      if (user.isWorker) {
+        isParticipatingWorker = flow.events.some(
           (e) =>
             e.actorUserId === user.userId ||
             (e.metadata as any)?.workerId === user.userId ||
             (e.metadata as any)?.workerUserId === user.userId,
         );
+      }
 
-        if (!hasParticipated) {
-          throw new ForbiddenException(
-            'Thợ không có quyền xem thông tin tổng hợp của yêu cầu này do chưa tham gia',
-          );
-        }
-      } else {
+      if (!isOwner && !isParticipatingWorker) {
         throw new ForbiddenException(
           'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
         );

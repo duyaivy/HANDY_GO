@@ -54,15 +54,13 @@ export class TimelineService {
       );
     }
 
-    // Role-based authorization: fail-closed if ownership cannot be confirmed
+    // Role-based authorization: fail-closed if ownership or participation cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer) {
-        if (!flow.customerId || flow.customerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền truy cập tiến trình của yêu cầu này',
-          );
-        }
-      } else if (user.isWorker) {
+      const isOwner =
+        user.isCustomer && flow.customerId && flow.customerId === user.userId;
+
+      let isParticipatingWorker = false;
+      if (user.isWorker) {
         // Verify worker has participated in this request
         const participation = await this.prisma.trackingEvent.findFirst({
           where: {
@@ -74,13 +72,10 @@ export class TimelineService {
             ],
           },
         });
+        isParticipatingWorker = Boolean(participation);
+      }
 
-        if (!participation) {
-          throw new ForbiddenException(
-            'Thợ không có quyền truy cập tiến trình của yêu cầu này do chưa tham gia',
-          );
-        }
-      } else {
+      if (!isOwner && !isParticipatingWorker) {
         throw new ForbiddenException(
           'Bạn không có quyền truy cập tiến trình của yêu cầu này',
         );
@@ -189,21 +184,14 @@ export class TimelineService {
       firstBidEvent.actorUserId ||
       (firstBidEvent.metadata as any)?.workerId;
 
-    // Authorization: fail-closed
+    // Authorization: fail-closed if ownership or bid ownership cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isWorker) {
-        if (!bidWorkerId || bidWorkerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền xem lịch sử báo giá của thợ khác',
-          );
-        }
-      } else if (user.isCustomer) {
-        if (!flow.customerId || flow.customerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền xem báo giá của yêu cầu này',
-          );
-        }
-      } else {
+      const isOwner =
+        user.isCustomer && flow.customerId && flow.customerId === user.userId;
+      const isBidWorker =
+        user.isWorker && bidWorkerId && bidWorkerId === user.userId;
+
+      if (!isOwner && !isBidWorker) {
         throw new ForbiddenException(
           'Bạn không có quyền xem báo giá của yêu cầu này',
         );
@@ -248,15 +236,13 @@ export class TimelineService {
       );
     }
 
-    // Check authorization: fail-closed
+    // Check authorization: fail-closed if customer ownership or order assignment cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer) {
-        if (!flow.customerId || flow.customerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền xem tiến trình của đơn hàng này',
-          );
-        }
-      } else if (user.isWorker) {
+      const isOwner =
+        user.isCustomer && flow.customerId && flow.customerId === user.userId;
+
+      let isAssignedWorker = false;
+      if (user.isWorker) {
         // Worker must specifically be assigned to this order (not just any past proposal in the flow)
         const orderParticipation = await this.prisma.trackingEvent.findFirst({
           where: {
@@ -270,13 +256,10 @@ export class TimelineService {
             ],
           },
         });
+        isAssignedWorker = Boolean(orderParticipation);
+      }
 
-        if (!orderParticipation) {
-          throw new ForbiddenException(
-            'Thợ không có quyền xem đơn hàng này do không phải người thực hiện',
-          );
-        }
-      } else {
+      if (!isOwner && !isAssignedWorker) {
         throw new ForbiddenException(
           'Bạn không có quyền xem tiến trình của đơn hàng này',
         );

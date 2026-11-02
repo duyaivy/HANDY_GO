@@ -110,15 +110,13 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    // Role-based authorization: fail-closed if customer ownership cannot be confirmed
+    // Role-based authorization: fail-closed if ownership or participation cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer) {
-        if (!flow.customerId || flow.customerId !== user.userId) {
-          throw new ForbiddenException(
-            'Bạn không có quyền đăng ký dòng sự kiện của yêu cầu này',
-          );
-        }
-      } else if (user.isWorker) {
+      const isOwner =
+        user.isCustomer && flow.customerId && flow.customerId === user.userId;
+
+      let isParticipatingWorker = false;
+      if (user.isWorker) {
         const participation = await this.prisma.trackingEvent.findFirst({
           where: {
             trackingFlowId: flow.id,
@@ -129,13 +127,10 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
             ],
           },
         });
+        isParticipatingWorker = Boolean(participation);
+      }
 
-        if (!participation) {
-          throw new ForbiddenException(
-            'Thợ không có quyền xem sự kiện trực tiếp của yêu cầu này do chưa tham gia',
-          );
-        }
-      } else {
+      if (!isOwner && !isParticipatingWorker) {
         throw new ForbiddenException(
           'Bạn không có quyền đăng ký dòng sự kiện của yêu cầu này',
         );
