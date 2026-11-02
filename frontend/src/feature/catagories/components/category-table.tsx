@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Search,
@@ -100,6 +101,62 @@ export const CategoryTable = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  // FE-02: Đặt menu ngoài vùng overflow-x-auto bằng Portal.
+  const toggleCategoryMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    categoryId: string,
+  ) => {
+    if (openMenuId === categoryId) {
+      setOpenMenuId(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 192;
+    const menuHeight = 224;
+    const padding = 8;
+    const openAbove =
+      window.innerHeight - rect.bottom < menuHeight + padding &&
+      rect.top >= menuHeight + padding;
+
+    setMenuPosition({
+      top: openAbove
+        ? Math.max(padding, rect.top - menuHeight - 4)
+        : Math.max(
+            padding,
+            Math.min(
+              rect.bottom + 4,
+              window.innerHeight - menuHeight - padding,
+            ),
+          ),
+      left: Math.max(
+        padding,
+        Math.min(
+          rect.right - menuWidth,
+          window.innerWidth - menuWidth - padding,
+        ),
+      ),
+    });
+    setOpenMenuId(categoryId);
+  };
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const closeMenu = () => setOpenMenuId(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
   const [categoryToDelete, setCategoryToDelete] = useState<CategoryItem | null>(
     null,
   );
@@ -318,108 +375,18 @@ export const CategoryTable = () => {
                       onClick={(event) => event.stopPropagation()}
                       onKeyDown={(event) => event.stopPropagation()}
                     >
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOpenMenuId(
-                              openMenuId === category.id ? null : category.id,
-                            )
-                          }
-                          className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
-                        >
-                          <MoreVertical size={18} />
-                        </button>
-
-                        {openMenuId === category.id && (
-                          <>
-                            <button
-                              type="button"
-                              className="fixed inset-0 z-10"
-                              onClick={() => setOpenMenuId(null)}
-                            />
-
-                            <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setIsDetailOpen(true);
-                                  setOpenMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
-                              >
-                                <Eye size={16} />
-                                Xem chi tiết
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCategory(category);
-                                  setIsEditOpen(true);
-                                  setOpenMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
-                              >
-                                <Pencil size={16} />
-                                Chỉnh sửa
-                              </button>
-
-                              {/* Đường phân cách */}
-                              <div className="my-1 border-t border-gray-100" />
-
-                              {/* Vô hiệu hóa / Kích hoạt */}
-                              <button
-                                type="button"
-                                disabled={updateCategoryStatus.isPending}
-                                onClick={async () => {
-                                  setOpenMenuId(null);
-                                  try {
-                                    await updateCategoryStatus.mutateAsync({
-                                      id: category.id,
-                                      isActive: !category.isActive,
-                                    });
-                                  } catch (error) {
-                                    console.error(
-                                      "Lỗi thay đổi trạng thái:",
-                                      error,
-                                    );
-                                  }
-                                }}
-                                className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${
-                                  category.isActive
-                                    ? "text-orange-600"
-                                    : "text-green-600"
-                                }`}
-                              >
-                                <Power size={16} />
-
-                                {category.isActive
-                                  ? "Vô hiệu hóa"
-                                  : "Kích hoạt"}
-                              </button>
-
-                              {/* Đường phân cách */}
-                              <div className="my-1 border-t border-gray-100" />
-
-                              {/* Xóa vĩnh viễn */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenMenuId(null);
-                                  setDeleteError("");
-                                  setCategoryToDelete(category);
-                                }}
-                                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50"
-                              >
-                                <Trash2 size={16} />
-                                Xóa vĩnh viễn
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Thao tác với ${category.name}`}
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === category.id}
+                        onClick={(event) =>
+                          toggleCategoryMenu(event, category.id)
+                        }
+                        className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
+                      >
+                        <MoreVertical size={18} />
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -483,6 +450,95 @@ export const CategoryTable = () => {
           </div>
         </div>
       </div>
+
+      {/* FE-02: Menu render tại document.body, tránh bị bảng cắt mất. */}
+      {openMenuId &&
+        typeof document !== "undefined" &&
+        (() => {
+          const menuCategory = categories.find(
+            (item) => item.id === openMenuId,
+          );
+          if (!menuCategory) return null;
+
+          return createPortal(
+            <>
+              <button
+                type="button"
+                aria-label="Đóng menu"
+                className="fixed inset-0 z-[80] cursor-default"
+                onClick={() => setOpenMenuId(null)}
+              />
+              <div
+                role="menu"
+                aria-label={`Thao tác với ${menuCategory.name}`}
+                className="fixed z-[81] w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setSelectedCategory(menuCategory);
+                    setIsDetailOpen(true);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Eye size={16} /> Xem chi tiết
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setSelectedCategory(menuCategory);
+                    setIsEditOpen(true);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Pencil size={16} /> Chỉnh sửa
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={updateCategoryStatus.isPending}
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    void updateCategoryStatus
+                      .mutateAsync({
+                        id: menuCategory.id,
+                        isActive: !menuCategory.isActive,
+                      })
+                      .catch((error) => {
+                        console.error("Lỗi thay đổi trạng thái:", error);
+                      });
+                  }}
+                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    menuCategory.isActive ? "text-orange-600" : "text-green-600"
+                  }`}
+                >
+                  <Power size={16} />{" "}
+                  {menuCategory.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    setDeleteError("");
+                    setCategoryToDelete(menuCategory);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 transition-colors hover:bg-red-50"
+                >
+                  <Trash2 size={16} /> Xóa vĩnh viễn
+                </button>
+              </div>
+            </>,
+            document.body,
+          );
+        })()}
 
       {/* Modals */}
       <AddCatalogModal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)} />

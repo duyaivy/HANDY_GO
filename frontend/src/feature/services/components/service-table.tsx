@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
   useServiceListQuery,
@@ -109,6 +110,62 @@ export default function ServiceTable() {
   );
   const [deleteError, setDeleteError] = useState("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  // FE-02: Render menu qua Portal để không bị overflow-x-auto cắt mất.
+  const toggleServiceMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    serviceId: string,
+  ) => {
+    if (openMenuId === serviceId) {
+      setOpenMenuId(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 192; // w-48
+    const estimatedMenuHeight = 224;
+    const viewportPadding = 8;
+    const openAbove =
+      window.innerHeight - rect.bottom <
+        estimatedMenuHeight + viewportPadding &&
+      rect.top >= estimatedMenuHeight + viewportPadding;
+
+    setMenuPosition({
+      top: openAbove
+        ? Math.max(viewportPadding, rect.top - estimatedMenuHeight - 4)
+        : Math.min(
+            rect.bottom + 4,
+            window.innerHeight - estimatedMenuHeight - viewportPadding,
+          ),
+      left: Math.max(
+        viewportPadding,
+        Math.min(
+          rect.right - menuWidth,
+          window.innerWidth - menuWidth - viewportPadding,
+        ),
+      ),
+    });
+    setOpenMenuId(serviceId);
+  };
+
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    const closeMenu = () => setOpenMenuId(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(
     null,
   );
@@ -444,77 +501,15 @@ export default function ServiceTable() {
                           <button
                             type="button"
                             aria-label={`Thao tác với ${service.name}`}
-                            onClick={() =>
-                              setOpenMenuId(
-                                openMenuId === service.id ? null : service.id,
-                              )
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === service.id}
+                            onClick={(event) =>
+                              toggleServiceMenu(event, service.id)
                             }
                             className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
                           >
                             <MoreVertical size={18} />
                           </button>
-                          {openMenuId === service.id && (
-                            <>
-                              <button
-                                type="button"
-                                aria-label="Đóng menu"
-                                className="fixed inset-0 z-10"
-                                onClick={() => setOpenMenuId(null)}
-                              />
-                              <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    openDetailModal(service);
-                                    setOpenMenuId(null);
-                                  }}
-                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
-                                >
-                                  <Eye size={16} /> Xem chi tiết
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    openEditModal(service);
-                                    setOpenMenuId(null);
-                                  }}
-                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
-                                >
-                                  <Pencil size={16} /> Chỉnh sửa
-                                </button>
-                                <div className="my-1 border-t border-gray-100" />
-                                <button
-                                  type="button"
-                                  disabled={updateServiceStatus.isPending}
-                                  onClick={() => {
-                                    setOpenMenuId(null);
-                                    void handleToggleStatus(service);
-                                  }}
-                                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
-                                    service.isActive
-                                      ? "text-orange-600"
-                                      : "text-green-600"
-                                  }`}
-                                >
-                                  <Power size={16} />{" "}
-                                  {service.isActive
-                                    ? "Vô hiệu hóa"
-                                    : "Kích hoạt"}
-                                </button>
-                                <div className="my-1 border-t border-gray-100" />
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setOpenMenuId(null);
-                                    handleDeleteService(service);
-                                  }}
-                                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
-                                >
-                                  <Trash2 size={16} /> Xóa vĩnh viễn
-                                </button>
-                              </div>
-                            </>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -602,6 +597,85 @@ export default function ServiceTable() {
           </div>
         )}
       </section>
+
+      {/* FE-02: Menu nằm ngoài vùng cuộn ngang của bảng. */}
+      {openMenuId &&
+        typeof document !== "undefined" &&
+        (() => {
+          const menuService = services.find(
+            (service) => service.id === openMenuId,
+          );
+          if (!menuService) return null;
+
+          return createPortal(
+            <>
+              <button
+                type="button"
+                aria-label="Đóng menu"
+                className="fixed inset-0 z-[80] cursor-default"
+                onClick={() => setOpenMenuId(null)}
+              />
+              <div
+                role="menu"
+                aria-label={`Thao tác với ${menuService.name}`}
+                className="fixed z-[81] w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    openDetailModal(menuService);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Eye size={16} /> Xem chi tiết
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    openEditModal(menuService);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Pencil size={16} /> Chỉnh sửa
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={updateServiceStatus.isPending}
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    void handleToggleStatus(menuService);
+                  }}
+                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+                    menuService.isActive ? "text-orange-600" : "text-green-600"
+                  }`}
+                >
+                  <Power size={16} />{" "}
+                  {menuService.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    handleDeleteService(menuService);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={16} /> Xóa vĩnh viễn
+                </button>
+              </div>
+            </>,
+            document.body,
+          );
+        })()}
 
       {/* DELETE CONFIRMATION MODAL */}
       {serviceToDelete && (
