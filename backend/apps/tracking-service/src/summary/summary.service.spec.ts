@@ -137,6 +137,48 @@ describe('SummaryService', () => {
     expect(summary.totalEvents).toBe(10);
   });
 
+  it('should initialize tracking flow and compute DRAFT phase when request is in draft status', async () => {
+    const customerId = randomUUID();
+    const serviceRequestId = randomUUID();
+    const flowId = randomUUID();
+
+    const user: GatewayUser = {
+      userId: customerId,
+      roles: ['Customer'],
+      isAdmin: false,
+      isCustomer: true,
+      isWorker: false,
+    };
+
+    const now = new Date();
+
+    prismaMock.trackingFlow.findUnique.mockResolvedValue({
+      id: flowId,
+      serviceRequestId,
+      orderId: null,
+      customerId,
+      createdAt: now,
+      updatedAt: now,
+      events: [
+        {
+          eventType: 'service_request.created',
+          entityType: TrackingEntityType.service_request,
+          entityId: serviceRequestId,
+          occurredAt: now,
+          actorUserId: customerId,
+          metadata: { status: 'draft' },
+        },
+      ],
+    });
+
+    const summary = await service.getRequestSummary(serviceRequestId, user);
+
+    expect(summary.currentPhase).toBe('DRAFT');
+    expect(summary.serviceRequest.status).toBe('draft');
+    expect(summary.bidding.status).toBe('idle');
+    expect(summary.order).toBeUndefined();
+  });
+
   it('should isolate worker private bids when another worker views the summary', async () => {
     const customerId = randomUUID();
     const serviceRequestId = randomUUID();

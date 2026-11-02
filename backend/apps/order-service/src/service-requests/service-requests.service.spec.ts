@@ -92,6 +92,19 @@ describe('ServiceRequestsService', () => {
         }),
         include: { media: true },
       });
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
+          aggregateId: mockRequestId,
+          eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_CREATED,
+          payload: expect.objectContaining({
+            serviceRequestId: mockRequestId,
+            customerUserId: mockUserId,
+            status: RequestStatus.draft,
+          }),
+        }),
+        expect.anything(),
+      );
       expect(result).toEqual(mockCreated);
     });
 
