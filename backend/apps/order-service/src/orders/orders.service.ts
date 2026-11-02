@@ -173,6 +173,50 @@ export class OrdersService {
         });
       }
 
+      // 8.1. Worker Capacity Guard (Lean Dispatch Rule 2: Max 3 active orders)
+      const activeOrderCount =
+        typeof tx.order.count === 'function'
+          ? (await tx.order.count({
+              where: {
+                workerUserId,
+                status: { in: ['created', 'confirmed', 'in_progress'] },
+              },
+            })) ?? 0
+          : 0;
+      if (activeOrderCount >= ORDER_CONSTANTS.MAX_ACTIVE_ORDERS_PER_WORKER) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.WORKER_CAPACITY_EXCEEDED,
+          message: ORDER_ERROR_MESSAGES.WORKER_CAPACITY_EXCEEDED,
+        });
+      }
+
+      // 8.2. Schedule Conflict Guard (Lean Dispatch Rule 1: Min 60 min gap between scheduled orders)
+      const candidateScheduledAt = proposal.scheduledAt ?? request.scheduledAt;
+      if (candidateScheduledAt && typeof tx.order.findMany === 'function') {
+        const candidateTime = new Date(candidateScheduledAt).getTime();
+        const existingScheduledOrders =
+          (await tx.order.findMany({
+            where: {
+              workerUserId,
+              status: { in: ['created', 'confirmed', 'in_progress'] },
+              scheduledAt: { not: null },
+            },
+            select: { id: true, orderCode: true, scheduledAt: true },
+          })) ?? [];
+
+        for (const ord of existingScheduledOrders) {
+          const existingTime = new Date(ord.scheduledAt!).getTime();
+          const diffMinutes =
+            Math.abs(candidateTime - existingTime) / (60 * 1000);
+          if (diffMinutes < ORDER_CONSTANTS.MIN_SCHEDULE_GAP_MINUTES) {
+            throw new ConflictException({
+              code: ORDER_ERROR_CODES.SCHEDULE_CONFLICT,
+              message: `Lịch hẹn bị trùng hoặc quá gần đơn #${ord.orderCode} (khoảng cách tối thiểu giữa 2 đơn là ${ORDER_CONSTANTS.MIN_SCHEDULE_GAP_MINUTES} phút).`,
+            });
+          }
+        }
+      }
+
       // 9. Generate Order Code and Snapshot Immutable Data
       const orderCode = generateOrderCode();
       const createdOrder = await tx.order.create({
@@ -416,6 +460,34 @@ export class OrdersService {
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
           message: `Order in status '${order.status}' cannot be started. Status must be 'confirmed'.`,
         });
+      }
+
+      // Lean Dispatch Rule 3: Single in_progress order per worker
+      const activeWorkingOrder = typeof tx.order.findFirst === 'function' ? await tx.order.findFirst({
+        where: {
+          workerUserId,
+          status: 'in_progress',
+          id: { not: orderId },
+        },
+        select: { id: true, orderCode: true },
+      }) : null;
+      if (activeWorkingOrder) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.WORKER_ALREADY_BUSY,
+          message: `Bạn đang thi công đơn #${activeWorkingOrder.orderCode}. Vui lòng nghiệm thu hoặc hoàn thành đơn này trước khi bắt đầu đơn mới!`,
+        });
+      }
+
+      // Lean Dispatch Rule 3 (Early Guard): Chặn bấm bắt đầu quá sớm đối với đơn hẹn trước (> 30 phút)
+      if (order.scheduledAt) {
+        const diffMinutes =
+          (new Date(order.scheduledAt).getTime() - Date.now()) / (60 * 1000);
+        if (diffMinutes > ORDER_CONSTANTS.MAX_EARLY_START_MINUTES) {
+          throw new BadRequestException({
+            code: ORDER_ERROR_CODES.TOO_EARLY_TO_START,
+            message: `Chưa tới giờ hẹn! Bạn chỉ có thể bấm bắt đầu trước giờ hẹn tối đa ${ORDER_CONSTANTS.MAX_EARLY_START_MINUTES} phút.`,
+          });
+        }
       }
 
       const now = new Date();

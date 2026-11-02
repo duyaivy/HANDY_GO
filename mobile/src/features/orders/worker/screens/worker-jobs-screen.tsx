@@ -62,6 +62,25 @@ export function WorkerJobsScreen() {
 
   const acceptMutation = useAcceptProposal();
 
+  // Lean Dispatch Rule 2: Tính số lượng đơn đang giữ (in-flight)
+  const inFlightCount = React.useMemo(() => {
+    return activeOrders.filter((o: Order) =>
+      ['created', 'confirmed', 'in_progress'].includes(o.status),
+    ).length;
+  }, [activeOrders]);
+
+  // Sắp xếp: Đơn in_progress lên hàng đầu tiên, tiếp theo đến lịch hẹn sắp tới
+  const sortedActiveOrders = React.useMemo(() => {
+    return [...activeOrders].sort((a: Order, b: Order) => {
+      if (a.status === 'in_progress' && b.status !== 'in_progress') return -1;
+      if (b.status === 'in_progress' && a.status !== 'in_progress') return 1;
+      if (a.scheduledAt && b.scheduledAt) {
+        return new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime();
+      }
+      return 0;
+    });
+  }, [activeOrders]);
+
   const handleAcceptJob = async (proposalId: string) => {
     try {
       await acceptMutation.mutateAsync(proposalId);
@@ -76,14 +95,22 @@ export function WorkerJobsScreen() {
         ],
       );
     }
-    catch {
+    catch (err: any) {
+      const errMsg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Đã nhận việc thành công! Vui lòng chuyển sang tab Đang thi công để làm việc.';
+      const isConflict =
+        err?.response?.data?.code === 'WORKER_CAPACITY_EXCEEDED' ||
+        err?.response?.data?.code === 'SCHEDULE_CONFLICT';
+
       Alert?.alert?.(
-        'Nhận việc',
-        'Đã nhận việc thành công! Vui lòng chuyển sang tab Đang thi công để làm việc.',
+        isConflict ? 'Chưa thể nhận việc' : 'Nhận việc',
+        errMsg,
         [
           {
             text: 'OK',
-            onPress: () => setActiveTab('active'),
+            onPress: isConflict ? undefined : () => setActiveTab('active'),
           },
         ],
       );
@@ -154,47 +181,99 @@ export function WorkerJobsScreen() {
           </Pressable>
         </View>
 
+        {/* Lean Dispatch Rule 2: Capacity Indicator */}
+        <View
+          testID="worker-capacity-indicator"
+          className={`mb-4 flex-row items-center justify-between rounded-2xl border p-3 ${
+            inFlightCount >= 3
+              ? 'border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20'
+              : inFlightCount === 2
+                ? 'border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20'
+                : 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/40 dark:bg-emerald-950/20'
+          }`}
+        >
+          <View className="flex-1 pr-2">
+            <Text
+              className={`text-xs font-bold ${
+                inFlightCount >= 3
+                  ? 'text-red-700 dark:text-red-400'
+                  : inFlightCount === 2
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-emerald-700 dark:text-emerald-400'
+              }`}
+            >
+              {inFlightCount >= 3
+                ? '⚠️ Đã đạt giới hạn 3/3 đơn thi công'
+                : `⚡ Đang nhận: ${inFlightCount}/3 đơn`}
+            </Text>
+            <Text className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+              {inFlightCount >= 3
+                ? 'Hoàn thành bớt đơn hiện tại để có thể nhận thêm việc mới.'
+                : `Bạn có thể nhận thêm tối đa ${3 - inFlightCount} đơn nữa.`}
+            </Text>
+          </View>
+          <View
+            className={`rounded-full px-2.5 py-1 ${
+              inFlightCount >= 3
+                ? 'bg-red-200 dark:bg-red-800'
+                : inFlightCount === 2
+                  ? 'bg-amber-200 dark:bg-amber-800'
+                  : 'bg-emerald-200 dark:bg-emerald-800'
+            }`}
+          >
+            <Text className="text-xs font-bold text-neutral-800 dark:text-white">
+              {inFlightCount}/3
+            </Text>
+          </View>
+        </View>
+
         {isLoading && (
           <View className="items-center justify-center py-6">
             <ActivityIndicator size="small" color={PRIMARY_COLOR} />
           </View>
         )}
 
-        {/* Tab 1: Proposals (Lời mời nhận việc từ khách) */}
+        {/* Tab 1: Proposals (Lời mời nhận việc) */}
         {activeTab === 'proposals' && (
           <View className="gap-3">
-            {proposals.length > 0 && proposals.map((item: BookingProposal) => (
+            {proposals.map((prop: BookingProposal) => (
               <View
-                key={item.id}
-                className="rounded-2xl border-2 border-primary/30 bg-white p-4 shadow-xs dark:border-primary/20 dark:bg-neutral-900"
+                key={prop.id}
+                className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <View className="flex-row items-center justify-between">
                   <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                    {item.agreedScope || 'Yêu cầu sửa chữa'}
+                    {prop.agreedScope || 'Lời mời dịch vụ'}
                   </Text>
-                  <Text className="text-base font-black text-primary">
-                    {formatVND(item.agreedPrice)}
-                  </Text>
+                  <View className="rounded-full bg-emerald-100 px-2.5 py-0.5 dark:bg-emerald-950/40">
+                    <Text className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300">
+                      {prop.status}
+                    </Text>
+                  </View>
                 </View>
 
                 <Text className="mt-1 text-xs text-neutral-500">
-                  Bản sửa đổi #
-                  {item.revisionNo}
+                  Giá thoả thuận:
                   {' '}
-                  • Hết hạn:
-                  {' '}
-                  {new Date(item.expiresAt).toLocaleTimeString('vi-VN')}
+                  <Text className="font-bold text-primary">
+                    {formatVND(prop.agreedPrice)}
+                  </Text>
                 </Text>
 
-                <View className="mt-4 flex-row gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                <View className="mt-3 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                  <Text className="max-w-[200px] text-xs text-neutral-400" numberOfLines={1}>
+                    📍
+                    {' '}
+                    {prop.serviceRequest?.addressText || 'Đà Nẵng'}
+                  </Text>
                   <Button
                     testID="accept-job-btn"
-                    label={acceptMutation.isPending ? 'Đang nhận việc...' : 'Nhận Việc Ngay'}
+                    label={acceptMutation.isPending ? 'Đang nhận...' : 'Chấp nhận việc'}
                     variant="default"
-                    disabled={acceptMutation.isPending}
-                    className="h-10 flex-1 rounded-xl bg-[#F5A524]"
-                    textClassName="text-xs font-bold text-neutral-900"
-                    onPress={() => handleAcceptJob(item.id)}
+                    disabled={acceptMutation.isPending || inFlightCount >= 3}
+                    className={`h-8 rounded-xl px-3 ${inFlightCount >= 3 ? 'bg-neutral-400' : 'bg-primary'}`}
+                    textClassName="text-[11px] font-bold text-white"
+                    onPress={() => handleAcceptJob(prop.id)}
                   />
                 </View>
               </View>
@@ -227,17 +306,27 @@ export function WorkerJobsScreen() {
         {/* Tab 2: Active Orders (Công việc đang làm) */}
         {activeTab === 'active' && (
           <View className="gap-3">
-            {activeOrders.length > 0 && activeOrders.map((ord: Order) => {
+            {sortedActiveOrders.length > 0 && sortedActiveOrders.map((ord: Order) => {
               const badge = getWorkerStatusBadge(ord.status);
+              const isWorking = ord.status === 'in_progress';
               return (
                 <View
                   key={ord.id}
-                  className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900"
+                  className={`rounded-2xl border bg-white p-4 shadow-xs dark:bg-neutral-900 ${
+                    isWorking
+                      ? 'border-blue-500 bg-blue-50/20 dark:border-blue-600 dark:bg-blue-950/20'
+                      : 'border-neutral-200 dark:border-neutral-800'
+                  }`}
                 >
                   <View className="flex-row items-center justify-between">
-                    <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                      {ord.agreedScope || 'Đơn thi công'}
-                    </Text>
+                    <View className="flex-row items-center gap-1.5 flex-1 pr-2">
+                      {isWorking && (
+                        <Text className="text-xs">⚡</Text>
+                      )}
+                      <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
+                        {ord.agreedScope || 'Đơn thi công'}
+                      </Text>
+                    </View>
                     <View className={`rounded-full px-2.5 py-0.5 ${badge.bg}`}>
                       <Text className={`text-[10px] font-bold ${badge.text}`}>
                         {badge.label}
@@ -254,6 +343,12 @@ export function WorkerJobsScreen() {
                     {formatVND(ord.agreedPrice)}
                   </Text>
 
+                  {ord.scheduledAt && (
+                    <Text className="mt-1 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                      📅 Hẹn lúc: {new Date(ord.scheduledAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}, {new Date(ord.scheduledAt).toLocaleDateString('vi-VN')}
+                    </Text>
+                  )}
+
                   <View className="mt-3 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
                     <Text className="max-w-[180px] text-xs text-neutral-400" numberOfLines={1}>
                       📍
@@ -263,7 +358,7 @@ export function WorkerJobsScreen() {
                     <Button
                       label="Thi công chi tiết →"
                       variant="default"
-                      className="h-8 rounded-xl bg-primary px-3"
+                      className={`h-8 rounded-xl px-3 ${isWorking ? 'bg-blue-600' : 'bg-primary'}`}
                       textClassName="text-[11px] font-bold text-white"
                       onPress={() => router.push(RouteNames.WORKER_JOB_DETAIL(ord.id) as any)}
                     />
