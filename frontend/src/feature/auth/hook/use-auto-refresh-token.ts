@@ -64,20 +64,18 @@ export function useAutoRefreshToken() {
         }
 
         const roles = data.user?.roles;
-        if (Array.isArray(roles)) {
-          const canManage = roles.some(
+        const isAdmin =
+          Array.isArray(roles) &&
+          roles.some(
             (role) =>
               typeof role === "string" &&
-              ["manager", "admin"].includes(
-                role.trim().toLowerCase().replace(/^role[_-]?/, ""),
-              ),
+              role.trim().toLowerCase().replace(/^role[_-]?/, "") === "admin",
           );
-          if (!canManage) {
-            setUser(data.user);
-            setStatus("forbidden");
-            toast.error("Bạn không có quyền truy cập trang quản lý");
-            return;
-          }
+        if (!isAdmin) {
+          setUser(data.user);
+          setStatus("forbidden");
+          toast.error("Bạn không có quyền truy cập trang quản lý");
+          return;
         }
 
         setUser(data.user);

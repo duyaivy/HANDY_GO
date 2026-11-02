@@ -1,23 +1,24 @@
-import React from 'react';
+import React from "react";
 import {
   Smartphone,
   ShieldCheck,
   Star,
   Clock,
-  
   ArrowRight,
-
   LogIn,
-} from 'lucide-react';
-import { motion } from 'motion/react';
-import { PhoneMockup } from './PhoneMockup';
+} from "lucide-react";
+import { motion } from "motion/react";
+import { PhoneMockup } from "./PhoneMockup";
 
 interface HeroSectionProps {
   onOpenDownload: () => void;
-  onOpenAuth: (mode: 'login' | 'register') => void;
+  onOpenAuth: (mode: "login" | "register") => void;
 }
 
-export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpenAuth }) => {
+export const HeroSection: React.FC<HeroSectionProps> = ({
+  onOpenDownload,
+  onOpenAuth,
+}) => {
   return (
     <section className="relative pt-32 pb-16 lg:pt-40 lg:pb-24 overflow-hidden bg-white">
       {/* Subtle background ambient circles & glow with motion */}
@@ -26,7 +27,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
           scale: [1, 1.08, 1],
           opacity: [0.35, 0.5, 0.35],
         }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
         className="absolute top-10 left-1/2 -translate-x-1/2 w-250 h-150 bg-linear-to-b from-orange-100/40 via-orange-50/20 to-transparent rounded-full blur-3xl -z-10 pointer-events-none"
       />
       <div className="absolute -top-24 right-0 w-96 h-96 bg-orange-200/25 rounded-full blur-3xl -z-10 pointer-events-none" />
@@ -39,30 +40,13 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
           {/* Left Column: Brand Message & Mobile-First Highlights */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-            {/* Live Online Badge with subtle spring entrance */}
-            <motion.div
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-              className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-orange-50 border border-orange-200/80 shadow-xs"
-            >
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#FF5E14] opacity-75" />
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#FF5E14]" />
-              </span>
-              <span className="text-xs sm:text-sm font-bold text-slate-800">
-                1.480+ thợ chuyên nghiệp đang trực tuyến sẵn sàng nhận đơn
-              </span>
-            </motion.div>
-
-            {/* Main Headline */}
             <motion.h1
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
+              transition={{ duration: 0.6, delay: 0.1, ease: "easeOut" }}
               className="text-4xl sm:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-[1.12]"
             >
-              Thợ Sửa Chữa Tận Nhà.{' '}
+              Thợ Sửa Chữa Tận Nhà.{" "}
               <span className="block mt-1 text-[#FF5E14]">
                 Đặt 60s Trên Điện Thoại.
               </span>
@@ -72,17 +56,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
             <motion.p
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
+              transition={{ duration: 0.6, delay: 0.2, ease: "easeOut" }}
               className="text-lg sm:text-xl text-slate-600 max-w-2xl font-normal leading-relaxed mx-auto lg:mx-0"
             >
-              Chỉ với vài chạm trên ứng dụng di động Handy Go, hệ thống tự động kết nối thợ điện, nước, máy lạnh, sửa khóa lành nghề gần nhất. <strong className="text-slate-900 font-semibold">Có mặt sau 15 phút, theo dõi GPS trực tiếp, tay nghề kiểm định 100%.</strong>
+              Chỉ với vài chạm trên ứng dụng di động Handy Go, hệ thống tự động
+              kết nối thợ điện, nước, máy lạnh, sửa khóa lành nghề gần nhất.{" "}
+              <strong className="text-slate-900 font-semibold">
+                Có mặt sau 15 phút, theo dõi GPS trực tiếp, tay nghề kiểm định
+                100%.
+              </strong>
             </motion.p>
 
             {/* Mobile App Callout Note */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3, ease: 'easeOut' }}
+              transition={{ duration: 0.6, delay: 0.3, ease: "easeOut" }}
               whileHover={{ scale: 1.01 }}
               className="p-4 sm:p-5 rounded-2xl bg-amber-50/80 border border-amber-200/90 max-w-xl mx-auto lg:mx-0 flex items-start gap-3.5 text-left shadow-2xs"
             >
@@ -94,7 +83,9 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
                   Dịch vụ độc quyền đặt qua ứng dụng di động Handy Go
                 </p>
                 <p className="text-slate-600 text-xs sm:text-sm leading-relaxed font-normal">
-                  Để đảm bảo theo dõi GPS thời gian thực, bảo mật lý lịch thợ và ghép nối chuyên viên gần nhất an toàn tuyệt đối cho gia đình bạn.
+                  Để đảm bảo theo dõi GPS thời gian thực, bảo mật lý lịch thợ và
+                  ghép nối chuyên viên gần nhất an toàn tuyệt đối cho gia đình
+                  bạn.
                 </p>
               </div>
             </motion.div>
@@ -103,7 +94,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4, ease: 'easeOut' }}
+              transition={{ duration: 0.6, delay: 0.4, ease: "easeOut" }}
               className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2"
             >
               {/* Primary Action Button */}
@@ -112,7 +103,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
                 onClick={onOpenDownload}
                 whileHover={{ scale: 1.03, y: -2 }}
                 whileTap={{ scale: 0.97 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
                 className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-linear-to-r from-[#FF5E14] via-[#FF6F22] to-[#FFA048] text-white font-black text-base shadow-xl orange-glow hover:shadow-orange-500/50 transition-all flex items-center justify-center gap-3"
               >
                 <Smartphone className="w-5 h-5" />
@@ -167,7 +158,9 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
                     {[1, 2, 3, 4, 5].map((i) => (
                       <Star key={i} className="w-4 h-4 fill-amber-400" />
                     ))}
-                    <span className="ml-1.5 font-black text-slate-900 text-sm">4.9/5</span>
+                    <span className="ml-1.5 font-black text-slate-900 text-sm">
+                      4.9/5
+                    </span>
                   </div>
                   <span className="text-xs text-slate-500 font-medium">
                     Từ 128.000+ hộ gia đình tin dùng
@@ -180,8 +173,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
               <div className="flex items-center gap-2.5">
                 <ShieldCheck className="w-6 h-6 text-emerald-600" />
                 <div className="text-left">
-                  <p className="font-black text-slate-900 text-sm">Xác Minh CCCD 100%</p>
-                  <p className="text-xs text-slate-500 font-medium">Lý lịch thợ trong sạch</p>
+                  <p className="font-black text-slate-900 text-sm">
+                    Xác Minh CCCD 100%
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Lý lịch thợ trong sạch
+                  </p>
                 </div>
               </div>
 
@@ -190,8 +187,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
               <div className="flex items-center gap-2.5">
                 <Clock className="w-6 h-6 text-[#FF5E14]" />
                 <div className="text-left">
-                  <p className="font-black text-slate-900 text-sm">15 Phút Có Mặt</p>
-                  <p className="text-xs text-slate-500 font-medium">Thợ đến ngay khi nhận đơn</p>
+                  <p className="font-black text-slate-900 text-sm">
+                    15 Phút Có Mặt
+                  </p>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Thợ đến ngay khi nhận đơn
+                  </p>
                 </div>
               </div>
             </motion.div>
@@ -212,7 +213,11 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
             {/* Floating feature pills around the phone with smooth animation */}
             <motion.div
               animate={{ y: [0, -8, 0] }}
-              transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
+              transition={{
+                duration: 4.5,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
               whileHover={{ scale: 1.06 }}
               className="hidden sm:flex absolute -left-8 top-24 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-slate-100 items-center gap-3.5 z-20 cursor-default"
             >
@@ -220,14 +225,23 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
                 <Clock className="w-5 h-5" />
               </div>
               <div className="text-left">
-                <p className="text-xs text-slate-500 font-semibold">Tốc độ điều phối</p>
-                <p className="text-sm font-black text-slate-900">Ghép thợ sau 60 giây</p>
+                <p className="text-xs text-slate-500 font-semibold">
+                  Tốc độ điều phối
+                </p>
+                <p className="text-sm font-black text-slate-900">
+                  Ghép thợ sau 60 giây
+                </p>
               </div>
             </motion.div>
 
             <motion.div
               animate={{ y: [0, 8, 0] }}
-              transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
+              transition={{
+                duration: 5,
+                repeat: Infinity,
+                ease: "easeInOut",
+                delay: 1.5,
+              }}
               whileHover={{ scale: 1.06 }}
               className="hidden sm:flex absolute -right-8 bottom-28 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-slate-100 items-center gap-3.5 z-20 cursor-default"
             >
@@ -235,8 +249,12 @@ export const HeroSection: React.FC<HeroSectionProps> = ({ onOpenDownload, onOpen
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div className="text-left">
-                <p className="text-xs text-slate-500 font-semibold">An tâm tuyệt đối</p>
-                <p className="text-sm font-black text-slate-900">Thợ có thẻ & đồng phục</p>
+                <p className="text-xs text-slate-500 font-semibold">
+                  An tâm tuyệt đối
+                </p>
+                <p className="text-sm font-black text-slate-900">
+                  Thợ có thẻ & đồng phục
+                </p>
               </div>
             </motion.div>
           </motion.div>
