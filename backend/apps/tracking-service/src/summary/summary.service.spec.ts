@@ -211,6 +211,85 @@ describe('SummaryService', () => {
     expect(summary.bookingProposal).toBeUndefined();
   });
 
+  it('should not leak order or payment milestones to a worker who participated in a rejected proposal but was not assigned to the order', async () => {
+    const customerId = randomUUID();
+    const serviceRequestId = randomUUID();
+    const rejectedWorker = randomUUID();
+    const assignedWorker = randomUUID();
+    const flowId = randomUUID();
+    const orderId = randomUUID();
+
+    const workerUser: GatewayUser = {
+      userId: rejectedWorker,
+      roles: ['Worker'],
+      isAdmin: false,
+      isCustomer: false,
+      isWorker: true,
+    };
+
+    prismaMock.trackingFlow.findUnique.mockResolvedValue({
+      id: flowId,
+      serviceRequestId,
+      orderId,
+      customerId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      events: [
+        {
+          eventType: 'service_request.published',
+          entityType: TrackingEntityType.service_request,
+          entityId: serviceRequestId,
+          occurredAt: new Date(),
+          metadata: {},
+        },
+        // Rejected proposal with rejectedWorker
+        {
+          eventType: 'booking_proposal.rejected',
+          entityType: TrackingEntityType.booking_proposal,
+          entityId: randomUUID(),
+          actorUserId: rejectedWorker,
+          occurredAt: new Date(),
+          metadata: { workerId: rejectedWorker, price: 300000 },
+        },
+        // Finalized proposal with assignedWorker
+        {
+          eventType: 'booking_proposal.finalized',
+          entityType: TrackingEntityType.booking_proposal,
+          entityId: randomUUID(),
+          actorUserId: customerId,
+          occurredAt: new Date(),
+          metadata: { workerId: assignedWorker, price: 250000 },
+        },
+        // Order created for assignedWorker
+        {
+          eventType: 'order.created',
+          entityType: TrackingEntityType.order,
+          entityId: orderId,
+          actorUserId: assignedWorker,
+          occurredAt: new Date(),
+          metadata: { workerId: assignedWorker, workerUserId: assignedWorker },
+        },
+        // Payment succeeded
+        {
+          eventType: 'payment.succeeded',
+          entityType: TrackingEntityType.payment,
+          entityId: randomUUID(),
+          occurredAt: new Date(),
+          metadata: { orderId },
+        },
+      ],
+    });
+
+    const summary = await service.getRequestSummary(
+      serviceRequestId,
+      workerUser,
+    );
+
+    // Rejected worker has participation rights to view the flow, but must NOT see the order or payment of the assigned worker
+    expect(summary.order).toBeUndefined();
+    expect(summary.payment).toBeUndefined();
+  });
+
   it('should throw ForbiddenException if unauthorized customer tries to view summary', async () => {
     const ownerId = randomUUID();
     const intruderId = randomUUID();

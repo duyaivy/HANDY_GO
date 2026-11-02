@@ -204,6 +204,73 @@ describe('TimelineStreamService', () => {
       expect((messages[1].data as any).payload.actorUserId).toBe(workerId);
     });
 
+    it('should shield order and payment events from worker who is not assigned to the order', async () => {
+      const serviceRequestId = randomUUID();
+      const workerId = randomUUID();
+      const assignedWorkerId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId: randomUUID(),
+      });
+      // 1. Participation check returns true
+      // 2. assignedWorkerId check returns order.created for assignedWorkerId
+      prismaMock.trackingEvent.findFirst
+        .mockResolvedValueOnce({ id: randomUUID() })
+        .mockResolvedValueOnce({
+          actorUserId: assignedWorkerId,
+          metadata: { workerId: assignedWorkerId },
+        });
+
+      const user: GatewayUser = {
+        userId: workerId,
+        roles: ['Worker'],
+        isAdmin: false,
+        isCustomer: false,
+        isWorker: true,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      const messagesPromise = firstValueFrom(stream$.pipe(take(2), toArray()));
+
+      // 1. Order event for assignedWorkerId -> should be shielded from workerId
+      service.broadcastEvent({
+        serviceRequestId,
+        id: randomUUID(),
+        eventId: randomUUID(),
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        actorUserId: assignedWorkerId,
+        metadata: { workerId: assignedWorkerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      });
+
+      // 2. My proposal event -> should pass through
+      service.broadcastEvent({
+        serviceRequestId,
+        id: randomUUID(),
+        eventId: randomUUID(),
+        entityType: TrackingEntityType.booking_proposal,
+        entityId: randomUUID(),
+        eventType: 'booking_proposal.rejected',
+        sourceService: 'order-service',
+        actorUserId: workerId,
+        metadata: { workerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      });
+
+      const messages = await messagesPromise;
+      expect(messages).toHaveLength(2);
+      expect((messages[0].data as any).type).toBe('connected');
+      expect((messages[1].data as any).type).toBe('timeline_event');
+      expect((messages[1].data as any).payload.eventType).toBe('booking_proposal.rejected');
+    });
+
     it('should replay missed events on reconnect when lastEventId is provided', async () => {
       const serviceRequestId = randomUUID();
       const customerId = randomUUID();

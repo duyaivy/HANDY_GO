@@ -150,6 +150,69 @@ describe('TimelineService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('should shield order and payment events from participating worker who is not assigned to the order', async () => {
+      const workerId = randomUUID();
+      const otherWorkerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const flowId = randomUUID();
+
+      const user: GatewayUser = {
+        userId: workerId,
+        roles: ['Worker'],
+        isAdmin: false,
+        isCustomer: false,
+        isWorker: true,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId: randomUUID(),
+      });
+
+      // 1. Participation check returns true (worker participated in proposal/bid)
+      // 2. getAssignedWorkerId check returns otherWorkerId
+      prismaMock.trackingEvent.findFirst
+        .mockResolvedValueOnce({
+          id: randomUUID(),
+          entityType: TrackingEntityType.booking_proposal,
+          actorUserId: workerId,
+        })
+        .mockResolvedValueOnce({
+          id: randomUUID(),
+          entityType: TrackingEntityType.order,
+          eventType: 'order.created',
+          actorUserId: otherWorkerId,
+          metadata: { workerId: otherWorkerId },
+        });
+
+      prismaMock.trackingEvent.count.mockResolvedValue(1);
+      prismaMock.trackingEvent.findMany.mockResolvedValue([
+        {
+          id: randomUUID(),
+          entityType: TrackingEntityType.service_request,
+          eventType: 'service_request.published',
+          occurredAt: new Date(),
+          recordedAt: new Date(),
+          metadata: {},
+        },
+      ]);
+
+      const result = await service.getRequestTimeline(serviceRequestId, {}, user);
+
+      expect(result.items).toHaveLength(1);
+      const findManyCall = prismaMock.trackingEvent.findMany.mock.calls[0][0];
+      const orConditions = findManyCall.where.AND[1].OR;
+      const allowsOrder = orConditions.some(
+        (c: any) => c.entityType === TrackingEntityType.order,
+      );
+      const allowsPayment = orConditions.some(
+        (c: any) => c.entityType === TrackingEntityType.payment,
+      );
+      expect(allowsOrder).toBe(false);
+      expect(allowsPayment).toBe(false);
+    });
+
     it('should filter out competitor worker bids when a participating worker queries the timeline', async () => {
       const workerId = randomUUID();
       const serviceRequestId = randomUUID();

@@ -229,7 +229,24 @@ export class SummaryService {
       .reverse()
       .find((e) => e.entityType === TrackingEntityType.order);
 
-    if (orderCreatedEvent || flow.orderId) {
+    // Privacy: Identify assigned worker for the order to avoid leaking to other participating workers
+    const orderCreatedMeta = orderCreatedEvent?.metadata as any;
+    const anyOrderMeta = latestOrderEvent?.metadata as any;
+    const assignedWorkerId =
+      orderCreatedMeta?.workerUserId ||
+      orderCreatedMeta?.workerId ||
+      orderCreatedEvent?.actorUserId ||
+      anyOrderMeta?.workerUserId ||
+      anyOrderMeta?.workerId ||
+      latestOrderEvent?.actorUserId;
+
+    const isAssignedWorker = Boolean(
+      assignedWorkerId && assignedWorkerId === user.userId,
+    );
+    const isAuthorizedForOrderAndPayment =
+      user.isAdmin || user.isCustomer || (user.isWorker && isAssignedWorker);
+
+    if ((orderCreatedEvent || flow.orderId) && isAuthorizedForOrderAndPayment) {
       const orderCancelled = [...events]
         .reverse()
         .find((e) => e.eventType === 'order.cancelled');
@@ -269,7 +286,7 @@ export class SummaryService {
       .reverse()
       .find((e) => e.entityType === TrackingEntityType.payment);
 
-    if (latestPaymentEvent) {
+    if (latestPaymentEvent && isAuthorizedForOrderAndPayment) {
       paymentMilestone = {
         status: latestPaymentEvent.eventType.replace('payment.', ''),
         lastEventAt: latestPaymentEvent.occurredAt,

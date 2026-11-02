@@ -91,53 +91,49 @@ export class TimelineService {
       whereConditions.push({ entityType: query.entityType });
     }
 
-    // For Worker: hide competing bids and competitor negotiation proposals
+    // For Worker: hide competing bids/proposals, and only allow order/payment if designated as the assigned worker
     if (user.isWorker && !user.isAdmin) {
-      whereConditions.push({
-        OR: [
-          {
-            entityType: {
-              in: [
-                TrackingEntityType.service_request,
-                TrackingEntityType.matching,
-                TrackingEntityType.bidding_round,
-              ],
-            },
-          },
-          {
-            entityType: TrackingEntityType.bid,
-            OR: [
-              { actorUserId: user.userId },
-              { metadata: { path: ['workerId'], equals: user.userId } },
-              { metadata: { path: ['workerUserId'], equals: user.userId } },
+      const assignedWorkerId = await this.getAssignedWorkerId(flow.id);
+      const isAssigned = Boolean(
+        assignedWorkerId && assignedWorkerId === user.userId,
+      );
+
+      const workerAllowedFilters: Prisma.TrackingEventWhereInput[] = [
+        {
+          entityType: {
+            in: [
+              TrackingEntityType.service_request,
+              TrackingEntityType.matching,
+              TrackingEntityType.bidding_round,
             ],
           },
-          {
-            entityType: TrackingEntityType.booking_proposal,
-            OR: [
-              { actorUserId: user.userId },
-              { metadata: { path: ['workerId'], equals: user.userId } },
-              { metadata: { path: ['workerUserId'], equals: user.userId } },
-            ],
-          },
-          {
-            entityType: TrackingEntityType.order,
-            OR: [
-              { actorUserId: user.userId },
-              { metadata: { path: ['workerId'], equals: user.userId } },
-              { metadata: { path: ['workerUserId'], equals: user.userId } },
-            ],
-          },
-          {
-            entityType: TrackingEntityType.payment,
-            OR: [
-              { actorUserId: user.userId },
-              { metadata: { path: ['workerId'], equals: user.userId } },
-              { metadata: { path: ['workerUserId'], equals: user.userId } },
-            ],
-          },
-        ],
-      });
+        },
+        {
+          entityType: TrackingEntityType.bid,
+          OR: [
+            { actorUserId: user.userId },
+            { metadata: { path: ['workerId'], equals: user.userId } },
+            { metadata: { path: ['workerUserId'], equals: user.userId } },
+          ],
+        },
+        {
+          entityType: TrackingEntityType.booking_proposal,
+          OR: [
+            { actorUserId: user.userId },
+            { metadata: { path: ['workerId'], equals: user.userId } },
+            { metadata: { path: ['workerUserId'], equals: user.userId } },
+          ],
+        },
+      ];
+
+      if (isAssigned) {
+        workerAllowedFilters.push(
+          { entityType: TrackingEntityType.order },
+          { entityType: TrackingEntityType.payment },
+        );
+      }
+
+      whereConditions.push({ OR: workerAllowedFilters });
     }
 
     const where: Prisma.TrackingEventWhereInput = { AND: whereConditions };
@@ -243,20 +239,11 @@ export class TimelineService {
 
       let isAssignedWorker = false;
       if (user.isWorker) {
-        // Worker must specifically be assigned to this order (not just any past proposal in the flow)
-        const orderParticipation = await this.prisma.trackingEvent.findFirst({
-          where: {
-            trackingFlowId: flow.id,
-            entityType: TrackingEntityType.order,
-            entityId: orderId,
-            OR: [
-              { actorUserId: user.userId },
-              { metadata: { path: ['workerId'], equals: user.userId } },
-              { metadata: { path: ['workerUserId'], equals: user.userId } },
-            ],
-          },
-        });
-        isAssignedWorker = Boolean(orderParticipation);
+        // Specifically verify worker designated in order.created (or projection of order performer)
+        const assignedWorkerId = await this.getAssignedWorkerId(flow.id, orderId);
+        isAssignedWorker = Boolean(
+          assignedWorkerId && assignedWorkerId === user.userId,
+        );
       }
 
       if (!isOwner && !isAssignedWorker) {
@@ -284,6 +271,78 @@ export class TimelineService {
     };
 
     return this.queryPaginatedTimeline(where, query);
+  }
+
+  /**
+   * Helper to resolve the assigned worker for an order from order.created or order projection.
+   */
+  async getAssignedWorkerId(
+    flowId: string,
+    orderId?: string,
+  ): Promise<string | null> {
+    const orderCreatedEvent = await this.prisma.trackingEvent.findFirst({
+      where: {
+        trackingFlowId: flowId,
+        eventType: 'order.created',
+        ...(orderId
+          ? {
+              OR: [
+                { entityId: orderId },
+                { metadata: { path: ['orderId'], equals: orderId } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        actorUserId: true,
+        metadata: true,
+      },
+    });
+
+    if (orderCreatedEvent) {
+      const meta = orderCreatedEvent.metadata as Record<string, any> | null;
+      return (
+        meta?.workerUserId ||
+        meta?.workerId ||
+        orderCreatedEvent.actorUserId ||
+        null
+      );
+    }
+
+    const anyOrderEvent = await this.prisma.trackingEvent.findFirst({
+      where: {
+        trackingFlowId: flowId,
+        entityType: TrackingEntityType.order,
+        ...(orderId
+          ? {
+              OR: [
+                { entityId: orderId },
+                { metadata: { path: ['orderId'], equals: orderId } },
+              ],
+            }
+          : {}),
+        OR: [
+          { metadata: { path: ['workerUserId'], not: Prisma.AnyNull } },
+          { metadata: { path: ['workerId'], not: Prisma.AnyNull } },
+        ],
+      },
+      select: {
+        actorUserId: true,
+        metadata: true,
+      },
+    });
+
+    if (anyOrderEvent) {
+      const meta = anyOrderEvent.metadata as Record<string, any> | null;
+      return (
+        meta?.workerUserId ||
+        meta?.workerId ||
+        anyOrderEvent.actorUserId ||
+        null
+      );
+    }
+
+    return null;
   }
 
   // ==========================================================================

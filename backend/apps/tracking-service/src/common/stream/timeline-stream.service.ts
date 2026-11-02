@@ -138,6 +138,61 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Resolve assigned worker for the order to avoid leaking order/payment events to competitor/non-assigned workers
+    let assignedWorkerId: string | null = null;
+    if (user.isWorker && !user.isAdmin) {
+      const orderCreatedEvent = await this.prisma.trackingEvent.findFirst({
+        where: {
+          trackingFlowId: flow.id,
+          eventType: 'order.created',
+        },
+        select: { actorUserId: true, metadata: true },
+      });
+      const orderMeta = orderCreatedEvent?.metadata as any;
+      assignedWorkerId =
+        orderMeta?.workerUserId ||
+        orderMeta?.workerId ||
+        orderCreatedEvent?.actorUserId ||
+        null;
+    }
+
+    const isEventAllowedForWorker = (evt: {
+      entityType: TrackingEntityType;
+      actorUserId?: string | null;
+      metadata?: any;
+    }): boolean => {
+      if (!user.isWorker || user.isAdmin) return true;
+
+      if (evt.entityType === TrackingEntityType.bid) {
+        const isMyBid =
+          evt.actorUserId === user.userId ||
+          (evt.metadata as any)?.workerId === user.userId ||
+          (evt.metadata as any)?.workerUserId === user.userId;
+        return Boolean(isMyBid);
+      }
+      if (evt.entityType === TrackingEntityType.booking_proposal) {
+        const isMyProposal =
+          evt.actorUserId === user.userId ||
+          (evt.metadata as any)?.workerId === user.userId ||
+          (evt.metadata as any)?.workerUserId === user.userId;
+        return Boolean(isMyProposal);
+      }
+      if (
+        evt.entityType === TrackingEntityType.order ||
+        evt.entityType === TrackingEntityType.payment
+      ) {
+        const evtWorker =
+          (evt.metadata as any)?.workerUserId ||
+          (evt.metadata as any)?.workerId ||
+          evt.actorUserId;
+        const isAssigned =
+          (evtWorker && evtWorker === user.userId) ||
+          (assignedWorkerId && assignedWorkerId === user.userId);
+        return Boolean(isAssigned);
+      }
+      return true;
+    };
+
     // 1. Initial connection message
     const initial$ = of<MessageEvent>({
       data: {
@@ -167,25 +222,9 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
           orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
         });
 
-        const filteredMissed = missedDbEvents.filter((evt) => {
-          if (user.isWorker && !user.isAdmin) {
-            if (evt.entityType === TrackingEntityType.bid) {
-              const isMyBid =
-                evt.actorUserId === user.userId ||
-                (evt.metadata as any)?.workerId === user.userId ||
-                (evt.metadata as any)?.workerUserId === user.userId;
-              return Boolean(isMyBid);
-            }
-            if (evt.entityType === TrackingEntityType.booking_proposal) {
-              const isMyProposal =
-                evt.actorUserId === user.userId ||
-                (evt.metadata as any)?.workerId === user.userId ||
-                (evt.metadata as any)?.workerUserId === user.userId;
-              return Boolean(isMyProposal);
-            }
-          }
-          return true;
-        });
+        const filteredMissed = missedDbEvents.filter((evt) =>
+          isEventAllowedForWorker(evt),
+        );
 
         if (filteredMissed.length > 0) {
           missedEvents$ = from(
@@ -229,29 +268,10 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       })),
     );
 
-    // 4. Filtered live event stream with bid shielding
+    // 4. Filtered live event stream with bid and order shielding
     const events$ = this.eventSubject.asObservable().pipe(
       filter((evt) => evt.serviceRequestId === serviceRequestId),
-      filter((evt) => {
-        // Bid shielding for Worker: hide competitor bids and proposals
-        if (user.isWorker && !user.isAdmin) {
-          if (evt.entityType === TrackingEntityType.bid) {
-            const isMyBid =
-              evt.actorUserId === user.userId ||
-              (evt.metadata as any)?.workerId === user.userId ||
-              (evt.metadata as any)?.workerUserId === user.userId;
-            return Boolean(isMyBid);
-          }
-          if (evt.entityType === TrackingEntityType.booking_proposal) {
-            const isMyProposal =
-              evt.actorUserId === user.userId ||
-              (evt.metadata as any)?.workerId === user.userId ||
-              (evt.metadata as any)?.workerUserId === user.userId;
-            return Boolean(isMyProposal);
-          }
-        }
-        return true;
-      }),
+      filter((evt) => isEventAllowedForWorker(evt)),
       map((evt): MessageEvent => ({
         id: evt.id,
         type: 'timeline_event',
