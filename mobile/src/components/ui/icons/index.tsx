@@ -4,7 +4,6 @@ export * from './caret-down';
 export * from './github';
 export * from './handy-icons';
 export * from './home';
-export * from './language';
 export * from './rate';
 export * from './settings';
 export * from './share';

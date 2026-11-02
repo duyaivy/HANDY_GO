@@ -3,11 +3,13 @@ import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { LoginScreen } from '../screens/login-screen';
+import { useAuthFlowStore } from '../use-auth-flow-store';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
-const mockRouter = { push: mockPush, replace: mockReplace, back: mockBack };
+const mockCanGoBack = jest.fn();
+const mockRouter = { push: mockPush, replace: mockReplace, back: mockBack, canGoBack: mockCanGoBack };
 
 jest.mock('expo-router', () => {
   const React = require('react');
@@ -31,31 +33,30 @@ afterEach(() => {
   jest.clearAllMocks();
   useAuthStore.getState().setUser(null);
   useAuthStore.getState().clearError();
+  useAuthFlowStore.getState().resetFlow();
 });
 
-describe('loginScreen', () => {
-  it('renders phone input, password input, and submit button', () => {
+describe('loginScreen (Phase 4 Step 1 - Default Password Login)', () => {
+  it('renders phone input, password input, and Đăng nhập button by default', () => {
     render(<LoginScreen />);
     expect(screen.getByTestId('auth-login-screen')).toBeOnTheScreen();
     expect(screen.getByTestId('login-phone-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-password-input')).toBeOnTheScreen();
     expect(screen.getByTestId('login-submit-button')).toBeOnTheScreen();
-    expect(screen.getByTestId('login-forgot-password-btn')).toBeOnTheScreen();
+    expect(screen.getAllByText('Đăng nhập').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('login-to-register-btn')).toBeOnTheScreen();
   });
 
-  it('validates empty inputs and displays error', async () => {
+  it('validates empty phone input and displays error', async () => {
     render(<LoginScreen />);
     fireEvent.press(screen.getByTestId('login-submit-button'));
 
     expect(await screen.findByText('Vui lòng nhập số điện thoại')).toBeOnTheScreen();
-    expect(await screen.findByText('Vui lòng nhập mật khẩu')).toBeOnTheScreen();
   });
 
   it('validates invalid Vietnamese phone number format', async () => {
     render(<LoginScreen />);
     fireEvent.changeText(screen.getByTestId('login-phone-input'), '123456');
-    fireEvent.changeText(screen.getByTestId('login-password-input'), '123456');
     fireEvent.press(screen.getByTestId('login-submit-button'));
 
     expect(
@@ -63,7 +64,26 @@ describe('loginScreen', () => {
     ).toBeOnTheScreen();
   });
 
-  it('calls login and navigates to customer home on customer login success', async () => {
+  it('shows clear button ✕ when phone has text, and clears phone on press', () => {
+    render(<LoginScreen />);
+    expect(screen.queryByTestId('login-clear-phone-btn')).toBeNull();
+
+    fireEvent.changeText(screen.getByTestId('login-phone-input'), '0912345678');
+    expect(screen.getByTestId('login-clear-phone-btn')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('login-clear-phone-btn'));
+    expect(screen.queryByTestId('login-clear-phone-btn')).toBeNull();
+  });
+
+  it('validates empty password input and displays error', async () => {
+    render(<LoginScreen />);
+    fireEvent.changeText(screen.getByTestId('login-phone-input'), '0912345678');
+    fireEvent.press(screen.getByTestId('login-submit-button'));
+
+    expect(await screen.findByText('Vui lòng nhập mật khẩu')).toBeOnTheScreen();
+  });
+
+  it('supports password login and navigates on success', async () => {
     const mockLogin = jest.fn().mockResolvedValue({
       accessToken: 'token',
       refreshToken: 'refresh',
@@ -79,6 +99,7 @@ describe('loginScreen', () => {
     useAuthStore.setState({ login: mockLogin });
 
     render(<LoginScreen />);
+    expect(screen.getByTestId('login-password-input')).toBeOnTheScreen();
     fireEvent.changeText(screen.getByTestId('login-phone-input'), '0912345678');
     fireEvent.changeText(screen.getByTestId('login-password-input'), 'Password123');
     fireEvent.press(screen.getByTestId('login-submit-button'));
@@ -92,37 +113,31 @@ describe('loginScreen', () => {
     });
   });
 
-  it('navigates to OTP verification screen if account is pending verification', async () => {
-    const mockLogin = jest.fn().mockRejectedValue({
-      statusCode: 403,
-      message: 'Tài khoản chưa được kích hoạt. Vui lòng xác thực mã OTP.',
-    });
-    useAuthStore.setState({ login: mockLogin });
-
-    render(<LoginScreen />);
-    fireEvent.changeText(screen.getByTestId('login-phone-input'), '0912345678');
-    fireEvent.changeText(screen.getByTestId('login-password-input'), 'Password123');
-    fireEvent.press(screen.getByTestId('login-submit-button'));
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith(
-        expect.objectContaining({
-          pathname: '/(auth)/otp',
-          params: { phone: '0912345678' },
-        }),
-      );
-    });
-  });
-
   it('navigates to register screen when pressing register link', () => {
     render(<LoginScreen />);
     fireEvent.press(screen.getByTestId('login-to-register-btn'));
     expect(mockPush).toHaveBeenCalledWith('/(auth)/register');
   });
 
-  it('navigates to forgot password when pressing the link', () => {
+  it('navigates to forgot password when pressing the link in password mode', () => {
     render(<LoginScreen />);
     fireEvent.press(screen.getByTestId('login-forgot-password-btn'));
     expect(mockPush).toHaveBeenCalledWith('/(auth)/forgot-password');
+  });
+
+  it('calls router.back when canGoBack is true and back button is pressed', () => {
+    mockCanGoBack.mockReturnValue(true);
+    render(<LoginScreen />);
+    fireEvent.press(screen.getByTestId('app-bar-back-btn'));
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('redirects to welcome when canGoBack is false and back button is pressed', () => {
+    mockCanGoBack.mockReturnValue(false);
+    render(<LoginScreen />);
+    fireEvent.press(screen.getByTestId('app-bar-back-btn'));
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith('/welcome');
   });
 });

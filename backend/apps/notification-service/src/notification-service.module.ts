@@ -1,22 +1,21 @@
 import { Module } from '@nestjs/common';
-import { NotificationServiceController } from './notification-service.controller.js';
-import { NotificationServiceService } from './notification-service.service.js';
+import { NotificationCommonModule } from './common/notification-common.module.js';
+import { DevicesModule } from './devices/index.js';
+import { NotificationsModule } from './notifications/index.js';
+import { PreferencesModule } from './preferences/index.js';
 import { HealthModule } from './health/health.module.js';
-import { LoggerModule } from '@app/logger';
-import { ConfigModule } from '@app/config';
-import { RabbitMQModule } from '@app/rabbitmq';
+import { EventsModule } from './events/index.js';
+import { PushModule } from './push/index.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      serviceName: 'notification-service',
-      defaultPort: 3008,
-    }),
-    LoggerModule.forRoot('notification-service'),
+    NotificationCommonModule,
+    DevicesModule,
+    PreferencesModule,
+    NotificationsModule,
     HealthModule,
-    RabbitMQModule,
+    EventsModule,
+    PushModule,
   ],
-  controllers: [NotificationServiceController],
-  providers: [NotificationServiceService],
 })
 export class NotificationServiceModule {}

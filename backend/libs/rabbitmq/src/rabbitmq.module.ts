@@ -20,6 +20,7 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
           },
           exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
           exchangeType: 'topic',
+          wildcards: true,
           persistent: true,
         },
       },

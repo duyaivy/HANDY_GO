@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { BrandLogo } from '@/components/brand-logo';
 import { Button } from '@/components/ui/button';
+import { ChevronLeftIcon } from '@/components/ui/icons';
 import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
@@ -176,6 +177,15 @@ export function RegisterScreen() {
     }
   };
 
+  const handleBack = () => {
+    if (router.canGoBack ? router.canGoBack() : true) {
+      router.back();
+    }
+    else {
+      router.replace(RouteNames.AUTH_LOGIN as any);
+    }
+  };
+
   return (
     <Screen
       safeArea
@@ -185,22 +195,35 @@ export function RegisterScreen() {
       className="bg-neutral-50 dark:bg-neutral-950"
       contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
     >
-      <View testID="auth-register-screen" className="px-6 py-8">
-        {/* Header */}
-        <View className="mb-8 items-center">
-          <View className="mb-4">
-            <BrandLogo />
+      <View testID="auth-register-screen" className="p-6">
+        {/* Navigation back button */}
+        <View className="mb-2 w-full flex-row items-center">
+          <Pressable
+            testID="register-back-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Quay lại"
+            onPress={handleBack}
+            className="size-9 items-center justify-center rounded-2xl border border-neutral-200/80 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
+          >
+            <ChevronLeftIcon size={18} color="#171717" />
+          </Pressable>
+        </View>
+
+        {/* Header Branding */}
+        <View className="mb-6 items-center">
+          <View className="mb-3 size-20 items-center justify-center rounded-3xl bg-amber-500/10 p-2 shadow-2xs dark:bg-amber-500/20">
+            <BrandLogo size={76} />
           </View>
           <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
             Tạo tài khoản mới
           </Text>
-          <Text className="mt-1 text-center text-sm text-neutral-500 dark:text-neutral-400">
+          <Text className="mt-1.5 text-center text-xs text-neutral-500 dark:text-neutral-400">
             Một tài khoản dùng cho cả App Khách và App Thợ trên HANDY GO
           </Text>
         </View>
 
         {/* Form Card */}
-        <View className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+        <View className="rounded-3xl border border-neutral-200/80 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
           {serverError
             ? (
                 <View testID="auth-register-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
@@ -285,7 +308,7 @@ export function RegisterScreen() {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   className="py-1"
                 >
-                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
                     {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   </Text>
                 </Pressable>
@@ -315,7 +338,7 @@ export function RegisterScreen() {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   className="py-1"
                 >
-                  <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
                     {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   </Text>
                 </Pressable>
@@ -323,6 +346,7 @@ export function RegisterScreen() {
             />
           </View>
 
+          {/* Submit Button in signature HANDY GO Orange (#F5A524) */}
           <View className="mt-6">
             <Button
               testID="register-submit-button"
@@ -330,13 +354,15 @@ export function RegisterScreen() {
               variant="default"
               loading={isLoading}
               disabled={isLoading}
+              className="h-12 rounded-2xl bg-[#F5A524] shadow-md shadow-amber-500/25 active:bg-primary-600"
+              textClassName="text-base font-bold text-neutral-950"
               onPress={handleRegister}
             />
           </View>
         </View>
 
         {/* Footer Actions */}
-        <View className="mt-8 items-center space-y-3">
+        <View className="mt-6 items-center">
           <View className="flex-row items-center justify-center">
             <Text className="text-sm text-neutral-600 dark:text-neutral-400">
               Đã có tài khoản?
@@ -346,7 +372,7 @@ export function RegisterScreen() {
               testID="register-to-login-btn"
               onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
             >
-              <Text className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+              <Text className="text-sm font-bold text-primary-600 dark:text-[#F5A524]">
                 Đăng nhập
               </Text>
             </Pressable>

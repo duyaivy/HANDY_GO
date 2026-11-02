@@ -14,6 +14,11 @@ const button = tv({
 
   variants: {
     variant: {
+      primary: {
+        container: 'bg-[#F5A524] active:bg-primary-600',
+        label: 'font-bold text-neutral-950',
+        indicator: 'text-neutral-950',
+      },
       default: {
         container: 'bg-black dark:bg-white',
         label: 'text-white dark:text-black',

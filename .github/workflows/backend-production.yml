@@ -1,0 +1,223 @@
+name: Backend production
+on:
+  push:
+    branches: [release]
+    paths: ['backend/**', '.github/workflows/backend-production.yml', '.github/workflows/pr-ci.yml']
+  workflow_dispatch:
+    inputs:
+      rollback_release:
+        description: 'Existing stable release ID to restore (empty = deploy release branch)'
+        type: string
+        default: ''
+      run_migrations:
+        description: 'Reviewed backward-compatible migrations; backup/PITR checked (required on first deploy)'
+        type: boolean
+        default: false
+      bypass_pr_ci:
+        description: 'Admin only: deploy without merged PR CI proof'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Backend verification
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Enforce release branch
+        env:
+          REF: ${{ github.ref }}
+        run: test "$REF" = refs/heads/release
+      - name: Validate rollback inputs
+        env:
+          ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
+          RUN_MIGRATIONS: ${{ inputs.run_migrations || false }}
+        run: |
+          if [[ -n "$ROLLBACK_RELEASE" ]]; then
+            [[ "$ROLLBACK_RELEASE" =~ ^prod-[0-9]{8}-[0-9]+-a[0-9]+$ ]]
+            test "$RUN_MIGRATIONS" = false
+          fi
+      - name: Verify source provenance
+        id: proof
+        if: inputs.rollback_release == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BYPASS_PR_CI: ${{ inputs.bypass_pr_ci || false }}
+        run: python3 scripts/verify-production-ci.py
+      - name: Validate production automation
+        run: |
+          python3 -m venv "$RUNNER_TEMP/production-validation"
+          "$RUNNER_TEMP/production-validation/bin/pip" install --disable-pip-version-check pyyaml==6.0.3
+          "$RUNNER_TEMP/production-validation/bin/python" scripts/check-production-config.py
+          python3 scripts/validate-production-compose.py
+          python3 -m unittest discover -s deploy/production/tests -v
+          bash -n deploy/production/deploy.sh
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/pr-ci.yml /repo/.github/workflows/backend-production.yml
+      - uses: actions/upload-artifact@v6
+        if: inputs.rollback_release == ''
+        with:
+          name: backend-ci-evidence
+          path: backend/ci-evidence.json
+          if-no-files-found: error
+
+  publish:
+    timeout-minutes: 30
+    needs: verify
+    if: inputs.rollback_release == ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      app_image: ${{ steps.references.outputs.app_image }}
+      migration_image: ${{ steps.references.outputs.migration_image }}
+      nginx_image: ${{ steps.references.outputs.nginx_image }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "repository=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        id: runtime
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.repository }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          cache-from: type=gha,scope=backend-production
+          cache-to: type=gha,mode=max,scope=backend-production
+      - uses: docker/build-push-action@v7
+        id: migration
+        with:
+          context: backend
+          file: backend/Dockerfile
+          target: migration
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.repository }}:${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-migration
+          cache-from: type=gha,scope=backend-production
+      - name: Pin runtime references
+        id: references
+        env:
+          REPOSITORY: ${{ steps.image.outputs.repository }}
+          APP_DIGEST: ${{ steps.runtime.outputs.digest }}
+          MIGRATION_DIGEST: ${{ steps.migration.outputs.digest }}
+        run: |
+          docker pull nginx:1.28-alpine
+          NGINX_IMAGE=$(docker image inspect nginx:1.28-alpine --format '{{index .RepoDigests 0}}')
+          {
+            echo "app_image=$REPOSITORY@$APP_DIGEST"
+            echo "migration_image=$REPOSITORY@$MIGRATION_DIGEST"
+            echo "nginx_image=$NGINX_IMAGE"
+          } >> "$GITHUB_OUTPUT"
+
+  deploy:
+    timeout-minutes: 60
+    needs: [verify, publish]
+    if: always() && needs.verify.result == 'success' && (needs.publish.result == 'success' || (needs.publish.result == 'skipped' && inputs.rollback_release != ''))
+    runs-on: ubuntu-24.04
+    environment: production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      VPS1_HOST: ${{ secrets.VPS1_HOST }}
+      VPS2_HOST: ${{ secrets.VPS2_HOST }}
+      VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      DEPLOY_USER: azureuser
+      API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        if: inputs.rollback_release == ''
+        with:
+          name: backend-ci-evidence
+          path: backend
+      - name: Install per-VPS SSH identities and shared ENV
+        env:
+          VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+          BACKEND_PRODUCTION_ENV: ${{ secrets.BACKEND_PRODUCTION_ENV }}
+        run: |
+          umask 077
+          install -d -m 700 ~/.ssh
+          for role in VPS1 VPS2 VPS3; do
+            key_name="${role}_SSH_KEY"
+            if [[ -z "${!key_name}" ]]; then
+              echo "::error::Missing production secret $key_name"
+              exit 1
+            fi
+            key_file="$HOME/.ssh/handygo_${role,,}"
+            printf '%s\n' "${!key_name}" | tr -d '\r' > "$key_file"
+            chmod 600 "$key_file"
+            if ! ssh-keygen -y -P '' -f "$key_file" > /dev/null 2>&1; then
+              echo "::error::Invalid or passphrase-protected production secret $key_name"
+              exit 1
+            fi
+          done
+          install -m 600 /dev/null ~/.ssh/handygo_known_hosts
+          printf '%s\n' "$BACKEND_PRODUCTION_ENV" > "$RUNNER_TEMP/handygo-shared.env"
+      - name: Coordinate production release or manual rollback
+        env:
+          APP_IMAGE: ${{ needs.publish.outputs.app_image }}
+          MIGRATION_IMAGE: ${{ needs.publish.outputs.migration_image }}
+          NGINX_IMAGE: ${{ needs.publish.outputs.nginx_image }}
+          ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
+          RUN_MIGRATIONS: ${{ inputs.run_migrations || false }}
+        run: |
+          set -euo pipefail
+          args=(--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --domain "$API_DOMAIN")
+          if [[ -n "$ROLLBACK_RELEASE" ]]; then
+            args+=(--rollback-release "$ROLLBACK_RELEASE")
+          else
+            args+=(--env-file "$RUNNER_TEMP/handygo-shared.env" --app-image "$APP_IMAGE"
+              --migration-image "$MIGRATION_IMAGE" --nginx-image "$NGINX_IMAGE"
+              --commit "$GITHUB_SHA" --tree "$(git rev-parse 'HEAD^{tree}')" --evidence ci-evidence.json)
+            if [[ "$RUN_MIGRATIONS" == true ]]; then args+=(--run-migrations); fi
+          fi
+          install -d -m 700 release-output
+          bash deploy/production/deploy.sh "${args[@]}" 2>&1 | tee release-output/deploy.log
+      - name: Summarize production result
+        if: always()
+        run: |
+          if [[ -f release-output/summary.md ]]; then
+            cat release-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Production did not reach the coordinator. Check checkout, artifacts and SSH/ENV setup steps.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: backend-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backend/release-output/*.json
+            backend/release-output/deploy.log
+            backend/release-output/summary.md
+          retention-days: 90
+      - name: Remove runner secrets
+        if: always()
+        run: rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"

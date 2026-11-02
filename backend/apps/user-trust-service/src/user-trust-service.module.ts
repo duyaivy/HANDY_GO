@@ -7,6 +7,9 @@ import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { UserTrustDatabaseModule } from '@app/database';
 import { AuthModule } from '@app/auth';
+import { KycModule } from './kyc/kyc.module.js';
+
+import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 
 @Module({
   imports: [
@@ -19,9 +22,10 @@ import { AuthModule } from '@app/auth';
     RabbitMQModule,
     UserTrustDatabaseModule,
     AuthModule,
+    KycModule,
   ],
   controllers: [UserTrustServiceController],
-  providers: [UserTrustServiceService],
-  exports: [UserTrustServiceService],
+  providers: [UserTrustServiceService, InternalServiceGuard],
+  exports: [UserTrustServiceService, InternalServiceGuard],
 })
 export class UserTrustServiceModule {}

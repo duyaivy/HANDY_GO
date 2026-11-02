@@ -1,6 +1,9 @@
 import { Transport, type RmqOptions } from '@nestjs/microservices';
 
-export function createRabbitMQOptions(queue: string): RmqOptions {
+export function createRabbitMQOptions(
+  queue: string,
+  prefetchCount = 10,
+): RmqOptions {
   return {
     transport: Transport.RMQ,
     options: {
@@ -16,7 +19,7 @@ export function createRabbitMQOptions(queue: string): RmqOptions {
 
       noAck: false, // consumer tự ACK sau khi business operation hoàn thành
 
-      prefetchCount: 10, // giới hạn tối đa lượng message chưa ACK đang được giao, để kiểm soát reliability và overload
+      prefetchCount, // giới hạn tối đa lượng message chưa ACK đang được giao
 
       exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
 

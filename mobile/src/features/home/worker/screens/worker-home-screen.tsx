@@ -1,47 +1,68 @@
+import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { View } from 'react-native';
-
-import { BrandLogo } from '@/components/brand-logo';
+import { Pressable, ScrollView, View } from 'react-native';
+import { WrenchIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
+import { SECONDARY_COLOR } from '@/constants/colors';
+import { RouteNames } from '@/constants/route-names';
+import { NotificationBell } from '@/features/notifications/components/notification-bell';
+import { useAuthStore } from '@/stores/use-auth-store';
+import { WorkerGuestOverview } from '../components/worker-guest-overview';
 
 export function WorkerHomeScreen() {
+  const router = useRouter();
+  const user = useAuthStore.use.user();
+  const isAuthenticated = useAuthStore.use.isAuthenticated();
+
+  if (!isAuthenticated || !user) {
+    return <WorkerGuestOverview />;
+  }
+
+  const switchRole = () => {
+    const { isAuthenticated: isAuth, user: currentUser } = useAuthStore.getState();
+    if (isAuth && currentUser) {
+      useAuthStore.getState().setActiveMode('Customer');
+    }
+    else {
+      useAuthStore.getState().setGuestRole('Customer');
+    }
+    router.replace(RouteNames.CUSTOMER_HOME as any);
+  };
+
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="home-worker-screen" className="flex-1 items-center justify-center px-6 py-12">
-        <View className="mb-6">
-          <BrandLogo />
-        </View>
-
-        <Text className="text-center text-2xl font-bold text-neutral-900 dark:text-white">
-          Trang chủ Thợ
-        </Text>
-        <Text className="mt-1 text-center text-sm font-medium text-neutral-500 dark:text-neutral-400">
-          Route: /worker
-        </Text>
-
-        <View className="mt-8 w-full rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          <Text className="text-xs font-semibold tracking-wider text-amber-600 uppercase dark:text-amber-400">
-            Thông tin Module
-          </Text>
-          <Text className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">
-            Thư mục:
-            {' '}
-            <Text className="font-semibold text-neutral-900 dark:text-white">src/features/home/worker/</Text>
-          </Text>
-          <Text className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
-            Người phụ trách:
-            {' '}
-            <Text className="font-semibold text-neutral-900 dark:text-white">Worker Home Owner</Text>
-          </Text>
-
-          <View className="mt-4 rounded-xl bg-neutral-100 p-3 dark:bg-neutral-800">
-            <Text className="text-xs/relaxed text-neutral-600 dark:text-neutral-400">
-              Đây là placeholder trang chủ của Đối tác Thợ. Bật/tắt trạng thái trực tuyến sẵn sàng nhận việc, tổng quan ca làm, thông báo đơn mới và thu nhập tạm tính sẽ được phát triển tại đây.
+      <ScrollView className="flex-1 p-4" testID="home-worker-screen">
+        {/* Top Bar: Title & Quick Role Switch */}
+        <View className="mb-3 flex-row items-center justify-between">
+          <View className="flex-row items-center">
+            <WrenchIcon size={20} color={SECONDARY_COLOR} />
+            <Text className="ml-2 text-xl font-black text-neutral-900 dark:text-white">
+              Nhận việc
             </Text>
           </View>
+          <NotificationBell />
+          <Pressable
+            testID="home-role-switch-chip"
+            onPress={switchRole}
+            accessibilityRole="button"
+            accessibilityLabel="Đổi sang App Khách"
+            className="flex-row items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 shadow-2xs active:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40"
+          >
+            <View className="mr-1.5 size-2 rounded-full bg-blue-600" />
+            <Text className="text-xs font-bold text-blue-700 dark:text-blue-300">
+              App Khách ⇄
+            </Text>
+          </Pressable>
         </View>
-      </View>
+
+        {/* Centered In-development / Placeholder Body */}
+        <View className="flex-1 items-center justify-center py-24">
+          <Text className="text-center text-base font-medium text-neutral-500 dark:text-neutral-400">
+            Chức năng đang được phát triển
+          </Text>
+        </View>
+      </ScrollView>
     </Screen>
   );
 }

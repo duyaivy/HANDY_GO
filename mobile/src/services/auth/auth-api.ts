@@ -69,6 +69,11 @@ export type ResetPasswordPayload = {
   newPassword: string;
 };
 
+export type ChangePasswordPayload = {
+  oldPassword: string;
+  newPassword: string;
+};
+
 export type AuthTokens = {
   accessToken: string;
   refreshToken: string;
@@ -153,6 +158,10 @@ export const AuthApi = {
 
   resetPassword: async (payload: ResetPasswordPayload): Promise<ApiResponse<null>> => {
     return ApiClient.post<ApiResponse<null>>('/auth/reset-password', payload);
+  },
+
+  changePassword: async (payload: ChangePasswordPayload): Promise<ApiResponse<null>> => {
+    return ApiClient.post<ApiResponse<null>>('/auth/change-password', payload);
   },
 
   refresh: async (refreshToken: string): Promise<ApiResponse<AuthTokens>> => {

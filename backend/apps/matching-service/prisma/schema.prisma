@@ -1,0 +1,114 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/matching-client"
+}
+
+enum MatchRunStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("match_run_status")
+}
+
+model MatchRun {
+  id               String         @id @default(uuid()) @db.Uuid
+  serviceRequestId String         @map("service_request_id") @db.Uuid
+  serviceId        String         @map("service_id") @db.Uuid
+  requestRevision  Int            @default(1) @map("request_revision")
+  runNumber        Int            @default(1) @map("run_number")
+  status           MatchRunStatus @default(pending)
+  candidateCount   Int            @default(0) @map("candidate_count")
+  resultCount      Int            @default(0) @map("result_count")
+  displayLimit     Int            @default(5) @map("display_limit")
+  modelVersion     String?        @map("model_version") @db.VarChar(100)
+  errorMessage     String?        @map("error_message") @db.Text
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  startedAt        DateTime?      @map("started_at") @db.Timestamptz(6)
+  completedAt      DateTime?      @map("completed_at") @db.Timestamptz(6)
+  attemptToken     String?        @map("attempt_token") @db.Uuid
+  leaseExpiresAt   DateTime?      @map("lease_expires_at") @db.Timestamptz(6)
+
+  results MatchResult[]
+
+  @@unique([serviceRequestId, requestRevision, runNumber], map: "match_runs_service_request_revision_run_key")
+  @@index([serviceRequestId, status, createdAt])
+  @@map("match_runs")
+}
+
+model MatchResult {
+  id             String   @id @default(uuid()) @db.Uuid
+  matchRunId     String   @map("match_run_id") @db.Uuid
+  workerUserId   String   @map("worker_user_id") @db.Uuid
+  rank           Int
+  matchingScore  Decimal  @map("matching_score") @db.Decimal(5, 2)
+  scoreBreakdown Json?    @map("score_breakdown")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  matchRun MatchRun @relation(fields: [matchRunId], references: [id], onDelete: Cascade)
+
+  @@unique([matchRunId, workerUserId], map: "match_results_match_run_worker_key")
+  @@unique([matchRunId, rank], map: "match_results_match_run_rank_key")
+  @@map("match_results")
+}
+
+model OutboxEvent {
+  id              String    @id @default(uuid()) @db.Uuid
+  aggregateType   String    @map("aggregate_type") @db.VarChar(50)
+  aggregateId     String    @map("aggregate_id") @db.Uuid
+  eventType       String    @map("event_type") @db.VarChar(100)
+  payload         Json
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(6)
+  publishAttempts Int       @default(0) @map("publish_attempts")
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.Uuid
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+}
+
+model EventDelivery {
+  eventId    String   @id @map("event_id") @db.VarChar(200)
+  eventType  String   @map("event_type") @db.VarChar(100)
+  attempts   Int      @default(0)
+  payload    Json
+  lastError  String   @map("last_error") @db.Text
+  deadLetter Boolean  @default(false) @map("dead_letter")
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("event_deliveries")
+}
+
+model ServiceRequestProjection {
+  id                 String    @id @db.Uuid
+  requestCode        String    @map("request_code") @db.VarChar(30)
+  customerUserId     String    @map("customer_user_id") @db.Uuid
+  serviceId          String    @map("service_id") @db.Uuid
+  description        String?   @db.Text
+  scheduledAt        DateTime? @map("scheduled_at") @db.Timestamptz(6)
+  addressText        String?   @map("address_text") @db.VarChar(500)
+  latitude           Decimal   @db.Decimal(9, 6)
+  longitude          Decimal   @db.Decimal(9, 6)
+  status             String    @db.VarChar(50)
+  biddingClosesAt    DateTime? @map("bidding_closes_at") @db.Timestamptz(6)
+  selectionExpiresAt DateTime? @map("selection_expires_at") @db.Timestamptz(6)
+  matchingRevision   Int       @default(1) @map("matching_revision")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([serviceId, status])
+  @@index([customerUserId])
+  @@map("service_request_projections")
+}

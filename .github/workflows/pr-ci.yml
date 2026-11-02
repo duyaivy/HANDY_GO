@@ -21,21 +21,27 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       mobile: ${{ steps.filter.outputs.mobile }}
+      ai: ${{ steps.filter.outputs.ai }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
             backend:
               - 'backend/**'
+              - '.github/workflows/pr-ci.yml'
+              - '.github/workflows/backend-production.yml'
             frontend:
               - 'frontend/**'
             mobile:
               - 'mobile/**'
+            ai:
+              - 'ai/**'
+              - '.github/workflows/ai-*.yml'
 
   backend-ci:
     name: Backend CI
@@ -43,22 +49,33 @@ jobs:
     if: ${{ needs.detect-changes.outputs.backend == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      wallet-migration-db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wallet_test
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: wallet_migration_test
+        ports: ['55439:5432']
+        options: >-
+          --health-cmd "pg_isready -U wallet_test -d wallet_migration_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     defaults:
       run:
         working-directory: backend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.17.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: "pnpm"
           cache-dependency-path: backend/pnpm-lock.yaml
 
@@ -70,6 +87,14 @@ jobs:
 
       - name: Generate Prisma clients
         run: pnpm run prisma:generate
+
+      - name: Verify wallet migrations on disposable PostgreSQL
+        env:
+          WALLET_MIGRATION_TEST_URL: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test
+        run: node scripts/tests/wallet-migrations.mjs
+
+      - name: Verify deployment migration ordering and rollback
+        run: python3 -m unittest discover -s deploy/production/tests -v
 
       - name: Lint
         run: pnpm run lint
@@ -83,6 +108,17 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      - name: Record tested backend source
+        run: python3 scripts/record-ci-proof.py "$RUNNER_TEMP/backend-ci-proof/backend-proof.json"
+
+      - name: Store backend CI proof
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-ci-proof-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-ci-proof/backend-proof.json
+          if-no-files-found: error
+          retention-days: 90
+
   frontend-ci:
     name: Frontend CI
     needs: detect-changes
@@ -94,10 +130,10 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: "npm"
@@ -123,15 +159,15 @@ jobs:
         working-directory: mobile
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 10.12.3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: "pnpm"
@@ -152,6 +188,39 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm run test --runInBand --watchAll=false
 
+  ai-ci:
+    name: AI Service CI
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.ai == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Syntax and bytecode compilation
+        run: python -m compileall app tests
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests -v
+
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
@@ -161,6 +230,7 @@ jobs:
       - backend-ci
       - frontend-ci
       - mobile-ci
+      - ai-ci
     steps:
       - name: Evaluate PR CI Gate Status
         env:
@@ -171,6 +241,8 @@ jobs:
           FRONTEND_RESULT: ${{ needs.frontend-ci.result }}
           MOBILE_CHANGED: ${{ needs.detect-changes.outputs.mobile }}
           MOBILE_RESULT: ${{ needs.mobile-ci.result }}
+          AI_CHANGED: ${{ needs.detect-changes.outputs.ai }}
+          AI_RESULT: ${{ needs.ai-ci.result }}
         run: |
           echo "=========================================="
           echo "       PR CI GATE EVALUATION REPORT       "
@@ -182,6 +254,8 @@ jobs:
           echo "Frontend Result        : $FRONTEND_RESULT"
           echo "Mobile Changed         : $MOBILE_CHANGED"
           echo "Mobile Result          : $MOBILE_RESULT"
+          echo "AI Changed             : $AI_CHANGED"
+          echo "AI Result              : $AI_RESULT"
           echo "=========================================="
 
           GATE_PASSED=true
@@ -208,6 +282,13 @@ jobs:
           if [ "$MOBILE_CHANGED" = "true" ]; then
             if [ "$MOBILE_RESULT" != "success" ]; then
               echo "::error::Mobile changed but Mobile CI result is '$MOBILE_RESULT' (expected 'success')."
+              GATE_PASSED=false
+            fi
+          fi
+
+          if [ "$AI_CHANGED" = "true" ]; then
+            if [ "$AI_RESULT" != "success" ]; then
+              echo "::error::AI changed but AI CI result is '$AI_RESULT' (expected 'success')."
               GATE_PASSED=false
             fi
           fi

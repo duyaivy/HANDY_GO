@@ -64,4 +64,12 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # RSA JWT Keys
 keys/
-*.pem
+*.pem
+
+# Production secrets and local execution artifacts
+**/shared.env
+**/production.env
+/release-output/
+/ci-evidence.json
+**/__pycache__/
+handygo-8f4cf-firebase-adminsdk-fbsvc-a5ea6326f4.json

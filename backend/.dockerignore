@@ -12,3 +12,17 @@ coverage
 .DS_Store
 keys
 *.pem
+
+**/*.env
+**/*.key
+**/*.pem
+**/.env
+**/.env.*
+!**/.env.example
+**/__pycache__
+.aws
+.codex
+.agents
+release-output
+ci-evidence.json
+deploy/production/tests

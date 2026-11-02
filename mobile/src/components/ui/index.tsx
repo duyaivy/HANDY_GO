@@ -2,7 +2,9 @@
 import Svg from 'react-native-svg';
 import { withUniwind } from 'uniwind';
 
+export * from './app-bar';
 export * from './button';
+
 export * from './card';
 export * from './checkbox';
 export { default as colors } from './colors';

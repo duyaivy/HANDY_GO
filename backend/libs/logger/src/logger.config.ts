@@ -30,9 +30,12 @@ export const createLoggerConfig = (
       paths: [
         'req.headers.authorization',
         'req.headers.cookie',
+        'req.headers["x-internal-secret"]',
         'res.headers.set-cookie',
         '*.password',
         '*.token',
+        'req.body.pushToken',
+        '*.pushToken',
         '*.secret',
       ],
       censor: '[REDACTED]',

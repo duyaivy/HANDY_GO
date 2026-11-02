@@ -36,6 +36,7 @@ export async function bootstrapApplication(
   const logger = app.get(Logger);
 
   app.useLogger(logger);
+  app.enableShutdownHooks();
   app.useGlobalFilters(new HttpExceptionFilter());
   app.useGlobalPipes(
     new ValidationPipe({

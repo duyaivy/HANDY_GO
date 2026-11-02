@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/notification-client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum NotificationChannel {
+  push
+  in_app
+  email
+
+  @@map("notification_channel")
+}
+
+enum NotificationStatus {
+  queued
+  processing
+  sent
+  partially_sent
+  failed
+  cancelled
+
+  @@map("notification_status")
+}
+
+enum DeliveryStatus {
+  queued
+  processing
+  sent
+  delivered
+  failed
+  opened
+
+  @@map("delivery_status")
+}
+
+enum NotificationCategory {
+  request
+  matching
+  bidding
+  proposal
+  order
+  payment
+  wallet
+  system
+
+  @@map("notification_category")
+}
+
+enum DevicePlatform {
+  android
+  ios
+  web
+
+  @@map("device_platform")
+}
+
+model DeviceToken {
+  id               String                        @id @default(uuid()) @db.Uuid
+  userId           String                        @map("user_id") @db.Uuid
+  platform         DevicePlatform
+  deviceId         String?                       @map("device_id") @db.VarChar(255)
+  pushToken        String                        @unique @map("push_token") @db.Text
+  provider         String                        @default("fcm") @db.VarChar(50)
+  isActive         Boolean                       @default(true) @map("is_active")
+  lastSeenAt       DateTime?                     @map("last_seen_at") @db.Timestamptz(3)
+  createdAt        DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deliveryAttempts NotificationDeliveryAttempt[]
+
+  @@unique([userId, deviceId])
+  @@index([userId, isActive])
+  @@map("device_tokens")
+}
+
+model NotificationPreference {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  pushEnabled  Boolean  @default(true) @map("push_enabled")
+  inAppEnabled Boolean  @default(true) @map("in_app_enabled")
+  emailEnabled Boolean  @default(false) @map("email_enabled")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("notification_preferences")
+}
+
+model Notification {
+  id               String                        @id @default(uuid()) @db.Uuid
+  recipientUserId  String                        @map("recipient_user_id") @db.Uuid
+  sourceEventId    String                        @map("source_event_id") @db.Uuid
+  eventType        String                        @map("event_type") @db.VarChar(100)
+  category         NotificationCategory
+  sourceService    String                        @map("source_service") @db.VarChar(80)
+  sourceEntityId   String?                       @map("source_entity_id") @db.Uuid
+  serviceRequestId String?                       @map("service_request_id") @db.Uuid
+  dedupeKey        String                        @unique @map("dedupe_key") @db.VarChar(255)
+  title            String                        @db.VarChar(300)
+  body             String                        @db.Text
+  payload          Json?                         @db.JsonB
+  status           NotificationStatus            @default(queued)
+  readAt           DateTime?                     @map("read_at") @db.Timestamptz(3)
+  scheduledAt      DateTime?                     @map("scheduled_at") @db.Timestamptz(3)
+  createdAt        DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deliveryAttempts NotificationDeliveryAttempt[]
+
+  @@index([recipientUserId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([recipientUserId, readAt, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([sourceEventId])
+  @@index([serviceRequestId, createdAt])
+  @@index([status, scheduledAt])
+  @@map("notifications")
+}
+
+// Delivery attempts remain reserved for a later phase; Phase 2 uses only the inbox.
+model NotificationDeliveryAttempt {
+  id                 String              @id @default(uuid()) @db.Uuid
+  notificationId     String              @map("notification_id") @db.Uuid
+  channel            NotificationChannel
+  deviceTokenId      String?             @map("device_token_id") @db.Uuid
+  attemptNo          Int                 @default(1) @map("attempt_no")
+  deliveryAttemptKey String              @unique @map("delivery_attempt_key") @db.VarChar(255)
+  provider           String?             @db.VarChar(50)
+  providerMessageId  String?             @map("provider_message_id") @db.VarChar(255)
+  status             DeliveryStatus      @default(queued)
+  errorMessage       String?             @map("error_message") @db.Text
+  nextRetryAt        DateTime?           @map("next_retry_at") @db.Timestamptz(3)
+  attemptedAt        DateTime?           @map("attempted_at") @db.Timestamptz(3)
+  deliveredAt        DateTime?           @map("delivered_at") @db.Timestamptz(3)
+  openedAt           DateTime?           @map("opened_at") @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  notification       Notification        @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+  deviceToken        DeviceToken?        @relation(fields: [deviceTokenId], references: [id], onDelete: Restrict)
+
+  @@index([notificationId, channel])
+  @@index([status, nextRetryAt])
+  @@index([deviceTokenId, createdAt])
+  @@map("notification_delivery_attempts")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.Uuid
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(3)
+
+  @@map("consumed_events")
+}
+
+model OutboxEvent {
+  id              String    @id @default(uuid()) @db.Uuid
+  aggregateType   String    @map("aggregate_type") @db.VarChar(50)
+  aggregateId     String    @map("aggregate_id") @db.Uuid
+  eventType       String    @map("event_type") @db.VarChar(100)
+  payload         Json      @db.JsonB
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  publishedAt     DateTime? @map("published_at") @db.Timestamptz(3)
+  publishAttempts Int       @default(0) @map("publish_attempts")
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox_events")
+}

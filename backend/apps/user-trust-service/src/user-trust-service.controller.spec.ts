@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustServiceController } from './user-trust-service.controller.js';
 import { UserTrustServiceService } from './user-trust-service.service.js';
 import { RegisterRole, TokenVerifierService } from '@app/auth';
+import { ConfigService } from '@app/config';
 
 describe('UserTrustServiceController', () => {
   let controller: UserTrustServiceController;
@@ -21,6 +22,10 @@ describe('UserTrustServiceController', () => {
       providers: [
         { provide: UserTrustServiceService, useValue: serviceMock },
         { provide: TokenVerifierService, useValue: { verifyAccessToken: vi.fn() } },
+        {
+          provide: ConfigService,
+          useValue: { internalServiceSecret: 'secret-1' },
+        },
       ],
     }).compile();
 
@@ -67,5 +72,44 @@ describe('UserTrustServiceController', () => {
       'user-1',
       ['profile:read'],
     );
+  });
+
+  describe('verifyBankAccount (internal)', () => {
+    const body = { userId: 'u1', bankAccountId: 'b1' };
+
+    it('returns ownership result for a valid secret', async () => {
+      serviceMock.verifyBankAccountOwnership = vi
+        .fn()
+        .mockResolvedValue({ owned: true, active: true });
+      await expect(controller.verifyBankAccount('secret-1', body)).resolves.toEqual({
+        owned: true,
+        active: true,
+      });
+      expect(serviceMock.verifyBankAccountOwnership).toHaveBeenCalledWith('u1', 'b1');
+    });
+
+    it('rejects missing or wrong secret', async () => {
+      await expect(controller.verifyBankAccount(undefined, body)).rejects.toThrow();
+      await expect(controller.verifyBankAccount('wrong-12', body)).rejects.toThrow();
+    });
+
+    it('rejects missing params', async () => {
+      await expect(
+        controller.verifyBankAccount('secret-1', { userId: 'u1' }),
+      ).rejects.toThrow();
+    });
+  });
+
+  it('should handle user.get-all-active-ids MessagePattern', async () => {
+    serviceMock.getAllActiveUserIds = vi.fn().mockResolvedValue({
+      userIds: ['user-1', 'user-2'],
+    });
+
+    const result = await controller.getAllActiveUserIds(
+      { targetGroup: 'ALL' },
+      undefined,
+    );
+    expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
+    expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
   });
 });

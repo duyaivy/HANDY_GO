@@ -1,0 +1,184 @@
+name: Backend production - refresh ENV only
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Refresh ENV or retry recovery of an earlier ENV refresh'
+        required: true
+        type: choice
+        options: [refresh, recover]
+        default: refresh
+      recovery_run_id:
+        description: 'Original failed ENV refresh run ID (recover mode only)'
+        required: false
+        type: string
+      recovery_attempt:
+        description: 'Original failed run attempt, usually 1 (recover mode only)'
+        required: false
+        type: string
+      confirm:
+        description: 'Type REFRESH_ALL for refresh, or RECOVER_ENV for recovery'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Held across refresh AND recovery; image releases use this same group.
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: inputs.mode == 'refresh'
+    name: Refresh production ENV on all 3 VPS
+    runs-on: ubuntu-24.04
+    # Forward rollout has its own 30-minute budget; leave room for compensation.
+    timeout-minutes: 180
+    environment: production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      VPS1_HOST: ${{ secrets.VPS1_HOST }}
+      VPS2_HOST: ${{ secrets.VPS2_HOST }}
+      VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      DEPLOY_USER: azureuser
+      API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Confirm release branch and intentional all-service restart
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          test "$REF" = refs/heads/release
+          if [[ "$CONFIRM" != 'REFRESH_ALL' ]]; then
+            echo '::error::Type REFRESH_ALL to authorize recreation of all backend containers'
+            exit 1
+          fi
+      - name: Validate refresh automation
+        run: |
+          python3 -m unittest discover -s deploy/production/tests -v
+          python3 scripts/validate-production-compose.py
+          bash -n deploy/production/setup-ssh.sh
+          node --check deploy/production/env-preflight.mjs
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/backend-env-refresh.yml
+      - name: Prepare SSH identities
+        env:
+          VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+        run: bash deploy/production/setup-ssh.sh
+      - name: Prepare candidate production ENV
+        env:
+          BACKEND_PRODUCTION_ENV: ${{ secrets.BACKEND_PRODUCTION_ENV }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ -n "$BACKEND_PRODUCTION_ENV" ]] || { echo '::error::Missing BACKEND_PRODUCTION_ENV'; exit 1; }
+          printf '%s\n' "$BACKEND_PRODUCTION_ENV" > "$RUNNER_TEMP/handygo-shared.env"
+      - name: Create and deploy config-only production release
+        run: |
+          set -euo pipefail
+          install -d -m 700 release-output
+          python3 deploy/production/refresh_env.py \
+            --run-id "$GITHUB_RUN_ID" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --domain "$API_DOMAIN" \
+            --rollout-timeout-minutes 30 \
+            --env-file "$RUNNER_TEMP/handygo-shared.env" \
+            2>&1 | tee release-output/deploy.log
+      - name: Summarize refresh outcome
+        if: always()
+        run: |
+          if [[ -f release-output/summary.md ]]; then
+            cat release-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Refresh did not reach the coordinator; review the steps above.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: backend-env-refresh-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backend/release-output/*.json
+            backend/release-output/deploy.log
+            backend/release-output/summary.md
+          retention-days: 90
+      - name: Remove runner-side credentials and candidate ENV
+        if: always()
+        run: |
+          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 \
+            ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"
+
+  recover:
+    name: Recover interrupted ENV refresh
+    needs: refresh
+    # A separate runner/budget also covers job timeout and ordinary cancellation.
+    if: always() && github.ref == 'refs/heads/release' && ((inputs.mode == 'recover' && inputs.confirm == 'RECOVER_ENV') || (inputs.mode == 'refresh' && inputs.confirm == 'REFRESH_ALL' && (needs.refresh.result == 'failure' || needs.refresh.result == 'cancelled')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      VPS1_HOST: ${{ secrets.VPS1_HOST }}
+      VPS2_HOST: ${{ secrets.VPS2_HOST }}
+      VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      DEPLOY_USER: azureuser
+      API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Prepare recovery SSH identities
+        env:
+          VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+        run: bash deploy/production/setup-ssh.sh
+      - name: Recover exact Actions attempt from durable VPS state
+        env:
+          MODE: ${{ inputs.mode }}
+          ORIGINAL_RUN_ID: ${{ inputs.recovery_run_id }}
+          ORIGINAL_ATTEMPT: ${{ inputs.recovery_attempt }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 recovery-output
+          if [[ "$MODE" == recover ]]; then
+            [[ -n "$ORIGINAL_RUN_ID" && -n "$ORIGINAL_ATTEMPT" ]] || { echo '::error::Specify the original run ID and attempt'; exit 1; }
+          else
+            ORIGINAL_RUN_ID="$GITHUB_RUN_ID"
+            ORIGINAL_ATTEMPT="$GITHUB_RUN_ATTEMPT"
+          fi
+          python3 deploy/production/refresh_env.py \
+            --recover-only \
+            --run-id "$ORIGINAL_RUN_ID" \
+            --attempt "$ORIGINAL_ATTEMPT" \
+            --domain "$API_DOMAIN" \
+            --output recovery-output \
+            2>&1 | tee recovery-output/recovery.log
+      - name: Summarize recovery outcome
+        if: always()
+        run: |
+          if [[ -f recovery-output/summary.md ]]; then
+            cat recovery-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Recovery could not start; pending state remains protected on VPS.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: backend-env-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backend/recovery-output/*.json
+            backend/recovery-output/recovery.log
+            backend/recovery-output/summary.md
+          retention-days: 90
+      - name: Remove recovery runner credentials
+        if: always()
+        run: |
+          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts

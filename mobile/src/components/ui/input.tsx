@@ -21,7 +21,7 @@ const inputTv = tv({
   variants: {
     focused: {
       true: {
-        inputWrapper: 'border-neutral-400 dark:border-neutral-300',
+        inputWrapper: 'border-[#F5A524] dark:border-[#F5A524]',
       },
     },
     error: {

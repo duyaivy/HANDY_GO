@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 const { execSync } = require('node:child_process');
 
-function runCommand(cmd) {
+function runCommand(cmd, timeout = 15000) {
   try {
-    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execSync(cmd, { encoding: 'utf8', timeout, stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   }
   catch {
     return null;
@@ -44,8 +44,9 @@ function setupAdb() {
     return;
   }
 
-  // Filter physical devices (non-emulator) and emulators
-  const physicalDevices = devices.filter(d => !d.serial.startsWith('emulator-') && d.state === 'device');
+  // Phân loại: Máy thật cắm cáp USB, kết nối qua Wi-Fi, và máy ảo Emulator
+  const usbDevices = devices.filter(d => !d.serial.startsWith('emulator-') && !d.serial.includes(':') && d.state === 'device');
+  const wifiDevices = devices.filter(d => d.serial.includes(':') && d.state === 'device');
   const emulators = devices.filter(d => d.serial.startsWith('emulator-') && d.state === 'device');
   const unauthorized = devices.filter(d => d.state === 'unauthorized');
 
@@ -54,16 +55,26 @@ function setupAdb() {
     console.warn('[HandyGo ADB] 👉 Vui lòng mở khóa điện thoại và bấm "Cho phép / Always allow" trên màn hình.');
   }
 
-  // Ưu tiên máy thật cắm USB trước, nếu không có máy thật thì fallback sang máy ảo
-  const isPhysical = physicalDevices.length > 0;
-  const targets = isPhysical ? physicalDevices : emulators;
+  // Ưu tiên 1: Cáp USB thật -> Ưu tiên 2: Wi-Fi ADB -> Ưu tiên 3: Máy ảo Android Emulator
+  let targets = [];
+  let label = '';
+  if (usbDevices.length > 0) {
+    targets = usbDevices;
+    label = '🔌 Máy thật cắm cáp USB trực tiếp';
+  }
+  else if (wifiDevices.length > 0) {
+    targets = wifiDevices;
+    label = '📶 Máy thật kết nối qua Wi-Fi ADB';
+  }
+  else if (emulators.length > 0) {
+    targets = emulators;
+    label = '💻 Máy ảo Android Emulator (fallback)';
+  }
 
   if (targets.length === 0) {
     console.warn('[HandyGo ADB] ⚠️ Không tìm thấy thiết bị nào ở trạng thái sẵn sàng (device).');
     return;
   }
-
-  const label = isPhysical ? '📱 Máy thật cắm USB' : '💻 Máy ảo Android Emulator (fallback)';
 
   for (const target of targets) {
     console.log(`[HandyGo ADB] ${label}: [${target.serial}]`);

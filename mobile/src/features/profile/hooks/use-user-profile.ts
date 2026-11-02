@@ -14,7 +14,8 @@ export function useUserProfile() {
       return response.data;
     },
     enabled: Boolean(userId),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30 * 1000,
+    refetchOnMount: 'always',
   });
 
   return {

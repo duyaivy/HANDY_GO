@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useThemeConfig } from '@/components/ui/use-theme-config';
+import { NotificationLifecycle } from '@/features/notifications/notification-lifecycle';
 import { APIProvider } from '@/lib/api';
 import { loadSelectedTheme } from '@/lib/hooks/use-selected-theme';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -54,9 +55,15 @@ export default function RootLayout() {
     <Providers onLayout={onLayoutRootView}>
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+
         <Stack.Screen name="customer" options={{ headerShown: false }} />
         <Stack.Screen name="worker" options={{ headerShown: false }} />
+        <Stack.Screen name="verification/intro" options={{ headerShown: false }} />
+        <Stack.Screen name="verification/id-front" options={{ headerShown: false }} />
+        <Stack.Screen name="verification/selfie" options={{ headerShown: false }} />
+        <Stack.Screen name="verification/submit" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
       </Stack>
     </Providers>
@@ -81,6 +88,7 @@ function Providers({
       <KeyboardProvider>
         <ThemeProvider value={theme}>
           <APIProvider>
+            <NotificationLifecycle />
             <BottomSheetModalProvider>
               {children}
               <FlashMessage position="top" />
