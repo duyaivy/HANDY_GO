@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CheckCircle2,
   AlertCircle,
@@ -120,8 +121,50 @@ export const KycTable: React.FC = () => {
   }, [records, searchQuery, sortBy, filterStatus]);
 
   const totalPages = Math.max(1, data?.pagination.totalPages ?? 1);
-  const safeCurrentPage = currentPage;
+
+  // FE-01: Sau khi duyệt/từ chối thành công, trở về trang 1.
+  // Không cập nhật state đồng bộ trong effect (react-hooks/set-state-in-effect).
+
+  const safeCurrentPage = Math.min(currentPage, totalPages);
   const paginatedRecords = filteredRecords;
+
+  // Hiển thị tối đa 5 trang liên tiếp, kèm trang đầu/cuối và dấu ...
+  const visiblePages = useMemo<
+    (number | "ellipsis-left" | "ellipsis-right")[]
+  >(() => {
+    const windowSize = 5;
+    const start = Math.max(
+      1,
+      Math.min(
+        safeCurrentPage - Math.floor(windowSize / 2),
+        totalPages - windowSize + 1,
+      ),
+    );
+    const end = Math.min(totalPages, start + windowSize - 1);
+    const pageNumbers = new Set<number>([1, totalPages]);
+
+    for (let page = start; page <= end; page++) {
+      pageNumbers.add(page);
+    }
+
+    const sortedPages = [...pageNumbers].sort((a, b) => a - b);
+    const result: (number | "ellipsis-left" | "ellipsis-right")[] = [];
+
+    for (let index = 0; index < sortedPages.length; index++) {
+      const page = sortedPages[index];
+      const previous = sortedPages[index - 1];
+
+      if (previous !== undefined && page - previous === 2) {
+        result.push(previous + 1);
+      } else if (previous !== undefined && page - previous > 2) {
+        result.push(previous === 1 ? "ellipsis-left" : "ellipsis-right");
+      }
+
+      result.push(page);
+    }
+
+    return result;
+  }, [safeCurrentPage, totalPages]);
 
   const handleApprove = async (id: string, note: string) => {
     if (selectedRecord?.id !== id || selectedRecord.status !== "reviewing")
@@ -132,6 +175,7 @@ export const KycTable: React.FC = () => {
         body: { decision: "approved", note: note.trim() },
       });
       showToast(`Đã phê duyệt thành công hồ sơ ${id}`);
+      setCurrentPage(1);
       setSelectedRecordId(null);
       setSelectedRecordSnapshot(null);
     } catch (err) {
@@ -161,6 +205,7 @@ export const KycTable: React.FC = () => {
       });
 
       showToast(`Đã từ chối hồ sơ ${id}`);
+      setCurrentPage(1);
       setSelectedRecordId(null);
       setSelectedRecordSnapshot(null);
     } catch (err) {
@@ -476,49 +521,57 @@ export const KycTable: React.FC = () => {
 
             <nav
               aria-label="Phân trang hồ sơ xác minh"
-              className="flex flex-wrap items-center justify-center gap-2"
+              className="flex flex-wrap items-center justify-center gap-1 sm:gap-2"
             >
               <button
                 type="button"
-                disabled={safeCurrentPage <= 1 || isPending}
+                disabled={safeCurrentPage <= 1 || isPending || isFetching}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
               >
-                Trước
+                <ChevronLeft className="h-4 w-4" />
+                Previous
               </button>
 
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter(
-                  (page) =>
-                    Math.abs(page - currentPage) <= 2 ||
-                    page === 1 ||
-                    page === totalPages,
-                )
-                .map((page) => (
+              {visiblePages.map((page) =>
+                typeof page === "number" ? (
                   <button
                     key={page}
                     type="button"
+                    disabled={isPending || isFetching}
                     onClick={() => setCurrentPage(page)}
                     aria-current={safeCurrentPage === page ? "page" : undefined}
-                    className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${
+                    className={`h-10 min-w-10 rounded-xl px-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       safeCurrentPage === page
-                        ? "bg-[#FF5E14] text-white"
-                        : "bg-white text-slate-700 hover:bg-orange-50"
+                        ? "bg-[#FF5E14] text-white shadow-sm"
+                        : "bg-white text-slate-900 hover:bg-slate-100"
                     }`}
                   >
                     {page}
                   </button>
-                ))}
+                ) : (
+                  <span
+                    key={page}
+                    aria-hidden="true"
+                    className="flex h-10 min-w-8 items-center justify-center text-sm font-semibold text-slate-900"
+                  >
+                    ...
+                  </span>
+                ),
+              )}
 
               <button
                 type="button"
-                disabled={safeCurrentPage >= totalPages || isPending}
+                disabled={
+                  safeCurrentPage >= totalPages || isPending || isFetching
+                }
                 onClick={() =>
                   setCurrentPage((p) => Math.min(totalPages, p + 1))
                 }
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
               >
-                Sau
+                Next
+                <ChevronRight className="h-4 w-4" />
               </button>
             </nav>
           </div>
