@@ -29,7 +29,7 @@ export class RequestEligibilityVerifierService {
     workerId: string,
   ): Promise<RequestEligibilityResult> {
     const rawUrl =
-      this.config.get('ORDER_SERVICE_URL') || 'http://localhost:3004';
+      this.config.get('ORDER_SERVICE_URL') || 'http://order-service:3004';
     const orderServiceUrl = rawUrl.replace(/\/+$/, '');
     const internalSecret = this.config.internalServiceSecret;
 

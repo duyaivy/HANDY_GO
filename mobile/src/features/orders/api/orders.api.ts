@@ -65,6 +65,60 @@ export const OrdersApi = {
     return OrdersApi.getRequestDetail(id);
   },
 
+  getCandidates: async (requestId: string) => {
+    return ApiClient.get<{
+      statusCode: number;
+      message: string;
+      data: {
+        requestId: string;
+        requestStatus: string;
+        bidding?: {
+          status: string;
+          total: number;
+          items: Array<{
+            selectionSource?: string;
+            sourceBidId?: string;
+            workerUserId: string;
+            id: string;
+            workerId: string;
+            amount: number;
+            message?: string;
+            status: string;
+            workerProfile?: {
+              fullName?: string;
+              avatarUrl?: string;
+              averageRating?: number;
+              ratingCount?: number;
+              completedOrderCount?: number;
+              distanceKm?: number;
+            };
+          }>;
+        };
+        matching?: {
+          recommendations: Array<{
+            selectionSource?: string;
+            workerUserId: string;
+            workerId: string;
+            estimatedPrice?: number;
+            workerProfile?: {
+              fullName?: string;
+              avatarUrl?: string;
+              averageRating?: number;
+              ratingCount?: number;
+              completedOrderCount?: number;
+              distanceKm?: number;
+            };
+          }>;
+        };
+      };
+    }>(`/requests/${requestId}/candidates?_t=${Date.now()}`, {
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
+    });
+  },
+
   // --- Booking Proposals ---
   createProposal: async (payload: CreateBookingProposalPayload) => {
     return ApiClient.post<{ statusCode: number; message: string; data: BookingProposal }>(

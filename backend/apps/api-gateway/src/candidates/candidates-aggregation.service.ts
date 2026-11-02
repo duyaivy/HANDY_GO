@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { AppException, ERROR_CODES } from '@app/common';
 import { OrderClient, type UserContext } from './clients/order.client.js';
@@ -186,6 +187,70 @@ export class CandidatesAggregationService {
         scoreBreakdown: rec.scoreBreakdown,
         workerProfile: null,
       });
+    }
+
+    const matchingWorkerUserIds = matchingRecommendations
+      .map((r) => r.workerUserId)
+      .filter(Boolean);
+
+    if (matchingWorkerUserIds.length > 0) {
+      try {
+        const userTrustUrl =
+          process.env.USER_TRUST_SERVICE_URL || 'http://user-trust-service:3002';
+        const secret =
+          process.env.INTERNAL_SERVICE_SECRET ||
+          'handy-go-internal-service-secret-key-12345';
+        const url = `${userTrustUrl.replace(/\/+$/, '')}/api/v1/internal/workers/batch-summary?ids=${matchingWorkerUserIds.join(',')}`;
+
+        const res = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-secret': secret,
+            'x-request-id': correlationId || crypto.randomUUID(),
+          },
+          signal: AbortSignal.timeout(3000),
+        });
+
+        if (res.ok) {
+          const profiles: Array<{
+            workerId: string;
+            fullName?: string;
+            avatarUrl?: string;
+            averageRating?: number;
+            ratingCount?: number;
+            completedOrderCount?: number;
+            distanceKm?: number;
+          }> = (await res.json()) as any;
+
+          const profileMap = new Map<string, any>();
+          if (Array.isArray(profiles)) {
+            for (const p of profiles) {
+              profileMap.set(p.workerId, {
+                fullName: p.fullName || 'Thợ đối tác',
+                avatarUrl: p.avatarUrl || null,
+                averageRating:
+                  p.averageRating !== undefined && p.averageRating !== null
+                    ? p.averageRating
+                    : 5.0,
+                ratingCount: p.ratingCount ?? 0,
+                completedOrderCount: p.completedOrderCount ?? 0,
+                distanceKm: p.distanceKm ?? null,
+              });
+            }
+          }
+
+          for (const rec of matchingRecommendations) {
+            if (profileMap.has(rec.workerUserId)) {
+              rec.workerProfile = profileMap.get(rec.workerUserId);
+            }
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `Could not enrich matching recommendations profiles: ${err?.message}`,
+        );
+      }
     }
 
     return {

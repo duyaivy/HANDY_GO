@@ -33,3 +33,4 @@ docs/*
 !docs/dbml/
 !docs/dbml/**
 
+!docs/RABBITMQ_LOCAL_DEV_GUIDE.md

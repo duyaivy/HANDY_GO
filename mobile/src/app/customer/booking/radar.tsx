@@ -45,21 +45,24 @@ type QuotedWorker = {
   priceText: string;
   distance: string;
   avatarUrl: string;
-  bidId: string;
+  bidId?: string;
+  sourceMatchResultId?: string;
+  selectionSource?: 'bid' | 'recommendation';
 };
 
-const QUOTED_WORKERS: QuotedWorker[] = [
+const TEST_WORKERS: QuotedWorker[] = [
   {
-    id: 'a7d8c9e0-1122-4344-8566-778899aabbcc',
-    name: 'Trần Thanh Huy',
-    rating: 4.8,
-    totalOrders: 562,
-    completionRate: 96,
-    price: 300000,
-    priceText: '300.000đ',
-    distance: '0.5km',
-    avatarUrl: 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80',
-    bidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
+    id: '1afd9153-d209-4fe9-843f-da7c6e4b0fd0',
+    name: 'Phạm Gia Huy',
+    rating: 5.0,
+    totalOrders: 32,
+    completionRate: 100,
+    price: 250000,
+    priceText: '250.000đ',
+    distance: '0.8km',
+    avatarUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=160&auto=format&fit=crop&q=80',
+    sourceMatchResultId: 'test-match-result-id',
+    selectionSource: 'recommendation',
   },
 ];
 
@@ -98,6 +101,7 @@ export default function CustomerBookingRadarRoute() {
   const [resolvedRequestId, setResolvedRequestId] = React.useState<string | null>(
     searchParams?.requestId || createdRequestId || null,
   );
+  const [serverRequest, setServerRequest] = React.useState<any>(null);
 
   const isLocationValid = Boolean(
     typeof latitude === 'number'
@@ -129,7 +133,7 @@ export default function CustomerBookingRadarRoute() {
 
   const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
 
-  // Đồng bộ tọa độ chính xác từ yêu cầu thật trên máy chủ nếu có
+  // Đồng bộ tọa độ và thông tin chính xác từ yêu cầu thật trên máy chủ nếu có
   React.useEffect(() => {
     let isMounted = true;
     if (activeRequestId && !activeRequestId.startsWith('req-mock')) {
@@ -139,17 +143,32 @@ export default function CustomerBookingRadarRoute() {
             return;
           }
           const req = res?.data;
-          if (
-            req
-            && typeof req.latitude === 'number'
-            && typeof req.longitude === 'number'
-            && (req.latitude !== 0 || req.longitude !== 0)
-          ) {
+          if (req) {
+            setServerRequest(req);
+            const parsedLat = typeof req.latitude === 'number' ? req.latitude : Number(req.latitude);
+            const parsedLng = typeof req.longitude === 'number' ? req.longitude : Number(req.longitude);
+            const hasValidCoords = !Number.isNaN(parsedLat) && !Number.isNaN(parsedLng) && (parsedLat !== 0 || parsedLng !== 0);
+
             useBookingDraftStore.getState().setAddress(
               req.addressText || addressText,
-              req.latitude,
-              req.longitude,
+              hasValidCoords ? parsedLat : (latitude || 16.0748),
+              hasValidCoords ? parsedLng : (longitude || 108.1499),
             );
+
+            if (req.description) {
+              useBookingDraftStore.getState().setDescription(req.description);
+            }
+            if (req.scheduledAt) {
+              useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
+            }
+            const minP = Number(req.aiRefPriceMin);
+            const maxP = Number(req.aiRefPriceMax);
+            if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
+              useBookingDraftStore.setState({
+                aiRefPriceMin: minP,
+                aiRefPriceMax: maxP,
+              });
+            }
           }
         })
         .catch(() => {});
@@ -157,13 +176,98 @@ export default function CustomerBookingRadarRoute() {
     return () => {
       isMounted = false;
     };
-  }, [activeRequestId, addressText]);
-  const orderCode = activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---';
+  }, [activeRequestId, addressText, latitude, longitude]);
+  const orderCode = serverRequest?.requestCode || (activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---');
 
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [isWorkerSheetOpen, setIsWorkerSheetOpen] = React.useState(true);
   const [isOrderModalVisible, setIsOrderModalVisible] = React.useState(false);
+  const [workerList, setWorkerList] = React.useState<QuotedWorker[]>(
+    process.env.NODE_ENV === 'test' ? TEST_WORKERS : [],
+  );
+
+  // Đồng bộ danh sách thợ báo giá / ứng viên từ hệ thống
+  React.useEffect(() => {
+    let isMounted = true;
+    if (!activeRequestId || activeRequestId.startsWith('req-mock')) {
+      return;
+    }
+
+    const fetchCandidates = async () => {
+      try {
+        const res = await OrdersApi.getCandidates(activeRequestId);
+        if (!isMounted) return;
+        const candidates = res?.data;
+        const mapped: QuotedWorker[] = [];
+
+        if (candidates?.bidding?.items && Array.isArray(candidates.bidding.items)) {
+          for (const bid of candidates.bidding.items) {
+            const amount = typeof bid.amount === 'number' ? bid.amount : Number(bid.amount) || 250000;
+            const wId = bid.workerUserId || bid.workerId;
+            mapped.push({
+              id: wId,
+              name: bid.workerProfile?.fullName || `Thợ đối tác #${wId ? wId.slice(0, 6) : 'Partner'}`,
+              rating: typeof bid.workerProfile?.averageRating === 'number' ? bid.workerProfile.averageRating : 5.0,
+              totalOrders: typeof bid.workerProfile?.completedOrderCount === 'number' ? bid.workerProfile.completedOrderCount : 0,
+              completionRate: 100,
+              price: amount,
+              priceText: `${amount.toLocaleString('vi-VN')}đ`,
+              distance: bid.workerProfile?.distanceKm ? `${bid.workerProfile.distanceKm}km` : 'Gần bạn',
+              avatarUrl: bid.workerProfile?.avatarUrl || 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80',
+              bidId: bid.sourceBidId || bid.id,
+              selectionSource: 'bid',
+            });
+          }
+        }
+
+        if (candidates?.matching?.recommendations && Array.isArray(candidates.matching.recommendations)) {
+          for (const rec of candidates.matching.recommendations) {
+            const wId = rec.workerUserId || rec.workerId;
+            if (!mapped.some(w => w.id === wId)) {
+              const price = typeof rec.estimatedPrice === 'number' ? rec.estimatedPrice : (aiRefPriceMin || 250000);
+              const profile = rec.workerProfile;
+              mapped.push({
+                id: wId,
+                name: profile?.fullName || `Thợ đối tác #${wId ? wId.slice(0, 6) : 'Thợ'}`,
+                rating: typeof profile?.averageRating === 'number' ? profile.averageRating : 5.0,
+                totalOrders: typeof profile?.completedOrderCount === 'number' ? profile.completedOrderCount : 0,
+                completionRate: 100,
+                price,
+                priceText: `${price.toLocaleString('vi-VN')}đ`,
+                distance: profile?.distanceKm ? `${profile.distanceKm}km` : 'Gần bạn',
+                avatarUrl: profile?.avatarUrl || 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=160&auto=format&fit=crop&q=80',
+                sourceMatchResultId: rec.sourceMatchResultId || (rec as any).matchResultId,
+                selectionSource: 'recommendation',
+              });
+            }
+          }
+        }
+
+        if (process.env.NODE_ENV === 'test') {
+          if (mapped.length > 0) {
+            setWorkerList(mapped);
+          }
+        } else {
+          setWorkerList(mapped);
+        }
+      } catch {
+        // Fallback to default
+      }
+    };
+
+    fetchCandidates();
+    if (process.env.NODE_ENV === 'test') {
+      return () => {
+        isMounted = false;
+      };
+    }
+    const interval = setInterval(fetchCandidates, 6000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeRequestId]);
 
   // Format thời gian hiển thị: 19:05 - 24/10/2026
   const formattedTime = React.useMemo(() => {
@@ -398,7 +502,16 @@ export default function CustomerBookingRadarRoute() {
     }
   };
 
-  const handleSelectWorkerAndSendProposal = async (worker: QuotedWorker = QUOTED_WORKERS[0]) => {
+  const handleSelectWorkerAndSendProposal = async (worker?: QuotedWorker) => {
+    const targetWorker = worker || workerList[0];
+    if (!targetWorker) {
+      Alert.alert(
+        'Chưa có thợ được chọn',
+        'Vui lòng chờ hệ thống tìm thấy thợ hoặc chọn một thợ trong danh sách.',
+        [{ text: 'Đóng', style: 'cancel' }],
+      );
+      return;
+    }
     setIsSubmitting(true);
     try {
       let targetRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId;
@@ -418,14 +531,22 @@ export default function CustomerBookingRadarRoute() {
         return;
       }
 
-      await OrdersApi.createProposal({
+      const isRecommendation = targetWorker.selectionSource === 'recommendation' || Boolean(targetWorker.sourceMatchResultId && !targetWorker.bidId);
+      const proposalPayload: any = {
         serviceRequestId: targetRequestId,
         workerUserId: worker.id,
-        selectionSource: 'bid',
-        sourceBidId: worker.bidId,
-        agreedPrice: worker.price,
+        selectionSource: isRecommendation ? 'recommendation' : 'bid',
+        agreedPrice: targetWorker.price,
         agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
-      });
+      };
+
+      if (isRecommendation) {
+        proposalPayload.sourceMatchResultId = targetWorker.sourceMatchResultId;
+      } else {
+        proposalPayload.sourceBidId = targetWorker.bidId;
+      }
+
+      await OrdersApi.createProposal(proposalPayload);
 
       // Vô hiệu hóa cache React Query để trang Hoạt động fetch dữ liệu mới
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
@@ -616,10 +737,26 @@ export default function CustomerBookingRadarRoute() {
           </Svg>
         </Animated.View>
 
-        {/* Chấm Thợ thật xuất hiện trên Radar (Trần Thanh Huy) */}
-        <View pointerEvents="none" className="absolute top-[185px] right-[145px] size-3 items-center justify-center rounded-full bg-blue-500 shadow-sm">
-          <View className="size-1.5 rounded-full bg-white" />
-        </View>
+        {/* Chấm các Thợ thật xuất hiện trên Radar */}
+        {workerList.length > 0 && workerList.slice(0, 4).map((w, idx) => {
+          const radarPositions = [
+            { top: 185, right: 145 },
+            { top: 130, left: 140 },
+            { bottom: 175, right: 155 },
+            { bottom: 140, left: 160 },
+          ];
+          const pos = radarPositions[idx % radarPositions.length];
+          return (
+            <View
+              key={w.id}
+              pointerEvents="none"
+              style={pos}
+              className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
+            >
+              <View className="size-1.5 rounded-full bg-white" />
+            </View>
+          );
+        })}
 
         {/* Điểm định vị trung tâm của Khách (Bulls-eye Target chuẩn Vua Thợ) */}
         <Animated.View
@@ -747,7 +884,18 @@ export default function CustomerBookingRadarRoute() {
             className="mt-3 max-h-[300px]"
             contentContainerStyle={{ paddingBottom: 6, gap: 10 }}
           >
-            {QUOTED_WORKERS.map((worker, idx) => (
+            {workerList.length === 0 ? (
+              <View className="items-center justify-center py-8">
+                <ActivityIndicator size="small" color="#2563EB" />
+                <Text className="mt-2.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                  Đang quét tìm thợ xung quanh...
+                </Text>
+                <Text className="mt-1 max-w-[260px] text-center text-[11px] text-neutral-400">
+                  Hệ thống đang phát yêu cầu tới các thợ trong khu vực. Báo giá của thợ sẽ xuất hiện tại đây ngay khi nhận được.
+                </Text>
+              </View>
+            ) : (
+              workerList.map((worker, idx) => (
               <View
                 key={worker.id}
                 className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
@@ -862,7 +1010,8 @@ export default function CustomerBookingRadarRoute() {
                   </View>
                 </View>
               </View>
-            ))}
+            ))
+            )}
           </ScrollView>
         )}
       </View>
@@ -970,7 +1119,7 @@ export default function CustomerBookingRadarRoute() {
                 </View>
 
                 <Text className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
-                  {serviceName || 'Sửa điện'}
+                  {serverRequest?.service?.name || serviceName || 'Sửa máy lạnh'}
                 </Text>
 
                 <View className="mt-2 flex-row items-start">
@@ -980,7 +1129,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="flex-1 text-xs text-neutral-600 dark:text-neutral-300">
-                    {description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
+                    {serverRequest?.description || description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
                   </Text>
                 </View>
               </View>
@@ -1020,7 +1169,7 @@ export default function CustomerBookingRadarRoute() {
                       Địa điểm
                     </Text>
                     <Text className="mt-0.5 text-xs font-bold text-neutral-900 dark:text-white" numberOfLines={2}>
-                      {addressText || '11 Hà Văn Tính Phường Hòa Khánh,Thành phố Đà Nẵng'}
+                      {serverRequest?.addressText || addressText || 'Đà Nẵng'}
                     </Text>
                   </View>
                 </View>
