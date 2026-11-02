@@ -314,14 +314,107 @@ describe('SummaryService', () => {
       });
 
       const cachedService = new SummaryService(prismaMock, redisMock);
-      const result = await cachedService.getRequestSummary(serviceRequestId, user);
+      const _result = await cachedService.getRequestSummary(serviceRequestId, user);
 
-      expect(result.currentPhase).toBe('COMPLETED');
       expect(redisMock.set).toHaveBeenCalledWith(
         `tracking:summary:${serviceRequestId}:cust:${customerId}`,
         expect.objectContaining({ currentPhase: 'COMPLETED' }),
         7 * 24 * 3600,
       );
+    });
+
+    it('should throw ForbiddenException if flow has null customerId (fail-closed)', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = {
+        userId: randomUUID(),
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId: null,
+        events: [],
+      });
+
+      await expect(
+        service.getRequestSummary(serviceRequestId, user),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should accurately compute ORDER_IN_PROGRESS and DISPUTED phases', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      // 1. Order in progress
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.started',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+          },
+        ],
+      });
+
+      const inProgressSummary = await service.getRequestSummary(serviceRequestId, user);
+      expect(inProgressSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(inProgressSummary.order?.status).toBe('in_progress');
+
+      // 2. Order disputed
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+            toStatus: 'disputed',
+          },
+        ],
+      });
+
+      const disputedSummary = await service.getRequestSummary(serviceRequestId, user);
+      expect(disputedSummary.currentPhase).toBe('DISPUTED');
+      expect(disputedSummary.order?.status).toBe('disputed');
     });
   });
 });

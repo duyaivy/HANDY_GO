@@ -309,7 +309,8 @@ export class TrackingEventsConsumer {
       msg.includes('connection') ||
       msg.includes('timeout') ||
       msg.includes('Connection terminated') ||
-      msg.includes('ECONNREFUSED')
+      msg.includes('ECONNREFUSED') ||
+      msg.includes('ORDER_FLOW_NOT_READY')
     );
   }
 

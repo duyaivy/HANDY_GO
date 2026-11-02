@@ -196,6 +196,68 @@ describe('TrackingEventsService', () => {
         }),
       );
     });
+
+    it('should buffer event in Redis when orderId is present but flow is not yet created', async () => {
+      const orderId = randomUUID();
+      const paymentId = randomUUID();
+      const eventId = randomUUID();
+
+      const redisMock: any = {
+        rpush: vi.fn(),
+        expire: vi.fn(),
+        delByPattern: vi.fn(),
+      };
+
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
+
+      const result = await bufferedService.recordDomainEvent({
+        eventId,
+        eventType: 'payment.succeeded',
+        orderId,
+        payload: {
+          paymentId,
+          orderId,
+          amount: 500000,
+        },
+      });
+
+      expect(result.recorded).toBe(false);
+      expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
+      expect(redisMock.rpush).toHaveBeenCalledWith(
+        `tracking:pending_order_events:${orderId}`,
+        expect.objectContaining({
+          forcedEventType: undefined,
+        }),
+      );
+      expect(redisMock.expire).toHaveBeenCalledWith(
+        `tracking:pending_order_events:${orderId}`,
+        3600,
+      );
+    });
+
+    it('should throw ORDER_FLOW_NOT_READY when order flow is missing and Redis is not available', async () => {
+      const orderId = randomUUID();
+      const paymentId = randomUUID();
+      const eventId = randomUUID();
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.recordDomainEvent({
+          eventId,
+          eventType: 'payment.succeeded',
+          orderId,
+          payload: {
+            paymentId,
+            orderId,
+            amount: 500000,
+          },
+        }),
+      ).rejects.toThrow('ORDER_FLOW_NOT_READY');
+    });
   });
 
   describe('Metadata Sanitization', () => {

@@ -87,6 +87,19 @@ export class TrackingEventsService {
       });
       if (existingFlowByOrder) {
         serviceRequestId = existingFlowByOrder.serviceRequestId;
+      } else if (this.redis) {
+        // Buffer event until order.created arrives to link orderId with serviceRequestId
+        const pendingKey = `tracking:pending_order_events:${orderId}`;
+        await this.redis.rpush(pendingKey, { data, forcedEventType });
+        await this.redis.expire(pendingKey, 3600); // 1 hour TTL buffer
+        this.logger.log(
+          `Event ${rawEventId} (${eventType}) buffered for pending order ${orderId}`,
+        );
+        return { recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' };
+      } else {
+        throw new Error(
+          `ORDER_FLOW_NOT_READY: Flow not yet created for orderId ${orderId}`,
+        );
       }
     }
 
@@ -211,7 +224,7 @@ export class TrackingEventsService {
 
       // Broadcast real-time event to SSE subscribers
       if (this.streamService && createdRecord) {
-        this.streamService.broadcastEvent({
+        await this.streamService.broadcastEvent({
           serviceRequestId,
           id: createdRecord.id,
           eventId: createdRecord.eventId,
@@ -227,6 +240,11 @@ export class TrackingEventsService {
           occurredAt: createdRecord.occurredAt,
           recordedAt: createdRecord.recordedAt,
         });
+      }
+
+      // If this event linked an orderId, flush any buffered events that arrived earlier
+      if (orderId && this.redis) {
+        await this.flushPendingOrderEvents(orderId, serviceRequestId);
       }
 
       return { recorded: true };
@@ -365,5 +383,48 @@ export class TrackingEventsService {
     }
 
     return sanitized;
+  }
+
+  private async flushPendingOrderEvents(
+    orderId: string,
+    serviceRequestId: string,
+  ): Promise<void> {
+    const pendingKey = `tracking:pending_order_events:${orderId}`;
+    try {
+      const pendingItems = await this.redis!.lrange<{
+        data: EventEnvelope;
+        forcedEventType?: string;
+      }>(pendingKey, 0, -1);
+
+      if (pendingItems && pendingItems.length > 0) {
+        this.logger.log(
+          `Flushing ${pendingItems.length} buffered events for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
+        );
+        await this.redis!.del(pendingKey);
+        for (const item of pendingItems) {
+          try {
+            const envelope: EventEnvelope = {
+              ...item.data,
+              serviceRequestId,
+              payload: {
+                ...item.data.payload,
+                serviceRequestId,
+                orderId,
+              },
+            };
+            await this.recordDomainEvent(envelope, item.forcedEventType);
+          } catch (flushErr: any) {
+            this.logger.error(
+              `Failed to flush buffered event for order ${orderId}: ${flushErr.message}`,
+              flushErr.stack,
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(
+        `Error checking pending events for order ${orderId}: ${err.message}`,
+      );
+    }
   }
 }

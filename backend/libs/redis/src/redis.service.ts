@@ -13,6 +13,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private client!: Redis;
   private isConnected = false;
 
+  private subClient?: Redis;
+
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit(): void {
@@ -39,6 +41,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.subClient) {
+      await this.subClient.quit().catch(() => {});
+    }
     if (this.client) {
       await this.client.quit().catch(() => {});
       this.logger.log('Disconnected from Redis');
@@ -104,5 +109,88 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`Redis delByPattern error for pattern "${pattern}": ${(error as Error).message}`);
     }
+  }
+
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      await this.client.expire(key, ttlSeconds);
+    } catch (error) {
+      this.logger.warn(`Redis expire error for key "${key}": ${(error as Error).message}`);
+    }
+  }
+
+  async rpush(key: string, value: unknown): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      await this.client.rpush(key, serialized);
+    } catch (error) {
+      this.logger.warn(`Redis rpush error for key "${key}": ${(error as Error).message}`);
+    }
+  }
+
+  async lrange<T>(key: string, start: number, stop: number): Promise<T[]> {
+    if (!this.isConnected) return [];
+    try {
+      const items = await this.client.lrange(key, start, stop);
+      return items.map((item) => {
+        try {
+          return JSON.parse(item) as T;
+        } catch {
+          return item as unknown as T;
+        }
+      });
+    } catch (error) {
+      this.logger.warn(`Redis lrange error for key "${key}": ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  async publish(channel: string, message: unknown): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+      await this.client.publish(channel, payload);
+    } catch (error) {
+      this.logger.warn(`Redis publish error on channel "${channel}": ${(error as Error).message}`);
+    }
+  }
+
+  async subscribe(
+    channel: string,
+    callback: (message: string) => void,
+  ): Promise<() => Promise<void>> {
+    const redisUrl = this.config.redisUrl;
+    if (!this.subClient) {
+      this.subClient = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        enableOfflineQueue: false,
+        lazyConnect: true,
+      });
+      await this.subClient.connect().catch((err) => {
+        this.logger.warn(`Could not connect Redis subscriber: ${(err as Error).message}`);
+      });
+    }
+
+    try {
+      await this.subClient.subscribe(channel);
+    } catch (err: any) {
+      this.logger.warn(`Could not subscribe to channel "${channel}": ${err.message}`);
+    }
+
+    const listener = (chan: string, msg: string) => {
+      if (chan === channel) {
+        callback(msg);
+      }
+    };
+    this.subClient.on('message', listener);
+
+    return async () => {
+      if (this.subClient) {
+        this.subClient.off('message', listener);
+        await this.subClient.unsubscribe(channel).catch(() => {});
+      }
+    };
   }
 }

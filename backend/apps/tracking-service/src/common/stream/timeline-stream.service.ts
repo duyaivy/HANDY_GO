@@ -3,11 +3,15 @@ import {
   NotFoundException,
   ForbiddenException,
   Logger,
+  Optional,
   type MessageEvent,
+  type OnModuleInit,
+  type OnModuleDestroy,
 } from '@nestjs/common';
 import { Observable, Subject, interval, merge, of } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { TrackingEntityType } from '@prisma/tracking-client';
+import { RedisService } from '@app/redis';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { GatewayUser } from '../security/tracking-security.util.js';
 
@@ -29,19 +33,62 @@ export interface LiveTimelineEvent {
 }
 
 @Injectable()
-export class TimelineStreamService {
+export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TimelineStreamService.name);
   private readonly eventSubject = new Subject<LiveTimelineEvent>();
+  private static readonly REDIS_STREAM_CHANNEL = 'tracking:stream:events';
+  private unsubscribeRedis?: () => Promise<void>;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly redis?: RedisService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    if (this.redis) {
+      this.unsubscribeRedis = await this.redis.subscribe(
+        TimelineStreamService.REDIS_STREAM_CHANNEL,
+        (msg: string) => {
+          try {
+            const raw = JSON.parse(msg);
+            const event: LiveTimelineEvent = {
+              ...raw,
+              occurredAt: new Date(raw.occurredAt),
+              recordedAt: new Date(raw.recordedAt),
+            };
+            this.eventSubject.next(event);
+          } catch (err: any) {
+            this.logger.warn(`Failed to parse SSE event from Redis: ${err.message}`);
+          }
+        },
+      );
+      this.logger.log('Subscribed to Redis SSE stream channel');
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.unsubscribeRedis) {
+      await this.unsubscribeRedis().catch(() => {});
+    }
+  }
 
   /**
-   * Broadcasts a newly recorded tracking event to all active SSE subscribers.
+   * Broadcasts a newly recorded tracking event to all active SSE subscribers across replicas.
    */
-  broadcastEvent(event: LiveTimelineEvent): void {
+  async broadcastEvent(event: LiveTimelineEvent): Promise<void> {
     this.logger.debug(
       `Broadcasting SSE event "${event.eventType}" for request ${event.serviceRequestId}`,
     );
+    if (this.redis) {
+      try {
+        await this.redis.publish(TimelineStreamService.REDIS_STREAM_CHANNEL, event);
+        return;
+      } catch (err: any) {
+        this.logger.warn(
+          `Failed to publish SSE event to Redis (${err.message}). Falling back to local subject.`,
+        );
+      }
+    }
     this.eventSubject.next(event);
   }
 
@@ -63,21 +110,22 @@ export class TimelineStreamService {
       );
     }
 
-    // Role-based authorization
+    // Role-based authorization: fail-closed if customer ownership cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer && flow.customerId && flow.customerId !== user.userId) {
-        throw new ForbiddenException(
-          'Bạn không có quyền đăng ký dòng sự kiện của yêu cầu này',
-        );
-      }
-
-      if (user.isWorker && !user.isCustomer) {
+      if (user.isCustomer) {
+        if (!flow.customerId || flow.customerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền đăng ký dòng sự kiện của yêu cầu này',
+          );
+        }
+      } else if (user.isWorker) {
         const participation = await this.prisma.trackingEvent.findFirst({
           where: {
             trackingFlowId: flow.id,
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
         });
@@ -87,6 +135,10 @@ export class TimelineStreamService {
             'Thợ không có quyền xem sự kiện trực tiếp của yêu cầu này do chưa tham gia',
           );
         }
+      } else {
+        throw new ForbiddenException(
+          'Bạn không có quyền đăng ký dòng sự kiện của yêu cầu này',
+        );
       }
     }
 

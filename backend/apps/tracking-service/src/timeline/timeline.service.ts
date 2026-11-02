@@ -54,15 +54,15 @@ export class TimelineService {
       );
     }
 
-    // Role-based authorization
+    // Role-based authorization: fail-closed if ownership cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer && flow.customerId && flow.customerId !== user.userId) {
-        throw new ForbiddenException(
-          'Bạn không có quyền truy cập tiến trình của yêu cầu này',
-        );
-      }
-
-      if (user.isWorker && !user.isCustomer) {
+      if (user.isCustomer) {
+        if (!flow.customerId || flow.customerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền truy cập tiến trình của yêu cầu này',
+          );
+        }
+      } else if (user.isWorker) {
         // Verify worker has participated in this request
         const participation = await this.prisma.trackingEvent.findFirst({
           where: {
@@ -70,6 +70,7 @@ export class TimelineService {
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
         });
@@ -79,6 +80,10 @@ export class TimelineService {
             'Thợ không có quyền truy cập tiến trình của yêu cầu này do chưa tham gia',
           );
         }
+      } else {
+        throw new ForbiddenException(
+          'Bạn không có quyền truy cập tiến trình của yêu cầu này',
+        );
       }
     }
 
@@ -109,6 +114,7 @@ export class TimelineService {
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
           {
@@ -116,6 +122,7 @@ export class TimelineService {
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
           {
@@ -123,6 +130,7 @@ export class TimelineService {
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
           {
@@ -130,6 +138,7 @@ export class TimelineService {
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
         ],
@@ -180,14 +189,21 @@ export class TimelineService {
       firstBidEvent.actorUserId ||
       (firstBidEvent.metadata as any)?.workerId;
 
-    // Authorization
+    // Authorization: fail-closed
     if (!user.isAdmin) {
-      if (user.isWorker && bidWorkerId && bidWorkerId !== user.userId) {
-        throw new ForbiddenException(
-          'Bạn không có quyền xem lịch sử báo giá của thợ khác',
-        );
-      }
-      if (user.isCustomer && flow.customerId && flow.customerId !== user.userId) {
+      if (user.isWorker) {
+        if (!bidWorkerId || bidWorkerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền xem lịch sử báo giá của thợ khác',
+          );
+        }
+      } else if (user.isCustomer) {
+        if (!flow.customerId || flow.customerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền xem báo giá của yêu cầu này',
+          );
+        }
+      } else {
         throw new ForbiddenException(
           'Bạn không có quyền xem báo giá của yêu cầu này',
         );
@@ -232,22 +248,25 @@ export class TimelineService {
       );
     }
 
-    // Check customer authorization
+    // Check authorization: fail-closed
     if (!user.isAdmin) {
-      if (user.isCustomer && flow.customerId && flow.customerId !== user.userId) {
-        throw new ForbiddenException(
-          'Bạn không có quyền xem tiến trình của đơn hàng này',
-        );
-      }
-
-      if (user.isWorker && !user.isCustomer) {
+      if (user.isCustomer) {
+        if (!flow.customerId || flow.customerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền xem tiến trình của đơn hàng này',
+          );
+        }
+      } else if (user.isWorker) {
+        // Worker must specifically be assigned to this order (not just any past proposal in the flow)
         const orderParticipation = await this.prisma.trackingEvent.findFirst({
           where: {
             trackingFlowId: flow.id,
-            entityType: { in: [TrackingEntityType.order, TrackingEntityType.booking_proposal] },
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
             OR: [
               { actorUserId: user.userId },
               { metadata: { path: ['workerId'], equals: user.userId } },
+              { metadata: { path: ['workerUserId'], equals: user.userId } },
             ],
           },
         });
@@ -257,14 +276,28 @@ export class TimelineService {
             'Thợ không có quyền xem đơn hàng này do không phải người thực hiện',
           );
         }
+      } else {
+        throw new ForbiddenException(
+          'Bạn không có quyền xem tiến trình của đơn hàng này',
+        );
       }
     }
 
     const where: Prisma.TrackingEventWhereInput = {
       trackingFlowId: flow.id,
-      entityType: {
-        in: [TrackingEntityType.order, TrackingEntityType.payment],
-      },
+      OR: [
+        {
+          entityType: TrackingEntityType.order,
+          entityId: orderId,
+        },
+        {
+          entityType: TrackingEntityType.payment,
+          OR: [
+            { entityId: orderId },
+            { metadata: { path: ['orderId'], equals: orderId } },
+          ],
+        },
+      ],
     };
 
     return this.queryPaginatedTimeline(where, query);

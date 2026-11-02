@@ -67,19 +67,20 @@ export class SummaryService {
       );
     }
 
-    // Role-based authorization
+    // Role-based authorization: fail-closed if ownership cannot be confirmed
     if (!user.isAdmin) {
-      if (user.isCustomer && flow.customerId && flow.customerId !== user.userId) {
-        throw new ForbiddenException(
-          'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
-        );
-      }
-
-      if (user.isWorker && !user.isCustomer) {
+      if (user.isCustomer) {
+        if (!flow.customerId || flow.customerId !== user.userId) {
+          throw new ForbiddenException(
+            'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
+          );
+        }
+      } else if (user.isWorker) {
         const hasParticipated = flow.events.some(
           (e) =>
             e.actorUserId === user.userId ||
-            (e.metadata as any)?.workerId === user.userId,
+            (e.metadata as any)?.workerId === user.userId ||
+            (e.metadata as any)?.workerUserId === user.userId,
         );
 
         if (!hasParticipated) {
@@ -87,6 +88,10 @@ export class SummaryService {
             'Thợ không có quyền xem thông tin tổng hợp của yêu cầu này do chưa tham gia',
           );
         }
+      } else {
+        throw new ForbiddenException(
+          'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
+        );
       }
     }
 
@@ -231,16 +236,33 @@ export class SummaryService {
       .find((e) => e.entityType === TrackingEntityType.order);
 
     if (orderCreatedEvent || flow.orderId) {
-      const orderCancelled = events.find((e) => e.eventType === 'order.cancelled');
-      const orderCompleted = events.find((e) => e.eventType === 'order.completed');
+      const orderCancelled = [...events]
+        .reverse()
+        .find((e) => e.eventType === 'order.cancelled');
+      const orderCompleted = [...events]
+        .reverse()
+        .find((e) => e.eventType === 'order.completed');
+
+      let orderStatus = 'created';
+      if (latestOrderEvent) {
+        if (latestOrderEvent.eventType === 'order.cancelled') {
+          orderStatus = 'cancelled';
+        } else if (latestOrderEvent.eventType === 'order.completed') {
+          orderStatus = 'completed';
+        } else if (latestOrderEvent.toStatus) {
+          orderStatus = latestOrderEvent.toStatus;
+        } else if (latestOrderEvent.eventType === 'order.started') {
+          orderStatus = 'in_progress';
+        } else if (latestOrderEvent.eventType === 'order.accepted') {
+          orderStatus = 'confirmed';
+        } else {
+          orderStatus = latestOrderEvent.eventType.replace('order.', '');
+        }
+      }
 
       orderMilestone = {
         orderId: flow.orderId || orderCreatedEvent?.entityId,
-        status: orderCancelled
-          ? 'cancelled'
-          : orderCompleted
-            ? 'completed'
-            : latestOrderEvent?.toStatus || 'created',
+        status: orderStatus,
         createdAt: orderCreatedEvent?.occurredAt || flow.updatedAt,
         completedAt: orderCompleted?.occurredAt,
         cancelledAt: orderCancelled?.occurredAt,
@@ -327,14 +349,28 @@ export class SummaryService {
     if (req.status === 'expired') {
       return 'EXPIRED';
     }
-    if (order?.status === 'completed' && payment?.status === 'succeeded') {
+    if (order?.status === 'disputed') {
+      return 'DISPUTED';
+    }
+    if (
+      order?.status === 'completed' &&
+      (payment?.status === 'succeeded' ||
+        payment?.status === 'completed' ||
+        payment?.status === 'paid')
+    ) {
       return 'COMPLETED';
     }
     if (order?.status === 'completed') {
+      return 'COMPLETED';
+    }
+    if (order?.status === 'awaiting_customer_confirmation') {
       return 'AWAITING_CONFIRMATION';
     }
     if (order?.status === 'in_progress') {
       return 'ORDER_IN_PROGRESS';
+    }
+    if (order?.status === 'confirmed') {
+      return 'ORDER_CONFIRMED';
     }
     if (order?.orderId) {
       return 'ORDER_CREATED';

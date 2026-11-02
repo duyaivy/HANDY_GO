@@ -99,6 +99,57 @@ describe('TimelineService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('should throw ForbiddenException if flow has null customerId (fail-closed)', async () => {
+      const intruderCustomerId = randomUUID();
+      const serviceRequestId = randomUUID();
+
+      const user: GatewayUser = {
+        userId: intruderCustomerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId: null,
+      });
+
+      await expect(
+        service.getRequestTimeline(serviceRequestId, {}, user),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException if worker previously submitted booking_proposal but is not assigned to order', async () => {
+      const workerId = randomUUID();
+      const orderId = randomUUID();
+      const flowId = randomUUID();
+
+      const user: GatewayUser = {
+        userId: workerId,
+        roles: ['Worker'],
+        isAdmin: false,
+        isCustomer: false,
+        isWorker: true,
+      };
+
+      prismaMock.trackingFlow.findFirst.mockResolvedValue({
+        id: flowId,
+        serviceRequestId: randomUUID(),
+        orderId,
+        customerId: randomUUID(),
+      });
+
+      // Worker is NOT found among order events for this orderId
+      prismaMock.trackingEvent.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getOrderTimeline(orderId, {}, user),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
     it('should filter out competitor worker bids when a participating worker queries the timeline', async () => {
       const workerId = randomUUID();
       const serviceRequestId = randomUUID();

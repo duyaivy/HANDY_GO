@@ -70,6 +70,28 @@ export class ServiceRequestsService {
         },
       });
 
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
+          aggregateId: created.id,
+          eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_CREATED,
+          eventVersion: 1,
+          payload: {
+            serviceRequestId: created.id,
+            requestId: created.id,
+            requestCode: created.requestCode,
+            customerUserId: created.customerUserId,
+            customerId: created.customerUserId,
+            serviceId: created.serviceId,
+            description: created.description,
+            status: created.status,
+            createdAt:
+              created.createdAt?.toISOString?.() ?? new Date().toISOString(),
+          },
+        },
+        tx,
+      );
+
       this.logger.log(
         `Created draft service request: ${created.id} (${created.requestCode}) for user ${userId}`,
       );
