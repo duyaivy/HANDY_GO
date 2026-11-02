@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   X,
   Copy,
@@ -154,6 +154,13 @@ const formatJobStatus = (value: unknown): string => {
   return displayValue(value);
 };
 
+const getFocusableElements = (container: HTMLElement | null) =>
+  Array.from(
+    container?.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? [],
+  ).filter((element) => element.getClientRects().length > 0);
+
 const displayValue = (value: unknown): string => {
   if (value === null || value === undefined || value === "") return "-";
   if (typeof value === "boolean") return value ? "Có" : "Không";
@@ -195,7 +202,7 @@ const CollapsibleSection = ({
   </details>
 );
 
-export const KycDetailModal: React.FC<KycDetailModalProps> = ({
+const KycDetailModalContent: React.FC<KycDetailModalProps> = ({
   isOpen,
   record,
   onClose,
@@ -211,11 +218,20 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
   const [rejectReason, setRejectReason] = useState("");
   const [rejectError, setRejectError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState("");
   const [previewImage, setPreviewImage] = useState<{
     url: string | null;
     title: string;
   } | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const approveDialogRef = useRef<HTMLDivElement>(null);
+  const rejectDialogRef = useRef<HTMLDivElement>(null);
+  const previewDialogRef = useRef<HTMLDivElement>(null);
+  const approveTriggerRef = useRef<HTMLButtonElement>(null);
+  const rejectTriggerRef = useRef<HTMLButtonElement>(null);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const {
     data: detailRecord,
@@ -224,6 +240,124 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
     isFetching: isDetailFetching,
     refetch: refetchDetail,
   } = useKycDetailQuery(isOpen ? record?.id : undefined);
+
+  // Focus của modal chính: lưu phần tử đã mở modal và trả lại khi đóng.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    returnFocusRef.current = previousFocus;
+    modalRef.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    return () => {
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [isOpen]);
+
+  // Chỉ quản lý focus của cửa sổ đang mở, không làm ảnh hưởng các cửa sổ khác.
+  useEffect(() => {
+    if (!isApproveOpen) return;
+    approveDialogRef.current
+      ?.querySelector<HTMLElement>("[data-autofocus]")
+      ?.focus();
+    return () => {
+      if (approveTriggerRef.current?.isConnected)
+        approveTriggerRef.current.focus();
+      approveTriggerRef.current = null;
+    };
+  }, [isApproveOpen]);
+
+  useEffect(() => {
+    if (!isRejectOpen) return;
+    rejectDialogRef.current
+      ?.querySelector<HTMLElement>("[data-autofocus]")
+      ?.focus();
+    return () => {
+      if (rejectTriggerRef.current?.isConnected)
+        rejectTriggerRef.current.focus();
+      rejectTriggerRef.current = null;
+    };
+  }, [isRejectOpen]);
+
+  useEffect(() => {
+    if (!previewImage) return;
+    previewDialogRef.current
+      ?.querySelector<HTMLElement>("[data-autofocus]")
+      ?.focus();
+    return () => {
+      if (previewTriggerRef.current?.isConnected)
+        previewTriggerRef.current.focus();
+      previewTriggerRef.current = null;
+    };
+  }, [previewImage]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleDialogKeyDown = (event: KeyboardEvent) => {
+      const activeDialog = previewImage
+        ? previewDialogRef.current
+        : isRejectOpen
+          ? rejectDialogRef.current
+          : isApproveOpen
+            ? approveDialogRef.current
+            : modalRef.current;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (isSubmitting) return;
+        if (previewImage) {
+          setPreviewImage(null);
+        } else if (isRejectOpen) {
+          setIsRejectOpen(false);
+          setRejectReason("");
+          setRejectError("");
+          setSubmitError("");
+        } else if (isApproveOpen) {
+          setIsApproveOpen(false);
+          setApproveNote("");
+          setSubmitError("");
+        } else {
+          onClose();
+        }
+        return;
+      }
+
+      if (event.key !== "Tab" || !activeDialog) return;
+
+      const focusableElements = getFocusableElements(activeDialog);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        activeDialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      } else if (!activeDialog.contains(document.activeElement)) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleDialogKeyDown);
+    return () => document.removeEventListener("keydown", handleDialogKeyDown);
+  }, [
+    isOpen,
+    isApproveOpen,
+    isRejectOpen,
+    isSubmitting,
+    previewImage,
+    onClose,
+  ]);
 
   if (!isOpen || !record) return null;
 
@@ -265,7 +399,8 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
   };
 
   const handleApproveConfirm = async () => {
-    if (!canReview || isSubmitting) return;
+    if (!canReview || submittingRef.current) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError("");
     try {
@@ -279,20 +414,23 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
           : "Phê duyệt thất bại. Vui lòng thử lại.",
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleRejectConfirm = async () => {
-    if (!canReview || isSubmitting) return;
-    if (!rejectReason.trim()) {
+    if (!canReview || submittingRef.current) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
       setRejectError("Vui lòng nhập lý do từ chối hồ sơ này");
       return;
     }
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError("");
     try {
-      await onReject(kyc.id, rejectReason.trim());
+      await onReject(kyc.id, reason);
       setIsRejectOpen(false);
       setRejectReason("");
       setRejectError("");
@@ -303,6 +441,7 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
           : "Từ chối thất bại. Vui lòng thử lại.",
       );
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -328,6 +467,9 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
         className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150 font-['Inter',sans-serif] text-[#0F172A]"
         role="dialog"
         aria-modal="true"
+        aria-labelledby="kyc-detail-title"
+        tabIndex={-1}
+        ref={modalRef}
       >
         {/* Modal Container: Max 760px, calc(100vw - 32px), Max 92dvh */}
         <div className="flex max-h-[92dvh] w-[calc(100vw-32px)] max-w-[760px] flex-col gap-0 overflow-hidden rounded-2xl bg-white shadow-2xl border border-slate-100">
@@ -335,13 +477,17 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
           {/* 1. HEADER: Tiêu đề 20px, nút X ở góc phải, đường phân cách mảnh */}
           {/* ========================================================================= */}
           <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-white shrink-0">
-            <h2 className="text-[19px] sm:text-[20px] font-bold text-[#0F172A] tracking-tight leading-tight">
+            <h2
+              id="kyc-detail-title"
+              className="text-[19px] sm:text-[20px] font-bold text-[#0F172A] tracking-tight leading-tight"
+            >
               Chi tiết hồ sơ xác minh KYC
             </h2>
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
+              data-autofocus
               className="p-1.5 rounded-lg text-slate-400 hover:text-[#0F172A] hover:bg-slate-100 transition-colors cursor-pointer"
               aria-label="Đóng modal"
             >
@@ -459,8 +605,13 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                         ] as const
                       ).map(([label, url]) => {
                         const title = `${label} - ${workerName}`;
-                        const openPreview = () =>
-                          url && setPreviewImage({ url, title });
+                        const openPreview = (
+                          event: React.MouseEvent<HTMLButtonElement>,
+                        ) => {
+                          if (!url) return;
+                          previewTriggerRef.current = event.currentTarget;
+                          setPreviewImage({ url, title });
+                        };
                         return (
                           <div
                             key={label}
@@ -1050,6 +1201,10 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                   type="button"
                   onClick={() => {
                     setSubmitError("");
+                    rejectTriggerRef.current =
+                      document.activeElement instanceof HTMLButtonElement
+                        ? document.activeElement
+                        : null;
                     setIsRejectOpen(true);
                   }}
                   className="inline-flex h-9 min-w-[96px] cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-medium text-slate-700 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300"
@@ -1061,6 +1216,10 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                   type="button"
                   onClick={() => {
                     setSubmitError("");
+                    approveTriggerRef.current =
+                      document.activeElement instanceof HTMLButtonElement
+                        ? document.activeElement
+                        : null;
                     setIsApproveOpen(true);
                   }}
                   className="inline-flex h-9 min-w-[108px] cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3.5 text-[13px] font-medium text-white transition-colors hover:bg-[#E6530F] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
@@ -1087,15 +1246,29 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
       {/* DIALOG XÁC NHẬN PHÊ DUYỆT */}
       {isApproveOpen && (
         <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div
+            ref={approveDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kyc-approve-title"
+            aria-describedby="kyc-approve-description"
+            tabIndex={-1}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4"
+          >
             <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-[18px] font-semibold text-[#0F172A]">
+              <h3
+                id="kyc-approve-title"
+                className="text-[18px] font-semibold text-[#0F172A]"
+              >
                 Xác nhận phê duyệt hồ sơ
               </h3>
-              <p className="text-[14px] text-[#64748B] mt-1 leading-relaxed">
+              <p
+                id="kyc-approve-description"
+                className="text-[14px] text-[#64748B] mt-1 leading-relaxed"
+              >
                 Bạn có chắc chắn muốn phê duyệt hồ sơ xác minh KYC của thợ{" "}
                 <strong className="text-[#0F172A]">{workerName}</strong> (mã hồ
                 sơ {kyc.id}) không?
@@ -1112,6 +1285,7 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
                 id="kyc-approve-note"
                 value={approveNote}
                 disabled={isSubmitting}
+                data-autofocus
                 onChange={(e) => setApproveNote(e.target.value)}
                 maxLength={1000}
                 rows={3}
@@ -1152,15 +1326,29 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
       {/* DIALOG NHẬP LÝ DO TỪ CHỐI */}
       {isRejectOpen && (
         <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+          <div
+            ref={rejectDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kyc-reject-title"
+            aria-describedby="kyc-reject-description"
+            tabIndex={-1}
+            className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4"
+          >
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center">
               <AlertCircle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-[18px] font-semibold text-[#0F172A]">
+              <h3
+                id="kyc-reject-title"
+                className="text-[18px] font-semibold text-[#0F172A]"
+              >
                 Từ chối hồ sơ xác minh
               </h3>
-              <p className="text-[14px] text-[#64748B] mt-1 leading-relaxed">
+              <p
+                id="kyc-reject-description"
+                className="text-[14px] text-[#64748B] mt-1 leading-relaxed"
+              >
                 Vui lòng nhập lý do từ chối hồ sơ của thợ{" "}
                 <strong className="text-[#0F172A]">{workerName}</strong>. Lý do
                 này là bắt buộc.
@@ -1168,9 +1356,17 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
             </div>
 
             <div>
+              <label
+                htmlFor="kyc-reject-reason"
+                className="mb-2 block text-[13px] font-medium text-[#0F172A]"
+              >
+                Lý do từ chối
+              </label>
               <textarea
+                id="kyc-reject-reason"
                 value={rejectReason}
                 disabled={isSubmitting}
+                data-autofocus
                 onChange={(e) => {
                   setRejectReason(e.target.value);
                   if (rejectError) setRejectError("");
@@ -1242,16 +1438,26 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
           onClick={() => setPreviewImage(null)}
         >
           <div
+            ref={previewDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kyc-image-preview-title"
+            tabIndex={-1}
             className="relative max-w-4xl max-h-[90vh] bg-slate-900 rounded-2xl overflow-hidden p-2 flex flex-col items-center"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="w-full flex items-center justify-between px-3 py-2 text-white border-b border-slate-800">
-              <span className="text-[14px] font-medium">
+              <span
+                id="kyc-image-preview-title"
+                className="text-[14px] font-medium"
+              >
                 {previewImage.title}
               </span>
               <button
                 type="button"
                 onClick={() => setPreviewImage(null)}
+                data-autofocus
+                aria-label="Đóng ảnh xem trước"
                 className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1269,6 +1475,12 @@ export const KycDetailModal: React.FC<KycDetailModalProps> = ({
       )}
     </>
   );
+};
+
+// Remount theo ID để không giữ ghi chú, lỗi hoặc trạng thái của hồ sơ trước.
+export const KycDetailModal: React.FC<KycDetailModalProps> = (props) => {
+  if (!props.isOpen || !props.record) return null;
+  return <KycDetailModalContent key={props.record.id} {...props} />;
 };
 
 export default KycDetailModal;
