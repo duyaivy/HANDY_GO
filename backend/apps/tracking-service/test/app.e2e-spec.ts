@@ -8,7 +8,6 @@ import { TrackingServiceModule } from '../src/tracking-service.module.js';
 import { PrismaService } from '../src/common/prisma/prisma.service.js';
 import { TrackingEventsService } from '../src/events/tracking-events.service.js';
 import { TrackingEventsConsumer } from '../src/events/tracking-events.consumer.js';
-import { TrackingEntityType } from '@prisma/tracking-client';
 import { ConfigService } from '@app/config';
 
 describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
