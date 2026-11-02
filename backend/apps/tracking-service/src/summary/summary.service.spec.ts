@@ -494,6 +494,42 @@ describe('SummaryService', () => {
       const disputedSummary = await service.getRequestSummary(serviceRequestId, user);
       expect(disputedSummary.currentPhase).toBe('DISPUTED');
       expect(disputedSummary.order?.status).toBe('disputed');
+
+      // 3. Order status changed with exact Order Service payload { previousStatus, nextStatus }
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(),
+            fromStatus: 'confirmed',
+            toStatus: 'in_progress',
+            metadata: {
+              previousStatus: 'confirmed',
+              nextStatus: 'in_progress',
+              orderId,
+            },
+          },
+        ],
+      });
+
+      const nextStatusSummary = await service.getRequestSummary(serviceRequestId, user);
+      expect(nextStatusSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(nextStatusSummary.order?.status).toBe('in_progress');
     });
   });
 });

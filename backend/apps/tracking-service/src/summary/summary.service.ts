@@ -256,12 +256,20 @@ export class SummaryService {
 
       let orderStatus = 'created';
       if (latestOrderEvent) {
+        const meta = latestOrderEvent.metadata as any;
+        const targetStatus =
+          latestOrderEvent.toStatus ||
+          meta?.nextStatus ||
+          meta?.toStatus ||
+          meta?.newStatus ||
+          meta?.status;
+
         if (latestOrderEvent.eventType === 'order.cancelled') {
           orderStatus = 'cancelled';
         } else if (latestOrderEvent.eventType === 'order.completed') {
           orderStatus = 'completed';
-        } else if (latestOrderEvent.toStatus) {
-          orderStatus = latestOrderEvent.toStatus;
+        } else if (targetStatus) {
+          orderStatus = targetStatus;
         } else if (latestOrderEvent.eventType === 'order.started') {
           orderStatus = 'in_progress';
         } else if (latestOrderEvent.eventType === 'order.accepted') {
