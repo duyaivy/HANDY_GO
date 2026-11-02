@@ -8,7 +8,7 @@ import {
   type OnModuleInit,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { Observable, Subject, interval, merge, of } from 'rxjs';
+import { Observable, Subject, interval, merge, of, from, concat } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
 import { TrackingEntityType } from '@prisma/tracking-client';
 import { RedisService } from '@app/redis';
@@ -99,6 +99,7 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
   async getLiveStream(
     serviceRequestId: string,
     user: GatewayUser,
+    lastEventId?: string,
   ): Promise<Observable<MessageEvent>> {
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
@@ -147,7 +148,78 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    // 2. Keep-alive heartbeat ping every 25 seconds
+    // 2. Re-synchronization on reconnect if lastEventId is provided
+    let missedEvents$: Observable<MessageEvent> = of();
+    if (lastEventId) {
+      const baseEvent = await this.prisma.trackingEvent.findFirst({
+        where: {
+          trackingFlowId: flow.id,
+          OR: [{ id: lastEventId }, { eventId: lastEventId }],
+        },
+      });
+
+      if (baseEvent) {
+        const missedDbEvents = await this.prisma.trackingEvent.findMany({
+          where: {
+            trackingFlowId: flow.id,
+            occurredAt: { gt: baseEvent.occurredAt },
+          },
+          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+        });
+
+        const filteredMissed = missedDbEvents.filter((evt) => {
+          if (user.isWorker && !user.isAdmin) {
+            if (evt.entityType === TrackingEntityType.bid) {
+              const isMyBid =
+                evt.actorUserId === user.userId ||
+                (evt.metadata as any)?.workerId === user.userId ||
+                (evt.metadata as any)?.workerUserId === user.userId;
+              return Boolean(isMyBid);
+            }
+            if (evt.entityType === TrackingEntityType.booking_proposal) {
+              const isMyProposal =
+                evt.actorUserId === user.userId ||
+                (evt.metadata as any)?.workerId === user.userId ||
+                (evt.metadata as any)?.workerUserId === user.userId;
+              return Boolean(isMyProposal);
+            }
+          }
+          return true;
+        });
+
+        if (filteredMissed.length > 0) {
+          missedEvents$ = from(
+            filteredMissed.map(
+              (evt): MessageEvent => ({
+                id: evt.id,
+                type: 'timeline_event',
+                data: {
+                  type: 'timeline_event',
+                  payload: {
+                    serviceRequestId,
+                    id: evt.id,
+                    eventId: evt.eventId,
+                    entityType: evt.entityType,
+                    entityId: evt.entityId,
+                    eventType: evt.eventType,
+                    sourceService: evt.sourceService,
+                    fromStatus: evt.fromStatus,
+                    toStatus: evt.toStatus,
+                    actorUserId: evt.actorUserId,
+                    reason: evt.reason,
+                    metadata: evt.metadata as Record<string, any> | null,
+                    occurredAt: evt.occurredAt,
+                    recordedAt: evt.recordedAt,
+                  },
+                },
+              }),
+            ),
+          );
+        }
+      }
+    }
+
+    // 3. Keep-alive heartbeat ping every 25 seconds
     const heartbeat$ = interval(25000).pipe(
       map((): MessageEvent => ({
         data: {
@@ -157,7 +229,7 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       })),
     );
 
-    // 3. Filtered event stream with bid shielding
+    // 4. Filtered live event stream with bid shielding
     const events$ = this.eventSubject.asObservable().pipe(
       filter((evt) => evt.serviceRequestId === serviceRequestId),
       filter((evt) => {
@@ -166,19 +238,23 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
           if (evt.entityType === TrackingEntityType.bid) {
             const isMyBid =
               evt.actorUserId === user.userId ||
-              (evt.metadata as any)?.workerId === user.userId;
+              (evt.metadata as any)?.workerId === user.userId ||
+              (evt.metadata as any)?.workerUserId === user.userId;
             return Boolean(isMyBid);
           }
           if (evt.entityType === TrackingEntityType.booking_proposal) {
             const isMyProposal =
               evt.actorUserId === user.userId ||
-              (evt.metadata as any)?.workerId === user.userId;
+              (evt.metadata as any)?.workerId === user.userId ||
+              (evt.metadata as any)?.workerUserId === user.userId;
             return Boolean(isMyProposal);
           }
         }
         return true;
       }),
       map((evt): MessageEvent => ({
+        id: evt.id,
+        type: 'timeline_event',
         data: {
           type: 'timeline_event',
           payload: evt,
@@ -186,6 +262,6 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       })),
     );
 
-    return merge(initial$, heartbeat$, events$);
+    return merge(concat(initial$, missedEvents$), heartbeat$, events$);
   }
 }

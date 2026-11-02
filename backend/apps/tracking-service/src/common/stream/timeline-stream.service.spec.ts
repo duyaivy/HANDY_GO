@@ -18,6 +18,7 @@ describe('TimelineStreamService', () => {
       },
       trackingEvent: {
         findFirst: vi.fn(),
+        findMany: vi.fn(),
       },
     };
 
@@ -201,6 +202,66 @@ describe('TimelineStreamService', () => {
       expect((messages[0].data as any).type).toBe('connected');
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.actorUserId).toBe(workerId);
+    });
+
+    it('should replay missed events on reconnect when lastEventId is provided', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const lastEventId = randomUUID();
+      const flowId = randomUUID();
+      const baseTime = new Date('2026-11-01T10:00:00Z');
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      // Mock finding base event
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({
+        id: lastEventId,
+        occurredAt: baseTime,
+      });
+
+      // Mock finding missed events occurred after baseTime
+      const missedEventId = randomUUID();
+      prismaMock.trackingEvent.findMany.mockResolvedValue([
+        {
+          id: missedEventId,
+          eventId: randomUUID(),
+          trackingFlowId: flowId,
+          entityType: TrackingEntityType.order,
+          entityId: randomUUID(),
+          eventType: 'order.in_progress',
+          sourceService: 'order-service',
+          fromStatus: 'confirmed',
+          toStatus: 'in_progress',
+          actorUserId: randomUUID(),
+          reason: null,
+          metadata: {},
+          occurredAt: new Date('2026-11-01T10:05:00Z'),
+          recordedAt: new Date('2026-11-01T10:05:01Z'),
+        },
+      ]);
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user, lastEventId);
+
+      // Collect initial connected + 1 replayed missed event
+      const messages = await firstValueFrom(stream$.pipe(take(2), toArray()));
+
+      expect(messages).toHaveLength(2);
+      expect((messages[0].data as any).type).toBe('connected');
+      expect(messages[1].id).toBe(missedEventId);
+      expect((messages[1].data as any).type).toBe('timeline_event');
+      expect((messages[1].data as any).payload.eventType).toBe('order.in_progress');
     });
   });
 });

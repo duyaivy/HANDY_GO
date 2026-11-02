@@ -7,6 +7,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Headers,
   Sse,
   type MessageEvent,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import {
   ApiBearerAuth,
   ApiOperation,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -41,13 +43,19 @@ export class TimelineController {
   @ApiOperation({
     summary: 'Đăng ký dòng thời gian sự kiện theo thời gian thực (SSE Live Stream)',
     description:
-      'Mở kết nối Server-Sent Events (SSE) theo dõi sự kiện của Service Request theo thời gian thực. Tự động gửi heartbeat ping mỗi 25s, bảo vệ Bid Shielding cho thợ.',
+      'Mở kết nối Server-Sent Events (SSE) theo dõi sự kiện của Service Request theo thời gian thực. Hỗ trợ khôi phục sự kiện bị lỡ khi reconnect qua Last-Event-ID header hoặc query param lastEventId.',
   })
   @ApiParam({
     name: 'id',
     type: 'string',
     format: 'uuid',
     description: 'Service Request ID',
+  })
+  @ApiQuery({
+    name: 'lastEventId',
+    required: false,
+    type: 'string',
+    description: 'ID sự kiện cuối cùng nhận được trước khi mất kết nối',
   })
   @ApiResponse({
     status: 200,
@@ -58,8 +66,15 @@ export class TimelineController {
   async streamLiveTimeline(
     @Param('id', ParseUUIDPipe) serviceRequestId: string,
     @CurrentGatewayUser() user: GatewayUser,
+    @Headers('last-event-id') lastEventIdHeader?: string,
+    @Query('lastEventId') lastEventIdQuery?: string,
   ): Promise<Observable<MessageEvent>> {
-    return this.timelineStreamService.getLiveStream(serviceRequestId, user);
+    const lastEventId = lastEventIdHeader || lastEventIdQuery;
+    return this.timelineStreamService.getLiveStream(
+      serviceRequestId,
+      user,
+      lastEventId,
+    );
   }
 
   @Get('requests/:id/timeline')

@@ -169,8 +169,36 @@ describe('TimelineController', () => {
       expect(streamServiceMock.getLiveStream).toHaveBeenCalledWith(
         serviceRequestId,
         user,
+        undefined,
       );
       expect(result).toBe(mockObservable);
+    });
+
+    it('should forward last-event-id header to timelineStreamService on reconnect', async () => {
+      const serviceRequestId = randomUUID();
+      const lastEventId = randomUUID();
+      const user: GatewayUser = {
+        userId: randomUUID(),
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const mockObservable = of({ data: { type: 'connected' } });
+      streamServiceMock.getLiveStream.mockResolvedValue(mockObservable);
+
+      await controller.streamLiveTimeline(
+        serviceRequestId,
+        user,
+        lastEventId,
+      );
+
+      expect(streamServiceMock.getLiveStream).toHaveBeenCalledWith(
+        serviceRequestId,
+        user,
+        lastEventId,
+      );
     });
   });
 });
