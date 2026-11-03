@@ -1,0 +1,51 @@
+name: Deploy HANDY_GO Frontend to Vercel
+
+on:
+  push:
+    branches:
+      - release
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend-vercel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: handygo-frontend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Frontend (Production)
+    if: github.ref == 'refs/heads/release'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel production settings
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build frontend
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy frontend to production
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
