@@ -195,6 +195,11 @@ export class TrackingEventsService {
             ...(customerId ? { customerId } : {}),
           },
         });
+        const updatedFlow = await tx.trackingFlow.update({
+          where: { id: flow.id },
+          data: { eventSequence: { increment: 1 } },
+          select: { eventSequence: true },
+        });
 
         // Insert append-only timeline event
         createdRecord = await tx.trackingEvent.create({
@@ -213,6 +218,7 @@ export class TrackingEventsService {
             reason: reason ? String(reason) : null,
             metadata,
             occurredAt,
+            writeSequence: updatedFlow.eventSequence,
           },
         });
       });

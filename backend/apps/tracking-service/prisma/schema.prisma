@@ -26,6 +26,7 @@ model TrackingFlow {
   serviceRequestId String          @unique @map("service_request_id") @db.Uuid
   orderId          String?         @unique @map("order_id") @db.Uuid
   customerId       String?         @map("customer_id") @db.Uuid
+  eventSequence    Int             @default(0) @map("event_sequence")
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -52,9 +53,11 @@ model TrackingEvent {
   metadata         Json?
   occurredAt       DateTime           @map("occurred_at") @db.Timestamptz(6)
   recordedAt       DateTime           @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  writeSequence    Int                @map("write_sequence")
 
   trackingFlow     TrackingFlow       @relation(fields: [trackingFlowId], references: [id], onDelete: Cascade)
 
+  @@unique([trackingFlowId, writeSequence])
   @@index([trackingFlowId, occurredAt])
   @@index([entityType, entityId, occurredAt])
   @@index([occurredAt])

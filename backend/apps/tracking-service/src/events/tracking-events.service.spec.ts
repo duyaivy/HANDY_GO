@@ -18,6 +18,7 @@ describe('TrackingEventsService', () => {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         upsert: vi.fn(),
+        update: vi.fn().mockResolvedValue({ eventSequence: 1 }),
       },
       trackingEvent: {
         create: vi.fn(),
@@ -74,10 +75,11 @@ describe('TrackingEventsService', () => {
       const workerId = randomUUID();
       const bidId = randomUUID();
       const eventId = randomUUID();
+      const flowId = randomUUID();
 
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.upsert.mockResolvedValue({
-        id: randomUUID(),
+        id: flowId,
         serviceRequestId,
         orderId: null,
         customerId: null,
@@ -104,6 +106,11 @@ describe('TrackingEventsService', () => {
         },
         update: {},
       });
+      expect(prismaMock.trackingFlow.update).toHaveBeenCalledWith({
+        where: { id: flowId },
+        data: { eventSequence: { increment: 1 } },
+        select: { eventSequence: true },
+      });
       expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -111,6 +118,7 @@ describe('TrackingEventsService', () => {
             entityId: bidId,
             eventType: 'bid.submitted',
             sourceService: 'bidding-service',
+            writeSequence: 1,
           }),
         }),
       );

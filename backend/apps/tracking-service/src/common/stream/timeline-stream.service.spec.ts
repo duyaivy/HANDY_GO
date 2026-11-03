@@ -18,7 +18,7 @@ describe('TimelineStreamService', () => {
       },
       trackingEvent: {
         findFirst: vi.fn(),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
     };
 
@@ -139,6 +139,72 @@ describe('TimelineStreamService', () => {
       expect((messages[0].data as any).serviceRequestId).toBe(serviceRequestId);
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('order.in_progress');
+    });
+
+    it('should deliver concurrently published events in database write order', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const flowId = randomUUID();
+      const firstEvent = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 1,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.created',
+        sourceService: 'order-service',
+        fromStatus: null,
+        toStatus: null,
+        actorUserId: null,
+        reason: null,
+        metadata: {},
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+      const secondEvent = {
+        ...firstEvent,
+        id: randomUUID(),
+        eventId: randomUUID(),
+        writeSequence: 2,
+        eventType: 'order.in_progress',
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+      prismaMock.trackingEvent.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([firstEvent, secondEvent]);
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((message) => messages.push(message));
+
+      service.broadcastEvent({
+        serviceRequestId,
+        ...secondEvent,
+      });
+      service.broadcastEvent({
+        serviceRequestId,
+        ...firstEvent,
+      });
+
+      await vi.waitFor(() => expect(messages).toHaveLength(3));
+      expect(messages.slice(1).map((message) => message.id)).toEqual([
+        firstEvent.id,
+        secondEvent.id,
+      ]);
+      subscription.unsubscribe();
     });
 
     it('should shield competitor bids from worker stream', async () => {
@@ -346,29 +412,42 @@ describe('TimelineStreamService', () => {
       // Mock finding base event
       prismaMock.trackingEvent.findFirst.mockResolvedValue({
         id: lastEventId,
-        occurredAt: baseTime,
+        writeSequence: 4,
+        recordedAt: baseTime,
       });
 
-      // Mock finding missed events occurred after baseTime
+      // Mock a late-arriving event with an earlier business timestamp.
       const missedEventId = randomUUID();
-      prismaMock.trackingEvent.findMany.mockResolvedValue([
-        {
-          id: missedEventId,
-          eventId: randomUUID(),
+      const missedEvent = {
+        id: missedEventId,
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 5,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        fromStatus: 'confirmed',
+        toStatus: 'in_progress',
+        actorUserId: randomUUID(),
+        reason: null,
+        metadata: {},
+        occurredAt: new Date('2026-11-01T09:55:00Z'),
+        recordedAt: new Date('2026-11-01T10:05:01Z'),
+      };
+      prismaMock.trackingEvent.findMany.mockImplementationOnce(async (query) => {
+        expect(query.where).toEqual({
           trackingFlowId: flowId,
-          entityType: TrackingEntityType.order,
-          entityId: randomUUID(),
-          eventType: 'order.in_progress',
-          sourceService: 'order-service',
-          fromStatus: 'confirmed',
-          toStatus: 'in_progress',
-          actorUserId: randomUUID(),
-          reason: null,
-          metadata: {},
-          occurredAt: new Date('2026-11-01T10:05:00Z'),
-          recordedAt: new Date('2026-11-01T10:05:01Z'),
-        },
-      ]);
+          writeSequence: { gt: 4 },
+        });
+        expect(query.orderBy).toEqual({ writeSequence: 'asc' });
+
+        service.broadcastEvent({
+          serviceRequestId,
+          ...missedEvent,
+        });
+        return [missedEvent];
+      });
 
       const user: GatewayUser = {
         userId: customerId,
@@ -379,15 +458,16 @@ describe('TimelineStreamService', () => {
       };
 
       const stream$ = await service.getLiveStream(serviceRequestId, user, lastEventId);
-
-      // Collect initial connected + 1 replayed missed event
-      const messages = await firstValueFrom(stream$.pipe(take(2), toArray()));
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((message) => messages.push(message));
 
       expect(messages).toHaveLength(2);
       expect((messages[0].data as any).type).toBe('connected');
       expect(messages[1].id).toBe(missedEventId);
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('order.in_progress');
+      expect(messages.filter((message) => message.id === missedEventId)).toHaveLength(1);
+      subscription.unsubscribe();
     });
   });
 });

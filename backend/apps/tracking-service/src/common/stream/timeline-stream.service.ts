@@ -8,9 +8,18 @@ import {
   type OnModuleInit,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { Observable, Subject, interval, merge, of, from, concat } from 'rxjs';
+import {
+  Observable,
+  Subject,
+  interval,
+  merge,
+  type Subscriber,
+} from 'rxjs';
 import { filter, map } from 'rxjs/operators';
-import { TrackingEntityType } from '@prisma/tracking-client';
+import {
+  TrackingEntityType,
+  type TrackingEvent,
+} from '@prisma/tracking-client';
 import { RedisService } from '@app/redis';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { GatewayUser } from '../security/tracking-security.util.js';
@@ -30,6 +39,7 @@ export interface LiveTimelineEvent {
   metadata?: Record<string, any> | null;
   occurredAt: Date;
   recordedAt: Date;
+  writeSequence?: number;
 }
 
 @Injectable()
@@ -195,72 +205,215 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       return true;
     };
 
-    // 1. Initial connection message
-    const initial$ = of<MessageEvent>({
+    const initialEvent: MessageEvent = {
       data: {
         type: 'connected',
         serviceRequestId,
         message: 'Đã kết nối theo dõi thời gian thực (SSE Live Stream)',
         timestamp: new Date().toISOString(),
       },
+    };
+
+    const toMessageEvent = (evt: LiveTimelineEvent): MessageEvent => ({
+      id: evt.id,
+      type: 'timeline_event',
+      data: {
+        type: 'timeline_event',
+        payload: evt,
+      },
     });
 
-    // 2. Re-synchronization on reconnect if lastEventId is provided
-    let missedEvents$: Observable<MessageEvent> = of();
-    if (lastEventId) {
-      const baseEvent = await this.prisma.trackingEvent.findFirst({
-        where: {
-          trackingFlowId: flow.id,
-          OR: [{ id: lastEventId }, { eventId: lastEventId }],
-        },
+    const missedEvents: MessageEvent[] = [];
+    const bufferedLiveEvents: LiveTimelineEvent[] = [];
+    let bufferingLiveEvents = true;
+    let streamSubscriber: Subscriber<MessageEvent> | undefined;
+    let lastDeliveredSequence = 0;
+    let drainingLiveEvents = false;
+
+    if (!lastEventId) {
+      const latestEvent = await this.prisma.trackingEvent.findFirst({
+        where: { trackingFlowId: flow.id },
+        orderBy: { writeSequence: 'desc' },
+        select: { writeSequence: true },
+      });
+      lastDeliveredSequence = latestEvent?.writeSequence ?? 0;
+    }
+
+    const appendReplayEvents = (events: TrackingEvent[]): void => {
+      for (const evt of events) {
+        lastDeliveredSequence = evt.writeSequence;
+        if (!isEventAllowedForWorker(evt)) {
+          continue;
+        }
+        missedEvents.push({
+          id: evt.id,
+          type: 'timeline_event',
+          data: {
+            type: 'timeline_event',
+            payload: {
+              serviceRequestId,
+              id: evt.id,
+              eventId: evt.eventId,
+              entityType: evt.entityType,
+              entityId: evt.entityId,
+              eventType: evt.eventType,
+              sourceService: evt.sourceService,
+              fromStatus: evt.fromStatus,
+              toStatus: evt.toStatus,
+              actorUserId: evt.actorUserId,
+              reason: evt.reason,
+              metadata: evt.metadata as Record<string, any> | null,
+              occurredAt: evt.occurredAt,
+              recordedAt: evt.recordedAt,
+            },
+          },
+        });
+      }
+    };
+
+    const drainLiveEvents = async (): Promise<void> => {
+      if (bufferingLiveEvents || drainingLiveEvents || !streamSubscriber) {
+        return;
+      }
+
+      drainingLiveEvents = true;
+      try {
+        while (bufferedLiveEvents.length > 0 && streamSubscriber && !streamSubscriber.closed) {
+          const pendingSignals = bufferedLiveEvents.splice(0);
+          for (const event of pendingSignals) {
+            if (
+              event.writeSequence === undefined &&
+              isEventAllowedForWorker(event)
+            ) {
+              streamSubscriber.next(toMessageEvent(event));
+            }
+          }
+
+          if (pendingSignals.some((event) => event.writeSequence !== undefined)) {
+            const committedEvents =
+              (await this.prisma.trackingEvent.findMany({
+                where: {
+                  trackingFlowId: flow.id,
+                  writeSequence: { gt: lastDeliveredSequence },
+                },
+                orderBy: { writeSequence: 'asc' },
+              })) ?? [];
+
+            for (const event of committedEvents) {
+              if (!streamSubscriber || streamSubscriber.closed) {
+                break;
+              }
+              lastDeliveredSequence = event.writeSequence;
+              if (isEventAllowedForWorker(event)) {
+                streamSubscriber.next(
+                  toMessageEvent({
+                    serviceRequestId,
+                    id: event.id,
+                    eventId: event.eventId,
+                    entityType: event.entityType,
+                    entityId: event.entityId,
+                    eventType: event.eventType,
+                    sourceService: event.sourceService,
+                    fromStatus: event.fromStatus,
+                    toStatus: event.toStatus,
+                    actorUserId: event.actorUserId,
+                    reason: event.reason,
+                    metadata: event.metadata as Record<string, any> | null,
+                    occurredAt: event.occurredAt,
+                    recordedAt: event.recordedAt,
+                    writeSequence: event.writeSequence,
+                  }),
+                );
+              }
+            }
+          }
+        }
+      } catch (error) {
+        bufferedLiveEvents.length = 0;
+        this.logger.error(
+          `Failed to replay live tracking events for ${serviceRequestId}: ${(error as Error).message}`,
+          (error as Error).stack,
+        );
+        streamSubscriber?.error(error);
+      } finally {
+        drainingLiveEvents = false;
+        if (bufferedLiveEvents.length > 0 && streamSubscriber && !streamSubscriber.closed) {
+          void drainLiveEvents();
+        }
+      }
+    };
+
+    const liveSubscription = this.eventSubject
+      .asObservable()
+      .pipe(filter((evt) => evt.serviceRequestId === serviceRequestId))
+      .subscribe((evt) => {
+        bufferedLiveEvents.push(evt);
+        void drainLiveEvents();
       });
 
-      if (baseEvent) {
-        const missedDbEvents = await this.prisma.trackingEvent.findMany({
+    if (lastEventId) {
+      try {
+        const baseEvent = await this.prisma.trackingEvent.findFirst({
           where: {
             trackingFlowId: flow.id,
-            occurredAt: { gt: baseEvent.occurredAt },
+            OR: [{ id: lastEventId }, { eventId: lastEventId }],
           },
-          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
         });
 
-        const filteredMissed = missedDbEvents.filter((evt) =>
-          isEventAllowedForWorker(evt),
-        );
+        if (baseEvent) {
+          lastDeliveredSequence = baseEvent.writeSequence;
+          const missedDbEvents = await this.prisma.trackingEvent.findMany({
+            where: {
+              trackingFlowId: flow.id,
+              writeSequence: { gt: baseEvent.writeSequence },
+            },
+            orderBy: { writeSequence: 'asc' },
+          });
 
-        if (filteredMissed.length > 0) {
-          missedEvents$ = from(
-            filteredMissed.map(
-              (evt): MessageEvent => ({
-                id: evt.id,
-                type: 'timeline_event',
-                data: {
-                  type: 'timeline_event',
-                  payload: {
-                    serviceRequestId,
-                    id: evt.id,
-                    eventId: evt.eventId,
-                    entityType: evt.entityType,
-                    entityId: evt.entityId,
-                    eventType: evt.eventType,
-                    sourceService: evt.sourceService,
-                    fromStatus: evt.fromStatus,
-                    toStatus: evt.toStatus,
-                    actorUserId: evt.actorUserId,
-                    reason: evt.reason,
-                    metadata: evt.metadata as Record<string, any> | null,
-                    occurredAt: evt.occurredAt,
-                    recordedAt: evt.recordedAt,
-                  },
-                },
-              }),
-            ),
-          );
+          appendReplayEvents(missedDbEvents);
+        } else {
+          const events = await this.prisma.trackingEvent.findMany({
+            where: { trackingFlowId: flow.id },
+            orderBy: { writeSequence: 'asc' },
+          });
+          appendReplayEvents(events);
         }
+      } catch (error) {
+        liveSubscription.unsubscribe();
+        throw error;
+      }
+    } else {
+      try {
+        const eventsDuringRegistration = await this.prisma.trackingEvent.findMany({
+          where: {
+            trackingFlowId: flow.id,
+            writeSequence: { gt: lastDeliveredSequence },
+          },
+          orderBy: { writeSequence: 'asc' },
+        });
+        appendReplayEvents(eventsDuringRegistration);
+      } catch (error) {
+        liveSubscription.unsubscribe();
+        throw error;
       }
     }
 
-    // 3. Keep-alive heartbeat ping every 25 seconds
+    const replayAndLive$ = new Observable<MessageEvent>((subscriber) => {
+      streamSubscriber = subscriber;
+      subscriber.next(initialEvent);
+      for (const event of missedEvents) {
+        subscriber.next(event);
+      }
+
+      bufferingLiveEvents = false;
+      void drainLiveEvents();
+
+      return () => {
+        streamSubscriber = undefined;
+        liveSubscription.unsubscribe();
+      };
+    });
+
     const heartbeat$ = interval(25000).pipe(
       map((): MessageEvent => ({
         data: {
@@ -270,20 +423,6 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       })),
     );
 
-    // 4. Filtered live event stream with bid and order shielding
-    const events$ = this.eventSubject.asObservable().pipe(
-      filter((evt) => evt.serviceRequestId === serviceRequestId),
-      filter((evt) => isEventAllowedForWorker(evt)),
-      map((evt): MessageEvent => ({
-        id: evt.id,
-        type: 'timeline_event',
-        data: {
-          type: 'timeline_event',
-          payload: evt,
-        },
-      })),
-    );
-
-    return merge(concat(initial$, missedEvents$), heartbeat$, events$);
+    return merge(replayAndLive$, heartbeat$);
   }
 }
