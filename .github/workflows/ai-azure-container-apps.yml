@@ -1,10 +1,11 @@
-name: AI Service Azure Container Apps CD
+name: AI Service Azure Container Apps CI/CD
 
 on:
   push:
     branches:
       - main
       - release
+      - feature/ai-azure-container-apps
     paths:
       - 'ai/**'
       - '.github/workflows/ai-azure-container-apps.yml'
@@ -16,7 +17,7 @@ on:
         default: false
 
 concurrency:
-  group: ai-azure-container-apps-cd
+  group: ai-azure-container-apps-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -24,13 +25,57 @@ permissions:
   packages: write
 
 jobs:
-  build-and-deploy:
-    name: Build Image & Deploy to Azure Container Apps
+  # ============================================================================
+  # 1. CI GATE: Syntax check & Unit tests
+  # Chặn các commit lỗi trước khi tốn thời gian build image Docker 3GB
+  # ============================================================================
+  test:
+    name: AI CI — Unit Tests & Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ai
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies (CPU PyTorch + requirements)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Compile bytecode (syntax check)
+        run: python -m compileall app tests
+
+      - name: Run unit tests with Pytest
+        env:
+          PYTHONPATH: .
+        run: python -m pytest tests -v
+
+  # ============================================================================
+  # 2. DOCKER BUILD & PUBLISH (GHCR)
+  # Đóng gói sẵn model weights vào Image và gắn thẻ Git SHA bất biến
+  # ============================================================================
+  build-and-publish:
+    name: Docker Build & Publish to GHCR
+    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     defaults:
       run:
         working-directory: ai
+    outputs:
+      image_tag_sha: ${{ steps.meta.outputs.image_tag_sha }}
+      image_tag_latest: ${{ steps.meta.outputs.image_tag_latest }}
 
     steps:
       - name: Checkout repository
@@ -46,50 +91,128 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Downcase Repo Owner for Docker Tag
+      - name: Compute image tags
+        id: meta
         run: |
-          echo "IMAGE_TAG=ghcr.io/${{ github.repository_owner }}/handygo-ai:latest" | tr '[:upper:]' '[:lower:]' >> $GITHUB_ENV
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="ghcr.io/$REPO_OWNER/handygo-ai"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          echo "image_tag_sha=$IMAGE_BASE:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
+          echo "IMAGE_BASE=$IMAGE_BASE" >> $GITHUB_ENV
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
 
-      - name: Build and Push Docker Image (Baking AI models)
+      - name: Build and Push Docker Image (Bake weights)
         uses: docker/build-push-action@v5
         with:
           context: ./ai
           file: ./ai/Dockerfile
           push: true
-          tags: ${{ env.IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: |
+            ${{ steps.meta.outputs.image_tag_sha }}
+            ${{ steps.meta.outputs.image_tag_latest }}
+          cache-from: type=gha,scope=ai-service
+          cache-to: type=gha,mode=max,scope=ai-service
 
-      - name: Log in to Azure
-        if: "${{ env.AZURE_CREDENTIALS != '' }}"
+  # ============================================================================
+  # 3. CD: DEPLOY TO AZURE CONTAINER APPS & SMOKE TEST
+  # Cập nhật revision mới lên Azure, cấu hình Scale-to-Zero và kiểm tra /health
+  # ============================================================================
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check Azure Credentials Secret
+        id: check_auth
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -n "$AZURE_CREDENTIALS" ]; then
+            echo "has_azure_creds=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_azure_creds=false" >> $GITHUB_OUTPUT
+            echo "::warning::Secret AZURE_CREDENTIALS chưa được thiết lập. Bước tự động deploy Azure sẽ được bỏ qua."
+          fi
+
+      - name: Log in to Azure
+        if: steps.check_auth.outputs.has_azure_creds == 'true'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy / Update Azure Container App
-        if: "${{ env.AZURE_CREDENTIALS != '' }}"
-        env:
-          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Configure GHCR Credentials in Azure Container App
+        if: steps.check_auth.outputs.has_azure_creds == 'true'
+        run: |
+          az containerapp registry set \
+            --name handygo-ai-service \
+            --resource-group rg-handygo \
+            --server ghcr.io \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Deploy Revision to Azure Container Apps
+        if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           az containerapp update \
             --name handygo-ai-service \
             --resource-group rg-handygo \
-            --image ${{ env.IMAGE_TAG }} \
+            --image "${{ needs.build-and-publish.outputs.image_tag_sha }}" \
             --cpu 2.0 \
             --memory 4.0Gi \
             --min-replicas 0 \
             --max-replicas 2 \
-            --set-env-vars "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }}" "DEBUG=false" "AI_SERVICE_PORT=8000"
+            --set-env-vars \
+              "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }}" \
+              "DEBUG=false" \
+              "AI_SERVICE_PORT=8000"
 
-      - name: Output Deployment Info
+      - name: Post-Deploy Smoke Test (/health)
+        if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
-          echo "## 🚀 AI Docker Image Built & Pushed to GHCR!" >> $GITHUB_STEP_SUMMARY
+          # 1. Lấy FQDN chính thức của service từ Azure
+          FQDN=$(az containerapp show --name handygo-ai-service --resource-group rg-handygo --query properties.configuration.ingress.fqdn -o tsv)
+          SERVICE_URL="https://$FQDN"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+          # 2. Smoke test: Thử gọi /health tối đa 5 lần (chờ container thức dậy)
+          echo "===> Đang kiểm tra sức khỏe tại $SERVICE_URL/health..."
+          PASSED=false
+          for i in {1..5}; do
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health" || echo "000")
+            if [ "$HTTP_STATUS" -eq 200 ]; then
+              echo "✅ Health check PASSED ở lần thử $i (HTTP 200)!"
+              PASSED=true
+              break
+            fi
+            echo "Lần thử $i: HTTP Status $HTTP_STATUS, chờ 5 giây..."
+            sleep 5
+          done
+
+          if [ "$PASSED" != "true" ]; then
+            echo "::error::Smoke test thất bại sau 5 lần thử. Kiểm tra logs container trên Azure Portal."
+            exit 1
+          fi
+
+      - name: Publish Deployment Summary Report
+        run: |
+          echo "## 🚀 AI Service Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Thuộc tính | Giá trị |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image Tag** | \`${{ env.IMAGE_TAG }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **CPU / RAM** | 2.0 vCPU / 4.0 GiB |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Scale Config** | Min: 0 (Scale-to-Zero $0) - Max: 2 |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Bake Models** | EasyOCR (vi, en) + InsightFace (buffalo_l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image (Immutable SHA)** | \`${{ needs.build-and-publish.outputs.image_tag_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image (Latest)** | \`${{ needs.build-and-publish.outputs.image_tag_latest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cấu hình phần cứng** | 2.0 vCPU / 4.0 GiB RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cơ chế Scale** | Min: 0 (0đ khi nhàn rỗi) - Max: 2 |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Bake Weights** | EasyOCR (vi, en) + InsightFace (buffalo_l) |" >> $GITHUB_STEP_SUMMARY
 
+          if [ -n "$SERVICE_URL" ]; then
+            echo "| **Live Service URL** | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Swagger Docs** | [$SERVICE_URL/docs]($SERVICE_URL/docs) |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Health Check Status** | ✅ **PASSED (HTTP 200)** |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| **Azure Deploy Status** | ℹ️ Image đã đẩy lên GHCR. Cần thêm secret \`AZURE_CREDENTIALS\` để kích hoạt tự động deploy Azure |" >> $GITHUB_STEP_SUMMARY
+          fi
