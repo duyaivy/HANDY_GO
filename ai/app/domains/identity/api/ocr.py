@@ -1,61 +1,48 @@
-from typing import Annotated
-
 import cv2
-from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from app.domains.identity.api.internal_identity import _verify_internal_secret
 from app.domains.identity.schemas.response import ApiResponse
 from app.domains.identity.services.ocr_pipeline import ocr_pipeline_service
 from app.domains.identity.utils.file_utils import save_upload_file
+
 from app.domains.identity.utils.image_validator import (
     INPUT_HARD_DARK_THRESHOLD,
     check_image_quality,
 )
 from app.domains.identity.utils.ocr_error_detail import build_ocr_error_detail
 
-
-def verify_ocr_secret(
-    x_internal_secret: Annotated[
-        str | None,
-        Header(alias="x-internal-secret", include_in_schema=False),
-    ] = None,
-) -> None:
-    """Xác thực bảo vệ các endpoint OCR, đảm bảo chỉ có internal backend service được gọi."""
-    _verify_internal_secret(x_internal_secret)
-
-
-router = APIRouter(
-    prefix="/api/v1/ocr",
-    tags=["OCR"],
-    dependencies=[Depends(verify_ocr_secret)],
-)
-legacy_router = APIRouter(
-    prefix="/ocr",
-    tags=["OCR (Legacy)"],
-    include_in_schema=False,
-    dependencies=[Depends(verify_ocr_secret)],
-)
+router = APIRouter(prefix="/api/v1/ocr", tags=["OCR"])
+legacy_router = APIRouter(prefix="/ocr", tags=["OCR (Legacy)"], include_in_schema=False)
 
 
 @router.post("/cccd", response_model=ApiResponse)
 @legacy_router.post("/cccd", response_model=ApiResponse)
 async def ocr_cccd(file: UploadFile = File(...)) -> ApiResponse:
-    # 1. Lưu file ảnh vào hệ thống
+    # 1. Lưu file ảnh vào hệ thống (giữ nguyên logic cũ)
     image_path = await save_upload_file(file)
 
+    # ==========================================
+    # TASK 9: CƠ CHẾ REJECT IMAGE
+    # ==========================================
     # 2. Đọc ảnh vừa lưu lên bằng OpenCV
     img = cv2.imread(str(image_path))
     if img is None:
         raise HTTPException(status_code=400, detail="Không thể đọc được file ảnh đầu vào.")
 
-    # 3. Kiểm định chất lượng ảnh
+    # Không từ chối ảnh chỉ dựa trên Laplacian của toàn khung hình.
+    # Nền trơn, ảnh đã resize hoặc camera làm mịn có thể cho điểm thấp dù
+    # chữ trên thẻ vẫn đọc được. Pipeline sẽ đánh giá lại vùng thẻ sau khi
+    # làm phẳng và kết hợp điểm ảnh với bằng chứng OCR thực tế.
     quality = check_image_quality(
         img,
         blur_threshold=0.0,
         dark_threshold=INPUT_HARD_DARK_THRESHOLD,
     )
+    print(f"\n[TASK 9 - KIỂM DUYỆT ẢNH] Blur: {quality['blur_score']:.2f} | Sáng: {quality['brightness_score']:.2f}")
 
+    # 4. Ở đầu vào chỉ chặn khung gần như đen. Ảnh tối/mờ còn dữ liệu được
+    # cân sáng, khử mờ và đánh giá bằng chính kết quả OCR sau khi cắt thẻ.
     if not quality["is_valid"]:
         raise HTTPException(
             status_code=400,
@@ -71,8 +58,11 @@ async def ocr_cccd(file: UploadFile = File(...)) -> ApiResponse:
                 "suggestion": quality["suggestion"],
             },
         )
+    # ==========================================
 
-    # 4. Vượt qua kiểm duyệt -> Đưa vào luồng xử lý OCR AI
+    # 5. Vượt qua kiểm duyệt -> Đưa vào luồng xử lý OCR AI
+    # OCR là tác vụ CPU-bound; chạy ngoài event loop để trang camera/API
+    # vẫn phản hồi được trong lúc EasyOCR đang xử lý.
     result = await run_in_threadpool(
         ocr_pipeline_service.process_cccd_image,
         image_path,
@@ -83,6 +73,7 @@ async def ocr_cccd(file: UploadFile = File(...)) -> ApiResponse:
             status_code=400,
             detail=build_ocr_error_detail(result),
         )
+
 
     return ApiResponse(
         success=True,
