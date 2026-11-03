@@ -15,7 +15,7 @@ import { SseModule } from './sse/sse.module.js';
     ConfigModule.forRoot({
       serviceName: 'bidding-service',
       defaultPort: 3005,
-      requiredUrls: ['ORDER_SERVICE_URL'],
+      requiredUrls: ['ORDER_SERVICE_URL', 'USER_TRUST_SERVICE_URL'],
       requiredKeys: ['INTERNAL_SERVICE_SECRET'],
     }),
     LoggerModule.forRoot('bidding-service'),

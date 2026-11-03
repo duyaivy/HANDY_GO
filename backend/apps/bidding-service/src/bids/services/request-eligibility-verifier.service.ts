@@ -150,12 +150,9 @@ export class RequestEligibilityVerifierService {
     workerId: string,
     requiredServiceId?: string,
   ): Promise<void> {
-    const rawUserTrustUrl =
-      (typeof this.config.getUrl === 'function'
-        ? this.config.getUrl('USER_TRUST_SERVICE_URL')
-        : (this.config as any).get?.('USER_TRUST_SERVICE_URL')) ||
-      'http://localhost:3002';
-    const userTrustUrl = rawUserTrustUrl.replace(/\/+$/, '');
+    const userTrustUrl = this.config
+      .getUrl('USER_TRUST_SERVICE_URL')
+      .replace(/\/+$/, '');
     const internalSecret = this.config.internalServiceSecret;
 
     const url = `${userTrustUrl}/api/v1/internal/v1/workers/${encodeURIComponent(workerId)}/matching-profile`;
