@@ -1,8 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 export class QueryBidsDto {
+  @ApiPropertyOptional({
+    description: 'Lọc danh sách báo giá theo ID yêu cầu dịch vụ',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  serviceRequestId?: string;
+
   @ApiPropertyOptional({
     description: 'Lọc danh sách báo giá theo trạng thái',
     enum: ['active', 'withdrawn', 'expired', 'selected', 'rejected', 'all'],

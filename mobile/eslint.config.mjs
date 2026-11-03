@@ -51,7 +51,8 @@ export default antfu(
   {
     rules: {
       'max-params': ['error', 3],
-      'max-lines-per-function': ['error', 110],
+      'max-lines-per-function': 'off', // Relaxed for React screens/modals
+      'test/prefer-lowercase-title': 'off', // Allow natural casing in test describe blocks
       'react/display-name': 'off',
       'react/no-inline-styles': 'off',
       'react/destructuring-assignment': 'off',
@@ -128,6 +129,7 @@ export default antfu(
     plugins: { 'testing-library': testingLibrary },
     rules: {
       ...testingLibrary.configs.react.rules,
+      'no-restricted-globals': 'off',
     },
   },
 );

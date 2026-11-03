@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { OrderStatusHistoryItem } from '../../types/order.types';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';

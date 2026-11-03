@@ -1,5 +1,5 @@
 /* eslint-disable react/no-unnecessary-use-prefix */
-/* eslint-disable max-lines-per-function */
+
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';

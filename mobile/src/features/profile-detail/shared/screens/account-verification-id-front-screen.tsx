@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useRouter } from 'expo-router';

@@ -118,8 +118,7 @@ pnpm run lint
 | | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
-| **Wallet service**<br>`apps/wallet-service/src/` | `WalletPrismaService` | Prisma client for the Wallet bounded context. Resolves the wallet schema consistently and passes it to the PostgreSQL driver adapter; use this client for Wallet transactions and row locks. |
-| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
+| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), required key and URL validation. Usage: `ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005, requiredUrls: ['ORDER_SERVICE_URL'], requiredKeys: ['INTERNAL_SERVICE_SECRET'] })` rejects missing, blank or malformed Order URLs during startup. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | | `RabbitMQContextService` | Manual ACK/NACK helper for RMQ consumers. ACK only after the database operation commits; NACK transient failures for broker redelivery. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
@@ -129,6 +128,11 @@ pnpm run lint
 ---
 
 ### 4.2. Service-Internal Utilities
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `WorkersModule`, `WorkersService.getSummaries` | `apps/user-trust-service/src/workers/` | Internal secret-protected `GET /api/v1/internal/workers/batch-summary?ids=<uuid>,<uuid>`; validates 1–100 IDs, queries active users with worker profiles, returns only public names, avatars and rating/order statistics. `workers.getSummaries(workerIds)`. |
+| `WorkerProfilesClient.getSummaries` | `apps/api-gateway/src/candidates/clients/worker-profiles.client.ts` | Batch profile lookup with a 3s timeout and configured server secret; enriches the selected AI recommendations with real names. `const profiles = await client.getSummaries(workerIds)`; upstream failure preserves candidates with null profiles. |
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
@@ -253,6 +257,19 @@ These components are reusable across wallet feature modules. They remain service
 | `MatchingOutboxPublisherService` | `apps/matching-service/src/outbox/matching-outbox-publisher.service.ts` | Retries the original durable outbox event with stable IDs; never treats an unbound DLQ routing key as successful delivery. `triggerPublish()`. |
 | `InternalMatchingController`, `CustomerMatchingController` | `apps/matching-service/src/controllers/` | Recommendations and eligibility require the current projection revision and an available lifecycle; worker discovery uses bounded database pagination. `checkResultEligibility(resultId, requestId, workerId)`. |
 | `BidsService.getBidsForRequest`, `BiddingClient`, `CandidatesAggregationService` | `apps/bidding-service/src/bids/bids.service.ts`, `apps/api-gateway/src/candidates/` | Request-wide bidder IDs for cross-page deduplication and explicit partial failure reporting. `aggregateCandidates(requestId, query, user)`. |
+
+### 4.8. Bidding Service Real-Time SSE & Multi-Instance Topic Bridge (Phase 3 / BE-FIX-01..08)
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `SseService` | `apps/bidding-service/src/sse/sse.service.ts` | **SSE Connection Hub & Signal Broadcaster.** Groups clients by `serviceRequestId`, bounds connections (100 per request, 5000 global), emits `ready` and 15s heartbeats, and broadcasts lightweight `bid.changed`, `round.changed`, `matching.changed` signals without confidential bid data. Lifecycle methods accept domain event IDs as strings, defaulting to a generated UUID. Usage: `sseService.registerClient(connection)`; `sseService.broadcastBidChanged(requestId, 'submitted', eventId, occurredAt)`. |
+| `SseController` | `apps/bidding-service/src/sse/sse.controller.ts` | **Real-Time Bidding SSE HTTP Stream Endpoint.** Exposes `GET /api/v1/bids/requests/:requestId/events`. Enforces timing-safe trusted gateway secret verification, extracts `x-user-id` and roles, authorizes request customer ownership (`round.customerId === userId`) or worker trade eligibility/active bid with fail-closed behavior (403), and mounts unbuffered SSE streaming with zero confidential bid leakage. |
+| `SseEventBridgeService` | `apps/bidding-service/src/sse/sse-event-bridge.service.ts` | **RabbitMQ Topic Exchange Event Bridge.** Binds exclusive, auto-delete per-replica queue to `handy-go.events` with `bid.#`, `bidding.round.#`, `matching.#`. Accepts raw domain envelopes and Nest RMQ packets (`{ pattern: 'bid.submitted', data: envelope }`), preserves event IDs/timestamps for 60s deduplication and dispatches lightweight signals to local SSE clients. Usage: `bridge.handleFanoutMessage(packet)`. Logs request/event IDs and subscriber counts without bid data. Tracks `isBridgeDegraded` with no silent local fallback. |
+| `BidsService` & `RoundsService` | `apps/bidding-service/src/bids/bids.service.ts`<br>`apps/bidding-service/src/rounds/rounds.service.ts` | **Transactional Outbox Post-Commit Immediate Publishing.** Operates with Transactional Outbox as single source of truth. Direct fanout publishing inside database transactions is eliminated. Writes events to `outboxEvent` within ACID `$transaction`, and triggers post-commit immediate publish (`void this.outboxPublisher?.triggerPublish()`), eliminating 3s poller latency while maintaining transactional integrity. |
+| `SseModule` | `apps/bidding-service/src/sse/sse.module.ts` | **Bidding SSE NestJS Feature Module.** Packages `SseController`, `SseService`, `SseEventBridgeService`, and exports SSE broadcasting services for injection across Bidding service modules. |
+| `SERVICE_ROUTES.bidding-service-sse` | `apps/api-gateway/src/proxy/proxy.constants.ts` | **Isolated SSE Proxy Route Config.** Routes `/api/v1/bids/requests/:requestId/events` with static `timeoutMs: 0` placed before general bidding route to prevent 15-second socket timeout terminations (Safeguard B). |
+| `Nginx SSE Streaming Location` | `deploy/production/nginx/handygo.conf` | **Authoritative Nginx SSE Configuration.** Dedicated location block `location ~ ^/api/v1/bids/requests/[^/]+/events$` with `proxy_buffering off;`, `proxy_cache off;`, `proxy_read_timeout 86400s;`, `proxy_send_timeout 86400s;`, `chunked_transfer_encoding on;`, `gzip off;`, and gateway header stripping. |
+| `DEFAULT_PRODUCTION_POLICIES` | `apps/notification-service/src/events/notification-policy.ts` | **Production Notification Policies.** Canonical production event policies for `bid.submitted`, `bid.revised`, `matching.eligible_workers.ready`, `booking_proposal.created`, and `matching.completed`. Prevents `BUSINESS_POLICY_PENDING` rejections without requiring simulated policies (Safeguard A). |
 
 ## 5. Feature Blueprint & Implementation Template
 

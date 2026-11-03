@@ -8,6 +8,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
 import { UserTrustDatabaseModule } from '@app/database';
 import { AuthModule } from '@app/auth';
 import { KycModule } from './kyc/kyc.module.js';
+import { WorkersModule } from './workers/index.js';
 
 import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 
@@ -23,6 +24,7 @@ import { InternalServiceGuard } from './common/guards/internal-service.guard.js'
     UserTrustDatabaseModule,
     AuthModule,
     KycModule,
+    WorkersModule,
   ],
   controllers: [UserTrustServiceController],
   providers: [UserTrustServiceService, InternalServiceGuard],

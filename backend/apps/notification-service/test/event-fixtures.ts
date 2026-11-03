@@ -15,6 +15,8 @@ export function eventFixture(type: NotificationEventType): NotificationEvent {
   );
   if (type === 'matching.eligible_workers.ready')
     data.eligibleWorkerIds = [randomUUID(), randomUUID()];
+  if (type === 'matching.completed')
+    data.customerId = randomUUID();
   if (type === 'order.status.changed')
     Object.assign(data, {
       previousStatus: 'TEST_BEFORE',

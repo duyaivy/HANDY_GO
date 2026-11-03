@@ -68,7 +68,7 @@ function validateEnvironment(
 
   for (const key of options.requiredUrls ?? []) {
     const value = config[key];
-    if (typeof value !== 'string' || value.length === 0) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
       throw new Error(`${key} is required`);
     }
     try {
@@ -88,10 +88,11 @@ function validateEnvironment(
   if (config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB !== undefined) {
     const chunkSizeMb = Number(config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB);
     if (isNaN(chunkSizeMb) || chunkSizeMb <= 5) {
-      throw new Error('CLOUDINARY_VIDEO_CHUNK_SIZE_MB must be a number greater than 5 MB');
+      throw new Error(
+        'CLOUDINARY_VIDEO_CHUNK_SIZE_MB must be a number greater than 5 MB',
+      );
     }
   }
 
   return config;
 }
-

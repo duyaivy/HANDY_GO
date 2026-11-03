@@ -107,6 +107,23 @@ describe('InternalOrderService (BE-03)', () => {
       expect(response.reason).toContain('deadline has expired');
     });
 
+    it('returns eligible=false when serviceId is missing or empty (FIX-01 contract enforcement)', async () => {
+      const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
+      prismaMock.serviceRequest.findUnique.mockResolvedValue({
+        id: mockRequestId,
+        status: 'open_for_bidding',
+        biddingClosesAt: futureDate,
+        serviceId: null,
+        customerUserId: mockCustomerId,
+      });
+
+      const response = await service.getBiddingEligibility(mockRequestId, mockWorkerId);
+
+      expect(response.eligible).toBe(false);
+      expect(response.isEligible).toBe(false);
+      expect(response.reason).toContain('missing a valid serviceId');
+    });
+
     it('returns eligible=false when worker is the customer owner', async () => {
       const futureDate = new Date(Date.now() + 24 * 3600 * 1000);
       prismaMock.serviceRequest.findUnique.mockResolvedValue({

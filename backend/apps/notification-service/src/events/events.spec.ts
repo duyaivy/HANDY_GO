@@ -44,6 +44,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
   });
 
   it.each([
+    ['matching.completed', 'customer'],
     ['bid.submitted', 'customer'],
     ['bid.revised', 'customer'],
     ['booking_proposal.created', 'worker'],
