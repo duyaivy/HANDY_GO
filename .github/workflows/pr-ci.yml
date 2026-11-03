@@ -35,6 +35,8 @@ jobs:
               - 'backend/**'
               - '.github/workflows/pr-ci.yml'
               - '.github/workflows/backend-production.yml'
+              - '.github/workflows/backend-production-recovery.yml'
+              - '.github/workflows/backend-env-refresh.yml'
             frontend:
               - 'frontend/**'
             mobile:
