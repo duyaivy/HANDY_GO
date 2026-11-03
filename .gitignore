@@ -33,3 +33,12 @@ docs/*
 !docs/dbml/
 !docs/dbml/**
 
+# Local generated analysis output
+/graphify-out/
+
+# Local review and reference documents
+/docs/DE CUONG PBL6 .docx.pdf
+/docs/GDSC Git Flow and Git Convention.txt
+/docs/PR-27-wallet-rereview-2026-10-26.md
+/docs/PR-27-wallet-review.md
+/docs/require of wallet-service.md
