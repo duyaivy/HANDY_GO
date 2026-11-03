@@ -36,14 +36,16 @@ afterEach(() => {
 
 describe('RequestEligibilityVerifierService', () => {
   describe('verifyEligibility (Order Service)', () => {
-    it('uses configured URL, trusted secret and worker identity for an eligible response', async () => {
+    it('uses configured URL, trusted secret and worker identity for an eligible response with serviceId', async () => {
       const fetchMock = vi.fn(async () =>
-        mockResponse(200, { data: { eligible: true } }),
+        mockResponse(200, {
+          data: { eligible: true, serviceId: 'srv-plumbing' },
+        }),
       );
       vi.stubGlobal('fetch', fetchMock);
       await expect(
         verifier().verifyEligibility(requestId, workerId),
-      ).resolves.toEqual({ eligible: true });
+      ).resolves.toEqual({ eligible: true, serviceId: 'srv-plumbing' });
       expect(fetchMock).toHaveBeenCalledOnce();
       const [url, options] = fetchMock.mock.calls[0] as unknown as [
         string,
@@ -57,7 +59,7 @@ describe('RequestEligibilityVerifierService', () => {
       expect(options.signal).toBeInstanceOf(AbortSignal);
     });
 
-    it('rejects an ineligible worker as a business failure', async () => {
+    it('rejects an ineligible worker as a business failure (HTTP 403)', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () =>
@@ -71,8 +73,39 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('fails closed when Order Service returns eligible: true but lacks serviceId', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          mockResponse(200, {
+            data: { eligible: true }, // missing serviceId
+          }),
+        ),
+      );
+      await expect(
+        verifier().verifyEligibility(requestId, workerId),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it.each(['', '   ', 'invalid!char@#', 'bad id with spaces'])(
+      'fails closed when Order Service returns eligible: true but serviceId has invalid format "%s"',
+      async (invalidServiceId) => {
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async () =>
+            mockResponse(200, {
+              data: { eligible: true, serviceId: invalidServiceId },
+            }),
+          ),
+        );
+        await expect(
+          verifier().verifyEligibility(requestId, workerId),
+        ).rejects.toThrow(ServiceUnavailableException);
+      },
+    );
+
     it.each([401, 403, 404])(
-      'rejects HTTP %i without allowing a bid',
+      'rejects HTTP %i without allowing a bid (HTTP 403)',
       async (status) => {
         vi.stubGlobal(
           'fetch',
@@ -84,7 +117,7 @@ describe('RequestEligibilityVerifierService', () => {
       },
     );
 
-    it.each([500, 503])('fails closed on HTTP %i', async (status) => {
+    it.each([500, 503])('fails closed on HTTP %i from Order Service', async (status) => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => mockResponse(status)),
@@ -94,7 +127,7 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
 
-    it('fails closed on connection refusal', async () => {
+    it('fails closed on connection refusal to Order Service', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => {
@@ -108,7 +141,7 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
 
-    it('fails closed on timeout', async () => {
+    it('fails closed on timeout to Order Service', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => {
@@ -120,7 +153,7 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
 
-    it('fails closed on an invalid 200 response', async () => {
+    it('fails closed on an invalid 200 response from Order Service', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => mockResponse(200, { data: { isEligible: true } })),
@@ -132,7 +165,7 @@ describe('RequestEligibilityVerifierService', () => {
   });
 
   describe('verifyWorkerHardEligibility (User & Trust Service)', () => {
-    it('uses configured USER_TRUST_SERVICE_URL and secret to verify profile', async () => {
+    it('uses configured USER_TRUST_SERVICE_URL and secret to verify profile when KYC approved and matching service', async () => {
       const fetchMock = vi.fn(async () =>
         mockResponse(200, {
           data: { isVerified: true, serviceIds: ['srv-plumbing'] },
@@ -156,7 +189,7 @@ describe('RequestEligibilityVerifierService', () => {
       expect(options.headers).toEqual({ 'x-internal-secret': secret });
     });
 
-    it('rejects worker when KYC is not verified', async () => {
+    it('rejects worker when KYC is not verified / pending (HTTP 403)', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () =>
@@ -171,7 +204,7 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects worker when required service is not offered', async () => {
+    it('rejects worker when required service is not offered (HTTP 403)', async () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () =>
@@ -186,6 +219,60 @@ describe('RequestEligibilityVerifierService', () => {
       ).rejects.toThrow(ForbiddenException);
     });
 
+    it('rejects worker when worker has empty serviceIds array (HTTP 403)', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          mockResponse(200, {
+            data: { isVerified: true, serviceIds: [] },
+          }),
+        ),
+      );
+
+      await expect(
+        verifier().verifyWorkerHardEligibility(workerId, 'srv-plumbing'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('fails closed when User Trust profile is missing serviceIds field', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          mockResponse(200, {
+            data: { isVerified: true }, // missing serviceIds
+          }),
+        ),
+      );
+
+      await expect(
+        verifier().verifyWorkerHardEligibility(workerId, 'srv-plumbing'),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it('fails closed when User Trust profile serviceIds is not an array', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          mockResponse(200, {
+            data: { isVerified: true, serviceIds: 'srv-plumbing' },
+          }),
+        ),
+      );
+
+      await expect(
+        verifier().verifyWorkerHardEligibility(workerId, 'srv-plumbing'),
+      ).rejects.toThrow(ServiceUnavailableException);
+    });
+
+    it.each(['', '   ', 'invalid!id@'])(
+      'fails closed when requiredServiceId is invalid format "%s"',
+      async (invalidServiceId) => {
+        await expect(
+          verifier().verifyWorkerHardEligibility(workerId, invalidServiceId),
+        ).rejects.toThrow(ServiceUnavailableException);
+      },
+    );
+
     it('rejects worker when profile is not found (HTTP 404)', async () => {
       vi.stubGlobal(
         'fetch',
@@ -196,6 +283,20 @@ describe('RequestEligibilityVerifierService', () => {
         verifier().verifyWorkerHardEligibility(workerId, 'srv-plumbing'),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it.each([401, 403])(
+      'rejects when User Trust returns auth failure HTTP %i (HTTP 403)',
+      async (status) => {
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(async () => mockResponse(status)),
+        );
+
+        await expect(
+          verifier().verifyWorkerHardEligibility(workerId, 'srv-plumbing'),
+        ).rejects.toThrow(ForbiddenException);
+      },
+    );
 
     it.each([500, 502, 503])(
       'fails closed on HTTP %i from User & Trust',

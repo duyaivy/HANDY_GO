@@ -517,6 +517,67 @@ export class MatchingEventConsumer {
   }
 
   /**
+   * Consumer for 'bidding.round.extended' (FIX-02)
+   * Synchronizes extended deadline to projection so worker discovery feed keeps showing the request.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_EXTENDED)
+  async handleBiddingRoundExtended(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      const newClosesAt = data?.newClosesAt;
+
+      if (!reqId || !newClosesAt) {
+        this.logger.warn(
+          `Missing serviceRequestId/newClosesAt in bidding.round.extended (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.extended for request ${reqId}, newClosesAt: ${newClosesAt}`,
+      );
+
+      await this.projectionService.extendBiddingDeadline(reqId, newClosesAt);
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.BIDDING_ROUND_EXTENDED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.extended: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.BIDDING_ROUND_EXTENDED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
    * Consumer for 'bidding.round.closed'
    * Updates projection status to 'bidding_closed' so worker feed removes the request.
    */

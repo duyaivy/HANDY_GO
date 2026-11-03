@@ -33,14 +33,19 @@ export class InternalOrderService {
     const isDeadlineActive =
       !request.biddingClosesAt || request.biddingClosesAt > now;
     const isStatusOpen = request.status === 'open_for_bidding';
+    const hasValidServiceId =
+      typeof request.serviceId === 'string' &&
+      request.serviceId.trim().length > 0;
 
-    let isEligible = isStatusOpen && isDeadlineActive;
+    let isEligible = isStatusOpen && isDeadlineActive && hasValidServiceId;
     let reason: string | undefined;
 
     if (!isStatusOpen) {
       reason = `Service request is in '${request.status}' status, not open for bidding`;
     } else if (!isDeadlineActive) {
       reason = 'Bidding deadline has expired';
+    } else if (!hasValidServiceId) {
+      reason = 'Service request is missing a valid serviceId';
     } else if (workerId && request.customerUserId === workerId) {
       isEligible = false;
       reason = 'Khách hàng không thể tự gửi báo giá cho yêu cầu dịch vụ của chính mình';
@@ -53,7 +58,7 @@ export class InternalOrderService {
       status: request.status,
       requestStatus: request.status,
       biddingClosesAt: request.biddingClosesAt,
-      serviceId: request.serviceId,
+      serviceId: request.serviceId ?? undefined,
       customerUserId: request.customerUserId,
       reason,
     };
