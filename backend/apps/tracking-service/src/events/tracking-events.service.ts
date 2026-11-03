@@ -11,12 +11,14 @@ import type { EventEnvelope } from './dto/event-envelope.dto.js';
 export class TrackingEventsService {
   private readonly logger = new Logger(TrackingEventsService.name);
 
+  static readonly PENDING_ORDERS_INDEX_KEY = 'tracking:pending_orders_index';
+  static readonly MAX_PENDING_AGE_ALERT_MS = 60_000;
+
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly redis?: RedisService,
     @Optional() private readonly streamService?: TimelineStreamService,
   ) {}
-
 
   /**
    * Ingests any domain event into the tracking timeline.
@@ -25,6 +27,7 @@ export class TrackingEventsService {
   async recordDomainEvent(
     data: EventEnvelope,
     forcedEventType?: string,
+    isFlushing = false,
   ): Promise<{ recorded: boolean; reason?: string }> {
     const rawPayload = data.payload || data;
     const eventType =
@@ -95,9 +98,23 @@ export class TrackingEventsService {
         // Buffer event until order.created arrives to link orderId with serviceRequestId
         const pendingKey = `tracking:pending_order_events:${orderId}`;
         await this.redis.appendListItem(pendingKey, { data, forcedEventType });
+        await this.trackPendingOrder(orderId);
         this.logger.log(
           `Event ${rawEventId} (${eventType}) buffered for pending order ${orderId}`,
         );
+
+        // Immediate post-append reconciliation:
+        // Handle race where consumer B created trackingFlow and flushed before this appendListItem executed
+        const flowAfterAppend = await this.prisma.trackingFlow.findUnique({
+          where: { orderId },
+        });
+        if (flowAfterAppend) {
+          this.logger.log(
+            `Flow for order ${orderId} already exists post-append; triggering immediate flush for serviceRequestId ${flowAfterAppend.serviceRequestId}`,
+          );
+          await this.flushPendingOrderEvents(orderId, flowAfterAppend.serviceRequestId);
+        }
+
         return { recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' };
       } else {
         throw new Error(
@@ -249,11 +266,12 @@ export class TrackingEventsService {
           metadata: createdRecord.metadata as Record<string, any> | null,
           occurredAt: createdRecord.occurredAt,
           recordedAt: createdRecord.recordedAt,
+          writeSequence: createdRecord.writeSequence,
         });
       }
 
-      // If this event linked an orderId, flush any buffered events that arrived earlier
-      if (orderId && this.redis) {
+      // If this event linked an orderId and we are not currently flushing, flush any buffered events
+      if (!isFlushing && orderId && this.redis) {
         await this.flushPendingOrderEvents(orderId, serviceRequestId);
       }
 
@@ -272,6 +290,186 @@ export class TrackingEventsService {
       );
       throw error;
     }
+  }
+
+  async trackPendingOrder(orderId: string, timestamp = Date.now()): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.addToSortedSet(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+        timestamp,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to track pending order index for ${orderId}: ${err.message}`,
+      );
+    }
+  }
+
+  async untrackPendingOrder(orderId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.removeFromSortedSet(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Failed to untrack pending order index for ${orderId}: ${err.message}`,
+      );
+    }
+  }
+
+  async flushPendingOrderEvents(
+    orderId: string,
+    serviceRequestId: string,
+  ): Promise<{ flushedCount: number; remainingCount: number }> {
+    const pendingKey = `tracking:pending_order_events:${orderId}`;
+    const lockKey = `tracking:pending_order_events_lock:${orderId}`;
+    let flushedCount = 0;
+    let remainingCount = 0;
+
+    try {
+      await this.redis!.withDistributedLock(
+        lockKey,
+        async (isLockOwner, lockToken) => {
+          while (isLockOwner()) {
+            const pending = await this.redis!.peekListHead<{
+              data: EventEnvelope;
+              forcedEventType?: string;
+            }>(pendingKey);
+            if (!pending) {
+              break;
+            }
+
+            const envelope: EventEnvelope = {
+              ...pending.value.data,
+              serviceRequestId,
+              payload: {
+                ...pending.value.data.payload,
+                serviceRequestId,
+                orderId,
+              },
+            };
+            const result = await this.recordDomainEvent(
+              envelope,
+              pending.value.forcedEventType,
+              true, // isFlushing = true prevents recursive flush loops
+            );
+
+            if (
+              !result.recorded &&
+              result.reason !== 'ALREADY_CONSUMED' &&
+              result.reason !== 'IDEMPOTENT_DUPLICATE'
+            ) {
+              this.logger.warn(
+                `Buffered event for order ${orderId} was not recorded (${result.reason ?? 'unknown reason'}); keeping it pending`,
+              );
+              break;
+            }
+
+            if (!isLockOwner()) {
+              break;
+            }
+
+            const acknowledged = await this.redis!.acknowledgeListHead(
+              pendingKey,
+              pending.serialized,
+              lockKey,
+              lockToken,
+            );
+            if (acknowledged) {
+              flushedCount++;
+              this.logger.log(
+                `Acknowledged buffered event for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
+              );
+            } else {
+              break;
+            }
+          }
+
+          if (isLockOwner()) {
+            remainingCount = await this.redis!.getListLength(pendingKey);
+            if (remainingCount === 0) {
+              await this.untrackPendingOrder(orderId);
+            }
+          }
+        },
+      );
+    } catch (err: any) {
+      this.logger.warn(
+        `Error checking pending events for order ${orderId}: ${err.message}`,
+      );
+    }
+
+    return { flushedCount, remainingCount };
+  }
+
+  /**
+   * Reconciles all pending orders from the pending orders index.
+   * Finds matching tracking_flows in DB, flushes pending queues, and emits alerts for stalled orders.
+   */
+  async reconcilePendingOrders(
+    maxAgeAlertMs = TrackingEventsService.MAX_PENDING_AGE_ALERT_MS,
+  ): Promise<{
+    scanned: number;
+    flushedOrders: number;
+    stalledOrders: number;
+  }> {
+    if (!this.redis) {
+      return { scanned: 0, flushedOrders: 0, stalledOrders: 0 };
+    }
+
+    let scanned = 0;
+    let flushedOrders = 0;
+    let stalledOrders = 0;
+    const now = Date.now();
+
+    const pendingEntries = await this.redis.getSortedSetRangeWithScores(
+      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+    );
+
+    for (const entry of pendingEntries) {
+      scanned++;
+      const orderId = entry.member;
+      const enqueuedAt = entry.score;
+      const pendingKey = `tracking:pending_order_events:${orderId}`;
+
+      const length = await this.redis.getListLength(pendingKey);
+      if (length === 0) {
+        await this.untrackPendingOrder(orderId);
+        continue;
+      }
+
+      const flow = await this.prisma.trackingFlow.findUnique({
+        where: { orderId },
+      });
+
+      if (flow) {
+        this.logger.log(
+          `Reconciliation found flow for pending order ${orderId} (serviceRequestId: ${flow.serviceRequestId}). Flushing...`,
+        );
+        const { flushedCount, remainingCount } =
+          await this.flushPendingOrderEvents(orderId, flow.serviceRequestId);
+        if (flushedCount > 0) {
+          flushedOrders++;
+        }
+        if (remainingCount === 0) {
+          await this.untrackPendingOrder(orderId);
+        }
+      } else {
+        const ageMs = now - enqueuedAt;
+        if (ageMs > maxAgeAlertMs) {
+          stalledOrders++;
+          this.logger.warn(
+            `[PENDING_ORDER_STALLED_ALERT] Order ${orderId} has ${length} pending events waiting for ${Math.round(ageMs / 1000)}s without order.created flow!`,
+          );
+        }
+      }
+    }
+
+    return { scanned, flushedOrders, stalledOrders };
   }
 
   private resolveEntityType(eventType: string): TrackingEntityType {
@@ -393,76 +591,5 @@ export class TrackingEventsService {
     }
 
     return sanitized;
-  }
-
-  private async flushPendingOrderEvents(
-    orderId: string,
-    serviceRequestId: string,
-  ): Promise<void> {
-    const pendingKey = `tracking:pending_order_events:${orderId}`;
-    const lockKey = `tracking:pending_order_events_lock:${orderId}`;
-    try {
-      await this.redis!.withDistributedLock(
-        lockKey,
-        async (isLockOwner, lockToken) => {
-          while (isLockOwner()) {
-            const pending = await this.redis!.peekListHead<{
-              data: EventEnvelope;
-              forcedEventType?: string;
-            }>(pendingKey);
-            if (!pending) {
-              return;
-            }
-
-            const envelope: EventEnvelope = {
-              ...pending.value.data,
-              serviceRequestId,
-              payload: {
-                ...pending.value.data.payload,
-                serviceRequestId,
-                orderId,
-              },
-            };
-            const result = await this.recordDomainEvent(
-              envelope,
-              pending.value.forcedEventType,
-            );
-
-            if (
-              !result.recorded &&
-              result.reason !== 'ALREADY_CONSUMED' &&
-              result.reason !== 'IDEMPOTENT_DUPLICATE'
-            ) {
-              this.logger.warn(
-                `Buffered event for order ${orderId} was not recorded (${result.reason ?? 'unknown reason'}); keeping it pending`,
-              );
-              return;
-            }
-
-            if (!isLockOwner()) {
-              return;
-            }
-
-            const acknowledged = await this.redis!.acknowledgeListHead(
-              pendingKey,
-              pending.serialized,
-              lockKey,
-              lockToken,
-            );
-            if (acknowledged) {
-              this.logger.log(
-                `Acknowledged buffered event for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
-              );
-            } else {
-              return;
-            }
-          }
-        },
-      );
-    } catch (err: any) {
-      this.logger.warn(
-        `Error checking pending events for order ${orderId}: ${err.message}`,
-      );
-    }
   }
 }

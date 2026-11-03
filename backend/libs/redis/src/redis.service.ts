@@ -186,6 +186,42 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return Number(result) === 1;
   }
 
+  async getListLength(key: string): Promise<number> {
+    this.assertConnected();
+    return await this.client.llen(key);
+  }
+
+  async addToSortedSet(
+    key: string,
+    member: string,
+    score: number,
+  ): Promise<void> {
+    this.assertConnected();
+    await this.client.zadd(key, 'NX', score, member);
+  }
+
+  async removeFromSortedSet(key: string, member: string): Promise<void> {
+    this.assertConnected();
+    await this.client.zrem(key, member);
+  }
+
+  async getSortedSetRangeWithScores(
+    key: string,
+    start = 0,
+    stop = -1,
+  ): Promise<Array<{ member: string; score: number }>> {
+    this.assertConnected();
+    const results = (await this.client.zrange(key, start, String(stop), 'WITHSCORES')) as string[];
+    const items: Array<{ member: string; score: number }> = [];
+    for (let i = 0; i < results.length; i += 2) {
+      items.push({
+        member: results[i],
+        score: Number(results[i + 1]),
+      });
+    }
+    return items;
+  }
+
   async withDistributedLock(
     key: string,
     callback: (

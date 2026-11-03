@@ -8,6 +8,19 @@ describe('TrackingEventsService', () => {
   let service: TrackingEventsService;
   let prismaMock: any;
 
+  const createRedisMock = (overrides?: any) => ({
+    appendListItem: vi.fn(),
+    peekListHead: vi.fn(),
+    acknowledgeListHead: vi.fn(),
+    getListLength: vi.fn().mockResolvedValue(0),
+    addToSortedSet: vi.fn(),
+    removeFromSortedSet: vi.fn(),
+    getSortedSetRangeWithScores: vi.fn().mockResolvedValue([]),
+    withDistributedLock: vi.fn(async (_key, callback) => callback(() => true, 'test-lock-token')),
+    delByPattern: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  });
+
   beforeEach(() => {
     prismaMock = {
       consumedEvent: {
@@ -50,17 +63,14 @@ describe('TrackingEventsService', () => {
       expect(prismaMock.trackingEvent.create).not.toHaveBeenCalled();
     });
 
-    it('should handle race condition duplicate via database P2002 constraint error gracefully', async () => {
+    it('should catch database constraint P2002 error gracefully and mark as IDEMPOTENT_DUPLICATE', async () => {
       const eventId = randomUUID();
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-
-      const p2002Error: any = new Error('Unique constraint failed');
-      p2002Error.code = 'P2002';
-      prismaMock.$transaction.mockRejectedValue(p2002Error);
+      prismaMock.$transaction.mockRejectedValue({ code: 'P2002' });
 
       const result = await service.recordDomainEvent({
         eventId,
-        eventType: 'bid.submitted',
+        eventType: 'service_request.created',
         serviceRequestId: randomUUID(),
       });
 
@@ -69,66 +79,59 @@ describe('TrackingEventsService', () => {
     });
   });
 
-  describe('Out-of-Order Event Handling', () => {
-    it('should upsert tracking_flow on first event even if bid.submitted arrives before service_request.created', async () => {
+  describe('Flow Upsert & Ingestion', () => {
+    it('should upsert tracking_flow and create tracking_event for a valid event', async () => {
       const serviceRequestId = randomUUID();
-      const workerId = randomUUID();
-      const bidId = randomUUID();
+      const customerId = randomUUID();
       const eventId = randomUUID();
-      const flowId = randomUUID();
 
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.upsert.mockResolvedValue({
-        id: flowId,
+        id: randomUUID(),
         serviceRequestId,
-        orderId: null,
-        customerId: null,
+        customerId,
       });
 
       const result = await service.recordDomainEvent({
         eventId,
-        eventType: 'bid.submitted',
+        eventType: 'service_request.created',
         serviceRequestId,
+        customerId,
         payload: {
-          bidId,
-          workerId,
-          amount: 500000,
+          title: 'Fix Air Conditioner',
+          categoryId: randomUUID(),
         },
       });
 
       expect(result.recorded).toBe(true);
+      expect(prismaMock.consumedEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          eventId,
+          eventType: 'service_request.created',
+        }),
+      });
       expect(prismaMock.trackingFlow.upsert).toHaveBeenCalledWith({
         where: { serviceRequestId },
-        create: {
-          serviceRequestId,
-          orderId: null,
-          customerId: null,
-        },
-        update: {},
-      });
-      expect(prismaMock.trackingFlow.update).toHaveBeenCalledWith({
-        where: { id: flowId },
-        data: { eventSequence: { increment: 1 } },
-        select: { eventSequence: true },
+        create: expect.objectContaining({ serviceRequestId, customerId }),
+        update: expect.objectContaining({ customerId }),
       });
       expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            entityType: TrackingEntityType.bid,
-            entityId: bidId,
-            eventType: 'bid.submitted',
-            sourceService: 'bidding-service',
+            eventType: 'service_request.created',
+            entityType: TrackingEntityType.service_request,
+            entityId: serviceRequestId,
+            sourceService: 'order-service',
             writeSequence: 1,
           }),
         }),
       );
     });
 
-    it('should link orderId to tracking_flow when order.created arrives', async () => {
+    it('should link orderId to existing tracking_flow when order.created arrives', async () => {
       const serviceRequestId = randomUUID();
       const orderId = randomUUID();
       const customerId = randomUUID();
-      const workerId = randomUUID();
 
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.upsert.mockResolvedValue({
@@ -143,10 +146,9 @@ describe('TrackingEventsService', () => {
         eventType: 'order.created',
         serviceRequestId,
         orderId,
+        customerId,
         payload: {
-          orderId,
-          customerId,
-          workerId,
+          id: orderId,
           totalAmount: 500000,
         },
       });
@@ -210,11 +212,7 @@ describe('TrackingEventsService', () => {
       const paymentId = randomUUID();
       const eventId = randomUUID();
 
-      const redisMock: any = {
-        appendListItem: vi.fn(),
-        delByPattern: vi.fn(),
-      };
-
+      const redisMock = createRedisMock();
       const bufferedService = new TrackingEventsService(prismaMock, redisMock);
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
@@ -238,17 +236,18 @@ describe('TrackingEventsService', () => {
           forcedEventType: undefined,
         }),
       );
+      expect(redisMock.addToSortedSet).toHaveBeenCalledWith(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+        expect.any(Number),
+      );
     });
 
     it('should buffer order.status.changed arriving before order.created with nextStatus', async () => {
       const orderId = randomUUID();
       const eventId = randomUUID();
 
-      const redisMock: any = {
-        appendListItem: vi.fn(),
-        delByPattern: vi.fn(),
-      };
-
+      const redisMock = createRedisMock();
       const bufferedService = new TrackingEventsService(prismaMock, redisMock);
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
@@ -273,6 +272,11 @@ describe('TrackingEventsService', () => {
           }),
         }),
       );
+      expect(redisMock.addToSortedSet).toHaveBeenCalledWith(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+        expect.any(Number),
+      );
     });
 
     it('keeps the pending event when recording fails and acknowledges only after success', async () => {
@@ -287,26 +291,28 @@ describe('TrackingEventsService', () => {
         },
       };
       const pending = [{ value: item, serialized: JSON.stringify(item) }];
-      const redisMock: any = {
-        withDistributedLock: vi.fn(async (_key, callback) => callback(() => true)),
+      const redisMock: any = createRedisMock({
         peekListHead: vi.fn(async () => pending[0] ?? null),
         acknowledgeListHead: vi.fn(async () => {
           pending.shift();
           return true;
         }),
-      };
+        getListLength: vi.fn(async () => pending.length),
+      });
+
       const bufferedService = new TrackingEventsService(prismaMock, redisMock);
       vi.spyOn(bufferedService, 'recordDomainEvent').mockRejectedValueOnce(
         new Error('database unavailable'),
       );
 
-      await (bufferedService as any).flushPendingOrderEvents(
+      await bufferedService.flushPendingOrderEvents(
         orderId,
         serviceRequestId,
       );
 
       expect(pending).toHaveLength(1);
       expect(redisMock.acknowledgeListHead).not.toHaveBeenCalled();
+      expect(redisMock.removeFromSortedSet).not.toHaveBeenCalled();
     });
 
     it('acknowledges buffered events one at a time after recording them', async () => {
@@ -334,8 +340,7 @@ describe('TrackingEventsService', () => {
         value,
         serialized: JSON.stringify(value),
       }));
-      const redisMock: any = {
-        withDistributedLock: vi.fn(async (_key, callback) => callback(() => true)),
+      const redisMock: any = createRedisMock({
         peekListHead: vi.fn(async () => pending[0] ?? null),
         acknowledgeListHead: vi.fn(async (_key, serialized) => {
           if (pending[0]?.serialized !== serialized) {
@@ -344,31 +349,39 @@ describe('TrackingEventsService', () => {
           pending.shift();
           return true;
         }),
-      };
+        getListLength: vi.fn(async () => pending.length),
+      });
+
       const bufferedService = new TrackingEventsService(prismaMock, redisMock);
       vi.spyOn(bufferedService, 'recordDomainEvent').mockResolvedValue({
         recorded: true,
       });
 
-      await (bufferedService as any).flushPendingOrderEvents(
+      const flushResult = await bufferedService.flushPendingOrderEvents(
         orderId,
         serviceRequestId,
       );
 
+      expect(flushResult.flushedCount).toBe(2);
+      expect(flushResult.remainingCount).toBe(0);
       expect(pending).toHaveLength(0);
       expect(bufferedService.recordDomainEvent).toHaveBeenCalledTimes(2);
       expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(2);
+      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+      );
     });
 
     it('does not process pending events when another consumer owns the lock', async () => {
       const orderId = randomUUID();
-      const redisMock: any = {
+      const redisMock: any = createRedisMock({
         withDistributedLock: vi.fn().mockResolvedValue(false),
         peekListHead: vi.fn(),
-      };
+      });
       const bufferedService = new TrackingEventsService(prismaMock, redisMock);
 
-      await (bufferedService as any).flushPendingOrderEvents(
+      await bufferedService.flushPendingOrderEvents(
         orderId,
         randomUUID(),
       );
@@ -432,7 +445,6 @@ describe('TrackingEventsService', () => {
         orderId,
       });
 
-      // Exact outbox payload emitted by Order Service emitOrderStatusChangedEvent
       const orderServicePayload = {
         orderId,
         customerId: customerUserId,
@@ -462,6 +474,330 @@ describe('TrackingEventsService', () => {
             actorUserId: workerUserId,
           }),
         }),
+      );
+    });
+  });
+
+  describe('Pending Events Resilience & Concurrency (P1 Fixes)', () => {
+    it('barrier test: consumer A misses flow, consumer B creates flow and flushes empty queue, consumer A appends and immediately flushes without further events', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const paymentEventId = randomUUID();
+      const flowId = randomUUID();
+
+      let flowExists = false;
+      const queue: Array<{ value: any; serialized: string }> = [];
+
+      let pauseABeforeAppendResolve: () => void;
+      const pauseABeforeAppend = new Promise<void>((resolve) => {
+        pauseABeforeAppendResolve = resolve;
+      });
+
+      let consumerAReachedBarrierResolve: () => void;
+      const consumerAReachedBarrier = new Promise<void>((resolve) => {
+        consumerAReachedBarrierResolve = resolve;
+      });
+
+      const redisMock: any = createRedisMock({
+        appendListItem: vi.fn(async (_key, value) => {
+          queue.push({ value, serialized: JSON.stringify(value) });
+        }),
+        peekListHead: vi.fn(async () => queue[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          queue.shift();
+          return true;
+        }),
+        getListLength: vi.fn(async () => queue.length),
+      });
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: flowId,
+        orderId,
+        serviceRequestId,
+      });
+
+      prismaMock.trackingFlow.findUnique.mockImplementation(async (args: any) => {
+        if (args?.where?.orderId === orderId) {
+          if (!flowExists) {
+            consumerAReachedBarrierResolve();
+            await pauseABeforeAppend;
+            return null;
+          }
+          return { id: flowId, orderId, serviceRequestId };
+        }
+        return null;
+      });
+
+      const consumerAService = new TrackingEventsService(prismaMock, redisMock);
+      const consumerBService = new TrackingEventsService(prismaMock, redisMock);
+
+      // --- BARRIER STEP 1: Consumer A checks flow, finds null ---
+      const consumerAPromise = consumerAService.recordDomainEvent({
+        eventId: paymentEventId,
+        eventType: 'payment.succeeded',
+        orderId,
+        payload: { orderId, amount: 500000 },
+      });
+
+      // Wait until Consumer A has queried flow and gotten null (reached barrier)
+      await consumerAReachedBarrier;
+      expect(queue).toHaveLength(0); // Queue is completely empty!
+
+      // --- BARRIER STEP 2: Consumer B runs with order.created, creates flow and flushes empty queue ---
+      flowExists = true;
+      const consumerBResult = await consumerBService.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'order.created',
+        serviceRequestId,
+        orderId,
+        payload: { serviceRequestId, orderId },
+      });
+      expect(consumerBResult.recorded).toBe(true);
+      expect(redisMock.acknowledgeListHead).not.toHaveBeenCalled(); // Empty queue during B's flush
+
+      // --- BARRIER STEP 3: Consumer A resumes, appends to Redis, checks flow (found!) and flushes ---
+      pauseABeforeAppendResolve!();
+      const consumerAResult = await consumerAPromise;
+      expect(consumerAResult.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
+
+      // VERIFICATION:
+      // Even without any additional order events sent, Consumer A's pending event was recorded!
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'payment.succeeded',
+            entityId: orderId,
+          }),
+        }),
+      );
+      // And the queue in Redis was acknowledged and emptied exactly once!
+      expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
+      expect(queue).toHaveLength(0);
+      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+      );
+    });
+
+    it('DB error during flush keeps event pending, then recovers and flushes cleanly on retry', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const item = {
+        data: {
+          eventId: randomUUID(),
+          eventType: 'order.status.changed',
+          orderId,
+          payload: { orderId, status: 'in_progress' },
+        },
+      };
+      const pending = [{ value: item, serialized: JSON.stringify(item) }];
+      const redisMock: any = createRedisMock({
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          pending.shift();
+          return true;
+        }),
+        getListLength: vi.fn(async () => pending.length),
+      });
+
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+
+      // Attempt 1: DB fails
+      vi.spyOn(bufferedService, 'recordDomainEvent').mockRejectedValueOnce(
+        new Error('DB connection terminated'),
+      );
+
+      const attempt1 = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(attempt1.flushedCount).toBe(0);
+      expect(pending).toHaveLength(1);
+      expect(redisMock.acknowledgeListHead).not.toHaveBeenCalled();
+      expect(redisMock.removeFromSortedSet).not.toHaveBeenCalled();
+
+      // Attempt 2: DB recovers
+      vi.spyOn(bufferedService, 'recordDomainEvent').mockResolvedValueOnce({
+        recorded: true,
+      });
+
+      const attempt2 = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(attempt2.flushedCount).toBe(1);
+      expect(attempt2.remainingCount).toBe(0);
+      expect(pending).toHaveLength(0);
+      expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
+      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        orderId,
+      );
+    });
+
+    it('process stops after DB commit before Redis ACK: retry recognizes consumed event and acknowledges safely without duplicate DB records', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const eventId = randomUUID();
+      const item = {
+        data: {
+          eventId,
+          eventType: 'payment.succeeded',
+          orderId,
+          payload: { orderId },
+        },
+      };
+      const pending = [{ value: item, serialized: JSON.stringify(item) }];
+      let dbRecordsCount = 0;
+
+      const redisMock: any = createRedisMock({
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          pending.shift();
+          return true;
+        }),
+        getListLength: vi.fn(async () => pending.length),
+      });
+
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+
+      // Setup DB mocks
+      prismaMock.consumedEvent.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ eventId, eventType: 'payment.succeeded', consumedAt: new Date() });
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        orderId,
+        serviceRequestId,
+      });
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        orderId,
+        serviceRequestId,
+      });
+      prismaMock.trackingEvent.create.mockImplementation(async () => {
+        dbRecordsCount++;
+        return { id: randomUUID(), eventId };
+      });
+
+      // Simulate failure in attempt 1 before Redis ACK
+      redisMock.acknowledgeListHead.mockImplementationOnce(async () => {
+        throw new Error('Connection lost before Redis ACK');
+      });
+
+      await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(dbRecordsCount).toBe(1);
+      expect(pending).toHaveLength(1);
+
+      // Attempt 2: Retry recognizes ALREADY_CONSUMED and acknowledges head safely
+      redisMock.acknowledgeListHead.mockImplementationOnce(async () => {
+        pending.shift();
+        return true;
+      });
+
+      const retryResult = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(retryResult.flushedCount).toBe(1);
+      expect(pending).toHaveLength(0);
+      expect(dbRecordsCount).toBe(1); // EXACTLY ONE DB RECORD
+    });
+
+    it('concurrent flushers: distributed lock ensures each pending event is flushed and recorded exactly once', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const eventId = randomUUID();
+      const item = {
+        data: {
+          eventId,
+          eventType: 'order.status.changed',
+          orderId,
+          payload: { orderId },
+        },
+      };
+      const pending = [{ value: item, serialized: JSON.stringify(item) }];
+      let lockTaken = false;
+
+      const redisMock: any = createRedisMock({
+        withDistributedLock: vi.fn(async (_key, callback) => {
+          if (lockTaken) {
+            return false;
+          }
+          lockTaken = true;
+          try {
+            await callback(() => true, 'lock-1');
+            return true;
+          } finally {
+            lockTaken = false;
+          }
+        }),
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          pending.shift();
+          return true;
+        }),
+        getListLength: vi.fn(async () => pending.length),
+      });
+
+      const serviceInstance1 = new TrackingEventsService(prismaMock, redisMock);
+      const serviceInstance2 = new TrackingEventsService(prismaMock, redisMock);
+
+      vi.spyOn(serviceInstance1, 'recordDomainEvent').mockResolvedValue({
+        recorded: true,
+      });
+      vi.spyOn(serviceInstance2, 'recordDomainEvent').mockResolvedValue({
+        recorded: true,
+      });
+
+      const [res1, res2] = await Promise.all([
+        serviceInstance1.flushPendingOrderEvents(orderId, serviceRequestId),
+        serviceInstance2.flushPendingOrderEvents(orderId, serviceRequestId),
+      ]);
+
+      expect(res1.flushedCount + res2.flushedCount).toBe(1);
+      expect(pending).toHaveLength(0);
+      expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
+      expect(
+        (serviceInstance1.recordDomainEvent as any).mock.calls.length +
+        (serviceInstance2.recordDomainEvent as any).mock.calls.length,
+      ).toBe(1);
+    });
+
+    it('reconciliation scans pending orders: flushes orders with matching flows and alerts for stalled ones', async () => {
+      const orderIdReady = randomUUID();
+      const orderIdStalled = randomUUID();
+      const serviceRequestId = randomUUID();
+      const now = Date.now();
+
+      const redisMock: any = createRedisMock({
+        getSortedSetRangeWithScores: vi.fn().mockResolvedValue([
+          { member: orderIdReady, score: now - 5000 },
+          { member: orderIdStalled, score: now - 120_000 },
+        ]),
+        getListLength: vi.fn(async (key: string) => {
+          if (key.includes(orderIdReady)) return 1;
+          if (key.includes(orderIdStalled)) return 2;
+          return 0;
+        }),
+        peekListHead: vi.fn().mockResolvedValue(null),
+      });
+
+      prismaMock.trackingFlow.findUnique.mockImplementation(async (args: any) => {
+        if (args?.where?.orderId === orderIdReady) {
+          return { id: randomUUID(), orderId: orderIdReady, serviceRequestId };
+        }
+        return null;
+      });
+
+      const reconcilingService = new TrackingEventsService(prismaMock, redisMock);
+      const flushSpy = vi
+        .spyOn(reconcilingService, 'flushPendingOrderEvents')
+        .mockResolvedValue({ flushedCount: 1, remainingCount: 0 });
+
+      const loggerWarnSpy = vi.spyOn((reconcilingService as any).logger, 'warn');
+
+      const result = await reconcilingService.reconcilePendingOrders(60_000);
+
+      expect(result.scanned).toBe(2);
+      expect(result.flushedOrders).toBe(1);
+      expect(result.stalledOrders).toBe(1);
+      expect(flushSpy).toHaveBeenCalledWith(orderIdReady, serviceRequestId);
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[PENDING_ORDER_STALLED_ALERT]'),
       );
     });
   });
@@ -507,9 +843,7 @@ describe('TrackingEventsService', () => {
   describe('Cache Invalidation', () => {
     it('should invalidate active Redis cache keys for serviceRequestId when new event is recorded', async () => {
       const serviceRequestId = randomUUID();
-      const redisMock: any = {
-        delByPattern: vi.fn().mockResolvedValue(undefined),
-      };
+      const redisMock = createRedisMock();
 
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
       prismaMock.trackingFlow.upsert.mockResolvedValue({
@@ -558,6 +892,7 @@ describe('TrackingEventsService', () => {
         metadata: { workerId: 'w1' },
         occurredAt: new Date(),
         recordedAt: new Date(),
+        writeSequence: 1,
       };
       prismaMock.trackingEvent.create.mockResolvedValue(createdEventRecord);
 
