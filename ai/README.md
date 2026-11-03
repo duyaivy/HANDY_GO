@@ -47,10 +47,12 @@ Khi chạy toàn bộ hệ thống bằng Docker Compose:
 
 ---
 
-## 📦 Lưu ý về Model Weights & Bộ nhớ Cache
+## 📦 Lưu ý về Model Weights & Triển khai Cloud (Azure Container Apps)
 
-- **Lần chạy đầu tiên:** Service sẽ tự động tải các model weights của EasyOCR và InsightFace. Quá trình tải phụ thuộc vào tốc độ mạng.
-- **Cache models:** Toàn bộ model weights được lưu trong Docker named volumes (`ai-face-models`, `ai-ocr-models`), đảm bảo không phải tải lại khi khởi động lại container.
+- **Đóng gói sẵn (Pre-baked Models):** Toàn bộ model weights của EasyOCR (`vi`, `en`) và InsightFace (`buffalo_l`) đã được nạp trực tiếp vào Docker image thông qua `warmup_models.py` trong quá trình `docker build`.
+- **Azure Container Apps (Serverless Scale-to-Zero):**
+  - Workflow CI/CD được đặt tại `.github/workflows/ai-azure-container-apps.yml`.
+  - Hỗ trợ scale-to-zero ($0 chi phí khi nhàn rỗi) và khởi động lại tức thì (2–3 giây) mà không cần tải lại model từ internet.
 - **Khuyến nghị tài nguyên máy chủ:**
   - Tối thiểu: 2 vCPU, 2GB–4GB RAM.
-  - Khuyến nghị: 4 vCPU, 4GB–8GB RAM.
+  - Khuyến nghị: 2 vCPU, 4GB RAM (chuẩn Azure Container Apps).
