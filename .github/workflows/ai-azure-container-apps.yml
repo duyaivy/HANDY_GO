@@ -149,8 +149,8 @@ jobs:
         if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           az containerapp registry set \
-            --name handygo-ai-service \
-            --resource-group rg-handygo \
+            --name handy-go-ai \
+            --resource-group rg-handy-go \
             --server ghcr.io \
             --username "${{ github.actor }}" \
             --password "${{ secrets.GITHUB_TOKEN }}"
@@ -159,8 +159,8 @@ jobs:
         if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           az containerapp update \
-            --name handygo-ai-service \
-            --resource-group rg-handygo \
+            --name handy-go-ai \
+            --resource-group rg-handy-go \
             --image "${{ needs.build-and-publish.outputs.image_tag_sha }}" \
             --cpu 2.0 \
             --memory 4.0Gi \
@@ -175,7 +175,7 @@ jobs:
         if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           # 1. Lấy FQDN chính thức của service từ Azure
-          FQDN=$(az containerapp show --name handygo-ai-service --resource-group rg-handygo --query properties.configuration.ingress.fqdn -o tsv)
+          FQDN=$(az containerapp show --name handy-go-ai --resource-group rg-handy-go --query properties.configuration.ingress.fqdn -o tsv)
           SERVICE_URL="https://$FQDN"
           echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
 
