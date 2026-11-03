@@ -6,6 +6,7 @@ import { TrackingEntityType } from '@prisma/tracking-client';
 import { TimelineStreamService, type LiveTimelineEvent } from './timeline-stream.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { GatewayUser } from '../security/tracking-security.util.js';
+import type { RedisService } from '@app/redis';
 
 describe('TimelineStreamService', () => {
   let service: TimelineStreamService;
@@ -851,10 +852,10 @@ describe('TimelineStreamService', () => {
         };
         mockDbEvents.push(droppedPubSubEvent);
 
-        // Advance timer to trigger 25s heartbeat sync
-        await vi.advanceTimersByTimeAsync(25000);
+        // Advance timer to trigger 5s periodic sync
+        await vi.advanceTimersByTimeAsync(5000);
 
-        // Heartbeat tick triggers drainLiveEvents, recovering dropped event
+        // Periodic sync triggers drainLiveEvents, recovering dropped event
         expect(messages.some((m) => m.id === droppedPubSubEvent.id)).toBe(true);
 
         const recoveredMsg = messages.find((m) => m.id === droppedPubSubEvent.id);
@@ -865,6 +866,223 @@ describe('TimelineStreamService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('should recover missed events across replicas when Redis publish fails on Replica B and SSE is on Replica A', async () => {
+      vi.useFakeTimers();
+      try {
+        const serviceRequestId = randomUUID();
+        const customerId = randomUUID();
+        const flowId = randomUUID();
+
+        prismaMock.trackingFlow.findUnique.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          customerId,
+        });
+
+        // Replica A: SSE Server where client connects
+        const redisMockA: any = {
+          subscribe: vi.fn().mockResolvedValue(async () => {}),
+          publishStrict: vi.fn(),
+        };
+        const replicaA = new TimelineStreamService(
+          prismaMock as unknown as PrismaService,
+          redisMockA as unknown as RedisService,
+        );
+
+        // Replica B: Ingestion Server where event commits
+        const redisMockB: any = {
+          subscribe: vi.fn().mockResolvedValue(async () => {}),
+          publishStrict: vi
+            .fn()
+            .mockRejectedValue(new Error('Redis connection lost on publish')),
+        };
+        const replicaB = new TimelineStreamService(
+          prismaMock as unknown as PrismaService,
+          redisMockB as unknown as RedisService,
+        );
+
+        const user: GatewayUser = {
+          userId: customerId,
+          roles: ['Customer'],
+          isAdmin: false,
+          isCustomer: true,
+          isWorker: false,
+        };
+
+        // Client connects to Replica A
+        const stream$ = await replicaA.getLiveStream(serviceRequestId, user);
+        const messages: any[] = [];
+        const subscription = stream$.subscribe((m) => messages.push(m));
+
+        expect(messages).toHaveLength(1); // initial 'connected'
+
+        // Replica B commits event to DB
+        const eventRecordedOnB: LiveTimelineEvent = {
+          serviceRequestId,
+          id: randomUUID(),
+          eventId: randomUUID(),
+          entityType: TrackingEntityType.order,
+          entityId: randomUUID(),
+          eventType: 'order.in_progress',
+          sourceService: 'order-service',
+          occurredAt: new Date(),
+          recordedAt: new Date(),
+          writeSequence: 1,
+        };
+        mockDbEvents.push({ ...eventRecordedOnB, trackingFlowId: flowId });
+
+        // Replica B attempts to broadcast, but publish fails!
+        // broadcastEvent must not throw, must fallback cleanly
+        await expect(replicaB.broadcastEvent(eventRecordedOnB)).resolves.toBeUndefined();
+
+        // Replica A received no Redis message. Client on A has not received it yet.
+        expect(messages).toHaveLength(1);
+
+        // Advance 5s timer for Replica A's periodic DB sync
+        await vi.advanceTimersByTimeAsync(5000);
+
+        // Client on Replica A receives eventRecordedOnB from DB exactly once
+        expect(messages).toHaveLength(2);
+        expect(messages[1].id).toBe(eventRecordedOnB.id);
+        expect((messages[1].data as any).payload.writeSequence).toBe(1);
+
+        subscription.unsubscribe();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should deliver event on Replica A when Replica B commits to DB but crashes before broadcast', async () => {
+      vi.useFakeTimers();
+      try {
+        const serviceRequestId = randomUUID();
+        const customerId = randomUUID();
+        const flowId = randomUUID();
+
+        prismaMock.trackingFlow.findUnique.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          customerId,
+        });
+
+        const replicaA = new TimelineStreamService(
+          prismaMock as unknown as PrismaService,
+        );
+
+        const user: GatewayUser = {
+          userId: customerId,
+          roles: ['Customer'],
+          isAdmin: false,
+          isCustomer: true,
+          isWorker: false,
+        };
+
+        const stream$ = await replicaA.getLiveStream(serviceRequestId, user);
+        const messages: any[] = [];
+        const subscription = stream$.subscribe((m) => messages.push(m));
+
+        // Event committed to PostgreSQL by Replica B, but process crashes before broadcastEvent
+        const crashedEvent = {
+          id: randomUUID(),
+          eventId: randomUUID(),
+          trackingFlowId: flowId,
+          writeSequence: 1,
+          entityType: TrackingEntityType.order,
+          entityId: randomUUID(),
+          eventType: 'order.created',
+          sourceService: 'order-service',
+          occurredAt: new Date(),
+          recordedAt: new Date(),
+        };
+        mockDbEvents.push(crashedEvent);
+
+        // Advance Replica A timer (5s periodic sync)
+        await vi.advanceTimersByTimeAsync(5000);
+
+        expect(messages).toHaveLength(2);
+        expect(messages[1].id).toBe(crashedEvent.id);
+        expect((messages[1].data as any).payload.writeSequence).toBe(1);
+
+        subscription.unsubscribe();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should trigger immediate catch-up drain on active streams when Redis subscriber reconnects', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const flowId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      let reconnectCallback: (() => void) | undefined;
+      const redisMock: any = {
+        subscribe: vi.fn().mockImplementation(
+          async (_chan: string, _onMsg: any, onReconnect?: () => void) => {
+            reconnectCallback = onReconnect;
+            return async () => {};
+          },
+        ),
+        publishStrict: vi.fn(),
+      };
+
+      const replica = new TimelineStreamService(
+        prismaMock as unknown as PrismaService,
+        redisMock as unknown as RedisService,
+      );
+
+      // Initialize Redis subscription
+      await replica.onModuleInit();
+      expect(redisMock.subscribe).toHaveBeenCalledTimes(1);
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const stream$ = await replica.getLiveStream(serviceRequestId, user);
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((m) => messages.push(m));
+
+      expect(messages).toHaveLength(1); // connected
+
+      // An event is committed while Redis is down
+      const missedWhileDisconnected = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 1,
+        entityType: TrackingEntityType.payment,
+        entityId: randomUUID(),
+        eventType: 'payment.succeeded',
+        sourceService: 'payment-service',
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+      mockDbEvents.push(missedWhileDisconnected);
+
+      // Simulate Redis subscriber reconnecting
+      expect(reconnectCallback).toBeDefined();
+      reconnectCallback!();
+
+      // Active streams must be immediately drained and missed event delivered without delay
+      await vi.waitFor(() => expect(messages).toHaveLength(2));
+      expect(messages[1].id).toBe(missedWhileDisconnected.id);
+      expect((messages[1].data as any).payload.eventType).toBe('payment.succeeded');
+      expect((messages[1].data as any).payload.writeSequence).toBe(1);
+
+      subscription.unsubscribe();
+      await replica.onModuleDestroy();
     });
   });
 });

@@ -16,6 +16,7 @@ describe('RedisService', () => {
           useValue: {
             redisHost: 'localhost',
             redisPort: 6379,
+            redisUrl: 'redis://localhost:6379',
           },
         },
       ],
@@ -27,6 +28,7 @@ describe('RedisService', () => {
       zadd: vi.fn().mockResolvedValue(1),
       zrem: vi.fn().mockResolvedValue(1),
       zrange: vi.fn().mockResolvedValue(['order-1', '1000', 'order-2', '2000']),
+      publish: vi.fn().mockResolvedValue(1),
     };
     (service as any).client = clientMock;
     (service as any).isConnected = true;
@@ -61,8 +63,27 @@ describe('RedisService', () => {
     ]);
   });
 
+  it('should publishStrict and return recipient count', async () => {
+    const count = await service.publishStrict('test:chan', { hello: 'world' });
+    expect(count).toBe(1);
+    expect(clientMock.publish).toHaveBeenCalledWith(
+      'test:chan',
+      JSON.stringify({ hello: 'world' }),
+    );
+  });
+
+  it('should throw from publishStrict if client.publish throws', async () => {
+    clientMock.publish.mockRejectedValueOnce(new Error('Connection lost'));
+    await expect(
+      service.publishStrict('test:chan', { hello: 'world' }),
+    ).rejects.toThrow('Connection lost');
+  });
+
   it('should throw if not connected', async () => {
     (service as any).isConnected = false;
     await expect(service.getListLength('test:list')).rejects.toThrow('Redis is not connected');
+    await expect(
+      service.publishStrict('test:chan', { hello: 'world' }),
+    ).rejects.toThrow('Redis is not connected');
   });
 });

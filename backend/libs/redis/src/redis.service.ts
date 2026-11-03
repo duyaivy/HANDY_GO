@@ -300,6 +300,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Publishes a message to a channel with strict error propagation.
+   * Throws an error if Redis is disconnected or if the publish command fails.
+   */
+  async publishStrict(channel: string, message: unknown): Promise<number> {
+    this.assertConnected();
+    const payload = typeof message === 'string' ? message : JSON.stringify(message);
+    return await this.client.publish(channel, payload);
+  }
+
   private assertConnected(): void {
     if (!this.isConnected) {
       throw new Error('Redis is not connected');
@@ -309,6 +319,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async subscribe(
     channel: string,
     callback: (message: string) => void,
+    onReconnect?: () => void,
   ): Promise<() => Promise<void>> {
     const redisUrl = this.config.redisUrl;
     if (!this.subClient) {
@@ -335,9 +346,21 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     };
     this.subClient.on('message', listener);
 
+    let reconnectListener: (() => void) | undefined;
+    if (onReconnect) {
+      reconnectListener = () => {
+        this.logger.log(`Redis subscriber reconnected on channel "${channel}"`);
+        onReconnect();
+      };
+      this.subClient.on('ready', reconnectListener);
+    }
+
     return async () => {
       if (this.subClient) {
         this.subClient.off('message', listener);
+        if (reconnectListener) {
+          this.subClient.off('ready', reconnectListener);
+        }
         await this.subClient.unsubscribe(channel).catch(() => {});
       }
     };

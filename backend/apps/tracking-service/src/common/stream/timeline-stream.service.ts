@@ -48,6 +48,7 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
   private readonly eventSubject = new Subject<LiveTimelineEvent>();
   private static readonly REDIS_STREAM_CHANNEL = 'tracking:stream:events';
   private unsubscribeRedis?: () => Promise<void>;
+  private readonly activeStreamDrainers = new Set<() => Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,6 +72,12 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn(`Failed to parse SSE event from Redis: ${err.message}`);
           }
         },
+        () => {
+          this.logger.log(
+            'Redis subscriber reconnected. Triggering catch-up drain on all active SSE streams.',
+          );
+          void this.drainAllActiveStreams();
+        },
       );
       this.logger.log('Subscribed to Redis SSE stream channel');
     }
@@ -78,12 +85,32 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.unsubscribeRedis) {
-      await this.unsubscribeRedis().catch(() => {});
+      await Promise.resolve(this.unsubscribeRedis()).catch(() => {});
     }
   }
 
   /**
+   * Triggers a catch-up drain on all currently active SSE streams on this replica instance.
+   * Useful when Redis reconnects after a network partition or outage.
+   */
+  async drainAllActiveStreams(): Promise<void> {
+    if (this.activeStreamDrainers.size === 0) return;
+    this.logger.debug(
+      `Draining all active SSE streams (${this.activeStreamDrainers.size} active)`,
+    );
+    const drains = Array.from(this.activeStreamDrainers).map((drain) =>
+      drain().catch((err) => {
+        this.logger.warn(`Error during active stream drain: ${err?.message}`);
+      }),
+    );
+    await Promise.all(drains);
+  }
+
+  /**
    * Broadcasts a newly recorded tracking event to all active SSE subscribers across replicas.
+   * Uses Redis Pub/Sub (publishStrict) to alert all replicas.
+   * In case of Redis outage or publish failure, logs a warning and notifies local subscribers.
+   * Remote replicas will automatically recover the event from PostgreSQL via periodic sync or reconnect drain.
    */
   async broadcastEvent(event: LiveTimelineEvent): Promise<void> {
     this.logger.debug(
@@ -91,11 +118,11 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
     );
     if (this.redis) {
       try {
-        await this.redis.publish(TimelineStreamService.REDIS_STREAM_CHANNEL, event);
+        await this.redis.publishStrict(TimelineStreamService.REDIS_STREAM_CHANNEL, event);
         return;
       } catch (err: any) {
         this.logger.warn(
-          `Failed to publish SSE event to Redis (${err.message}). Falling back to local subject.`,
+          `Failed to publish SSE event to Redis (${err.message}). Falling back to local subject. Other replicas will catch up via periodic DB sync or reconnect drain.`,
         );
       }
     }
@@ -402,6 +429,8 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
 
     const replayAndLive$ = new Observable<MessageEvent>((subscriber) => {
       streamSubscriber = subscriber;
+      this.activeStreamDrainers.add(drainLiveEvents);
+
       subscriber.next(initialEvent);
       for (const event of missedEvents) {
         subscriber.next(event);
@@ -411,10 +440,20 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       void drainLiveEvents();
 
       return () => {
+        this.activeStreamDrainers.delete(drainLiveEvents);
         streamSubscriber = undefined;
         liveSubscription.unsubscribe();
       };
     });
+
+    // Periodic sync interval (every 5 seconds) to catch up on any missed events if Pub/Sub signals are lost or Redis fails
+    const periodicSync$ = interval(5000).pipe(
+      map((): MessageEvent | null => {
+        void drainLiveEvents();
+        return null;
+      }),
+      filter((msg): msg is MessageEvent => msg !== null),
+    );
 
     // Periodic heartbeat (ping) that also triggers drainLiveEvents to catch any missed Pub/Sub signals
     const heartbeat$ = interval(25000).pipe(
@@ -429,6 +468,6 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       }),
     );
 
-    return merge(replayAndLive$, heartbeat$);
+    return merge(replayAndLive$, heartbeat$, periodicSync$);
   }
 }
