@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from "react";
-import { Eye, EyeOff, ArrowLeft, Phone, Lock } from "lucide-react";
+import { Eye, EyeOff, Phone, Lock } from "lucide-react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import Image from "next/image";
@@ -69,9 +69,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   };
 
   return (
-    <div className="relative h-screen w-full bg-white font-sans text-slate-800 selection:bg-orange-100 selection:text-orange-900 overflow-hidden flex items-center justify-center">
+    <div className="relative min-h-dvh w-full overflow-x-hidden bg-white font-sans text-slate-800 selection:bg-orange-100 selection:text-orange-900 flex items-center justify-center">
       {/* ================= BACKGROUND LƯỢN SÓNG CAM UỐN LƯỢN NHIỀU HƠN ================= */}
-      <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden z-0">
+      <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden z-0 hidden lg:block">
         <svg
           className="w-full h-full"
           viewBox="0 0 1440 900"
@@ -109,9 +109,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       </div>
 
       {/* ================= KHUNG NỘI DUNG CHÍNH (VỪA KHÍT 1 MÀN HÌNH 100VH) ================= */}
-      <div className="relative z-10 w-full max-w-345 h-full max-h-[96vh] flex flex-col justify-between p-4 sm:p-6 lg:p-8">
+      <div className="relative z-10 mx-auto flex min-h-dvh w-full max-w-[1380px] flex-col px-4 py-4 sm:px-6 sm:py-6 lg:min-h-dvh lg:px-8 lg:py-7">
         {/* THANH TOP HEADER: NÚT QUAY LẠI VÀ LOGO */}
-        <div className="flex items-center justify-between shrink-0">
+        <div className="flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-3">
             {/* Nút quay lại Landing Page */}
             {/* <button
@@ -148,7 +148,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                 alt="HandyGo Logo"
                 width={150}
                 height={40}
-                className="h-19 sm:h-22 w-auto max-w-37.5 object-contain select-none drop-shadow-xs"
+                className="h-auto w-28 object-contain select-none drop-shadow-xs sm:w-36 lg:w-40"
               />
             </Link>
           </div>
@@ -160,22 +160,28 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         </div>
 
         {/* THÂN GIỮA: CỘT TRÁI (HÌNH ẢNH THỢ) & CỘT PHẢI (FORM CARD ĐĂNG NHẬP) */}
-        <div className="my-auto w-full flex-1 flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-12 py-2 min-h-0">
+        <div className="flex w-full flex-1 flex-col items-center justify-center gap-6 py-6 sm:py-8 lg:flex-row lg:justify-between lg:gap-8 lg:py-4 xl:gap-12">
           {/* ================= CỘT TRÁI: HÌNH ẢNH MINH HỌA ================= */}
           <motion.div
             initial={{ opacity: 0, x: -25 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full lg:w-[50%] flex flex-col items-center justify-center p-2 sm:p-4"
+            className="hidden w-full flex-col items-center justify-center p-2 lg:flex lg:w-[50%] xl:p-4"
           >
             <div className="relative w-full max-w-[1000px] flex items-center justify-center">
-              <div className="relative w-full flex items-center justify-center -translate-x-12 -translate-y-24 transition-transform hover:scale-[1.01]">
+              <div className="relative flex w-full -translate-x-3 -translate-y-6 items-center justify-center transition-transform hover:scale-[1.01] xl:-translate-x-8 xl:-translate-y-12">
                 <img
                   src={bannerImageSrc}
                   alt="Handy Service"
                   onError={(e) => {
-                    e.currentTarget.src =
-                      "/handyservice_flat_bg_FA984D_fixed.png";
+                    if (
+                      !e.currentTarget.src.endsWith(
+                        "/handyservice_flat_bg_FA984D_fixed.png",
+                      )
+                    ) {
+                      e.currentTarget.src =
+                        "/handyservice_flat_bg_FA984D_fixed.png";
+                    }
                   }}
                   className="w-full h-auto max-h-[350px] sm:max-h-[400px] lg:max-h-[440px] object-contain select-none drop-shadow-md"
                 />
@@ -188,12 +194,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             initial={{ opacity: 0, x: 25 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="w-full lg:w-[48%] xl:w-[45%] flex flex-col items-center lg:items-end justify-center"
+            className="flex w-full max-w-[520px] flex-col items-center justify-center lg:w-[48%] lg:max-w-none lg:items-end xl:w-[45%]"
           >
             {/* THẺ TRẮNG CHỨA FORM (Kích thước to hơn, bo góc mềm mại, sang trọng) */}
-            <div className="w-full max-w-120 xl:max-w-125 bg-white rounded-3xl sm:rounded-[36px] shadow-2xl shadow-orange-950/20 border border-white/70 p-7 sm:p-9 lg:p-10">
+            <div className="w-full max-w-[500px] rounded-3xl border border-slate-100 bg-white p-5 shadow-xl shadow-slate-900/5 sm:rounded-[36px] sm:p-8 lg:border-white/70 lg:p-8 lg:shadow-2xl lg:shadow-orange-950/20 xl:p-10">
               {/* TIÊU ĐỀ "Welcome Back" NGHỆ THUẬT */}
-              <div className="text-center mb-6 sm:mb-7">
+              <div className="mb-6 text-center sm:mb-7">
                 <h1 className="text-3xl sm:text-4xl font-black text-[#F79A38] tracking-tight italic font-serif leading-tight">
                   Welcome Back
                 </h1>
@@ -264,7 +270,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                 </div>
 
                 {/* GHI NHỚ VÀ QUÊN MẬT KHẨU */}
-                <div className="flex items-center justify-between pt-0.5">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pt-0.5">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"
@@ -346,7 +352,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             </div>
 
             {/* DÒNG FOOTER DƯỚI CARD NẰM TRÊN NỀN CAM (Đúng theo ảnh mẫu) */}
-            <div className="w-full max-w-[480px] xl:max-w-[500px] text-center lg:text-left mt-3.5 space-y-1 text-white/95 text-xs sm:text-[13px] font-medium drop-shadow-xs">
+            <div className="mt-4 w-full max-w-[500px] space-y-1 text-center text-xs font-medium text-slate-600 sm:text-[13px] lg:text-left lg:text-white/95 lg:drop-shadow-xs">
               {/* <div>
                 Cần hỗ trợ?{" "}
                 <span className="font-bold underline cursor-pointer hover:text-white">
@@ -359,14 +365,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({
                   <button
                     type="button"
                     onClick={onSwitchToRegister}
-                    className="font-bold text-white underline hover:text-amber-100 cursor-pointer"
+                    className="cursor-pointer font-bold text-[#e68826] underline hover:text-orange-700 lg:text-white lg:hover:text-amber-100"
                   >
                     Đăng ký ngay
                   </button>
                 ) : (
                   <a
                     href="/register"
-                    className="font-bold text-white underline hover:text-amber-100"
+                    className="font-bold text-[#e68826] underline hover:text-orange-700 lg:text-white lg:hover:text-amber-100"
                   >
                     Đăng ký ngay
                   </a>
@@ -377,7 +383,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         </div>
 
         {/* COPYRIGHT CHÂN TRANG */}
-        <div className="shrink-0 text-center text-[11px] text-slate-400">
+        <div className="shrink-0 pb-1 text-center text-[11px] text-slate-400">
           © {new Date().getFullYear()} HandyGo Inc. Tiện ích sửa chữa tận tâm.
         </div>
       </div>

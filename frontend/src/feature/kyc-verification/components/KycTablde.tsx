@@ -254,7 +254,7 @@ export const KycTable: React.FC = () => {
   };
 
   return (
-    <div className="w-full font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
+    <div className="w-full min-w-0 font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* Toast thông báo */}
       {toast && (
         <div
@@ -282,7 +282,7 @@ export const KycTable: React.FC = () => {
       {/* 1. HEADER TRANG: Tiêu đề 24px + Mô tả */}
       {/* ========================================================================= */}
       <div className="mb-6">
-        <h1 className="text-[24px] font-semibold text-[#0F172A] tracking-tight leading-[1.3]">
+        <h1 className="text-xl sm:text-[24px] font-semibold text-[#0F172A] tracking-tight leading-[1.3]">
           Xác minh thợ
         </h1>
         <p className="text-[14px] text-[#64748B] mt-1 font-normal">
@@ -293,8 +293,8 @@ export const KycTable: React.FC = () => {
       {/* ========================================================================= */}
       {/* 2. THANH BỘ LỌC VÀ TÌM KIẾM */}
       {/* ========================================================================= */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-5">
-        <div className="relative flex-1 max-w-md">
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
+        <div className="relative w-full min-w-0 md:w-[280px] md:max-w-[340px] md:flex-[1_1_240px]">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
@@ -308,8 +308,8 @@ export const KycTable: React.FC = () => {
           />
         </div>
 
-        <div className="flex items-center gap-3 self-end sm:self-auto">
-          <div className="relative min-w-[160px]">
+        <div className="grid w-full grid-cols-2 gap-3 md:ml-auto md:w-auto md:flex-none">
+          <div className="relative min-w-0 md:w-[170px]">
             <select
               value={filterStatus}
               onChange={(e) => {
@@ -328,7 +328,7 @@ export const KycTable: React.FC = () => {
             <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
-          <div className="relative min-w-[130px]">
+          <div className="relative min-w-0 md:w-[130px]">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "newest" | "oldest")}
@@ -346,7 +346,7 @@ export const KycTable: React.FC = () => {
       {/* 3. BẢNG DANH SÁCH 5 CỘT FULL WIDTH 100% */}
       {/* ========================================================================= */}
       <div className="w-full bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px] table-fixed text-left border-collapse">
             <colgroup>
               <col className="w-[29%]" />
@@ -508,9 +508,108 @@ export const KycTable: React.FC = () => {
           </table>
         </div>
 
+        {/* Mobile: hiển thị dạng card thay vì bảng ngang */}
+        <div className="divide-y divide-slate-100 md:hidden">
+          {isPending ? (
+            Array.from({ length: 4 }, (_, index) => (
+              <div key={`mobile-skeleton-${index}`} className="space-y-3 p-4">
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-11 w-11 shrink-0 rounded-full" />
+                  <Skeleton className="h-4 w-36 rounded-md" />
+                </div>
+                <Skeleton className="h-4 w-48 rounded-md" />
+                <Skeleton className="h-7 w-24 rounded-full" />
+              </div>
+            ))
+          ) : isError ? (
+            <div className="p-6 text-center text-sm text-red-600">
+              <p>
+                {error instanceof Error
+                  ? error.message
+                  : "Không thể tải danh sách hồ sơ"}
+              </p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="mt-2 font-medium text-[#FF5E14] underline"
+              >
+                Thử lại
+              </button>
+            </div>
+          ) : paginatedRecords.length === 0 ? (
+            <div className="p-8 text-center text-sm text-slate-400">
+              Không tìm thấy hồ sơ xác minh nào
+            </div>
+          ) : (
+            paginatedRecords.map((record) => {
+              const statusConf = KYC_STATUS_CONFIG[record.status];
+              const fullName = record.workerProfile.user.fullName;
+              return (
+                <div key={record.id} className="space-y-4 p-4 sm:p-5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {record.workerProfile.user.avatarUrl ? (
+                      <img
+                        src={record.workerProfile.user.avatarUrl}
+                        alt={fullName}
+                        className="h-11 w-11 shrink-0 rounded-full border border-slate-100 object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">
+                        {fullName.charAt(0)}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[#0F172A]">
+                        {fullName}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Hồ sơ xác minh thợ
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${statusConf.badgeBg} ${statusConf.badgeText}`}
+                    >
+                      {statusConf.label}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 rounded-xl bg-slate-50/70 p-3 min-[420px]:grid-cols-2">
+                    <div className="min-w-0">
+                      <p className="mb-1 text-xs text-slate-500">Mã hồ sơ</p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void navigator.clipboard?.writeText(record.id)
+                        }
+                        title={record.id}
+                        className="inline-flex max-w-full items-center gap-1.5 text-left font-mono text-xs text-slate-700 hover:text-[#FF5E14]"
+                      >
+                        <span className="truncate">
+                          {record.id.slice(0, 8)}…
+                        </span>
+                        <Copy className="h-3.5 w-3.5 shrink-0" />
+                      </button>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xs text-slate-500">Ngày nộp</p>
+                      {renderDateTime(record.submittedAt)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openRecord(record)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]"
+                  >
+                    Xem chi tiết <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
+
         {/* PHÂN TRANG */}
-        <div className="px-6 py-4 border-t border-slate-100">
-          <div className="flex items-center justify-between gap-4 text-[13px] text-[#64748B]">
+        <div className="border-t border-slate-100 px-3 py-4 sm:px-6">
+          <div className="flex flex-col items-center justify-between gap-3 text-[13px] text-[#64748B] sm:flex-row">
             <div className="flex items-center gap-2">
               {/* <span>Hiển thị</span>
               <span className="font-medium text-[#0F172A]">{itemsPerPage}</span>
@@ -521,7 +620,7 @@ export const KycTable: React.FC = () => {
 
             <nav
               aria-label="Phân trang hồ sơ xác minh"
-              className="flex flex-wrap items-center justify-center gap-1 sm:gap-2"
+              className="flex max-w-full flex-wrap items-center justify-center gap-1 sm:gap-2"
             >
               <button
                 type="button"
@@ -530,7 +629,7 @@ export const KycTable: React.FC = () => {
                 className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
               >
                 <ChevronLeft className="h-4 w-4" />
-                Previous
+                <span className="hidden sm:inline">Previous</span>
               </button>
 
               {visiblePages.map((page) =>
@@ -553,7 +652,7 @@ export const KycTable: React.FC = () => {
                   <span
                     key={page}
                     aria-hidden="true"
-                    className="flex h-10 min-w-8 items-center justify-center text-sm font-semibold text-slate-900"
+                    className="flex h-9 min-w-5 items-center justify-center text-sm sm:h-10 sm:min-w-8 font-semibold text-slate-900"
                   >
                     ...
                   </span>
@@ -570,7 +669,7 @@ export const KycTable: React.FC = () => {
                 }
                 className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
               >
-                Next
+                <span className="hidden sm:inline">Next</span>
                 <ChevronRight className="h-4 w-4" />
               </button>
             </nav>
