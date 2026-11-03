@@ -57,35 +57,12 @@ Khi khởi động, service sẽ tự động preload mô hình `intfloat/multil
 
 ---
 
-## 🐳 Khởi chạy bằng Docker Compose
+## 📦 Lưu ý về Model Weights & Triển khai Cloud (Azure Container Apps)
 
-```bash
-cd ai
-docker compose up -d --build
-```
-
-Kiểm tra container logs:
-```bash
-docker compose logs -f ai-service
-```
-
-Named volumes được mount để cache trọng số mô hình:
-- `ai-face-models`: Trọng số InsightFace.
-- `ai-ocr-models`: Trọng số EasyOCR.
-- `ai-hf-models`: Trọng số Hugging Face Sentence Transformers (`intfloat/multilingual-e5-small`).
-
----
-
-## 🧪 Chạy Kiểm thử Tự động (Automated Tests)
-
-Chạy toàn bộ test suite bao gồm Embedding Service, Ranking Algorithm, API Auth, Benchmark & Sensitivity Analysis:
-```bash
-cd ai
-.venv/bin/pytest -v -s tests/
-```
-Các bài kiểm thử chính:
-1. `tests/test_embedding_service.py`: Kiểm thử chuẩn hóa tiếng Việt, E5 query/passage prefixing, cosine similarity, LRU cache.
-2. `tests/test_ranking_service.py`: Kiểm thử 5 chiều scoring, Bayesian rating prior cho thợ mới (cold-start), renormalize trọng số khi thiếu dữ liệu đơn hàng lịch sử.
-3. `tests/test_matching_api.py`: Kiểm thử xác thực `x-internal-secret`, mã lỗi 403 khi thiếu/sai secret, xử lý payload 0 ứng viên.
-4. `tests/test_evaluation.py`: Đánh giá chất lượng ranking tiếng Việt qua 4 danh mục (Điện lạnh, Ống nước, Sửa điện, Vệ sinh), đo lường NDCG@5, MRR, Precision@5.
-5. `tests/test_benchmark_and_sensitivity.py`: Benchmark độ trễ với 5, 20, 100 ứng viên, request đồng thời và phân tích độ nhạy trọng số (Spearman $\rho \ge 0.70$).
+- **Đóng gói sẵn (Pre-baked Models):** Toàn bộ model weights của EasyOCR (`vi`, `en`) và InsightFace (`buffalo_l`) đã được nạp trực tiếp vào Docker image thông qua `warmup_models.py` trong quá trình `docker build`.
+- **Azure Container Apps (Serverless Scale-to-Zero):**
+  - Workflow CI/CD được đặt tại `.github/workflows/ai-azure-container-apps.yml`.
+  - Hỗ trợ scale-to-zero ($0 chi phí khi nhàn rỗi) và khởi động lại tức thì (2–3 giây) mà không cần tải lại model từ internet.
+- **Khuyến nghị tài nguyên máy chủ:**
+  - Tối thiểu: 2 vCPU, 2GB–4GB RAM.
+  - Khuyến nghị: 2 vCPU, 4GB RAM (chuẩn Azure Container Apps).

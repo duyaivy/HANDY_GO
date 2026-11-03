@@ -227,15 +227,9 @@ export default function ServiceTable() {
   return (
     <div className="min-w-0 w-full space-y-5 sm:space-y-6 font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* HEADER */}
-      <div className="flex min-w-0 flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <span>Quản lý</span>
-            <span>/</span>
-            <span className="text-slate-600">Dịch vụ</span>
-          </div>
-
-          <h1 className="text-[24px] font-semibold tracking-tight leading-[1.3] text-[#0F172A]">
+          <h1 className="text-xl font-semibold tracking-tight leading-[1.3] text-[#0F172A] sm:text-2xl">
             Quản lý dịch vụ
           </h1>
 
@@ -247,15 +241,15 @@ export default function ServiceTable() {
         <button
           type="button"
           onClick={openAddModal}
-          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#FF5E14] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#E9510D] sm:w-auto sm:px-5"
+          className="inline-flex w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#E9510D] sm:px-4 sm:text-sm"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           Thêm dịch vụ
         </button>
       </div>
 
       {/* SUMMARY */}
-      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4">
         <SummaryCard
           title="Tổng dịch vụ"
           value={total}
@@ -291,7 +285,7 @@ export default function ServiceTable() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1fr)_220px_180px]">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-[minmax(200px,1fr)_220px_180px]">
             {/* SEARCH */}
             <div className="relative min-w-0">
               <Search
@@ -304,8 +298,8 @@ export default function ServiceTable() {
                 onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Tìm tên dịch vụ..."
-                className="w-full min-w-0 rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                placeholder="Tìm dịch vụ..."
+                className="w-full min-w-0 rounded-lg border border-slate-200 py-2 pl-9 pr-2 text-xs outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:text-sm"
               />
             </div>
 
@@ -322,7 +316,7 @@ export default function ServiceTable() {
                     page: "1",
                   })
                 }
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                className="w-full min-w-0 appearance-none truncate rounded-lg border border-slate-200 bg-white py-2 pl-2 pr-7 text-xs text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:pl-3 sm:pr-9 sm:text-sm"
               >
                 <option value="all">Tất cả danh mục</option>
                 {categories.map((category) => (
@@ -333,12 +327,12 @@ export default function ServiceTable() {
               </select>
               <ChevronDown
                 size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
 
             {/* STATUS FILTER */}
-            <div className="relative min-w-0 sm:col-span-2 xl:col-span-1">
+            <div className="relative col-span-2 min-w-0 sm:col-span-2 xl:col-span-1">
               <select
                 value={statusFilter}
                 onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
@@ -352,7 +346,7 @@ export default function ServiceTable() {
                     page: "1",
                   })
                 }
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                className="w-full min-w-0 appearance-none truncate rounded-lg border border-slate-200 bg-white py-2 pl-2 pr-7 text-xs text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:pl-3 sm:pr-9 sm:text-sm"
               >
                 <option value="all">Tất cả trạng thái</option>
                 <option value="active">Active</option>
@@ -360,7 +354,7 @@ export default function ServiceTable() {
               </select>
               <ChevronDown
                 size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
           </div>
@@ -368,7 +362,7 @@ export default function ServiceTable() {
 
         {/* SERVICE TABLE — layout theo CategoryTable; giữ nguyên dữ liệu và handlers */}
         <div className="p-4 sm:p-5">
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[850px] text-left">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
@@ -518,16 +512,109 @@ export default function ServiceTable() {
               </tbody>
             </table>
           </div>
+          {/* Mobile cards: không cần kéo ngang để xem bảng. */}
+          <div className="space-y-3 md:hidden">
+            {isPending || isCategoryPending ? (
+              Array.from({ length: Math.min(limit, 5) }, (_, index) => (
+                <div
+                  key={index}
+                  className="space-y-3 rounded-xl border border-slate-200 p-4"
+                >
+                  <Skeleton className="h-5 w-2/3" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-6 w-24 rounded-full" />
+                </div>
+              ))
+            ) : isError ? (
+              <p className="py-8 text-center text-sm text-red-500">
+                Không thể tải danh sách dịch vụ.
+              </p>
+            ) : filteredServices.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">
+                  Không tìm thấy dịch vụ
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 text-sm font-semibold text-[#FF5E14]"
+                  onClick={() => {
+                    setSearch("");
+                    updateQuery({
+                      search: undefined,
+                      categoryId: undefined,
+                      isActive: undefined,
+                      page: "1",
+                    });
+                  }}
+                >
+                  Xóa bộ lọc
+                </button>
+              </div>
+            ) : (
+              filteredServices.map((service) => (
+                <div
+                  key={service.id}
+                  className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                >
+                  {/* Danh mục và trạng thái nằm phía trên trên mobile. */}
+                  <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 break-words text-xs font-medium text-slate-500">
+                      {categories.find(
+                        (category) => category.id === service.categoryId,
+                      )?.name ?? "—"}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${service.isActive ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"}`}
+                    >
+                      {service.isActive ? "Active" : "Disabled"}
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openDetailModal(service)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-orange-50">
+                        {service.iconUrl ? (
+                          <img
+                            src={service.iconUrl}
+                            alt={service.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Wrench size={22} className="text-[#FF5E14]" />
+                        )}
+                      </div>
+                      <span className="min-w-0 break-words text-sm font-medium text-[#0F172A]">
+                        {service.name}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Thao tác với ${service.name}`}
+                      aria-haspopup="menu"
+                      aria-expanded={openMenuId === service.id}
+                      onClick={(event) => toggleServiceMenu(event, service.id)}
+                      className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                    >
+                      <MoreVertical size={19} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
         {!isPending && !isError && (
-          <div className="flex flex-col gap-3 border-t border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex flex-col items-center gap-3 border-t border-slate-100 p-3 sm:flex-row sm:justify-between sm:p-5">
             <p className="text-sm text-slate-500">
               Hiển thị {total === 0 ? 0 : (page - 1) * limit + 1}
               {" - "}
               {Math.min(page * limit, total)} trong tổng số {total} dịch vụ
             </p>
             {totalPages > 1 && (
-              <Pagination className="mx-0 w-auto justify-start sm:justify-end">
+              <Pagination className="mx-0 w-full justify-center sm:w-auto sm:justify-end">
                 <PaginationContent className="flex-wrap">
                   <PaginationItem>
                     <PaginationPrevious
@@ -795,16 +882,18 @@ function SummaryCard({
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:gap-4 sm:p-5">
+    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:gap-4 sm:rounded-2xl sm:p-5">
       <div
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${colorClasses[color]}`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-12 sm:w-12 sm:rounded-xl ${colorClasses[color]}`}
       >
         {icon}
       </div>
 
       <div className="min-w-0">
-        <p className="text-xs leading-5 text-slate-500 sm:text-sm">{title}</p>
-        <p className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">
+        <p className="text-[11px] leading-4 text-slate-500 sm:text-sm">
+          {title}
+        </p>
+        <p className="mt-1 text-lg font-bold text-slate-900 sm:text-2xl">
           {value}
         </p>
       </div>

@@ -79,7 +79,7 @@ export const ServiceDetail: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-white font-sans text-[#0F1B33]">
+    <div className="flex min-h-screen flex-col min-w-0 overflow-x-clip bg-white font-sans text-[#0F1B33]">
       {/* NAVBAR */}
       <CategoryServiceNavbar
         currentView="discovery"
@@ -89,7 +89,7 @@ export const ServiceDetail: React.FC = () => {
 
       <main className="flex-1">
         {/* CHI TIẾT DỊCH VỤ */}
-        <section className="bg-gradient-to-b from-[#F5F7FC] via-[#FAFBFE] to-white py-10 sm:py-14">
+        <section className="bg-gradient-to-b from-[#F5F7FC] via-[#FAFBFE] to-white py-6 sm:py-10 lg:py-14">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             {isPending ? (
               // LOADING
@@ -115,7 +115,7 @@ export const ServiceDetail: React.FC = () => {
               </div>
             ) : isError || !service ? (
               // ERROR
-              <div className="flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+              <div className="flex min-h-[420px] flex-col items-center justify-center rounded-3xl border border-slate-100 bg-white p-5 text-center shadow-sm sm:p-8">
                 <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-red-50 text-red-500">
                   <AlertCircle size={30} />
                 </div>
@@ -150,13 +150,13 @@ export const ServiceDetail: React.FC = () => {
             ) : (
               <>
                 {/* TIÊU ĐỀ */}
-                <div className="mb-8">
+                <div className="mb-6 min-w-0 sm:mb-8">
                   <span className="mb-4 inline-flex items-center gap-2 rounded-full bg-[#FFE9DD] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#FF5E14]">
                     <Wrench size={14} />
                     Dịch vụ HandyGo
                   </span>
 
-                  <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
+                  <h1 className="break-words text-2xl font-black tracking-tight sm:text-4xl lg:text-5xl">
                     {service.name}
                   </h1>
 
@@ -167,11 +167,11 @@ export const ServiceDetail: React.FC = () => {
                 </div>
 
                 {/* CARD CHI TIẾT */}
-                <div className="rounded-[32px] border border-slate-100 bg-white p-5 shadow-[0_20px_60px_rgba(15,27,51,0.06)] sm:p-8 lg:p-10">
-                  <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
+                <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_20px_60px_rgba(15,27,51,0.06)] sm:rounded-[32px] sm:p-8 lg:p-10">
+                  <div className="grid min-w-0 items-start gap-6 lg:grid-cols-2 lg:items-center lg:gap-14">
                     {/* ẢNH DỊCH VỤ */}
-                    <div className="rounded-[28px] border border-[#E3EAF6] bg-[#EEF3FB] p-3 sm:p-4">
-                      <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-white">
+                    <div className="min-w-0 rounded-2xl border border-[#E3EAF6] bg-[#EEF3FB] p-2 sm:rounded-[28px] sm:p-4">
+                      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-white sm:rounded-3xl">
                         {service.iconUrl ? (
                           <>
                             <img
@@ -195,7 +195,7 @@ export const ServiceDetail: React.FC = () => {
                     </div>
 
                     {/* THÔNG TIN */}
-                    <div className="flex flex-col">
+                    <div className="min-w-0 flex flex-col">
                       {service.category?.name && (
                         <span className="mb-4 inline-flex w-fit items-center gap-2 rounded-full bg-[#FFE9DD] px-3.5 py-1.5 text-sm font-bold text-[#FF5E14]">
                           <Layers3 size={15} />
@@ -203,14 +203,14 @@ export const ServiceDetail: React.FC = () => {
                         </span>
                       )}
 
-                      <h2 className="text-3xl font-black leading-tight sm:text-4xl">
+                      <h2 className="break-words text-2xl font-black leading-tight sm:text-3xl lg:text-4xl">
                         {service.name}
                       </h2>
 
                       <div className="my-6 h-px bg-slate-100" />
 
                       {/* DANH MỤC */}
-                      <div className="mb-6 flex items-start gap-4">
+                      <div className="mb-6 flex min-w-0 items-start gap-3 sm:gap-4">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FFE9DD] text-[#FF5E14]">
                           <Layers3 size={20} />
                         </div>
@@ -227,7 +227,7 @@ export const ServiceDetail: React.FC = () => {
                       </div>
 
                       {/* MÔ TẢ */}
-                      <div className="flex items-start gap-4">
+                      <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FFE9DD] text-[#FF5E14]">
                           <FileText size={20} />
                         </div>
@@ -245,8 +245,8 @@ export const ServiceDetail: React.FC = () => {
                       </div>
 
                       {/* GIỚI THIỆU TẢI APP */}
-                      <div className="mt-8 rounded-2xl border border-orange-100 bg-[#FFF6EF] p-5">
-                        <div className="flex items-start gap-4">
+                      <div className="mt-6 rounded-2xl border border-orange-100 bg-[#FFF6EF] p-4 sm:mt-8 sm:p-5">
+                        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#FFE3D0] text-[#FF5E14]">
                             <Smartphone size={22} />
                           </div>
@@ -267,7 +267,7 @@ export const ServiceDetail: React.FC = () => {
                           <button
                             type="button"
                             onClick={handleDownloadApp}
-                            className="group inline-flex h-12 items-center justify-center gap-3 rounded-full bg-[#FFBA08] py-1.5 pl-1.5 pr-5 text-sm font-bold text-slate-950 shadow-sm transition-all duration-300 hover:bg-[#FFCA36] hover:shadow-md active:scale-[0.97]"
+                            className="group inline-flex h-12 w-full items-center justify-center gap-3 rounded-full sm:w-auto bg-[#FFBA08] py-1.5 pl-1.5 pr-5 text-sm font-bold text-slate-950 shadow-sm transition-all duration-300 hover:bg-[#FFCA36] hover:shadow-md active:scale-[0.97]"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white">
                               <img
@@ -310,17 +310,17 @@ export const ServiceDetail: React.FC = () => {
 
         {/* DỊCH VỤ LIÊN QUAN - CÙNG DANH MỤC */}
         {service && !isError && (
-          <section className="border-t border-slate-100 bg-[#F8F9FB] py-14 sm:py-20">
+          <section className="border-t border-slate-100 bg-[#F8F9FB] py-10 sm:py-14 lg:py-20">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
               {/* HEADER */}
-              <div className="mb-9 flex flex-wrap items-end justify-between gap-5">
+              <div className="mb-7 flex flex-wrap items-start justify-between gap-4 sm:mb-9 sm:items-end sm:gap-5">
                 <div>
                   <div className="mb-3 inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-[#FF5E14]">
                     <Sparkles size={16} />
                     Có thể bạn quan tâm
                   </div>
 
-                  <h2 className="text-2xl font-black tracking-tight sm:text-3xl">
+                  <h2 className="break-words text-xl font-black tracking-tight sm:text-2xl lg:text-3xl">
                     Dịch vụ liên quan
                   </h2>
 
@@ -345,7 +345,7 @@ export const ServiceDetail: React.FC = () => {
 
               {/* LOADING */}
               {relatedQuery.isPending || relatedQuery.isFetching ? (
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
                   {Array.from({ length: 4 }).map((_, index) => (
                     <div key={index} className="rounded-2xl bg-white p-4">
                       <Skeleton className="mb-4 h-44 w-full rounded-xl" />
@@ -381,13 +381,13 @@ export const ServiceDetail: React.FC = () => {
                 </div>
               ) : (
                 // DANH SÁCH DỊCH VỤ LIÊN QUAN
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
                   {relatedServices.map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => handleSelectService(item.id)}
-                      className="group flex h-full flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white p-3 text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-xl"
+                      className="group flex h-full min-w-0 flex-col overflow-hidden rounded-3xl border border-slate-100 bg-white p-3 text-left shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-orange-200 hover:shadow-xl"
                     >
                       {/* HÌNH ẢNH */}
                       <div className="mb-4 flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-2xl bg-[#EEF3FB]">
@@ -410,7 +410,7 @@ export const ServiceDetail: React.FC = () => {
                             "Dịch vụ HandyGo"}
                         </span>
 
-                        <h3 className="line-clamp-2 text-base font-extrabold leading-6 transition-colors group-hover:text-[#FF5E14]">
+                        <h3 className="line-clamp-2 break-words text-base font-extrabold leading-6 transition-colors group-hover:text-[#FF5E14]">
                           {item.name}
                         </h3>
 

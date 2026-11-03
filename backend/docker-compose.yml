@@ -74,7 +74,7 @@ services:
       UPSTREAM_TIMEOUT_MS: '15000'
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004
@@ -131,7 +131,7 @@ services:
       NEST_PROJECT: user-trust-service
       PORT: '3002'
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -185,7 +185,7 @@ services:
       NEST_PROJECT: matching-service
       PORT: '3006'
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
