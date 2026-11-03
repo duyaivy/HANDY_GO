@@ -145,9 +145,7 @@ jobs:
       github.event_name != 'pull_request' &&
       (needs.build-and-publish.outputs.is_deployable == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_deploy == true))
     runs-on: ubuntu-24.04
-    environment:
-      name: production
-      url: https://handy-go-ai.politestone-2b09e4da.eastasia.azurecontainerapps.io
+    environment: production
     timeout-minutes: 15
     steps:
       - name: Checkout repository
