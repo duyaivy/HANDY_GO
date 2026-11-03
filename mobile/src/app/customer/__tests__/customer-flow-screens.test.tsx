@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';

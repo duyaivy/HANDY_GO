@@ -30,7 +30,15 @@ export type SseMatchingChangedEvent = {
   occurredAt: string;
 };
 
+export type SseSyncRequiredEvent = {
+  eventId: string;
+  requestId: string;
+  occurredAt: string;
+  reason: 'bridge.ready';
+};
+
 export type BiddingSseEventMap = {
+  'sync.required': SseSyncRequiredEvent;
   'ready': SseReadyEvent;
   'bid.changed': SseBidChangedEvent;
   'round.changed': SseRoundChangedEvent;
@@ -140,6 +148,8 @@ export class BiddingSseClient {
 
   private isClosed = false;
 
+  private generation = 0;
+
   private isConnected = false;
 
   private reconnectAttempt = 0;
@@ -205,21 +215,23 @@ export class BiddingSseClient {
     if (this.isClosed) {
       this.isClosed = false;
     }
-    if (this.isConnected) {
+    if (this.isConnected || this.activeXhr) {
       return;
     }
     if (this.connectionPromise) {
       return this.connectionPromise;
     }
 
+    const generation = ++this.generation;
     this.connectionPromise = (async () => {
       try {
         this.clearTimers();
         this.cleanupActiveConnection();
-        await this.startStream();
+        await this.startStream(generation);
       }
       finally {
-        this.connectionPromise = null;
+        if (generation === this.generation)
+          this.connectionPromise = null;
       }
     })();
 
@@ -231,6 +243,7 @@ export class BiddingSseClient {
    */
   public disconnect(): void {
     this.isClosed = true;
+    this.generation += 1;
     this.connectionPromise = null;
     this.cleanupActiveConnection();
     this.clearTimers();
@@ -289,11 +302,11 @@ export class BiddingSseClient {
 
     Logger.debug('SSE_RECONNECT_SCHEDULED', `Reconnecting in ${delay}ms (attempt #${this.reconnectAttempt})`);
     this.reconnectTimer = setTimeout(() => {
-      void this.startStream();
+      void this.connect();
     }, delay);
   }
 
-  private async startStream(): Promise<void> {
+  private async startStream(generation: number): Promise<void> {
     if (this.isClosed)
       return;
 
@@ -310,6 +323,9 @@ export class BiddingSseClient {
         return;
       }
     }
+
+    if (this.isClosed || generation !== this.generation)
+      return;
 
     const url = `${this.baseUrl}/bids/requests/${encodeURIComponent(this.requestId)}/events`;
 
@@ -378,6 +394,9 @@ export class BiddingSseClient {
       throw fetchErr;
     }
 
+    if (signal.aborted || this.isClosed)
+      return;
+
     if (response.status === 401) {
       Logger.warn('SSE_AUTH_EXPIRED', 'SSE connection 401 Unauthorized. Refreshing token...');
       try {
@@ -425,6 +444,7 @@ export class BiddingSseClient {
 
     if (!this.isClosed && !signal.aborted) {
       Logger.debug('SSE_STREAM_ENDED', 'Stream ended naturally. Reconnecting...');
+      this.cleanupActiveConnection();
       this.scheduleReconnect();
     }
   }
@@ -446,13 +466,15 @@ export class BiddingSseClient {
     }
 
     xhr.onreadystatechange = () => {
-      if (this.isClosed)
+      if (this.isClosed || this.activeXhr !== xhr)
         return;
 
       if (xhr.readyState === 2) {
         // Headers received
         if (xhr.status === 401) {
           isAbortingForAuth = true;
+          this.activeXhr = null;
+          const generation = this.generation;
           try {
             xhr.abort();
           }
@@ -460,7 +482,8 @@ export class BiddingSseClient {
           Logger.warn('SSE_XHR_401', 'XHR received 401 Unauthorized. Refreshing tokens...');
           refreshTokens()
             .then(() => {
-              this.scheduleReconnect(true);
+              if (generation === this.generation)
+                this.scheduleReconnect(true);
             })
             .catch((err) => {
               Logger.error('SSE_REFRESH_FAILED', 'Token refresh failed during XHR SSE reconnect', err);
@@ -476,7 +499,7 @@ export class BiddingSseClient {
     };
 
     xhr.onprogress = () => {
-      if (this.isClosed || isAbortingForAuth)
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
         return;
       const text = xhr.responseText || '';
       const newChunk = text.slice(lastProcessedIndex);
@@ -487,14 +510,14 @@ export class BiddingSseClient {
     };
 
     xhr.onload = () => {
-      if (this.isClosed || isAbortingForAuth)
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
         return;
       this.cleanupActiveConnection();
       this.scheduleReconnect();
     };
 
     xhr.onerror = (_e) => {
-      if (this.isClosed || isAbortingForAuth)
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
         return;
       this.cleanupActiveConnection();
       this.emit('error', new Error('XHR Network error during SSE connection'));
@@ -516,6 +539,10 @@ export class BiddingSseClient {
       const parsedData = rawData ? JSON.parse(rawData) : {};
 
       switch (eventName) {
+        case 'sync.required':
+          if (parsedData.requestId === this.requestId)
+            this.emit('sync.required', parsedData as SseSyncRequiredEvent);
+          break;
         case 'ready':
           this.emit('ready', parsedData as SseReadyEvent);
           break;

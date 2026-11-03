@@ -1,4 +1,3 @@
-import type { AppStateStatus } from 'react-native';
 import type {
   SseBidChangedEvent,
   SseMatchingChangedEvent,
@@ -24,7 +23,9 @@ export type UseBiddingEventsOptions = {
 
 type ConnectionEntry = {
   client: BiddingSseClient;
+  userId: string;
   subscribersCount: number;
+  stop: () => void;
 };
 
 // Module-level connection registry: ensures only ONE active SSE client connection per request ID
@@ -46,7 +47,7 @@ export function terminateAllBiddingSseConnections(): void {
   for (const [reqId, entry] of activeConnections.entries()) {
     Logger.debug('SSE_TERMINATE', `Terminating SSE connection for request ${reqId}`);
     try {
-      entry.client.disconnect();
+      entry.stop();
     }
     catch {}
   }
@@ -133,7 +134,12 @@ export function useBiddingEvents(
 
     // Single active connection per request ID: reuse or instantiate
     let client: BiddingSseClient;
-    const existingEntry = activeConnections.get(requestId);
+    let existingEntry = activeConnections.get(requestId);
+    if (existingEntry && existingEntry.userId !== currentUserId) {
+      existingEntry.stop();
+      activeConnections.delete(requestId);
+      existingEntry = undefined;
+    }
 
     if (existingEntry) {
       existingEntry.subscribersCount += 1;
@@ -141,8 +147,54 @@ export function useBiddingEvents(
     }
     else {
       client = new BiddingSseClient(requestId);
-      activeConnections.set(requestId, { client, subscribersCount: 1 });
-      void client.connect();
+      let foreground = AppState.currentState !== 'background' && AppState.currentState !== 'inactive';
+      let stopped = false;
+      let reconciling = false;
+      const reconcile = async () => {
+        if (stopped || !foreground || reconciling)
+          return;
+        reconciling = true;
+        try {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: candidateQueryKeys.byRequest(requestId) }),
+            queryClient.invalidateQueries({ queryKey: workerBiddingKeys.requestBids(requestId) }),
+            queryClient.invalidateQueries({ queryKey: ['worker-bidding', 'my-bids'] }),
+            queryClient.invalidateQueries({ queryKey: workerBiddingKeys.myBidForRequest(currentUserId!, requestId) }),
+            queryClient.invalidateQueries({ queryKey: ['orders', 'request-proposals', requestId] }),
+          ]);
+        }
+        catch (error) {
+          Logger.warn('SSE_RECONCILE_FAILED', 'REST reconciliation will retry on the next interval', error);
+        }
+        finally {
+          reconciling = false;
+        }
+      };
+      const timer = setInterval(() => void reconcile(), 30000);
+      const unsubscribeSync = client.on('sync.required', (event) => {
+        if (event.requestId === requestId)
+          void reconcile();
+      });
+      const appStateSub = AppState.addEventListener('change', (state) => {
+        foreground = state === 'active';
+        if (foreground) {
+          void client.connect();
+          void reconcile();
+        }
+        else {
+          client.disconnect();
+        }
+      });
+      const stop = () => {
+        stopped = true;
+        clearInterval(timer);
+        unsubscribeSync();
+        appStateSub.remove();
+        client.disconnect();
+      };
+      activeConnections.set(requestId, { client, userId: currentUserId!, subscribersCount: 1, stop });
+      if (foreground)
+        void client.connect();
     }
 
     clientInstanceRef.current = client;
@@ -172,12 +224,14 @@ export function useBiddingEvents(
         queryKey: candidateQueryKeys.byRequest(requestId),
       });
 
+      void queryClient.invalidateQueries({ queryKey: workerBiddingKeys.myBidForRequest(currentUserId!, requestId) });
+
       // Worker bidding feed invalidation
       void queryClient.invalidateQueries({
         queryKey: workerBiddingKeys.requestBids(requestId),
       });
       void queryClient.invalidateQueries({
-        queryKey: workerBiddingKeys.myBids(),
+        queryKey: ['worker-bidding', 'my-bids'],
       });
     });
 
@@ -212,33 +266,7 @@ export function useBiddingEvents(
       Logger.warn('SSE_HOOK_ERROR', `SSE error on request ${requestId}`, err);
     });
 
-    // AppState lifecycle listener (Contract Section 20)
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        Logger.debug('SSE_APP_STATE', 'App moved to background, disconnecting SSE');
-        client.disconnect();
-        setIsConnected(false);
-      }
-      else if (nextAppState === 'active') {
-        Logger.debug('SSE_APP_STATE', 'App returned to active foreground, reconnecting SSE');
-        void client.connect();
-        // Reconcile missed updates while backgrounded
-        void queryClient.invalidateQueries({
-          queryKey: candidateQueryKeys.byRequest(requestId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: workerBiddingKeys.requestBids(requestId),
-        });
-        void queryClient.invalidateQueries({
-          queryKey: workerBiddingKeys.myBids(),
-        });
-      }
-    };
-
-    const appStateSub = AppState.addEventListener('change', handleAppStateChange);
-
     return () => {
-      appStateSub.remove();
       unsubOpen();
       unsubReady();
       unsubBid();
@@ -248,17 +276,17 @@ export function useBiddingEvents(
       unsubError();
 
       const entry = activeConnections.get(requestId);
-      if (entry) {
+      if (entry?.client === client) {
         entry.subscribersCount -= 1;
         if (entry.subscribersCount <= 0) {
-          entry.client.disconnect();
+          entry.stop();
           activeConnections.delete(requestId);
         }
       }
       clientInstanceRef.current = null;
       setIsConnected(false);
     };
-  }, [enabled, requestId, queryClient]);
+  }, [enabled, requestId, queryClient, currentUserId]);
 
   return {
     isConnected,

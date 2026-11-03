@@ -1,10 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { MatchingPrismaService, MatchingPrisma } from '@app/database';
 
 @Injectable()
 export class ServiceRequestProjectionService {
-  private readonly logger = new Logger(ServiceRequestProjectionService.name);
-
   constructor(private readonly prisma: MatchingPrismaService) {}
 
   /**
@@ -27,59 +25,43 @@ export class ServiceRequestProjectionService {
     biddingClosesAt?: string;
     selectionExpiresAt?: string;
   }): Promise<MatchingPrisma.ServiceRequestProjection> {
-    const scheduledAtDate = data.scheduledAt
-      ? new Date(data.scheduledAt)
-      : null;
+    const metadata = {
+      requestCode: data.requestCode,
+      customerUserId: data.customerUserId,
+      serviceId: data.serviceId,
+      description: data.description ?? null,
+      scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+      addressText: data.addressText ?? null,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      biddingClosesAt: data.biddingClosesAt
+        ? new Date(data.biddingClosesAt)
+        : null,
+      selectionExpiresAt: data.selectionExpiresAt
+        ? new Date(data.selectionExpiresAt)
+        : null,
+      matchingRevision: data.matchingRevision ?? 1,
+    };
 
-    const existing = await this.prisma.serviceRequestProjection.findUnique({
-      where: { id: data.id },
-    });
-
-    if (existing) {
-      // If projection already exists in a terminal state (tombstone or finalized/cancelled earlier),
-      // update details for data consistency but strictly preserve terminal status.
-      if (['cancelled', 'converted_to_order'].includes(existing.status)) {
-        return this.prisma.serviceRequestProjection.update({
-          where: { id: data.id },
-          data: {
-            requestCode: data.requestCode,
-            customerUserId: data.customerUserId,
-            serviceId: data.serviceId,
-            description: data.description,
-            scheduledAt: scheduledAtDate,
-            addressText: data.addressText,
-            latitude: data.latitude,
-            longitude: data.longitude,
-            matchingRevision: data.matchingRevision ?? existing.matchingRevision,
-            // Keep existing terminal status
-          },
-        });
-      }
-
-      // If already exists and not terminal, replay must never reopen or roll back
-      return existing;
-    }
-
-    return this.prisma.serviceRequestProjection.create({
+    // INSERT ... ON CONFLICT DO NOTHING arbitrates concurrent publish/terminal
+    // deliveries in PostgreSQL. Neither path can fail with an ID uniqueness race.
+    await this.prisma.serviceRequestProjection.createMany({
       data: {
-        biddingClosesAt: data.biddingClosesAt
-          ? new Date(data.biddingClosesAt)
-          : null,
-        selectionExpiresAt: data.selectionExpiresAt
-          ? new Date(data.selectionExpiresAt)
-          : null,
         id: data.id,
-        requestCode: data.requestCode,
-        customerUserId: data.customerUserId,
-        serviceId: data.serviceId,
-        description: data.description,
-        scheduledAt: scheduledAtDate,
-        addressText: data.addressText,
-        latitude: data.latitude,
-        longitude: data.longitude,
+        ...metadata,
         status: data.status || 'open_for_bidding',
-        matchingRevision: data.matchingRevision ?? 1,
       },
+      skipDuplicates: true,
+    });
+    // Only fill an unhydrated tombstone. Never overwrite later input revisions,
+    // and never write status from a delayed publication. The predicate is checked
+    // atomically even if another publisher or lifecycle event wins the race.
+    await this.prisma.serviceRequestProjection.updateMany({
+      where: { id: data.id, requestCode: 'TOMBSTONE', matchingRevision: 0 },
+      data: metadata,
+    });
+    return this.prisma.serviceRequestProjection.findUniqueOrThrow({
+      where: { id: data.id },
     });
   }
 
@@ -98,7 +80,8 @@ export class ServiceRequestProjectionService {
       where: { id: data.id },
     });
 
-    if (!existing) throw new Error('Request projection not yet available');
+    if (!existing || existing.requestCode === 'TOMBSTONE')
+      throw new Error('Request projection not yet available');
     await this.prisma.serviceRequestProjection.updateMany({
       where: {
         id: data.id,
@@ -112,13 +95,10 @@ export class ServiceRequestProjectionService {
           ? { description: data.description }
           : {}),
         ...(data.latitude !== undefined ? { latitude: data.latitude } : {}),
-        ...(data.longitude !== undefined
-          ? { longitude: data.longitude }
-          : {}),
+        ...(data.longitude !== undefined ? { longitude: data.longitude } : {}),
         updatedAt: new Date(),
       },
     });
-
   }
 
   /**
@@ -127,36 +107,32 @@ export class ServiceRequestProjectionService {
    * creates a durable tombstone to prevent late published events from resurrecting this request.
    */
   async updateRequestStatus(id: string, status: string): Promise<void> {
-    const existing = await this.prisma.serviceRequestProjection.findUnique({
-      where: { id },
+    if (
+      ![
+        'bidding_closed',
+        'expired',
+        'cancelled',
+        'converted_to_order',
+      ].includes(status)
+    ) {
+      throw new Error(`Unsupported request lifecycle status: ${status}`);
+    }
+    // Persist the terminal observation even when publication has not arrived.
+    // A concurrent publisher may insert first; the conditional transition below
+    // then closes its row. A concurrent terminal event cannot be overwritten.
+    await this.prisma.serviceRequestProjection.createMany({
+      data: {
+        id,
+        requestCode: 'TOMBSTONE',
+        customerUserId: '00000000-0000-0000-0000-000000000000',
+        serviceId: '00000000-0000-0000-0000-000000000000',
+        latitude: 0,
+        longitude: 0,
+        status,
+        matchingRevision: 0,
+      },
+      skipDuplicates: true,
     });
-
-    if (!existing) {
-      this.logger.warn(
-        `Request projection ${id} not found when updating status to ${status}. Creating durable tombstone.`,
-      );
-      await this.prisma.serviceRequestProjection.create({
-        data: {
-          id,
-          requestCode: 'TOMBSTONE',
-          customerUserId: '00000000-0000-0000-0000-000000000000',
-          serviceId: '00000000-0000-0000-0000-000000000000',
-          latitude: 0,
-          longitude: 0,
-          status,
-          matchingRevision: 0,
-        },
-      });
-      return;
-    }
-
-    // Terminal statuses (cancelled, converted_to_order) are irreversible
-    if (['cancelled', 'converted_to_order'].includes(existing.status)) {
-      this.logger.warn(
-        `Request projection ${id} already in terminal state '${existing.status}', ignoring transition to '${status}'.`,
-      );
-      return;
-    }
 
     const predecessors =
       status === 'bidding_closed'

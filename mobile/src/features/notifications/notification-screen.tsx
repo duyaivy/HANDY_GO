@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { NotificationRecord } from '@/services/notifications/notification-api';
 import { useRouter } from 'expo-router';
 import { useCallback, useMemo } from 'react';

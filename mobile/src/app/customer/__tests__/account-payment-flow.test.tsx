@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 /* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { WorkerHomeScreen } from '@/features/home/worker';
@@ -27,7 +26,9 @@ jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
   useLocalSearchParams: () => ({}),
   useFocusEffect: (cb: any) => {
-    cb();
+    require('react').useEffect(() => {
+      return cb();
+    }, [cb]);
   },
 }));
 

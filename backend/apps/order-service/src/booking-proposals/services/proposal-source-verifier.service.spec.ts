@@ -164,6 +164,14 @@ describe('ProposalSourceVerifierService (BE-10)', () => {
       });
 
       await expect(service.verifyProposalSource(recommendationParams)).resolves.toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3004/api/v1/internal/matching/results/match-1/eligibility?serviceRequestId=req-1&workerUserId=worker-1',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'x-internal-secret': 'secret-12345' },
+          signal: expect.any(AbortSignal),
+        }),
+      );
     });
 
     it('throws 400 when Matching Service returns 200 with isEligible=false', async () => {

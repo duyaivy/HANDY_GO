@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { AppStateStatus } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';

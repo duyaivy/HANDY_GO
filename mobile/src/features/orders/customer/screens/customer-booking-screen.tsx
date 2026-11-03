@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';

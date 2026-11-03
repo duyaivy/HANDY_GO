@@ -5,9 +5,32 @@ import type {
   SubmitBidPayload,
   WithdrawBidPayload,
 } from '../api/worker-bidding.api';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { candidateQueryKeys, workerBiddingKeys } from '@/features/candidates/hooks/candidate-query-keys';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerBiddingApi } from '../api/worker-bidding.api';
+
+function myBidOptions(workerId: string, requestId: string, enabled: boolean) {
+  return {
+    queryKey: workerBiddingKeys.myBidForRequest(workerId, requestId),
+    queryFn: ({ signal }: { signal: AbortSignal }) => WorkerBiddingApi.getMyBidForRequest(requestId, signal),
+    enabled: enabled && Boolean(workerId && requestId),
+    staleTime: 10000,
+  };
+}
+
+export function useMyBidForRequest(requestId: string, enabled = true) {
+  const user = useAuthStore.use.user();
+  return useQuery(myBidOptions(user?.id ?? '', requestId, enabled));
+}
+
+/** The discovery page has at most 10 cards; query only those IDs, never bid history. */
+export function useMyBidsForRequests(requestIds: string[], enabled = true) {
+  const user = useAuthStore.use.user();
+  return useQueries({
+    queries: requestIds.map(id => myBidOptions(user?.id ?? '', id, enabled)),
+  });
+}
 
 /**
  * Hook to fetch the bidding round status for a given service request.
@@ -61,7 +84,11 @@ export function useSubmitBid(requestId: string) {
 
   return useMutation<BidDetail, Error, SubmitBidPayload>({
     mutationFn: (payload: SubmitBidPayload) => WorkerBiddingApi.submitBid(requestId, payload),
-    onSuccess: () => {
+    onSuccess: async (bid) => {
+      const queryKey = workerBiddingKeys.myBidForRequest(bid.workerId, requestId);
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData(queryKey, bid);
+      void queryClient.invalidateQueries({ queryKey });
       void queryClient.invalidateQueries({
         queryKey: workerBiddingKeys.requestBids(requestId),
       });
@@ -86,7 +113,11 @@ export function useReviseBid(requestId?: string) {
 
   return useMutation<BidDetail, Error, { bidId: string; payload: ReviseBidPayload }>({
     mutationFn: ({ bidId, payload }) => WorkerBiddingApi.reviseBid(bidId, payload),
-    onSuccess: (updatedBid) => {
+    onSuccess: async (updatedBid) => {
+      const queryKey = workerBiddingKeys.myBidForRequest(updatedBid.workerId, updatedBid.serviceRequestId);
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData(queryKey, updatedBid);
+      void queryClient.invalidateQueries({ queryKey });
       if (requestId) {
         void queryClient.invalidateQueries({
           queryKey: workerBiddingKeys.requestBids(requestId),
@@ -116,7 +147,11 @@ export function useWithdrawBid(requestId?: string) {
 
   return useMutation<BidDetail, Error, { bidId: string; payload: WithdrawBidPayload }>({
     mutationFn: ({ bidId, payload }) => WorkerBiddingApi.withdrawBid(bidId, payload),
-    onSuccess: (withdrawnBid) => {
+    onSuccess: async (withdrawnBid) => {
+      const queryKey = workerBiddingKeys.myBidForRequest(withdrawnBid.workerId, withdrawnBid.serviceRequestId);
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData(queryKey, withdrawnBid);
+      void queryClient.invalidateQueries({ queryKey });
       if (requestId) {
         void queryClient.invalidateQueries({
           queryKey: workerBiddingKeys.requestBids(requestId),

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SseService } from '../src/sse/sse.service.js';
 import type { SseClientConnection } from '../src/sse/sse.interfaces.js';
-import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 
 describe('SseService (BE-01 / BE-07)', () => {
   let sseService: SseService;
@@ -57,7 +57,7 @@ describe('SseService (BE-01 / BE-07)', () => {
     expect(mockRes.writeHead).toHaveBeenCalledWith(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
     });

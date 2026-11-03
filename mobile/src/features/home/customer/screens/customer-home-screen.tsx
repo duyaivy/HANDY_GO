@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { ServiceResponseDto } from '@/features/catalog/types';
 import { useRouter } from 'expo-router';
 import * as React from 'react';

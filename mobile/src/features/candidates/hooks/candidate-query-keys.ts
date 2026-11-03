@@ -9,6 +9,9 @@ export const candidateQueryKeys = {
 
 export const workerBiddingKeys = {
   all: ['worker-bidding'] as const,
+  myBidRequests: (workerId: string) => [...workerBiddingKeys.all, 'my-request-bids', workerId] as const,
+  myBidForRequest: (workerId: string, requestId: string) =>
+    [...workerBiddingKeys.myBidRequests(workerId), requestId] as const,
   myBids: (params?: Record<string, unknown>) => [...workerBiddingKeys.all, 'my-bids', params] as const,
   bidDetail: (bidId: string) => [...workerBiddingKeys.all, 'detail', bidId] as const,
   requestBids: (requestId: string) => [...workerBiddingKeys.all, 'request-bids', requestId] as const,

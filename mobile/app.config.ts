@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 /* eslint-disable perfectionist/sort-imports -- Register TypeScript and load .env before evaluating build modules. */
 import type { ConfigContext, ExpoConfig } from '@expo/config';
 import 'tsx/cjs';

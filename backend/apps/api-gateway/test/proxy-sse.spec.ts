@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   SERVICE_ROUTES,
-  type ServiceRouteConfig,
 } from '../src/proxy/proxy.constants.js';
 import { ProxyMiddleware } from '../src/proxy/proxy.middleware.js';
 import type { ConfigService } from '@app/config';
@@ -81,9 +80,9 @@ describe('API Gateway SSE Streaming Isolation (BE-03 / BE-07)', () => {
 
   it('ProxyMiddleware should initialize SSE proxy with timeout: 0 while regular routes retain standard timeout', () => {
     const mockConfig = {
-      getUrl: vi.fn((key: string) => `http://mock-service:3000`),
+      getUrl: vi.fn(() => `http://mock-service:3000`),
       upstreamTimeoutMs: 15000,
-      get: vi.fn((key: string) => undefined),
+      get: vi.fn(() => undefined),
     } as unknown as ConfigService;
 
     // Instantiate middleware

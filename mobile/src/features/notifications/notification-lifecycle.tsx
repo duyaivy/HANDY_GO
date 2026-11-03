@@ -19,7 +19,7 @@ function sessionUser() {
 }
 
 // Root subscriptions and their symmetric cleanup belong to one effect.
-// eslint-disable-next-line max-lines-per-function
+
 export function NotificationLifecycle() {
   const router = useRouter();
   const navigation = useRootNavigationState();

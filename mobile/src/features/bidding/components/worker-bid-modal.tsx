@@ -12,8 +12,9 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
-import { WorkerBiddingApi } from '../api/worker-bidding.api';
+import { isBeforeDeadline, useDeadlineClock } from '../hooks/use-deadline-clock';
 import {
+  useMyBidForRequest,
   useReviseBid,
   useRoundStatus,
   useSubmitBid,
@@ -32,7 +33,6 @@ const MAX_REVISIONS = 5;
 const COOLDOWN_MS = 120000; // 2 minutes cooldown per Contract Section 4.2
 
 export function WorkerBidModal({
-  existingBid,
   onClose,
   onSuccess,
   request,
@@ -40,7 +40,7 @@ export function WorkerBidModal({
 }: WorkerBidModalProps) {
   const requestId = request?.id || '';
 
-  const { data: roundStatus, isLoading: isLoadingStatus } = useRoundStatus(
+  const { data: roundStatus, isLoading: isLoadingStatus, isError: isStatusError } = useRoundStatus(
     requestId,
     visible,
   );
@@ -53,34 +53,12 @@ export function WorkerBidModal({
   const [message, setMessage] = React.useState('');
   const [withdrawReason, setWithdrawReason] = React.useState('');
 
-  const [fetchedBid, setFetchedBid] = React.useState<BidDetail | null>(null);
-  const effectiveBid = fetchedBid ?? existingBid ?? null;
-
-  // PR42-07: Fetch authoritative bid by serviceRequestId when modal opens,
-  // preventing stale or missing state if the bid was beyond page 1 of /bids/me
-  React.useEffect(() => {
-    if (!visible || !requestId) {
-      setFetchedBid(null);
-      return;
-    }
-
-    let isCancelled = false;
-    if (typeof WorkerBiddingApi.getMyBidForRequest === 'function') {
-      WorkerBiddingApi.getMyBidForRequest(requestId)
-        .then((bid) => {
-          if (!isCancelled && bid) {
-            setFetchedBid(bid);
-          }
-        })
-        .catch((err) => {
-          console.warn('[WORKER_BID_MODAL] Could not fetch authoritative bid:', err);
-        });
-    }
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [visible, requestId]);
+  const bidQuery = useMyBidForRequest(requestId, visible);
+  const effectiveBid = bidQuery.data;
+  const deadline = roundStatus?.closesAt ?? request?.biddingClosesAt;
+  const { now } = useDeadlineClock(visible ? [deadline] : []);
+  const bidUnavailable = bidQuery.isPending || bidQuery.isError;
+  const terminalBid = Boolean(effectiveBid && effectiveBid.status !== 'active');
 
   // Initialize or reset form fields when modal opens or effectiveBid changes
   React.useEffect(() => {
@@ -97,7 +75,8 @@ export function WorkerBidModal({
     }
   }, [visible, effectiveBid]);
 
-  const isRoundOpen = roundStatus?.status === 'open' && !roundStatus?.isExpired;
+  const isRoundOpen = roundStatus?.status === 'open' && !roundStatus?.isExpired && !isStatusError && isBeforeDeadline(deadline, now);
+  const canEdit = isRoundOpen && !bidUnavailable && !terminalBid;
   const revisionsCount = effectiveBid?.revisionsCount ?? 0;
   const revisionsLeft = Math.max(0, MAX_REVISIONS - revisionsCount);
 
@@ -153,6 +132,11 @@ export function WorkerBidModal({
   }, [amountStr]);
 
   const handleSubmit = async () => {
+    // Recheck at the interaction boundary, including a deadline crossed before the timer rendered.
+    if (!canEdit || !isBeforeDeadline(deadline, Date.now())) {
+      Alert.alert('Không thể gửi báo giá', 'Phiên đã kết thúc hoặc trạng thái báo giá chưa sẵn sàng. Vui lòng tải lại.');
+      return;
+    }
     const amount = Number(amountStr);
     if (!amount || Number.isNaN(amount) || amount < 1000) {
       Alert.alert('Giá không hợp lệ', 'Mức giá báo giá tối thiểu là 1.000 VNĐ');
@@ -382,7 +366,7 @@ export function WorkerBidModal({
                 <Text className="text-red-500">*</Text>
               </Text>
               <TextInput
-                editable={effectiveBid?.status !== 'withdrawn'}
+                editable={canEdit}
                 keyboardType="numeric"
                 value={amountStr}
                 onChangeText={handleFormatAmount}
@@ -407,7 +391,7 @@ export function WorkerBidModal({
                 Tin nhắn tới khách hàng (Tùy chọn)
               </Text>
               <TextInput
-                editable={effectiveBid?.status !== 'withdrawn'}
+                editable={canEdit}
                 multiline
                 numberOfLines={3}
                 value={message}
@@ -436,12 +420,18 @@ export function WorkerBidModal({
               </Text>
             </View>
 
+            {bidUnavailable && (
+              <View>
+                <Text>{bidQuery.isError ? 'Không tải được trạng thái báo giá. Vui lòng thử lại.' : 'Đang kiểm tra báo giá…'}</Text>
+                {bidQuery.isError && <Button label="Thử lại" onPress={() => { void bidQuery.refetch(); }} />}
+              </View>
+            )}
             {/* Action Buttons */}
             <View className="gap-2.5 pb-4">
               <Button
                 variant="primary"
                 onPress={handleSubmit}
-                disabled={isSubmitting || !amountStr || (effectiveBid?.status === 'active' && !canRevise) || effectiveBid?.status === 'withdrawn'}
+                disabled={isSubmitting || !canEdit || !amountStr || (effectiveBid?.status === 'active' && !canRevise)}
                 loading={isSubmitting}
                 label={
                   effectiveBid?.status === 'withdrawn'

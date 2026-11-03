@@ -875,3 +875,35 @@ stateDiagram-v2
 * `mobile/src/features/orders/worker/screens/worker-jobs-screen.tsx` (Lines 1–308)
 * `mobile/src/app/customer/booking/radar.tsx` (Lines 1–833)
 * `backend/docker-compose.yml` (Lines 1–259)
+
+## PR42 recovery reconciliation (`sync.required`)
+
+The HTTP stream and its 15-second heartbeat are independent of RabbitMQ health.
+A TCP connection to RabbitMQ does **not** mean the event bridge is healthy. The
+bridge becomes ready only after exchange/queue declaration, all topic bindings,
+and the broker's consumer acknowledgement complete. Disconnect, channel failure,
+and consumer cancellation mark it degraded; cancellation closes the channel so
+the connection manager can re-establish the subscription.
+
+After every successful consumer setup (including initial setup), each currently
+subscribed request receives a control frame on its existing authorized stream:
+
+```text
+event: sync.required
+data: {"eventId":"<uuid>","requestId":"<subscribed-request-id>","occurredAt":"<ISO-8601>","reason":"bridge.ready"}
+
+```
+
+This frame contains no bid amounts, worker identities, or other sealed-bid data.
+It is a local transport-health control signal, not a fallback for a distributed
+domain event. Existing `ready`, domain event frames, authentication, authorization,
+streaming headers and heartbeat semantics are unchanged. Clients that do not
+recognize this additional event can ignore it, but must upgrade to gain recovery
+reconciliation.
+
+Clients must refresh authoritative REST candidates, round status and relevant
+request data for the frame's request ID without opening another SSE connection.
+The recovery signal is best effort: foreground clients also reconcile at a bounded
+30-second interval, using their shared request/account connection lifecycle, so
+lost control frames and temporary REST failures converge without a later business
+event. Background/unmounted clients stop that timer and reconcile on foreground.

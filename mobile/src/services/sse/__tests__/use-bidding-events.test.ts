@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react-native';
 import * as React from 'react';
 import { AppState } from 'react-native';
@@ -130,14 +130,12 @@ describe('useBiddingEvents Hook Tests', () => {
       queryKey: workerBiddingKeys.requestBids(requestId),
     });
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: workerBiddingKeys.myBids(),
+      queryKey: ['worker-bidding', 'my-bids'],
     });
   });
 
   it('disconnects on background AppState and reconnects/reconciles on active AppState', () => {
     const requestId = 'req-lifecycle';
-    renderHook(() => useBiddingEvents(requestId), { wrapper });
-
     let appStateCallback: (state: string) => void = () => {};
     jest.spyOn(AppState, 'addEventListener').mockImplementation((_event: any, handler: any) => {
       appStateCallback = handler;
@@ -180,5 +178,70 @@ describe('useBiddingEvents Hook Tests', () => {
     expect(getActiveSseConnection(requestId1)).toBeUndefined();
     expect(getActiveSseConnection(requestId2)).toBeUndefined();
     expect(mockDisconnect).toHaveBeenCalled();
+  });
+  it('repairs a silent broker gap via sync.required without another business event and retries REST failure', async () => {
+    jest.useFakeTimers();
+    let serverBids = ['old'];
+    let fail = false;
+    const key = candidateQueryKeys.candidatesList('req-recovery');
+    const queryFn = async () => {
+      if (fail)
+        throw new Error('REST temporarily unavailable');
+      return serverBids;
+    };
+    await queryClient.fetchQuery({ queryKey: key, queryFn });
+    const observer = new QueryObserver(queryClient, { queryKey: key, queryFn });
+    const unsubscribe = observer.subscribe(() => {});
+    const { unmount } = renderHook(() => useBiddingEvents('req-recovery'), { wrapper });
+    serverBids = ['old', 'new-during-outage'];
+    fail = true;
+    await act(async () => {
+      mockListeners['sync.required'].forEach(cb => cb({ requestId: 'req-recovery', reason: 'bridge.ready' }));
+    });
+    expect(queryClient.getQueryData(key)).toEqual(['old']);
+    fail = false;
+    await act(async () => {
+      jest.advanceTimersByTime(30000);
+    });
+    expect(queryClient.getQueryData(key)).toEqual(serverBids);
+    expect(mockConnect).toHaveBeenCalledTimes(1);
+    unmount();
+    unsubscribe();
+    queryClient.clear();
+    jest.useRealTimers();
+  });
+
+  it('shares one repair loop, ignores foreign requests, stops on background/logout and replaces account stream', async () => {
+    jest.useFakeTimers();
+    let appStateCallback: (state: string) => void = () => {};
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event: any, handler: any) => {
+      appStateCallback = handler;
+      return { remove: jest.fn() } as any;
+    });
+    const view = renderHook(() => useBiddingEvents('req-shared'), { wrapper });
+    const { unmount: unmountSecond } = renderHook(() => useBiddingEvents('req-shared'), { wrapper });
+    expect(mockListeners['sync.required'].size).toBe(1);
+    act(() => mockListeners['sync.required'].forEach(cb => cb({ requestId: 'foreign' })));
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
+    act(() => appStateCallback('background'));
+    await act(async () => {
+      jest.advanceTimersByTime(60000);
+    });
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
+    await act(async () => appStateCallback('active'));
+    expect(queryClient.invalidateQueries).toHaveBeenCalled();
+    mockAuthState = { ...mockAuthState, user: { id: 'new-user', roles: ['Customer'] } };
+    view.rerender({});
+    expect(mockDisconnect).toHaveBeenCalled();
+    expect(mockConnect).toHaveBeenCalledTimes(3);
+    act(() => terminateAllBiddingSseConnections());
+    jest.mocked(queryClient.invalidateQueries).mockClear();
+    await act(async () => {
+      jest.advanceTimersByTime(60000);
+    });
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled();
+    view.unmount();
+    unmountSecond();
+    jest.useRealTimers();
   });
 });

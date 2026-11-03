@@ -2,12 +2,7 @@ import type { Response } from 'express';
 
 export type BidChangedKind = 'submitted' | 'revised' | 'withdrawn';
 export type RoundChangedKind =
-  | 'opened'
-  | 'closed'
-  | 'extended'
-  | 'finalized'
-  | 'cancelled'
-  | 'no_bid';
+  'opened' | 'closed' | 'extended' | 'finalized' | 'cancelled' | 'no_bid';
 export type MatchingChangedKind = 'completed' | 'failed';
 
 /** Initial event emitted immediately upon establishing an SSE connection */
@@ -41,8 +36,17 @@ export interface SseMatchingChangedEvent {
   occurredAt: string;
 }
 
+/** Requests an authoritative REST refresh after the broker consumer is ready. */
+export interface SseSyncRequiredEvent {
+  eventId: string;
+  requestId: string;
+  occurredAt: string;
+  reason: 'bridge.ready';
+}
+
 export type SseEventPayloadMap = {
-  'ready': SseReadyEvent;
+  'sync.required': SseSyncRequiredEvent;
+  ready: SseReadyEvent;
   'bid.changed': SseBidChangedEvent;
   'round.changed': SseRoundChangedEvent;
   'matching.changed': SseMatchingChangedEvent;

@@ -121,7 +121,7 @@ export class MatchingEventConsumer {
       );
 
       // 2. Update read-model projection
-      await this.projectionService.upsertPublishedRequest({
+      const projection = await this.projectionService.upsertPublishedRequest({
         id: reqId,
         requestCode:
           data.requestCode || `REQ-${reqId.slice(0, 8).toUpperCase()}`,
@@ -138,19 +138,26 @@ export class MatchingEventConsumer {
         selectionExpiresAt: data.selectionExpiresAt,
       });
 
-      // 3. Enqueue and await bounded matching job (ensures durability and no premature ACK)
-      await this.jobQueue.enqueueAndWait({
-        maxAttempts: 1,
-        jobId: `MATCH-${reqId}-REV${data.matchingRevision || 1}-RUN1`,
-        serviceRequestId: reqId,
-        serviceId: data.serviceId,
-        requestRevision: data.matchingRevision || 1,
-        runNumber: 1,
-        customerUserId: data.customerUserId,
-        description: data.description || '',
-        latitude: Number(data.latitude),
-        longitude: Number(data.longitude),
-      });
+      // 3. Enqueue and await bounded matching job only if request is open for bidding
+      // (Never resurrect matching recommendations if closing event arrived before publication)
+      if (projection.status === 'open_for_bidding') {
+        await this.jobQueue.enqueueAndWait({
+          maxAttempts: 1,
+          jobId: `MATCH-${reqId}-REV${data.matchingRevision || 1}-RUN1`,
+          serviceRequestId: reqId,
+          serviceId: data.serviceId,
+          requestRevision: data.matchingRevision || 1,
+          runNumber: 1,
+          customerUserId: data.customerUserId,
+          description: data.description || '',
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+        });
+      } else {
+        this.logger.log(
+          `Skipping matching job for request ${reqId} because projection status is '${projection.status}'`,
+        );
+      }
 
       // 4. Mark event consumed in Inbox
       if (eventId) {
@@ -222,19 +229,26 @@ export class MatchingEventConsumer {
         longitude: Number(data.longitude),
       });
 
-      // 2. Enqueue and await background matching job for new revision
-      await this.jobQueue.enqueueAndWait({
-        maxAttempts: 1,
-        jobId: `MATCH-${reqId}-REV${data.matchingRevision}-RUN1`,
-        serviceRequestId: reqId,
-        serviceId: data.serviceId,
-        requestRevision: data.matchingRevision,
-        runNumber: 1,
-        customerUserId: data.customerUserId,
-        description: data.description || '',
-        latitude: Number(data.latitude),
-        longitude: Number(data.longitude),
-      });
+      // 2. Enqueue and await background matching job for new revision only if still open
+      const projection = await this.projectionService.getProjection(reqId);
+      if (projection && projection.status === 'open_for_bidding') {
+        await this.jobQueue.enqueueAndWait({
+          maxAttempts: 1,
+          jobId: `MATCH-${reqId}-REV${data.matchingRevision}-RUN1`,
+          serviceRequestId: reqId,
+          serviceId: data.serviceId,
+          requestRevision: data.matchingRevision,
+          runNumber: 1,
+          customerUserId: data.customerUserId,
+          description: data.description || '',
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+        });
+      } else {
+        this.logger.log(
+          `Skipping matching job for request ${reqId} revision ${data.matchingRevision} because projection status is '${projection?.status}'`,
+        );
+      }
 
       if (eventId) {
         await this.consumedEvents.markEventConsumed(

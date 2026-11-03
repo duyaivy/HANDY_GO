@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { BidCandidate, RecommendationCandidate } from '@/features/candidates/types/candidate.types';
 import type { CreateBookingProposalPayload } from '@/features/orders/types/order.types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,9 +31,11 @@ import { RouteNames } from '@/constants/route-names';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
+import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { MapboxService } from '@/services/map/mapbox-service';
 import { useBiddingEvents } from '@/services/sse/use-bidding-events';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 type DisplayWorkerCandidate = {
   id: string;
@@ -125,11 +126,11 @@ export default function CustomerBookingRadarRoute() {
     });
   }, [searchParams?.requestId, createdRequestId]);
 
-  const activeRequestId = resolvedRequestId || searchParams?.requestId || createdRequestId || '00225617';
+  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || '00225617';
   const orderCode = activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId;
 
   // Real-time Candidates Aggregation Query (MOB-03)
-  const validRequestId = resolvedRequestId || (activeRequestId !== '00225617' && !activeRequestId.startsWith('req-mock') ? activeRequestId : null);
+  const validRequestId = (activeRequestId !== '00225617' && !activeRequestId.startsWith('req-mock') ? activeRequestId : null);
   const {
     bids,
     biddingStatus,
@@ -145,9 +146,11 @@ export default function CustomerBookingRadarRoute() {
     enabled: Boolean(validRequestId),
   });
 
+  const currentUserId = useAuthStore(state => state.user?.id);
+
   // Query existing proposals for this request to track proposed workers
   const { data: requestProposals } = useQuery({
-    queryKey: ['orders', 'request-proposals', validRequestId],
+    queryKey: ['orders', 'request-proposals', validRequestId, currentUserId],
     queryFn: async () => {
       if (!validRequestId)
         return [];
@@ -158,19 +161,10 @@ export default function CustomerBookingRadarRoute() {
     refetchInterval: 5000,
   });
 
-  const [locallyProposedWorkerIds, setLocallyProposedWorkerIds] = React.useState<Set<string>>(() => new Set());
-
-  const proposedWorkerIds = React.useMemo(() => {
-    const set = new Set<string>(locallyProposedWorkerIds);
-    if (Array.isArray(requestProposals)) {
-      requestProposals.forEach((p) => {
-        if (p.status === 'proposed') {
-          set.add(p.workerUserId);
-        }
-      });
-    }
-    return set;
-  }, [requestProposals, locallyProposedWorkerIds]);
+  const { proposedWorkerIds, begin, confirm, fail } = usePendingProposals(
+    `${currentUserId}:${validRequestId}`,
+    requestProposals,
+  );
 
   const isWorkerProposed = React.useCallback(
     (workerId: string) => proposedWorkerIds.has(workerId),
@@ -340,9 +334,11 @@ export default function CustomerBookingRadarRoute() {
 
   // Candidate selection -> Booking Proposal creation (Contract Section 7 & 17)
   const handleSelectWorkerAndSendProposal = async (worker: DisplayWorkerCandidate) => {
+    if (!begin(worker.id))
+      return;
     setIsSubmitting(true);
     try {
-      let targetRequestId = resolvedRequestId || searchParams?.requestId || createdRequestId;
+      let targetRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId;
       if (!targetRequestId || targetRequestId === '00225617') {
         const fallbackId = await fetchLatestActiveRequestId();
         if (fallbackId) {
@@ -351,6 +347,7 @@ export default function CustomerBookingRadarRoute() {
       }
 
       if (!targetRequestId || targetRequestId.startsWith('req-mock') || targetRequestId === '00225617') {
+        fail(worker.id);
         Alert.alert(
           'Không tìm thấy yêu cầu dịch vụ',
           'Chưa xác định được yêu cầu dịch vụ hợp lệ để gửi đề xuất cho thợ. Vui lòng quay lại tạo yêu cầu.',
@@ -393,10 +390,10 @@ export default function CustomerBookingRadarRoute() {
       }
 
       // Call Booking Proposal API (Never create Order directly)
-      await OrdersApi.createProposal(proposalPayload);
+      const response = await OrdersApi.createProposal(proposalPayload);
 
       // Mark this worker as proposed locally and refresh queries
-      setLocallyProposedWorkerIds(prev => new Set(prev).add(worker.id));
+      confirm(worker.id, response?.data?.id);
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
       if (targetRequestId) {
         await queryClient.invalidateQueries({ queryKey: ['orders', 'request-proposals', targetRequestId] });
@@ -422,17 +419,17 @@ export default function CustomerBookingRadarRoute() {
       );
     }
     catch (err: unknown) {
-      const errorObj = err as { code?: string; message?: string; response?: { data?: { code?: string; message?: string } } };
+      const errorObj = err as { code?: string; message?: string; response?: { status?: number; data?: { code?: string; message?: string } } };
       const errorCode = errorObj?.response?.data?.code || errorObj?.code;
       const errorMsg = String(errorObj?.response?.data?.message || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
 
-      const isConflict = errorCode === 'PROPOSAL_REVISION_CONFLICT'
+      const isConflict = errorObj?.response?.status === 409 || errorCode === 'PROPOSAL_REVISION_CONFLICT'
         || errorMsg.includes('already awaiting response');
 
       if (isConflict) {
-        setLocallyProposedWorkerIds(prev => new Set(prev).add(worker.id));
+        confirm(worker.id);
         Alert.alert(
           'Đang chờ thợ phản hồi',
           `Bạn đã gửi đề xuất cho thợ ${worker.name} rồi và đang chờ thợ xác nhận. Vui lòng kiểm tra trạng thái trong mục Hoạt động.`,
@@ -453,6 +450,7 @@ export default function CustomerBookingRadarRoute() {
         return;
       }
 
+      fail(worker.id);
       console.error('[RADAR] Error while sending proposal:', errorMsg || err);
       Alert.alert(
         'Không thể gửi đề xuất',

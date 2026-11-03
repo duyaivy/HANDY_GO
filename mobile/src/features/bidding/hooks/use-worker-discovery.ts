@@ -7,6 +7,8 @@ import { useQuery } from '@tanstack/react-query';
 import { workerBiddingKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { WorkerDiscoveryApi } from '../api/worker-discovery.api';
 
+const EMPTY_JOBS: DiscoverableJobItem[] = [];
+
 export type UseWorkerDiscoveryOptions = WorkerDiscoveryParams & {
   enabled?: boolean;
   refetchInterval?: number | false;
@@ -28,7 +30,7 @@ export function useWorkerDiscovery(options?: UseWorkerDiscoveryOptions) {
 
   return {
     ...query,
-    jobs: (query.data?.items ?? []) as DiscoverableJobItem[],
+    jobs: query.data?.items ?? EMPTY_JOBS,
     total: query.data?.total ?? 0,
     page: query.data?.page ?? page,
     limit: query.data?.limit ?? limit,

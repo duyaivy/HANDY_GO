@@ -15,6 +15,7 @@ import type {
   SseMatchingChangedEvent,
   SseReadyEvent,
   SseRoundChangedEvent,
+  SseSyncRequiredEvent,
 } from './sse.interfaces.js';
 
 @Injectable()
@@ -188,6 +189,21 @@ export class SseService implements OnModuleDestroy {
       occurredAt,
     };
     this.broadcastToRequest(requestId, 'matching.changed', payload);
+  }
+
+  /** Control signal only; it never substitutes for distributed business events. */
+  broadcastSyncRequired(): void {
+    const eventId = crypto.randomUUID();
+    const occurredAt = new Date().toISOString();
+    for (const requestId of this.clientsByRequest.keys()) {
+      const payload: SseSyncRequiredEvent = {
+        eventId,
+        requestId,
+        occurredAt,
+        reason: 'bridge.ready',
+      };
+      this.broadcastToRequest(requestId, 'sync.required', payload);
+    }
   }
 
   /**

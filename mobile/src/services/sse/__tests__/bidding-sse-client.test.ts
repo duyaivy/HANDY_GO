@@ -245,6 +245,53 @@ describe('Bidding SSE Client & Parser Tests', () => {
       });
     });
 
+    it('does not duplicate a pending XHR and ignores stale callbacks after reconnect', async () => {
+      const client = new BiddingSseClient('req', { transport: 'xhr' });
+      await client.connect();
+      await client.connect();
+      expect(mockXhrInstances).toHaveLength(1);
+      const stale = mockXhrInstances[0];
+      client.disconnect();
+      await client.connect();
+      const active = mockXhrInstances[1];
+      stale.onerror();
+      expect(active.abort).not.toHaveBeenCalled();
+      client.disconnect();
+    });
+
+    it('does not create a socket when logout interrupts token refresh', async () => {
+      mockGetToken.mockReturnValue(null as any);
+      let resolveRefresh!: (token: string) => void;
+      mockRefreshTokens.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRefresh = resolve;
+          }),
+      );
+      const client = new BiddingSseClient('req', { transport: 'xhr' });
+      const connecting = client.connect();
+      client.disconnect();
+      resolveRefresh('old-user-token');
+      await connecting;
+      expect(mockXhrInstances).toHaveLength(0);
+    });
+
+    it('dispatches sync.required while heartbeat stream stays open and scopes it to request', async () => {
+      const client = new BiddingSseClient('req', { transport: 'xhr' });
+      const onSync = jest.fn();
+      client.on('sync.required', onSync);
+      await client.connect();
+      const xhr = mockXhrInstances[0];
+      xhr.responseText = ':keepalive\n\nevent: sync.required\ndata: {"requestId":"req","eventId":"recover","reason":"bridge.ready"}\n\n';
+      xhr.onprogress();
+      expect(onSync).toHaveBeenCalledTimes(1);
+      xhr.responseText += 'event: sync.required\ndata: {"requestId":"other"}\n\n';
+      xhr.onprogress();
+      expect(onSync).toHaveBeenCalledTimes(1);
+      expect(mockXhrInstances).toHaveLength(1);
+      client.disconnect();
+    });
+
     it('should stream chunks incrementally using xhr.onprogress and xhr.responseText slice', async () => {
       const requestId = 'req-xhr-1';
       const client = new BiddingSseClient(requestId, {

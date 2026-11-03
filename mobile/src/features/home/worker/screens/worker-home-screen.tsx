@@ -17,7 +17,8 @@ import { SECONDARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { WorkerBiddingApi } from '@/features/bidding/api/worker-bidding.api';
 import { WorkerBidModal } from '@/features/bidding/components/worker-bid-modal';
-import { useMyBids } from '@/features/bidding/hooks/use-worker-bidding';
+import { isBeforeDeadline, useDeadlineClock } from '@/features/bidding/hooks/use-deadline-clock';
+import { useMyBidsForRequests } from '@/features/bidding/hooks/use-worker-bidding';
 import { useWorkerDiscovery } from '@/features/bidding/hooks/use-worker-discovery';
 import { NotificationBell } from '@/features/notifications/components/notification-bell';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -35,6 +36,7 @@ export function WorkerHomeScreen() {
   const handledRequestIdRef = React.useRef<string | null>(null);
 
   const {
+    dataUpdatedAt,
     error,
     isError,
     isLoading,
@@ -48,32 +50,24 @@ export function WorkerHomeScreen() {
     enabled: Boolean(isAuthenticated && user),
   });
 
-  const { data: myBids, refetch: refetchMyBids } = useMyBids(undefined, Boolean(isAuthenticated && user));
+  const { now, refreshClock } = useDeadlineClock(jobs.map(job => job.biddingClosesAt), dataUpdatedAt);
+  const activeJobs = React.useMemo(() => jobs.filter(job => isBeforeDeadline(job.biddingClosesAt, now)), [jobs, now]);
+  const bidQueries = useMyBidsForRequests(activeJobs.map(job => job.id), Boolean(isAuthenticated && user));
+  const bidQueriesRef = React.useRef(bidQueries);
+  React.useEffect(() => {
+    bidQueriesRef.current = bidQueries;
+  }, [bidQueries]);
+  const refetchMyBids = React.useCallback(() => Promise.all(bidQueriesRef.current.map(query => query.refetch())), []);
 
-  // Auto-refresh upon focusing "Nhận việc" tab
   useFocusEffect(
     React.useCallback(() => {
       if (isAuthenticated && user) {
+        refreshClock();
         void refetch();
         void refetchMyBids();
       }
-    }, [isAuthenticated, user, refetch, refetchMyBids]),
+    }, [isAuthenticated, user, refetch, refetchMyBids, refreshClock]),
   );
-
-  const [mountTime] = React.useState(() => Date.now());
-
-  // Client-side guard: Only show jobs whose bidding round has NOT ended
-  const activeJobs = React.useMemo(() => {
-    return jobs.filter((job) => {
-      if (job.biddingClosesAt) {
-        const closesAtMs = new Date(job.biddingClosesAt).getTime();
-        if (!Number.isNaN(closesAtMs) && closesAtMs <= mountTime) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [jobs, mountTime]);
 
   // Auto-open bidding modal when navigated with ?requestId=... (e.g. from matching notification)
   React.useEffect(() => {
@@ -154,12 +148,6 @@ export function WorkerHomeScreen() {
 
   const handleRefresh = async () => {
     await Promise.all([refetch(), refetchMyBids()]);
-  };
-
-  const getExistingBidForJob = (jobId: string) => {
-    if (!myBids || !Array.isArray(myBids))
-      return null;
-    return myBids.find(b => b.serviceRequestId === jobId) || null;
   };
 
   return (
@@ -264,8 +252,17 @@ export function WorkerHomeScreen() {
         {/* Job Items List */}
         {!isLoading && !isError && activeJobs.length > 0 && (
           <View className="gap-3 pb-6">
-            {activeJobs.map((job) => {
-              const existingBid = getExistingBidForJob(job.id);
+            {activeJobs.map((job, index) => {
+              const bidQuery = bidQueries[index];
+              const existingBid = bidQuery?.data;
+              const bidUnavailable = !bidQuery || bidQuery.isPending || bidQuery.isError;
+              const bidLabel = !bidQuery || bidQuery.isPending
+                ? 'Đang kiểm tra báo giá…'
+                : bidQuery.isError
+                  ? 'Không tải được báo giá'
+                  : existingBid
+                    ? ({ withdrawn: 'Đã rút báo giá', selected: 'Đã được chọn', rejected: 'Báo giá bị từ chối', expired: 'Báo giá hết hạn' }[existingBid.status] ?? 'Đã gửi báo giá')
+                    : 'Chưa gửi báo giá';
 
               return (
                 <Pressable
@@ -353,7 +350,7 @@ export function WorkerHomeScreen() {
 
                   {/* Action Bar */}
                   <View className="mt-3.5 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    {existingBid?.status === 'active'
+                    {!bidUnavailable && existingBid?.status === 'active'
                       ? (
                           <View className="flex-row items-center">
                             <View className="mr-1.5 size-2 rounded-full bg-emerald-500" />
@@ -366,22 +363,22 @@ export function WorkerHomeScreen() {
                             </Text>
                           </View>
                         )
-                      : existingBid?.status === 'withdrawn'
-                        ? (
-                            <View className="flex-row items-center">
-                              <View className="mr-1.5 size-2 rounded-full bg-neutral-400" />
-                              <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                                Đã rút báo giá
+                      : !bidUnavailable && existingBid
+                          ? (
+                              <View className="flex-row items-center">
+                                <View className="mr-1.5 size-2 rounded-full bg-neutral-400" />
+                                <Text className="text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                                  {bidLabel}
+                                </Text>
+                              </View>
+                            )
+                          : (
+                              <Text className="text-xs text-neutral-400">
+                                {bidLabel}
                               </Text>
-                            </View>
-                          )
-                        : (
-                            <Text className="text-xs text-neutral-400">
-                              Chưa gửi báo giá
-                            </Text>
-                          )}
+                            )}
 
-                    {existingBid?.status === 'withdrawn'
+                    {bidUnavailable || (existingBid && existingBid.status !== 'active')
                       ? (
                           <Pressable
                             onPress={() => handleOpenBidModal(job)}
@@ -444,7 +441,6 @@ export function WorkerHomeScreen() {
           visible={isBidModalVisible}
           onClose={handleCloseBidModal}
           request={selectedJob}
-          existingBid={getExistingBidForJob(selectedJob.id)}
           onSuccess={() => {
             void refetch();
             void refetchMyBids();

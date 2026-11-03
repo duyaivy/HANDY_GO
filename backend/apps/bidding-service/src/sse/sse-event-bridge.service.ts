@@ -30,6 +30,8 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
   private connection: AmqpConnectionManager | null = null;
   private channelWrapper: ChannelWrapper | null = null;
   private isDegraded = true;
+  private activeChannel: Channel | null = null;
+  private destroyed = false;
 
   // Short-lived deduplication cache (60 seconds) to prevent duplicate event dispatches
   private readonly recentEventIds = new Map<string, number>();
@@ -61,12 +63,14 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
       this.connection = amqp.connect([rabbitMqUrl]);
 
       this.connection.on('connect', () => {
-        this.isDegraded = false;
-        this.logger.log('Connected to RabbitMQ for SSE domain event bridge.');
+        this.logger.log(
+          'RabbitMQ transport connected; waiting for SSE consumer setup.',
+        );
       });
 
       this.connection.on('disconnect', (params: { err: Error }) => {
         this.isDegraded = true;
+        this.activeChannel = null;
         this.logger.warn(
           `Disconnected from RabbitMQ SSE domain event bridge: ${params.err?.message}. Bridge status is degraded. Mobile REST reconciliation will reconcile state on reconnect.`,
         );
@@ -75,6 +79,17 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
       this.channelWrapper = this.connection.createChannel({
         json: false,
         setup: async (channel: Channel) => {
+          if (this.destroyed) return;
+          this.isDegraded = true;
+          this.activeChannel = channel;
+          const markUnavailable = () => {
+            if (this.activeChannel === channel) {
+              this.isDegraded = true;
+              this.activeChannel = null;
+            }
+          };
+          channel.once('close', markUnavailable);
+          channel.once('error', markUnavailable);
           const exchange =
             this.config.get('RABBITMQ_EXCHANGE') || EVENTS_TOPIC_EXCHANGE;
 
@@ -102,6 +117,17 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
           await channel.consume(
             q.queue,
             (msg: ConsumeMessage | null) => {
+              if (!msg) {
+                // Broker consumer cancellation does not necessarily close TCP.
+                // Closing this channel asks the manager to recreate/bind/consume.
+                markUnavailable();
+                void channel.close().catch((error: Error) => {
+                  this.logger.warn(
+                    `Cannot close cancelled SSE channel: ${error.message}`,
+                  );
+                });
+                return;
+              }
               if (msg) {
                 try {
                   const content = JSON.parse(msg.content.toString());
@@ -115,7 +141,17 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
             },
             { noAck: true },
           );
+          // TCP connectivity alone is insufficient: all bindings and consume-ok
+          // must complete before clients reconcile the possibly missed interval.
+          if (!this.destroyed && this.activeChannel === channel) {
+            this.isDegraded = false;
+            this.sseService.broadcastSyncRequired();
+          }
         },
+      });
+      this.channelWrapper.on('error', (error: Error) => {
+        this.isDegraded = true;
+        this.logger.warn(`SSE consumer setup failed: ${error.message}`);
       });
     } catch (err) {
       this.isDegraded = true;
@@ -126,6 +162,9 @@ export class SseEventBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.destroyed = true;
+    this.isDegraded = true;
+    this.activeChannel = null;
     try {
       if (this.channelWrapper) {
         await this.channelWrapper.close();

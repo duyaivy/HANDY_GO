@@ -8,6 +8,8 @@ import {
   useWithdrawBid,
 } from '../hooks/use-worker-bidding';
 
+jest.mock('@/stores/use-auth-store', () => ({ useAuthStore: { use: { user: () => ({ id: 'worker-1' }) } } }));
+
 // Mock ApiClient
 jest.mock('@/services/api/api-client', () => ({
   ApiClient: {
