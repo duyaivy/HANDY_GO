@@ -345,7 +345,7 @@ export const ServiceDetail: React.FC = () => {
 
               {/* LOADING */}
               {relatedQuery.isPending || relatedQuery.isFetching ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
                   {Array.from({ length: 4 }).map((_, index) => (
                     <div key={index} className="rounded-2xl bg-white p-4">
                       <Skeleton className="mb-4 h-44 w-full rounded-xl" />
@@ -381,7 +381,7 @@ export const ServiceDetail: React.FC = () => {
                 </div>
               ) : (
                 // DANH SÁCH DỊCH VỤ LIÊN QUAN
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
                   {relatedServices.map((item) => (
                     <button
                       key={item.id}
