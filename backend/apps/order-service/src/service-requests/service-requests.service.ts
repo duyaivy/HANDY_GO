@@ -27,7 +27,7 @@ export class ServiceRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outboxRepo: OrderOutboxRepository,
-  ) {}
+  ) { }
 
   /**
    * Create a new service request in `draft` status.
@@ -54,15 +54,15 @@ export class ServiceRequestsService {
           status: RequestStatus.draft,
           ...(dto.media && dto.media.length > 0
             ? {
-                media: {
-                  createMany: {
-                    data: dto.media.map((m) => ({
-                      mediaType: m.mediaType,
-                      mediaUrl: m.mediaUrl,
-                    })),
-                  },
+              media: {
+                createMany: {
+                  data: dto.media.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                  })),
                 },
-              }
+              },
+            }
             : {}),
         },
         include: {
@@ -276,7 +276,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       if (dto.media !== undefined) {
@@ -382,7 +382,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
@@ -471,7 +471,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
@@ -629,11 +629,11 @@ export class ServiceRequestsService {
     const now = new Date();
     const biddingClosesAt = new Date(
       now.getTime() +
-        ORDER_CONSTANTS.DEFAULT_BIDDING_DURATION_HOURS * 3600 * 1000,
+      ORDER_CONSTANTS.DEFAULT_BIDDING_DURATION_HOURS * 3600 * 1000,
     );
     const selectionExpiresAt = new Date(
       biddingClosesAt.getTime() +
-        ORDER_CONSTANTS.DEFAULT_SELECTION_DURATION_HOURS * 3600 * 1000,
+      ORDER_CONSTANTS.DEFAULT_SELECTION_DURATION_HOURS * 3600 * 1000,
     );
 
     return this.prisma.$transaction(async (tx) => {
@@ -645,7 +645,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read the latest state after acquiring the lock to prevent TOCTOU race with updateDraft
@@ -821,7 +821,6 @@ export class ServiceRequestsService {
         },
         data: {
           status: RequestStatus.cancelled,
-          cancelledAt: now,
           version: { increment: 1 },
         },
       });
