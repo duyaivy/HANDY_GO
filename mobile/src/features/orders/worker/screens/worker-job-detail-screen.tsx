@@ -24,6 +24,29 @@ function formatVND(amount: number | string | undefined | null): string {
   return `${n.toLocaleString('vi-VN')}đ`;
 }
 
+function formatOrderStatus(status?: string | null): string {
+  switch (status) {
+    case 'created':
+      return 'Vừa tạo';
+    case 'confirmed':
+      return 'Thợ đã sẵn sàng';
+    case 'in_progress':
+      return 'Đang thi công';
+    case 'awaiting_customer_confirmation':
+      return 'Chờ nghiệm thu';
+    case 'completed':
+      return 'Hoàn tất';
+    case 'cancelled':
+      return 'Đã hủy';
+    case 'expired':
+      return 'Hết hạn';
+    case 'disputed':
+      return 'Đang khiếu nại';
+    default:
+      return status || '';
+  }
+}
+
 export interface WorkerJobDetailScreenProps {
   jobId?: string;
   onBack?: () => void;
@@ -129,7 +152,7 @@ export function WorkerJobDetailScreen({
             </Text>
             <View className="rounded-full bg-blue-100 px-2.5 py-0.5 dark:bg-blue-950/40">
               <Text className="text-[10px] font-bold text-blue-800 dark:text-blue-300">
-                {currentStatus}
+                {formatOrderStatus(currentStatus)}
               </Text>
             </View>
           </View>
@@ -265,7 +288,7 @@ export function WorkerJobDetailScreen({
         {statusHistory && statusHistory.length > 0 && (
           <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
             <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
-              Lịch sử trạng thái
+              Lịch sử trạng thái đơn hàng
             </Text>
             <View className="gap-2.5">
               {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
@@ -273,9 +296,9 @@ export function WorkerJobDetailScreen({
                   <View className="mt-1 size-2 rounded-full bg-primary" />
                   <View className="flex-1">
                     <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                      Trạng thái:
+                      Chuyển sang:
                       {' '}
-                      {item.toStatus}
+                      {formatOrderStatus(item.toStatus)}
                     </Text>
                     <Text className="text-[10px] text-neutral-400">
                       {new Date(item.createdAt).toLocaleString('vi-VN')}

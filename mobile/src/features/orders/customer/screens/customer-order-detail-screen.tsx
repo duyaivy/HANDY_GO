@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  RefreshControl,
   ScrollView,
   View,
 } from 'react-native';
@@ -97,9 +98,11 @@ export function CustomerOrderDetailScreen({
     isConfirming,
     isDisputing,
     isLoading,
+    isRefetching,
     isRequestingRework,
     openDispute,
     order,
+    refetch,
     requestRework,
     statusHistory,
   } = useCustomerOrderDetail(orderId);
@@ -186,7 +189,20 @@ export function CustomerOrderDetailScreen({
         onBack={handleBack}
       />
 
-      <ScrollView testID="orders-customer-detail-screen" className="flex-1 p-4">
+      <ScrollView
+        testID="orders-customer-detail-screen"
+        className="flex-1 p-4"
+        refreshControl={(
+          <RefreshControl
+            refreshing={Boolean(isRefetching)}
+            onRefresh={() => {
+              refetch();
+            }}
+            colors={["#F5A524"]}
+            tintColor="#F5A524"
+          />
+        )}
+      >
         {/* Loading */}
         {isLoading && (
           <View className="items-center justify-center py-4">

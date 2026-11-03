@@ -211,11 +211,11 @@ export function useCustomerOrderDetail(orderId?: string) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) {
-        return false;
+        return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 4s khi đơn vừa tạo (chờ thợ xác nhận), đang thi công hoặc chờ nghiệm thu
-      if (['created', 'in_progress', 'awaiting_customer_confirmation'].includes(data.status)) {
-        return 4000;
+      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired)
+      if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
+        return 3000;
       }
       return false;
     },
@@ -232,6 +232,14 @@ export function useCustomerOrderDetail(orderId?: string) {
       return res.data;
     },
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
+    refetchInterval: () => {
+      const order = orderQuery.data;
+      if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
+        return 3000;
+      }
+      return false;
+    },
+    refetchIntervalInBackground: false,
   });
 
   const confirmCompletionMutation = useMutation({
@@ -295,7 +303,9 @@ export function useCustomerOrderDetail(orderId?: string) {
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
-    refetch: orderQuery.refetch,
+    refetch: async () => {
+      await Promise.all([orderQuery.refetch(), historyQuery.refetch()]);
+    },
     confirmCompletion: confirmCompletionMutation.mutateAsync,
     isConfirming: confirmCompletionMutation.isPending,
     requestRework: requestReworkMutation.mutateAsync,
