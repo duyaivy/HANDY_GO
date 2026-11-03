@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { ActivityIndicator, View } from 'react-native';

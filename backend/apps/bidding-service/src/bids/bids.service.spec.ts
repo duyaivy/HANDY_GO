@@ -824,5 +824,81 @@ describe('BidsService', () => {
       expect(validated.data.customerId).toBe(customerId.toLowerCase());
     });
   });
+
+  describe('Transactional Outbox Reliability (BE-FIX-01)', () => {
+    it('should trigger immediate outbox publish post-commit when submitting bid', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new BidsService(
+        prismaMock,
+        roundsServiceMock as unknown as RoundsService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        status: 'open',
+        opensAt: new Date(Date.now() - 3600000),
+        closesAt: new Date(Date.now() + 3600000),
+        customerId: 'cust-1',
+        bidCount: 0,
+      });
+
+      prismaMock.bid.findUnique.mockResolvedValue(null);
+      prismaMock.biddingRound.update.mockResolvedValue({ id: 'round-outbox-1', bidCount: 1 });
+      prismaMock.bid.create.mockResolvedValue({
+        id: 'bid-outbox-1',
+        biddingRoundId: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        workerId: 'w-1',
+        amount: 300000,
+        message: null,
+        validUntil: null,
+        status: 'active',
+        version: 1,
+        submittedAt: new Date(),
+      });
+      prismaMock.outboxEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+      await serviceWithPublisher.submitBid('w-1', 'req-outbox-1', { amount: 300000 });
+
+      expect(mockOutboxPublisher.triggerPublish).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT trigger outbox publish if transaction fails', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new BidsService(
+        prismaMock,
+        roundsServiceMock as unknown as RoundsService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        status: 'open',
+        opensAt: new Date(Date.now() - 3600000),
+        closesAt: new Date(Date.now() + 3600000),
+        customerId: 'cust-1',
+        bidCount: 0,
+      });
+
+      prismaMock.$transaction.mockRejectedValue(new Error('DB commit failed'));
+
+      await expect(
+        serviceWithPublisher.submitBid('w-1', 'req-outbox-1', { amount: 300000 }),
+      ).rejects.toThrow('DB commit failed');
+
+      expect(mockOutboxPublisher.triggerPublish).not.toHaveBeenCalled();
+    });
+  });
 });
 

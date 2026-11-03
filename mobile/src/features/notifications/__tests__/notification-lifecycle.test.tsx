@@ -52,3 +52,38 @@ it('unowned notification taps do not navigate', async () => {
   await act(async () => tapped(response));
   expect(mockRouter.push).not.toHaveBeenCalled();
 });
+
+it('routes matching notification tap directly to /worker?requestId=...', async () => {
+  useAuthStore.setState({ user: { id: 'w-1', roles: ['Worker'] } as AuthUser, isHydrated: true, isAuthenticated: true, isLoading: false, activeMode: 'Worker' });
+  const matchingResp = {
+    actionIdentifier: 'default',
+    notification: {
+      request: {
+        identifier: 'push-match-1',
+        content: {
+          data: {
+            notificationId: '22222222-2222-4222-8222-222222222222',
+            eventType: 'matching.eligible_workers.ready',
+            requestId: 'req-match-123',
+            category: 'matching',
+          },
+        },
+      },
+    },
+  } as unknown as NotificationResponse;
+
+  jest.mocked(NotificationApi.detail).mockResolvedValueOnce({
+    id: '22222222-2222-4222-8222-222222222222',
+    category: 'matching',
+    payload: {
+      eventType: 'matching.eligible_workers.ready',
+      requestId: 'req-match-123',
+    },
+  } as any);
+
+  render(<NotificationLifecycle />);
+  const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
+  await act(async () => tapped(matchingResp));
+
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/worker?requestId=req-match-123'));
+});
