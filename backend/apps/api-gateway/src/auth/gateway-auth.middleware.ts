@@ -1,4 +1,4 @@
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { TokenVerifierService } from '@app/auth';
 import { ConfigService } from '@app/config';
@@ -29,14 +29,17 @@ function buildUnauthorizedResponse(
 
 @Injectable()
 export class GatewayAuthMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(GatewayAuthMiddleware.name);
+
   constructor(
     private readonly tokenVerifier: TokenVerifierService,
     private readonly config: ConfigService,
   ) {}
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const pathname = req.originalUrl || req.url;
+    const pathname = (req.originalUrl || req.url).split('?')[0];
     const method = req.method;
+    const clientIp = req.ip ?? req.socket?.remoteAddress ?? '127.0.0.1';
 
     // Remove client identity headers on public routes as well as protected routes.
     for (const header of Object.keys(req.headers)) {
@@ -51,9 +54,18 @@ export class GatewayAuthMiddleware implements NestMiddleware {
       return next();
     }
 
+    const suppliedRequestId = req.headers['x-request-id'];
+    const requestId = typeof suppliedRequestId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(suppliedRequestId)
+      ? suppliedRequestId
+      : crypto.randomUUID();
+    req.headers['x-request-id'] = requestId;
+
     // 2. Kiểm tra Authorization header
     const authHeader = req.headers['authorization'];
     if (!authHeader || typeof authHeader !== 'string') {
+      this.logger.warn(
+        `[401] MISSING_AUTH_HEADER requestId=${requestId} ip=${clientIp} method=${method} path=${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,
@@ -63,6 +75,9 @@ export class GatewayAuthMiddleware implements NestMiddleware {
 
     const [scheme, token] = authHeader.split(' ');
     if (scheme !== 'Bearer' || !token) {
+      this.logger.warn(
+        `[401] INVALID_BEARER requestId=${requestId} ip=${clientIp} method=${method} path=${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,
@@ -75,6 +90,16 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     try {
       payload = await this.tokenVerifier.verifyAccessToken(token);
     } catch (error: any) {
+      const isExpired
+        = error?.name === 'TokenExpiredError'
+        || (error?.cause as any)?.name === 'TokenExpiredError'
+        || /jwt expired|token expired/i.test(error?.message || '')
+        || /jwt expired|token expired/i.test((error?.cause as any)?.message || '');
+      const reason = isExpired ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
+
+      this.logger.warn(
+        `[401] ${reason} requestId=${requestId} ip=${clientIp} method=${method} path=${pathname}`,
+      );
       return buildUnauthorizedResponse(
         res,
         req,
@@ -95,6 +120,13 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     req.headers['x-user-account-id'] = payload.sub;
     req.headers['x-user-roles'] = (payload.roles ?? []).join(',');
     req.headers['x-user-permissions'] = (payload.permissions ?? []).join(',');
+
+    (req as any).user = {
+      userId: payload.userId,
+      accountId: payload.sub,
+      roles: payload.roles ?? [],
+      permissions: payload.permissions ?? [],
+    };
 
     // 6. Inject internal gateway secret
     this.injectGatewayHeaders(req);

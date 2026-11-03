@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { useFocusEffect, useLocalSearchParams, useRootNavigationState, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, TextInput, View } from 'react-native';

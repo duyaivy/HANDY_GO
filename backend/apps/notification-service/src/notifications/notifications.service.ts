@@ -140,11 +140,15 @@ export class NotificationsService {
     return this.db.$transaction(
       async (tx) => {
         // 2. Phân loại theo từng kênh độc lập (in-app và push)
-        const inAppOptOuts = await this.preferences.findInAppOptOuts(tx, userIds);
+        const inAppOptOuts = await this.preferences.findInAppOptOuts(
+          tx,
+          userIds,
+        );
         const shouldSendPush = dto.sendPush !== false;
         const pushOptOuts =
           shouldSendPush && this.pushJobs && this.devices
-            ? (await this.preferences.findPushOptOuts(tx, userIds)) ?? new Set<string>()
+            ? ((await this.preferences.findPushOptOuts(tx, userIds)) ??
+              new Set<string>())
             : new Set<string>();
 
         const potentiallyPushEligible =
@@ -154,9 +158,14 @@ export class NotificationsService {
 
         const activeDevices =
           potentiallyPushEligible.length > 0 && this.devices
-            ? (await this.devices.findActiveByUserIds(potentiallyPushEligible, tx)) ?? []
+            ? ((await this.devices.findActiveByUserIds(
+                potentiallyPushEligible,
+                tx,
+              )) ?? [])
             : [];
-        const usersWithActiveDevices = new Set(activeDevices.map((d) => d.userId));
+        const usersWithActiveDevices = new Set(
+          activeDevices.map((d) => d.userId),
+        );
 
         const rows: Prisma.NotificationCreateManyInput[] = [];
 
@@ -178,9 +187,7 @@ export class NotificationsService {
             role = 'worker';
           } else if (effectiveEventType.startsWith('payment.')) {
             role =
-              effectiveEventType === 'payment.refunded'
-                ? 'recipient'
-                : 'payer';
+              effectiveEventType === 'payment.refunded' ? 'recipient' : 'payer';
           } else if (effectiveEventType.startsWith('wallet.')) {
             role = 'owner';
           }
@@ -230,10 +237,7 @@ export class NotificationsService {
           });
         }
 
-        const createdCount =
-          rows.length > 0
-            ? await this.repository.createInAppBatch(tx, rows)
-            : 0;
+        if (rows.length > 0) await this.repository.createInAppBatch(tx, rows);
 
         const inAppCount = rows.filter(
           (r) => (r.payload as Record<string, unknown>)?.inAppVisible !== false,

@@ -113,6 +113,7 @@ export class OrderDeadlineSchedulerService
                   eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_BIDDING_CLOSED,
                   eventVersion: 1,
                   payload: {
+                    serviceRequestId: req.id,
                     requestId: req.id,
                     requestCode: req.requestCode,
                     customerUserId: req.customerUserId,
@@ -198,6 +199,7 @@ export class OrderDeadlineSchedulerService
                   eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_EXPIRED,
                   eventVersion: 1,
                   payload: {
+                    serviceRequestId: req.id,
                     requestId: req.id,
                     requestCode: req.requestCode,
                     customerUserId: req.customerUserId,

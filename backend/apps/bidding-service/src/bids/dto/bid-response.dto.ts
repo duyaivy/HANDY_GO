@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiResponseDto } from '@app/common';
 
 export class BidRevisionDto {
   @ApiProperty({ description: 'Mã định danh duy nhất (UUID) của bản sửa đổi' })
@@ -30,7 +31,9 @@ export class BidResponseDto {
   @ApiProperty({ description: 'Mã định danh phiên báo giá (Bidding Round ID)' })
   biddingRoundId!: string;
 
-  @ApiProperty({ description: 'Mã định danh yêu cầu dịch vụ (Service Request ID)' })
+  @ApiProperty({
+    description: 'Mã định danh yêu cầu dịch vụ (Service Request ID)',
+  })
   serviceRequestId!: string;
 
   @ApiProperty({ description: 'Mã tài khoản thợ đã gửi báo giá (Worker ID)' })
@@ -52,11 +55,14 @@ export class BidResponseDto {
   })
   status!: string;
 
-  @ApiProperty({ description: 'Số phiên bản hiện tại để kiểm soát tranh chấp đồng thời' })
+  @ApiProperty({
+    description: 'Số phiên bản hiện tại để kiểm soát tranh chấp đồng thời',
+  })
   version!: number;
 
   @ApiPropertyOptional({
-    description: 'Đánh dấu mức giá và nội dung đã được ẩn (Sealed-Bid) đối với thợ đối thủ',
+    description:
+      'Đánh dấu mức giá và nội dung đã được ẩn (Sealed-Bid) đối với thợ đối thủ',
     example: false,
   })
   isMasked?: boolean;
@@ -113,7 +119,8 @@ export class WorkerProfileSummaryDto {
   completedOrderCount?: number | null;
 
   @ApiPropertyOptional({
-    description: 'Khoảng cách ước tính từ vị trí thợ đến địa chỉ khách hàng (km)',
+    description:
+      'Khoảng cách ước tính từ vị trí thợ đến địa chỉ khách hàng (km)',
     example: 2.5,
   })
   distanceKm?: number | null;
@@ -134,4 +141,21 @@ export class BidListResponseDto {
 
   @ApiProperty({ description: 'Số lượng phần tử trên trang' })
   limit!: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Danh sách ID của tất cả các thợ đã gửi báo giá cho yêu cầu này (dùng cho deduplication)',
+    type: [String],
+  })
+  allBidderWorkerIds?: string[];
+}
+
+export class BidResponseDtoEnvelope extends ApiResponseDto<BidResponseDto> {
+  @ApiProperty({ type: BidResponseDto })
+  declare data: BidResponseDto;
+}
+
+export class BidListResponseDtoEnvelope extends ApiResponseDto<BidListResponseDto> {
+  @ApiProperty({ type: BidListResponseDto })
+  declare data: BidListResponseDto;
 }

@@ -1,0 +1,221 @@
+// HANDYGO V3 — FULL DBML | ORDER SERVICE
+// All cross-microservice references are logical only; no cross-database foreign keys.
+
+Project handygo_order_service {
+  database_type: 'PostgreSQL'
+  Note: 'Owns Service Requests, pre-order agreement proposals, and official Orders. Matching and Bidding do not create Orders.'
+}
+
+// Request State Machine:
+// draft -> open_for_bidding | cancelled
+// open_for_bidding -> bidding_closed | converted_to_order | cancelled | expired
+// bidding_closed -> converted_to_order | cancelled | expired
+// converted_to_order, cancelled, expired are terminal.
+Enum request_status {
+  draft
+  open_for_bidding
+  bidding_closed
+  converted_to_order
+  cancelled
+  expired
+}
+
+// Pre-order agreement: worker acceptance atomically finalizes immutable terms and creates Order.
+// proposed -> changes_requested | worker_rejected | withdrawn | expired | finalized | superseded
+// Customer submits a NEW proposal revision when worker requests changes.
+Enum booking_proposal_status {
+  proposed
+  changes_requested
+  worker_rejected
+  withdrawn
+  expired
+  finalized
+  superseded
+}
+
+// Distinguishes a worker selected from a quote vs AI Top 5 recommendations.
+Enum worker_selection_source {
+  bid
+  recommendation
+}
+
+// Order State Machine:
+// created -> confirmed -> in_progress -> awaiting_customer_confirmation -> completed
+// awaiting_customer_confirmation -> in_progress (rework)
+// Nonterminal states may -> cancelled / disputed subject to policy.
+Enum order_status {
+  created
+  confirmed
+  in_progress
+  awaiting_customer_confirmation
+  completed
+  cancelled
+  disputed
+}
+
+// Payment lifecycle is separate from Order lifecycle.
+// Local read projection populated from Payment Service events.
+Enum payment_state {
+  unpaid
+  pending
+  paid
+  refunded
+  failed
+}
+
+Table service_requests {
+  id uuid [pk]
+  request_code varchar(30) [not null, unique]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  service_id uuid [note: 'Logical reference -> Catalog Service.services.id; required when published']
+
+  description text
+  scheduled_at timestamptz
+
+  ai_reference_price_min decimal(12,2)
+  ai_reference_price_max decimal(12,2)
+
+  address_text varchar(500)
+  latitude decimal(9,6)
+  longitude decimal(9,6)
+
+  status request_status [not null, default: 'draft']
+
+  published_at timestamptz
+  bidding_closes_at timestamptz
+  selection_expires_at timestamptz
+
+  version int [not null, default: 0]
+  matching_revision int [not null, default: 0, note: '0 for draft; 1 on first publication; increments on location/service/description changes']
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (customer_user_id, status, created_at)
+    (service_id, status)
+  }
+}
+
+Table request_media {
+  id uuid [pk]
+  service_request_id uuid [not null]
+  media_type varchar(30) [not null]
+  media_url text [not null]
+  created_at timestamptz [not null]
+}
+
+Table booking_proposals {
+  id uuid [pk]
+  service_request_id uuid [not null]
+  supersedes_proposal_id uuid [unique]
+  revision_no int [not null, default: 1]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+
+  selection_source worker_selection_source [not null]
+  source_bid_id uuid [note: 'Logical reference -> Bidding Service.bids.id; used when source=bid']
+  source_match_result_id uuid [note: 'Logical reference -> Matching Service.match_results.id; used when source=recommendation']
+
+  agreed_price decimal(12,2) [not null]
+  agreed_scope text [not null]
+  scheduled_at timestamptz
+
+  status booking_proposal_status [not null, default: 'proposed']
+  expires_at timestamptz [not null]
+  worker_responded_at timestamptz
+  finalized_at timestamptz
+  response_note text
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (service_request_id, status)
+    (worker_user_id, status)
+  }
+}
+
+Table orders {
+  id uuid [pk]
+  order_code varchar(30) [not null, unique]
+  service_request_id uuid [not null, unique]
+  booking_proposal_id uuid [not null, unique]
+
+  customer_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  worker_user_id uuid [not null, note: 'Logical reference -> User & Trust Service.users.id']
+  service_id uuid [not null, note: 'Logical reference -> Catalog Service.services.id']
+
+  selection_source worker_selection_source [not null]
+  selected_bid_id uuid [note: 'Logical reference -> Bidding Service.bids.id; nullable for AI recommendation']
+  selected_match_result_id uuid [note: 'Logical reference -> Matching Service.match_results.id; nullable for selected Bid']
+
+  agreed_price decimal(12,2) [not null]
+  agreed_scope text [not null]
+  scheduled_at timestamptz
+
+  address_text varchar(500) [not null]
+  latitude decimal(9,6) [not null]
+  longitude decimal(9,6) [not null]
+
+  status order_status [not null, default: 'created']
+  payment_state payment_state [not null, default: 'unpaid']
+
+  confirmed_at timestamptz
+  started_at timestamptz
+  worker_finished_at timestamptz
+  completed_at timestamptz
+  cancelled_at timestamptz
+  cancel_reason text
+
+  version int [not null, default: 0]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (customer_user_id, status, created_at)
+    (worker_user_id, status, created_at)
+  }
+}
+
+Table order_status_history {
+  id uuid [pk]
+  order_id uuid [not null]
+  from_status order_status
+  to_status order_status [not null]
+  changed_by_user_id uuid [note: 'Nullable for system transitions']
+  reason text
+  created_at timestamptz [not null]
+  indexes {
+    (order_id, created_at)
+  }
+}
+
+Table outbox_events {
+  id uuid [pk]
+  aggregate_type varchar(50) [not null]
+  aggregate_id uuid [not null]
+  event_type varchar(100) [not null]
+  payload jsonb [not null]
+  created_at timestamptz [not null]
+  published_at timestamptz
+  publish_attempts int [not null, default: 0]
+  indexes {
+    (published_at, created_at)
+  }
+}
+
+Table consumed_events {
+  event_id uuid [pk]
+  event_type varchar(100) [not null]
+  consumed_at timestamptz [not null]
+}
+
+Ref: service_requests.id < request_media.service_request_id
+Ref: service_requests.id < booking_proposals.service_request_id
+Ref: booking_proposals.id - booking_proposals.supersedes_proposal_id
+Ref: service_requests.id - orders.service_request_id
+Ref: booking_proposals.id - orders.booking_proposal_id
+Ref: orders.id < order_status_history.order_id

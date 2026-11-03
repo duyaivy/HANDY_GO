@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { Order, ServiceRequest } from '../../types/order.types';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
@@ -27,7 +26,7 @@ export const ACTIVITY_FILTER_TABS = [
 
 export type ActivityFilterTab = (typeof ACTIVITY_FILTER_TABS)[number];
 
-export const ACTIVITY_TAB_LABELS: Record<ActivityFilterTab, string> = {
+const ACTIVITY_TAB_LABELS: Record<ActivityFilterTab, string> = {
   'Searching': 'Đang tìm',
   'In process': 'Đang làm',
   'Reorder': 'Đặt lại',

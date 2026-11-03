@@ -17,9 +17,6 @@ export const EVENT_PATTERNS = {
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',
 
-  SERVICE_REQUEST_PUBLISHED: 'service_request.published',
-  SERVICE_REQUEST_CANCELLED: 'service_request.cancelled',
-
   BIDDING_ROUND_OPENED: 'bidding.round.opened',
   BIDDING_ROUND_CLOSED: 'bidding.round.closed',
   BIDDING_ROUND_FINALIZED: 'bidding.round.finalized',
@@ -32,6 +29,18 @@ export const EVENT_PATTERNS = {
   BID_CREATED: 'bid.created',
   BID_ACCEPTED: 'bid.accepted',
   BID_REJECTED: 'bid.rejected',
+
+  SERVICE_REQUEST_PUBLISHED: 'service_request.published',
+  SERVICE_REQUEST_MATCHING_INPUTS_CHANGED:
+    'service_request.matching_inputs_changed',
+  SERVICE_REQUEST_CANCELLED: 'service_request.cancelled',
+  SERVICE_REQUEST_CONVERTED_TO_ORDER: 'service_request.converted_to_order',
+  SERVICE_REQUEST_BIDDING_CLOSED: 'service_request.bidding_closed',
+  SERVICE_REQUEST_EXPIRED: 'service_request.expired',
+
+  MATCHING_STARTED: 'matching.started',
+  MATCHING_COMPLETED: 'matching.completed',
+  MATCHING_FAILED: 'matching.failed',
 
   WORKER_MATCHED: 'worker.matched',
 

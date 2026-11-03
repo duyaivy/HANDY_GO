@@ -159,6 +159,14 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(obj.journal['status'], 'FAILED_BEFORE_ROLLOUT')
         self.assertEqual(calls, [])
 
+    def test_changed_migration_plan_requires_review_before_apply(self):
+        obj, calls = self.make_coordinator()
+        obj.bundle.return_value = ({'migration_hash': 'new-wallet-owner', 'domain': 'api.example.com'}, b'archive')
+        with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
+            obj.execute()
+        self.assertFalse(any(action == 'apply' for _, action, _ in calls))
+        self.assertIn('run_migrations', obj.journal['error'])
+
     def test_bundle_ships_logging_helper_without_putting_env_in_artifacts(self):
         obj, _ = self.make_coordinator()
         env_path = self.root / 'shared.env'
@@ -187,6 +195,11 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn('return 301 https://handygo.duyaivy.id.vn$request_uri;', nginx)
             self.assertNotIn('API_DOMAIN', nginx)
         self.assertEqual(manifest['domain'], 'handygo.duyaivy.id.vn')
+        migrations = sorted((PROD.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
+        sql_only = b''.join(str(p.relative_to(PROD.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
+        self.assertNotEqual(manifest['migration_hash'], coordinator.digest(sql_only))
+        self.assertEqual(manifest['migration_hash'], coordinator.digest(
+            sql_only + b'\0owners\0' + json.dumps(host.MIGRATIONS, sort_keys=True).encode()))
         self.assertIn('release_log.py', manifest['files'])
         self.assertNotIn('private-smtp-value', (obj.output / 'manifest.json').read_text())
 
@@ -356,6 +369,40 @@ class ReleaseTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn('--memory=384m', command)
         self.assertIn('--memory-swap=768m', command)
+
+    def test_wallet_migrates_once_on_vps3_before_any_service_starts(self):
+        calls = Mock()
+        for role in host.ROLES:
+            obj = host.Host.__new__(host.Host)
+            obj.role, obj.release_id, obj.bundle = role, RELEASE, self.root
+            obj.names = ['wallet-service'] if role == 'vps3' else ['auth-service']
+            obj.manifest = {'run_migrations': True, 'migration_image': 'test-image'}
+            obj.owner = Mock(return_value={'previous': None})
+            obj.compose, obj.verify = Mock(), Mock()
+            calls.attach_mock(obj.compose, role)
+            with patch.object(host, 'ROOT', self.root), patch.object(host, 'run') as run:
+                calls.attach_mock(run, 'migration_' + role)
+                obj.apply(RELEASE)
+        wallet = [c for c in calls.mock_calls if c.args and isinstance(c.args[0], list)
+                  and c.args[0][-1] == 'prisma:migrate:wallet']
+        self.assertEqual(len(wallet), 1)
+        self.assertEqual(wallet[0][0], 'migration_vps3')
+        first_start = next(c for c in calls.mock_calls if c[0] == 'vps3' and c.args[0] == 'up')
+        self.assertLess(calls.mock_calls.index(wallet[0]), calls.mock_calls.index(first_start))
+
+    def test_wallet_migration_failure_blocks_service_start(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.release_id, obj.bundle = 'vps3', RELEASE, self.root
+        obj.names = ['catalog-service', 'wallet-service']
+        obj.manifest = {'run_migrations': True, 'migration_image': 'test-image'}
+        obj.owner = Mock(return_value={'previous': None})
+        obj.compose, obj.verify = Mock(), Mock()
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'run',
+                side_effect=[None, RuntimeError('migration failed')]):
+            with self.assertRaisesRegex(RuntimeError, 'migration failed'):
+                obj.apply(RELEASE)
+        self.assertFalse(any(c.args[0] == 'up' for c in obj.compose.call_args_list))
+        obj.verify.assert_not_called()
 
     def test_bundle_tampering_is_rejected_before_any_docker_command(self):
         import hashlib

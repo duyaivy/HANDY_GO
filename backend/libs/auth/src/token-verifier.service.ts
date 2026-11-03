@@ -55,11 +55,13 @@ export class TokenVerifierService {
       }
 
       return payload;
-    } catch (error) {
+    } catch (error: any) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Mã truy cập không hợp lệ hoặc đã hết hạn');
+      throw new UnauthorizedException('Mã truy cập không hợp lệ hoặc đã hết hạn', {
+        cause: error,
+      });
     }
   }
 

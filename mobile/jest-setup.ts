@@ -1,6 +1,10 @@
 /* eslint-disable ts/ban-ts-comment */
 /* eslint-disable no-restricted-globals */
 
+if (typeof window !== 'undefined' && typeof window.dispatchEvent !== 'function') {
+  (window as any).dispatchEvent = () => true;
+}
+
 // Mock react-native-worklets first
 jest.mock('react-native-worklets', () => ({
   __esModule: true,

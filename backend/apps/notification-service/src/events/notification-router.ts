@@ -38,6 +38,14 @@ const strategies: StrategyMap = {
       role: 'worker',
     })),
   }),
+  'matching.completed': ({ data }) => ({
+    category: 'matching',
+    entityId: data.requestId,
+    requestId: data.requestId,
+    recipients: data.customerId
+      ? [{ userId: data.customerId, role: 'customer' }]
+      : [],
+  }),
   'bid.submitted': ({ data }) => ({
     category: 'bidding',
     entityId: data.bidId,

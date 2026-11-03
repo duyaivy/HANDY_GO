@@ -2,6 +2,7 @@ import { isISO8601, isUUID } from 'class-validator';
 
 export const NOTIFICATION_EVENTS = [
   'matching.eligible_workers.ready',
+  'matching.completed',
   'bid.submitted',
   'bid.revised',
   'booking_proposal.created',
@@ -43,6 +44,10 @@ export interface EventDataMap {
     matchingRunId: string;
     chunkId: string;
     eligibleWorkerIds: string[];
+  };
+  'matching.completed': {
+    requestId: string;
+    customerId?: string;
   };
   'bid.submitted': BidData;
   'bid.revised': BidData;
@@ -95,6 +100,10 @@ export const EVENT_CONTRACTS = {
   'matching.eligible_workers.ready': {
     source: 'matching-service',
     ids: ['requestId', 'matchingRunId', 'chunkId'],
+  },
+  'matching.completed': {
+    source: 'matching-service',
+    ids: ['requestId'],
   },
   'bid.submitted': { source: 'bidding-service', ids: bid },
   'bid.revised': { source: 'bidding-service', ids: bid },
@@ -257,6 +266,12 @@ export function validateNotificationEvent(
     if (typeof rawData.orderId === 'string') data.orderId = rawData.orderId;
     if (typeof rawData.referenceType === 'string')
       data.referenceType = rawData.referenceType;
+  }
+  if (type === 'matching.completed') {
+    const customerId = resolveField(rawData, 'customerId');
+    if (typeof customerId === 'string' && isUUID(customerId)) {
+      data.customerId = customerId.toLowerCase();
+    }
   }
   // Whitelist metadata; unknown business fields and secrets never reach storage/logs.
   return {

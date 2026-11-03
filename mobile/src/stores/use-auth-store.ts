@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { AuthSessionData, AuthUser, LoginPayload, VerifyOtpPayload } from '@/services/auth/auth-api';
 import { create } from 'zustand';
 import { StorageKeys } from '@/constants/storage-keys';

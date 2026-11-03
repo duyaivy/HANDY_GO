@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { BookingProposal, Order, ServiceRequest } from '../types/order.types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook } from '@testing-library/react-native';
@@ -15,12 +14,12 @@ const mockPush = jest.fn();
 const mockBack = jest.fn();
 
 jest.mock('expo-router', () => ({
-  useRouter: () => ({
+  useRouter: jest.fn(() => ({
     push: mockPush,
     replace: jest.fn(),
     back: mockBack,
     canGoBack: () => true,
-  }),
+  })),
   useLocalSearchParams: jest.fn(() => ({})),
 }));
 

@@ -71,7 +71,7 @@ export const CategoryServiceNavbar: React.FC<CategoryServiceNavbarProps> = ({
             aria-label="Về trang chủ HandyGo"
           >
             <Image
-              src="/handygo-logo-horizontal.svg"
+              src="/handygo.svg"
               alt="HandyGo"
               width={270}
               height={90}

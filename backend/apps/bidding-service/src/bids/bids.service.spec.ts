@@ -569,9 +569,11 @@ describe('BidsService', () => {
       expect(competitorBid?.isMasked).toBe(true);
       expect(competitorBid?.amount).toBe(0);
       expect(competitorBid?.message).toContain('Báo giá kín');
+      // FIX-03: Competitor worker MUST NOT receive request-wide bidder index
+      expect(res.allBidderWorkerIds).toBeUndefined();
     });
 
-    it('should NOT mask bids when viewer is request owner customer or admin (R01/F03)', async () => {
+    it('should NOT mask bids and SHOULD provide allBidderWorkerIds when viewer is request owner customer or admin (R01/F03/FIX-03)', async () => {
       const secret = TEST_INTERNAL_SECRET;
       prismaMock.biddingRound.findUnique.mockResolvedValue({
         id: 'round-1',
@@ -607,9 +609,11 @@ describe('BidsService', () => {
       expect(res.items[0].isMasked).toBe(false);
       expect(res.items[0].amount).toBe(200000);
       expect(res.items[0].message).toBe('Báo giá thợ 2');
+      // FIX-03: Request owner customer via trusted gateway receives bidder index
+      expect(res.allBidderWorkerIds).toEqual(['worker-2']);
     });
 
-    it('should MASK bids when viewer is another customer who does not own the request (R01/F03)', async () => {
+    it('should MASK bids and OMIT allBidderWorkerIds when viewer is another customer who does not own the request (R01/F03/FIX-03)', async () => {
       const secret = TEST_INTERNAL_SECRET;
       prismaMock.biddingRound.findUnique.mockResolvedValue({
         id: 'round-1',
@@ -645,9 +649,11 @@ describe('BidsService', () => {
       expect(res.items[0].isMasked).toBe(true);
       expect(res.items[0].amount).toBe(0);
       expect(res.items[0].message).toContain('Báo giá kín');
+      // FIX-03: Non-owner customer MUST NOT receive request-wide bidder index
+      expect(res.allBidderWorkerIds).toBeUndefined();
     });
 
-    it('should MASK bids when accessed directly without trusted gateway secret (R01/F03 direct port spoofing)', async () => {
+    it('should MASK bids and OMIT allBidderWorkerIds when accessed directly without trusted gateway secret (R01/F03/FIX-03 direct port spoofing)', async () => {
       prismaMock.biddingRound.findUnique.mockResolvedValue({
         id: 'round-1',
         serviceRequestId: 'req-1',
@@ -681,6 +687,89 @@ describe('BidsService', () => {
 
       expect(res.items[0].isMasked).toBe(true);
       expect(res.items[0].amount).toBe(0);
+      // FIX-03: Untrusted caller MUST NOT receive request-wide bidder index
+      expect(res.allBidderWorkerIds).toBeUndefined();
+    });
+
+    describe('getInternalBidderWorkerIds (FIX-03 Internal BFF Contract)', () => {
+      it('returns allBidderWorkerIds to request owner customer', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue({
+          id: 'round-1',
+          customerId: 'cust-owner',
+        });
+        prismaMock.bid.findMany.mockResolvedValue([
+          { workerId: 'worker-a' },
+          { workerId: 'worker-b' },
+        ]);
+
+        const result = await service.getInternalBidderWorkerIds(
+          'req-1',
+          'cust-owner',
+          'customer',
+        );
+
+        expect(result).toEqual({
+          serviceRequestId: 'req-1',
+          allBidderWorkerIds: ['worker-a', 'worker-b'],
+        });
+      });
+
+      it('returns allBidderWorkerIds to platform admin', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue({
+          id: 'round-1',
+          customerId: 'cust-owner',
+        });
+        prismaMock.bid.findMany.mockResolvedValue([{ workerId: 'worker-a' }]);
+
+        const result = await service.getInternalBidderWorkerIds(
+          'req-1',
+          'admin-user',
+          'admin',
+        );
+
+        expect(result.allBidderWorkerIds).toEqual(['worker-a']);
+      });
+
+      it('rejects competitor worker with ForbiddenException', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue({
+          id: 'round-1',
+          customerId: 'cust-owner',
+        });
+
+        await expect(
+          service.getInternalBidderWorkerIds('req-1', 'worker-competitor', 'worker'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('rejects stranger customer with ForbiddenException', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue({
+          id: 'round-1',
+          customerId: 'cust-owner',
+        });
+
+        await expect(
+          service.getInternalBidderWorkerIds('req-1', 'stranger-cust', 'customer'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('rejects anonymous caller with ForbiddenException', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue({
+          id: 'round-1',
+          customerId: 'cust-owner',
+        });
+
+        await expect(
+          service.getInternalBidderWorkerIds('req-1', undefined, undefined),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('throws NotFoundException when bidding round does not exist', async () => {
+        prismaMock.biddingRound.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.getInternalBidderWorkerIds('req-nonexistent', 'admin', 'admin'),
+        ).rejects.toThrow(NotFoundException);
+      });
     });
   });
 
@@ -822,6 +911,82 @@ describe('BidsService', () => {
       expect(validated.data.bidId).toBe(bidId.toLowerCase());
       expect(validated.data.requestId).toBe(reqId.toLowerCase());
       expect(validated.data.customerId).toBe(customerId.toLowerCase());
+    });
+  });
+
+  describe('Transactional Outbox Reliability (BE-FIX-01)', () => {
+    it('should trigger immediate outbox publish post-commit when submitting bid', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new BidsService(
+        prismaMock,
+        roundsServiceMock as unknown as RoundsService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        status: 'open',
+        opensAt: new Date(Date.now() - 3600000),
+        closesAt: new Date(Date.now() + 3600000),
+        customerId: 'cust-1',
+        bidCount: 0,
+      });
+
+      prismaMock.bid.findUnique.mockResolvedValue(null);
+      prismaMock.biddingRound.update.mockResolvedValue({ id: 'round-outbox-1', bidCount: 1 });
+      prismaMock.bid.create.mockResolvedValue({
+        id: 'bid-outbox-1',
+        biddingRoundId: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        workerId: 'w-1',
+        amount: 300000,
+        message: null,
+        validUntil: null,
+        status: 'active',
+        version: 1,
+        submittedAt: new Date(),
+      });
+      prismaMock.outboxEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+      await serviceWithPublisher.submitBid('w-1', 'req-outbox-1', { amount: 300000 });
+
+      expect(mockOutboxPublisher.triggerPublish).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT trigger outbox publish if transaction fails', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new BidsService(
+        prismaMock,
+        roundsServiceMock as unknown as RoundsService,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-outbox-1',
+        serviceRequestId: 'req-outbox-1',
+        status: 'open',
+        opensAt: new Date(Date.now() - 3600000),
+        closesAt: new Date(Date.now() + 3600000),
+        customerId: 'cust-1',
+        bidCount: 0,
+      });
+
+      prismaMock.$transaction.mockRejectedValue(new Error('DB commit failed'));
+
+      await expect(
+        serviceWithPublisher.submitBid('w-1', 'req-outbox-1', { amount: 300000 }),
+      ).rejects.toThrow('DB commit failed');
+
+      expect(mockOutboxPublisher.triggerPublish).not.toHaveBeenCalled();
     });
   });
 });

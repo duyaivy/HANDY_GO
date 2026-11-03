@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { Order, ServiceRequest } from '../types/order.types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';

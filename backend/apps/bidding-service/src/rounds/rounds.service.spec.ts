@@ -345,4 +345,61 @@ describe('RoundsService', () => {
       });
     });
   });
+
+  describe('Transactional Outbox Reliability (BE-FIX-01)', () => {
+    it('should trigger immediate outbox publish post-commit when opening round', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new RoundsService(
+        prismaMock,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue(null);
+      prismaMock.biddingRound.create.mockResolvedValue({
+        id: 'round-open-1',
+        serviceRequestId: 'req-open-1',
+        status: 'open',
+        opensAt: new Date(Date.now() - 1000),
+        closesAt: new Date(Date.now() + 86400000),
+        bidCount: 0,
+      });
+      prismaMock.outboxEvent.create.mockResolvedValue({ id: 'evt-round-1' });
+
+      await serviceWithPublisher.openRound({
+        serviceRequestId: 'req-open-1',
+        customerId: 'cust-1',
+      });
+
+      expect(mockOutboxPublisher.triggerPublish).toHaveBeenCalledTimes(1);
+    });
+
+    it('should trigger immediate outbox publish post-commit when cancelling round', async () => {
+      const mockOutboxPublisher = { triggerPublish: vi.fn() };
+      const serviceWithPublisher = new RoundsService(
+        prismaMock,
+        undefined,
+        mockOutboxPublisher as any,
+      );
+
+      prismaMock.biddingRound.findUnique.mockResolvedValue({
+        id: 'round-cancel-1',
+        serviceRequestId: 'req-cancel-1',
+        status: 'open',
+        opensAt: new Date(),
+        closesAt: new Date(),
+        bidCount: 0,
+      });
+      prismaMock.biddingRound.update.mockResolvedValue({
+        id: 'round-cancel-1',
+        status: 'cancelled',
+      });
+      prismaMock.bid.updateMany.mockResolvedValue({ count: 2 });
+      prismaMock.outboxEvent.create.mockResolvedValue({ id: 'evt-cancel-1' });
+
+      await serviceWithPublisher.cancelRound('req-cancel-1');
+
+      expect(mockOutboxPublisher.triggerPublish).toHaveBeenCalledTimes(1);
+    });
+  });
 });
