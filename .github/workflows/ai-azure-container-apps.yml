@@ -1,11 +1,12 @@
 name: AI Service Azure Container Apps CI/CD
 
 # ==============================================================================
-# GIT CONVENTION WORKFLOW:
-# 1. Pull Request (PR): Chỉ chạy CI (Build & Unit Test), không deploy lên Azure.
-# 2. Push/Merge vào main/release: Chạy CI -> Push Docker Image -> CD Deploy lên Azure.
-# 3. Git Release Tags (v*.*.*): Tự động gắn Semantic Versioning vào Docker Image.
-# 4. Feature branches: Hỗ trợ kiểm thử độc lập trước khi tạo PR vào main.
+# GIT CONVENTION & SECURITY POLICIES:
+# 1. Pull Request (PR): Chỉ chạy CI Gate (Build & Unit Test), tuyệt đối không deploy.
+# 2. Feature branches: Chỉ build và test độc lập, KHÔNG deploy vào Azure dùng chung.
+# 3. Push/Merge vào main/release: Đẩy Docker image và kích hoạt CD Deploy Azure.
+# 4. Git Release Tags (v*.*.*): Gắn Semantic Versioning và kích hoạt CD Deploy Azure.
+# 5. Secrets: Bắt buộc cấu hình qua GitHub Secrets, cấm fallback secret công khai.
 # ==============================================================================
 
 on:
@@ -29,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       force_deploy:
-        description: 'Force build and deploy to Azure Container Apps'
+        description: 'Force build and deploy to Azure Container Apps (Chỉ áp dụng trên main/release)'
         type: boolean
         default: false
 
@@ -85,7 +86,8 @@ jobs:
           echo "IMAGE_BASE=$IMAGE_BASE" >> $GITHUB_ENV
           echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
 
-          # Xác định tag theo Git Convention
+          # P0 Fix: CHỈ cho phép deploy khi là tag release hoặc branch main/release
+          # Tuyệt đối KHÔNG gán is_deployable=true cho các nhánh feature
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
             echo "image_tag_latest=$IMAGE_BASE:$VERSION" >> $GITHUB_OUTPUT
@@ -93,10 +95,8 @@ jobs:
           elif [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/release" ]]; then
             echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
             echo "is_deployable=true" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == "refs/heads/feature/ai-azure-container-apps" ]]; then
-            echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
-            echo "is_deployable=true" >> $GITHUB_OUTPUT
           else
+            # Feature branches: CHỈ build và test, KHÔNG deploy Azure, KHÔNG ghi đè tag latest
             echo "image_tag_latest=$IMAGE_BASE:dev-$SHORT_SHA" >> $GITHUB_OUTPUT
             echo "is_deployable=false" >> $GITHUB_OUTPUT
           fi
@@ -113,14 +113,14 @@ jobs:
           cache-from: type=gha,scope=ai-service
           cache-to: type=gha,mode=max,scope=ai-service
 
-      - name: Run Unit Tests inside the Container (CI Gate)
+      - name: Run Unit & Security Tests inside the Container (CI Gate)
         run: |
-          echo "===> Chạy Unit Test trực tiếp bên trong Container Image..."
+          echo "===> Chạy Unit Test và Security Test trực tiếp bên trong Container Image..."
           docker run --rm \
             -v ${{ github.workspace }}/ai/tests:/app/tests:ro \
             ${{ steps.meta.outputs.image_tag_sha }} \
             python -m pytest tests -v
-          echo "✅ Toàn bộ Unit Tests đã PASSED bên trong môi trường Container!"
+          echo "✅ Toàn bộ Unit & Security Tests đã PASSED bên trong môi trường Container!"
 
       - name: Push Image to GitHub Container Registry (GHCR)
         if: github.event_name != 'pull_request'
@@ -132,42 +132,45 @@ jobs:
 
   # ============================================================================
   # 2. CD: DEPLOY TO AZURE CONTAINER APPS & SMOKE TEST
-  # Theo chuẩn Git Convention:
-  # - KHÔNG deploy khi đang là Pull Request (chỉ chạy test)
-  # - CHỈ deploy khi commit được merge vào main/release, gắn tag, hoặc test branch
+  # Theo chuẩn Git Convention & Security Policy:
+  # - KHÔNG deploy khi đang là Pull Request
+  # - KHÔNG deploy khi push trên feature branch (ngăn chặn đè Azure app dùng chung)
+  # - CHỈ deploy khi commit được merge vào main/release hoặc gắn release tag
+  # - Bắt buộc có đủ credentials & secret, KHÔNG dùng fallback secret mặc định
   # ============================================================================
   deploy:
     name: Deploy to Azure Container Apps
     needs: build-and-publish
     if: |
       github.event_name != 'pull_request' &&
-      (needs.build-and-publish.outputs.is_deployable == 'true' || inputs.force_deploy == true)
+      (needs.build-and-publish.outputs.is_deployable == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_deploy == true))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Check Azure Credentials Secret
-        id: check_auth
+      - name: Validate Deployment Secrets (Fail Closed)
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
         run: |
-          if [ -n "$AZURE_CREDENTIALS" ]; then
-            echo "has_azure_creds=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_azure_creds=false" >> $GITHUB_OUTPUT
-            echo "::warning::Secret AZURE_CREDENTIALS chưa được thiết lập. Bước tự động deploy Azure sẽ được bỏ qua."
+          if [ -z "$AZURE_CREDENTIALS" ]; then
+            echo "::error::Bắt buộc cấu hình secret AZURE_CREDENTIALS trên GitHub Secrets để deploy!"
+            exit 1
           fi
+          if [ -z "$INTERNAL_SERVICE_SECRET" ]; then
+            echo "::error::Bắt buộc cấu hình secret INTERNAL_SERVICE_SECRET trên GitHub Secrets! Không cho phép fallback secret mặc định."
+            exit 1
+          fi
+          echo "✅ Đã xác thực đầy đủ các secret bảo mật bắt buộc."
 
       - name: Log in to Azure
-        if: steps.check_auth.outputs.has_azure_creds == 'true'
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Configure GHCR Credentials in Azure Container App
-        if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           az containerapp registry set \
             --name handy-go-ai \
@@ -177,7 +180,6 @@ jobs:
             --password "${{ secrets.GITHUB_TOKEN }}"
 
       - name: Deploy Revision to Azure Container Apps
-        if: steps.check_auth.outputs.has_azure_creds == 'true'
         run: |
           az containerapp update \
             --name handy-go-ai \
@@ -188,29 +190,29 @@ jobs:
             --min-replicas 0 \
             --max-replicas 2 \
             --set-env-vars \
-              "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET || 'handy-go-internal-service-secret-key-12345' }}" \
+              "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET }}" \
               "DEBUG=false" \
               "AI_SERVICE_PORT=8000"
 
-      - name: Post-Deploy Smoke Test (/health)
-        if: steps.check_auth.outputs.has_azure_creds == 'true'
+      - name: Post-Deploy Smoke Test (/health & /ready)
         run: |
           # 1. Lấy FQDN chính thức của service từ Azure
           FQDN=$(az containerapp show --name handy-go-ai --resource-group rg-handy-go --query properties.configuration.ingress.fqdn -o tsv)
           SERVICE_URL="https://$FQDN"
           echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
 
-          # 2. Smoke test: Thử gọi /health tối đa 5 lần (chờ container thức dậy)
-          echo "===> Đang kiểm tra sức khỏe tại $SERVICE_URL/health..."
+          # 2. Smoke test: Thử gọi /health và /ready tối đa 5 lần (chờ container thức dậy)
+          echo "===> Đang kiểm tra sức khỏe tại $SERVICE_URL/health và $SERVICE_URL/ready..."
           PASSED=false
           for i in {1..5}; do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health" || echo "000")
-            if [ "$HTTP_STATUS" -eq 200 ]; then
-              echo "✅ Health check PASSED ở lần thử $i (HTTP 200)!"
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health" || echo "000")
+            READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/ready" || echo "000")
+            if [ "$HEALTH_STATUS" -eq 200 ] && [ "$READY_STATUS" -eq 200 ]; then
+              echo "✅ Health check & Readiness check PASSED ở lần thử $i (HTTP 200)!"
               PASSED=true
               break
             fi
-            echo "Lần thử $i: HTTP Status $HTTP_STATUS, chờ 5 giây..."
+            echo "Lần thử $i: Health HTTP $HEALTH_STATUS, Ready HTTP $READY_STATUS, chờ 5 giây..."
             sleep 5
           done
 
@@ -230,11 +232,6 @@ jobs:
           echo "| **Cấu hình phần cứng** | 2.0 vCPU / 4.0 GiB RAM |" >> $GITHUB_STEP_SUMMARY
           echo "| **Cơ chế Scale** | Min: 0 (0đ khi nhàn rỗi) - Max: 2 |" >> $GITHUB_STEP_SUMMARY
           echo "| **Bake Weights** | EasyOCR (vi, en) + InsightFace (buffalo_l) |" >> $GITHUB_STEP_SUMMARY
-
-          if [ -n "$SERVICE_URL" ]; then
-            echo "| **Live Service URL** | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Swagger Docs** | [$SERVICE_URL/docs]($SERVICE_URL/docs) |" >> $GITHUB_STEP_SUMMARY
-            echo "| **Health Check Status** | ✅ **PASSED (HTTP 200)** |" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "| **Azure Deploy Status** | ℹ️ Image đã đẩy lên GHCR. Cần thêm secret \`AZURE_CREDENTIALS\` để kích hoạt tự động deploy Azure |" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "| **Live Service URL** | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Swagger Docs** | [$SERVICE_URL/docs]($SERVICE_URL/docs) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Health & Readiness Check** | ✅ **PASSED (HTTP 200)** |" >> $GITHUB_STEP_SUMMARY

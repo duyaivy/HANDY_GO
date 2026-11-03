@@ -14,6 +14,14 @@ def test_health_endpoint():
     assert "version" in data["data"]
 
 
+def test_ready_endpoint():
+    response = client.get("/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["data"]["status"] == "ready"
+
+
 def test_openapi_docs():
     response = client.get("/docs-json")
     assert response.status_code == 200

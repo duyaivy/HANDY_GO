@@ -29,18 +29,28 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 def _verify_internal_secret(x_internal_secret: str | None) -> None:
+    """
+    Xác thực secret nội bộ giữa Backend và AI Service.
+    Tuân thủ nguyên tắc FAIL-CLOSED:
+    - Nếu server chưa cấu hình secret -> báo lỗi 500 cấu hình, chặn truy cập.
+    - Nếu client không gửi header hoặc gửi sai secret -> báo 403 Forbidden.
+    """
     expected = settings.internal_service_secret
-    if expected and x_internal_secret:
-        if not hmac.compare_digest(x_internal_secret, expected):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid internal service secret.",
-            )
-        return
-    if expected and not settings.debug:
+    if not expected:
+        logger.error("INTERNAL_SERVICE_SECRET is not configured on server (fail-closed)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal security misconfiguration: secret key is not configured.",
+        )
+    if not x_internal_secret:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Missing required internal service secret header.",
+        )
+    if not hmac.compare_digest(x_internal_secret, expected):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid internal service secret.",
         )
 
 
