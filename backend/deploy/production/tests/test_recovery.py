@@ -377,9 +377,9 @@ class RecoveryTests(unittest.TestCase):
 
     def test_old_unsafe_pending_blocks_new_begin_and_staging(self):
         self.cluster.own('vps3', INCIDENT_A, phase='APPLYING')
-        self.cluster.fail['vps3', 'restore'] = RuntimeError('Wallet unhealthy')
-        with self.assertRaisesRegex(RuntimeError, 'Wallet unhealthy'):
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
             self.c.execute()
+        self.assertFalse(self.cluster.actions('restore'))
         self.assertFalse(self.cluster.actions('begin'))
         self.c.bundle.assert_not_called()
         self.c.ssh_run.assert_not_called()
@@ -554,6 +554,128 @@ class RecoveryTests(unittest.TestCase):
             coord_cls.return_value = mock_c
             recovery.main()
             mock_reconcile.assert_called_once_with(mock_c, expected=('prod-20261103-123-a1', OLD), inspect_only=False)
+
+    # TEST-01: Automatic untouched snapshot
+    def test_test01_automatic_untouched_snapshot_safely_finished(self):
+        self.cluster.own('vps3', phase='SNAPSHOT')
+        self.reconcile(automatic=True)
+        self.assertFalse(self.cluster.actions('restore'))
+        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('finish')), 1)
+        self.assertIsNone(self.cluster.states['vps3']['pending'])
+        self.assertEqual(self.c.journal['status'], 'FAILED_ROLLBACK_SUCCESS')
+
+    # TEST-02: Automatic APPLYING
+    def test_test02_automatic_applying_refuses_mutation_and_preserves_journal(self):
+        self.cluster.own('vps3', phase='APPLYING')
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+            self.reconcile(automatic=True)
+        self.assertEqual(self.cluster.calls, [])
+        self.assert_locked('vps3')
+        self.assertEqual(self.c.journal['status'], 'RECOVERY_REQUIRED')
+        self.assertEqual(self.cluster.states['vps3']['pending']['phase'], 'APPLYING')
+
+    # TEST-03: Automatic RESTORED
+    def test_test03_automatic_restored_refuses_silent_cleanup(self):
+        self.cluster.own('vps3', phase='RESTORED')
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+            self.reconcile(automatic=True)
+        self.assertEqual(self.cluster.calls, [])
+        self.assert_locked('vps3')
+        self.assertEqual(self.c.journal['status'], 'RECOVERY_REQUIRED')
+        self.assertEqual(self.cluster.states['vps3']['pending']['phase'], 'RESTORED')
+
+    # TEST-04: Partial commit
+    def test_test04_automatic_partial_commit_stops_safely(self):
+        self.cluster.own('vps3', phase='COMMITTED')
+        self.cluster.own('vps2', phase='VERIFIED')
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+            self.reconcile(automatic=True)
+        self.assertEqual(self.cluster.calls, [])
+        self.assert_locked('vps3', 'vps2')
+        self.assertEqual(self.c.journal['status'], 'RECOVERY_REQUIRED')
+
+    # TEST-05: Manual recovery
+    def test_test05_manual_recovery_for_compatible_touched_transaction_succeeds(self):
+        self.cluster.own('vps3', phase='APPLYING')
+        self.reconcile(automatic=False)
+        self.assertEqual(len(self.cluster.actions('restore')), 1)
+        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('finish')), 1)
+        self.assertIsNone(self.cluster.states['vps3']['pending'])
+        self.assertEqual(self.c.journal['status'], 'FAILED_ROLLBACK_SUCCESS')
+
+    # TEST-06: Migration incompatibility
+    def test_test06_migration_incompatibility_refused_for_both_auto_and_manual(self):
+        self.cluster.own('vps3', phase='APPLYING')
+        self.cluster.states['vps3']['manifests'][INCIDENT_A]['migration_hash'] = 'incompatible-migration-hash'
+        for automatic in (True, False):
+            with self.subTest(automatic=automatic), self.assertRaisesRegex(RuntimeError, 'migration compatibility'):
+                self.reconcile(automatic=automatic)
+            self.assertEqual(self.cluster.calls, [])
+            self.assert_locked('vps3')
+
+    # TEST-07: Foreign owner
+    def test_test07_automatic_preflight_refuses_foreign_owner_mutation(self):
+        self.cluster.own('vps3', INCIDENT_B, phase='APPLYING')
+        self.cluster.own('vps2', INCIDENT_A, phase='APPLYING')
+        with self.assertRaisesRegex(RuntimeError, 'MANUAL_INTERVENTION_REQUIRED|RECOVERY_REQUIRED'):
+            self.reconcile(expected=(INCIDENT_B, INCIDENT_B), automatic=True)
+        self.assertEqual(self.cluster.calls, [])
+        self.assert_locked('vps3', 'vps2')
+
+    # TEST-08: Repeat execution
+    def test_test08_repeated_automatic_preflight_and_manual_recovery_idempotent(self):
+        self.cluster.own('vps3', phase='APPLYING')
+        # Repeated automatic preflight stops safely every time
+        for _ in range(2):
+            with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+                self.reconcile(automatic=True)
+            self.assertEqual(self.cluster.calls, [])
+            self.assert_locked('vps3')
+        # Manual recovery then succeeds
+        self.reconcile(automatic=False)
+        self.assertIsNone(self.cluster.states['vps3']['pending'])
+        # Running recovery again on clean cluster is a safe no-op
+        calls_count = len(self.cluster.calls)
+        self.reconcile(automatic=False)
+        self.assertEqual(len(self.cluster.calls), calls_count)
+        self.assertEqual(self.c.journal['status'], 'RECOVERY_NOT_NEEDED')
+
+    # TEST-09: New deployment prevention
+    def test_test09_unsafe_journal_prevents_new_release_staging_and_begin(self):
+        self.cluster.own('vps3', INCIDENT_A, phase='APPLYING')
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+            self.c.execute()
+        self.assertEqual(self.cluster.calls, [])
+        self.c.bundle.assert_not_called()
+        self.c.ssh_run.assert_not_called()
+        self.assertFalse(self.cluster.actions('begin'))
+        self.assertFalse(self.cluster.actions('apply'))
+        self.assert_locked('vps3')
+
+    # TEST-10: Legacy journals
+    def test_test10_legacy_journals_safety_boundary(self):
+        # Untouched legacy snapshot -> safe for automatic preflight
+        legacy_untouched = {'transaction': INCIDENT_A, 'target': INCIDENT_A,
+                            'previous': {'release_id': OLD}, 'touched': False}
+        self.cluster.states['vps3']['pending'] = legacy_untouched
+        self.cluster.states['vps3']['manifests'][INCIDENT_A] = manifest(INCIDENT_A)
+        self.reconcile(automatic=True)
+        self.assertFalse(self.cluster.actions('restore'))
+        self.assertEqual(len(self.cluster.actions('finish')), 1)
+        self.assertIsNone(self.cluster.states['vps3']['pending'])
+
+        # Touched legacy journal -> automatic preflight refuses it without mutating
+        self.cluster.calls.clear()
+        legacy_touched = {'transaction': INCIDENT_B, 'target': INCIDENT_B,
+                          'previous': {'release_id': OLD}, 'touched': True}
+        self.cluster.states['vps3']['pending'] = legacy_touched
+        self.cluster.states['vps3']['manifests'][INCIDENT_B] = manifest(INCIDENT_B)
+        with self.assertRaisesRegex(RuntimeError, 'RECOVERY_REQUIRED'):
+            self.reconcile(automatic=True)
+        self.assertEqual(self.cluster.calls, [])
+        self.assert_locked('vps3')
 
 
 if __name__ == '__main__':

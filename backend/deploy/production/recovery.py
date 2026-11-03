@@ -110,6 +110,10 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
             c.journal['status'] = 'RECOVERY_REQUIRED'
             c.persist()
             return
+        if automatic and recovery['decision'] != 'FINISH_SNAPSHOT':
+            c.journal['status'] = 'RECOVERY_REQUIRED'
+            c.persist()
+            raise RuntimeError(f'RECOVERY_REQUIRED: automatic preflight cannot execute {recovery["decision"]}; manual recovery required')
         c.transaction, c.target = recovery['transaction'], recovery['target']
         c.journal.update(transaction=c.transaction, target_release=c.target)
         owned = recovery['owned']
@@ -152,7 +156,8 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
             c.journal['status'] = 'RECOVERY_REQUIRED'
         c.persist()
     except Exception as error:
-        c.journal['status'] = 'MANUAL_INTERVENTION_REQUIRED'
+        status = 'RECOVERY_REQUIRED' if str(error).startswith('RECOVERY_REQUIRED') else 'MANUAL_INTERVENTION_REQUIRED'
+        c.journal['status'] = status
         c.journal['recovery_error'] = redact(error)
         c.persist()
         raise

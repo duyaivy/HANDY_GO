@@ -438,7 +438,25 @@ Manual: Actions → Backend production → branch release → rollback_release=<
 
 Đọc execution artifact và pending.json từng host qua terminal an toàn. Xác định transaction, previous.release_id, target, touched và phase. Không công bố rollback thành công nếu còn host không truy cập.
 
-Khuyến nghị sử dụng workflow chuyên biệt trên GitHub Actions: **Backend production transaction recovery** (`.github/workflows/backend-production-recovery.yml`), hỗ trợ mode `inspect` (dry-run kiểm tra an toàn) và `recover` (thực thi kế hoạch khôi phục đã qua kiểm chứng) mà không cần can thiệp SSH thủ công trực tiếp trên máy chủ. Chi tiết vận hành xem [PRODUCTION_DEPLOY_RECOVERY_HOTFIX.md](../../docs/PRODUCTION_DEPLOY_RECOVERY_HOTFIX.md).
+### Phân loại cơ chế an toàn: Phục hồi tự động vs Phục hồi thủ công
+
+1. **Phục hồi tự động (Automatic Preflight Reconciliation):**
+   - **Chỉ áp dụng cho:** Các giao dịch snapshot nguyên vẹn (`phase=SNAPSHOT`, `touched=false`) do lần chạy trước bị hủy/timeout trước khi chạm vào container.
+   - **Quy trình:** Xác minh toàn cụm 3 VPS và release stable cũ, authorize-finish và finish an toàn, sau đó cho phép đợt deploy mới tiếp tục.
+   - **Nghiêm cấm tự động:** Tuyệt đối không tự động rollback hoặc chạm vào container đang ở trạng thái `touched=true` (`APPLYING`, `RESTORED`, partial commit). Khi phát hiện các trạng thái này, preflight lập tức dừng lại với mã lỗi rõ ràng `RECOVERY_REQUIRED`, không stage release mới, không gọi `begin()`, giữ nguyên đĩa và trạng thái máy chủ.
+
+2. **Phục hồi qua Workflow thủ công (Manual Workflow Dispatch):**
+   - Khi preflight dừng lại với `RECOVERY_REQUIRED`, sử dụng GitHub Actions: **Backend production transaction recovery** (`.github/workflows/backend-production-recovery.yml`).
+   - Hỗ trợ 2 chế độ:
+     - `mode: inspect` (dry-run): Đọc trạng thái cả 3 VPS, đối chiếu ownership, migration metadata, lập kế hoạch phục hồi mà không sửa đổi đĩa hay container.
+     - `mode: recover` (yêu cầu `confirm: RECOVER_PRODUCTION`): Thực hiện khôi phục có kiểm chứng theo thứ tự ngược (`vps3` → `vps2` → `vps1`), kiểm tra probe nội bộ, HTTPS public smoke, authorize-finish và xóa `pending.json`.
+
+3. **Can thiệp hạ tầng & Manual Intervention (`MANUAL_INTERVENTION_REQUIRED`):**
+   - **Broker cũ không khả dụng (RabbitMQ/Redis/DB):** Nếu container của release cũ không thể khởi động do RabbitMQ cũ mất kết nối, `restore` dừng lại, giữ nguyên `pending.json` (tăng `recovery_attempt`) và stable cũ. Operator cần sửa hạ tầng (kết nối lại mạng/broker), sau đó chạy lại workflow recovery.
+   - **Bất tương thích Migration:** Nếu hash migration giữa release candidate và previous khác nhau, hệ thống cấm tự động rollback DB và yêu cầu operator can thiệp thủ công.
+   - **Lỗi Bootstrap:** Nếu lần deploy đầu tiên thất bại (`previous=null`), không thể tự rollback vì không có release cũ hợp lệ.
+
+Chi tiết quy trình vận hành và runbook xem tại [PRODUCTION_DEPLOY_RECOVERY_HOTFIX.md](../../docs/PRODUCTION_DEPLOY_RECOVERY_HOTFIX.md).
 
 Trong trường hợp xử lý khẩn cấp bằng dòng lệnh trên VPS, dùng **cùng transaction ID đang giữ khóa**, gọi host executor:
 
