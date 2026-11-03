@@ -121,7 +121,7 @@ export class MatchingEventConsumer {
       );
 
       // 2. Update read-model projection
-      await this.projectionService.upsertPublishedRequest({
+      const projection = await this.projectionService.upsertPublishedRequest({
         id: reqId,
         requestCode:
           data.requestCode || `REQ-${reqId.slice(0, 8).toUpperCase()}`,
@@ -138,19 +138,26 @@ export class MatchingEventConsumer {
         selectionExpiresAt: data.selectionExpiresAt,
       });
 
-      // 3. Enqueue and await bounded matching job (ensures durability and no premature ACK)
-      await this.jobQueue.enqueueAndWait({
-        maxAttempts: 1,
-        jobId: `MATCH-${reqId}-REV${data.matchingRevision || 1}-RUN1`,
-        serviceRequestId: reqId,
-        serviceId: data.serviceId,
-        requestRevision: data.matchingRevision || 1,
-        runNumber: 1,
-        customerUserId: data.customerUserId,
-        description: data.description || '',
-        latitude: Number(data.latitude),
-        longitude: Number(data.longitude),
-      });
+      // 3. Enqueue and await bounded matching job only if request is open for bidding
+      // (Never resurrect matching recommendations if closing event arrived before publication)
+      if (projection.status === 'open_for_bidding') {
+        await this.jobQueue.enqueueAndWait({
+          maxAttempts: 1,
+          jobId: `MATCH-${reqId}-REV${data.matchingRevision || 1}-RUN1`,
+          serviceRequestId: reqId,
+          serviceId: data.serviceId,
+          requestRevision: data.matchingRevision || 1,
+          runNumber: 1,
+          customerUserId: data.customerUserId,
+          description: data.description || '',
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+        });
+      } else {
+        this.logger.log(
+          `Skipping matching job for request ${reqId} because projection status is '${projection.status}'`,
+        );
+      }
 
       // 4. Mark event consumed in Inbox
       if (eventId) {
@@ -222,19 +229,26 @@ export class MatchingEventConsumer {
         longitude: Number(data.longitude),
       });
 
-      // 2. Enqueue and await background matching job for new revision
-      await this.jobQueue.enqueueAndWait({
-        maxAttempts: 1,
-        jobId: `MATCH-${reqId}-REV${data.matchingRevision}-RUN1`,
-        serviceRequestId: reqId,
-        serviceId: data.serviceId,
-        requestRevision: data.matchingRevision,
-        runNumber: 1,
-        customerUserId: data.customerUserId,
-        description: data.description || '',
-        latitude: Number(data.latitude),
-        longitude: Number(data.longitude),
-      });
+      // 2. Enqueue and await background matching job for new revision only if still open
+      const projection = await this.projectionService.getProjection(reqId);
+      if (projection && projection.status === 'open_for_bidding') {
+        await this.jobQueue.enqueueAndWait({
+          maxAttempts: 1,
+          jobId: `MATCH-${reqId}-REV${data.matchingRevision}-RUN1`,
+          serviceRequestId: reqId,
+          serviceId: data.serviceId,
+          requestRevision: data.matchingRevision,
+          runNumber: 1,
+          customerUserId: data.customerUserId,
+          description: data.description || '',
+          latitude: Number(data.latitude),
+          longitude: Number(data.longitude),
+        });
+      } else {
+        this.logger.log(
+          `Skipping matching job for request ${reqId} revision ${data.matchingRevision} because projection status is '${projection?.status}'`,
+        );
+      }
 
       if (eventId) {
         await this.consumedEvents.markEventConsumed(
@@ -501,4 +515,237 @@ export class MatchingEventConsumer {
       throw err;
     }
   }
+
+  /**
+   * Consumer for 'bidding.round.closed'
+   * Updates projection status to 'bidding_closed' so worker feed removes the request.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_CLOSED)
+  async handleBiddingRoundClosed(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in bidding.round.closed (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.closed for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(reqId, 'bidding_closed');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.BIDDING_ROUND_CLOSED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.closed: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.BIDDING_ROUND_CLOSED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'bidding.round.finalized'
+   * Updates projection status to 'converted_to_order' when bidding finalizes.
+   */
+  @EventPattern(EVENT_PATTERNS.BIDDING_ROUND_FINALIZED)
+  async handleBiddingRoundFinalized(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.logger.warn(
+          `Missing serviceRequestId/requestId in bidding.round.finalized (${eventId})`,
+        );
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.finalized for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(
+        reqId,
+        'converted_to_order',
+      );
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.finalized: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'bidding.round.cancelled'
+   */
+  @EventPattern('bidding.round.cancelled')
+  async handleBiddingRoundCancelled(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId || data?.id;
+      if (!reqId) {
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(
+        `Consuming bidding.round.cancelled for request ${reqId}`,
+      );
+
+      await this.projectionService.updateRequestStatus(reqId, 'cancelled');
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          'bidding.round.cancelled',
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process bidding.round.cancelled: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        'bidding.round.cancelled',
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Consumer for 'order.created'
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
+  async handleOrderCreated(
+    @Payload() event: DomainEvent<any> | any,
+    @Ctx() context?: any,
+  ): Promise<{ status: string; eventId?: string }> {
+    const eventId = event?.eventId;
+    const data = event?.data || event?.payload || event;
+
+    try {
+      const reqId = data?.serviceRequestId || data?.requestId;
+      if (!reqId) {
+        this.ack(context);
+        return { status: 'invalid_event', eventId };
+      }
+
+      if (eventId) {
+        const isDuplicate = await this.consumedEvents.isEventConsumed(eventId);
+        if (isDuplicate) {
+          this.ack(context);
+          return { status: 'duplicate', eventId };
+        }
+      }
+
+      this.logger.log(`Consuming order.created for request ${reqId}`);
+
+      await this.projectionService.updateRequestStatus(
+        reqId,
+        'converted_to_order',
+      );
+
+      if (eventId) {
+        await this.consumedEvents.markEventConsumed(
+          eventId,
+          EVENT_PATTERNS.ORDER_CREATED,
+        );
+      }
+
+      this.ack(context);
+      return { status: 'processed', eventId };
+    } catch (err) {
+      this.logger.error(
+        `Failed to process order.created: ${(err as Error).message}`,
+      );
+      await this.handleFailure(
+        event,
+        EVENT_PATTERNS.ORDER_CREATED,
+        err as Error,
+        context,
+      );
+      throw err;
+    }
+  }
 }
+

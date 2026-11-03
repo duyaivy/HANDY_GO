@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { CategoryResponseDto, ServiceResponseDto } from '@/features/catalog/types';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';

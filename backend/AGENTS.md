@@ -118,8 +118,7 @@ pnpm run lint
 | | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
-| **Wallet service**<br>`apps/wallet-service/src/` | `WalletPrismaService` | Prisma client for the Wallet bounded context. Resolves the wallet schema consistently and passes it to the PostgreSQL driver adapter; use this client for Wallet transactions and row locks. |
-| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
+| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), required key and URL validation. Usage: `ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005, requiredUrls: ['ORDER_SERVICE_URL'], requiredKeys: ['INTERNAL_SERVICE_SECRET'] })` rejects missing, blank or malformed Order URLs during startup. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | | `RabbitMQContextService` | Manual ACK/NACK helper for RMQ consumers. ACK only after the database operation commits; NACK transient failures for broker redelivery. |
 | **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access, Pub/Sub with reconnection handling (`subscribe(channel, cb, onReconnect)`), strict error-propagating publishing (`publishStrict`), durable list and sorted-set index processing via `appendListItem`, `peekListHead`, `acknowledgeListHead`, `getListLength`, `addToSortedSet`, `removeFromSortedSet`, `getSortedSetRangeWithScores`, atomic cluster-safe `appendAndTrackPendingOrder` (Lua script `RPUSH` + `ZADD NX`), atomic lock-verified `cleanupPendingOrderIfEmpty` (Lua script `GET lockKey == lockToken` and `LLEN listKey == 0` -> `ZREM`), and `withDistributedLock`. |
@@ -129,6 +128,11 @@ pnpm run lint
 ---
 
 ### 4.2. Service-Internal Utilities
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `WorkersModule`, `WorkersService.getSummaries` | `apps/user-trust-service/src/workers/` | Internal secret-protected `GET /api/v1/internal/workers/batch-summary?ids=<uuid>,<uuid>`; validates 1–100 IDs, queries active users with worker profiles, returns only public names, avatars and rating/order statistics. `workers.getSummaries(workerIds)`. |
+| `WorkerProfilesClient.getSummaries` | `apps/api-gateway/src/candidates/clients/worker-profiles.client.ts` | Batch profile lookup with a 3s timeout and configured server secret; enriches the selected AI recommendations with real names. `const profiles = await client.getSummaries(workerIds)`; upstream failure preserves candidates with null profiles. |
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |

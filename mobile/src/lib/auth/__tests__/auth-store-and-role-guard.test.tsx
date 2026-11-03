@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 /* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { Text } from 'react-native';

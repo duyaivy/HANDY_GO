@@ -27,7 +27,8 @@ import { WorkerProfileEnricherService } from './services/worker-profile-enricher
 import { RequestEligibilityVerifierService } from './services/request-eligibility-verifier.service.js';
 import { ConfigService } from '@app/config';
 import { isTrustedGateway } from '../common/utils/security.util.js';
-import { EVENT_PATTERNS } from '@app/common';
+import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
+import { SseEventBridgeService } from '../sse/sse-event-bridge.service.js';
 import type { Bid, BidRevision, Prisma } from '@prisma/bidding-client';
 
 export const MAX_BID_REVISIONS = 5;
@@ -54,6 +55,10 @@ export class BidsService {
     private readonly requestEligibilityVerifier?: RequestEligibilityVerifierService,
     @Optional()
     private readonly config?: ConfigService,
+    @Optional()
+    private readonly sseBridge?: SseEventBridgeService,
+    @Optional()
+    private readonly outboxPublisher?: OutboxPublisherService,
   ) {}
 
   /**
@@ -64,12 +69,22 @@ export class BidsService {
     serviceRequestId: string,
     dto: SubmitBidDto,
   ): Promise<BidResponseDto> {
-    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04)
+    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04 / PR42-06)
     if (this.requestEligibilityVerifier) {
-      await this.requestEligibilityVerifier.verifyEligibility(
-        serviceRequestId,
-        workerId,
-      );
+      const eligibility =
+        await this.requestEligibilityVerifier.verifyEligibility(
+          serviceRequestId,
+          workerId,
+        );
+      if (
+        typeof this.requestEligibilityVerifier.verifyWorkerHardEligibility ===
+        'function'
+      ) {
+        await this.requestEligibilityVerifier.verifyWorkerHardEligibility(
+          workerId,
+          (eligibility as any)?.serviceId,
+        );
+      }
     }
 
     let round = await this.prisma.biddingRound.findUnique({
@@ -145,7 +160,7 @@ export class BidsService {
     }
 
     // Atomic transaction (F06: serialize Round/Bid lifecycle)
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Re-verify round state under transaction
       const roundInTx =
         typeof tx.biddingRound?.findUnique === 'function'
@@ -180,6 +195,11 @@ export class BidsService {
             })
           : null;
       if (existingInTx) {
+        if (existingInTx.status === 'withdrawn') {
+          throw new ConflictException(
+            'Bạn đã rút báo giá cho yêu cầu này. Theo quy định đấu thầu, bạn không thể nộp lại báo giá.',
+          );
+        }
         throw new ConflictException(
           'Bạn đã gửi báo giá cho yêu cầu này rồi. Vui lòng sử dụng chức năng điều chỉnh báo giá.',
         );
@@ -217,6 +237,7 @@ export class BidsService {
               payload: {
                 roundId: round.id,
                 serviceRequestId,
+                requestId: serviceRequestId,
                 previousClosesAt: currentRound.closesAt.toISOString(),
                 newClosesAt: currentClosesAt.toISOString(),
                 extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
@@ -304,8 +325,14 @@ export class BidsService {
         },
       });
 
-      return this.mapToBidResponse(createdBid, 0);
+      const response = this.mapToBidResponse(createdBid, 0);
+
+      return response;
     });
+
+    void this.outboxPublisher?.triggerPublish();
+
+    return response;
   }
 
   /**
@@ -403,7 +430,7 @@ export class BidsService {
       : bid.validUntil;
 
     // Atomic CAS Transaction (F05 & F06)
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Re-check round status in transaction
       const roundInTx =
         typeof tx.biddingRound?.findUnique === 'function'
@@ -448,6 +475,7 @@ export class BidsService {
               payload: {
                 roundId: round.id,
                 serviceRequestId: bid.serviceRequestId,
+                requestId: bid.serviceRequestId,
                 previousClosesAt: currentRound.closesAt.toISOString(),
                 newClosesAt: newClosesAt.toISOString(),
                 extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
@@ -574,8 +602,14 @@ export class BidsService {
         revisionsList = [...(bid.revisions || []), createdRevision];
       }
 
-      return this.mapToBidResponse(updatedBid, revisionNo, revisionsList);
+      const response = this.mapToBidResponse(updatedBid, revisionNo, revisionsList);
+
+      return response;
     });
+
+    void this.outboxPublisher?.triggerPublish();
+
+    return response;
   }
 
   /**
@@ -631,7 +665,7 @@ export class BidsService {
     }
 
     // Atomic CAS Transaction (F05 & F06)
-    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const roundInTx =
         typeof tx.biddingRound?.findUnique === 'function'
           ? await tx.biddingRound.findUnique({ where: { id: round.id } })
@@ -695,6 +729,23 @@ export class BidsService {
         });
       }
 
+      // Decrement round bidCount when a bid is withdrawn
+      if (typeof tx.biddingRound?.updateMany === 'function') {
+        await tx.biddingRound.updateMany({
+          where: { id: bid.biddingRoundId, bidCount: { gt: 0 } },
+          data: {
+            bidCount: { decrement: 1 },
+          },
+        });
+      } else if (typeof tx.biddingRound?.update === 'function') {
+        await tx.biddingRound.update({
+          where: { id: bid.biddingRoundId },
+          data: {
+            bidCount: { decrement: 1 },
+          },
+        });
+      }
+
       // Write Outbox Event: bid.withdrawn
       await tx.outboxEvent.create({
         data: {
@@ -716,11 +767,17 @@ export class BidsService {
         },
       });
 
-      return this.mapToBidResponse(
+      const response = this.mapToBidResponse(
         updatedBid,
         updatedBid.revisions?.length || 0,
       );
+
+      return response;
     });
+
+    void this.outboxPublisher?.triggerPublish();
+
+    return response;
   }
 
   /**
@@ -754,10 +811,16 @@ export class BidsService {
     const isAdminOrOperator =
       roles.includes('admin') || roles.includes('operator');
 
+    const now = new Date();
     const where: Prisma.BidWhereInput = {
       serviceRequestId,
       ...(query.status && query.status !== 'all'
-        ? { status: query.status as any }
+        ? query.status === 'active'
+          ? {
+              status: 'active',
+              OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+            }
+          : { status: query.status as any }
         : {}),
     };
 
@@ -781,7 +844,11 @@ export class BidsService {
         select: { customerId: true },
       }),
       this.prisma.bid.findMany({
-        where: { serviceRequestId },
+        where: {
+          serviceRequestId,
+          status: 'active',
+          OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+        },
         select: { workerId: true },
         distinct: ['workerId'],
       }),
@@ -956,6 +1023,9 @@ export class BidsService {
   ): Promise<BidListResponseDto> {
     const where: Prisma.BidWhereInput = {
       workerId,
+      ...(query.serviceRequestId
+        ? { serviceRequestId: query.serviceRequestId }
+        : {}),
       ...(query.status && query.status !== 'all'
         ? { status: query.status as any }
         : {}),

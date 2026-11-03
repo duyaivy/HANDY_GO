@@ -22,6 +22,9 @@ export const MapboxService = {
     if (process.env.NODE_ENV === 'test') {
       return true;
     }
+    if (process.env.EXPO_PUBLIC_DISABLE_MAPBOX === 'true') {
+      return false;
+    }
     return Boolean(NativeModules && NativeModules.RNMBXModule);
   },
 

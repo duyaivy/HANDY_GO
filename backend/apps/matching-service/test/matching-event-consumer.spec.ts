@@ -17,9 +17,14 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
     };
 
     mockProjectionService = {
-      upsertPublishedRequest: vi.fn().mockResolvedValue({}),
+      upsertPublishedRequest: vi
+        .fn()
+        .mockResolvedValue({ status: 'open_for_bidding' }),
       updateMatchingInputs: vi.fn().mockResolvedValue(undefined),
       updateRequestStatus: vi.fn().mockResolvedValue(undefined),
+      getProjection: vi
+        .fn()
+        .mockResolvedValue({ status: 'open_for_bidding' }),
     };
 
     mockJobQueue = {
@@ -247,6 +252,12 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
   it.each([
     'handleServiceRequestBiddingClosed',
     'handleServiceRequestExpired',
+    'handleServiceRequestCancelled',
+    'handleServiceRequestConverted',
+    'handleBiddingRoundClosed',
+    'handleBiddingRoundFinalized',
+    'handleBiddingRoundCancelled',
+    'handleOrderCreated',
   ] as const)('requeues %s on a transient projection error', async (method) => {
     mockProjectionService.updateRequestStatus.mockRejectedValueOnce(
       new Error('DB offline'),

@@ -3,6 +3,7 @@ import { CandidatesAggregationService } from './candidates-aggregation.service.j
 import { OrderClient, type UserContext } from './clients/order.client.js';
 import { BiddingClient } from './clients/bidding.client.js';
 import { MatchingClient } from './clients/matching.client.js';
+import { WorkerProfilesClient } from './clients/worker-profiles.client.js';
 import { AppException } from '@app/common';
 
 describe('CandidatesAggregationService', () => {
@@ -43,6 +44,11 @@ describe('CandidatesAggregationService', () => {
       mockOrderClient as unknown as OrderClient,
       mockBiddingClient as unknown as BiddingClient,
       mockMatchingClient as unknown as MatchingClient,
+      {
+        getSummaries: vi
+          .fn()
+          .mockResolvedValue(new Map([['w1', { fullName: 'Nguyễn Văn An' }]])),
+      } as unknown as WorkerProfilesClient,
     );
   });
 
@@ -152,6 +158,9 @@ describe('CandidatesAggregationService', () => {
     expect(result.bidding.items).toHaveLength(0);
     expect(result.matching.recommendations).toHaveLength(5);
     expect(result.matching.recommendations[0].workerUserId).toBe('w1');
+    expect(result.matching.recommendations[0].workerProfile?.fullName).toBe(
+      'Nguyễn Văn An',
+    );
     expect(result.matching.recommendations[4].workerUserId).toBe('w5');
   });
 
