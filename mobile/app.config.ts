@@ -5,8 +5,8 @@ import 'dotenv/config';
 import Env from './env';
 import { resolveGoogleServicesFile } from './scripts/firebase-config';
 
-const EXPO_ACCOUNT_OWNER = 'handygo';
-const EAS_PROJECT_ID = 'c3e1075b-6fe7-4686-aa49-35b46a229044';
+const EXPO_ACCOUNT_OWNER = 'duyaivy';
+const EAS_PROJECT_ID = '08480d28-1600-42e7-b028-2ab52c29a569';
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
@@ -14,14 +14,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   description: `${Env.EXPO_PUBLIC_NAME} Mobile App`,
   owner: EXPO_ACCOUNT_OWNER,
   scheme: Env.EXPO_PUBLIC_SCHEME,
-  slug: 'handy-go-mobile',
+  slug: 'handygo',
   version: Env.EXPO_PUBLIC_VERSION.toString(),
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
   newArchEnabled: true,
   updates: {
+    url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
     fallbackToCacheTimeout: 0,
+  },
+  runtimeVersion: {
+    policy: 'appVersion',
   },
   assetBundlePatterns: ['**/*'],
   ios: {

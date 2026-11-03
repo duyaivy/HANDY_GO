@@ -44,14 +44,82 @@ exec nginx -t
 
 
 def read(path, default=None):
-    return json.loads(path.read_text()) if path.exists() else default
+    try:
+        return json.loads(path.read_text()) if path.exists() else default
+    except (ValueError, UnicodeError) as error:
+        raise RuntimeError('Corrupted deployment JSON; preserve state for operator inspection') from error
+
+
+def sync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def write(path, data):
-    temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(data, indent=2) + '\n')
-    temporary.chmod(0o600)
-    temporary.replace(path)
+    descriptor, filename = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    temporary = Path(filename)
+    try:
+        with os.fdopen(descriptor, 'w') as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(json.dumps(data, indent=2) + '\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+        sync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def state_token():
+    state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending', 'fence')}
+    return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def inspect_state(role):
+    """Read and validate snapshots while deploy.lock is held; never print ENV."""
+    metadata = read(ROOT / 'host.json')
+    if role not in ROLES or not isinstance(metadata, dict) or metadata.get('role') != role:
+        raise RuntimeError('Host identity mismatch')
+    if metadata.get('private_ip') != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]:
+        raise RuntimeError('Unexpected WireGuard host identity')
+    state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending')}
+    references = set()
+    def snapshot(value):
+        if not isinstance(value, dict) or not isinstance(value.get('release_id'), str) or not re.fullmatch(RELEASE_ID, value['release_id']):
+            raise RuntimeError('Invalid release snapshot; preserve deployment state')
+        references.add(value['release_id'])
+    stable, pending = state['stable'], state['pending']
+    if stable is not None:
+        snapshot(stable)
+    elif (ROOT / 'stable.json').exists():
+        raise RuntimeError('Invalid stable journal')
+    if pending is not None:
+        if not isinstance(pending, dict) or any(not isinstance(pending.get(key), str) or not re.fullmatch(RELEASE_ID, pending[key]) for key in ('transaction', 'target')):
+            raise RuntimeError('Invalid pending owner or target')
+        if 'phase' not in pending and type(pending.get('touched')) is bool:
+            pending['phase'] = 'APPLYING' if pending['touched'] else 'SNAPSHOT'
+        if pending.get('phase') not in ('SNAPSHOT', 'APPLYING', 'VERIFIED', 'COMMITTED', 'RESTORED', 'BOOTSTRAP_FAILED') or type(pending.get('touched')) is not bool or 'previous' not in pending:
+            raise RuntimeError('Invalid pending phase or snapshot')
+        if (pending['phase'] == 'SNAPSHOT') != (not pending['touched']):
+            raise RuntimeError('Inconsistent pending phase and touched flag')
+        references.add(pending['target'])
+        if pending['previous'] is not None:
+            snapshot(pending['previous'])
+        if stable not in (pending['previous'], {'release_id': pending['target']}):
+            raise RuntimeError('Stable journal does not match transaction snapshots')
+    elif (ROOT / 'pending.json').exists():
+        raise RuntimeError('Invalid pending journal')
+    manifests = {}
+    for release_id in sorted(references):
+        executor = Host(role, release_id)
+        executor.validate_bundle()
+        if not isinstance(executor.manifest.get('migration_hash'), str) or not executor.manifest['migration_hash']:
+            raise RuntimeError('Missing migration metadata')
+        manifests[release_id] = executor.manifest
+    return {**state, 'role': role, 'manifests': manifests, 'token': state_token()}
 
 
 def run(argv, env=None, label=None):
@@ -109,7 +177,7 @@ class Host:
             if snapshot and re.fullmatch(RELEASE_ID, snapshot.get('release_id', '')):
                 load_secrets(ROOT / 'releases' / snapshot['release_id'] / 'shared.env')
         self.manifest = read(self.bundle / 'manifest.json')
-        if self.manifest['release_id'] != release_id:
+        if not isinstance(self.manifest, dict) or self.manifest.get('release_id') != release_id:
             raise ValueError('Manifest identity mismatch')
         if self.manifest.get('schema_version') != 1:
             raise ValueError('Unsupported release schema')
@@ -135,8 +203,10 @@ class Host:
 
     def owner(self, transaction):
         state = read(ROOT / 'pending.json')
-        if not state or state['transaction'] != transaction or state['target'] != self.release_id:
+        if not isinstance(state, dict) or state.get('transaction') != transaction or state.get('target') != self.release_id:
             raise RuntimeError('No matching transaction; reconcile pending.json before retry')
+        if 'phase' not in state and type(state.get('touched')) is bool:
+            state['phase'] = 'APPLYING' if state['touched'] else 'SNAPSHOT'
         return state
 
     def begin(self, transaction):
@@ -153,14 +223,13 @@ class Host:
             existing = run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=handygo'])
             if existing:
                 raise RuntimeError('Unmanaged handygo containers exist; explicit migration/adoption required')
-        write(ROOT / 'pending.json', {'transaction': transaction, 'previous': stable,
+        write(ROOT / 'pending.json', {'schema_version': 2, 'transaction': transaction, 'previous': stable,
                                      'target': self.release_id, 'touched': False, 'phase': 'SNAPSHOT'})
         return {'previous': stable, 'previous_manifest': previous if stable else None,
                 'migration_hash': previous['migration_hash'] if stable else None}
 
     def validate_bundle(self):
         path = self.bundle / 'shared.env'
-        path.chmod(0o600)
         validate_env(path)
         if hashlib.sha256(path.read_bytes()).hexdigest() != self.manifest['config_sha256']:
             raise ValueError('Shared ENV fingerprint mismatch')
@@ -286,6 +355,9 @@ class Host:
 
     def apply(self, transaction):
         state = self.owner(transaction)
+        if state.get('phase', 'SNAPSHOT') not in ('SNAPSHOT', 'APPLYING'):
+            raise RuntimeError('Cannot apply a terminal or verified transaction')
+        state.pop('verification', None)
         state.update(touched=True, phase='APPLYING')
         write(ROOT / 'pending.json', state)  # before mutation, including uncertain SSH outcomes
         migrations = MIGRATIONS[self.role]
@@ -351,21 +423,24 @@ class Host:
         if not state['touched']:
             return {'rollback': 'NOT_NEEDED'}
         if not state['previous']:
-            # No fake success on first deployment. Stop only this transaction's containers.
-            self.compose('stop', *self.names)
-            stable = read(ROOT / 'stable.json')
-            if stable and stable['release_id'] == self.release_id:
-                (ROOT / 'stable.json').unlink()
-            state['phase'] = 'BOOTSTRAP_FAILED'
-            write(ROOT / 'pending.json', state)
-            return {'rollback': 'NO_PREVIOUS_RELEASE'}
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: bootstrap has no previous release')
         old = Host(self.role, state['previous']['release_id'])
         old.validate_bundle()
+        if (not self.manifest.get('rollback_compatible') or not old.manifest.get('rollback_compatible')
+                or not self.manifest.get('migration_hash')
+                or self.manifest['migration_hash'] != old.manifest.get('migration_hash')):
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: migration compatibility is not proven')
+        state.pop('verification', None)
+        state['recovery_attempt'] = state.get('recovery_attempt', 0) + 1
+        state['recovery_decision'] = 'RESTORE_PREVIOUS'
+        state['recovery_from_phase'] = state.get('phase', 'APPLYING' if state.get('touched') else 'SNAPSHOT')
+        state['phase'] = 'APPLYING'
+        write(ROOT / 'pending.json', state)
         old.compose('config', '--quiet')
         # Pull may fail during registry outage; local digest cache remains usable.
         for name in old.names:
             pull = 'never' if self.manifest.get('env_refresh') else 'missing'
-            old.compose('up', '-d', '--no-build', '--no-deps', '--pull', pull,
+            old.compose('up', '-d', '--no-build', '--no-deps', '--force-recreate', '--pull', pull,
                         '--wait', '--wait-timeout', '240', name)
         added = sorted(set(self.names) - set(old.names))
         if added:
@@ -393,20 +468,59 @@ class Host:
             except Exception as error:
                 emit(self.role, f'Diagnostics unavailable for {name}: {type(error).__name__}')
 
+    def authorize_finish(self, transaction):
+        """Coordinator calls only after all host and public verification succeeds."""
+        state = self.owner(transaction)
+        if state['phase'] not in ('SNAPSHOT', 'COMMITTED', 'RESTORED'):
+            raise RuntimeError('Transaction is not safe to unlock')
+        state['verification'] = 'CLUSTER_VERIFIED'
+        write(ROOT / 'pending.json', state)
+        return {'verification': 'CLUSTER_VERIFIED'}
+
     def finish(self, transaction):
         state = self.owner(transaction)
         if state['phase'] not in ('SNAPSHOT', 'COMMITTED', 'RESTORED'):
             raise RuntimeError('Transaction is not safe to unlock')
+        stable = read(ROOT / 'stable.json')
+        expected = {'release_id': self.release_id} if state['phase'] == 'COMMITTED' else state['previous']
+        if stable != expected:
+            raise RuntimeError('Stable state is not safe to unlock')
+        if state['phase'] == 'SNAPSHOT':
+            if state['touched']:
+                raise RuntimeError('Touched snapshot is not safe to unlock')
+        elif state.get('verification') != 'CLUSTER_VERIFIED':
+            raise RuntimeError('Cluster verification required before unlock')
+        self.validate_bundle()
+        if state['previous']:
+            Host(self.role, state['previous']['release_id']).validate_bundle()
+        history = ROOT / 'transactions'
+        history.mkdir(mode=0o700, exist_ok=True)
+        write(history / (transaction + '.json'), {**state, 'unlock': 'VERIFIED_FINISH'})
         (ROOT / 'pending.json').unlink()
+        sync_directory(ROOT)
         return {'unlocked': True}
 
 
 def main():
     os.umask(0o077)
     arguments = sys.argv[1:]
-    wait_lock = arguments[-1:] == ['--wait-lock']
+    wait_lock = '--wait-lock' in arguments
     if wait_lock:
-        arguments.pop()
+        arguments.remove('--wait-lock')
+    expected_state = None
+    if '--expected-state' in arguments:
+        index = arguments.index('--expected-state')
+        expected_state = arguments[index + 1]
+        del arguments[index:index + 2]
+        if not re.fullmatch(r'[a-f0-9]{64}', expected_state):
+            raise ValueError('Invalid state token')
+    fence = None
+    if '--fence' in arguments:
+        index = arguments.index('--fence')
+        fence = arguments[index + 1]
+        del arguments[index:index + 2]
+        if not re.fullmatch(r'[1-9][0-9]*:[a-f0-9]{32}', fence):
+            raise ValueError('Invalid session fence')
     action, role, release_id, transaction = arguments
     if not re.fullmatch(RELEASE_ID, transaction):
         raise ValueError('Invalid transaction ID')
@@ -421,11 +535,33 @@ def main():
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Host operation still running; leave pending.json intact and retry recovery')
                 time.sleep(1)
+        if expected_state is not None and state_token() != expected_state:
+            raise RuntimeError('Deployment state changed after inspection; refusing stale operation')
+        if action == 'inspect':
+            print(json.dumps(inspect_state(role)))
+            return
+        if action == 'claim-fence':
+            if expected_state is None or fence is None:
+                raise RuntimeError('Fence claim requires inspected state and session identity')
+            inspect_state(role)
+            existing_fence = read(ROOT / 'fence.json')
+            if existing_fence is not None:
+                if not isinstance(existing_fence, str) or not re.fullmatch(r'[1-9][0-9]*:[a-f0-9]{32}', existing_fence):
+                    raise RuntimeError('Invalid durable fence; operator inspection required')
+                if existing_fence != fence and int(fence.split(':')[0]) <= int(existing_fence.split(':')[0]):
+                    raise RuntimeError('Coordinator epoch fenced; refusing stale claim')
+            write(ROOT / 'fence.json', fence)
+            print(json.dumps({'claimed': True, '_state': inspect_state(role)}))
+            return
+        if fence is not None and read(ROOT / 'fence.json') != fence:
+            raise RuntimeError('Coordinator session fenced; refusing stale operation')
         host = Host(role, release_id)
         emit(role, f'Start {action}: {release_id}')
         try:
             if action == 'verify':
                 result = host.verify()
+            elif action == 'authorize-finish':
+                result = host.authorize_finish(transaction)
             elif action in ('begin', 'prepare', 'apply', 'commit', 'restore', 'finish'):
                 result = getattr(host, action)(transaction)
             else:
@@ -436,6 +572,8 @@ def main():
                 host.diagnostics()
             raise
         emit(role, f'Complete {action}: {release_id}')
+        if expected_state is not None:
+            result['_state'] = inspect_state(role)
         print(json.dumps(result))
 
 

@@ -1,5 +1,6 @@
 """ENV refresh invariants and recovery after the coordinating runner disappears."""
 import argparse
+import contextlib
 import io
 import json
 from pathlib import Path
@@ -133,9 +134,9 @@ class EnvRefreshTests(unittest.TestCase):
     def test_restore_uses_previous_env_and_local_image_cache(self):
         obj = host.Host.__new__(host.Host)
         obj.role = 'vps1'
-        obj.names, obj.manifest = ['auth-service'], {'env_refresh': True}
+        obj.names, obj.manifest = ['auth-service'], {'env_refresh': True, 'migration_hash': 'same', 'rollback_compatible': True}
         obj.owner = Mock(return_value={'touched': True, 'previous': {'release_id': OLD}})
-        old = Mock(names=['auth-service'], release_id=OLD)
+        old = Mock(names=['auth-service'], release_id=OLD, manifest={'migration_hash': 'same', 'rollback_compatible': True})
         with patch.object(host, 'ROOT', self.root), patch.object(host, 'Host', return_value=old):
             result = obj.restore(RELEASE)
         self.assertEqual(result['rollback'], 'RESTORED')
@@ -153,11 +154,20 @@ class EnvRefreshTests(unittest.TestCase):
                 return json.dumps(states[role]).encode()
             return json.dumps(self.old if f'/{OLD}/' in command else manifest).encode()
         obj.ssh_run = Mock(side_effect=ssh)
+        obj.cluster_lock = contextlib.nullcontext
+        def inspect():
+            # Preserve object mutations while returning the same validated manifest data.
+            for state in states.values():
+                state['manifests'] = {OLD: self.old, RELEASE: manifest}
+            return states
+        obj.inspect_cluster = Mock(side_effect=inspect)
         def remote(role, action, target=None, **kwargs):
             if action == 'restore':
                 states[role]['stable'] = {'release_id': OLD}
                 states[role]['pending']['phase'] = 'RESTORED'
                 return {'rollback': 'RESTORED', 'release_id': OLD}
+            if action == 'commit':
+                states[role]['pending']['phase'] = 'COMMITTED'
             if action == 'finish':
                 states[role]['pending'] = None
             return {}
@@ -207,10 +217,10 @@ class EnvRefreshTests(unittest.TestCase):
     def test_foreign_pending_transaction_is_never_modified(self):
         obj, states, _ = self.recovery()
         states['vps2']['pending']['transaction'] = OLD
-        with self.assertRaisesRegex(RuntimeError, 'another run'):
+        with self.assertRaisesRegex(RuntimeError, 'owner/target'):
             obj.recover()
         obj.remote.assert_not_called()
-        self.assertEqual(obj.journal['status'], 'FAILED_NEEDS_INTERVENTION')
+        self.assertEqual(obj.journal['status'], 'MANUAL_INTERVENTION_REQUIRED')
 
     def test_manifest_mismatch_and_non_env_release_are_rejected_before_mutation(self):
         obj, _, manifest = self.recovery()
@@ -224,7 +234,7 @@ class EnvRefreshTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 obj, _, _ = self.recovery()
                 if failure == 'SSH':
-                    obj.ssh_run.side_effect = RuntimeError('unreachable')
+                    obj.inspect_cluster.side_effect = RuntimeError('unreachable')
                 else:
                     remote = obj.remote.side_effect
                     def fail_verify(role, action, *args, **kwargs):
@@ -235,7 +245,7 @@ class EnvRefreshTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     obj.recover()
                 self.assertFalse(any(c.args[1] == 'finish' for c in obj.remote.call_args_list))
-                self.assertEqual(obj.journal['status'], 'FAILED_NEEDS_INTERVENTION')
+                self.assertEqual(obj.journal['status'], 'MANUAL_INTERVENTION_REQUIRED')
 
     def test_no_pending_is_a_safe_no_op(self):
         obj, _, _ = self.recovery(pending=False)
