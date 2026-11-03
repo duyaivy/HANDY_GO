@@ -1,0 +1,237 @@
+name: AI Service Azure Container Apps CI/CD
+
+# ==============================================================================
+# GIT CONVENTION & SECURITY POLICIES:
+# 1. Pull Request (PR): Chỉ chạy CI Gate (Build & Unit Test), tuyệt đối không deploy.
+# 2. Feature branches: Chỉ build và test độc lập, KHÔNG deploy vào Azure dùng chung.
+# 3. Push/Merge vào main/release: Đẩy Docker image và kích hoạt CD Deploy Azure.
+# 4. Git Release Tags (v*.*.*): Gắn Semantic Versioning và kích hoạt CD Deploy Azure.
+# 5. Secrets: Bắt buộc cấu hình qua GitHub Secrets, cấm fallback secret công khai.
+# ==============================================================================
+
+on:
+  push:
+    branches:
+      - main
+      - release
+      - 'feature/ai-**'
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'ai/**'
+      - '.github/workflows/ai-azure-container-apps.yml'
+  pull_request:
+    branches:
+      - main
+      - release
+    paths:
+      - 'ai/**'
+      - '.github/workflows/ai-azure-container-apps.yml'
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force build and deploy to Azure Container Apps (Chỉ áp dụng trên main/release)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ai-azure-container-apps-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ============================================================================
+  # 1. BUILD, TEST INSIDE CONTAINER & PUBLISH TO GHCR (CI)
+  # - Build Docker image (có cache GHA & bake sẵn model weights)
+  # - Chạy Unit Test trực tiếp trong chính Container Image để đảm bảo tương thích 100%
+  # - Chỉ push lên GHCR nếu không phải là PR từ fork và tests đã passed
+  # ============================================================================
+  build-and-publish:
+    name: Build, Test & Publish to GHCR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ai
+    outputs:
+      image_tag_sha: ${{ steps.meta.outputs.image_tag_sha }}
+      image_tag_latest: ${{ steps.meta.outputs.image_tag_latest }}
+      is_deployable: ${{ steps.meta.outputs.is_deployable }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags based on Git Ref Convention
+        id: meta
+        run: |
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_BASE="ghcr.io/$REPO_OWNER/handygo-ai"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          
+          echo "image_tag_sha=$IMAGE_BASE:$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "IMAGE_BASE=$IMAGE_BASE" >> $GITHUB_ENV
+          echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
+          # P0 Fix: CHỈ cho phép deploy khi là tag release hoặc branch main/release
+          # Tuyệt đối KHÔNG gán is_deployable=true cho các nhánh feature
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "image_tag_latest=$IMAGE_BASE:$VERSION" >> $GITHUB_OUTPUT
+            echo "is_deployable=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/release" ]]; then
+            echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
+            echo "is_deployable=true" >> $GITHUB_OUTPUT
+          else
+            # Feature branches: CHỈ build và test, KHÔNG deploy Azure, KHÔNG ghi đè tag latest
+            echo "image_tag_latest=$IMAGE_BASE:dev-$SHORT_SHA" >> $GITHUB_OUTPUT
+            echo "is_deployable=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Docker Image (Bake weights + Cache GHA)
+        uses: docker/build-push-action@v7
+        with:
+          context: ./ai
+          file: ./ai/Dockerfile
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.image_tag_sha }}
+            ${{ steps.meta.outputs.image_tag_latest }}
+          cache-from: type=gha,scope=ai-service
+          cache-to: type=gha,mode=max,scope=ai-service
+
+      - name: Run Unit & Security Tests inside the Container (CI Gate)
+        run: |
+          echo "===> Chạy Unit Test và Security Test trực tiếp bên trong Container Image..."
+          docker run --rm \
+            -v ${{ github.workspace }}/ai/tests:/app/tests:ro \
+            ${{ steps.meta.outputs.image_tag_sha }} \
+            python -m pytest tests -v
+          echo "✅ Toàn bộ Unit & Security Tests đã PASSED bên trong môi trường Container!"
+
+      - name: Push Image to GitHub Container Registry (GHCR)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "===> Đang đẩy Image đã qua kiểm thử lên GHCR..."
+          docker push ${{ steps.meta.outputs.image_tag_sha }}
+          docker push ${{ steps.meta.outputs.image_tag_latest }}
+          echo "✅ Đã đẩy Image lên GHCR thành công!"
+
+  # ============================================================================
+  # 2. CD: DEPLOY TO AZURE CONTAINER APPS & SMOKE TEST
+  # Theo chuẩn Git Convention & Security Policy:
+  # - KHÔNG deploy khi đang là Pull Request
+  # - KHÔNG deploy khi push trên feature branch (ngăn chặn đè Azure app dùng chung)
+  # - CHỈ deploy khi commit được merge vào main/release hoặc gắn release tag
+  # - Bắt buộc có đủ credentials & secret, KHÔNG dùng fallback secret mặc định
+  # ============================================================================
+  deploy:
+    name: Deploy to Azure Container Apps
+    needs: build-and-publish
+    if: |
+      github.event_name != 'pull_request' &&
+      (needs.build-and-publish.outputs.is_deployable == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_deploy == true))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Validate Deployment Secrets (Fail Closed)
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+        run: |
+          if [ -z "$AZURE_CREDENTIALS" ]; then
+            echo "::error::Bắt buộc cấu hình secret AZURE_CREDENTIALS trên GitHub Secrets để deploy!"
+            exit 1
+          fi
+          if [ -z "$INTERNAL_SERVICE_SECRET" ]; then
+            echo "::error::Bắt buộc cấu hình secret INTERNAL_SERVICE_SECRET trên GitHub Secrets! Không cho phép fallback secret mặc định."
+            exit 1
+          fi
+          echo "✅ Đã xác thực đầy đủ các secret bảo mật bắt buộc."
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Configure GHCR Credentials in Azure Container App
+        run: |
+          az containerapp registry set \
+            --name handy-go-ai \
+            --resource-group rg-handy-go \
+            --server ghcr.io \
+            --username "${{ github.actor }}" \
+            --password "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Deploy Revision to Azure Container Apps
+        run: |
+          az containerapp update \
+            --name handy-go-ai \
+            --resource-group rg-handy-go \
+            --image "${{ needs.build-and-publish.outputs.image_tag_sha }}" \
+            --cpu 2.0 \
+            --memory 4.0Gi \
+            --min-replicas 0 \
+            --max-replicas 2 \
+            --set-env-vars \
+              "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET }}" \
+              "DEBUG=false" \
+              "AI_SERVICE_PORT=8000"
+
+      - name: Post-Deploy Smoke Test (/health & /ready)
+        run: |
+          # 1. Lấy FQDN chính thức của service từ Azure
+          FQDN=$(az containerapp show --name handy-go-ai --resource-group rg-handy-go --query properties.configuration.ingress.fqdn -o tsv)
+          SERVICE_URL="https://$FQDN"
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+          # 2. Smoke test: Thử gọi /health và /ready tối đa 5 lần (chờ container thức dậy)
+          echo "===> Đang kiểm tra sức khỏe tại $SERVICE_URL/health và $SERVICE_URL/ready..."
+          PASSED=false
+          for i in {1..5}; do
+            HEALTH_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/health" || echo "000")
+            READY_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$SERVICE_URL/ready" || echo "000")
+            if [ "$HEALTH_STATUS" -eq 200 ] && [ "$READY_STATUS" -eq 200 ]; then
+              echo "✅ Health check & Readiness check PASSED ở lần thử $i (HTTP 200)!"
+              PASSED=true
+              break
+            fi
+            echo "Lần thử $i: Health HTTP $HEALTH_STATUS, Ready HTTP $READY_STATUS, chờ 5 giây..."
+            sleep 5
+          done
+
+          if [ "$PASSED" != "true" ]; then
+            echo "::error::Smoke test thất bại sau 5 lần thử. Kiểm tra logs container trên Azure Portal."
+            exit 1
+          fi
+
+      - name: Publish Deployment Summary Report
+        run: |
+          echo "## 🚀 AI Service Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Thuộc tính | Giá trị |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image (Immutable SHA)** | \`${{ needs.build-and-publish.outputs.image_tag_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image (Latest / Version)** | \`${{ needs.build-and-publish.outputs.image_tag_latest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Git Ref Trigger** | \`${{ github.ref }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cấu hình phần cứng** | 2.0 vCPU / 4.0 GiB RAM |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cơ chế Scale** | Min: 0 (0đ khi nhàn rỗi) - Max: 2 |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Bake Weights** | EasyOCR (vi, en) + InsightFace (buffalo_l) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Live Service URL** | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Swagger Docs** | [$SERVICE_URL/docs]($SERVICE_URL/docs) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Health & Readiness Check** | ✅ **PASSED (HTTP 200)** |" >> $GITHUB_STEP_SUMMARY

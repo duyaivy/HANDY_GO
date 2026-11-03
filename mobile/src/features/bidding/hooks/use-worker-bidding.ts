@@ -96,6 +96,9 @@ export function useSubmitBid(requestId: string) {
         queryKey: workerBiddingKeys.myBids(),
       });
       void queryClient.invalidateQueries({
+        queryKey: workerBiddingKeys.all,
+      });
+      void queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.byRequest(requestId),
       });
       void queryClient.invalidateQueries({
@@ -135,6 +138,9 @@ export function useReviseBid(requestId?: string) {
       void queryClient.invalidateQueries({
         queryKey: workerBiddingKeys.myBids(),
       });
+      void queryClient.invalidateQueries({
+        queryKey: workerBiddingKeys.all,
+      });
     },
   });
 }
@@ -168,6 +174,9 @@ export function useWithdrawBid(requestId?: string) {
       });
       void queryClient.invalidateQueries({
         queryKey: workerBiddingKeys.myBids(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: workerBiddingKeys.all,
       });
     },
   });

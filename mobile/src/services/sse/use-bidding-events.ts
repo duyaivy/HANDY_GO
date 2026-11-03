@@ -246,6 +246,9 @@ export function useBiddingEvents(
       void queryClient.invalidateQueries({
         queryKey: candidateQueryKeys.byRequest(requestId),
       });
+      void queryClient.invalidateQueries({
+        queryKey: workerBiddingKeys.all,
+      });
     });
 
     // 4. Matching Changed (AI completed / failed)

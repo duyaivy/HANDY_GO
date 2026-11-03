@@ -515,6 +515,7 @@ describe('Checklist Kiểm Thử 8 Vấn Đề PR #28 Bidding Service', () => {
       expect(result.items[0].isMasked).toBe(true);
       expect(result.items[0].amount).toBe(0);
       expect(result.items[0].message).toContain('[Báo giá kín');
+      expect(result.allBidderWorkerIds).toBeUndefined();
     });
 
     it('khách hàng không sở hữu request không thể xem giá bid', async () => {
@@ -528,6 +529,7 @@ describe('Checklist Kiểm Thử 8 Vấn Đề PR #28 Bidding Service', () => {
 
       expect(result.items[0].isMasked).toBe(true);
       expect(result.items[0].amount).toBe(0);
+      expect(result.allBidderWorkerIds).toBeUndefined();
     });
 
     it('khách hàng chính chủ sở hữu request xem được giá thực và thông tin đầy đủ', async () => {
@@ -542,6 +544,7 @@ describe('Checklist Kiểm Thử 8 Vấn Đề PR #28 Bidding Service', () => {
       expect(result.items[0].isMasked).toBe(false);
       expect(result.items[0].amount).toBe(350000);
       expect(result.items[0].message).toBe('Báo giá của Thợ 1');
+      expect(result.allBidderWorkerIds).toEqual(['worker-1']);
     });
   });
 

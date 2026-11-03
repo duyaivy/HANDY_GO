@@ -323,5 +323,33 @@ export class BidsController {
       HttpStatus.OK,
     );
   }
+
+  @Get('internal/requests/:id/bidder-ids')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Internal: Lấy danh sách ID thợ đã gửi báo giá (Dành cho Trusted Gateway BFF deduplication)',
+    description:
+      'Endpoint nội bộ được bảo vệ bởi x-internal-secret timing-safe guard và kiểm tra quyền chủ sở hữu yêu cầu/Admin. ' +
+      'Chỉ trả về danh sách workerId phục vụ deduplication toàn diện qua các trang phân trang, không làm lộ giá hay nội dung báo giá.',
+  })
+  @ApiParam({ name: 'id', description: 'Mã định danh duy nhất (UUID) của yêu cầu dịch vụ', type: String })
+  async getInternalBidderWorkerIds(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) serviceRequestId: string,
+    @Headers('x-user-id') userId: string | undefined,
+    @Headers('x-user-roles') userRoles: string | undefined,
+    @Headers('x-internal-secret') internalSecret: string | undefined,
+  ): Promise<ApiResponseEnvelope<{ serviceRequestId: string; allBidderWorkerIds: string[] }>> {
+    assertTrustedGateway(internalSecret, this.config.internalServiceSecret);
+    const data = await this.bidsService.getInternalBidderWorkerIds(
+      serviceRequestId,
+      userId,
+      userRoles,
+    );
+    return buildSuccessResponse(
+      data,
+      'Lấy danh sách ID thợ báo giá thành công',
+      HttpStatus.OK,
+    );
+  }
 }
 

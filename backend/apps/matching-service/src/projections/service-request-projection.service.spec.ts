@@ -45,6 +45,20 @@ describe('ServiceRequestProjectionService (FIX-01 Matching Tombstones & Event Or
               if (where.status.in && !where.status.in.includes(record.status)) continue;
               if (typeof where.status === 'string' && record.status !== where.status) continue;
             }
+            if (where.OR && Array.isArray(where.OR)) {
+              const matchesOr = where.OR.some((clause: any) => {
+                if (clause.biddingClosesAt === null && record.biddingClosesAt === null) return true;
+                if (
+                  clause.biddingClosesAt?.lt &&
+                  record.biddingClosesAt &&
+                  new Date(record.biddingClosesAt).getTime() < new Date(clause.biddingClosesAt.lt).getTime()
+                ) {
+                  return true;
+                }
+                return false;
+              });
+              if (!matchesOr) continue;
+            }
 
             mockStore.set(id, {
               ...record,
@@ -273,6 +287,136 @@ describe('ServiceRequestProjectionService (FIX-01 Matching Tombstones & Event Or
 
       const projection = await service.getProjection('req-001');
       expect(projection?.status).toBe('bidding_closed');
+    });
+  });
+
+  describe('7. Anti-sniping extendBiddingDeadline handling (FIX-02)', () => {
+    it('extends round deadline from 20:00 to 20:02 when anti-sniping triggers', async () => {
+      const originalDeadline = new Date('2026-12-01T20:00:00.000Z');
+      const extendedDeadline = new Date('2026-12-01T20:02:00.000Z');
+
+      await service.upsertPublishedRequest({
+        ...samplePublishData,
+        biddingClosesAt: originalDeadline.toISOString(),
+      });
+
+      await service.extendBiddingDeadline('req-001', extendedDeadline.toISOString());
+
+      const projection = await service.getProjection('req-001');
+      expect(projection?.biddingClosesAt).toEqual(extendedDeadline);
+    });
+
+    it('Worker Discovery: request remains visible after original deadline (20:00) but disappears after extended deadline (20:02)', async () => {
+      // Setup: original deadline was 20:00, extended to 20:02.
+      // We simulate clock at 20:01 (between original and extended).
+      const baseTime = Date.now();
+      const originalDeadline = new Date(baseTime - 10000); // 10s ago (already passed original)
+      const extendedDeadline = new Date(baseTime + 60000); // 60s in future (extended active)
+
+      await service.upsertPublishedRequest({
+        ...samplePublishData,
+        biddingClosesAt: originalDeadline.toISOString(),
+      });
+
+      // Before extension: projection would evaluate as bidding_closed
+      let projection = await service.getProjection('req-001');
+      expect(projection?.status).toBe('bidding_closed');
+
+      // Anti-sniping extension arrives
+      await service.extendBiddingDeadline('req-001', extendedDeadline);
+
+      // Now projection is open_for_bidding again because extended deadline is in the future
+      projection = await service.getProjection('req-001');
+      expect(projection?.status).toBe('open_for_bidding');
+      expect(projection?.biddingClosesAt).toEqual(extendedDeadline);
+    });
+
+    it('handles duplicate bidding.round.extended events idempotently', async () => {
+      const extendedDeadline = new Date('2026-12-01T20:02:00.000Z');
+
+      await service.upsertPublishedRequest(samplePublishData);
+
+      // Multiple duplicate calls
+      await service.extendBiddingDeadline('req-001', extendedDeadline);
+      await service.extendBiddingDeadline('req-001', extendedDeadline);
+      await service.extendBiddingDeadline('req-001', extendedDeadline);
+
+      const projection = await service.getProjection('req-001');
+      expect(projection?.biddingClosesAt).toEqual(extendedDeadline);
+    });
+
+    it('out-of-order extension events: monotonic update prevents older event from decreasing deadline', async () => {
+      const deadline1 = new Date('2026-12-01T20:02:00.000Z');
+      const deadline2 = new Date('2026-12-01T20:04:00.000Z');
+
+      await service.upsertPublishedRequest(samplePublishData);
+
+      // Newer extension event (20:04) arrives first
+      await service.extendBiddingDeadline('req-001', deadline2);
+
+      // Older extension event (20:02) arrives second (delayed queue)
+      await service.extendBiddingDeadline('req-001', deadline1);
+
+      // Deadline must remain 20:04 (monotonic update)
+      const projection = await service.getProjection('req-001');
+      expect(projection?.biddingClosesAt).toEqual(deadline2);
+    });
+
+    it('handles extension arriving before service_request.published without regressing deadline', async () => {
+      const originalPublishedDeadline = new Date('2026-12-01T20:00:00.000Z');
+      const extendedDeadline = new Date('2026-12-01T20:02:00.000Z');
+
+      // 1. Extension event arrives BEFORE published event
+      await service.extendBiddingDeadline('req-early-ext', extendedDeadline);
+
+      const placeholder = await service.getProjection('req-early-ext');
+      expect(placeholder?.requestCode).toBe('TOMBSTONE');
+      expect(placeholder?.biddingClosesAt).toEqual(extendedDeadline);
+
+      // 2. Later, published event arrives with original (older) deadline
+      await service.upsertPublishedRequest({
+        ...samplePublishData,
+        id: 'req-early-ext',
+        biddingClosesAt: originalPublishedDeadline.toISOString(),
+      });
+
+      const hydrated = await service.getProjection('req-early-ext');
+      expect(hydrated?.requestCode).toBe('REQ-A1B2C3D4');
+      expect(hydrated?.customerUserId).toBe('user-cust-1');
+      // Must preserve the extended deadline, NOT revert to 20:00
+      expect(hydrated?.biddingClosesAt).toEqual(extendedDeadline);
+    });
+
+    it.each(['cancelled', 'expired', 'converted_to_order', 'bidding_closed'])(
+      'does not update deadline or reopen request in terminal status "%s"',
+      async (terminalStatus) => {
+        await service.upsertPublishedRequest(samplePublishData);
+        await service.updateRequestStatus('req-001', terminalStatus);
+
+        const newDeadline = new Date('2026-12-01T20:10:00.000Z');
+        await service.extendBiddingDeadline('req-001', newDeadline);
+
+        const projection = await service.getProjection('req-001');
+        expect(projection?.status).toBe(terminalStatus);
+        expect(projection?.biddingClosesAt).not.toEqual(newDeadline);
+      },
+    );
+
+    it('multiple sequential extensions up to maximum', async () => {
+      await service.upsertPublishedRequest(samplePublishData);
+
+      const ext1 = new Date('2026-12-01T20:02:00.000Z');
+      const ext2 = new Date('2026-12-01T20:04:00.000Z');
+      const ext3 = new Date('2026-12-01T20:06:00.000Z');
+
+      await service.extendBiddingDeadline('req-001', ext1);
+      expect((await service.getProjection('req-001'))?.biddingClosesAt).toEqual(ext1);
+
+      await service.extendBiddingDeadline('req-001', ext2);
+      expect((await service.getProjection('req-001'))?.biddingClosesAt).toEqual(ext2);
+
+      await service.extendBiddingDeadline('req-001', ext3);
+      expect((await service.getProjection('req-001'))?.biddingClosesAt).toEqual(ext3);
     });
   });
 });

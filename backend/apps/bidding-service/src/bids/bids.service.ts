@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
   Logger,
   Optional,
 } from '@nestjs/common';
@@ -69,20 +70,25 @@ export class BidsService {
     serviceRequestId: string,
     dto: SubmitBidDto,
   ): Promise<BidResponseDto> {
-    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04 / PR42-06)
+    // 1. Authoritative Request & Worker Eligibility Check (BID-03 / F04 / PR42-06 / FIX-01)
     if (this.requestEligibilityVerifier) {
       const eligibility =
         await this.requestEligibilityVerifier.verifyEligibility(
           serviceRequestId,
           workerId,
         );
+      if (!eligibility.serviceId) {
+        throw new ServiceUnavailableException(
+          'Không thể xác minh ngành nghề dịch vụ cho yêu cầu này.',
+        );
+      }
       if (
         typeof this.requestEligibilityVerifier.verifyWorkerHardEligibility ===
         'function'
       ) {
         await this.requestEligibilityVerifier.verifyWorkerHardEligibility(
           workerId,
-          (eligibility as any)?.serviceId,
+          eligibility.serviceId,
         );
       }
     }
@@ -913,6 +919,67 @@ export class BidsService {
       total,
       page: query.page,
       limit: query.limit,
+      allBidderWorkerIds:
+        isGatewayTrusted && (isRequestOwnerCustomer || isAdminOrOperator)
+          ? allBidders.map((b) => b.workerId)
+          : undefined,
+    };
+  }
+
+  /**
+   * FIX-03: Internal endpoint for Gateway BFF to retrieve request-wide bidder worker IDs
+   * strictly for cross-candidate deduplication.
+   * Requires timing-safe trusted gateway secret and verified ownership (customer owner or admin).
+   * Never exposes bid amounts, messages, or revision histories.
+   */
+  async getInternalBidderWorkerIds(
+    serviceRequestId: string,
+    currentUserId?: string,
+    userRoles?: string,
+  ): Promise<{ serviceRequestId: string; allBidderWorkerIds: string[] }> {
+    const roles = userRoles
+      ? userRoles.split(',').map((r) => r.trim().toLowerCase())
+      : [];
+    const isAdminOrOperator =
+      roles.includes('admin') || roles.includes('operator');
+
+    const round = await this.prisma.biddingRound.findUnique({
+      where: { serviceRequestId },
+      select: { customerId: true },
+    });
+
+    if (!round) {
+      throw new NotFoundException(
+        `Không tìm thấy phiên báo giá cho yêu cầu ${serviceRequestId}`,
+      );
+    }
+
+    const isRequestOwnerCustomer = Boolean(
+      round.customerId &&
+      currentUserId &&
+      round.customerId === currentUserId &&
+      roles.includes('customer'),
+    );
+
+    if (!isAdminOrOperator && !isRequestOwnerCustomer) {
+      throw new ForbiddenException(
+        'Không đủ quyền hạn để truy cập danh sách người báo giá của yêu cầu này',
+      );
+    }
+
+    const now = new Date();
+    const allBidders = await this.prisma.bid.findMany({
+      where: {
+        serviceRequestId,
+        status: 'active',
+        OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+      },
+      select: { workerId: true },
+      distinct: ['workerId'],
+    });
+
+    return {
+      serviceRequestId,
       allBidderWorkerIds: allBidders.map((b) => b.workerId),
     };
   }
