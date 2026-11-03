@@ -4,6 +4,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@app/config';
 import { Redis } from 'ioredis';
 
@@ -147,6 +148,112 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  async appendListItem(key: string, value: unknown): Promise<void> {
+    this.assertConnected();
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError(`Value for Redis list "${key}" is not serializable`);
+    }
+    await this.client.rpush(key, serialized);
+  }
+
+  async peekListHead<T>(
+    key: string,
+  ): Promise<{ value: T; serialized: string } | null> {
+    this.assertConnected();
+    const serialized = await this.client.lindex(key, 0);
+    if (serialized === null) {
+      return null;
+    }
+    return { value: JSON.parse(serialized) as T, serialized };
+  }
+
+  async acknowledgeListHead(
+    key: string,
+    serialized: string,
+    lockKey: string,
+    lockToken: string,
+  ): Promise<boolean> {
+    this.assertConnected();
+    const result = await this.client.eval(
+      'if redis.call("GET", KEYS[2]) == ARGV[2] and redis.call("LINDEX", KEYS[1], 0) == ARGV[1] then redis.call("LPOP", KEYS[1]); return 1 else return 0 end',
+      2,
+      key,
+      lockKey,
+      serialized,
+      lockToken,
+    );
+    return Number(result) === 1;
+  }
+
+  async withDistributedLock(
+    key: string,
+    callback: (
+      isLockOwner: () => boolean,
+      lockToken: string,
+    ) => Promise<void>,
+    ttlMs = 30_000,
+  ): Promise<boolean> {
+    this.assertConnected();
+    const token = randomUUID();
+    const acquired = await this.client.set(key, token, 'PX', ttlMs, 'NX');
+    if (acquired !== 'OK') {
+      return false;
+    }
+
+    let lockOwned = true;
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing || !lockOwned) {
+        return;
+      }
+      renewing = true;
+      void this.client
+        .eval(
+          'if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end',
+          1,
+          key,
+          token,
+          String(ttlMs),
+        )
+        .then((result) => {
+          if (Number(result) !== 1) {
+            lockOwned = false;
+          }
+        })
+        .catch((error: Error) => {
+          lockOwned = false;
+          this.logger.warn(
+            `Redis lock renewal error for key "${key}": ${error.message}`,
+          );
+        })
+        .finally(() => {
+          renewing = false;
+        });
+    }, Math.max(1, Math.floor(ttlMs / 3)));
+    heartbeat.unref();
+
+    try {
+      await callback(() => lockOwned, token);
+    } finally {
+      clearInterval(heartbeat);
+      try {
+        await this.client.eval(
+          'if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end',
+          1,
+          key,
+          token,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Redis lock release error for key "${key}": ${(error as Error).message}`,
+        );
+      }
+    }
+
+    return true;
+  }
+
   async publish(channel: string, message: unknown): Promise<void> {
     if (!this.isConnected) return;
     try {
@@ -154,6 +261,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       await this.client.publish(channel, payload);
     } catch (error) {
       this.logger.warn(`Redis publish error on channel "${channel}": ${(error as Error).message}`);
+    }
+  }
+
+  private assertConnected(): void {
+    if (!this.isConnected) {
+      throw new Error('Redis is not connected');
     }
   }
 

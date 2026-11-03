@@ -94,8 +94,7 @@ export class TrackingEventsService {
       } else if (this.redis) {
         // Buffer event until order.created arrives to link orderId with serviceRequestId
         const pendingKey = `tracking:pending_order_events:${orderId}`;
-        await this.redis.rpush(pendingKey, { data, forcedEventType });
-        await this.redis.expire(pendingKey, 86400); // 24 hours TTL buffer
+        await this.redis.appendListItem(pendingKey, { data, forcedEventType });
         this.logger.log(
           `Event ${rawEventId} (${eventType}) buffered for pending order ${orderId}`,
         );
@@ -395,37 +394,65 @@ export class TrackingEventsService {
     serviceRequestId: string,
   ): Promise<void> {
     const pendingKey = `tracking:pending_order_events:${orderId}`;
+    const lockKey = `tracking:pending_order_events_lock:${orderId}`;
     try {
-      const pendingItems = await this.redis!.lrange<{
-        data: EventEnvelope;
-        forcedEventType?: string;
-      }>(pendingKey, 0, -1);
+      await this.redis!.withDistributedLock(
+        lockKey,
+        async (isLockOwner, lockToken) => {
+          while (isLockOwner()) {
+            const pending = await this.redis!.peekListHead<{
+              data: EventEnvelope;
+              forcedEventType?: string;
+            }>(pendingKey);
+            if (!pending) {
+              return;
+            }
 
-      if (pendingItems && pendingItems.length > 0) {
-        this.logger.log(
-          `Flushing ${pendingItems.length} buffered events for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
-        );
-        await this.redis!.del(pendingKey);
-        for (const item of pendingItems) {
-          try {
             const envelope: EventEnvelope = {
-              ...item.data,
+              ...pending.value.data,
               serviceRequestId,
               payload: {
-                ...item.data.payload,
+                ...pending.value.data.payload,
                 serviceRequestId,
                 orderId,
               },
             };
-            await this.recordDomainEvent(envelope, item.forcedEventType);
-          } catch (flushErr: any) {
-            this.logger.error(
-              `Failed to flush buffered event for order ${orderId}: ${flushErr.message}`,
-              flushErr.stack,
+            const result = await this.recordDomainEvent(
+              envelope,
+              pending.value.forcedEventType,
             );
+
+            if (
+              !result.recorded &&
+              result.reason !== 'ALREADY_CONSUMED' &&
+              result.reason !== 'IDEMPOTENT_DUPLICATE'
+            ) {
+              this.logger.warn(
+                `Buffered event for order ${orderId} was not recorded (${result.reason ?? 'unknown reason'}); keeping it pending`,
+              );
+              return;
+            }
+
+            if (!isLockOwner()) {
+              return;
+            }
+
+            const acknowledged = await this.redis!.acknowledgeListHead(
+              pendingKey,
+              pending.serialized,
+              lockKey,
+              lockToken,
+            );
+            if (acknowledged) {
+              this.logger.log(
+                `Acknowledged buffered event for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
+              );
+            } else {
+              return;
+            }
           }
-        }
-      }
+        },
+      );
     } catch (err: any) {
       this.logger.warn(
         `Error checking pending events for order ${orderId}: ${err.message}`,

@@ -203,8 +203,7 @@ describe('TrackingEventsService', () => {
       const eventId = randomUUID();
 
       const redisMock: any = {
-        rpush: vi.fn(),
-        expire: vi.fn(),
+        appendListItem: vi.fn(),
         delByPattern: vi.fn(),
       };
 
@@ -225,15 +224,11 @@ describe('TrackingEventsService', () => {
 
       expect(result.recorded).toBe(false);
       expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
-      expect(redisMock.rpush).toHaveBeenCalledWith(
+      expect(redisMock.appendListItem).toHaveBeenCalledWith(
         `tracking:pending_order_events:${orderId}`,
         expect.objectContaining({
           forcedEventType: undefined,
         }),
-      );
-      expect(redisMock.expire).toHaveBeenCalledWith(
-        `tracking:pending_order_events:${orderId}`,
-        86400,
       );
     });
 
@@ -242,8 +237,7 @@ describe('TrackingEventsService', () => {
       const eventId = randomUUID();
 
       const redisMock: any = {
-        rpush: vi.fn(),
-        expire: vi.fn(),
+        appendListItem: vi.fn(),
         delByPattern: vi.fn(),
       };
 
@@ -263,7 +257,7 @@ describe('TrackingEventsService', () => {
 
       expect(result.recorded).toBe(false);
       expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
-      expect(redisMock.rpush).toHaveBeenCalledWith(
+      expect(redisMock.appendListItem).toHaveBeenCalledWith(
         `tracking:pending_order_events:${orderId}`,
         expect.objectContaining({
           data: expect.objectContaining({
@@ -271,6 +265,107 @@ describe('TrackingEventsService', () => {
           }),
         }),
       );
+    });
+
+    it('keeps the pending event when recording fails and acknowledges only after success', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const item = {
+        data: {
+          eventId: randomUUID(),
+          eventType: 'payment.succeeded',
+          orderId,
+          payload: { orderId },
+        },
+      };
+      const pending = [{ value: item, serialized: JSON.stringify(item) }];
+      const redisMock: any = {
+        withDistributedLock: vi.fn(async (_key, callback) => callback(() => true)),
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          pending.shift();
+          return true;
+        }),
+      };
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+      vi.spyOn(bufferedService, 'recordDomainEvent').mockRejectedValueOnce(
+        new Error('database unavailable'),
+      );
+
+      await (bufferedService as any).flushPendingOrderEvents(
+        orderId,
+        serviceRequestId,
+      );
+
+      expect(pending).toHaveLength(1);
+      expect(redisMock.acknowledgeListHead).not.toHaveBeenCalled();
+    });
+
+    it('acknowledges buffered events one at a time after recording them', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const items = [
+        {
+          data: {
+            eventId: randomUUID(),
+            eventType: 'payment.succeeded',
+            orderId,
+            payload: { orderId },
+          },
+        },
+        {
+          data: {
+            eventId: randomUUID(),
+            eventType: 'order.status.changed',
+            orderId,
+            payload: { orderId },
+          },
+        },
+      ];
+      const pending = items.map((value) => ({
+        value,
+        serialized: JSON.stringify(value),
+      }));
+      const redisMock: any = {
+        withDistributedLock: vi.fn(async (_key, callback) => callback(() => true)),
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async (_key, serialized) => {
+          if (pending[0]?.serialized !== serialized) {
+            return false;
+          }
+          pending.shift();
+          return true;
+        }),
+      };
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+      vi.spyOn(bufferedService, 'recordDomainEvent').mockResolvedValue({
+        recorded: true,
+      });
+
+      await (bufferedService as any).flushPendingOrderEvents(
+        orderId,
+        serviceRequestId,
+      );
+
+      expect(pending).toHaveLength(0);
+      expect(bufferedService.recordDomainEvent).toHaveBeenCalledTimes(2);
+      expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not process pending events when another consumer owns the lock', async () => {
+      const orderId = randomUUID();
+      const redisMock: any = {
+        withDistributedLock: vi.fn().mockResolvedValue(false),
+        peekListHead: vi.fn(),
+      };
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+
+      await (bufferedService as any).flushPendingOrderEvents(
+        orderId,
+        randomUUID(),
+      );
+
+      expect(redisMock.peekListHead).not.toHaveBeenCalled();
     });
 
     it('should throw ORDER_FLOW_NOT_READY when order flow is missing and Redis is not available', async () => {
@@ -506,4 +601,3 @@ describe('TrackingEventsService', () => {
     });
   });
 });
-
