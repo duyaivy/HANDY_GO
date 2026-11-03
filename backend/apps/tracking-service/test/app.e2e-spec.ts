@@ -8,6 +8,7 @@ import { TrackingServiceModule } from '../src/tracking-service.module.js';
 import { PrismaService } from '../src/common/prisma/prisma.service.js';
 import { TrackingEventsService } from '../src/events/tracking-events.service.js';
 import { TrackingEventsConsumer } from '../src/events/tracking-events.consumer.js';
+import { RedisService } from '@app/redis';
 import { ConfigService } from '@app/config';
 
 describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
@@ -16,6 +17,8 @@ describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
   let consumer: TrackingEventsConsumer;
 
   const mockPrismaService = {
+    $queryRaw: vi.fn().mockResolvedValue([]),
+    pendingTrackingEvent: { deleteMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     consumedEvent: {
       findUnique: vi.fn(),
       create: vi.fn(),
@@ -24,6 +27,7 @@ describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
       upsert: vi.fn(),
+      update: vi.fn().mockResolvedValue({ eventSequence: 1 }),
     },
     trackingEvent: {
       count: vi.fn(),
@@ -42,6 +46,8 @@ describe('Tracking Service — Reliability & E2E Tests (TRK-05)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [TrackingServiceModule],
     })
+      .overrideProvider(RedisService)
+      .useValue({ subscribe: vi.fn().mockResolvedValue(async () => {}), publishStrict: vi.fn(), delByPattern: vi.fn(), get: vi.fn(), set: vi.fn() })
       .overrideProvider(PrismaService)
       .useValue(mockPrismaService)
       .compile();

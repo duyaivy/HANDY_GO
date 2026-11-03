@@ -311,6 +311,7 @@ export class TrackingEventsConsumer {
   }
 
   private isTransientError(error: any): boolean {
+    if (['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(error?.code)) return true;
     const msg = error?.message || '';
     return (
       msg.includes('connection') ||

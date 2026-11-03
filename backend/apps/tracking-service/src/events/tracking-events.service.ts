@@ -18,16 +18,7 @@ export interface FlushPendingOrderResult {
 export class TrackingEventsService {
   private readonly logger = new Logger(TrackingEventsService.name);
 
-  static readonly PENDING_ORDERS_INDEX_KEY = 'tracking:{pending}:orders_index';
   static readonly MAX_PENDING_AGE_ALERT_MS = 60_000;
-
-  static getPendingOrderEventsKey(orderId: string): string {
-    return `tracking:{pending}:order_events:${orderId}`;
-  }
-
-  static getPendingOrderLockKey(orderId: string): string {
-    return `tracking:{pending}:order_events_lock:${orderId}`;
-  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -55,8 +46,10 @@ export class TrackingEventsService {
       data.eventId ||
       data.id ||
       rawPayload.eventId ||
-      rawPayload.id ||
-      randomUUID();
+      rawPayload.id;
+    if (!rawEventId || String(rawEventId).length > 128) {
+      throw new Error('INVALID_EVENT_ID: a stable event ID is required');
+    }
 
     // Ensure database UUID compatibility for event_id
     const dbEventId = isUUID(rawEventId) ? rawEventId : randomUUID();
@@ -109,38 +102,24 @@ export class TrackingEventsService {
       });
       if (existingFlowByOrder) {
         serviceRequestId = existingFlowByOrder.serviceRequestId;
-      } else if (this.redis) {
-        // Buffer event until order.created arrives to link orderId with serviceRequestId
-        const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
-        // Atomically append event to pending list and register in sorted set index
-        // Do not catch/swallow errors; failures must bubble up to consumer to NACK
-        await this.redis.appendAndTrackPendingOrder(
-          pendingKey,
-          TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-          { data, forcedEventType },
-          orderId,
-        );
-        this.logger.log(
-          `Event ${rawEventId} (${eventType}) buffered and indexed for pending order ${orderId}`,
-        );
-
-        // Immediate post-append reconciliation:
-        // Handle race where consumer B created trackingFlow and flushed before this append executed
-        const flowAfterAppend = await this.prisma.trackingFlow.findUnique({
-          where: { orderId },
-        });
-        if (flowAfterAppend) {
-          this.logger.log(
-            `Flow for order ${orderId} already exists post-append; triggering immediate flush for serviceRequestId ${flowAfterAppend.serviceRequestId}`,
-          );
-          await this.flushPendingOrderEvents(orderId, flowAfterAppend.serviceRequestId);
-        }
-
-        return { recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' };
       } else {
-        throw new Error(
-          `ORDER_FLOW_NOT_READY: Flow not yet created for orderId ${orderId}`,
-        );
+        // Serialize buffering and consumption of the same ID across replicas.
+        // ACK is only possible after this transaction commits.
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${String(rawEventId)}, 0))::text`;
+          if (await tx.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) return;
+          await tx.pendingTrackingEvent.upsert({
+            where: { eventId: String(rawEventId) },
+            create: {
+              eventId: String(rawEventId), orderId: orderId!, eventType,
+              envelope: JSON.parse(JSON.stringify(data)),
+            },
+            update: {},
+          });
+        });
+        const linked = await this.prisma.trackingFlow.findUnique({ where: { orderId } });
+        if (linked) await this.flushPendingOrderEvents(orderId, linked.serviceRequestId);
+        return { recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' };
       }
     }
 
@@ -209,7 +188,12 @@ export class TrackingEventsService {
       let createdRecord: any = null;
 
       await this.prisma.$transaction(async (tx) => {
-        // Record in consumed_events first for fast lock / dedupe
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${String(rawEventId)}, 0))::text`;
+        if (await tx.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) {
+          await tx.pendingTrackingEvent.deleteMany({ where: { eventId: String(rawEventId) } });
+          return;
+        }
+        // Consumption, timeline write and pending deletion commit together.
         await tx.consumedEvent.create({
           data: {
             eventId: String(rawEventId),
@@ -259,6 +243,7 @@ export class TrackingEventsService {
             writeSequence: updatedFlow.eventSequence,
           },
         });
+        await tx.pendingTrackingEvent.deleteMany({ where: { eventId: String(rawEventId) } });
       });
 
       this.logger.log(
@@ -292,14 +277,14 @@ export class TrackingEventsService {
       }
 
       // If this event linked an orderId and we are not currently flushing, flush any buffered events
-      if (!isFlushing && orderId && this.redis) {
+      if (!isFlushing && orderId) {
         await this.flushPendingOrderEvents(orderId, serviceRequestId);
       }
 
       return { recorded: true };
     } catch (error: any) {
       // Prisma unique constraint violation (code P2002) -> idempotent duplicate
-      if (error?.code === 'P2002') {
+      if (error?.code === 'P2002' && await this.prisma.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) {
         this.logger.warn(
           `Duplicate event ${rawEventId} caught via database constraint. Treating as consumed.`,
         );
@@ -313,246 +298,66 @@ export class TrackingEventsService {
     }
   }
 
-  async trackPendingOrder(orderId: string, timestamp = Date.now()): Promise<void> {
-    if (!this.redis) return;
-    await this.redis.addToSortedSet(
-      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-      orderId,
-      timestamp,
-    );
-  }
-
-  async untrackPendingOrder(orderId: string): Promise<void> {
-    if (!this.redis) return;
-    await this.redis.removeFromSortedSet(
-      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-      orderId,
-    );
-  }
-
-  /**
-   * Safely removes an order from the pending index only if its queue is verified
-   * empty under a distributed lock. Prevents concurrent appends from being orphaned.
-   */
-  async safelyCleanupEmptyPendingOrder(orderId: string): Promise<boolean> {
-    if (!this.redis) return false;
-    const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
-    const lockKey = TrackingEventsService.getPendingOrderLockKey(orderId);
-
-    try {
-      let cleaned = false;
-      const acquired = await this.redis.withDistributedLock(
-        lockKey,
-        async (isLockOwner, lockToken) => {
-          if (isLockOwner()) {
-            const result = await this.redis!.cleanupPendingOrderIfEmpty(
-              pendingKey,
-              lockKey,
-              TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-              lockToken,
-              orderId,
-            );
-            if (result === 0) {
-              cleaned = true;
-            }
-          }
-        },
-      );
-      return acquired && cleaned;
-    } catch (err: any) {
-      this.logger.warn(`Failed safe cleanup for order ${orderId}: ${err.message}`);
-      return false;
-    }
-  }
-
-  async flushPendingOrderEvents(
-    orderId: string,
-    serviceRequestId: string,
-  ): Promise<FlushPendingOrderResult> {
-    if (!this.redis) {
-      return { status: 'completed', flushedCount: 0, remainingCount: 0 };
-    }
-
-    const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
-    const lockKey = TrackingEventsService.getPendingOrderLockKey(orderId);
+  async flushPendingOrderEvents(orderId: string, serviceRequestId: string): Promise<FlushPendingOrderResult> {
+    const pending = await this.prisma.pendingTrackingEvent.findMany({
+      where: { orderId, nextAttemptAt: { lte: new Date() } },
+      orderBy: [{ receivedAt: 'asc' }, { eventId: 'asc' }], take: 100,
+    });
     let flushedCount = 0;
-    let remainingCount: number | undefined;
-    let lockAcquired = false;
-
-    try {
-      lockAcquired = await this.redis.withDistributedLock(
-        lockKey,
-        async (isLockOwner, lockToken) => {
-          while (isLockOwner()) {
-            const pending = await this.redis!.peekListHead<{
-              data: EventEnvelope;
-              forcedEventType?: string;
-            }>(pendingKey);
-            if (!pending) {
-              break;
-            }
-
-            const envelope: EventEnvelope = {
-              ...pending.value.data,
-              serviceRequestId,
-              payload: {
-                ...pending.value.data.payload,
-                serviceRequestId,
-                orderId,
-              },
-            };
-            const result = await this.recordDomainEvent(
-              envelope,
-              pending.value.forcedEventType,
-              true, // isFlushing = true prevents recursive flush loops
-            );
-
-            if (
-              !result.recorded &&
-              result.reason !== 'ALREADY_CONSUMED' &&
-              result.reason !== 'IDEMPOTENT_DUPLICATE'
-            ) {
-              this.logger.warn(
-                `Buffered event for order ${orderId} was not recorded (${result.reason ?? 'unknown reason'}); keeping it pending`,
-              );
-              break;
-            }
-
-            if (!isLockOwner()) {
-              break;
-            }
-
-            const acknowledged = await this.redis!.acknowledgeListHead(
-              pendingKey,
-              pending.serialized,
-              lockKey,
-              lockToken,
-            );
-            if (acknowledged) {
-              flushedCount++;
-              this.logger.log(
-                `Acknowledged buffered event for order ${orderId} (serviceRequestId: ${serviceRequestId})`,
-              );
-            } else {
-              break;
-            }
-          }
-
-          if (isLockOwner()) {
-            const cleanupResult = await this.redis!.cleanupPendingOrderIfEmpty(
-              pendingKey,
-              lockKey,
-              TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-              lockToken,
-              orderId,
-            );
-            if (cleanupResult >= 0) {
-              remainingCount = cleanupResult;
-            }
-          }
-        },
-      );
-    } catch (err: any) {
-      this.logger.warn(
-        `Error checking pending events for order ${orderId}: ${err.message}`,
-      );
-      return {
-        status: 'failed',
-        flushedCount,
-        remainingCount,
-        error: err.message,
-      };
+    let failed = false;
+    for (const event of pending) {
+      try {
+        const original = event.envelope as unknown as EventEnvelope;
+        const result = await this.recordDomainEvent({
+          ...original, eventId: event.eventId, serviceRequestId, orderId,
+        }, event.eventType, true);
+        if (!result.recorded && result.reason !== 'ALREADY_CONSUMED' && result.reason !== 'IDEMPOTENT_DUPLICATE') {
+          throw new Error(`Pending event rejected: ${result.reason}`);
+        }
+        // A prior successful delivery may have committed before this pending scan.
+        if (!result.recorded) await this.prisma.pendingTrackingEvent.deleteMany({ where: { eventId: event.eventId } });
+        flushedCount++;
+      } catch (error: any) {
+        failed = true;
+        // Retain poison messages as well as transient failures for operator recovery.
+        await this.prisma.pendingTrackingEvent.updateMany({
+          where: { eventId: event.eventId },
+          data: { attempts: { increment: 1 }, lastError: String(error.message).slice(0, 1000),
+            nextAttemptAt: new Date(Date.now() + Math.min(300_000, 1000 * 2 ** Math.min(event.attempts, 8))) },
+        });
+        this.logger.warn(`Pending event ${event.eventId} retained for retry: ${error.message}`);
+      }
     }
-
-    if (!lockAcquired) {
-      this.logger.debug(
-        `Could not acquire lock for pending events of order ${orderId}; another consumer or process is flushing`,
-      );
-      return {
-        status: 'lock_busy',
-        flushedCount: 0,
-      };
-    }
-
-    return {
-      status: 'completed',
-      flushedCount,
-      remainingCount,
-    };
+    return { status: failed ? 'failed' : 'completed', flushedCount };
   }
 
-  /**
-   * Reconciles all pending orders from the pending orders index.
-   * Finds matching tracking_flows in DB, flushes pending queues, and emits alerts for stalled orders.
-   */
-  async reconcilePendingOrders(
-    maxAgeAlertMs = TrackingEventsService.MAX_PENDING_AGE_ALERT_MS,
-  ): Promise<{
-    scanned: number;
-    flushedOrders: number;
-    stalledOrders: number;
+  async reconcilePendingOrders(maxAgeAlertMs = TrackingEventsService.MAX_PENDING_AGE_ALERT_MS): Promise<{
+    scanned: number; flushedOrders: number; stalledOrders: number;
   }> {
-    if (!this.redis) {
-      return { scanned: 0, flushedOrders: 0, stalledOrders: 0 };
-    }
-
-    let scanned = 0;
+    // Visit a bounded, rotating batch: unresolved orders cannot starve ready ones.
+    const events = await this.prisma.pendingTrackingEvent.findMany({
+      where: { nextAttemptAt: { lte: new Date() } },
+      orderBy: [{ nextAttemptAt: 'asc' }, { eventId: 'asc' }], take: 100,
+    });
     let flushedOrders = 0;
     let stalledOrders = 0;
-    const now = Date.now();
-
-    const pendingEntries = await this.redis.getSortedSetRangeWithScores(
-      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-    );
-
-    for (const entry of pendingEntries) {
-      scanned++;
-      const orderId = entry.member;
-      const enqueuedAt = entry.score;
-      const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
-
-      const flow = await this.prisma.trackingFlow.findUnique({
-        where: { orderId },
-      });
-
+    const orders = new Set(events.map(event => event.orderId));
+    for (const orderId of orders) {
+      const flow = await this.prisma.trackingFlow.findUnique({ where: { orderId } });
       if (flow) {
-        this.logger.log(
-          `Reconciliation found flow for pending order ${orderId} (serviceRequestId: ${flow.serviceRequestId}). Flushing...`,
-        );
-        const result = await this.flushPendingOrderEvents(
-          orderId,
-          flow.serviceRequestId,
-        );
-        if (result.flushedCount > 0) {
-          flushedOrders++;
-        }
-        if (result.status === 'lock_busy') {
-          this.logger.debug(
-            `Reconciliation: lock busy for order ${orderId}, will retry on next schedule`,
-          );
-        } else if (result.status === 'failed') {
-          this.logger.warn(
-            `Reconciliation: flush failed for order ${orderId}: ${result.error}`,
-          );
-        }
+        const result = await this.flushPendingOrderEvents(orderId, flow.serviceRequestId);
+        if (result.flushedCount) flushedOrders++;
       } else {
-        const length = await this.redis.getListLength(pendingKey);
-        if (length === 0) {
-          await this.safelyCleanupEmptyPendingOrder(orderId);
-          continue;
-        }
-
-        const ageMs = now - enqueuedAt;
-        if (ageMs > maxAgeAlertMs) {
+        const ids = events.filter(event => event.orderId === orderId).map(event => event.eventId);
+        await this.prisma.pendingTrackingEvent.updateMany({ where: { eventId: { in: ids } },
+          data: { nextAttemptAt: new Date(Date.now() + 15_000) } });
+        if (events.some(event => event.orderId === orderId && Date.now() - event.receivedAt.getTime() > maxAgeAlertMs)) {
           stalledOrders++;
-          this.logger.warn(
-            `[PENDING_ORDER_STALLED_ALERT] Order ${orderId} has ${length} pending events waiting for ${Math.round(ageMs / 1000)}s without order.created flow!`,
-          );
+          this.logger.warn(`[PENDING_ORDER_STALLED_ALERT] Order ${orderId} is awaiting its flow`);
         }
       }
     }
-
-    return { scanned, flushedOrders, stalledOrders };
+    return { scanned: events.length, flushedOrders, stalledOrders };
   }
 
   private resolveEntityType(eventType: string): TrackingEntityType {

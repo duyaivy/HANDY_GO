@@ -73,3 +73,19 @@ model ConsumedEvent {
   @@map("consumed_events")
   @@schema("tracking_service")
 }
+
+model PendingTrackingEvent {
+  eventId String @id @map("event_id") @db.VarChar(128)
+  orderId String @map("order_id") @db.Uuid
+  eventType String @map("event_type") @db.VarChar(100)
+  envelope Json
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  lastError String? @map("last_error") @db.VarChar(1000)
+
+  @@index([orderId, nextAttemptAt])
+  @@index([nextAttemptAt, eventId])
+  @@map("pending_tracking_events")
+  @@schema("tracking_service")
+}

@@ -29,6 +29,23 @@ describe('TrackingEventsConsumer', () => {
     );
   });
 
+  it.each(['P1001', 'P2028', 'P2034'])('requeues PostgreSQL failure %s without ACK', async (code) => {
+    eventsServiceMock.recordDomainEvent.mockRejectedValue({ code, message: 'database operation failed' });
+    await consumer.handleOrderStatusChanged({ eventId: randomUUID(), orderId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+  });
+
+  it('waits for the durable pending commit before ACK', async () => {
+    let commit!: (value: any) => void;
+    eventsServiceMock.recordDomainEvent.mockReturnValue(new Promise(resolve => { commit = resolve; }));
+    const delivery = consumer.handleOrderStatusChanged({ eventId: randomUUID(), orderId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    commit({ recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' });
+    await delivery;
+    expect(channelMock.ack).toHaveBeenCalledTimes(1);
+  });
+
   it('should acknowledge message upon successful event recording', async () => {
     eventsServiceMock.recordDomainEvent.mockResolvedValue({ recorded: true });
 
