@@ -34,3 +34,4 @@ docs/*
 !docs/dbml/**
 
 !docs/RABBITMQ_LOCAL_DEV_GUIDE.md
+!docs/WORKER_ORDER_AUTO_UPDATE_ANALYSIS.md

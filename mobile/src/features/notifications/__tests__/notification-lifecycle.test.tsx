@@ -8,6 +8,7 @@ import { NotificationApi } from '@/services/notifications/notification-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationLifecycle } from '../notification-lifecycle';
 import { notificationIdFromData } from '../notification-payload';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 
 const mockRouter = { push: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: jest.fn(() => mockRouter), useRootNavigationState: jest.fn(() => ({ key: 'ready' })) }));
@@ -33,6 +34,7 @@ it('refreshes on foreground push, deduplicates taps, removes listeners', async (
   const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
   act(() => received(response.notification));
   expect(refresh).toHaveBeenCalledWith({ queryKey: ['notifications', 'a'] });
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ordersQueryKeys.all });
   act(() => {
     tapped(response);
     tapped(response);

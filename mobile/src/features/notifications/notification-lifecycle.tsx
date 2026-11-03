@@ -12,6 +12,7 @@ import { useAuthStore } from '@/stores/use-auth-store';
 import { usePushRegistrationStore } from '@/stores/use-push-registration-store';
 import { notificationKeys, refreshNotifications, useNotificationUserId } from './hooks/use-notifications';
 import { notificationIdFromData } from './notification-payload';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 
 function sessionUser() {
   const state = useAuthStore.getState();
@@ -110,8 +111,10 @@ export function NotificationLifecycle() {
       };
       subscriptions.push(Notifications.addNotificationReceivedListener(() => {
         const id = sessionUser();
-        if (id)
+        if (id) {
           void refreshNotifications(id);
+          void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+        }
       }));
       subscriptions.push(Notifications.addNotificationResponseReceivedListener(handleResponse));
       subscriptions.push(Notifications.addPushTokenListener((token) => {

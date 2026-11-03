@@ -247,6 +247,17 @@ export function CustomerOrdersScreen({
     requests,
   } = useCustomerOrders(activeTab);
 
+  const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
+
+  const handleManualRefresh = React.useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  }, [refetch]);
+
   return (
     <Screen
       safeArea={false}
@@ -254,8 +265,8 @@ export function CustomerOrdersScreen({
       className="bg-neutral-50 dark:bg-neutral-950"
       refreshControl={(
         <RefreshControl
-          refreshing={isRefetching}
-          onRefresh={refetch}
+          refreshing={isManualRefreshing}
+          onRefresh={handleManualRefresh}
           tintColor={PRIMARY_COLOR}
         />
       )}

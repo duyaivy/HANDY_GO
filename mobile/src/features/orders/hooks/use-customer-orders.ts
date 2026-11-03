@@ -82,6 +82,8 @@ export function useCustomerOrders(activeTab = 'Searching') {
     enabled: shouldFetchRequests,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   // Lấy danh sách Orders (phân trang + server filter + infinite query)
@@ -100,6 +102,8 @@ export function useCustomerOrders(activeTab = 'Searching') {
     enabled: shouldFetchOrders,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const requestsData = requestsQuery.data;
@@ -209,12 +213,13 @@ export function useCustomerOrderDetail(orderId?: string) {
       if (!data) {
         return false;
       }
-      // Tự động kiểm tra cập nhật mỗi 4s khi đơn đang thi công hoặc chờ nghiệm thu
-      if (['in_progress', 'awaiting_customer_confirmation'].includes(data.status)) {
+      // Tự động kiểm tra cập nhật mỗi 4s khi đơn vừa tạo (chờ thợ xác nhận), đang thi công hoặc chờ nghiệm thu
+      if (['created', 'in_progress', 'awaiting_customer_confirmation'].includes(data.status)) {
         return 4000;
       }
       return false;
     },
+    refetchIntervalInBackground: false,
   });
 
   const historyQuery = useQuery({

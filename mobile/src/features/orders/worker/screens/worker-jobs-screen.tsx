@@ -46,6 +46,17 @@ export function WorkerJobsScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<WorkerJobTab>('proposals');
 
+  const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
+
+  const handleManualRefresh = React.useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  }, [refetch]);
+
   const {
     activeOrders,
     fetchNextOrders,
@@ -124,8 +135,8 @@ export function WorkerJobsScreen() {
       className="bg-neutral-50 dark:bg-neutral-950"
       refreshControl={(
         <RefreshControl
-          refreshing={isRefetching}
-          onRefresh={refetch}
+          refreshing={isManualRefreshing}
+          onRefresh={handleManualRefresh}
           tintColor={PRIMARY_COLOR}
         />
       )}
