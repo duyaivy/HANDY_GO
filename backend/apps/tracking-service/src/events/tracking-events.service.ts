@@ -7,12 +7,27 @@ import { PrismaService } from '../common/prisma/prisma.service.js';
 import { TimelineStreamService } from '../common/stream/timeline-stream.service.js';
 import type { EventEnvelope } from './dto/event-envelope.dto.js';
 
+export interface FlushPendingOrderResult {
+  status: 'completed' | 'lock_busy' | 'failed';
+  flushedCount: number;
+  remainingCount?: number;
+  error?: string;
+}
+
 @Injectable()
 export class TrackingEventsService {
   private readonly logger = new Logger(TrackingEventsService.name);
 
-  static readonly PENDING_ORDERS_INDEX_KEY = 'tracking:pending_orders_index';
+  static readonly PENDING_ORDERS_INDEX_KEY = 'tracking:{pending}:orders_index';
   static readonly MAX_PENDING_AGE_ALERT_MS = 60_000;
+
+  static getPendingOrderEventsKey(orderId: string): string {
+    return `tracking:{pending}:order_events:${orderId}`;
+  }
+
+  static getPendingOrderLockKey(orderId: string): string {
+    return `tracking:{pending}:order_events_lock:${orderId}`;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -96,15 +111,21 @@ export class TrackingEventsService {
         serviceRequestId = existingFlowByOrder.serviceRequestId;
       } else if (this.redis) {
         // Buffer event until order.created arrives to link orderId with serviceRequestId
-        const pendingKey = `tracking:pending_order_events:${orderId}`;
-        await this.redis.appendListItem(pendingKey, { data, forcedEventType });
-        await this.trackPendingOrder(orderId);
+        const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
+        // Atomically append event to pending list and register in sorted set index
+        // Do not catch/swallow errors; failures must bubble up to consumer to NACK
+        await this.redis.appendAndTrackPendingOrder(
+          pendingKey,
+          TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+          { data, forcedEventType },
+          orderId,
+        );
         this.logger.log(
-          `Event ${rawEventId} (${eventType}) buffered for pending order ${orderId}`,
+          `Event ${rawEventId} (${eventType}) buffered and indexed for pending order ${orderId}`,
         );
 
         // Immediate post-append reconciliation:
-        // Handle race where consumer B created trackingFlow and flushed before this appendListItem executed
+        // Handle race where consumer B created trackingFlow and flushed before this append executed
         const flowAfterAppend = await this.prisma.trackingFlow.findUnique({
           where: { orderId },
         });
@@ -294,44 +315,72 @@ export class TrackingEventsService {
 
   async trackPendingOrder(orderId: string, timestamp = Date.now()): Promise<void> {
     if (!this.redis) return;
-    try {
-      await this.redis.addToSortedSet(
-        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-        orderId,
-        timestamp,
-      );
-    } catch (err: any) {
-      this.logger.warn(
-        `Failed to track pending order index for ${orderId}: ${err.message}`,
-      );
-    }
+    await this.redis.addToSortedSet(
+      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+      orderId,
+      timestamp,
+    );
   }
 
   async untrackPendingOrder(orderId: string): Promise<void> {
     if (!this.redis) return;
+    await this.redis.removeFromSortedSet(
+      TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+      orderId,
+    );
+  }
+
+  /**
+   * Safely removes an order from the pending index only if its queue is verified
+   * empty under a distributed lock. Prevents concurrent appends from being orphaned.
+   */
+  async safelyCleanupEmptyPendingOrder(orderId: string): Promise<boolean> {
+    if (!this.redis) return false;
+    const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
+    const lockKey = TrackingEventsService.getPendingOrderLockKey(orderId);
+
     try {
-      await this.redis.removeFromSortedSet(
-        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
-        orderId,
+      let cleaned = false;
+      const acquired = await this.redis.withDistributedLock(
+        lockKey,
+        async (isLockOwner, lockToken) => {
+          if (isLockOwner()) {
+            const result = await this.redis!.cleanupPendingOrderIfEmpty(
+              pendingKey,
+              lockKey,
+              TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+              lockToken,
+              orderId,
+            );
+            if (result === 0) {
+              cleaned = true;
+            }
+          }
+        },
       );
+      return acquired && cleaned;
     } catch (err: any) {
-      this.logger.warn(
-        `Failed to untrack pending order index for ${orderId}: ${err.message}`,
-      );
+      this.logger.warn(`Failed safe cleanup for order ${orderId}: ${err.message}`);
+      return false;
     }
   }
 
   async flushPendingOrderEvents(
     orderId: string,
     serviceRequestId: string,
-  ): Promise<{ flushedCount: number; remainingCount: number }> {
-    const pendingKey = `tracking:pending_order_events:${orderId}`;
-    const lockKey = `tracking:pending_order_events_lock:${orderId}`;
+  ): Promise<FlushPendingOrderResult> {
+    if (!this.redis) {
+      return { status: 'completed', flushedCount: 0, remainingCount: 0 };
+    }
+
+    const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
+    const lockKey = TrackingEventsService.getPendingOrderLockKey(orderId);
     let flushedCount = 0;
-    let remainingCount = 0;
+    let remainingCount: number | undefined;
+    let lockAcquired = false;
 
     try {
-      await this.redis!.withDistributedLock(
+      lockAcquired = await this.redis.withDistributedLock(
         lockKey,
         async (isLockOwner, lockToken) => {
           while (isLockOwner()) {
@@ -390,9 +439,15 @@ export class TrackingEventsService {
           }
 
           if (isLockOwner()) {
-            remainingCount = await this.redis!.getListLength(pendingKey);
-            if (remainingCount === 0) {
-              await this.untrackPendingOrder(orderId);
+            const cleanupResult = await this.redis!.cleanupPendingOrderIfEmpty(
+              pendingKey,
+              lockKey,
+              TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+              lockToken,
+              orderId,
+            );
+            if (cleanupResult >= 0) {
+              remainingCount = cleanupResult;
             }
           }
         },
@@ -401,9 +456,29 @@ export class TrackingEventsService {
       this.logger.warn(
         `Error checking pending events for order ${orderId}: ${err.message}`,
       );
+      return {
+        status: 'failed',
+        flushedCount,
+        remainingCount,
+        error: err.message,
+      };
     }
 
-    return { flushedCount, remainingCount };
+    if (!lockAcquired) {
+      this.logger.debug(
+        `Could not acquire lock for pending events of order ${orderId}; another consumer or process is flushing`,
+      );
+      return {
+        status: 'lock_busy',
+        flushedCount: 0,
+      };
+    }
+
+    return {
+      status: 'completed',
+      flushedCount,
+      remainingCount,
+    };
   }
 
   /**
@@ -434,13 +509,7 @@ export class TrackingEventsService {
       scanned++;
       const orderId = entry.member;
       const enqueuedAt = entry.score;
-      const pendingKey = `tracking:pending_order_events:${orderId}`;
-
-      const length = await this.redis.getListLength(pendingKey);
-      if (length === 0) {
-        await this.untrackPendingOrder(orderId);
-        continue;
-      }
+      const pendingKey = TrackingEventsService.getPendingOrderEventsKey(orderId);
 
       const flow = await this.prisma.trackingFlow.findUnique({
         where: { orderId },
@@ -450,15 +519,29 @@ export class TrackingEventsService {
         this.logger.log(
           `Reconciliation found flow for pending order ${orderId} (serviceRequestId: ${flow.serviceRequestId}). Flushing...`,
         );
-        const { flushedCount, remainingCount } =
-          await this.flushPendingOrderEvents(orderId, flow.serviceRequestId);
-        if (flushedCount > 0) {
+        const result = await this.flushPendingOrderEvents(
+          orderId,
+          flow.serviceRequestId,
+        );
+        if (result.flushedCount > 0) {
           flushedOrders++;
         }
-        if (remainingCount === 0) {
-          await this.untrackPendingOrder(orderId);
+        if (result.status === 'lock_busy') {
+          this.logger.debug(
+            `Reconciliation: lock busy for order ${orderId}, will retry on next schedule`,
+          );
+        } else if (result.status === 'failed') {
+          this.logger.warn(
+            `Reconciliation: flush failed for order ${orderId}: ${result.error}`,
+          );
         }
       } else {
+        const length = await this.redis.getListLength(pendingKey);
+        if (length === 0) {
+          await this.safelyCleanupEmptyPendingOrder(orderId);
+          continue;
+        }
+
         const ageMs = now - enqueuedAt;
         if (ageMs > maxAgeAlertMs) {
           stalledOrders++;

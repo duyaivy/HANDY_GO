@@ -102,6 +102,25 @@ describe('TrackingEventsConsumer', () => {
     expect(channelMock.ack).not.toHaveBeenCalled();
   });
 
+  it('should nack with requeue = true on Redis or Lock error when buffering pending events', async () => {
+    const redisError = new Error('Redis is not connected');
+    eventsServiceMock.recordDomainEvent.mockRejectedValue(redisError);
+
+    const payload = {
+      eventId: randomUUID(),
+      orderId: randomUUID(),
+    };
+
+    await consumer.handleOrderStatusChanged(payload, contextMock);
+
+    expect(channelMock.nack).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      true, // requeue = true for retry
+    );
+    expect(channelMock.ack).not.toHaveBeenCalled();
+  });
+
   it('should nack with requeue = false on permanent error for DLQ forwarding', async () => {
     const permanentError = new Error('Invalid JSON structure');
     eventsServiceMock.recordDomainEvent.mockRejectedValue(permanentError);

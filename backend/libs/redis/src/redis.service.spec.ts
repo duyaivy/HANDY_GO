@@ -29,6 +29,7 @@ describe('RedisService', () => {
       zrem: vi.fn().mockResolvedValue(1),
       zrange: vi.fn().mockResolvedValue(['order-1', '1000', 'order-2', '2000']),
       publish: vi.fn().mockResolvedValue(1),
+      eval: vi.fn().mockResolvedValue(1),
     };
     (service as any).client = clientMock;
     (service as any).isConnected = true;
@@ -61,6 +62,84 @@ describe('RedisService', () => {
       { member: 'order-1', score: 1000 },
       { member: 'order-2', score: 2000 },
     ]);
+  });
+
+  it('should atomically append to list and track in sorted set index via appendAndTrackPendingOrder', async () => {
+    const listKey = 'tracking:{pending}:order_events:ord-1';
+    const indexKey = 'tracking:{pending}:orders_index';
+    const value = { data: 'test-event' };
+    const member = 'ord-1';
+    const score = 1700000000000;
+
+    await service.appendAndTrackPendingOrder(listKey, indexKey, value, member, score);
+
+    expect(clientMock.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('RPUSH'"),
+      2,
+      listKey,
+      indexKey,
+      JSON.stringify(value),
+      member,
+      String(score),
+    );
+  });
+
+  it('should throw TypeError from appendAndTrackPendingOrder if value is not serializable', async () => {
+    const listKey = 'tracking:{pending}:order_events:ord-1';
+    const indexKey = 'tracking:{pending}:orders_index';
+
+    await expect(
+      service.appendAndTrackPendingOrder(listKey, indexKey, undefined, 'ord-1'),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('should atomically cleanup pending order index if empty via cleanupPendingOrderIfEmpty', async () => {
+    const listKey = 'tracking:{pending}:order_events:ord-1';
+    const lockKey = 'tracking:{pending}:order_events_lock:ord-1';
+    const indexKey = 'tracking:{pending}:orders_index';
+    const lockToken = 'tok-123';
+    const member = 'ord-1';
+
+    clientMock.eval.mockResolvedValueOnce(0);
+    const resultEmpty = await service.cleanupPendingOrderIfEmpty(
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+    expect(resultEmpty).toBe(0);
+    expect(clientMock.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('GET', KEYS[2])"),
+      3,
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+
+    // When list still has items
+    clientMock.eval.mockResolvedValueOnce(3);
+    const resultRemaining = await service.cleanupPendingOrderIfEmpty(
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+    expect(resultRemaining).toBe(3);
+
+    // When lock was lost
+    clientMock.eval.mockResolvedValueOnce(-1);
+    const resultLockLost = await service.cleanupPendingOrderIfEmpty(
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+    expect(resultLockLost).toBe(-1);
   });
 
   it('should publishStrict and return recipient count', async () => {

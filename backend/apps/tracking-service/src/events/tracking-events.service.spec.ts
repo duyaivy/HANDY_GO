@@ -10,13 +10,18 @@ describe('TrackingEventsService', () => {
 
   const createRedisMock = (overrides?: any) => ({
     appendListItem: vi.fn(),
+    appendAndTrackPendingOrder: vi.fn(),
+    cleanupPendingOrderIfEmpty: vi.fn().mockResolvedValue(0),
     peekListHead: vi.fn(),
     acknowledgeListHead: vi.fn(),
     getListLength: vi.fn().mockResolvedValue(0),
     addToSortedSet: vi.fn(),
     removeFromSortedSet: vi.fn(),
     getSortedSetRangeWithScores: vi.fn().mockResolvedValue([]),
-    withDistributedLock: vi.fn(async (_key, callback) => callback(() => true, 'test-lock-token')),
+    withDistributedLock: vi.fn(async (_key, callback) => {
+      await callback(() => true, 'test-lock-token');
+      return true;
+    }),
     delByPattern: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   });
@@ -230,16 +235,13 @@ describe('TrackingEventsService', () => {
 
       expect(result.recorded).toBe(false);
       expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
-      expect(redisMock.appendListItem).toHaveBeenCalledWith(
-        `tracking:pending_order_events:${orderId}`,
+      expect(redisMock.appendAndTrackPendingOrder).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
         expect.objectContaining({
           forcedEventType: undefined,
         }),
-      );
-      expect(redisMock.addToSortedSet).toHaveBeenCalledWith(
-        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
         orderId,
-        expect.any(Number),
       );
     });
 
@@ -264,18 +266,15 @@ describe('TrackingEventsService', () => {
 
       expect(result.recorded).toBe(false);
       expect(result.reason).toBe('BUFFERED_PENDING_ORDER_CREATED');
-      expect(redisMock.appendListItem).toHaveBeenCalledWith(
-        `tracking:pending_order_events:${orderId}`,
+      expect(redisMock.appendAndTrackPendingOrder).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
         expect.objectContaining({
           data: expect.objectContaining({
             eventType: 'order.status.changed',
           }),
         }),
-      );
-      expect(redisMock.addToSortedSet).toHaveBeenCalledWith(
-        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
         orderId,
-        expect.any(Number),
       );
     });
 
@@ -367,8 +366,11 @@ describe('TrackingEventsService', () => {
       expect(pending).toHaveLength(0);
       expect(bufferedService.recordDomainEvent).toHaveBeenCalledTimes(2);
       expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(2);
-      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+      expect(redisMock.cleanupPendingOrderIfEmpty).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.getPendingOrderLockKey(orderId),
         TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        expect.any(String),
         orderId,
       );
     });
@@ -499,9 +501,10 @@ describe('TrackingEventsService', () => {
       });
 
       const redisMock: any = createRedisMock({
-        appendListItem: vi.fn(async (_key, value) => {
+        appendAndTrackPendingOrder: vi.fn(async (_listKey, _indexKey, value) => {
           queue.push({ value, serialized: JSON.stringify(value) });
         }),
+        cleanupPendingOrderIfEmpty: vi.fn(async () => queue.length),
         peekListHead: vi.fn(async () => queue[0] ?? null),
         acknowledgeListHead: vi.fn(async () => {
           queue.shift();
@@ -574,8 +577,11 @@ describe('TrackingEventsService', () => {
       // And the queue in Redis was acknowledged and emptied exactly once!
       expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
       expect(queue).toHaveLength(0);
-      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+      expect(redisMock.cleanupPendingOrderIfEmpty).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.getPendingOrderLockKey(orderId),
         TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        expect.any(String),
         orderId,
       );
     });
@@ -609,10 +615,11 @@ describe('TrackingEventsService', () => {
       );
 
       const attempt1 = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(attempt1.status).toBe('failed');
       expect(attempt1.flushedCount).toBe(0);
       expect(pending).toHaveLength(1);
       expect(redisMock.acknowledgeListHead).not.toHaveBeenCalled();
-      expect(redisMock.removeFromSortedSet).not.toHaveBeenCalled();
+      expect(redisMock.cleanupPendingOrderIfEmpty).not.toHaveBeenCalled();
 
       // Attempt 2: DB recovers
       vi.spyOn(bufferedService, 'recordDomainEvent').mockResolvedValueOnce({
@@ -620,12 +627,16 @@ describe('TrackingEventsService', () => {
       });
 
       const attempt2 = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(attempt2.status).toBe('completed');
       expect(attempt2.flushedCount).toBe(1);
       expect(attempt2.remainingCount).toBe(0);
       expect(pending).toHaveLength(0);
       expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
-      expect(redisMock.removeFromSortedSet).toHaveBeenCalledWith(
+      expect(redisMock.cleanupPendingOrderIfEmpty).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.getPendingOrderLockKey(orderId),
         TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        expect.any(String),
         orderId,
       );
     });
@@ -692,6 +703,7 @@ describe('TrackingEventsService', () => {
       });
 
       const retryResult = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+      expect(retryResult.status).toBe('completed');
       expect(retryResult.flushedCount).toBe(1);
       expect(pending).toHaveLength(0);
       expect(dbRecordsCount).toBe(1); // EXACTLY ONE DB RECORD
@@ -749,6 +761,8 @@ describe('TrackingEventsService', () => {
       ]);
 
       expect(res1.flushedCount + res2.flushedCount).toBe(1);
+      expect([res1.status, res2.status]).toContain('completed');
+      expect([res1.status, res2.status]).toContain('lock_busy');
       expect(pending).toHaveLength(0);
       expect(redisMock.acknowledgeListHead).toHaveBeenCalledTimes(1);
       expect(
@@ -786,7 +800,7 @@ describe('TrackingEventsService', () => {
       const reconcilingService = new TrackingEventsService(prismaMock, redisMock);
       const flushSpy = vi
         .spyOn(reconcilingService, 'flushPendingOrderEvents')
-        .mockResolvedValue({ flushedCount: 1, remainingCount: 0 });
+        .mockResolvedValue({ status: 'completed', flushedCount: 1, remainingCount: 0 });
 
       const loggerWarnSpy = vi.spyOn((reconcilingService as any).logger, 'warn');
 
@@ -798,6 +812,135 @@ describe('TrackingEventsService', () => {
       expect(flushSpy).toHaveBeenCalledWith(orderIdReady, serviceRequestId);
       expect(loggerWarnSpy).toHaveBeenCalledWith(
         expect.stringContaining('[PENDING_ORDER_STALLED_ALERT]'),
+      );
+    });
+
+    it('lock busy during flush preserves index: order remains in sorted set and reconciles on next retry', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const now = Date.now();
+
+      const redisMock: any = createRedisMock({
+        getSortedSetRangeWithScores: vi.fn().mockResolvedValue([
+          { member: orderId, score: now - 1000 },
+        ]),
+        getListLength: vi.fn().mockResolvedValue(2),
+        // First call fails to acquire lock, second call succeeds
+        withDistributedLock: vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockImplementationOnce(async (_key, cb) => cb(() => true, 'lock-token-2')),
+        cleanupPendingOrderIfEmpty: vi.fn().mockResolvedValue(0),
+        peekListHead: vi.fn().mockResolvedValue(null),
+      });
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        orderId,
+        serviceRequestId,
+      });
+
+      const serviceUnderTest = new TrackingEventsService(prismaMock, redisMock);
+
+      // Run 1: Lock is busy
+      const run1 = await serviceUnderTest.reconcilePendingOrders();
+      expect(run1.flushedOrders).toBe(0);
+      // Index was NOT untracked or removed
+      expect(redisMock.removeFromSortedSet).not.toHaveBeenCalled();
+      expect(redisMock.cleanupPendingOrderIfEmpty).not.toHaveBeenCalled();
+
+      // Run 2: Lock becomes available, flush completes and cleans up index
+      const run2 = await serviceUnderTest.reconcilePendingOrders();
+      expect(run2.flushedOrders).toBe(0); // peekListHead returned null -> 0 flushed
+      expect(redisMock.cleanupPendingOrderIfEmpty).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.getPendingOrderLockKey(orderId),
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        'lock-token-2',
+        orderId,
+      );
+    });
+
+    it('barrier test: concurrent append during cleanup check prevents removal of order from index', async () => {
+      const orderId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const item = {
+        data: {
+          eventId: randomUUID(),
+          eventType: 'order.status.changed',
+          orderId,
+          payload: { orderId },
+        },
+      };
+      const pending = [{ value: item, serialized: JSON.stringify(item) }];
+
+      const redisMock: any = createRedisMock({
+        peekListHead: vi.fn(async () => pending[0] ?? null),
+        acknowledgeListHead: vi.fn(async () => {
+          pending.shift();
+          return true;
+        }),
+        // Simulate: when cleanupPendingOrderIfEmpty runs, a concurrent consumer has appended an item
+        // So LLEN == 1, Lua script returns 1 (remainingCount = 1), ZREM is NOT called
+        cleanupPendingOrderIfEmpty: vi.fn().mockResolvedValue(1),
+        withDistributedLock: vi.fn(async (_key, cb) => {
+          await cb(() => true, 'lock-token-xyz');
+          return true;
+        }),
+      });
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        orderId,
+        serviceRequestId,
+      });
+      prismaMock.trackingEvent.create.mockResolvedValue({ id: randomUUID() });
+
+      const bufferedService = new TrackingEventsService(prismaMock, redisMock);
+      const result = await bufferedService.flushPendingOrderEvents(orderId, serviceRequestId);
+
+      expect(result.status).toBe('completed');
+      expect(result.flushedCount).toBe(1);
+      expect(result.remainingCount).toBe(1);
+      // Member was NOT removed via removeFromSortedSet
+      expect(redisMock.removeFromSortedSet).not.toHaveBeenCalled();
+    });
+
+    it('safely cleans up orphan empty pending order without flow under lock', async () => {
+      const orderId = randomUUID();
+      const now = Date.now();
+
+      const redisMock: any = createRedisMock({
+        getSortedSetRangeWithScores: vi.fn().mockResolvedValue([
+          { member: orderId, score: now - 5000 },
+        ]),
+        getListLength: vi.fn().mockResolvedValue(0), // empty list
+        withDistributedLock: vi.fn(async (_key, cb) => {
+          await cb(() => true, 'lock-orphan-tok');
+          return true;
+        }),
+        cleanupPendingOrderIfEmpty: vi.fn().mockResolvedValue(0),
+      });
+
+      // No flow exists
+      prismaMock.trackingFlow.findUnique.mockResolvedValue(null);
+
+      const serviceUnderTest = new TrackingEventsService(prismaMock, redisMock);
+      const result = await serviceUnderTest.reconcilePendingOrders();
+
+      expect(result.scanned).toBe(1);
+      expect(result.stalledOrders).toBe(0);
+      expect(redisMock.withDistributedLock).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderLockKey(orderId),
+        expect.any(Function),
+      );
+      expect(redisMock.cleanupPendingOrderIfEmpty).toHaveBeenCalledWith(
+        TrackingEventsService.getPendingOrderEventsKey(orderId),
+        TrackingEventsService.getPendingOrderLockKey(orderId),
+        TrackingEventsService.PENDING_ORDERS_INDEX_KEY,
+        'lock-orphan-tok',
+        orderId,
       );
     });
   });

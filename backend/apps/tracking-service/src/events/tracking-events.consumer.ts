@@ -317,7 +317,13 @@ export class TrackingEventsConsumer {
       msg.includes('timeout') ||
       msg.includes('Connection terminated') ||
       msg.includes('ECONNREFUSED') ||
-      msg.includes('ORDER_FLOW_NOT_READY')
+      msg.includes('ORDER_FLOW_NOT_READY') ||
+      msg.includes('Redis') ||
+      msg.includes('redis') ||
+      msg.includes('Lock') ||
+      msg.includes('lock') ||
+      msg.includes('EAI_AGAIN') ||
+      msg.includes('ETIMEDOUT')
     );
   }
 

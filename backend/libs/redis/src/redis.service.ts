@@ -222,6 +222,79 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return items;
   }
 
+  /**
+   * Atomically appends an item to a list and records the member in a sorted set index.
+   * If member already exists in the sorted set, its score is preserved (ZADD NX).
+   * Ensures keys can share a hash tag (e.g. {pending}) for Redis Cluster cross-slot safety.
+   */
+  async appendAndTrackPendingOrder(
+    listKey: string,
+    indexKey: string,
+    value: unknown,
+    member: string,
+    score = Date.now(),
+  ): Promise<void> {
+    this.assertConnected();
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError(`Value for Redis list "${listKey}" is not serializable`);
+    }
+
+    await this.client.eval(
+      `
+      redis.call('RPUSH', KEYS[1], ARGV[1])
+      redis.call('ZADD', KEYS[2], 'NX', ARGV[3], ARGV[2])
+      return 1
+      `,
+      2,
+      listKey,
+      indexKey,
+      serialized,
+      member,
+      String(score),
+    );
+  }
+
+  /**
+   * Atomically verifies that the distributed lock is still owned by lockToken
+   * and that the list is empty (LLEN == 0). If both conditions hold, removes member from indexKey.
+   * Returns:
+   *   0: list was empty and member was atomically removed from index
+   *  >0: list still has items (remains in index, not removed)
+   *  -1: lock was lost or expired (remains in index, not removed)
+   */
+  async cleanupPendingOrderIfEmpty(
+    listKey: string,
+    lockKey: string,
+    indexKey: string,
+    lockToken: string,
+    member: string,
+  ): Promise<number> {
+    this.assertConnected();
+    const result = await this.client.eval(
+      `
+      local currentLock = redis.call('GET', KEYS[2])
+      if currentLock ~= ARGV[1] then
+        return -1
+      end
+      local len = redis.call('LLEN', KEYS[1])
+      if len == 0 then
+        redis.call('ZREM', KEYS[3], ARGV[2])
+        return 0
+      else
+        return len
+      end
+      `,
+      3,
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+    return Number(result);
+  }
+
   async withDistributedLock(
     key: string,
     callback: (
