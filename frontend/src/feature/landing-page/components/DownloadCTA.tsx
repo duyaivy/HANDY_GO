@@ -1,12 +1,9 @@
-import React from 'react';
-import {
-  
-  QrCode,
-  
-  CheckCircle2,
-  Tag,
-} from 'lucide-react';
-import { motion } from 'motion/react';
+"use client";
+
+import React from "react";
+import Image from "next/image";
+import { QrCode, CheckCircle2, Tag } from "lucide-react";
+import { motion } from "motion/react";
 
 interface DownloadCTAProps {
   onOpenDownload: () => void;
@@ -14,128 +11,234 @@ interface DownloadCTAProps {
 
 export const DownloadCTA: React.FC<DownloadCTAProps> = ({ onOpenDownload }) => {
   return (
-    <section id="download" className="py-20 lg:py-28 bg-white relative overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <section
+      id="download"
+      className="relative overflow-hidden bg-white py-20 lg:py-28"
+    >
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: 35 }}
           whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: '-60px' }}
-          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-          className="relative rounded-3xl bg-linear-to-r from-[#FF5E14] via-[#FF6F22] to-[#FFA048] p-8 sm:p-12 lg:p-16 text-white shadow-2xl orange-glow-lg overflow-hidden"
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{
+            duration: 0.7,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="orange-glow-lg relative overflow-hidden rounded-3xl bg-linear-to-r from-[#FF5E14] via-[#FF6F22] to-[#FFA048] p-8 text-white shadow-2xl sm:p-12 lg:p-16"
         >
-          {/* Subtle animated geometric circles in background */}
+          {/* Background Animation */}
           <motion.div
             animate={{
               scale: [1, 1.2, 1],
               rotate: [0, 45, 0],
             }}
-            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
-            className="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 rounded-full bg-white/10 blur-2xl pointer-events-none"
+            transition={{
+              duration: 12,
+              repeat: Infinity,
+              ease: "linear",
+            }}
+            className="pointer-events-none absolute top-0 right-0 -mt-20 -mr-20 h-96 w-96 rounded-full bg-white/10 blur-2xl"
           />
-          <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-96 h-96 rounded-full bg-black/10 blur-2xl pointer-events-none" />
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center relative z-10">
-            {/* Left Column: CTA Pitch */}
-            <div className="lg:col-span-7 space-y-6">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-white text-xs sm:text-sm font-extrabold uppercase tracking-wider">
-                <Tag className="w-4 h-4 text-yellow-300" />
+          <div className="pointer-events-none absolute bottom-0 left-0 -mb-20 -ml-20 h-96 w-96 rounded-full bg-black/10 blur-2xl" />
+
+          <div className="relative z-10 grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
+            {/* Left Column */}
+            <div className="space-y-6 lg:col-span-7">
+              {/* Voucher Badge */}
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/20 px-3.5 py-1.5 text-xs font-extrabold tracking-wider text-white uppercase backdrop-blur-md sm:text-sm">
+                <Tag className="h-4 w-4 text-yellow-300" />
+
                 <span>Tặng Voucher 50.000đ Cho Đơn Đầu Tiên</span>
               </div>
 
-              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight">
+              {/* Title */}
+              <h2 className="text-3xl leading-tight font-black tracking-tight text-white sm:text-4xl lg:text-5xl">
                 Tải Ứng Dụng Handy Go Ngay Hôm Nay!
               </h2>
 
-              <p className="text-white/95 text-base sm:text-lg max-w-xl leading-relaxed font-normal">
-                Đừng để sự cố điện nước hay máy lạnh làm xáo trộn cuộc sống của bạn. Cài đặt sẵn Handy Go trong điện thoại để luôn có chuyên gia kỹ thuật hỗ trợ 24/7 chỉ sau 15 phút.
+              {/* Description */}
+              <p className="max-w-xl text-base leading-relaxed font-normal text-white/95 sm:text-lg">
+                Đừng để sự cố điện nước hay máy lạnh làm xáo trộn cuộc sống của
+                bạn. Cài đặt sẵn Handy Go trong điện thoại để luôn có chuyên gia
+                kỹ thuật hỗ trợ 24/7 chỉ sau 15 phút.
               </p>
 
-              {/* Coupon Box with hover effect */}
+              {/* Coupon Box */}
               <motion.div
                 whileHover={{ scale: 1.02 }}
-                className="inline-flex items-center gap-4 p-4 rounded-2xl bg-white/15 backdrop-blur-md border border-white/30 shadow-xs cursor-default"
+                className="inline-flex cursor-default items-center gap-4 rounded-2xl border border-white/30 bg-white/15 p-4 shadow-xs backdrop-blur-md"
               >
                 <div className="text-left">
-                  <span className="block text-xs text-white/90 font-bold uppercase tracking-wider">
+                  <span className="block text-xs font-bold tracking-wider text-white/90 uppercase">
                     Mã khuyến mãi người dùng mới
                   </span>
-                  <span className="text-xl sm:text-2xl font-mono font-black text-white tracking-widest">
+
+                  <span className="font-mono text-xl font-black tracking-widest text-white sm:text-2xl">
                     HANDYGO50
                   </span>
                 </div>
+
                 <div className="h-10 w-px bg-white/30" />
-                <span className="text-sm sm:text-base font-black text-yellow-300">
+
+                <span className="text-sm font-black text-yellow-300 sm:text-base">
                   Giảm ngay 50.000đ vào hóa đơn
                 </span>
               </motion.div>
 
               {/* Store Download Buttons */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
+                {/* App Store */}
                 <motion.button
                   type="button"
                   onClick={onOpenDownload}
-                  whileHover={{ scale: 1.05, y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                  className="px-7 py-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-white flex items-center gap-3.5 shadow-lg"
+                  whileHover={{
+                    scale: 1.05,
+                    y: -2,
+                  }}
+                  whileTap={{
+                    scale: 0.95,
+                  }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 25,
+                  }}
+                  className="relative h-[52px] w-[170px] cursor-pointer border-0 bg-transparent p-0 shadow-none"
+                  aria-label="Tải ứng dụng trên App Store"
                 >
-                  <svg className="w-7 h-7 fill-current" viewBox="0 0 24 24">
-                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.61-.75 1.04-1.8 0.92-2.87-0.91.04-1.98.61-2.61 1.36-.55.64-1.04 1.69-.91 2.72 1.01.08 2.01-.5 2.6-1.21z" />
-                  </svg>
-                  <div className="text-left">
-                    <span className="block text-[10px] text-slate-400 uppercase font-semibold leading-none">
-                      Tải về trên
-                    </span>
-                    <span className="text-sm font-black leading-tight">App Store</span>
-                  </div>
+                  <Image
+                    src="/en-us.svg"
+                    alt="Download on the App Store"
+                    fill
+                    sizes="170px"
+                    className="object-contain"
+                  />
                 </motion.button>
 
+                {/* Google Play */}
                 <motion.button
                   type="button"
                   onClick={onOpenDownload}
-                  whileHover={{ scale: 1.05, y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-                  className="px-7 py-4 rounded-2xl bg-slate-950 hover:bg-slate-900 text-white flex items-center gap-3.5 shadow-lg"
+                  whileHover={{
+                    scale: 1.05,
+                    y: -2,
+                  }}
+                  whileTap={{
+                    scale: 0.95,
+                  }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 25,
+                  }}
+                  className="relative h-[52px] w-[170px] cursor-pointer border-0 bg-transparent p-0 shadow-none"
+                  aria-label="Tải ứng dụng trên Google Play"
                 >
-                  <svg className="w-7 h-7 fill-current" viewBox="0 0 24 24">
-                    <path d="M3 20.5v-17c0-.83.67-1.5 1.5-1.5.34 0 .67.12.94.33L17.5 12 5.44 21.67c-.27.21-.6.33-.94.33C3.67 22 3 21.33 3 20.5zm16-7.39l2.7-1.56c.8-.46.8-1.76 0-2.22l-2.7-1.56-2.85 2.67 2.85 2.67zM4.75 3.32L14.7 12 4.75 20.68V3.32z" />
-                  </svg>
-                  <div className="text-left">
-                    <span className="block text-[10px] text-slate-400 uppercase font-semibold leading-none">
-                      Khám phá tại
-                    </span>
-                    <span className="text-sm font-black leading-tight">Google Play</span>
-                  </div>
+                  <Image
+                    src="/chpl.svg"
+                    alt="Get it on Google Play"
+                    fill
+                    sizes="170px"
+                    className="object-contain"
+                  />
                 </motion.button>
               </div>
             </div>
 
-            {/* Right Column: High-Res QR Code Card & Phone Preview */}
-            <div className="lg:col-span-5 flex justify-center">
+            {/* Right Column - QR Code */}
+            <div className="flex justify-center lg:col-span-5">
               <motion.div
-                whileHover={{ y: -6, scale: 1.02 }}
-                transition={{ duration: 0.25 }}
-                className="bg-white rounded-3xl p-7 sm:p-8 text-slate-900 shadow-2xl flex flex-col items-center text-center max-w-sm w-full border border-white/60"
+                whileHover={{
+                  y: -6,
+                  scale: 1.02,
+                }}
+                transition={{
+                  duration: 0.25,
+                }}
+                className="flex w-full max-w-sm flex-col items-center rounded-3xl border border-white/60 bg-white p-7 text-center text-slate-900 shadow-2xl sm:p-8"
               >
-                <div className="bg-slate-50 p-4.5 rounded-2xl border border-slate-200/90 shadow-inner mb-4">
-                  {/* Clean Vector QR Code */}
-                  <div className="w-48 h-48 relative">
-                    <svg viewBox="0 0 120 120" className="w-full h-full">
-                      {/* Detection patterns */}
-                      <rect x="5" y="5" width="30" height="30" rx="4" fill="#0f172a" />
-                      <rect x="9" y="9" width="22" height="22" rx="2" fill="#ffffff" />
-                      <rect x="13" y="13" width="14" height="14" rx="2" fill="#FF5E14" />
+                {/* QR Code Container */}
+                <div className="mb-4 rounded-2xl border border-slate-200/90 bg-slate-50 p-4.5 shadow-inner">
+                  <div className="relative h-48 w-48">
+                    <svg viewBox="0 0 120 120" className="h-full w-full">
+                      {/* Detection Patterns */}
+                      <rect
+                        x="5"
+                        y="5"
+                        width="30"
+                        height="30"
+                        rx="4"
+                        fill="#0f172a"
+                      />
+                      <rect
+                        x="9"
+                        y="9"
+                        width="22"
+                        height="22"
+                        rx="2"
+                        fill="#ffffff"
+                      />
+                      <rect
+                        x="13"
+                        y="13"
+                        width="14"
+                        height="14"
+                        rx="2"
+                        fill="#FF5E14"
+                      />
 
-                      <rect x="85" y="5" width="30" height="30" rx="4" fill="#0f172a" />
-                      <rect x="89" y="9" width="22" height="22" rx="2" fill="#ffffff" />
-                      <rect x="93" y="13" width="14" height="14" rx="2" fill="#FF5E14" />
+                      <rect
+                        x="85"
+                        y="5"
+                        width="30"
+                        height="30"
+                        rx="4"
+                        fill="#0f172a"
+                      />
+                      <rect
+                        x="89"
+                        y="9"
+                        width="22"
+                        height="22"
+                        rx="2"
+                        fill="#ffffff"
+                      />
+                      <rect
+                        x="93"
+                        y="13"
+                        width="14"
+                        height="14"
+                        rx="2"
+                        fill="#FF5E14"
+                      />
 
-                      <rect x="5" y="85" width="30" height="30" rx="4" fill="#0f172a" />
-                      <rect x="9" y="89" width="22" height="22" rx="2" fill="#ffffff" />
-                      <rect x="13" y="93" width="14" height="14" rx="2" fill="#FF5E14" />
+                      <rect
+                        x="5"
+                        y="85"
+                        width="30"
+                        height="30"
+                        rx="4"
+                        fill="#0f172a"
+                      />
+                      <rect
+                        x="9"
+                        y="89"
+                        width="22"
+                        height="22"
+                        rx="2"
+                        fill="#ffffff"
+                      />
+                      <rect
+                        x="13"
+                        y="93"
+                        width="14"
+                        height="14"
+                        rx="2"
+                        fill="#FF5E14"
+                      />
 
-                      {/* Random pixels */}
+                      {/* Decorative Pixels */}
                       <circle cx="45" cy="15" r="3" fill="#0f172a" />
                       <circle cx="55" cy="22" r="2.5" fill="#0f172a" />
                       <circle cx="68" cy="15" r="3" fill="#0f172a" />
@@ -159,22 +262,34 @@ export const DownloadCTA: React.FC<DownloadCTAProps> = ({ onOpenDownload }) => {
                       <circle cx="82" cy="90" r="2.5" fill="#0f172a" />
                       <circle cx="95" cy="80" r="3" fill="#0f172a" />
 
-                      {/* Center Brand Pin with official App Icon */}
-                      <image href="/handygo-app-icon.svg" x="42" y="42" width="36" height="36" />
+                      {/* App Icon */}
+                      <image
+                        href="/handygo-app-icon.svg"
+                        x="42"
+                        y="42"
+                        width="36"
+                        height="36"
+                      />
                     </svg>
                   </div>
                 </div>
 
-                <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
-                  <QrCode className="w-5 h-5 text-[#FF5E14]" />
+                {/* QR Title */}
+                <h4 className="flex items-center gap-2 text-base font-black text-slate-900">
+                  <QrCode className="h-5 w-5 text-[#FF5E14]" />
                   Quét Mã Để Tải Ứng Dụng
                 </h4>
-                <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
-                  Mở camera điện thoại quét để tự động mở App Store hoặc Google Play
+
+                {/* QR Description */}
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 sm:text-sm">
+                  Mở camera điện thoại quét để tự động mở App Store hoặc Google
+                  Play
                 </p>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 w-full flex items-center justify-center gap-1.5 text-xs text-emerald-700 font-extrabold">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                {/* Footer */}
+                <div className="mt-4 flex w-full items-center justify-center gap-1.5 border-t border-slate-100 pt-3 text-xs font-extrabold text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+
                   <span>Dung lượng nhẹ ~35MB • Tải nhanh</span>
                 </div>
               </motion.div>
