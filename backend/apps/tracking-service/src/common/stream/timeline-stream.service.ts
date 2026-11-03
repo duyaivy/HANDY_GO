@@ -146,22 +146,31 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
           trackingFlowId: flow.id,
           eventType: 'order.created',
         },
-        select: { actorUserId: true, metadata: true },
+        select: { metadata: true },
       });
       const orderMeta = orderCreatedEvent?.metadata as any;
       assignedWorkerId =
         orderMeta?.workerUserId ||
         orderMeta?.workerId ||
-        orderCreatedEvent?.actorUserId ||
         null;
     }
 
     const isEventAllowedForWorker = (evt: {
       entityType: TrackingEntityType;
+      eventType: string;
       actorUserId?: string | null;
       metadata?: any;
     }): boolean => {
       if (!user.isWorker || user.isAdmin) return true;
+
+      if (
+        evt.entityType === TrackingEntityType.order &&
+        evt.eventType === 'order.created'
+      ) {
+        const orderMeta = evt.metadata as any;
+        assignedWorkerId =
+          orderMeta?.workerUserId || orderMeta?.workerId || null;
+      }
 
       if (evt.entityType === TrackingEntityType.bid) {
         const isMyBid =
@@ -181,14 +190,7 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
         evt.entityType === TrackingEntityType.order ||
         evt.entityType === TrackingEntityType.payment
       ) {
-        const evtWorker =
-          (evt.metadata as any)?.workerUserId ||
-          (evt.metadata as any)?.workerId ||
-          evt.actorUserId;
-        const isAssigned =
-          (evtWorker && evtWorker === user.userId) ||
-          (assignedWorkerId && assignedWorkerId === user.userId);
-        return Boolean(isAssigned);
+        return Boolean(assignedWorkerId && assignedWorkerId === user.userId);
       }
       return true;
     };

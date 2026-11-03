@@ -243,8 +243,8 @@ describe('TimelineStreamService', () => {
         entityId: randomUUID(),
         eventType: 'order.in_progress',
         sourceService: 'order-service',
-        actorUserId: assignedWorkerId,
-        metadata: { workerId: assignedWorkerId },
+        actorUserId: workerId,
+        metadata: {},
         occurredAt: new Date(),
         recordedAt: new Date(),
       });
@@ -269,6 +269,65 @@ describe('TimelineStreamService', () => {
       expect((messages[0].data as any).type).toBe('connected');
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('booking_proposal.rejected');
+    });
+
+    it('should update order-event access when order.created arrives after the worker connects', async () => {
+      const serviceRequestId = randomUUID();
+      const flowId = randomUUID();
+      const workerId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId: randomUUID(),
+      });
+      prismaMock.trackingEvent.findFirst
+        .mockResolvedValueOnce({ id: randomUUID() })
+        .mockResolvedValueOnce(null);
+
+      const user: GatewayUser = {
+        userId: workerId,
+        roles: ['Worker'],
+        isAdmin: false,
+        isCustomer: false,
+        isWorker: true,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      const messagesPromise = firstValueFrom(stream$.pipe(take(3), toArray()));
+
+      service.broadcastEvent({
+        serviceRequestId,
+        id: randomUUID(),
+        eventId: randomUUID(),
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.created',
+        sourceService: 'order-service',
+        actorUserId: randomUUID(),
+        metadata: { workerUserId: workerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      });
+
+      service.broadcastEvent({
+        serviceRequestId,
+        id: randomUUID(),
+        eventId: randomUUID(),
+        entityType: TrackingEntityType.payment,
+        entityId: randomUUID(),
+        eventType: 'payment.succeeded',
+        sourceService: 'payment-service',
+        actorUserId: randomUUID(),
+        metadata: {},
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      });
+
+      const messages = await messagesPromise;
+      expect(messages).toHaveLength(3);
+      expect((messages[1].data as any).payload.eventType).toBe('order.created');
+      expect((messages[2].data as any).payload.eventType).toBe('payment.succeeded');
     });
 
     it('should replay missed events on reconnect when lastEventId is provided', async () => {
