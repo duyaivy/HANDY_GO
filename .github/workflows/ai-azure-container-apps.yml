@@ -155,16 +155,30 @@ jobs:
         env:
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          BACKEND_PRODUCTION_ENV: ${{ secrets.BACKEND_PRODUCTION_ENV }}
         run: |
           if [ -z "$AZURE_CREDENTIALS" ]; then
             echo "::error::Bắt buộc cấu hình secret AZURE_CREDENTIALS trên GitHub Secrets để deploy!"
             exit 1
           fi
-          if [ -z "$INTERNAL_SERVICE_SECRET" ]; then
-            echo "::error::Bắt buộc cấu hình secret INTERNAL_SERVICE_SECRET trên GitHub Secrets! Không cho phép fallback secret mặc định."
-            exit 1
+
+          RESOLVED_SECRET="$INTERNAL_SERVICE_SECRET"
+          # Tự động trích xuất từ secret BACKEND_PRODUCTION_ENV nếu chưa tạo secret riêng
+          if [ -z "$RESOLVED_SECRET" ] && [ -n "$BACKEND_PRODUCTION_ENV" ]; then
+            RESOLVED_SECRET=$(printf '%s\n' "$BACKEND_PRODUCTION_ENV" | grep -E '^INTERNAL_SERVICE_SECRET=' | head -n 1 | cut -d '=' -f2- | tr -d '\r\n')
+            if [ -n "$RESOLVED_SECRET" ]; then
+              echo "✅ Đã tự động nhận diện INTERNAL_SERVICE_SECRET từ secret BACKEND_PRODUCTION_ENV."
+            fi
           fi
-          echo "✅ Đã xác thực đầy đủ các secret bảo mật bắt buộc."
+
+          if [ -n "$RESOLVED_SECRET" ]; then
+            echo "::add-mask::$RESOLVED_SECRET"
+            echo "RESOLVED_INTERNAL_SECRET=$RESOLVED_SECRET" >> $GITHUB_ENV
+            echo "✅ Đã xác thực đầy đủ secret bảo mật kết nối nội bộ."
+          else
+            echo "ℹ️ Không tìm thấy INTERNAL_SERVICE_SECRET từ GitHub Secrets. Azure Container App sẽ giữ nguyên secret key đã cấu hình sẵn trên Azure."
+            echo "RESOLVED_INTERNAL_SECRET=" >> $GITHUB_ENV
+          fi
 
       - name: Log in to Azure
         uses: azure/login@v2
@@ -182,6 +196,11 @@ jobs:
 
       - name: Deploy Revision to Azure Container Apps
         run: |
+          SET_ENV_ARGS="DEBUG=false AI_SERVICE_PORT=8000"
+          if [ -n "$RESOLVED_INTERNAL_SECRET" ]; then
+            SET_ENV_ARGS="$SET_ENV_ARGS INTERNAL_SERVICE_SECRET=$RESOLVED_INTERNAL_SECRET"
+          fi
+
           az containerapp update \
             --name handy-go-ai \
             --resource-group rg-handy-go \
@@ -190,10 +209,7 @@ jobs:
             --memory 4.0Gi \
             --min-replicas 0 \
             --max-replicas 2 \
-            --set-env-vars \
-              "INTERNAL_SERVICE_SECRET=${{ secrets.INTERNAL_SERVICE_SECRET }}" \
-              "DEBUG=false" \
-              "AI_SERVICE_PORT=8000"
+            --set-env-vars $SET_ENV_ARGS
 
       - name: Post-Deploy Smoke Test (/health & /ready)
         run: |
