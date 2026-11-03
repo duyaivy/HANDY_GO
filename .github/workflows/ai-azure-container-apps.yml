@@ -1,11 +1,28 @@
 name: AI Service Azure Container Apps CI/CD
 
+# ==============================================================================
+# GIT CONVENTION WORKFLOW:
+# 1. Pull Request (PR): Chỉ chạy CI (Build & Unit Test), không deploy lên Azure.
+# 2. Push/Merge vào main/release: Chạy CI -> Push Docker Image -> CD Deploy lên Azure.
+# 3. Git Release Tags (v*.*.*): Tự động gắn Semantic Versioning vào Docker Image.
+# 4. Feature branches: Hỗ trợ kiểm thử độc lập trước khi tạo PR vào main.
+# ==============================================================================
+
 on:
   push:
     branches:
       - main
       - release
-      - feature/ai-azure-container-apps
+      - 'feature/ai-**'
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'ai/**'
+      - '.github/workflows/ai-azure-container-apps.yml'
+  pull_request:
+    branches:
+      - main
+      - release
     paths:
       - 'ai/**'
       - '.github/workflows/ai-azure-container-apps.yml'
@@ -26,10 +43,10 @@ permissions:
 
 jobs:
   # ============================================================================
-  # 1. BUILD, TEST INSIDE CONTAINER & PUBLISH TO GHCR
-  # - Build Docker image 1 lần duy nhất (có cache GHA & bake sẵn model weights)
+  # 1. BUILD, TEST INSIDE CONTAINER & PUBLISH TO GHCR (CI)
+  # - Build Docker image (có cache GHA & bake sẵn model weights)
   # - Chạy Unit Test trực tiếp trong chính Container Image để đảm bảo tương thích 100%
-  # - Khắc phục triệt để lỗi timeout 10m do không phải tải lặp lại dependencies 2 lần
+  # - Chỉ push lên GHCR nếu không phải là PR từ fork và tests đã passed
   # ============================================================================
   build-and-publish:
     name: Build, Test & Publish to GHCR
@@ -41,6 +58,7 @@ jobs:
     outputs:
       image_tag_sha: ${{ steps.meta.outputs.image_tag_sha }}
       image_tag_latest: ${{ steps.meta.outputs.image_tag_latest }}
+      is_deployable: ${{ steps.meta.outputs.is_deployable }}
 
     steps:
       - name: Checkout repository
@@ -56,16 +74,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image tags
+      - name: Compute image tags based on Git Ref Convention
         id: meta
         run: |
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_BASE="ghcr.io/$REPO_OWNER/handygo-ai"
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          
           echo "image_tag_sha=$IMAGE_BASE:$SHORT_SHA" >> $GITHUB_OUTPUT
-          echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
           echo "IMAGE_BASE=$IMAGE_BASE" >> $GITHUB_ENV
           echo "SHORT_SHA=$SHORT_SHA" >> $GITHUB_ENV
+
+          # Xác định tag theo Git Convention
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            echo "image_tag_latest=$IMAGE_BASE:$VERSION" >> $GITHUB_OUTPUT
+            echo "is_deployable=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/release" ]]; then
+            echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
+            echo "is_deployable=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/feature/ai-azure-container-apps" ]]; then
+            echo "image_tag_latest=$IMAGE_BASE:latest" >> $GITHUB_OUTPUT
+            echo "is_deployable=true" >> $GITHUB_OUTPUT
+          else
+            echo "image_tag_latest=$IMAGE_BASE:dev-$SHORT_SHA" >> $GITHUB_OUTPUT
+            echo "is_deployable=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build Docker Image (Bake weights + Cache GHA)
         uses: docker/build-push-action@v7
@@ -79,7 +113,7 @@ jobs:
           cache-from: type=gha,scope=ai-service
           cache-to: type=gha,mode=max,scope=ai-service
 
-      - name: Run Unit Tests inside the Container
+      - name: Run Unit Tests inside the Container (CI Gate)
         run: |
           echo "===> Chạy Unit Test trực tiếp bên trong Container Image..."
           docker run --rm \
@@ -89,6 +123,7 @@ jobs:
           echo "✅ Toàn bộ Unit Tests đã PASSED bên trong môi trường Container!"
 
       - name: Push Image to GitHub Container Registry (GHCR)
+        if: github.event_name != 'pull_request'
         run: |
           echo "===> Đang đẩy Image đã qua kiểm thử lên GHCR..."
           docker push ${{ steps.meta.outputs.image_tag_sha }}
@@ -97,11 +132,16 @@ jobs:
 
   # ============================================================================
   # 2. CD: DEPLOY TO AZURE CONTAINER APPS & SMOKE TEST
-  # Cập nhật revision mới lên Azure, cấu hình Scale-to-Zero và kiểm tra /health
+  # Theo chuẩn Git Convention:
+  # - KHÔNG deploy khi đang là Pull Request (chỉ chạy test)
+  # - CHỈ deploy khi commit được merge vào main/release, gắn tag, hoặc test branch
   # ============================================================================
   deploy:
     name: Deploy to Azure Container Apps
     needs: build-and-publish
+    if: |
+      github.event_name != 'pull_request' &&
+      (needs.build-and-publish.outputs.is_deployable == 'true' || inputs.force_deploy == true)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -185,7 +225,8 @@ jobs:
           echo "| Thuộc tính | Giá trị |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- |" >> $GITHUB_STEP_SUMMARY
           echo "| **Image (Immutable SHA)** | \`${{ needs.build-and-publish.outputs.image_tag_sha }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Image (Latest)** | \`${{ needs.build-and-publish.outputs.image_tag_latest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Image (Latest / Version)** | \`${{ needs.build-and-publish.outputs.image_tag_latest }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Git Ref Trigger** | \`${{ github.ref }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Cấu hình phần cứng** | 2.0 vCPU / 4.0 GiB RAM |" >> $GITHUB_STEP_SUMMARY
           echo "| **Cơ chế Scale** | Min: 0 (0đ khi nhàn rỗi) - Max: 2 |" >> $GITHUB_STEP_SUMMARY
           echo "| **Bake Weights** | EasyOCR (vi, en) + InsightFace (buffalo_l) |" >> $GITHUB_STEP_SUMMARY
