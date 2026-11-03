@@ -22,6 +22,7 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
         .mockResolvedValue({ status: 'open_for_bidding' }),
       updateMatchingInputs: vi.fn().mockResolvedValue(undefined),
       updateRequestStatus: vi.fn().mockResolvedValue(undefined),
+      extendBiddingDeadline: vi.fn().mockResolvedValue(undefined),
       getProjection: vi
         .fn()
         .mockResolvedValue({ status: 'open_for_bidding' }),
@@ -227,6 +228,86 @@ describe('MatchingEventConsumer Idempotency & Lifecycle Handling', () => {
       'converted_to_order',
     );
     expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+  });
+
+  describe('Anti-sniping bidding.round.extended Consumer (FIX-02)', () => {
+    const extendedEvent = {
+      eventId: 'evt-ext-101',
+      eventType: 'bidding.round.extended',
+      data: {
+        roundId: 'round-1',
+        serviceRequestId: 'req-001',
+        newClosesAt: '2026-12-01T20:02:00.000Z',
+        previousClosesAt: '2026-12-01T20:00:00.000Z',
+        extendedBySeconds: 120,
+        extensionCount: 1,
+      },
+    };
+
+    it('processes bidding.round.extended, updates projection deadline, marks consumed, and ACKs', async () => {
+      const res = await consumer.handleBiddingRoundExtended(
+        extendedEvent,
+        mockContext,
+      );
+
+      expect(res.status).toBe('processed');
+      expect(mockConsumedEvents.isEventConsumed).toHaveBeenCalledWith('evt-ext-101');
+      expect(mockProjectionService.extendBiddingDeadline).toHaveBeenCalledWith(
+        'req-001',
+        '2026-12-01T20:02:00.000Z',
+      );
+      expect(mockConsumedEvents.markEventConsumed).toHaveBeenCalledWith(
+        'evt-ext-101',
+        'bidding.round.extended',
+      );
+      expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('acknowledges and skips duplicate bidding.round.extended events', async () => {
+      mockConsumedEvents.isEventConsumed.mockResolvedValueOnce(true);
+
+      const res = await consumer.handleBiddingRoundExtended(
+        extendedEvent,
+        mockContext,
+      );
+
+      expect(res.status).toBe('duplicate');
+      expect(mockProjectionService.extendBiddingDeadline).not.toHaveBeenCalled();
+      expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('discards malformed bidding.round.extended without serviceRequestId or newClosesAt', async () => {
+      const invalidEvent = {
+        eventId: 'evt-ext-bad',
+        data: { roundId: 'round-1' }, // missing serviceRequestId & newClosesAt
+      };
+
+      const res = await consumer.handleBiddingRoundExtended(
+        invalidEvent,
+        mockContext,
+      );
+
+      expect(res.status).toBe('invalid_event');
+      expect(mockProjectionService.extendBiddingDeadline).not.toHaveBeenCalled();
+      expect(mockChannel.ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('nacks and requeues on transient projection database error', async () => {
+      mockProjectionService.extendBiddingDeadline.mockRejectedValueOnce(
+        new Error('Database timeout'),
+      );
+
+      await expect(
+        consumer.handleBiddingRoundExtended(extendedEvent, mockContext),
+      ).rejects.toThrow('Database timeout');
+
+      expect(mockChannel.nack).toHaveBeenCalledWith(
+        expect.anything(),
+        false,
+        true,
+      );
+      expect(mockChannel.ack).not.toHaveBeenCalled();
+    });
   });
   it('holds ACK and inbox until the queued processor actually completes', async () => {
     let complete!: () => void;
