@@ -228,16 +228,8 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
     let bufferingLiveEvents = true;
     let streamSubscriber: Subscriber<MessageEvent> | undefined;
     let lastDeliveredSequence = 0;
-    let drainingLiveEvents = false;
-
-    if (!lastEventId) {
-      const latestEvent = await this.prisma.trackingEvent.findFirst({
-        where: { trackingFlowId: flow.id },
-        orderBy: { writeSequence: 'desc' },
-        select: { writeSequence: true },
-      });
-      lastDeliveredSequence = latestEvent?.writeSequence ?? 0;
-    }
+    let isDraining = false;
+    let hasPendingWork = false;
 
     const appendReplayEvents = (events: TrackingEvent[]): void => {
       for (const evt of events) {
@@ -265,6 +257,7 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
               metadata: evt.metadata as Record<string, any> | null,
               occurredAt: evt.occurredAt,
               recordedAt: evt.recordedAt,
+              writeSequence: evt.writeSequence,
             },
           },
         });
@@ -272,77 +265,84 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
     };
 
     const drainLiveEvents = async (): Promise<void> => {
-      if (bufferingLiveEvents || drainingLiveEvents || !streamSubscriber) {
+      if (bufferingLiveEvents || !streamSubscriber || streamSubscriber.closed) {
         return;
       }
 
-      drainingLiveEvents = true;
+      if (isDraining) {
+        hasPendingWork = true;
+        return;
+      }
+
+      isDraining = true;
       try {
-        while (bufferedLiveEvents.length > 0 && streamSubscriber && !streamSubscriber.closed) {
-          const pendingSignals = bufferedLiveEvents.splice(0);
-          for (const event of pendingSignals) {
-            if (
-              event.writeSequence === undefined &&
-              isEventAllowedForWorker(event)
-            ) {
-              streamSubscriber.next(toMessageEvent(event));
-            }
+        do {
+          hasPendingWork = false;
+          bufferedLiveEvents.length = 0;
+
+          if (!streamSubscriber || streamSubscriber.closed) {
+            break;
           }
 
-          if (pendingSignals.some((event) => event.writeSequence !== undefined)) {
-            const committedEvents =
-              (await this.prisma.trackingEvent.findMany({
-                where: {
-                  trackingFlowId: flow.id,
-                  writeSequence: { gt: lastDeliveredSequence },
-                },
-                orderBy: { writeSequence: 'asc' },
-              })) ?? [];
+          const committedEvents = await this.prisma.trackingEvent.findMany({
+            where: {
+              trackingFlowId: flow.id,
+              writeSequence: { gt: lastDeliveredSequence },
+            },
+            orderBy: { writeSequence: 'asc' },
+          });
 
-            for (const event of committedEvents) {
-              if (!streamSubscriber || streamSubscriber.closed) {
-                break;
-              }
-              lastDeliveredSequence = event.writeSequence;
-              if (isEventAllowedForWorker(event)) {
-                streamSubscriber.next(
-                  toMessageEvent({
-                    serviceRequestId,
-                    id: event.id,
-                    eventId: event.eventId,
-                    entityType: event.entityType,
-                    entityId: event.entityId,
-                    eventType: event.eventType,
-                    sourceService: event.sourceService,
-                    fromStatus: event.fromStatus,
-                    toStatus: event.toStatus,
-                    actorUserId: event.actorUserId,
-                    reason: event.reason,
-                    metadata: event.metadata as Record<string, any> | null,
-                    occurredAt: event.occurredAt,
-                    recordedAt: event.recordedAt,
-                    writeSequence: event.writeSequence,
-                  }),
-                );
-              }
+          for (const event of committedEvents) {
+            if (!streamSubscriber || streamSubscriber.closed) {
+              break;
+            }
+            lastDeliveredSequence = event.writeSequence;
+            if (isEventAllowedForWorker(event)) {
+              streamSubscriber.next(
+                toMessageEvent({
+                  serviceRequestId,
+                  id: event.id,
+                  eventId: event.eventId,
+                  entityType: event.entityType,
+                  entityId: event.entityId,
+                  eventType: event.eventType,
+                  sourceService: event.sourceService,
+                  fromStatus: event.fromStatus,
+                  toStatus: event.toStatus,
+                  actorUserId: event.actorUserId,
+                  reason: event.reason,
+                  metadata: event.metadata as Record<string, any> | null,
+                  occurredAt: event.occurredAt,
+                  recordedAt: event.recordedAt,
+                  writeSequence: event.writeSequence,
+                }),
+              );
             }
           }
-        }
+        } while (
+          (hasPendingWork || bufferedLiveEvents.length > 0) &&
+          streamSubscriber &&
+          !streamSubscriber.closed
+        );
       } catch (error) {
-        bufferedLiveEvents.length = 0;
         this.logger.error(
           `Failed to replay live tracking events for ${serviceRequestId}: ${(error as Error).message}`,
           (error as Error).stack,
         );
         streamSubscriber?.error(error);
       } finally {
-        drainingLiveEvents = false;
-        if (bufferedLiveEvents.length > 0 && streamSubscriber && !streamSubscriber.closed) {
+        isDraining = false;
+        if (
+          (hasPendingWork || bufferedLiveEvents.length > 0) &&
+          streamSubscriber &&
+          !streamSubscriber.closed
+        ) {
           void drainLiveEvents();
         }
       }
     };
 
+    // 1. Subscribe to live stream before queries to ensure zero events are missed
     const liveSubscription = this.eventSubject
       .asObservable()
       .pipe(filter((evt) => evt.serviceRequestId === serviceRequestId))
@@ -351,8 +351,8 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
         void drainLiveEvents();
       });
 
-    if (lastEventId) {
-      try {
+    try {
+      if (lastEventId) {
         const baseEvent = await this.prisma.trackingEvent.findFirst({
           where: {
             trackingFlowId: flow.id,
@@ -378,12 +378,14 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
           });
           appendReplayEvents(events);
         }
-      } catch (error) {
-        liveSubscription.unsubscribe();
-        throw error;
-      }
-    } else {
-      try {
+      } else {
+        const latestEvent = await this.prisma.trackingEvent.findFirst({
+          where: { trackingFlowId: flow.id },
+          orderBy: { writeSequence: 'desc' },
+          select: { writeSequence: true },
+        });
+        lastDeliveredSequence = latestEvent?.writeSequence ?? 0;
+
         const eventsDuringRegistration = await this.prisma.trackingEvent.findMany({
           where: {
             trackingFlowId: flow.id,
@@ -392,10 +394,10 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
           orderBy: { writeSequence: 'asc' },
         });
         appendReplayEvents(eventsDuringRegistration);
-      } catch (error) {
-        liveSubscription.unsubscribe();
-        throw error;
       }
+    } catch (error) {
+      liveSubscription.unsubscribe();
+      throw error;
     }
 
     const replayAndLive$ = new Observable<MessageEvent>((subscriber) => {
@@ -414,13 +416,17 @@ export class TimelineStreamService implements OnModuleInit, OnModuleDestroy {
       };
     });
 
+    // Periodic heartbeat (ping) that also triggers drainLiveEvents to catch any missed Pub/Sub signals
     const heartbeat$ = interval(25000).pipe(
-      map((): MessageEvent => ({
-        data: {
-          type: 'ping',
-          timestamp: new Date().toISOString(),
-        },
-      })),
+      map((): MessageEvent => {
+        void drainLiveEvents();
+        return {
+          data: {
+            type: 'ping',
+            timestamp: new Date().toISOString(),
+          },
+        };
+      }),
     );
 
     return merge(replayAndLive$, heartbeat$);

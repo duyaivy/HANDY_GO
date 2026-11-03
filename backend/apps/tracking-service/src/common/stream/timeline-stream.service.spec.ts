@@ -10,15 +10,36 @@ import type { GatewayUser } from '../security/tracking-security.util.js';
 describe('TimelineStreamService', () => {
   let service: TimelineStreamService;
   let prismaMock: any;
+  let mockDbEvents: any[];
 
   beforeEach(() => {
+    mockDbEvents = [];
     prismaMock = {
       trackingFlow: {
         findUnique: vi.fn(),
       },
       trackingEvent: {
         findFirst: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockImplementation(async (params?: any) => {
+          if (!params) return mockDbEvents;
+          let filtered = [...mockDbEvents];
+          if (params.where?.trackingFlowId) {
+            filtered = filtered.filter(
+              (e) => e.trackingFlowId === params.where.trackingFlowId,
+            );
+          }
+          if (params.where?.writeSequence?.gt !== undefined) {
+            filtered = filtered.filter(
+              (e) => e.writeSequence > params.where.writeSequence.gt,
+            );
+          }
+          if (params.orderBy?.writeSequence === 'asc') {
+            filtered.sort((a, b) => a.writeSequence - b.writeSequence);
+          } else if (params.orderBy?.writeSequence === 'desc') {
+            filtered.sort((a, b) => b.writeSequence - a.writeSequence);
+          }
+          return filtered;
+        }),
       },
     };
 
@@ -94,9 +115,10 @@ describe('TimelineStreamService', () => {
     it('should emit initial connected event and stream live timeline events for customer', async () => {
       const serviceRequestId = randomUUID();
       const customerId = randomUUID();
+      const flowId = randomUUID();
 
       prismaMock.trackingFlow.findUnique.mockResolvedValue({
-        id: randomUUID(),
+        id: flowId,
         serviceRequestId,
         customerId,
       });
@@ -128,8 +150,10 @@ describe('TimelineStreamService', () => {
         actorUserId: randomUUID(),
         occurredAt: new Date(),
         recordedAt: new Date(),
+        writeSequence: 1,
       };
 
+      mockDbEvents.push({ ...mockEvent, trackingFlowId: flowId });
       service.broadcastEvent(mockEvent);
 
       const messages = await messagesPromise;
@@ -139,6 +163,7 @@ describe('TimelineStreamService', () => {
       expect((messages[0].data as any).serviceRequestId).toBe(serviceRequestId);
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('order.in_progress');
+      expect((messages[1].data as any).payload.writeSequence).toBe(1);
     });
 
     it('should deliver concurrently published events in database write order', async () => {
@@ -209,11 +234,12 @@ describe('TimelineStreamService', () => {
 
     it('should shield competitor bids from worker stream', async () => {
       const serviceRequestId = randomUUID();
+      const flowId = randomUUID();
       const workerId = randomUUID();
       const competitorWorkerId = randomUUID();
 
       prismaMock.trackingFlow.findUnique.mockResolvedValue({
-        id: randomUUID(),
+        id: flowId,
         serviceRequestId,
         customerId: randomUUID(),
       });
@@ -228,12 +254,10 @@ describe('TimelineStreamService', () => {
       };
 
       const stream$ = await service.getLiveStream(serviceRequestId, user);
-
-      // We expect initial 'connected' and our own bid event (competitor bid ignored)
       const messagesPromise = firstValueFrom(stream$.pipe(take(2), toArray()));
 
       // 1. Competitor bid event -> should be shielded/filtered
-      service.broadcastEvent({
+      const competitorBid: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -245,10 +269,13 @@ describe('TimelineStreamService', () => {
         metadata: { workerId: competitorWorkerId },
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 1,
+      };
+      mockDbEvents.push({ ...competitorBid, trackingFlowId: flowId });
+      service.broadcastEvent(competitorBid);
 
       // 2. My bid event -> should pass through
-      service.broadcastEvent({
+      const myBid: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -260,7 +287,10 @@ describe('TimelineStreamService', () => {
         metadata: { workerId },
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 2,
+      };
+      mockDbEvents.push({ ...myBid, trackingFlowId: flowId });
+      service.broadcastEvent(myBid);
 
       const messages = await messagesPromise;
 
@@ -268,15 +298,17 @@ describe('TimelineStreamService', () => {
       expect((messages[0].data as any).type).toBe('connected');
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.actorUserId).toBe(workerId);
+      expect((messages[1].data as any).payload.writeSequence).toBe(2);
     });
 
     it('should shield order and payment events from worker who is not assigned to the order', async () => {
       const serviceRequestId = randomUUID();
+      const flowId = randomUUID();
       const workerId = randomUUID();
       const assignedWorkerId = randomUUID();
 
       prismaMock.trackingFlow.findUnique.mockResolvedValue({
-        id: randomUUID(),
+        id: flowId,
         serviceRequestId,
         customerId: randomUUID(),
       });
@@ -301,7 +333,7 @@ describe('TimelineStreamService', () => {
       const messagesPromise = firstValueFrom(stream$.pipe(take(2), toArray()));
 
       // 1. Order event for assignedWorkerId -> should be shielded from workerId
-      service.broadcastEvent({
+      const orderEvent: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -313,10 +345,13 @@ describe('TimelineStreamService', () => {
         metadata: {},
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 1,
+      };
+      mockDbEvents.push({ ...orderEvent, trackingFlowId: flowId });
+      service.broadcastEvent(orderEvent);
 
       // 2. My proposal event -> should pass through
-      service.broadcastEvent({
+      const proposalEvent: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -328,13 +363,17 @@ describe('TimelineStreamService', () => {
         metadata: { workerId },
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 2,
+      };
+      mockDbEvents.push({ ...proposalEvent, trackingFlowId: flowId });
+      service.broadcastEvent(proposalEvent);
 
       const messages = await messagesPromise;
       expect(messages).toHaveLength(2);
       expect((messages[0].data as any).type).toBe('connected');
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('booking_proposal.rejected');
+      expect((messages[1].data as any).payload.writeSequence).toBe(2);
     });
 
     it('should update order-event access when order.created arrives after the worker connects', async () => {
@@ -362,7 +401,7 @@ describe('TimelineStreamService', () => {
       const stream$ = await service.getLiveStream(serviceRequestId, user);
       const messagesPromise = firstValueFrom(stream$.pipe(take(3), toArray()));
 
-      service.broadcastEvent({
+      const orderCreatedEvent: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -374,9 +413,12 @@ describe('TimelineStreamService', () => {
         metadata: { workerUserId: workerId },
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 1,
+      };
+      mockDbEvents.push({ ...orderCreatedEvent, trackingFlowId: flowId });
+      service.broadcastEvent(orderCreatedEvent);
 
-      service.broadcastEvent({
+      const paymentEvent: LiveTimelineEvent = {
         serviceRequestId,
         id: randomUUID(),
         eventId: randomUUID(),
@@ -388,12 +430,17 @@ describe('TimelineStreamService', () => {
         metadata: {},
         occurredAt: new Date(),
         recordedAt: new Date(),
-      });
+        writeSequence: 2,
+      };
+      mockDbEvents.push({ ...paymentEvent, trackingFlowId: flowId });
+      service.broadcastEvent(paymentEvent);
 
       const messages = await messagesPromise;
       expect(messages).toHaveLength(3);
       expect((messages[1].data as any).payload.eventType).toBe('order.created');
+      expect((messages[1].data as any).payload.writeSequence).toBe(1);
       expect((messages[2].data as any).payload.eventType).toBe('payment.succeeded');
+      expect((messages[2].data as any).payload.writeSequence).toBe(2);
     });
 
     it('should replay missed events on reconnect when lastEventId is provided', async () => {
@@ -435,7 +482,7 @@ describe('TimelineStreamService', () => {
         occurredAt: new Date('2026-11-01T09:55:00Z'),
         recordedAt: new Date('2026-11-01T10:05:01Z'),
       };
-      prismaMock.trackingEvent.findMany.mockImplementationOnce(async (query) => {
+      prismaMock.trackingEvent.findMany.mockImplementationOnce(async (query: any) => {
         expect(query.where).toEqual({
           trackingFlowId: flowId,
           writeSequence: { gt: 4 },
@@ -466,8 +513,358 @@ describe('TimelineStreamService', () => {
       expect(messages[1].id).toBe(missedEventId);
       expect((messages[1].data as any).type).toBe('timeline_event');
       expect((messages[1].data as any).payload.eventType).toBe('order.in_progress');
+      expect((messages[1].data as any).payload.writeSequence).toBe(5);
       expect(messages.filter((message) => message.id === missedEventId)).toHaveLength(1);
       subscription.unsubscribe();
+    });
+
+    it('should deliver event exactly once when event is present in both replay query and live buffer', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const flowId = randomUUID();
+      const lastEventId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({
+        id: lastEventId,
+        writeSequence: 1,
+      });
+
+      const duplicateTargetEvent = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 2,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        fromStatus: 'arrived',
+        toStatus: 'in_progress',
+        actorUserId: randomUUID(),
+        reason: null,
+        metadata: {},
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      // Replay query returns duplicateTargetEvent
+      prismaMock.trackingEvent.findMany.mockImplementationOnce(async () => {
+        // While replay query is executing, live Pub/Sub signal for the SAME event arrives
+        service.broadcastEvent({
+          serviceRequestId,
+          ...duplicateTargetEvent,
+        });
+        return [duplicateTargetEvent];
+      });
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user, lastEventId);
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((m) => messages.push(m));
+
+      // Wait a moment for any live drain loop to finish
+      await vi.waitFor(() => expect(messages).toHaveLength(2));
+
+      // Must only receive the event once, deduplicated by cursor sequence
+      const targetMessages = messages.filter((m) => m.id === duplicateTargetEvent.id);
+      expect(targetMessages).toHaveLength(1);
+      expect((targetMessages[0].data as any).payload.writeSequence).toBe(2);
+      subscription.unsubscribe();
+    });
+
+    it('should reorder and deliver events in ascending sequence order when Pub/Sub signals arrive out of order (sequence 2 then 1)', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const flowId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      const eventSeq1 = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 1,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.created',
+        sourceService: 'order-service',
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      const eventSeq2 = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 2,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      // Both committed in DB
+      mockDbEvents.push(eventSeq1, eventSeq2);
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((m) => messages.push(m));
+
+      // Broadcast out-of-order: sequence 2 arrives BEFORE sequence 1
+      service.broadcastEvent({ serviceRequestId, ...eventSeq2 });
+      service.broadcastEvent({ serviceRequestId, ...eventSeq1 });
+
+      await vi.waitFor(() => expect(messages).toHaveLength(3));
+
+      // Client must receive them ordered by writeSequence ASC (1 then 2)
+      expect(messages[0].data.type).toBe('connected');
+      expect((messages[1].data as any).payload.writeSequence).toBe(1);
+      expect((messages[1].data as any).payload.eventType).toBe('order.created');
+      expect((messages[2].data as any).payload.writeSequence).toBe(2);
+      expect((messages[2].data as any).payload.eventType).toBe('order.in_progress');
+
+      subscription.unsubscribe();
+    });
+
+    it('should capture events committed during stream registration without gaps or duplicates', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const flowId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId,
+      });
+
+      // Latest event in DB when stream registration began was sequence 5
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({
+        id: randomUUID(),
+        writeSequence: 5,
+      });
+
+      const eventDuringRegistration = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 6,
+        entityType: TrackingEntityType.order,
+        entityId: randomUUID(),
+        eventType: 'order.in_progress',
+        sourceService: 'order-service',
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      // Registration query catches this event
+      mockDbEvents.push(eventDuringRegistration);
+
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      // Also simulate live signal arriving right as registration completes
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      service.broadcastEvent({ serviceRequestId, ...eventDuringRegistration });
+
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((m) => messages.push(m));
+
+      await vi.waitFor(() => expect(messages).toHaveLength(2));
+      expect(messages[0].data.type).toBe('connected');
+      expect(messages[1].id).toBe(eventDuringRegistration.id);
+      expect((messages[1].data as any).payload.writeSequence).toBe(6);
+
+      // Verify no duplicates
+      expect(
+        messages.filter((m) => m.id === eventDuringRegistration.id),
+      ).toHaveLength(1);
+
+      subscription.unsubscribe();
+    });
+
+    it('should advance lastDeliveredSequence for permission-shielded events without leaking them', async () => {
+      const serviceRequestId = randomUUID();
+      const flowId = randomUUID();
+      const workerId = randomUUID();
+      const otherWorkerId = randomUUID();
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: flowId,
+        serviceRequestId,
+        customerId: randomUUID(),
+      });
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({ id: randomUUID() });
+
+      const competitorBid = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 1,
+        entityType: TrackingEntityType.bid,
+        entityId: randomUUID(),
+        eventType: 'bid.submitted',
+        sourceService: 'bidding-service',
+        actorUserId: otherWorkerId,
+        metadata: { workerId: otherWorkerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      const myProposal = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 2,
+        entityType: TrackingEntityType.booking_proposal,
+        entityId: randomUUID(),
+        eventType: 'booking_proposal.created',
+        sourceService: 'booking-service',
+        actorUserId: workerId,
+        metadata: { workerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+
+      mockDbEvents.push(competitorBid, myProposal);
+
+      const user: GatewayUser = {
+        userId: workerId,
+        roles: ['Worker'],
+        isAdmin: false,
+        isCustomer: false,
+        isWorker: true,
+      };
+
+      const stream$ = await service.getLiveStream(serviceRequestId, user);
+      const messages: any[] = [];
+      const subscription = stream$.subscribe((m) => messages.push(m));
+
+      service.broadcastEvent({ serviceRequestId, ...competitorBid });
+      service.broadcastEvent({ serviceRequestId, ...myProposal });
+
+      await vi.waitFor(() => expect(messages).toHaveLength(2));
+
+      // Connected + my proposal (competitor bid strictly filtered out)
+      expect(messages[0].data.type).toBe('connected');
+      expect(messages[1].id).toBe(myProposal.id);
+      expect((messages[1].data as any).payload.writeSequence).toBe(2);
+
+      // Verify competitor bid was never delivered
+      expect(messages.some((m) => m.id === competitorBid.id)).toBe(false);
+
+      // Now broadcast another valid event; competitor bid must not be re-evaluated
+      const myPayment = {
+        id: randomUUID(),
+        eventId: randomUUID(),
+        trackingFlowId: flowId,
+        writeSequence: 3,
+        entityType: TrackingEntityType.booking_proposal,
+        entityId: randomUUID(),
+        eventType: 'booking_proposal.accepted',
+        sourceService: 'booking-service',
+        actorUserId: workerId,
+        metadata: { workerId },
+        occurredAt: new Date(),
+        recordedAt: new Date(),
+      };
+      mockDbEvents.push(myPayment);
+      service.broadcastEvent({ serviceRequestId, ...myPayment });
+
+      await vi.waitFor(() => expect(messages).toHaveLength(3));
+      expect(messages[2].id).toBe(myPayment.id);
+      expect((messages[2].data as any).payload.writeSequence).toBe(3);
+
+      subscription.unsubscribe();
+    });
+
+    it('should recover missed events via periodic sync when Pub/Sub notification is lost', async () => {
+      vi.useFakeTimers();
+      try {
+        const serviceRequestId = randomUUID();
+        const customerId = randomUUID();
+        const flowId = randomUUID();
+
+        prismaMock.trackingFlow.findUnique.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          customerId,
+        });
+
+        const user: GatewayUser = {
+          userId: customerId,
+          roles: ['Customer'],
+          isAdmin: false,
+          isCustomer: true,
+          isWorker: false,
+        };
+
+        const stream$ = await service.getLiveStream(serviceRequestId, user);
+        const messages: any[] = [];
+        const subscription = stream$.subscribe((m) => messages.push(m));
+
+        expect(messages).toHaveLength(1); // connected
+
+        // An event commits to DB, but Pub/Sub broadcast fails / is lost (never called)
+        const droppedPubSubEvent = {
+          id: randomUUID(),
+          eventId: randomUUID(),
+          trackingFlowId: flowId,
+          writeSequence: 1,
+          entityType: TrackingEntityType.order,
+          entityId: randomUUID(),
+          eventType: 'order.in_progress',
+          sourceService: 'order-service',
+          occurredAt: new Date(),
+          recordedAt: new Date(),
+        };
+        mockDbEvents.push(droppedPubSubEvent);
+
+        // Advance timer to trigger 25s heartbeat sync
+        await vi.advanceTimersByTimeAsync(25000);
+
+        // Heartbeat tick triggers drainLiveEvents, recovering dropped event
+        expect(messages.some((m) => m.id === droppedPubSubEvent.id)).toBe(true);
+
+        const recoveredMsg = messages.find((m) => m.id === droppedPubSubEvent.id);
+        expect(recoveredMsg).toBeDefined();
+        expect((recoveredMsg!.data as any).payload.writeSequence).toBe(1);
+
+        subscription.unsubscribe();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });
