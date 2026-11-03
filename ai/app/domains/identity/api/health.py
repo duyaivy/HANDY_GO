@@ -18,18 +18,3 @@ def health_check() -> ApiResponse:
             "status": "healthy",
         },
     )
-
-
-@router.get("/ready", response_model=ApiResponse)
-def readiness_check() -> ApiResponse:
-    """Readiness probe: Xác nhận service đã sẵn sàng tiếp nhận traffic."""
-    return ApiResponse(
-        success=True,
-        message="AI Service đã sẵn sàng tiếp nhận yêu cầu",
-        data={
-            "appName": settings.app_name,
-            "version": settings.app_version,
-            "status": "ready",
-            "modelsBaked": True,
-        },
-    )

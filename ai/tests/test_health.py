@@ -18,8 +18,8 @@ def test_ready_endpoint():
     response = client.get("/ready")
     assert response.status_code == 200
     data = response.json()
-    assert data["success"] is True
-    assert data["data"]["status"] == "ready"
+    assert data["status"] == "ready"
+    assert data["modelLoaded"] is True
 
 
 def test_openapi_docs():

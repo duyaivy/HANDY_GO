@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 import cv2
-from fastapi import APIRouter, File, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 
 from app.domains.identity.core.config import settings
@@ -21,8 +21,6 @@ from app.domains.identity.utils.image_validator import (
     check_image_quality,
 )
 from app.domains.identity.utils.ocr_error_detail import build_ocr_error_detail
-
-router = APIRouter(prefix="/internal/v1/identity", tags=["Internal Identity Inference"])
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/jpg", "image/png"}
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
@@ -52,6 +50,22 @@ def _verify_internal_secret(x_internal_secret: str | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid internal service secret.",
         )
+
+
+def verify_internal_identity_secret(
+    x_internal_secret: Annotated[
+        str | None,
+        Header(alias="x-internal-secret", include_in_schema=False),
+    ] = None,
+) -> None:
+    _verify_internal_secret(x_internal_secret)
+
+
+router = APIRouter(
+    prefix="/internal/v1/identity",
+    tags=["Internal Identity Inference"],
+    dependencies=[Depends(verify_internal_identity_secret)],
+)
 
 
 def _validate_image(file: UploadFile, field_name: str) -> None:
@@ -85,8 +99,6 @@ async def analyze_identity(
         Header(alias="x-internal-secret", include_in_schema=False),
     ] = None,
 ) -> dict:
-    _verify_internal_secret(x_internal_secret)
-
     _validate_image(cccd_image, "cccd_image")
     _validate_image(selfie_image, "selfie_image")
 
