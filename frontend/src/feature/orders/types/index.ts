@@ -1,40 +1,112 @@
 
-export type BookingStatusType =
+export type OrderStatus =
   | "created"
-  | "awaiting_payment"
   | "confirmed"
+  | "in_progress"
+  | "awaiting_customer_confirmation"
   | "completed"
   | "cancelled"
   | "disputed";
 
-export type PaymentStateType =
+export type PaymentState =
   | "unpaid"
   | "pending"
   | "paid"
   | "refunded"
   | "failed";
 
-export interface BookingOrderItem {
+export type DisputeAction =
+  | "resume_previous_state"
+  | "cancel"
+  | "complete";
+
+export interface Order {
   id: string;
-  code: string;
-  customer: string;
-  craftsman: string;
+  orderCode: string;
   service: string;
-  serviceColorClass: string;
-
-  // Giá trị số tương ứng với agreed_price trong DB
+  customer: string;
+  worker: string;
   price: number;
+  status: OrderStatus;
+  paymentState: PaymentState;
+  createdAt: string;
+  address: string;
+  disputeReason?: string;
+  previousStatus?: OrderStatus;
+  evidenceCount: number;
+  resolutionNote?: string;
+}
 
-  // Trạng thái hiển thị và trạng thái thực tế trong DB
-  status: string;
-  statusType: BookingStatusType;
+export interface OrderQuery {
+  page: number;
+  limit: number;
+  status?: OrderStatus;
+  paymentState?: PaymentState;
+  customerUserId?: string;
+  workerUserId?: string;
+}
 
-  // Tương ứng orders.payment_state
-  paymentState: PaymentStateType;
+export interface OrderListResponse {
+  items: OrderResponse[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
 
-  // Dùng cho bộ lọc thời gian, tương ứng orders.created_at
+export interface OrderResponse {
+  id: string;
+  orderCode: string;
+  customerUserId: string;
+  workerUserId: string;
+  serviceId: string;
+  agreedPrice: string;
+  agreedScope: string;
+  scheduledAt?: string | null;
+  addressText: string;
+  status: OrderStatus;
+  paymentState: PaymentState;
+  disputeReason?: string | null;
+  disputePreviousStatus?: OrderStatus | null;
+  disputeResolutionNote?: string | null;
+  createdAt: string;
+  evidences?: OrderEvidence[];
+  statusHistory?: OrderStatusHistoryItem[];
+}
+
+export interface OrderDetail extends OrderResponse {
+  serviceRequestId: string;
+  bookingProposalId: string;
+  selectionSource: string;
+  selectedBidId?: string | null;
+  selectedMatchResultId?: string | null;
+  latitude: number;
+  longitude: number;
+  confirmedAt?: string | null;
+  startedAt?: string | null;
+  workerFinishedAt?: string | null;
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
+  disputedAt?: string | null;
+  disputeResolvedAt?: string | null;
+  updatedAt: string;
+}
+
+export interface OrderEvidence {
+  id: string;
+  orderId: string;
+  mediaType: "image" | "video";
+  mediaUrl: string;
+  description?: string | null;
   createdAt: string;
 }
 
-// Giữ alias để không ảnh hưởng các component đang dùng OrderItem
-export type OrderItem = BookingOrderItem;
+export interface OrderStatusHistoryItem {
+  id: string;
+  fromStatus: OrderStatus | null;
+  toStatus: OrderStatus;
+  changedByUserId: string | null;
+  reason: string | null;
+  createdAt: string;
+}
