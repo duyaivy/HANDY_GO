@@ -2,13 +2,13 @@ import type { NotificationResponse } from 'expo-notifications';
 import type { AuthUser } from '@/services/auth/auth-api';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { act, render, waitFor } from '@/lib/test-utils';
 import { NotificationApi } from '@/services/notifications/notification-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationLifecycle } from '../notification-lifecycle';
 import { notificationIdFromData } from '../notification-payload';
-import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 
 const mockRouter = { push: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: jest.fn(() => mockRouter), useRootNavigationState: jest.fn(() => ({ key: 'ready' })) }));

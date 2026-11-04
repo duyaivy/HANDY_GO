@@ -68,18 +68,18 @@ describe('Realtime Sync Configuration Tests', () => {
       expect(queries.length).toBeGreaterThanOrEqual(2);
 
       const proposalQuery = queries.find(q =>
-        Array.isArray(q.queryKey) && q.queryKey.includes('proposals')
+        Array.isArray(q.queryKey) && q.queryKey.includes('proposals'),
       );
       expect(proposalQuery).toBeDefined();
-      expect(proposalQuery?.options.refetchInterval).toBe(4000);
-      expect(proposalQuery?.options.refetchIntervalInBackground).toBe(false);
+      expect((proposalQuery?.options as any).refetchInterval).toBe(4000);
+      expect((proposalQuery?.options as any).refetchIntervalInBackground).toBe(false);
 
       const orderQuery = queries.find(q =>
-        Array.isArray(q.queryKey) && q.queryKey.includes('worker') && !q.queryKey.includes('proposals')
+        Array.isArray(q.queryKey) && q.queryKey.includes('worker') && !q.queryKey.includes('proposals'),
       );
       expect(orderQuery).toBeDefined();
-      expect(orderQuery?.options.refetchInterval).toBe(5000);
-      expect(orderQuery?.options.refetchIntervalInBackground).toBe(false);
+      expect((orderQuery?.options as any).refetchInterval).toBe(5000);
+      expect((orderQuery?.options as any).refetchIntervalInBackground).toBe(false);
     });
   });
 
@@ -89,11 +89,11 @@ describe('Realtime Sync Configuration Tests', () => {
     await waitFor(() => {
       const queries = queryClient.getQueryCache().getAll();
       const requestQuery = queries.find(q =>
-        Array.isArray(q.queryKey) && q.queryKey.includes('customer') && q.queryKey.includes('requests')
+        Array.isArray(q.queryKey) && q.queryKey.includes('customer') && q.queryKey.includes('requests'),
       );
       expect(requestQuery).toBeDefined();
-      expect(requestQuery?.options.refetchInterval).toBe(5000);
-      expect(requestQuery?.options.refetchIntervalInBackground).toBe(false);
+      expect((requestQuery?.options as any).refetchInterval).toBe(5000);
+      expect((requestQuery?.options as any).refetchIntervalInBackground).toBe(false);
     });
   });
 
@@ -119,12 +119,12 @@ describe('Realtime Sync Configuration Tests', () => {
     await waitFor(() => {
       const queries = queryClient.getQueryCache().getAll();
       const detailQuery = queries.find(q =>
-        Array.isArray(q.queryKey) && q.queryKey.includes('detail') && q.queryKey.includes('ord-123')
+        Array.isArray(q.queryKey) && q.queryKey.includes('detail') && q.queryKey.includes('ord-123'),
       );
       expect(detailQuery).toBeDefined();
-      expect(typeof detailQuery?.options.refetchInterval).toBe('function');
+      expect(typeof (detailQuery?.options as any).refetchInterval).toBe('function');
 
-      const intervalFn = detailQuery?.options.refetchInterval as (query: any) => number | false;
+      const intervalFn = (detailQuery?.options as any).refetchInterval as (query: any) => number | false;
 
       // When status is 'created' -> 3000
       expect(intervalFn({ state: { data: { status: 'created' } } })).toBe(3000);

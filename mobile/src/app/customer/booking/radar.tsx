@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { HandyMapRef } from '@/components/map/handy-map';
 import type { BidCandidate, RecommendationCandidate } from '@/features/candidates/types/candidate.types';
 import type { CreateBookingProposalPayload } from '@/features/orders/types/order.types';

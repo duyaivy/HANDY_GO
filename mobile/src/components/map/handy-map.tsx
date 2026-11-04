@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { ViewStyle } from 'react-native';
 import * as React from 'react';
 import { StyleSheet, View } from 'react-native';

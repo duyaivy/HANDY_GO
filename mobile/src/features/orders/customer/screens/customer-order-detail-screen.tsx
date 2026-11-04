@@ -197,7 +197,7 @@ export function CustomerOrderDetailScreen({
             onRefresh={() => {
               refetch();
             }}
-            colors={["#F5A524"]}
+            colors={['#F5A524']}
             tintColor="#F5A524"
           />
         )}
@@ -271,14 +271,16 @@ export function CustomerOrderDetailScreen({
                       {formatOrderCreatedTime(order.cancelledAt || order.updatedAt)}
                     </Text>
                   </View>
-                  {order.cancelReason ? (
-                    <View className="mt-1.5 flex-row items-start justify-between">
-                      <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">Lý do hủy</Text>
-                      <Text className="max-w-[200px] text-right text-xs font-medium text-rose-800 dark:text-rose-200">
-                        {order.cancelReason}
-                      </Text>
-                    </View>
-                  ) : null}
+                  {order.cancelReason
+                    ? (
+                        <View className="mt-1.5 flex-row items-start justify-between">
+                          <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">Lý do hủy</Text>
+                          <Text className="max-w-[200px] text-right text-xs font-medium text-rose-800 dark:text-rose-200">
+                            {order.cancelReason}
+                          </Text>
+                        </View>
+                      )
+                    : null}
                 </View>
               )}
 

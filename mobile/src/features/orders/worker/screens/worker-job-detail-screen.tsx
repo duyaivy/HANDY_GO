@@ -46,10 +46,18 @@ function formatOrderStatus(status?: string | null): string {
   }
 }
 
-export interface WorkerJobDetailScreenProps {
+function checkIsTooEarly(scheduledAt?: string | null, jobId?: string): boolean {
+  if (!scheduledAt || jobId === 'JOB-1020') {
+    return false;
+  }
+  const diffMinutes = (new Date(scheduledAt).getTime() - Date.now()) / (60 * 1000);
+  return diffMinutes > 30;
+}
+
+export type WorkerJobDetailScreenProps = {
   jobId?: string;
   onBack?: () => void;
-}
+};
 
 export function WorkerJobDetailScreen({
   jobId: propJobId,
@@ -76,10 +84,7 @@ export function WorkerJobDetailScreen({
 
   // Lean Dispatch Rule 3 (Guard): Kiểm tra nếu chưa tới 30 phút trước giờ hẹn
   const isTooEarly = React.useMemo(() => {
-    if (!order?.scheduledAt || jobId === 'JOB-1020') return false;
-    const diffMinutes =
-      (new Date(order.scheduledAt).getTime() - Date.now()) / (60 * 1000);
-    return diffMinutes > 30;
+    return checkIsTooEarly(order?.scheduledAt, jobId);
   }, [order?.scheduledAt, jobId]);
 
   const handleBack = () => {
@@ -119,10 +124,10 @@ export function WorkerJobDetailScreen({
         Alert.alert('Bắt đầu', 'Đơn hàng đã chuyển sang trạng thái Đang làm!');
         return;
       }
-      const message =
-        err?.response?.data?.message ||
-        err?.message ||
-        'Không thể bắt đầu đơn việc lúc này.';
+      const message
+        = err?.response?.data?.message
+          || err?.message
+          || 'Không thể bắt đầu đơn việc lúc này.';
       Alert.alert('Chưa thể bắt đầu thi công', message);
     }
   };
@@ -289,12 +294,16 @@ export function WorkerJobDetailScreen({
               </Text>
               {(order?.cancelledAt || order?.updatedAt) && (
                 <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
-                  Thời gian hủy: {new Date(order?.cancelledAt || order?.updatedAt || '').toLocaleString('vi-VN')}
+                  Thời gian hủy:
+                  {' '}
+                  {new Date(order?.cancelledAt || order?.updatedAt || '').toLocaleString('vi-VN')}
                 </Text>
               )}
               {order?.cancelReason && (
                 <Text className="mt-0.5 text-[11px] text-rose-800 dark:text-rose-200">
-                  Lý do: {order.cancelReason}
+                  Lý do:
+                  {' '}
+                  {order.cancelReason}
                 </Text>
               )}
             </View>

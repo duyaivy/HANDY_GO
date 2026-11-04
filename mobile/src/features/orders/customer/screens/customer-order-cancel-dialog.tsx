@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';

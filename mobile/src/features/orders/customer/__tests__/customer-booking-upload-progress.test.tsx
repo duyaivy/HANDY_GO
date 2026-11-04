@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { UploadImageOptions } from '../../api/orders.api';
 import * as ImagePicker from 'expo-image-picker';
 import * as React from 'react';

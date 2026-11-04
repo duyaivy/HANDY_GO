@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';

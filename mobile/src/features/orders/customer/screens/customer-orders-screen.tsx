@@ -258,7 +258,6 @@ export function CustomerOrdersScreen({
     isFetchingNextRequests,
     isLoading,
     isOrdersError,
-    isRefetching,
     isRequestsError,
     orders,
     refetch,
@@ -273,7 +272,8 @@ export function CustomerOrdersScreen({
     setIsManualRefreshing(true);
     try {
       await refetch();
-    } finally {
+    }
+    finally {
       setIsManualRefreshing(false);
     }
   }, [refetch]);
@@ -404,7 +404,9 @@ export function CustomerOrdersScreen({
 
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
-                      Hủy lúc: {formatCancelledTime(req.cancelledAt || req.updatedAt)}
+                      Hủy lúc:
+                      {' '}
+                      {formatCancelledTime(req.cancelledAt || req.updatedAt)}
                     </Text>
                   )}
 
@@ -505,7 +507,9 @@ export function CustomerOrdersScreen({
 
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
-                      Hủy lúc: {formatCancelledTime(ord.cancelledAt || ord.updatedAt)}
+                      Hủy lúc:
+                      {' '}
+                      {formatCancelledTime(ord.cancelledAt || ord.updatedAt)}
                       {ord.cancelReason ? ` • Lý do: ${ord.cancelReason}` : ''}
                     </Text>
                   )}

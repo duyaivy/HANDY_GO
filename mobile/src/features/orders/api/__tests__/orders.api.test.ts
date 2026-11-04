@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { ApiClient, axiosInstance } from '@/services/api/api-client';
 import { OrdersApi } from '../orders.api';
 

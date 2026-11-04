@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 /* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
 import type { BookingImageItem } from '../components/booking-image-thumbnail';
 import { CameraView, useCameraPermissions } from 'expo-camera';

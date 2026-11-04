@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { BookingProposal, Order } from '../../types/order.types';
 import { useRouter } from 'expo-router';
 import * as React from 'react';

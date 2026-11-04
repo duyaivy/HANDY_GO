@@ -1,4 +1,4 @@
-/* eslint-disable max-lines-per-function, react-compiler/react-compiler, testing-library/no-unnecessary-act */
+/* eslint-disable react-compiler/react-compiler, testing-library/no-unnecessary-act */
 import * as React from 'react';
 import { View } from 'react-native';
 import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';

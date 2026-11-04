@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { OrdersApi } from '@/features/orders/api/orders.api';

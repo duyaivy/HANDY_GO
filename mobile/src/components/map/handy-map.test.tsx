@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { HandyMapRef } from './handy-map';
 import { act, render, screen } from '@testing-library/react-native';
 import * as React from 'react';

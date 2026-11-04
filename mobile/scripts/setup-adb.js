@@ -46,8 +46,10 @@ function setupAdb() {
 
   // Phân loại thiết bị
   function getDeviceType(serial) {
-    if (serial.startsWith('emulator-')) return '💻 Máy ảo Android Emulator';
-    if (serial.includes(':') || serial.includes('_tcp') || serial.includes('._')) return '📶 Máy thật kết nối qua Wi-Fi ADB';
+    if (serial.startsWith('emulator-'))
+      return '💻 Máy ảo Android Emulator';
+    if (serial.includes(':') || serial.includes('_tcp') || serial.includes('._'))
+      return '📶 Máy thật kết nối qua Wi-Fi ADB';
     return '🔌 Máy thật cắm cáp USB trực tiếp';
   }
 

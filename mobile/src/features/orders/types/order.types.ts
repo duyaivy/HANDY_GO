@@ -118,6 +118,7 @@ export type Order = {
   addressText: string;
   latitude?: number | null;
   longitude?: number | null;
+  scheduledAt?: string | null;
   status: OrderStatus;
   paymentState: PaymentState;
   confirmedAt?: string | null;
