@@ -536,7 +536,7 @@ class RecoveryTests(unittest.TestCase):
             mock_c.cluster_lock = contextlib.nullcontext
             coord_cls.return_value = mock_c
             recovery.main()
-            mock_reconcile.assert_called_once_with(mock_c, expected=('prod-20261103-123-a1', OLD), inspect_only=True)
+            mock_reconcile.assert_called_once_with(mock_c, expected=('prod-20261103-123-a1', OLD), inspect_only=True, abort_untouched=False)
             self.assertEqual(mock_c.transaction, 'prod-20261103-123-a1')
             self.assertEqual(mock_c.target, OLD)
 
@@ -553,7 +553,20 @@ class RecoveryTests(unittest.TestCase):
             mock_c.cluster_lock = contextlib.nullcontext
             coord_cls.return_value = mock_c
             recovery.main()
-            mock_reconcile.assert_called_once_with(mock_c, expected=('prod-20261103-123-a1', OLD), inspect_only=False)
+            mock_reconcile.assert_called_once_with(mock_c, expected=('prod-20261103-123-a1', OLD), inspect_only=False, abort_untouched=False)
+
+    def test_recovery_cli_abort_mode_is_explicit_and_excludes_recover(self):
+        args = ['recovery.py', '--run-id', '123', '--attempt', '1',
+                '--transaction', 'prod-20261103-123-a1', '--target', OLD,
+                '--domain', 'api.example.com', '--abort-untouched']
+        with patch.object(sys, 'argv', args), patch.object(recovery, 'Coordinator') as coord_cls, \
+                patch.object(recovery, 'reconcile') as reconcile:
+            coord_cls.return_value.cluster_lock = contextlib.nullcontext
+            recovery.main()
+            reconcile.assert_called_once_with(coord_cls.return_value,
+                expected=('prod-20261103-123-a1', OLD), inspect_only=False, abort_untouched=True)
+        with patch.object(sys, 'argv', args + ['--recover']), self.assertRaises(SystemExit):
+            recovery.main()
 
     # TEST-01: Automatic untouched snapshot
     def test_test01_automatic_untouched_snapshot_safely_finished(self):

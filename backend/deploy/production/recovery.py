@@ -2,6 +2,7 @@
 """Conservative cluster reconciliation. No migrations, TTLs, or blind journal deletion."""
 import argparse
 import re
+import time
 
 from orchestrate import Coordinator, ROLES, ID
 from release_log import redact
@@ -84,7 +85,48 @@ def plan(states, expected=None):
                 verify=previous, previous_manifest=old[0])
 
 
-def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, env_only=False):
+def abort_untouched_snapshot(c, recovery, expected):
+    """Explicit operator cancellation; never certify the degraded previous release."""
+    if (not expected or recovery['decision'] != 'FINISH_SNAPSHOT' or recovery.get('deferred')
+            or not recovery.get('previous')):
+        raise RuntimeError('Manual snapshot abort requires exactly one untouched transaction with previous stable')
+    c.transaction, c.target = recovery['transaction'], recovery['target']
+    c.journal.update(transaction=c.transaction, target_release=c.target)
+    owned = recovery['owned']
+    previous = recovery['previous']
+    for role in owned:
+        c.remote(role, 'snapshot-abort-baseline', wait_lock=True)
+    first = {role: c.remote(role, 'observe-runtime', previous, wait_lock=True) for role in ROLES}
+    time.sleep(20)
+    second = {role: c.remote(role, 'observe-runtime', previous, wait_lock=True) for role in ROLES}
+    for role in ROLES:
+        if (first[role].get('release_id') != previous or second[role].get('release_id') != previous
+                or not first[role].get('containers')
+                or first[role]['containers'] != second[role].get('containers')
+                or first[role].get('release_accepted') is not False
+                or second[role].get('release_accepted') is not False):
+            raise RuntimeError(f'{role}: runtime changed during snapshot abort observation')
+    c.public_smoke(recovery['previous_manifest'])
+    checked = plan(c.inspect_cluster(), expected)
+    if (checked['decision'] != 'FINISH_SNAPSHOT' or checked.get('deferred')
+            or set(checked['owned']) != set(owned) or checked.get('previous') != previous
+            or checked.get('manifest') != recovery.get('manifest')
+            or checked.get('previous_manifest') != recovery.get('previous_manifest')):
+        raise RuntimeError('Transaction/stable state changed during snapshot abort observation')
+    for role in owned:
+        c.remote(role, 'authorize-snapshot-abort', wait_lock=True)
+    for role in owned:
+        c.remote(role, 'abort-snapshot', wait_lock=True)
+    after = c.inspect_cluster()
+    if any(s['pending'] or release(s['stable']) != previous for s in after.values()):
+        raise RuntimeError('RECOVERY_REQUIRED: snapshot abort cleanup incomplete or stable changed')
+    c.journal['recovery'].update(observation=second, unlock='ABORTED_UNTOUCHED_SNAPSHOT',
+                                 verification='NOT_RELEASE_VERIFIED')
+    c.journal['status'] = 'SNAPSHOT_ABORTED_PREVIOUS_NOT_VERIFIED'
+    c.persist()
+
+
+def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, env_only=False, abort_untouched=False):
     c = coordinator
     try:
         states = c.inspect_cluster()
@@ -95,6 +137,8 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
         c.journal['recovery']['classification'] = ('NO_PENDING' if recovery['decision'] == 'RECOVERY_NOT_NEEDED'
                                                     else 'RECOVERY_REQUIRED')
         c.persist()
+        if abort_untouched and (automatic or inspect_only or env_only or not expected):
+            raise RuntimeError('Snapshot abort is an explicit manual recovery mode only')
         if recovery['decision'] == 'RECOVERY_NOT_NEEDED':
             c.journal['status'] = 'RECOVERY_NOT_NEEDED'
             c.persist()
@@ -109,6 +153,9 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
         if inspect_only:
             c.journal['status'] = 'RECOVERY_REQUIRED'
             c.persist()
+            return
+        if abort_untouched:
+            abort_untouched_snapshot(c, recovery, expected)
             return
         if automatic and recovery['decision'] != 'FINISH_SNAPSHOT':
             c.journal['status'] = 'RECOVERY_REQUIRED'
@@ -171,7 +218,9 @@ def main():
     parser.add_argument('--target', required=True)
     parser.add_argument('--domain', required=True)
     parser.add_argument('--output', default='recovery-output')
-    parser.add_argument('--recover', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--recover', action='store_true')
+    mode.add_argument('--abort-untouched', action='store_true')
     args = parser.parse_args()
     if not re.fullmatch(ID, args.target) or not re.fullmatch(
             rf'prod-[0-9]{{8}}-{args.run_id}-a{args.attempt}', args.transaction):
@@ -181,7 +230,8 @@ def main():
     c.transaction, c.target = args.transaction, args.target
     c.journal.update(transaction=c.transaction, target_release=c.target, operation='production-recovery')
     with c.cluster_lock():
-        reconcile(c, expected=(args.transaction, args.target), inspect_only=not args.recover)
+        reconcile(c, expected=(args.transaction, args.target),
+                  inspect_only=not (args.recover or args.abort_untouched), abort_untouched=args.abort_untouched)
 
 
 if __name__ == '__main__':
