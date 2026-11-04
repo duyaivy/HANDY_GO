@@ -64,6 +64,9 @@ export class ServiceRequestResponseDto {
   @ApiPropertyOptional()
   selectionExpiresAt?: Date | null;
 
+  @ApiPropertyOptional()
+  cancelledAt?: Date | null;
+
   @ApiProperty()
   version: number;
 

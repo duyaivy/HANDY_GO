@@ -44,10 +44,16 @@ function setupAdb() {
     return;
   }
 
-  // Phân loại: Máy thật cắm cáp USB, kết nối qua Wi-Fi, và máy ảo Emulator
-  const usbDevices = devices.filter(d => !d.serial.startsWith('emulator-') && !d.serial.includes(':') && d.state === 'device');
-  const wifiDevices = devices.filter(d => d.serial.includes(':') && d.state === 'device');
-  const emulators = devices.filter(d => d.serial.startsWith('emulator-') && d.state === 'device');
+  // Phân loại thiết bị
+  function getDeviceType(serial) {
+    if (serial.startsWith('emulator-'))
+      return '💻 Máy ảo Android Emulator';
+    if (serial.includes(':') || serial.includes('_tcp') || serial.includes('._'))
+      return '📶 Máy thật kết nối qua Wi-Fi ADB';
+    return '🔌 Máy thật cắm cáp USB trực tiếp';
+  }
+
+  const readyDevices = devices.filter(d => d.state === 'device');
   const unauthorized = devices.filter(d => d.state === 'unauthorized');
 
   if (unauthorized.length > 0) {
@@ -55,39 +61,30 @@ function setupAdb() {
     console.warn('[HandyGo ADB] 👉 Vui lòng mở khóa điện thoại và bấm "Cho phép / Always allow" trên màn hình.');
   }
 
-  // Ưu tiên 1: Cáp USB thật -> Ưu tiên 2: Wi-Fi ADB -> Ưu tiên 3: Máy ảo Android Emulator
-  let targets = [];
-  let label = '';
-  if (usbDevices.length > 0) {
-    targets = usbDevices;
-    label = '🔌 Máy thật cắm cáp USB trực tiếp';
-  }
-  else if (wifiDevices.length > 0) {
-    targets = wifiDevices;
-    label = '📶 Máy thật kết nối qua Wi-Fi ADB';
-  }
-  else if (emulators.length > 0) {
-    targets = emulators;
-    label = '💻 Máy ảo Android Emulator (fallback)';
-  }
-
-  if (targets.length === 0) {
+  if (readyDevices.length === 0) {
     console.warn('[HandyGo ADB] ⚠️ Không tìm thấy thiết bị nào ở trạng thái sẵn sàng (device).');
     return;
   }
 
-  for (const target of targets) {
+  for (const target of readyDevices) {
+    const label = getDeviceType(target.serial);
     console.log(`[HandyGo ADB] ${label}: [${target.serial}]`);
 
     // Reverse port 3000 (API Gateway -> Host PC)
-    const rev3000 = runCommand(`adb -s ${target.serial} reverse tcp:3000 tcp:3000`);
+    const rev3000 = runCommand(`adb -s "${target.serial}" reverse tcp:3000 tcp:3000`);
     // Reverse port 8081 (Metro Bundler -> Host PC)
-    const rev8081 = runCommand(`adb -s ${target.serial} reverse tcp:8081 tcp:8081`);
+    const rev8081 = runCommand(`adb -s "${target.serial}" reverse tcp:8081 tcp:8081`);
 
     if (rev3000 !== null && rev8081 !== null) {
       console.log(`[HandyGo ADB]   ✅ Đã tự động reverse port thành công:`);
       console.log(`[HandyGo ADB]      - tcp:3000 (API Backend Gateway -> PC:3000)`);
       console.log(`[HandyGo ADB]      - tcp:8081 (Metro Bundler -> PC:8081)`);
+
+      const activeMappings = runCommand(`adb -s "${target.serial}" reverse --list`);
+      if (activeMappings) {
+        const formatted = activeMappings.split(/\r?\n/).map(m => `        ${m}`).join('\n');
+        console.log(`[HandyGo ADB]   📋 Active reverse mappings:\n${formatted}`);
+      }
     }
     else {
       console.warn(`[HandyGo ADB]   ⚠️ Cảnh báo: Không thể cấu hình reverse port trên thiết bị ${target.serial}.`);

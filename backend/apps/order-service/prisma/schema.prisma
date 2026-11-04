@@ -76,6 +76,7 @@ model ServiceRequest {
   publishedAt        DateTime?     @map("published_at") @db.Timestamptz(6)
   biddingClosesAt    DateTime?     @map("bidding_closes_at") @db.Timestamptz(6)
   selectionExpiresAt DateTime?     @map("selection_expires_at") @db.Timestamptz(6)
+  cancelledAt        DateTime?     @map("cancelled_at") @db.Timestamptz(6)
   version            Int           @default(0)
   matchingRevision   Int           @default(0) @map("matching_revision")
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)

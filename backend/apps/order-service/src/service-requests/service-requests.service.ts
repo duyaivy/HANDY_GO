@@ -821,6 +821,7 @@ export class ServiceRequestsService {
         },
         data: {
           status: RequestStatus.cancelled,
+          cancelledAt: now,
           version: { increment: 1 },
         },
       });

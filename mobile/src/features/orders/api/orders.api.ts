@@ -21,6 +21,11 @@ function createFormImageFile(uri: string, name: string): Blob {
   } as unknown as Blob;
 }
 
+export type UploadImageOptions = {
+  onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
+};
+
 export const OrdersApi = {
   // --- Service Requests ---
   createRequest: async (payload: CreateServiceRequestPayload) => {
@@ -36,9 +41,10 @@ export const OrdersApi = {
     );
   },
 
-  cancelRequest: async (id: string) => {
+  cancelRequest: async (id: string, reason?: string) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       `/service-requests/${id}/cancel`,
+      reason ? { reason } : undefined,
     );
   },
 
@@ -53,6 +59,64 @@ export const OrdersApi = {
     return ApiClient.get<{ statusCode: number; message: string; data: ServiceRequest }>(
       `/service-requests/${id}`,
     );
+  },
+
+  getRequestById: async (id: string) => {
+    return OrdersApi.getRequestDetail(id);
+  },
+
+  getCandidates: async (requestId: string) => {
+    return ApiClient.get<{
+      statusCode: number;
+      message: string;
+      data: {
+        requestId: string;
+        requestStatus: string;
+        bidding?: {
+          status: string;
+          total: number;
+          items: Array<{
+            selectionSource?: string;
+            sourceBidId?: string;
+            workerUserId: string;
+            id: string;
+            workerId: string;
+            amount: number;
+            message?: string;
+            status: string;
+            workerProfile?: {
+              fullName?: string;
+              avatarUrl?: string;
+              averageRating?: number;
+              ratingCount?: number;
+              completedOrderCount?: number;
+              distanceKm?: number;
+            };
+          }>;
+        };
+        matching?: {
+          recommendations: Array<{
+            selectionSource?: string;
+            workerUserId: string;
+            workerId: string;
+            estimatedPrice?: number;
+            workerProfile?: {
+              fullName?: string;
+              avatarUrl?: string;
+              averageRating?: number;
+              ratingCount?: number;
+              completedOrderCount?: number;
+              distanceKm?: number;
+            };
+          }>;
+        };
+      };
+    }>(`/requests/${requestId}/candidates?_t=${Date.now()}`, {
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
+    });
   },
 
   // --- Booking Proposals ---
@@ -162,7 +226,14 @@ export const OrdersApi = {
   },
 
   // --- Media Upload Helper ---
-  uploadImage: async (uri: string, name = 'order_media'): Promise<string> => {
+  uploadImage: async (
+    uri: string,
+    nameOrOptions: string | UploadImageOptions = 'order_media',
+    maybeOptions?: UploadImageOptions,
+  ): Promise<string> => {
+    const name = typeof nameOrOptions === 'string' ? nameOrOptions : 'order_media';
+    const options = typeof nameOrOptions === 'object' ? nameOrOptions : maybeOptions;
+
     const formData = new FormData();
     formData.append('file', createFormImageFile(uri, name));
 
@@ -170,7 +241,18 @@ export const OrdersApi = {
       statusCode: number;
       message: string;
       data: { url: string };
-    }>('/uploads/image', formData);
+    }>('/uploads/image', formData, {
+      signal: options?.signal,
+      onUploadProgress: (event) => {
+        if (event.total && event.total > 0) {
+          const percent = Math.min(
+            100,
+            Math.max(0, Math.round((event.loaded * 100) / event.total)),
+          );
+          options?.onProgress?.(percent);
+        }
+      },
+    });
 
     if (!response?.data?.url) {
       throw new Error('Upload ảnh thất bại.');

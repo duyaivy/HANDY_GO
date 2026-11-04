@@ -121,5 +121,32 @@ describe('Worker Bidding API & Hooks (FIX-04 Worker Home Bid Status & Pagination
       const result = await WorkerBiddingApi.getMyBidForRequest('req-arr');
       expect(result).toEqual(mockBid);
     });
+
+    it('returns null if returned bid does not match the requested serviceRequestId (defensive filtering)', async () => {
+      const mismatchedBid = {
+        id: 'bid-mismatch',
+        serviceRequestId: 'req-other',
+        workerId: 'worker-1',
+        amount: 500000,
+        status: 'active',
+        version: 1,
+        submittedAt: '2026-11-03T10:00:00.000Z',
+        revisionsCount: 0,
+      };
+
+      (ApiClient.get as jest.Mock).mockResolvedValueOnce({
+        statusCode: 200,
+        message: 'Success',
+        data: {
+          items: [mismatchedBid],
+          total: 1,
+          page: 1,
+          limit: 1,
+        },
+      });
+
+      const result = await WorkerBiddingApi.getMyBidForRequest('req-current');
+      expect(result).toBeNull();
+    });
   });
 });

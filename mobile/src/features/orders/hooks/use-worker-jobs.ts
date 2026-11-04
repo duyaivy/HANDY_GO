@@ -60,6 +60,8 @@ export function useWorkerJobs() {
     getNextPageParam: getNextPageFromResponse,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 4000,
+    refetchIntervalInBackground: false,
   });
 
   // Lấy danh sách Active Orders với server filter + infinite pagination
@@ -77,6 +79,8 @@ export function useWorkerJobs() {
     getNextPageParam: getNextPageFromResponse,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const proposalsData = proposalsQuery.data;

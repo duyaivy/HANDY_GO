@@ -1,4 +1,9 @@
 export const ORDER_CONSTANTS = {
+  // Worker Capacity and Scheduling Rules (Lean Dispatch)
+  MAX_ACTIVE_ORDERS_PER_WORKER: 3,
+  MIN_SCHEDULE_GAP_MINUTES: 60,
+  MAX_EARLY_START_MINUTES: 30,
+
   // Deadline configurations
   DEFAULT_BIDDING_DURATION_HOURS: 24,
   DEFAULT_SELECTION_DURATION_HOURS: 24,

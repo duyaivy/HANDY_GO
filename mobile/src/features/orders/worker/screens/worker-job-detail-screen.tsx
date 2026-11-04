@@ -15,11 +15,6 @@ import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
-export type WorkerJobDetailScreenProps = {
-  jobId?: string;
-  onBack?: () => void;
-};
-
 function formatVND(amount: number | string | undefined | null): string {
   if (!amount) {
     return '0đ';
@@ -28,13 +23,49 @@ function formatVND(amount: number | string | undefined | null): string {
   return `${n.toLocaleString('vi-VN')}đ`;
 }
 
+function formatOrderStatus(status?: string | null): string {
+  switch (status) {
+    case 'created':
+      return 'Vừa tạo';
+    case 'confirmed':
+      return 'Thợ đã sẵn sàng';
+    case 'in_progress':
+      return 'Đang thi công';
+    case 'awaiting_customer_confirmation':
+      return 'Chờ nghiệm thu';
+    case 'completed':
+      return 'Hoàn tất';
+    case 'cancelled':
+      return 'Đã hủy';
+    case 'expired':
+      return 'Hết hạn';
+    case 'disputed':
+      return 'Đang khiếu nại';
+    default:
+      return status || '';
+  }
+}
+
+function checkIsTooEarly(scheduledAt?: string | null, jobId?: string): boolean {
+  if (!scheduledAt || jobId === 'JOB-1020') {
+    return false;
+  }
+  const diffMinutes = (new Date(scheduledAt).getTime() - Date.now()) / (60 * 1000);
+  return diffMinutes > 30;
+}
+
+export type WorkerJobDetailScreenProps = {
+  jobId?: string;
+  onBack?: () => void;
+};
+
 export function WorkerJobDetailScreen({
   jobId: propJobId,
   onBack,
 }: WorkerJobDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ id?: string }>();
-  const jobId = propJobId || searchParams?.id || 'JOB-1020';
+  const params = useLocalSearchParams<{ id?: string }>();
+  const jobId = propJobId || params.id || '';
 
   const {
     confirmReadiness,
@@ -50,6 +81,11 @@ export function WorkerJobDetailScreen({
   const [localStatus, setLocalStatus] = React.useState<string>(order?.status || 'created');
 
   const currentStatus = order?.status || localStatus;
+
+  // Lean Dispatch Rule 3 (Guard): Kiểm tra nếu chưa tới 30 phút trước giờ hẹn
+  const isTooEarly = React.useMemo(() => {
+    return checkIsTooEarly(order?.scheduledAt, jobId);
+  }, [order?.scheduledAt, jobId]);
 
   const handleBack = () => {
     if (onBack) {
@@ -82,9 +118,17 @@ export function WorkerJobDetailScreen({
       setLocalStatus('in_progress');
       Alert.alert('Bắt đầu', 'Đơn hàng đã bắt đầu tính thời gian thi công!');
     }
-    catch {
-      setLocalStatus('in_progress');
-      Alert.alert('Bắt đầu', 'Đơn hàng đã chuyển sang trạng thái Đang làm!');
+    catch (err: any) {
+      if (jobId === 'JOB-1020') {
+        setLocalStatus('in_progress');
+        Alert.alert('Bắt đầu', 'Đơn hàng đã chuyển sang trạng thái Đang làm!');
+        return;
+      }
+      const message
+        = err?.response?.data?.message
+          || err?.message
+          || 'Không thể bắt đầu đơn việc lúc này.';
+      Alert.alert('Chưa thể bắt đầu thi công', message);
     }
   };
 
@@ -107,35 +151,57 @@ export function WorkerJobDetailScreen({
         {/* Thẻ thông tin khách hàng & địa chỉ làm việc */}
         <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <View className="flex-row items-center justify-between">
-            <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-              Thông tin công việc
+            <Text className="text-base font-bold text-neutral-900 dark:text-white">
+              {order?.agreedScope || 'Sửa chữa thiết bị / dịch vụ'}
             </Text>
-            <View className="rounded-full bg-amber-100 px-2.5 py-0.5 dark:bg-amber-950/40">
-              <Text className="text-[10px] font-bold text-amber-800 uppercase dark:text-amber-300">
-                {currentStatus}
+            <View className="rounded-full bg-blue-100 px-2.5 py-0.5 dark:bg-blue-950/40">
+              <Text className="text-[10px] font-bold text-blue-800 dark:text-blue-300">
+                {formatOrderStatus(currentStatus)}
               </Text>
             </View>
           </View>
 
-          <Text className="mt-2 text-xs text-neutral-700 dark:text-neutral-300">
-            {order?.agreedScope || 'Sửa chữa và thay mới đường ống cấp nước bồn rửa'}
+          <Text className="mt-2 text-xs text-neutral-500">
+            📍 Địa chỉ:
+            {' '}
+            <Text className="font-semibold text-neutral-800 dark:text-neutral-200">
+              {order?.addressText || '123 Nguyễn Lương Bằng, Đà Nẵng'}
+            </Text>
           </Text>
 
-          <View className="mt-3 gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+          {order?.scheduledAt && (
+            <Text className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+              🕒 Giờ hẹn:
+              {' '}
+              <Text className="font-semibold">
+                {new Date(order.scheduledAt).toLocaleString('vi-VN')}
+              </Text>
+            </Text>
+          )}
+
+          <View className="mt-3 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+            <Text className="text-xs text-neutral-500">
+              Giá thoả thuận:
+              {' '}
+              <Text className="text-base font-bold text-primary">
+                {formatVND(order?.agreedPrice || 350000)}
+              </Text>
+            </Text>
+          </View>
+        </View>
+
+        {/* Thông tin thanh toán & cọc */}
+        <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+          <Text className="mb-2 text-xs font-bold text-neutral-900 dark:text-white">
+            Trạng thái thanh toán
+          </Text>
+          <View className="gap-1.5">
             <View className="flex-row items-center justify-between">
-              <Text className="text-xs text-neutral-500">Tiền công thỏa thuận</Text>
-              <Text className="text-sm font-black text-primary">
-                {formatVND(order?.agreedPrice || 300000)}
+              <Text className="text-xs text-neutral-500">Tiền cọc / Giữ chỗ</Text>
+              <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                {order?.paymentState === 'paid' ? 'Đã thanh toán' : 'Không yêu cầu cọc'}
               </Text>
             </View>
-
-            <View className="flex-row items-center justify-between">
-              <Text className="text-xs text-neutral-500">📍 Địa chỉ thi công</Text>
-              <Text className="max-w-[200px] text-right text-xs font-semibold text-neutral-900 dark:text-white" numberOfLines={1}>
-                {order?.addressText || '123 Nguyễn Lương Bằng, Đà Nẵng'}
-              </Text>
-            </View>
-
             <View className="flex-row items-center justify-between">
               <Text className="text-xs text-neutral-500">Phương thức thanh toán</Text>
               <Text className="text-xs font-bold text-emerald-600">
@@ -164,15 +230,28 @@ export function WorkerJobDetailScreen({
           )}
 
           {currentStatus === 'confirmed' && (
-            <Button
-              testID="worker-start-order-btn"
-              label={isStartingOrder ? 'Đang bắt đầu...' : '2. Bắt Đầu Thi Công (ORD-07)'}
-              variant="default"
-              disabled={isStartingOrder}
-              className="h-12 w-full rounded-2xl bg-blue-600"
-              textClassName="text-sm font-bold text-white"
-              onPress={handleStartOrder}
-            />
+            <View>
+              <Button
+                testID="worker-start-order-btn"
+                label={
+                  isStartingOrder
+                    ? 'Đang bắt đầu...'
+                    : isTooEarly
+                      ? 'Chưa tới giờ (Mở trước 30 phút)'
+                      : '2. Bắt Đầu Thi Công (ORD-07)'
+                }
+                variant="default"
+                disabled={isStartingOrder || isTooEarly}
+                className={`h-12 w-full rounded-2xl ${isTooEarly ? 'bg-neutral-400' : 'bg-blue-600'}`}
+                textClassName="text-sm font-bold text-white"
+                onPress={handleStartOrder}
+              />
+              {isTooEarly && (
+                <Text className="mt-1.5 text-center text-[11px] text-amber-600 dark:text-amber-400">
+                  🕒 Nút bắt đầu thi công sẽ tự động mở trước giờ hẹn 30 phút.
+                </Text>
+              )}
+            </View>
           )}
 
           {currentStatus === 'in_progress' && (
@@ -207,13 +286,35 @@ export function WorkerJobDetailScreen({
               </Text>
             </View>
           )}
+
+          {currentStatus === 'cancelled' && (
+            <View className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
+              <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
+                ❌ Đơn hàng đã bị hủy
+              </Text>
+              {(order?.cancelledAt || order?.updatedAt) && (
+                <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
+                  Thời gian hủy:
+                  {' '}
+                  {new Date(order?.cancelledAt || order?.updatedAt || '').toLocaleString('vi-VN')}
+                </Text>
+              )}
+              {order?.cancelReason && (
+                <Text className="mt-0.5 text-[11px] text-rose-800 dark:text-rose-200">
+                  Lý do:
+                  {' '}
+                  {order.cancelReason}
+                </Text>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Dòng thời gian Timeline */}
         {statusHistory && statusHistory.length > 0 && (
           <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
             <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
-              Lịch sử trạng thái
+              Lịch sử trạng thái đơn hàng
             </Text>
             <View className="gap-2.5">
               {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
@@ -221,9 +322,9 @@ export function WorkerJobDetailScreen({
                   <View className="mt-1 size-2 rounded-full bg-primary" />
                   <View className="flex-1">
                     <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                      Trạng thái:
+                      Chuyển sang:
                       {' '}
-                      {item.toStatus}
+                      {formatOrderStatus(item.toStatus)}
                     </Text>
                     <Text className="text-[10px] text-neutral-400">
                       {new Date(item.createdAt).toLocaleString('vi-VN')}

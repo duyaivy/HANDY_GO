@@ -160,7 +160,8 @@ describe('OrdersService', () => {
           }
           return current;
         }),
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(null),
         create: vi.fn(),
         update: vi.fn(),
         updateMany: vi.fn(async ({ where, data }: any) => {
@@ -410,6 +411,33 @@ describe('OrdersService', () => {
         service.acceptProposal(mockProposalId, mockWorkerId),
       ).rejects.toThrow(ConflictException);
     });
+
+    it('should throw ConflictException if worker capacity exceeded (>= 3 active orders)', async () => {
+      txMock.bookingProposal.findUnique.mockResolvedValue(validProposal);
+      txMock.order.findUnique.mockResolvedValue(null);
+      txMock.order.count.mockResolvedValue(3);
+
+      await expect(
+        service.acceptProposal(mockProposalId, mockWorkerId),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException if schedule conflict exists (< 60 minutes gap)', async () => {
+      txMock.bookingProposal.findUnique.mockResolvedValue(validProposal);
+      txMock.order.findUnique.mockResolvedValue(null);
+      txMock.order.count.mockResolvedValue(1);
+      txMock.order.findMany.mockResolvedValue([
+        {
+          id: 'existing-conflict-order',
+          orderCode: 'ORD-EXISTING-1',
+          scheduledAt: new Date(validProposal.scheduledAt.getTime() + 30 * 60 * 1000),
+        },
+      ]);
+
+      await expect(
+        service.acceptProposal(mockProposalId, mockWorkerId),
+      ).rejects.toThrow(ConflictException);
+    });
   });
 
   describe('confirmReadiness', () => {
@@ -470,6 +498,7 @@ describe('OrdersService', () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'confirmed',
+        scheduledAt: new Date(Date.now() + 15 * 60 * 1000), // Within 30 minutes
       });
       txMock.order.update.mockResolvedValue({
         ...validBaseOrder,
@@ -505,6 +534,35 @@ describe('OrdersService', () => {
 
       await expect(service.start(mockOrderId, mockWorkerId)).rejects.toThrow(
         ConflictException,
+      );
+    });
+
+    it('should throw ConflictException if worker already has an order in_progress (Rule 3: Single in_progress)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'confirmed',
+        scheduledAt: new Date(Date.now() + 15 * 60 * 1000),
+      });
+      txMock.order.findFirst.mockResolvedValue({
+        id: 'other-working-order-id',
+        orderCode: 'ORD-BUSY-123',
+      });
+
+      await expect(service.start(mockOrderId, mockWorkerId)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('should throw BadRequestException if trying to start too early (> 30 minutes before scheduledAt)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'confirmed',
+        scheduledAt: new Date(Date.now() + 50 * 60 * 1000),
+      });
+      txMock.order.findFirst.mockResolvedValue(null);
+
+      await expect(service.start(mockOrderId, mockWorkerId)).rejects.toThrow(
+        BadRequestException,
       );
     });
   });

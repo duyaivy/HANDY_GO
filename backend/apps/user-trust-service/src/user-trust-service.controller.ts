@@ -477,6 +477,34 @@ export class UserTrustServiceController {
     }
   }
 
+
+  /**
+   * Internal REST API for batch worker summary lookup (Bidding & Candidates enrichment).
+   */
+  @Public()
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/workers/batch-summary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Internal: Batch summary of worker profiles',
+  })
+  async getWorkersBatchSummary(
+    @Query('ids') ids?: string,
+  ): Promise<unknown> {
+    const list = ids ? ids.split(',').map((id) => id.trim()).filter(Boolean) : [];
+    return this.userTrustService.getWorkersBatchSummary(list);
+  }
+
+  @Public()
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/v1/workers/batch-summary')
+  @HttpCode(HttpStatus.OK)
+  async getWorkersBatchSummaryV1(
+    @Query('ids') ids?: string,
+  ): Promise<unknown> {
+    const list = ids ? ids.split(',').map((id) => id.trim()).filter(Boolean) : [];
+    return this.userTrustService.getWorkersBatchSummary(list);
+  }
 }
 
 
