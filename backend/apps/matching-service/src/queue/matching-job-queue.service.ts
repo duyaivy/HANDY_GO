@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import type { MatchingJobPayload } from './matching-job.types.js';
 
@@ -27,15 +28,15 @@ export class MatchingJobQueueService implements OnModuleDestroy {
 
   constructor() {
     this.maxConcurrency = parseInt(
-      process.env.MATCHING_WORKER_CONCURRENCY || '5',
+      optionalValue(process.env.MATCHING_WORKER_CONCURRENCY) || '5',
       10,
     );
     this.jobTimeoutMs = parseInt(
-      process.env.MATCHING_JOB_TIMEOUT_MS || '30000',
+      optionalValue(process.env.MATCHING_JOB_TIMEOUT_MS) || '30000',
       10,
     );
     this.maxAttempts = parseInt(
-      process.env.MATCHING_MAX_RETRY_ATTEMPTS || '5',
+      optionalValue(process.env.MATCHING_MAX_RETRY_ATTEMPTS) || '5',
       10,
     );
     if (

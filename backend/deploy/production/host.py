@@ -184,7 +184,6 @@ def validate_service_endpoints(values, registry):
 
 def validate_env(path):
     values = {}
-    optional_database_urls = {'DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG'}
     for line in path.read_text().splitlines():
         if not line or line.startswith('#'):
             continue
@@ -193,14 +192,23 @@ def validate_env(path):
             raise ValueError('Invalid or duplicate key in shared ENV')
         if value.startswith(('"', "'")) or 'REPLACE_' in value or '\r' in line:
             raise ValueError('ENV requires literal, unquoted values and real configuration')
-        if not value and key not in optional_database_urls:
-            raise ValueError(f'Empty ENV value: {key}')
         values[key] = value
     required = ('DATABASE_URL', 'RABBITMQ_URL', 'REDIS_URL', 'OTP_SECRET', 'INTERNAL_SERVICE_SECRET',
                 'JWT_PUBLIC_KEY', 'JWT_PRIVATE_KEY', 'SMTP_USER', 'SMTP_PASS',
                 'CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
-    if any(not values.get(key) for key in required) or values.get('NODE_ENV') != 'production':
+    if any(not values.get(key, '').strip() for key in required) or values.get('NODE_ENV') != 'production':
         raise ValueError('Missing required production configuration')
+    for key, value in values.items():
+        if key == 'DATABASE_URL' or key.startswith(('DATABASE_URL_', 'DIRECT_URL_')):
+            if not value.strip():
+                continue
+            try:
+                url = urlsplit(value.strip())
+                if (url.scheme not in ('postgres', 'postgresql') or not url.hostname
+                        or not url.username or not url.path.strip('/') or not 1 <= (url.port if url.port is not None else 5432) <= 65535):
+                    raise ValueError()
+            except ValueError:
+                raise ValueError(f'{key}: valid PostgreSQL endpoint required') from None
     if not values['RABBITMQ_URL'].startswith('amqps://') or not values['REDIS_URL'].startswith('rediss://'):
         raise ValueError('Cloud RabbitMQ and Redis must use TLS')
     if any(len(values[key]) < 32 for key in ('OTP_SECRET', 'INTERNAL_SERVICE_SECRET')):

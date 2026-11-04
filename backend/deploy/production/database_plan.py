@@ -29,7 +29,10 @@ def migration_services(registry):
 
 
 def integer(values, key, default=None, minimum=1, maximum=100000):
-    raw = values.get(key, default)
+    raw = values.get(key)
+    raw = raw.strip() if isinstance(raw, str) else raw
+    if raw in (None, ''):
+        raw = default
     if raw is None or not re.fullmatch(r'[1-9][0-9]*', str(raw)) or not minimum <= int(raw) <= maximum:
         raise ValueError(f'{key}: integer in [{minimum}, {maximum}] required')
     return int(raw)
@@ -37,21 +40,39 @@ def integer(values, key, default=None, minimum=1, maximum=100000):
 
 def endpoint(raw, label):
     try:
-        url = urlsplit(raw)
-        if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not url.username or not url.path.strip('/'):
+        url = urlsplit(raw.strip())
+        if url.scheme not in ('postgres', 'postgresql') or not url.hostname or not url.username or not url.path.strip('/') or not 1 <= (url.port if url.port is not None else 5432) <= 65535:
             raise ValueError()
         return url, (url.hostname.lower(), url.port or 5432, url.username, url.path)
     except ValueError:
         raise ValueError(f'{label}: valid PostgreSQL endpoint required') from None
 
 
-def validate_database_plan(values, registry):
+def migration_endpoint(values, service, migrating=False):
+    suffix = service.upper().replace('-', '_')
+    direct = values.get('DIRECT_URL_' + suffix, '').strip()
+    raw = direct or values.get('DATABASE_URL_' + suffix, '').strip() or values.get('DATABASE_URL', '').strip()
+    url, _ = endpoint(raw, 'DIRECT_URL_' + suffix if direct else service)
+    schema = parse_qs(url.query).get('schema', [service.replace('-', '_') + '_service'])
+    if direct and schema != [service.replace('-', '_') + '_service']:
+        raise ValueError(f'DIRECT_URL_{suffix}: wrong migration schema')
+    if migrating:
+        # Supavisor transaction mode cannot preserve Prisma Migrate advisory locks.
+        # Do not guess pool modes for other providers or rewrite credentials/ports.
+        if url.hostname.lower().endswith('.pooler.supabase.com') and (url.port if url.port is not None else 5432) == 6543:
+            raise ValueError(f'{service}: migrations require a direct or session endpoint; transaction pooler unsupported')
+        if values.get('DB_DDL_VERIFIED_' + suffix) != 'true':
+            raise ValueError(f'DB_DDL_VERIFIED_{suffix}: confirm effective endpoint targets same database and permits DDL')
+    return url
+
+
+def validate_database_plan(values, registry, run_migrations=False):
     groups, endpoints = {}, {}
     for service, (name, entry) in migration_services(registry).items():
         if not entry.get('deploy'):
             continue
         suffix = service.upper().replace('-', '_')
-        url, identity = endpoint(values.get('DATABASE_URL_' + suffix) or values.get('DATABASE_URL', ''), service)
+        url, identity = endpoint(values.get('DATABASE_URL_' + suffix, '').strip() or values.get('DATABASE_URL', '').strip(), service)
         if {'connection_limit', 'pool_timeout'} & parse_qs(url.query).keys():
             raise ValueError(f'{service}: configure driver pool with DB_POOL_*')
         group = values.get('DB_POOL_GROUP_' + suffix, '')
@@ -60,15 +81,10 @@ def validate_database_plan(values, registry):
         if identity in endpoints and endpoints[identity] != group:
             raise ValueError(f'{service}: identical endpoint cannot be split across budget groups')
         endpoints[identity] = group
-        maximum = integer(values, 'DB_POOL_MAX_' + suffix, values.get('DB_POOL_MAX'), maximum=100)
+        maximum = integer(values, 'DB_POOL_MAX_' + suffix, values.get('DB_POOL_MAX', '').strip() or None, maximum=100)
         replicas = integer(values, 'DB_POOL_REPLICAS_' + suffix)
         groups[group] = groups.get(group, 0) + maximum * replicas
-        direct, _ = endpoint(values.get('DIRECT_URL_' + suffix, ''), 'DIRECT_URL_' + suffix)
-        schema = parse_qs(direct.query).get('schema', [service.replace('-', '_') + '_service'])
-        if schema != [service.replace('-', '_') + '_service']:
-            raise ValueError(f'DIRECT_URL_{suffix}: wrong migration schema')
-        if values.get('DB_DDL_VERIFIED_' + suffix) != 'true':
-            raise ValueError(f'DB_DDL_VERIFIED_{suffix}: confirm direct endpoint targets same database and permits DDL')
+        migration_endpoint(values, service, migrating=run_migrations)
     integer(values, 'DB_POOL_TIMEOUT_MS', '5000', maximum=60000)
     integer(values, 'DB_POOL_IDLE_MS', '10000', maximum=300000)
     result = {}

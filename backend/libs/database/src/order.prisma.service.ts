@@ -1,4 +1,4 @@
-import { databasePoolConfig, databasePoolError } from './pool.config.js';
+import { databasePoolConfig, databasePoolError, runtimeDatabaseUrl } from './pool.config.js';
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/order-client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -11,10 +11,7 @@ export class OrderPrismaService
   public readonly schema: string;
 
   constructor() {
-    const rawUrl =
-      process.env.DATABASE_URL_ORDER ||
-      process.env.DATABASE_URL ||
-      'postgresql://postgres:postgres@localhost:5432/handygo?schema=order_service';
+    const rawUrl = runtimeDatabaseUrl('order', 'postgresql://postgres:postgres@localhost:5432/handygo?schema=order_service');
 
     let connectionString = rawUrl;
     let schema = 'order_service';

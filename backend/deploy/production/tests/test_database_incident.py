@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 PROD = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROD))
 import host
-from database_plan import SERVICES, validate_database_plan, validate_migration_owners
+from database_plan import SERVICES, migration_endpoint, validate_database_plan, validate_migration_owners
 
 
 class DatabaseIncidentTests(unittest.TestCase):
@@ -41,11 +41,55 @@ class DatabaseIncidentTests(unittest.TestCase):
 
     def test_invalid_missing_budget_and_ddl_values_fail_closed(self):
         for update in ({'DB_POOL_MAX': '0'}, {'DB_POOL_MAX': '1.5'}, {'DB_POOL_MAX': '01'}, {'DB_POOL_TIMEOUT_MS': '0'},
-                       {'DB_POOL_REPLICAS_ORDER': '0'}, {'DIRECT_URL_ORDER': ''},
+                       {'DB_POOL_REPLICAS_ORDER': '0'},
                        {'DIRECT_URL_ORDER': 'postgresql://u:p@db/db?schema=wallet_service'},
                        {'DB_DDL_VERIFIED_ORDER': 'false'}, {'DB_POOL_GROUP_ORDER': ''}):
             with self.subTest(keys=list(update)), self.assertRaises(ValueError):
-                validate_database_plan(self.values | update, self.registry)
+                validate_database_plan(self.values | update, self.registry, run_migrations=True)
+
+    def test_all_optional_overrides_missing_empty_or_whitespace(self):
+        for blank in (None, '', '   '):
+            values = dict(self.values)
+            for service in SERVICES:
+                suffix = service.upper().replace('-', '_')
+                for prefix in ('DIRECT_URL_', 'DATABASE_URL_', 'DB_POOL_MAX_'):
+                    key = prefix + suffix
+                    values.pop(key, None)
+                    if blank is not None:
+                        values[key] = blank
+            values['DB_POOL_TIMEOUT_MS'] = values['DB_POOL_IDLE_MS'] = blank or ''
+            with self.subTest(blank=blank):
+                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 9)
+                for service in SERVICES:
+                    self.assertEqual(migration_endpoint(values, service, migrating=True).hostname, 'pool.example')
+
+    def test_ddl_confirmation_required_only_when_migrations_run(self):
+        values = {key: val for key, val in self.values.items() if not key.startswith(('DIRECT_URL_', 'DB_DDL_VERIFIED_'))}
+        validate_database_plan(values, self.registry)
+        with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_AUTH'):
+            validate_database_plan(values, self.registry, run_migrations=True)
+
+    def test_supabase_poolers_follow_actual_consumer_requirements(self):
+        values = {key: val for key, val in self.values.items() if not key.startswith('DIRECT_URL_')}
+        for port in (5432, 6543):
+            values['DATABASE_URL'] = f'postgresql://postgres.tenant:secret@aws-0-region.pooler.supabase.com:{port}/postgres'
+            validate_database_plan(values, self.registry)  # runtime accepts both modes
+            if port == 5432:
+                validate_database_plan(values, self.registry, run_migrations=True)
+            else:
+                with self.assertRaisesRegex(ValueError, 'transaction pooler'):
+                    validate_database_plan(values, self.registry, run_migrations=True)
+                for service in SERVICES:
+                    values['DIRECT_URL_' + service.upper().replace('-', '_')] = 'postgresql://ddl:secret@session.example/db'
+                validate_database_plan(values, self.registry, run_migrations=True)
+
+    def test_selected_override_is_used_and_invalid_nonempty_override_is_rejected(self):
+        values = self.values | {'DIRECT_URL_AUTH': 'postgresql://ddl:secret@chosen.example/db'}
+        self.assertEqual(migration_endpoint(values, 'auth', migrating=True).hostname, 'chosen.example')
+        for key in ('DIRECT_URL_AUTH', 'DATABASE_URL_AUTH', 'DATABASE_URL'):
+            for invalid in ('invalid', 'https://example.com/db', 'postgresql:///db', 'postgresql://u:p@db:99999/db', 'postgresql://u:p@db:0/db'):
+                with self.subTest(key=key, invalid=invalid), self.assertRaises(ValueError):
+                    validate_database_plan(self.values | {key: invalid}, self.registry)
 
     def test_all_prisma_services_have_exactly_one_correct_owner_and_script(self):
         validate_migration_owners(PROD.parents[1], self.registry, host.MIGRATIONS)

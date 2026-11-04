@@ -1,4 +1,4 @@
-import { databasePoolConfig, databasePoolError } from '@app/database';
+import { databasePoolConfig, databasePoolError, runtimeDatabaseUrl } from '@app/database';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/wallet-client';
@@ -8,8 +8,7 @@ export class WalletPrismaService extends PrismaClient implements OnModuleInit, O
   private readonly logger = new Logger(WalletPrismaService.name);
 
   constructor() {
-    const explicitWalletUrl = process.env.DATABASE_URL_WALLET;
-    const rawUrl = explicitWalletUrl || process.env.DATABASE_URL || 'postgresql://localhost:5432/handygo';
+    const rawUrl = runtimeDatabaseUrl('wallet', 'postgresql://localhost:5432/handygo');
     let connectionString = rawUrl;
     let schema = 'wallet_service';
 

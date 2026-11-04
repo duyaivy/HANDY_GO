@@ -59,15 +59,15 @@ class ReleaseTests(unittest.TestCase):
             'CLOUDINARY_API_SECRET': 'test-api-secret',
         }
         path = self.root / 'shared.env'
-        optional = ('DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG')
-        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, values['DATABASE_URL'])):
+        optional = tuple(prefix + service.upper().replace('-', '_') for prefix in ('DATABASE_URL_', 'DIRECT_URL_') for services in host.MIGRATIONS.values() for service in services) + ('FIREBASE_SA_BASE64', 'GOOGLE_APPLICATION_CREDENTIALS', 'CLOUDINARY_VIDEO_CHUNK_SIZE_MB', 'NOTIFICATION_EVENT_QUEUE', 'AI_SERVICE_TIMEOUT_MS')
+        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, '   '), {'DIRECT_URL_AUTH': values['DATABASE_URL']}):
             with self.subTest(overrides=overrides):
                 expected = {**values, **overrides}
                 path.write_text(''.join(f'{key}={value}\n' for key, value in expected.items()))
                 self.assertEqual(host.validate_env(path), expected)
 
         for required in ('DATABASE_URL', 'SMTP_USER'):
-            for replacement in (None, ''):
+            for replacement in (None, '', '   '):
                 with self.subTest(required=required, replacement=replacement):
                     invalid = {**values}
                     if replacement is None:

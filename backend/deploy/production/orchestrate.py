@@ -245,7 +245,7 @@ sys.stdin.read()
         module.validate_service_endpoints(values, registry)
         from database_plan import validate_database_plan, validate_migration_owners
         validate_migration_owners(HERE.parents[1], registry, module.MIGRATIONS)
-        database_budget = validate_database_plan(values, registry)
+        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations)
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
         # A newly enabled migration owner must require review even when SQL is unchanged.

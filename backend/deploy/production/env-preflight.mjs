@@ -3,6 +3,9 @@
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 
 export async function checkEnv(role, env = process.env, load = name => import(name), report = console.log) {
+  // Preserve nonblank credentials; defaults must see blanks as absent.
+  env = Object.fromEntries(Object.entries(env).map(([key, value]) =>
+    [key, typeof value === 'string' && !value.trim() ? undefined : value]));
   let probe = 'service endpoint configuration';
   try {
     if (env.NODE_ENV === 'production') {
