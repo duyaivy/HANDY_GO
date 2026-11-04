@@ -69,10 +69,22 @@ const subscribeToViewport = (callback: () => void) => {
   };
 };
 
+const CATEGORY_ITEM_WIDTH = 128;
+const CATEGORY_GAP = 20;
+
 const getCategoriesPerPage = () => {
-  if (window.innerWidth < 640) return 2;
-  if (window.innerWidth < 1024) return 4;
-  return 8;
+  const width = window.innerWidth;
+  const containerWidth = Math.min(
+    width - (width < 640 ? 32 : width < 1024 ? 48 : 64),
+    1280,
+  );
+
+  return Math.max(
+    1,
+    Math.floor(
+      (containerWidth + CATEGORY_GAP) / (CATEGORY_ITEM_WIDTH + CATEGORY_GAP),
+    ),
+  );
 };
 
 const getServerCategoriesPerPage = () => 8;
@@ -310,7 +322,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
           </div>
 
           {categoriesLoading ? (
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 lg:grid-cols-8">
+            <div className="grid grid-cols-[repeat(auto-fit,128px)] justify-center gap-x-5 gap-y-6">
               {Array.from({
                 length: categoriesPerPage,
               }).map((_, index) => (
@@ -350,7 +362,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                     return (
                       <div
                         key={pageIndex}
-                        className="grid w-full shrink-0 grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-4 lg:grid-cols-8"
+                        className="grid w-full shrink-0 grid-cols-[repeat(auto-fit,128px)] justify-center gap-x-5 gap-y-6"
                       >
                         {pageCategories.map((category) => {
                           const isSelected = categoryId === category.id;
@@ -510,7 +522,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
               {services.map((service) => (
                 <button
                   key={service.id}
