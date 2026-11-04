@@ -130,7 +130,7 @@ export function CustomerSettingsScreen() {
           <Pressable
             testID="settings-change-password-btn"
             onPress={() => router.push(RouteNames.AUTH_CHANGE_PASSWORD as any)}
-            className="flex-row items-center justify-between border-b border-neutral-100 p-3.5 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
+            className="flex-row items-center justify-between border-b border-neutral-100 p-3.5 dark:border-neutral-800"
           >
             <View className="flex-row items-center">
               <View className="mr-3 size-9 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800">
