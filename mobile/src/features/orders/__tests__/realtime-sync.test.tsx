@@ -126,12 +126,12 @@ describe('Realtime Sync Configuration Tests', () => {
 
       const intervalFn = detailQuery?.options.refetchInterval as (query: any) => number | false;
 
-      // When status is 'created' -> 4000
-      expect(intervalFn({ state: { data: { status: 'created' } } })).toBe(4000);
-      // When status is 'in_progress' -> 4000
-      expect(intervalFn({ state: { data: { status: 'in_progress' } } })).toBe(4000);
-      // When status is 'awaiting_customer_confirmation' -> 4000
-      expect(intervalFn({ state: { data: { status: 'awaiting_customer_confirmation' } } })).toBe(4000);
+      // When status is 'created' -> 3000
+      expect(intervalFn({ state: { data: { status: 'created' } } })).toBe(3000);
+      // When status is 'in_progress' -> 3000
+      expect(intervalFn({ state: { data: { status: 'in_progress' } } })).toBe(3000);
+      // When status is 'awaiting_customer_confirmation' -> 3000
+      expect(intervalFn({ state: { data: { status: 'awaiting_customer_confirmation' } } })).toBe(3000);
       // When status is 'completed' -> false
       expect(intervalFn({ state: { data: { status: 'completed' } } })).toBe(false);
       // When status is 'cancelled' -> false

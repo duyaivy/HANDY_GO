@@ -135,7 +135,7 @@ export const WorkerBiddingApi = {
    */
   getMyBidForRequest: async (requestId: string, signal?: AbortSignal): Promise<BidDetail | null> => {
     const bids = await WorkerBiddingApi.getMyBids({ serviceRequestId: requestId, limit: 1 }, signal);
-    return bids[0] || null;
+    return bids.find(b => b.serviceRequestId === requestId) ?? null;
   },
 
   /**

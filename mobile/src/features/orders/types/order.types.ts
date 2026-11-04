@@ -57,6 +57,7 @@ export type ServiceRequest = {
   publishedAt?: string | null;
   biddingClosesAt?: string | null;
   selectionExpiresAt?: string | null;
+  cancelledAt?: string | null;
   media?: ServiceRequestMedia[];
   createdAt: string;
   updatedAt?: string;

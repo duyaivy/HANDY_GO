@@ -281,6 +281,24 @@ export function WorkerJobDetailScreen({
               </Text>
             </View>
           )}
+
+          {currentStatus === 'cancelled' && (
+            <View className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/20">
+              <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
+                ❌ Đơn hàng đã bị hủy
+              </Text>
+              {(order?.cancelledAt || order?.updatedAt) && (
+                <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
+                  Thời gian hủy: {new Date(order?.cancelledAt || order?.updatedAt || '').toLocaleString('vi-VN')}
+                </Text>
+              )}
+              {order?.cancelReason && (
+                <Text className="mt-0.5 text-[11px] text-rose-800 dark:text-rose-200">
+                  Lý do: {order.cancelReason}
+                </Text>
+              )}
+            </View>
+          )}
         </View>
 
         {/* Dòng thời gian Timeline */}

@@ -40,6 +40,7 @@ export function WorkerHomeScreen() {
   const [page, setPage] = React.useState(1);
   const [selectedJob, setSelectedJob] = React.useState<DiscoverableJobItem | null>(null);
   const [isBidModalVisible, setIsBidModalVisible] = React.useState(false);
+  const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
   const handledRequestIdRef = React.useRef<string | null>(null);
 
   const {
@@ -47,7 +48,6 @@ export function WorkerHomeScreen() {
     error,
     isError,
     isLoading,
-    isRefetching,
     jobs,
     refetch,
     totalPages,
@@ -65,6 +65,16 @@ export function WorkerHomeScreen() {
     bidQueriesRef.current = bidQueries;
   }, [bidQueries]);
   const refetchMyBids = React.useCallback(() => Promise.all(bidQueriesRef.current.map(query => query.refetch())), []);
+
+  const handleRefresh = React.useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await Promise.all([refetch(), refetchMyBids()]);
+    }
+    finally {
+      setIsManualRefreshing(false);
+    }
+  }, [refetch, refetchMyBids]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -153,10 +163,6 @@ export function WorkerHomeScreen() {
     }
   };
 
-  const handleRefresh = async () => {
-    await Promise.all([refetch(), refetchMyBids()]);
-  };
-
   return (
     <Screen safeArea className="flex-1 bg-neutral-50 dark:bg-neutral-950">
       {/* Top Bar: Title, Notification Bell & Quick Role Switch */}
@@ -192,7 +198,7 @@ export function WorkerHomeScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={(
           <RefreshControl
-            refreshing={isRefetching}
+            refreshing={isManualRefreshing}
             onRefresh={handleRefresh}
             colors={['#F5A524']}
             tintColor="#F5A524"

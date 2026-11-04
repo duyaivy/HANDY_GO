@@ -263,6 +263,25 @@ export function CustomerOrderDetailScreen({
                 </Text>
               </View>
 
+              {order.status === 'cancelled' && (
+                <View className="rounded-xl border border-rose-200 bg-rose-50 p-2.5 dark:border-rose-900/50 dark:bg-rose-950/30">
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">Thời gian hủy</Text>
+                    <Text className="text-xs font-bold text-rose-800 dark:text-rose-200">
+                      {formatOrderCreatedTime(order.cancelledAt || order.updatedAt)}
+                    </Text>
+                  </View>
+                  {order.cancelReason ? (
+                    <View className="mt-1.5 flex-row items-start justify-between">
+                      <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">Lý do hủy</Text>
+                      <Text className="max-w-[200px] text-right text-xs font-medium text-rose-800 dark:text-rose-200">
+                        {order.cancelReason}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
               {order.createdAt && (
                 <View className="flex-row items-center justify-between">
                   <Text className="text-xs text-neutral-500">Thời gian tạo</Text>
