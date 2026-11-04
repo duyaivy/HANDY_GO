@@ -57,6 +57,7 @@ export type ServiceRequest = {
   publishedAt?: string | null;
   biddingClosesAt?: string | null;
   selectionExpiresAt?: string | null;
+  cancelledAt?: string | null;
   media?: ServiceRequestMedia[];
   createdAt: string;
   updatedAt?: string;
@@ -117,6 +118,7 @@ export type Order = {
   addressText: string;
   latitude?: number | null;
   longitude?: number | null;
+  scheduledAt?: string | null;
   status: OrderStatus;
   paymentState: PaymentState;
   confirmedAt?: string | null;

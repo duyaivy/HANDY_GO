@@ -153,19 +153,31 @@ export class EventConsumerService implements OnModuleInit, OnModuleDestroy {
       });
     });
     let startupTimer: NodeJS.Timeout | undefined;
+    const timeoutMs =
+      Number(this.config.get<string>('NOTIFICATION_BROKER_STARTUP_TIMEOUT_MS')) ||
+      5000;
     try {
       await Promise.race([
         consumerReady,
-        new Promise<never>((_, reject) => {
-          startupTimer = setTimeout(
-            () => reject(new Error('BROKER_STARTUP_TIMEOUT')),
-            15000,
-          );
+        new Promise<void>((resolve) => {
+          startupTimer = setTimeout(() => {
+            this.logger.warn({
+              consumer: 'notification-events',
+              status: 'connecting_in_background',
+              message:
+                'Broker connection taking longer than expected; continuing startup in background',
+            });
+            resolve();
+          }, timeoutMs);
         }),
       ]);
-    } catch {
-      await this.onModuleDestroy();
-      throw new Error('NOTIFICATION_BROKER_STARTUP_FAILED');
+    } catch (error) {
+      this.logger.warn({
+        consumer: 'notification-events',
+        status: 'startup_warning',
+        error: error instanceof Error ? error.message : error,
+        message: 'Broker connection will continue in background',
+      });
     } finally {
       clearTimeout(startupTimer);
     }

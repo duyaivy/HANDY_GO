@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -34,6 +35,8 @@ export class CandidatesController {
   ) {}
 
   @Get(':requestId/candidates')
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Lấy danh sách ứng viên (Bids và Top 5 Matching recommendations) cho yêu cầu dịch vụ',

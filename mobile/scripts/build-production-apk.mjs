@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { configureLocalBuild } from './local-build-resources.mjs';
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(projectRoot);
@@ -12,12 +13,10 @@ process.env.STRICT_ENV_VALIDATION = '1';
 
 // EAS regenerates Android in a temporary directory, so configure its daemon
 // through the environment instead of editing the ignored android/ directory.
-let gradleOpts = process.env.GRADLE_OPTS || '';
-if (!gradleOpts.includes('-Dorg.gradle.jvmargs='))
-  gradleOpts += ' -Dorg.gradle.jvmargs="-Xmx8192m -XX:MaxMetaspaceSize=2048m -Dfile.encoding=UTF-8"';
-if (!gradleOpts.includes('-Dorg.gradle.workers.max='))
-  gradleOpts += ' -Dorg.gradle.workers.max=6';
-process.env.GRADLE_OPTS = gradleOpts.trim();
+const resources = configureLocalBuild();
+console.log(`[local build] ${resources.ramGiB} GiB RAM; profile=${resources.profile}; defaults: heap=${resources.heapMiB} MiB, workers=${resources.workers}. GRADLE_OPTS overrides are preserved.`);
+if (process.argv.includes('--dry-run'))
+  process.exit(0);
 
 mkdirSync('dist', { recursive: true });
 const result = spawnSync('pnpm', [

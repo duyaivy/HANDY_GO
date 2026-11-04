@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import { Alert, Pressable, TextInput, View } from 'react-native';
@@ -5,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { CloseIcon } from '@/components/ui/icons';
 import { Text } from '@/components/ui/text';
 import { OrdersApi } from '../../api/orders.api';
+import { ordersQueryKeys } from '../../hooks/orders-query-keys';
+import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderCancelDialogProps = {
   orderId?: string;
@@ -13,27 +16,87 @@ export type CustomerOrderCancelDialogProps = {
 export function CustomerOrderCancelDialog({
   orderId: propOrderId,
 }: CustomerOrderCancelDialogProps = {}) {
+  const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useLocalSearchParams<{ id?: string }>();
-  const orderId = propOrderId || searchParams?.id || 'demo-001';
+  const orderId = propOrderId || searchParams?.id;
 
   const [reason, setReason] = React.useState('Thay đổi kế hoạch, không cần làm nữa.');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const handleConfirmCancel = async () => {
+    if (!orderId) {
+      Alert.alert(
+        'Không tìm thấy mã đơn',
+        'Không tìm thấy mã đơn hàng hợp lệ để hủy. Vui lòng quay lại danh sách đơn hàng.',
+        [{ text: 'Đóng', onPress: () => router.back() }],
+      );
+      return;
+    }
+
+    if (isSubmitting) {
+      return;
+    }
     setIsSubmitting(true);
+
     try {
-      if (orderId && orderId !== 'demo-001') {
-        await OrdersApi.cancelOrder(orderId, reason);
+      await OrdersApi.cancelOrder(orderId, reason);
+      try {
+        await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      }
+      catch {
+        // Refetch failure does not invalidate success
       }
       Alert.alert('Đã hủy đơn', 'Đơn hàng đã được hủy thành công.', [
         { text: 'Đóng', onPress: () => router.back() },
       ]);
     }
-    catch {
-      Alert.alert('Thông báo', 'Đã ghi nhận yêu cầu hủy đơn.', [
-        { text: 'Đóng', onPress: () => router.back() },
-      ]);
+    catch (error: unknown) {
+      // Check if server actually cancelled or if order cannot be cancelled (timeout / conflict 409)
+      let isActuallyCancelled = false;
+      let isLockedOrCompleted = false;
+
+      try {
+        const detail = await OrdersApi.getOrderDetail(orderId);
+        const status = detail?.data?.status;
+        if (status === 'cancelled') {
+          isActuallyCancelled = true;
+        }
+        else if (status === 'in_progress' || status === 'completed') {
+          isLockedOrCompleted = true;
+        }
+      }
+      catch {
+        // Verification query failed
+      }
+
+      if (isActuallyCancelled) {
+        try {
+          await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+        }
+        catch {}
+        Alert.alert('Đã hủy đơn', 'Đơn hàng đã được hủy thành công.', [
+          { text: 'Đóng', onPress: () => router.back() },
+        ]);
+        return;
+      }
+
+      if (isLockedOrCompleted) {
+        Alert.alert(
+          'Không thể hủy đơn',
+          'Đơn hàng đang trong quá trình thực hiện hoặc đã hoàn thành, không thể hủy tự động.',
+          [{ text: 'Đóng', onPress: () => router.back() }],
+        );
+        return;
+      }
+
+      // True failure: DO NOT show fake success!
+      const msg = getCancelErrorMessage(error);
+      Alert.alert(
+        'Hủy đơn thất bại',
+        msg,
+        [{ text: 'Thử lại' }],
+      );
     }
     finally {
       setIsSubmitting(false);
@@ -49,7 +112,7 @@ export function CustomerOrderCancelDialog({
         {/* Header with dismiss button */}
         <View className="flex-row items-center justify-between pb-3">
           <Text className="text-base font-bold text-neutral-900 dark:text-white">
-            {`Hủy đơn #${orderId}`}
+            {orderId ? `Hủy đơn #${orderId}` : 'Hủy đơn hàng'}
           </Text>
           <Pressable
             testID="cancel-dialog-close-icon"
@@ -66,6 +129,12 @@ export function CustomerOrderCancelDialog({
           Chức năng đang được phát triển
         </Text>
 
+        {!orderId && (
+          <Text className="mb-3 text-center text-xs font-medium text-rose-500">
+            Không tìm thấy mã đơn hàng. Vui lòng quay lại danh sách.
+          </Text>
+        )}
+
         <Text className="mb-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
           Lý do hủy đơn:
         </Text>
@@ -81,9 +150,9 @@ export function CustomerOrderCancelDialog({
         <View className="gap-2">
           <Button
             testID="cancel-dialog-confirm-btn"
-            label={isSubmitting ? 'Đang hủy...' : 'Xác nhận hủy đơn'}
+            label={isSubmitting ? 'Đang xử lý hủy...' : 'Xác nhận hủy'}
             variant="default"
-            disabled={isSubmitting}
+            disabled={isSubmitting || !orderId}
             className="h-11 rounded-2xl bg-rose-600"
             textClassName="text-xs font-bold text-white"
             onPress={handleConfirmCancel}
@@ -91,7 +160,7 @@ export function CustomerOrderCancelDialog({
 
           <Button
             testID="cancel-dialog-dismiss-btn"
-            label="Đóng"
+            label="Quay lại"
             variant="outline"
             className="h-11 rounded-2xl border-neutral-300 dark:border-neutral-700"
             textClassName="text-xs font-semibold text-neutral-700 dark:text-neutral-300"

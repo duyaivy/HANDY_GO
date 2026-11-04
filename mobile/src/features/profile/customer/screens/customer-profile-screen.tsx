@@ -18,9 +18,11 @@ import { RouteNames } from '@/constants/route-names';
 import { ProfileHeaderCard } from '@/features/profile/components';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { useAppModeSwitch } from '../../hooks/use-app-mode-switch';
 
 export function CustomerProfileScreen() {
   const router = useRouter();
+  const { switchToMode } = useAppModeSwitch();
   const user = useAuthStore.use.user();
   const logout = useAuthStore.use.logout();
   const isLoading = useAuthStore.use.isLoading();
@@ -57,14 +59,7 @@ export function CustomerProfileScreen() {
   };
 
   const handleSwitchToWorker = () => {
-    const { isAuthenticated, user: currentUser } = useAuthStore.getState();
-    if (isAuthenticated && currentUser) {
-      useAuthStore.getState().setActiveMode('Worker');
-    }
-    else {
-      useAuthStore.getState().setGuestRole('Worker');
-    }
-    router.replace(RouteNames.WORKER_HOME as any);
+    switchToMode('Worker');
   };
 
   return (
@@ -105,7 +100,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Quản lý thanh toán"
               onPress={() => router.push(RouteNames.CUSTOMER_PAYMENT as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/50">
@@ -128,7 +123,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Lịch sử giao dịch"
               onPress={() => router.push(RouteNames.CUSTOMER_PAYMENT_TRANSACTION_HISTORY as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-950/50">
@@ -151,7 +146,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Địa chỉ đã lưu"
               onPress={() => router.push(RouteNames.CUSTOMER_SAVED_ADDRESSES as any)}
-              className="flex-row items-center justify-between p-4 active:bg-neutral-50 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between p-4 active:bg-amber-50/80 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
@@ -183,7 +178,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Cài đặt"
               onPress={() => router.push(RouteNames.CUSTOMER_SETTINGS as any)}
-              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50">
@@ -208,7 +203,7 @@ export function CustomerProfileScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Đổi mật khẩu"
                 onPress={() => router.push(RouteNames.AUTH_CHANGE_PASSWORD as any)}
-                className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-neutral-50 dark:border-neutral-800 dark:active:bg-neutral-800/60"
+                className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-amber-50/80 dark:border-neutral-800 dark:active:bg-amber-950/30"
               >
                 <View className="flex-1 flex-row items-center pr-3">
                   <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
@@ -232,7 +227,7 @@ export function CustomerProfileScreen() {
               accessibilityRole="button"
               accessibilityLabel="Trung tâm hỗ trợ"
               onPress={() => router.push(RouteNames.CUSTOMER_SUPPORT as any)}
-              className="flex-row items-center justify-between p-4 active:bg-neutral-50 dark:active:bg-neutral-800/60"
+              className="flex-row items-center justify-between p-4 active:bg-amber-50/80 dark:active:bg-amber-950/30"
             >
               <View className="flex-1 flex-row items-center pr-3">
                 <View className="size-10 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/50">

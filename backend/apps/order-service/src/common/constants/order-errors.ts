@@ -7,6 +7,7 @@ export const ORDER_ERROR_CODES = {
   REWORK_REASON_REQUIRED: 'REWORK_REASON_REQUIRED',
   CANCEL_REASON_REQUIRED: 'CANCEL_REASON_REQUIRED',
   RESOLUTION_REASON_REQUIRED: 'RESOLUTION_REASON_REQUIRED',
+  TOO_EARLY_TO_START: 'TOO_EARLY_TO_START',
 
   // 403 Forbidden
   NOT_ORDER_OWNER: 'NOT_ORDER_OWNER',
@@ -26,6 +27,9 @@ export const ORDER_ERROR_CODES = {
   PROPOSAL_ALREADY_FINALIZED: 'PROPOSAL_ALREADY_FINALIZED',
   PROPOSAL_REVISION_CONFLICT: 'PROPOSAL_REVISION_CONFLICT',
   REQUEST_ALREADY_CONVERTED: 'REQUEST_ALREADY_CONVERTED',
+  WORKER_CAPACITY_EXCEEDED: 'WORKER_CAPACITY_EXCEEDED',
+  SCHEDULE_CONFLICT: 'SCHEDULE_CONFLICT',
+  WORKER_ALREADY_BUSY: 'WORKER_ALREADY_BUSY',
 
   // 422 Unprocessable Entity
   INCOMPLETE_PUBLISH_PAYLOAD: 'INCOMPLETE_PUBLISH_PAYLOAD',
@@ -52,6 +56,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'A reason is required when cancelling the order',
   RESOLUTION_REASON_REQUIRED:
     'An admin resolution reason is required to resolve a dispute',
+  TOO_EARLY_TO_START:
+    'Chưa tới giờ hẹn! Bạn chỉ có thể bấm bắt đầu trước giờ hẹn tối đa 30 phút.',
 
   NOT_ORDER_OWNER:
     'You are not authorized to access or modify this order',
@@ -81,6 +87,12 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'A newer revision of this proposal already exists',
   REQUEST_ALREADY_CONVERTED:
     'This service request has already been converted to an order',
+  WORKER_CAPACITY_EXCEEDED:
+    'Bạn đang có 3 đơn hàng chưa hoàn thành. Vui lòng hoàn thành các đơn hiện tại trước khi nhận thêm đơn mới!',
+  SCHEDULE_CONFLICT:
+    'Lịch hẹn bị trùng hoặc khoảng cách giữa các đơn nhỏ hơn 60 phút.',
+  WORKER_ALREADY_BUSY:
+    'Bạn đang thi công một đơn khác. Vui lòng hoàn thành đơn hiện tại trước khi bắt đầu đơn mới!',
 
   INCOMPLETE_PUBLISH_PAYLOAD:
     'Service request must include serviceId, addressText, coordinates, description, and future scheduledAt to be published',
