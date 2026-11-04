@@ -87,9 +87,6 @@ export function CustomerOrderDetailScreen({
 
   const isPlumberOrder = orderId === '224466' || orderId.toLowerCase().includes('plumber');
 
-  const pageTitle = propTitle || (isPlumberOrder ? 'Chi tiết báo giá dịch vụ (Plumber)' : 'Báo giá thợ');
-  const pageSubtitle = isPlumberOrder ? 'Báo giá thợ' : `Mã đơn: #${orderId}`;
-
   const {
     cancelOrder,
     confirmCompletion,
@@ -105,6 +102,25 @@ export function CustomerOrderDetailScreen({
     requestRework,
     statusHistory,
   } = useCustomerOrderDetail(orderId);
+
+  const pageTitle = propTitle || (isPlumberOrder ? 'Chi tiết đơn hàng (Plumber)' : 'Chi tiết đơn hàng');
+  const pageSubtitle = `Mã đơn: #${order?.orderCode || orderId}`;
+
+  const displayWorkerName = (order as any)?.worker?.fullName
+    || (order as any)?.workerName
+    || (isPlumberOrder ? 'A CẢNH VĂN' : 'Thợ phụ trách');
+  const displayWorkerId = order?.workerUserId || (isPlumberOrder ? 'a-canh-van' : undefined);
+
+  const [failedImageIds, setFailedImageIds] = React.useState<Record<string, boolean>>({});
+
+  const validEvidences = React.useMemo(() => {
+    return (order?.evidences || []).filter(
+      ev => typeof ev.mediaUrl === 'string'
+        && ev.mediaUrl.trim().length > 0
+        && !ev.mediaUrl.includes('undefined')
+        && !failedImageIds[ev.id],
+    );
+  }, [order?.evidences, failedImageIds]);
 
   const handleCancelOrder = () => {
     Alert.alert(
@@ -209,7 +225,7 @@ export function CustomerOrderDetailScreen({
           </View>
         )}
 
-        {/* Worker section / Mục thợ (A CẢNH VĂN) — Giữ nguyên để tương thích test cũ */}
+        {/* Worker section / Mục thợ */}
         <View
           testID="worker-quote-section"
           className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900"
@@ -223,7 +239,7 @@ export function CustomerOrderDetailScreen({
                 testID="worker-name-label"
                 className="mt-0.5 text-sm font-bold text-neutral-900 dark:text-white"
               >
-                {isPlumberOrder ? 'A CẢNH VĂN' : 'Nguyễn Văn Thợ'}
+                {displayWorkerName}
               </Text>
             </View>
 
@@ -233,7 +249,12 @@ export function CustomerOrderDetailScreen({
               variant="outline"
               className="h-9 rounded-xl border-primary px-3.5"
               textClassName="text-xs font-bold text-primary"
-              onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL('a-canh-van') as any)}
+              disabled={!displayWorkerId}
+              onPress={() => {
+                if (displayWorkerId) {
+                  router.push(RouteNames.CUSTOMER_WORKER_DETAIL(displayWorkerId) as any);
+                }
+              }}
             />
           </View>
         </View>
@@ -304,15 +325,22 @@ export function CustomerOrderDetailScreen({
         )}
 
         {/* Khối bằng chứng nghiệm thu (Evidence) do Thợ gửi lên */}
-        {order?.evidences && order.evidences.length > 0 && (
+        {validEvidences.length > 0 && (
           <View className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
             <Text className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
               📷 Bằng chứng hoàn thành do Thợ nộp:
             </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3 gap-3">
-              {order.evidences.map((ev: OrderEvidence) => (
+              {validEvidences.map((ev: OrderEvidence) => (
                 <View key={ev.id} className="size-24 overflow-hidden rounded-xl border border-emerald-300">
-                  <Image source={{ uri: ev.mediaUrl }} className="size-full" resizeMode="cover" />
+                  <Image
+                    source={{ uri: ev.mediaUrl }}
+                    className="size-full"
+                    resizeMode="cover"
+                    onError={() => {
+                      setFailedImageIds(prev => ({ ...prev, [ev.id]: true }));
+                    }}
+                  />
                 </View>
               ))}
             </ScrollView>

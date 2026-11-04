@@ -43,7 +43,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
 
   it('renders CustomerOrderDetailScreen displaying orderId passed as prop and placeholder text', () => {
     render(<CustomerOrderDetailScreen orderId="demo-001" />);
-    expect(screen.getByText('Báo giá thợ')).toBeOnTheScreen();
+    expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
     expect(screen.getByText('Mã đơn: #demo-001')).toBeOnTheScreen();
     expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
   });
@@ -53,6 +53,48 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     const backBtn = screen.getByTestId('app-bar-back-btn');
     fireEvent.press(backBtn);
     expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('renders CustomerOrderDetailScreen with real worker info and filters invalid evidences', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ord-real-001',
+        orderCode: 'ORD-REAL-001',
+        serviceRequestId: 'req-01',
+        customerUserId: 'cust-1',
+        workerUserId: 'worker-uuid-456',
+        workerName: 'Trần Văn Chuyên Nghiệp',
+        worker: {
+          fullName: 'Trần Văn Chuyên Nghiệp',
+        },
+        agreedPrice: 350000,
+        agreedScope: 'Thay vòi nước bồn rửa bát',
+        addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
+        status: 'in_progress',
+        paymentState: 'unpaid',
+        evidences: [
+          { id: 'ev-1', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: 'https://example.com/photo1.jpg', createdAt: '2026-11-01T08:00:00Z' },
+          { id: 'ev-2', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: '', createdAt: '2026-11-01T08:00:00Z' },
+          { id: 'ev-3', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: 'undefined', createdAt: '2026-11-01T08:00:00Z' },
+        ],
+        createdAt: '2026-11-01T08:00:00Z',
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<CustomerOrderDetailScreen orderId="ord-real-001" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
+      expect(screen.getByText('Mã đơn: #ORD-REAL-001')).toBeOnTheScreen();
+      expect(screen.getByText('Trần Văn Chuyên Nghiệp')).toBeOnTheScreen();
+      expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
+    });
+
+    const workerProfileBtn = screen.getByTestId('worker-profile-btn');
+    fireEvent.press(workerProfileBtn);
+    expect(mockPush).toHaveBeenCalledWith('/customer/workers/worker-uuid-456');
   });
 
   it('renders CustomerBookingScreen and handles photo attachment and next navigation', () => {
