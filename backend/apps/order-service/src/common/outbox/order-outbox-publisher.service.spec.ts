@@ -96,7 +96,7 @@ describe('OrderOutboxPublisherService', () => {
       '22222222-2222-2222-2222-222222222222',
       expect.any(Date),
       2,
-      'Connection dropped',
+      'dependency operation failed',
     );
 
     // Verify envelope preserves identical eventId and occurredAt

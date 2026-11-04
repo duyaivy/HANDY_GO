@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """One-host release executor. Stdlib only; called over SSH by orchestrate.py."""
 import fcntl
+import datetime
+import ipaddress
+from urllib.parse import urlsplit
 import hashlib
 import json
 import os
@@ -19,8 +22,18 @@ ROOT = Path('/opt/handygo')
 RELEASE_ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 DIGEST = r'(?:ghcr\.io/[a-z0-9._/-]+|nginx)@sha256:[a-f0-9]{64}'
 ROLES = ('vps1', 'vps2', 'vps3')
-# One migration owner per service; application replicas never run migrations.
-MIGRATIONS = {'vps1': ('user-trust', 'auth', 'notification'), 'vps2': (), 'vps3': ('catalog', 'wallet')}
+# services.json is the single migration ownership/order source. Remote execution
+# receives this registry from the reviewed release coordinator.
+try:
+    from deployment_services import REGISTRY as _SERVICE_REGISTRY
+except ImportError:
+    _SERVICE_REGISTRY = json.loads((Path(__file__).resolve().with_name('services.json')).read_text())['services']
+MIGRATIONS = {
+    role: tuple(item['migration'] for item in sorted(_SERVICE_REGISTRY.values(),
+        key=lambda item: item.get('migration_order', 0))
+        if item.get('migration') is not None and item.get('host') == role and item.get('deploy'))
+    for role in ROLES
+}
 NGINX_PREFLIGHT = '''\
 for directory in /etc/nginx/tls /var/www/certbot; do
     if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
@@ -138,6 +151,37 @@ def run(argv, env=None, label=None):
     return result.stdout.strip()
 
 
+def validate_service_endpoints(values, registry):
+    """New release/ENV preflight only; do not invalidate immutable recovery bundles."""
+    ips = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}
+    for name, target in registry.items():
+        key = target.get('url_env')
+        if not key:
+            continue
+        callers = target.get('http_callers', [])
+        if any(caller not in registry for caller in callers):
+            raise ValueError(f'Invalid HTTP caller topology: {name}')
+        if not callers:
+            continue
+        url = urlsplit(values.get(key, ''))
+        cross_host = any(registry[caller]['host'] != target['host'] for caller in callers)
+        allowed = {ips[target['host']]} if cross_host else {name} | ({ips[target['host']]} if target.get('wireguard_http') else set())
+        if (url.scheme != 'http' or url.hostname not in allowed or url.port != target['port']
+                or url.username or url.password or url.path not in ('', '/') or url.query or url.fragment):
+            raise ValueError(f'{key} must target the registered WireGuard IP/port or permitted same-host Docker DNS')
+    ai = urlsplit(values.get('AI_SERVICE_URL', ''))
+    hostname = ai.hostname or ''
+    try:
+        ipaddress.ip_address(hostname)
+        is_ip = True
+    except ValueError:
+        is_ip = False
+    if (ai.scheme != 'https' or is_ip or '.' not in hostname
+            or hostname.endswith(('.localhost', '.local', '.internal')) or ai.username or ai.password
+            or ai.path not in ('', '/') or ai.query or ai.fragment):
+        raise ValueError('AI_SERVICE_URL must be the external HTTPS origin of the deployed AI service')
+
+
 def validate_env(path):
     values = {}
     optional_database_urls = {'DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG'}
@@ -209,6 +253,107 @@ class Host:
             state['phase'] = 'APPLYING' if state['touched'] else 'SNAPSHOT'
         return state
 
+    @staticmethod
+    def _now():
+        return datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    def _container_snapshot(self, name):
+        ids = self.compose('ps', '-aq', name).splitlines()
+        if not ids:
+            return None
+        if len(ids) != 1 or not re.fullmatch(r'[a-f0-9]{12,64}', ids[0]):
+            raise RuntimeError(f'Unexpected container identity for {name}')
+        data = json.loads(run(['docker', 'inspect', '--format', '{{json .}}', ids[0]],
+                              label=f'{self.role} inspect container identity {name}'))
+        state = data.get('State', {})
+        return {'id': data.get('Id'), 'image': data.get('Image'), 'created': data.get('Created'),
+                'restart_count': data.get('RestartCount'), 'started_at': state.get('StartedAt'),
+                'finished_at': state.get('FinishedAt'), 'exit_code': state.get('ExitCode'),
+                'running': state.get('Running'), 'health': state.get('Health', {}).get('Status'), 'oom_killed': state.get('OOMKilled')}
+
+    @staticmethod
+    def _same_process(before, after):
+        return bool(before and after and all(before.get(key) == after.get(key)
+            for key in ('id', 'image', 'created', 'restart_count', 'started_at')))
+
+    @staticmethod
+    def _created_after(created, intent):
+        try:
+            def parse(value):
+                return datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+            return parse(created) >= parse(intent)
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    def _capture_baseline(self):
+        return {'version': 1, 'captured_at': self._now(), 'baseline': {
+            name: self._container_snapshot(name) for name in self.names}}
+
+    def _accept_container(self, name, before, after, intent, expected_id, *, force_new=False, historical_baseline=None):
+        if not after or after.get('id') is None or after.get('image') != expected_id:
+            raise RuntimeError(f'Container identity/image mismatch after rollout: {name}')
+        if not after.get('running') or after.get('oom_killed') or after.get('health') != 'healthy':
+            raise RuntimeError(f'Container is unhealthy after rollout: {name}')
+        if force_new or not before or before.get('id') != after.get('id'):
+            if after.get('restart_count') != 0 or not self._created_after(after.get('created'), intent):
+                raise RuntimeError(f'Unexpected replacement or restart during rollout: {name}')
+            classification = 'created_by_release'
+        else:
+            if not self._same_process(before, after):
+                raise RuntimeError(f'Container restarted or changed during rollout: {name}')
+            if after['restart_count']:
+                if (not historical_baseline or not historical_baseline.get('running')
+                        or historical_baseline.get('health') != 'healthy'
+                        or historical_baseline.get('oom_killed')
+                        or not self._same_process(historical_baseline, before)):
+                    raise RuntimeError(f'Historical restart baseline was not healthy and stable: {name}')
+                classification = 'historical_restart'
+            else:
+                classification = 'unchanged'
+        return {'id': after['id'], 'image': after['image'], 'created': after['created'],
+                'restart_count': after['restart_count'], 'started_at': after['started_at'],
+                'finished_at': after.get('finished_at'), 'exit_code': after.get('exit_code'),
+                'running': after.get('running'), 'health': after.get('health'),
+                'oom_killed': after.get('oom_killed'),
+                'baseline_restart_count': before.get('restart_count') if before else 0,
+                'baseline_started_at': before.get('started_at') if before else None,
+                'classification': classification, 'accepted_at': self._now()}
+
+    def _transaction_evidence(self):
+        pending = read(ROOT / 'pending.json')
+        if isinstance(pending, dict):
+            evidence = pending.get('container_evidence')
+            if pending.get('target') == self.release_id and evidence:
+                return evidence.get('accepted', {})
+            previous = pending.get('previous') or {}
+            if previous.get('release_id') == self.release_id and evidence:
+                return evidence.get('restored', {})
+        receipt = read(ROOT / 'transactions' / (self.release_id + '.json'))
+        if isinstance(receipt, dict):
+            evidence = receipt.get('container_evidence') or {}
+            return evidence.get('accepted', {})
+        raise RuntimeError('Container verification baseline missing; preserve transaction and reconcile')
+
+    def _verify_bound_container(self, name, container, expected_id):
+        accepted = self._transaction_evidence().get(name)
+        current = self._container_snapshot(name)
+        classification = accepted.get('classification') if accepted else None
+        lifecycle_matches = bool(accepted and (
+            classification == 'historical_restart'
+            and accepted.get('restart_count', 0) > 0
+            and accepted.get('baseline_restart_count') == accepted.get('restart_count')
+            and accepted.get('baseline_started_at') == accepted.get('started_at')
+            or classification in ('unchanged', 'created_by_release')
+            and accepted.get('restart_count') == 0))
+        if (not lifecycle_matches or not current or not current['id'].startswith(container)
+                or current['id'] != accepted.get('id') or current['image'] != expected_id
+                or current['image'] != accepted.get('image')
+                or current['restart_count'] != accepted.get('restart_count')
+                or current['started_at'] != accepted.get('started_at')
+                or not current.get('running') or current.get('oom_killed')
+                or current.get('health') != 'healthy'):
+            raise RuntimeError(f'Container changed, restarted or became unhealthy after rollout: {name}')
+
     def begin(self, transaction):
         if (ROOT / 'pending.json').exists():
             raise RuntimeError('Unfinished transaction exists; do not deploy until reconciled')
@@ -223,8 +368,11 @@ class Host:
             existing = run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=handygo'])
             if existing:
                 raise RuntimeError('Unmanaged handygo containers exist; explicit migration/adoption required')
-        write(ROOT / 'pending.json', {'schema_version': 2, 'transaction': transaction, 'previous': stable,
-                                     'target': self.release_id, 'touched': False, 'phase': 'SNAPSHOT'})
+        state = {'schema_version': 2, 'transaction': transaction, 'previous': stable,
+                 'target': self.release_id, 'touched': False, 'phase': 'SNAPSHOT'}
+        if self.manifest.get('container_verification_version') == 1:
+            state['container_evidence'] = self._capture_baseline()
+        write(ROOT / 'pending.json', state)
         return {'previous': stable, 'previous_manifest': previous if stable else None,
                 'migration_hash': previous['migration_hash'] if stable else None}
 
@@ -357,24 +505,55 @@ class Host:
         state = self.owner(transaction)
         if state.get('phase', 'SNAPSHOT') not in ('SNAPSHOT', 'APPLYING'):
             raise RuntimeError('Cannot apply a terminal or verified transaction')
+        tracked = self.manifest.get('container_verification_version') == 1
+        evidence = state.get('container_evidence') if tracked else None
+        if tracked and not evidence:
+            raise RuntimeError('Container baseline missing; preserve transaction and recover')
+        # Re-entering an uncertain APPLYING transaction could rerun migrations or
+        # bless an external restart. Recovery must classify it before any retry.
+        if tracked and state.get('phase') == 'APPLYING':
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: rollout already started; reconcile transaction')
         state.pop('verification', None)
         state.update(touched=True, phase='APPLYING')
-        write(ROOT / 'pending.json', state)  # before mutation, including uncertain SSH outcomes
+        write(ROOT / 'pending.json', state)
         migrations = MIGRATIONS[self.role]
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
+            if tracked:
+                for name, baseline in evidence['baseline'].items():
+                    current = self._container_snapshot(name)
+                    if baseline is None and current is not None or baseline is not None and not self._same_process(baseline, current):
+                        raise RuntimeError(f'Container changed after baseline and before migration: {name}')
+                evidence['stop_requested_at'] = self._now()
+                write(ROOT / 'pending.json', state)
             self.compose('stop', *self.names)
             for service in migrations:
                 run(['docker', 'run', '--rm', '--memory=384m', '--memory-swap=768m',
                      '--pids-limit=100', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-                     '--env-file', str(self.bundle / 'shared.env'), '-e', 'NODE_OPTIONS=--max-old-space-size=192',
+                     '--env-file', str(self.bundle / 'shared.env'), '-e', 'NODE_OPTIONS=--max-old-space-size=192', '-e', 'HANDYGO_MIGRATION=1',
                      self.manifest['migration_image'], 'pnpm', 'run', f'prisma:migrate:{service}'],
                     label=f'{self.role} migrate {service}')
         order = sorted(self.names, key=lambda n: {'user-trust-service': -3, 'auth-service': -2,
                                                 'api-gateway': 1, 'nginx': 2}.get(n, 0))
         for name in order:
+            before = self._container_snapshot(name) if tracked else None
+            baseline = evidence['baseline'].get(name) if tracked else None
+            if tracked and baseline is not None and not self._same_process(baseline, before):
+                raise RuntimeError(f'Container changed outside the authorized release transition: {name}')
+            intent = self._now()
+            if tracked:
+                evidence.setdefault('transitions', {})[name] = {'intent_at': intent, 'before': before}
+                write(ROOT / 'pending.json', state)
             refresh = ('--force-recreate', '--pull', 'never') if self.manifest.get('env_refresh') else ()
             self.compose('up', '-d', '--no-build', '--no-deps', *refresh,
                          '--wait', '--wait-timeout', '240', name)
+            if tracked:
+                expected_image = run(['docker', 'image', 'inspect', '--format', '{{.Id}}',
+                                      self.manifest['nginx_image' if name == 'nginx' else 'app_image']])
+                after = self._container_snapshot(name)
+                accepted = self._accept_container(name, before, after, intent, expected_image, historical_baseline=baseline)
+                evidence.setdefault('accepted', {})[name] = accepted
+                evidence['transitions'].pop(name, None)
+                write(ROOT / 'pending.json', state)
         old = state['previous']
         if old:
             old_host = Host(self.role, old['release_id'])
@@ -401,8 +580,17 @@ class Host:
             actual_id = run(['docker', 'inspect', '--format', '{{.Image}}', container])
             if actual_id != expected_id:
                 raise RuntimeError(f'Image mismatch: {name}')
-            if int(run(['docker', 'inspect', '--format', '{{.RestartCount}}', container])):
-                raise RuntimeError(f'Container has restarted; inspect before accepting release: {name}')
+            restarts = int(run(['docker', 'inspect', '--format', '{{.RestartCount}}', container]))
+            if self.manifest.get('container_verification_version') == 1:
+                self._verify_bound_container(name, container, expected_id)
+            elif restarts:
+                # Old manifests have no trustworthy pre-rollout baseline. Fail closed.
+                emit(self.role, json.dumps({'release_id': self.release_id, 'service': name,
+                     'container': container, 'restart_count': restarts,
+                     'started_at': data.get('StartedAt'), 'finished_at': data.get('FinishedAt'),
+                     'exit_code': data.get('ExitCode'), 'oom_killed': data.get('OOMKilled'),
+                     'release_created_at': self.manifest.get('created_at')}))
+                raise RuntimeError(f'Container has restarted; inspect before accepting legacy release: {name}')
             if name != 'nginx' and self.manifest['services'][name]['scope'] != 'health-only':
                 run(['docker', 'exec', container, 'node', 'ops/verify.mjs', name])
             observations[name] = {'health': 'healthy', 'image': expected_image,
@@ -439,9 +627,24 @@ class Host:
         old.compose('config', '--quiet')
         # Pull may fail during registry outage; local digest cache remains usable.
         for name in old.names:
+            intent = self._now()
+            tracked = self.manifest.get('container_verification_version') == 1
+            before = old._container_snapshot(name) if tracked else None
+            if tracked:
+                state.setdefault('container_evidence', {}).setdefault('transitions', {})[name] = {
+                    'phase': 'RESTORE_REQUESTED', 'intent_at': intent, 'before': before}
+                write(ROOT / 'pending.json', state)
             pull = 'never' if self.manifest.get('env_refresh') else 'missing'
             old.compose('up', '-d', '--no-build', '--no-deps', '--force-recreate', '--pull', pull,
                         '--wait', '--wait-timeout', '240', name)
+            if self.manifest.get('container_verification_version') == 1:
+                expected = run(['docker', 'image', 'inspect', '--format', '{{.Id}}',
+                                old.manifest['nginx_image' if name == 'nginx' else 'app_image']])
+                restored = old._container_snapshot(name)
+                accepted = old._accept_container(name, before, restored, intent, expected, force_new=True)
+                state['container_evidence'].setdefault('restored', {})[name] = accepted
+                state['container_evidence'].setdefault('transitions', {}).pop(name, None)
+                write(ROOT / 'pending.json', state)
         added = sorted(set(self.names) - set(old.names))
         if added:
             self.compose('rm', '-s', '-f', *added)
@@ -461,7 +664,7 @@ class Host:
                     if not re.fullmatch(r'[a-f0-9]{12,64}', container):
                         continue
                     for args in (['inspect', '--format', '{{json .State}}', container],
-                                 ['logs', '--since', '10m', '--tail', '40', container]):
+                                 ['logs', '--timestamps', '--since', '10m', '--tail', '40', container]):
                         result = subprocess.run(['docker', *args], capture_output=True, text=True, timeout=10)
                         emit(self.role, f'Diagnostics {name} / {args[0]}:')
                         emit(self.role, '\n'.join((result.stdout + result.stderr).splitlines()[-40:]))

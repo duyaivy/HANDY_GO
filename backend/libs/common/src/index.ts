@@ -9,3 +9,5 @@ export * from './filters/http-exception.filter.js';
 export * from './outbox/index.js';
 export * from './templates/index.js';
 
+
+export * from './outbox/poll-backoff.js';

@@ -75,13 +75,30 @@ class EnvRefreshCoordinator(Coordinator):
             files[name] = content
         files[PREFLIGHT] = Path(__file__).with_name(PREFLIGHT).read_bytes()
 
-        from host import validate_env
+        from host import validate_env, validate_service_endpoints
         env_path = Path(self.args.env_file)
-        validate_env(env_path)
+        values = validate_env(env_path)
+        deployed_registry = json.loads(files['services.json'])['services']
+        current_registry = json.loads(Path(__file__).with_name('services.json').read_text())['services']
+        # Legacy bundles lack HTTP caller metadata. Keep their actual host/port
+        # while supplying reviewed caller metadata from the current coordinator.
+        endpoint_registry = {name: {**current_registry.get(name, {}), **item}
+                             for name, item in deployed_registry.items()}
+        for item in endpoint_registry.values():
+            if 'http_callers' in item:
+                item['http_callers'] = [name for name in item['http_callers'] if name in endpoint_registry]
+        validate_service_endpoints(values, endpoint_registry)
+        # Older images do not honor DB_POOL_*: never claim their budgets are enforced.
+        # For budget-aware releases, ENV-only refresh must revalidate the new limits.
+        database_budget = None
+        if 'database_budget' in previous:
+            from database_plan import validate_database_plan
+            database_budget = validate_database_plan(values, json.loads(files['services.json'])['services'])
         shared_env = env_path.read_bytes()
 
         manifest = copy.deepcopy(previous)
         manifest.update({
+            'container_verification_version': 1,
             'release_id': self.target,
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'run_id': self.args.run_id,
@@ -92,6 +109,8 @@ class EnvRefreshCoordinator(Coordinator):
             'env_refresh_from': previous_id,
             'files': {name: digest(content) for name, content in files.items()},
         })
+        if database_budget is not None:
+            manifest['database_budget'] = database_budget
         save(self.output / 'manifest.json', manifest)
         files['manifest.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
         files['shared.env'] = shared_env

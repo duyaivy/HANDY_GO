@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from '@app/database';
 import {
   Injectable,
   OnModuleInit,
@@ -37,7 +38,7 @@ export class PrismaService
       // ignore custom parsing error
     }
 
-    const adapter = new PrismaPg({ connectionString }, { schema });
+    const adapter = new PrismaPg(databasePoolConfig(connectionString, 'order'), { schema, onPoolError: databasePoolError('order') });
     super({ adapter });
     this.schema = schema;
   }

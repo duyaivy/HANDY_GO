@@ -1,8 +1,9 @@
 // Only a disposable local database is accepted. Never reads a production env file.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, copyFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, copyFileSync, mkdirSync, readdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Client } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/wallet-client';
@@ -12,7 +13,7 @@ const url = new URL(raw);
 assert(['localhost', '127.0.0.1'].includes(url.hostname), 'Local test database required');
 assert.equal(url.pathname, '/wallet_migration_test');
 url.searchParams.set('schema', 'wallet_service');
-const env = { ...process.env, DATABASE_URL: url.href, DATABASE_URL_WALLET: url.href };
+const env = { ...process.env, DATABASE_URL: url.href, DATABASE_URL_WALLET: url.href, DIRECT_URL_WALLET: url.href };
 const source = path.resolve('apps/wallet-service/prisma');
 const migrations = readdirSync(path.join(source, 'migrations')).filter(n => /^\d/.test(n)).sort();
 const temporary = mkdtempSync(path.resolve('.wallet-migration-test-'));
@@ -30,6 +31,8 @@ try {
   const existing = await client.query("SELECT to_regnamespace('wallet_service') AS schema");
   assert.equal(existing.rows[0].schema, null, 'Use a fresh disposable database');
   for (const name of ['schema.prisma', 'prisma.config.ts']) copyFileSync(path.join(source, name), path.join(temporary, name));
+  const temporaryConfig = path.join(temporary, 'prisma.config.ts');
+  writeFileSync(temporaryConfig, readFileSync(temporaryConfig, 'utf8').replace('../../../scripts/migration-url.js', pathToFileURL(path.resolve('scripts/migration-url.ts')).href));
   mkdirSync(path.join(temporary, 'migrations'));
   copyFileSync(path.join(source, 'migrations/migration_lock.toml'), path.join(temporary, 'migrations/migration_lock.toml'));
   // Upgrade from the release immediately preceding the payout contract.

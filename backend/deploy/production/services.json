@@ -8,7 +8,8 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "gateway-media",
-      "memory_mib": 160
+      "memory_mib": 160,
+      "migration": null
     },
     "auth-service": {
       "host": "vps1",
@@ -16,7 +17,14 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "authentication",
-      "memory_mib": 208
+      "memory_mib": 208,
+      "migration": "auth",
+      "migration_order": 1,
+      "url_env": "AUTH_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": false
     },
     "user-trust-service": {
       "host": "vps1",
@@ -24,7 +32,17 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "profile-provisioning",
-      "memory_mib": 176
+      "memory_mib": 176,
+      "migration": "user-trust",
+      "migration_order": 0,
+      "url_env": "USER_TRUST_SERVICE_URL",
+      "http_callers": [
+        "api-gateway",
+        "matching-service",
+        "bidding-service",
+        "wallet-service"
+      ],
+      "wireguard_http": true
     },
     "notification-service": {
       "host": "vps1",
@@ -32,7 +50,14 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "notification-core",
-      "memory_mib": 128
+      "memory_mib": 128,
+      "migration": "notification",
+      "migration_order": 2,
+      "url_env": "NOTIFICATION_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": false
     },
     "order-service": {
       "host": "vps2",
@@ -40,7 +65,15 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 128
+      "memory_mib": 128,
+      "migration": "order",
+      "migration_order": 0,
+      "url_env": "ORDER_SERVICE_URL",
+      "http_callers": [
+        "api-gateway",
+        "bidding-service"
+      ],
+      "wireguard_http": true
     },
     "bidding-service": {
       "host": "vps2",
@@ -48,7 +81,15 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 112
+      "memory_mib": 112,
+      "migration": "bidding",
+      "migration_order": 1,
+      "url_env": "BIDDING_SERVICE_URL",
+      "http_callers": [
+        "api-gateway",
+        "order-service"
+      ],
+      "wireguard_http": true
     },
     "matching-service": {
       "host": "vps2",
@@ -56,7 +97,15 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 160
+      "memory_mib": 160,
+      "migration": "matching",
+      "migration_order": 2,
+      "url_env": "MATCHING_SERVICE_URL",
+      "http_callers": [
+        "api-gateway",
+        "order-service"
+      ],
+      "wireguard_http": true
     },
     "tracking-service": {
       "host": "vps2",
@@ -64,7 +113,14 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 128
+      "memory_mib": 128,
+      "migration": "tracking",
+      "migration_order": 3,
+      "url_env": "TRACKING_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": true
     },
     "payment-service": {
       "host": "vps3",
@@ -72,7 +128,13 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 112
+      "memory_mib": 112,
+      "migration": null,
+      "url_env": "PAYMENT_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": true
     },
     "wallet-service": {
       "host": "vps3",
@@ -80,7 +142,14 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 112
+      "memory_mib": 112,
+      "migration": "wallet",
+      "migration_order": 1,
+      "url_env": "WALLET_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": true
     },
     "catalog-service": {
       "host": "vps3",
@@ -88,7 +157,14 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "catalog",
-      "memory_mib": 224
+      "memory_mib": 224,
+      "migration": "catalog",
+      "migration_order": 0,
+      "url_env": "CATALOG_SERVICE_URL",
+      "http_callers": [
+        "api-gateway"
+      ],
+      "wireguard_http": true
     }
   }
 }

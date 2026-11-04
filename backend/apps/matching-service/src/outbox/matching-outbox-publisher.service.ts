@@ -1,3 +1,4 @@
+import { PollBackoff, safeOutboxError } from '@app/common';
 import {
   Injectable,
   Logger,
@@ -14,6 +15,8 @@ export class MatchingOutboxPublisherService
   private readonly logger = new Logger(MatchingOutboxPublisherService.name);
   private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
+  private readonly backoff = new PollBackoff();
+  private stopped = false;
 
   constructor(
     private readonly repository: MatchingOutboxRepository,
@@ -21,6 +24,7 @@ export class MatchingOutboxPublisherService
   ) {}
 
   onModuleInit(): void {
+    this.stopped = false;
     if (process.env.NODE_ENV !== 'test') {
       this.timer = setInterval(() => {
         void this.publishPendingEvents();
@@ -30,6 +34,7 @@ export class MatchingOutboxPublisherService
   }
 
   onModuleDestroy(): void {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -41,7 +46,7 @@ export class MatchingOutboxPublisherService
   }
 
   async publishPendingEvents(): Promise<number> {
-    if (this.isProcessing) return 0;
+    if (this.isProcessing || this.stopped || !this.backoff.ready()) return 0;
     this.isProcessing = true;
 
     try {
@@ -49,27 +54,33 @@ export class MatchingOutboxPublisherService
       let publishedCount = 0;
 
       for (const event of pendingEvents) {
+        let delivered = false;
         try {
           await this.rabbitmq.emit(event.eventType, event.payload);
+          delivered = true;
           await this.repository.markPublished(event.id);
           publishedCount++;
         } catch (error) {
+          if (delivered) throw error;
           const attempts = event.publishAttempts + 1;
-          const msg = (error as Error).message;
+          const msg = safeOutboxError(error);
           this.logger.error(
             `Failed to publish outbox event ${event.id} (${event.eventType}, attempt ${attempts}): ${msg}`,
           );
 
           await this.repository.incrementPublishAttempts(event.id);
+          throw error;
 
           // Keep the original durable outbox row pending. A routing-key emission is
           // not proof that a DLQ exists; never mark an undelivered event published.
         }
       }
 
+      this.backoff.reset();
       return publishedCount;
-    } catch (err) {
-      this.logger.debug(`Outbox poll cycle skipped: ${(err as Error).message}`);
+    } catch (error) {
+      const delay = this.backoff.fail();
+      this.logger.error(`Outbox cycle failed: ${safeOutboxError(error)}; retry in ${delay}ms; check database budget and broker health. Durable events remain pending.`);
       return 0;
     } finally {
       this.isProcessing = false;

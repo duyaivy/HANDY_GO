@@ -50,6 +50,7 @@ import { MatchingEventConsumer } from './consumers/matching-event.consumer.js';
     ConfigModule.forRoot({
       serviceName: 'matching-service',
       defaultPort: 3006,
+      requiredUrls: ['USER_TRUST_SERVICE_URL'],
     }),
     LoggerModule.forRoot('matching-service'),
     HealthModule,

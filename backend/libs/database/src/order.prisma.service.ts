@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from './pool.config.js';
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/order-client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -31,7 +32,7 @@ export class OrderPrismaService
       // ignore custom parsing error
     }
 
-    const adapter = new PrismaPg({ connectionString }, { schema });
+    const adapter = new PrismaPg(databasePoolConfig(connectionString, 'order'), { schema, onPoolError: databasePoolError('order') });
     super({ adapter });
 
     this.schema = schema;

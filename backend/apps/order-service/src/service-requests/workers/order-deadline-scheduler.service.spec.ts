@@ -38,6 +38,22 @@ describe('OrderDeadlineSchedulerService', () => {
     service.onModuleDestroy();
   });
 
+  it('contains timer database rejections and pauses manual retry storms', async () => {
+    vi.useFakeTimers();
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0);
+    const log = vi.spyOn((service as any).logger, 'error').mockImplementation(() => {});
+    prismaMock.serviceRequest.findMany.mockRejectedValue(Object.assign(new Error('private database URL'), { code: 'XX000' }));
+    try {
+      service.onModuleInit();
+      await vi.advanceTimersByTimeAsync(60000);
+      for (let n = 0; n < 100; n++) await service.checkDeadlines();
+      expect(prismaMock.serviceRequest.findMany).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private database URL');
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(prismaMock.serviceRequest.findMany).toHaveBeenCalledTimes(2);
+    } finally { service.onModuleDestroy(); random.mockRestore(); log.mockRestore(); vi.useRealTimers(); }
+  });
+
   describe('checkDeadlines', () => {
     it('should close bidding for requests whose bidding deadline passed', async () => {
       const now = new Date('2026-10-23T12:00:00Z');

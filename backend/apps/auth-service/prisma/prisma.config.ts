@@ -1,44 +1,11 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'prisma/config';
+import { migrationUrl } from '../../../scripts/migration-url.js';
 
-const candidateEnvPaths = [
-  path.resolve(process.cwd(), '.env'),
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'),
-];
-
-for (const envPath of candidateEnvPaths) {
-  try {
-    process.loadEnvFile(envPath);
-    break;
-  } catch {
-    // ignore if .env is missing
-  }
-}
-
-function getDatabaseUrl(): string {
-  const urlStr =
-    process.env.DATABASE_URL_AUTH ||
-    process.env.DATABASE_URL ||
-    'postgresql://postgres:postgres@localhost:5432/handygo?schema=auth_service';
-
-  try {
-    const url = new URL(urlStr);
-    if (!url.searchParams.has('schema')) {
-      url.searchParams.set('schema', 'auth_service');
-    }
-    return url.toString();
-  } catch {
-    return urlStr;
-  }
-}
+// Optional development ENV; containers supply their environment directly.
+try { process.loadEnvFile(new URL('../../../.env', import.meta.url)); } catch { /* optional */ }
 
 export default defineConfig({
   schema: 'schema.prisma',
-  migrations: {
-    path: 'migrations',
-  },
-  datasource: {
-    url: getDatabaseUrl(),
-  },
+  migrations: { path: 'migrations' },
+  datasource: { url: migrationUrl('auth', 'auth_service') },
 });

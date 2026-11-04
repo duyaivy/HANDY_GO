@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from '@app/database';
 import {
   Injectable,
   OnModuleInit,
@@ -19,7 +20,7 @@ export class PrismaService
       process.env.DATABASE_URL_TRACKING ||
       process.env.DATABASE_URL ||
       'postgresql://postgres:postgres@localhost:5432/handygo?schema=tracking_service';
-    const adapter = new PrismaPg({ connectionString });
+    const adapter = new PrismaPg(databasePoolConfig(connectionString, 'tracking'), { onPoolError: databasePoolError('tracking') });
     super({ adapter });
   }
 

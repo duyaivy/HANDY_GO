@@ -10,6 +10,7 @@ const env = {
   DATABASE_URL: 'postgresql://fixture:private-value@database/app',
   REDIS_URL: 'rediss://fixture:private-value@redis',
   RABBITMQ_URL: 'amqps://fixture:private-value@broker',
+  NODE_ENV: 'production', USER_TRUST_SERVICE_URL: 'http://10.77.0.1:3002',
   SMTP_USER: 'fixture@example.com', SMTP_PASS: 'private-value',
 };
 
@@ -76,6 +77,13 @@ for (const [failure, expected, closed] of [
     if (closed) assert.ok(calls.includes(closed));
   });
 }
+
+test('cross-VPS User Trust calls require the VPS1 WireGuard IP', async () => {
+  const { calls, load } = fixture();
+  await assert.rejects(checkEnv('vps2', { ...env, USER_TRUST_SERVICE_URL: 'http://user-trust-service:3002' }, load, () => {}), /service endpoint configuration/);
+  assert.equal(calls.length, 0);
+  await checkEnv('vps2', env, load, () => {});
+});
 
 test('mismatched signing keys fail before dependency connections', async () => {
   const other = generateKeyPairSync('rsa', { modulusLength: 2048 });

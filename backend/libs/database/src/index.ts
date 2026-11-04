@@ -8,3 +8,4 @@ export * as AuthPrisma from '@prisma/auth-client';
 export * as UserTrustPrisma from '@prisma/user-trust-client';
 export * as OrderPrisma from '@prisma/order-client';
 export * as MatchingPrisma from '@prisma/matching-client';
+export * from './pool.config.js';

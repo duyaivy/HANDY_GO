@@ -8,9 +8,18 @@ import type {
 @Injectable()
 export class UserTrustCandidateProvider implements ICandidateProvider {
   private getBaseUrl(): string {
-    const raw = (
-      process.env.USER_TRUST_SERVICE_URL || 'http://localhost:3002'
-    ).replace(/\/+$/, '');
+    const configured = process.env.USER_TRUST_SERVICE_URL;
+    if (process.env.NODE_ENV === 'production') {
+      if (!configured) throw new Error('USER_TRUST_SERVICE_URL is required in production');
+      try {
+        const upstream = new URL(configured);
+        if (upstream.protocol !== 'http:' || upstream.hostname !== '10.77.0.1'
+            || upstream.port !== '3002' || upstream.username || upstream.password) throw new Error();
+      } catch {
+        throw new Error('USER_TRUST_SERVICE_URL must target User Trust over the VPS1 WireGuard address');
+      }
+    }
+    const raw = (configured || 'http://localhost:3002').replace(/\/+$/, '');
     return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
   }
 

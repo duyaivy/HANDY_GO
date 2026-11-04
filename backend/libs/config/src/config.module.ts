@@ -1,6 +1,7 @@
 import { DynamicModule, Global, Module } from '@nestjs/common';
 import { ConfigModule as NestConfigModule } from '@nestjs/config';
 import { ConfigService } from './config.service.js';
+import { validateProductionServiceEndpoints } from './service-endpoints.js';
 
 export interface ConfigModuleOptions {
   serviceName: string;
@@ -77,6 +78,8 @@ function validateEnvironment(
       throw new Error(`${key} must be a valid URL`);
     }
   }
+
+  validateProductionServiceEndpoints(config, options.serviceName);
 
   for (const key of options.requiredKeys ?? []) {
     const value = config[key];
