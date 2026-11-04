@@ -101,6 +101,12 @@ pnpm run lint
 
 ### 4.1. Monorepo Shared Libraries (`libs/`)
 
+- `validateProductionServiceEndpoints(config, serviceName)` — `libs/config/src/service-endpoints.ts`: startup checks using HTTP callers/ports/hosts from `deploy/production/services.json`; enforces WireGuard origins for shared cross-VPS URLs and an explicit HTTPS AI endpoint. Called automatically by `ConfigModule.forRoot`.
+
+- `databasePoolConfig(url, service)` / `databasePoolError(service)` — `libs/database/src/pool.config.ts`: validated Prisma v7 pg limits, finite connection wait and sanitized idle error logging. Usage: `new PrismaPg(databasePoolConfig(url, 'order'), { onPoolError: databasePoolError('order') })`; adapter owns pool disposal through `$disconnect()`.
+- `PollBackoff` / `safeOutboxError(error)` — `libs/common/src/outbox/poll-backoff.ts`: bounded jittered cooldown shared by scheduled/manual Outbox attempts, sanitized dependency codes. Usage: check `ready()`, call `fail()` after dependency failure, `reset()` after a successful cycle.
+
+
 | Library (`libs/`) | Exported Asset | Purpose & Usage Contract |
 | :--- | :--- | :--- |
 | **`@app/common`**<br>`libs/common/src/` | `AppException`<br>`ERROR_CODES`<br>`AppErrorData` | **Standardized HTTP Exceptions.**<br>`throw new AppException(HttpStatus.BAD_REQUEST, ERROR_CODES.VALIDATION_ERROR, 'Error description', { data });`<br>Supports `data.verification` containing `challengeId`, `phone`, `emailMasked`, `expiresAt`, `resendAvailableAt` for pending account and delivery failure flows. |

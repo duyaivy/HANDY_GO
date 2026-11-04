@@ -77,6 +77,12 @@ class EnvRefreshTests(unittest.TestCase):
         self.assertFalse(any('shared.env' in str(c.args) for c in obj.ssh_run.call_args_list))
         self.assertNotIn('fixture-at-least-thirty-two-characters-', (obj.output / 'manifest.json').read_text())
 
+    def test_budget_aware_refresh_cannot_increase_connections_past_limit(self):
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        self.env.write_text(self.env.read_text().replace('=false\n', '=true\n').replace('DB_POOL_MAX=1', 'DB_POOL_MAX=10'))
+        with self.assertRaisesRegex(ValueError, 'exceeds limit'):
+            self.coordinator().bundle()
+
     def test_refresh_of_a_previous_env_refresh_is_supported(self):
         self.old['files']['env-preflight.mjs'] = 'old-probe-checksum'
         self.assertTrue(self.coordinator().bundle()[0]['env_refresh'])

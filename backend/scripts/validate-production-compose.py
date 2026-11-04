@@ -24,6 +24,16 @@ for role in ('vps1', 'vps2', 'vps3'):
         assert services[name]['environment']['NODE_ENV'] == 'production'
         assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
+    for name in expected - {'nginx'}:
+        if name == 'user-trust-service':
+            assert services[name]['ports'] == [{'mode': 'ingress', 'host_ip': '10.77.0.1', 'target': 3002, 'published': '3002', 'protocol': 'tcp'}]
+        elif role == 'vps1':
+            assert 'ports' not in services[name]
+        else:
+            port = services[name]['ports'][0]
+            assert port['host_ip'] == env['PRIVATE_IP']
+            assert port['target'] == registry[name]['port']
+            assert port['published'] == str(registry[name]['port'])
     for name in expected:
         assert int(services[name]['memswap_limit']) == 2 * int(services[name]['mem_limit'])
     print(f'{role}: exact service set and shared raw ENV resolved correctly')

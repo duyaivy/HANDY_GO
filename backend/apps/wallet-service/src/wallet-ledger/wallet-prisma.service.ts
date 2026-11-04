@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from '@app/database';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/wallet-client';
@@ -24,7 +25,7 @@ export class WalletPrismaService extends PrismaClient implements OnModuleInit, O
       // Prisma reports malformed URLs during connect.
     }
 
-    super({ adapter: new PrismaPg({ connectionString }, { schema }) });
+    super({ adapter: new PrismaPg(databasePoolConfig(connectionString, 'wallet'), { schema, onPoolError: databasePoolError('wallet') }) });
   }
 
   async onModuleInit(): Promise<void> {

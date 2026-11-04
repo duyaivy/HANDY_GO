@@ -311,7 +311,7 @@ describe('OutboxPublisherService', () => {
         'event-2',
         expect.any(Date),
         2,
-        'Broker disconnected',
+        'dependency operation failed',
       );
     });
 
@@ -339,10 +339,10 @@ describe('OutboxPublisherService', () => {
           failedEventId: 'event-3',
           eventType: 'user.registered',
           retries: 5,
-          error: 'Network failure',
+          error: 'dependency operation failed',
         }),
       );
-      expect(repoMock.markFailed).toHaveBeenCalledWith('event-3', 'Network failure', 5);
+      expect(repoMock.markFailed).toHaveBeenCalledWith('event-3', 'dependency operation failed', 5);
     });
 
     it('should schedule DLQ retry if routing to DLQ fails', async () => {
@@ -365,7 +365,7 @@ describe('OutboxPublisherService', () => {
       expect(repoMock.scheduleDlqRetry).toHaveBeenCalledWith(
         'event-4',
         expect.any(Date),
-        'DLQ publish failed: DLQ unreachable',
+        'DLQ publish failed: dependency operation failed',
         5,
       );
     });

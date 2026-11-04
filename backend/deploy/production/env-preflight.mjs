@@ -3,8 +3,18 @@
 import { createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 
 export async function checkEnv(role, env = process.env, load = name => import(name), report = console.log) {
-  let probe = 'JWT key pair';
+  let probe = 'service endpoint configuration';
   try {
+    if (env.NODE_ENV === 'production') {
+      const userTrust = new URL(env.USER_TRUST_SERVICE_URL || '');
+      if (userTrust.protocol !== 'http:' || userTrust.hostname !== '10.77.0.1'
+          || userTrust.port !== '3002' || userTrust.username || userTrust.password
+          || !['', '/', '/api/v1'].includes(userTrust.pathname)) {
+        throw new Error('USER_TRUST_SERVICE_URL must target the VPS1 WireGuard address');
+      }
+    }
+
+    probe = 'JWT key pair';
     if (role === 'vps1') {
       const pem = value => value.startsWith('base64:')
         ? Buffer.from(value.slice(7), 'base64').toString('utf8') : value.replace(/\\n/g, '\n');
@@ -19,8 +29,8 @@ export async function checkEnv(role, env = process.env, load = name => import(na
 
     const overrides = {
       vps1: ['AUTH', 'USER_TRUST', 'NOTIFICATION'],
-      vps2: ['ORDER', 'BIDDING', 'MATCHING'],
-      vps3: ['WALLET'],
+      vps2: ['ORDER', 'BIDDING', 'MATCHING', 'TRACKING'],
+      vps3: ['WALLET', 'CATALOG'],
     }[role];
     if (!overrides) throw new Error('Unknown host role');
     const { default: pg } = await load('pg');

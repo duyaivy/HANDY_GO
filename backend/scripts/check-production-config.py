@@ -11,7 +11,7 @@ apps = {p.name for p in (ROOT / 'apps').iterdir() if (p / 'src/main.ts').exists(
 assert set(registry) == apps
 assert set(services) == apps | {'nginx'}
 assert not any(PROD.glob('compose.vps*.yml'))
-assert set(p.name for p in (PROD / 'env').glob('*')) == {'production.env.example'}
+assert set(p.name for p in (PROD / 'env').glob('*') if not p.name.startswith('.')) == {'production.env.example'}
 totals = {'vps1': 32, 'vps2': 0, 'vps3': 0}
 for name, item in registry.items():
     service = services[name]
@@ -25,7 +25,11 @@ for name, item in registry.items():
     assert service['read_only'] and service['cap_drop'] == ['ALL']
     assert service['logging']['options']['max-file'] == '3'
     assert 'build' not in service and 'depends_on' not in service
-    if item['host'] == 'vps1':
+    if item.get('url_env'):
+        assert item.get('wireguard_http') == bool(service.get('ports')), name
+    if item['host'] == 'vps1' and name == 'user-trust-service':
+        assert service['ports'] == ['${PRIVATE_IP:?WireGuard IP required}:3002:3002']
+    elif item['host'] == 'vps1':
         assert 'ports' not in service
     else:
         assert service['ports'] == [f'${{PRIVATE_IP:?WireGuard IP required}}:{item["port"]}:{item["port"]}']
@@ -36,12 +40,20 @@ assert 'env_file' not in services['nginx']
 assert services['nginx']['ports'] == ['80:8080', '443:8443']
 assert services['nginx']['mem_limit'] == '32m'
 assert services['nginx']['memswap_limit'] == '64m'
+user_trust_port = services['user-trust-service']['ports']
+assert user_trust_port == ['${PRIVATE_IP:?WireGuard IP required}:3002:3002']
+example = (PROD / 'env/production.env.example').read_text()
+production_env = dict(line.partition('=')[::2] for line in example.splitlines() if line and not line.startswith('#'))
+assert production_env['USER_TRUST_SERVICE_URL'] == 'http://10.77.0.1:3002'
+import sys
+sys.path.insert(0, str(PROD))
+from host import validate_service_endpoints
+validate_service_endpoints(production_env, registry)
 for role, total in totals.items():
     assert total + 280 <= 1024, f'{role}: container caps plus host reserve exceed 1 GiB'
     assert total * 2 + 280 <= 2048, f'{role}: RAM + swap caps plus host reserve exceed 2 GiB'
     print(f'{role}: RAM cap {total} MiB, optional swap cap {total} MiB; '
           'preflight checks actual RAM + active swap')
-example = (PROD / 'env/production.env.example').read_text()
 keys = [line.partition('=')[0] for line in example.splitlines() if line and not line.startswith('#')]
 assert len(keys) == len(set(keys))
 workflow = yaml.safe_load((ROOT.parent / '.github/workflows/backend-production.yml').read_text())

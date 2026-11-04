@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from '@app/database';
 import {
   Injectable,
   OnModuleInit,
@@ -16,9 +17,10 @@ export class PrismaService
 
   constructor() {
     const connectionString =
+      process.env.DATABASE_URL_CATALOG ||
       process.env.DATABASE_URL ||
       'postgresql://postgres:postgres@localhost:5432/postgres';
-    const adapter = new PrismaPg({ connectionString });
+    const adapter = new PrismaPg(databasePoolConfig(connectionString, 'catalog'), { onPoolError: databasePoolError('catalog') });
     super({ adapter });
   }
 

@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from './pool.config.js';
 import { Injectable, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/auth-client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -31,7 +32,7 @@ export class AuthPrismaService
       // ignore custom parsing error
     }
 
-    const adapter = new PrismaPg({ connectionString }, { schema });
+    const adapter = new PrismaPg(databasePoolConfig(connectionString, 'auth'), { schema, onPoolError: databasePoolError('auth') });
     super({ adapter });
 
     this.schema = schema;
