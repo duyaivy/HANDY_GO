@@ -140,4 +140,33 @@ describe('handyMap component', () => {
       refHolder.current?.zoomOut();
     });
   });
+
+  it('triggers onDidFinishLoadingMap callback when map finishes loading', () => {
+    const onDidFinishSpy = jest.fn();
+    render(<HandyMap onDidFinishLoadingMap={onDidFinishSpy} />);
+
+    const mapView = screen.getByTestId('mapbox-map-view');
+    expect(mapView.props.onDidFinishLoadingMap).toBeDefined();
+
+    act(() => {
+      mapView.props.onDidFinishLoadingMap();
+    });
+
+    expect(onDidFinishSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('configures Mapbox.Camera with centerCoordinate and zoomLevel when panEnabled is false', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        center={{ latitude: 16.0748, longitude: 108.1499 }}
+        zoomLevel={14.5}
+      />,
+    );
+
+    const camera = screen.getByTestId('mapbox-camera');
+    expect(camera).toBeTruthy();
+    expect(camera.props.centerCoordinate).toEqual([108.1499, 16.0748]);
+    expect(camera.props.zoomLevel).toBe(14.5);
+  });
 });

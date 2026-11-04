@@ -52,7 +52,28 @@ afterEach(() => {
 });
 
 describe('customerBookingRadarScreen locate-me button', () => {
-  it('renders locate-me-btn and triggers flyTo to radarCoords on press', async () => {
+  it('automatically triggers flyTo to radarCoords at zoom 14.5 upon screen mount', async () => {
+    useBookingDraftStore.setState({
+      latitude: 16.0748,
+      longitude: 108.1499,
+      addressText: '54 Nguyễn Lương Bằng, Đà Nẵng',
+      createdRequestId: 'req-test-123',
+    });
+
+    render(<CustomerBookingRadarScreen />);
+
+    await waitFor(() => {
+      expect(mockFlyTo).toHaveBeenCalledWith(
+        {
+          latitude: 16.0748,
+          longitude: 108.1499,
+        },
+        14.5,
+      );
+    });
+  });
+
+  it('renders locate-me-btn and triggers flyTo to radarCoords on press with zoom 14.5', async () => {
     useBookingDraftStore.setState({
       latitude: 16.0748,
       longitude: 108.1499,
@@ -73,7 +94,7 @@ describe('customerBookingRadarScreen locate-me button', () => {
           latitude: 16.0748,
           longitude: 108.1499,
         },
-        11.5,
+        14.5,
       );
     });
   });

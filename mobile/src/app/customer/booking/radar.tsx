@@ -59,6 +59,8 @@ type DisplayWorkerCandidate = {
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
+const RADAR_ZOOM_LEVEL = 14.5;
+const DEFAULT_RADAR_CENTER = { latitude: 16.0748, longitude: 108.1499 };
 
 const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   id: 'a7d8c9e0-1122-4344-8566-778899aabbcc',
@@ -123,7 +125,7 @@ export default function CustomerBookingRadarRoute() {
     if (isLocationValid) {
       return { latitude, longitude };
     }
-    return null;
+    return DEFAULT_RADAR_CENTER;
   }, [isLocationValid, latitude, longitude]);
 
   React.useEffect(() => {
@@ -421,11 +423,24 @@ export default function CustomerBookingRadarRoute() {
   const mapRef = React.useRef<HandyMapRef>(null);
   const [isLocating, setIsLocating] = React.useState(false);
 
+  // Tự động căn đúng tâm vị trí khách hàng với mức zoom radar tối ưu (14.5) khi màn hình mở ra
+  React.useEffect(() => {
+    if (!radarCoords) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [radarCoords]);
+
   const handleRecenter = React.useCallback(async () => {
     setIsLocating(true);
     try {
       if (radarCoords) {
-        mapRef.current?.flyTo(radarCoords, 11.5);
+        mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
       }
       else {
         const result = await DeviceLocationService.getDeviceLocationResult();
@@ -440,7 +455,7 @@ export default function CustomerBookingRadarRoute() {
               latitude: result.coordinates.latitude,
               longitude: result.coordinates.longitude,
             },
-            11.5,
+            RADAR_ZOOM_LEVEL,
           );
         }
       }
@@ -717,7 +732,7 @@ export default function CustomerBookingRadarRoute() {
                 ref={mapRef}
                 initialCenter={radarCoords}
                 center={radarCoords}
-                zoomLevel={11.5}
+                zoomLevel={RADAR_ZOOM_LEVEL}
                 interactive={true}
                 panEnabled={false}
                 pinchPanEnabled={false}
