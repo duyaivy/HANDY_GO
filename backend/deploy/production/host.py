@@ -680,6 +680,101 @@ class Host:
         write(ROOT / 'pending.json', state)
         return {'verification': 'CLUSTER_VERIFIED'}
 
+    def observe_runtime(self):
+        """Read-only runtime evidence, NOT release acceptance or legacy verification."""
+        if read(ROOT / 'stable.json') != {'release_id': self.release_id}:
+            raise RuntimeError('Stable release changed before runtime observation')
+        self.validate_bundle()
+        captured_at = self._now()
+        containers = {}
+        for name in self.names:
+            current = self._container_snapshot(name)
+            expected = run(['docker', 'image', 'inspect', '--format', '{{.Id}}',
+                            self.manifest['nginx_image' if name == 'nginx' else 'app_image']])
+            if (not current or current.get('image') != expected or not current.get('running')
+                    or current.get('health') != 'healthy' or current.get('oom_killed')
+                    or type(current.get('restart_count')) is not int or current['restart_count'] < 0
+                    or not re.fullmatch(r'[a-f0-9]{64}', current.get('id') or '')
+                    or not current.get('started_at') or not current.get('created')):
+                raise RuntimeError(f'Runtime observation rejected unhealthy/image/identity mismatch: {name}')
+            if name != 'nginx' and self.manifest['services'][name]['scope'] != 'health-only':
+                run(['docker', 'exec', current['id'], 'node', 'ops/verify.mjs', name])
+            if self._container_snapshot(name) != current:
+                raise RuntimeError(f'Runtime changed/restarted during business probe: {name}')
+            containers[name] = current
+        # A later service probe may take time; recheck the full host before returning evidence.
+        for name, current in containers.items():
+            if self._container_snapshot(name) != current:
+                raise RuntimeError(f'Runtime changed/restarted during host observation: {name}')
+        return {'release_id': self.release_id, 'captured_at': captured_at, 'containers': containers,
+                'release_accepted': False}
+
+    def _untouched_snapshot(self, transaction):
+        state = self.owner(transaction)
+        evidence = state.get('container_evidence') or {}
+        if (state.get('phase') != 'SNAPSHOT' or state.get('touched') is not False
+                or not state.get('previous') or read(ROOT / 'stable.json') != state['previous']
+                or any(evidence.get(key) for key in ('accepted', 'restored', 'transitions', 'stop_requested_at'))
+                or state.get('recovery_decision') == 'RESTORE_PREVIOUS'):
+            raise RuntimeError('Only an untouched snapshot with unchanged previous stable can be aborted')
+        self.validate_bundle()
+        return state
+
+    def snapshot_abort_baseline(self, transaction):
+        state = self._untouched_snapshot(transaction)
+        old = Host(self.role, state['previous']['release_id'])
+        state['snapshot_abort'] = {'baseline': old.observe_runtime(), 'fence': read(ROOT / 'fence.json')}
+        if not state['snapshot_abort']['fence']:
+            raise RuntimeError('Manual snapshot abort requires a fenced coordinator')
+        write(ROOT / 'pending.json', state)
+        return {'baseline_recorded': True}
+
+    def authorize_snapshot_abort(self, transaction):
+        state = self._untouched_snapshot(transaction)
+        evidence = state.get('snapshot_abort') or {}
+        if not evidence.get('baseline') or evidence.get('fence') != read(ROOT / 'fence.json'):
+            raise RuntimeError('Snapshot abort baseline/fence missing or changed')
+        evidence['authorization'] = 'CLUSTER_OBSERVED_NOT_RELEASE_VERIFIED'
+        write(ROOT / 'pending.json', state)
+        return {'authorized': True, 'release_accepted': False}
+
+    def abort_snapshot(self, transaction):
+        state = self._untouched_snapshot(transaction)
+        evidence = state.get('snapshot_abort') or {}
+        if (evidence.get('authorization') != 'CLUSTER_OBSERVED_NOT_RELEASE_VERIFIED'
+                or not evidence.get('fence') or evidence['fence'] != read(ROOT / 'fence.json')):
+            raise RuntimeError('Explicit fenced cluster observation required before snapshot abort')
+        baseline = evidence.get('baseline') or {}
+        try:
+            captured_at = datetime.datetime.fromisoformat(baseline['captured_at'].replace('Z', '+00:00'))
+            age = (datetime.datetime.now(datetime.timezone.utc) - captured_at).total_seconds()
+        except (KeyError, ValueError, TypeError):
+            raise RuntimeError('Invalid snapshot observation timestamp') from None
+        if not 20 <= age <= 600:
+            raise RuntimeError('Snapshot abort requires 20–600 seconds of fresh runtime observation')
+        observed = Host(self.role, state['previous']['release_id']).observe_runtime()
+        if (baseline.get('release_id') != observed['release_id']
+                or baseline.get('containers') != observed['containers']):
+            raise RuntimeError('Runtime changed/restarted during snapshot abort observation')
+        evidence['final'] = observed
+        self._untouched_snapshot(transaction)
+        if not 20 <= (datetime.datetime.now(datetime.timezone.utc) - captured_at).total_seconds() <= 600:
+            raise RuntimeError('Snapshot abort evidence expired during final runtime probes')
+        history = ROOT / 'transactions'
+        history.mkdir(mode=0o700, exist_ok=True)
+        receipt = history / (transaction + '.json')
+        record = {**state, 'unlock': 'ABORTED_UNTOUCHED_SNAPSHOT', 'release_accepted': False}
+        existing = read(receipt)
+        if existing is not None:
+            if any(existing.get(key) != record[key] for key in ('transaction', 'target', 'previous', 'unlock')):
+                raise RuntimeError('Existing transaction receipt conflicts with snapshot abort')
+        else:
+            write(receipt, record)
+        # Durable receipt precedes unlink; no application, image, schema or stable mutation.
+        (ROOT / 'pending.json').unlink()
+        sync_directory(ROOT)
+        return {'aborted': True, 'release_accepted': False}
+
     def finish(self, transaction):
         state = self.owner(transaction)
         if state['phase'] not in ('SNAPSHOT', 'COMMITTED', 'RESTORED'):
@@ -763,6 +858,12 @@ def main():
         try:
             if action == 'verify':
                 result = host.verify()
+            elif action == 'observe-runtime':
+                result = host.observe_runtime()
+            elif action in ('snapshot-abort-baseline', 'authorize-snapshot-abort', 'abort-snapshot'):
+                if expected_state is None or fence is None:
+                    raise RuntimeError('Snapshot abort requires inspected state and session fence')
+                result = getattr(host, action.replace('-', '_'))(transaction)
             elif action == 'authorize-finish':
                 result = host.authorize_finish(transaction)
             elif action in ('begin', 'prepare', 'apply', 'commit', 'restore', 'finish'):
