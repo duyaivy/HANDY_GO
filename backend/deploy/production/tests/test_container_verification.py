@@ -16,6 +16,32 @@ spec.loader.exec_module(host)
 
 
 class ContainerVerificationTests(unittest.TestCase):
+    def test_created_after_preserves_nanosecond_ordering(self):
+        earlier = '2026-11-04T00:00:00.123456001Z'
+        later = '2026-11-04T00:00:00.123456999Z'
+        self.assertFalse(host.Host._created_after(earlier, later))
+        self.assertTrue(host.Host._created_after(later, earlier))
+        self.assertTrue(host.Host._created_after(later, later))
+
+    def test_created_after_compares_offsets_and_fraction_lengths(self):
+        intent = '2026-11-04T00:00:00.1Z'
+        for created in ('2026-11-04T07:00:00.100000000+07:00',
+                        '2026-11-03T19:00:00.100-05:00'):
+            with self.subTest(created=created):
+                self.assertTrue(host.Host._created_after(created, intent))
+                self.assertTrue(host.Host._created_after(intent, created))
+        self.assertTrue(host.Host._created_after('2026-11-04T00:00:00Z',
+                                                 '2026-11-04T00:00:00.000000000Z'))
+
+    def test_created_after_rejects_invalid_timestamps(self):
+        valid = '2026-11-04T00:00:00Z'
+        for invalid in (None, 42, '', 'invalid', '2026-11-04T00:00:00',
+                        '2026-11-04T00:00:00.1234567890Z',
+                        '2026-11-04T00:00:00+24:00', '2026-02-30T00:00:00Z'):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(host.Host._created_after(invalid, valid))
+                self.assertFalse(host.Host._created_after(valid, invalid))
+
     def make_host(self, restart=2, started='2026-11-03T01:02:00Z', container='a' * 64,
                   health='healthy', image='image-id'):
         obj = host.Host.__new__(host.Host)

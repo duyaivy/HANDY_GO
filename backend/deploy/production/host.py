@@ -288,9 +288,24 @@ class Host:
     def _created_after(created, intent):
         try:
             def parse(value):
-                return datetime.datetime.fromisoformat(value.replace('Z', '+00:00'))
+                match = re.fullmatch(
+                    r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})'
+                    r'(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})',
+                    value
+                )
+                if not match:
+                    raise ValueError('Invalid timestamp')
+
+                base, fraction, timezone = match.groups()
+                dt = datetime.datetime.fromisoformat(
+                    base + ('+00:00' if timezone == 'Z' else timezone)
+                )
+                seconds = int(dt.timestamp())
+                nanos = int((fraction or '').ljust(9, '0'))
+                return seconds * 1_000_000_000 + nanos
+
             return parse(created) >= parse(intent)
-        except (AttributeError, TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return False
 
     def _capture_baseline(self):
