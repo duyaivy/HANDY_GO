@@ -21,6 +21,7 @@ export const ORDER_CONSTANTS = {
   AGGREGATE_BOOKING_PROPOSAL: 'BookingProposal',
 
   // Outbox Event Types (Outbound)
+  EVENT_SERVICE_REQUEST_CREATED: 'service_request.created',
   EVENT_SERVICE_REQUEST_PUBLISHED: 'service_request.published',
   EVENT_SERVICE_REQUEST_BIDDING_CLOSED: 'service_request.bidding_closed',
   EVENT_SERVICE_REQUEST_EXPIRED: 'service_request.expired',

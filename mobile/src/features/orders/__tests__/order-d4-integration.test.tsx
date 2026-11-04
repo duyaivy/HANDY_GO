@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { BookingProposal, Order, ServiceRequest } from '../types/order.types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook } from '@testing-library/react-native';

@@ -175,7 +175,7 @@ export class ProposalSourceVerifierService {
   private async verifyRecommendationSource(
     params: VerifyProposalSourceParams,
   ): Promise<void> {
-    const { sourceMatchResultId, serviceRequestId } = params;
+    const { sourceMatchResultId, serviceRequestId, workerUserId } = params;
 
     if (!sourceMatchResultId) {
       throw new AppException(
@@ -196,14 +196,86 @@ export class ProposalSourceVerifierService {
       return;
     }
 
-    // Real production run: Matching service currently lacks an internal verification contract -> Strictly fail-closed!
-    this.logger.warn(
-      `Recommendation ${sourceMatchResultId} rejected: Matching Service contract not yet available. Failing closed.`,
-    );
-    throw new AppException(
-      HttpStatus.BAD_REQUEST,
-      ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-      'Nguồn gợi ý (recommendation) từ Matching Service chưa có hợp đồng xác thực trên môi trường thật. Thao tác bị từ chối an toàn (fail-closed).',
-    );
+    // Real production verification via Matching Service internal contract (PR42-05)
+    const rawMatchingUrl =
+      this.config.get('MATCHING_SERVICE_URL') || 'http://localhost:3004';
+    const matchingServiceUrl = rawMatchingUrl.replace(/\/+$/, '');
+    const internalSecret = this.config.internalServiceSecret;
+
+    const url = `${matchingServiceUrl}/api/v1/internal/matching/results/${encodeURIComponent(sourceMatchResultId)}/eligibility?serviceRequestId=${encodeURIComponent(serviceRequestId)}&workerUserId=${encodeURIComponent(workerUserId)}`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: internalSecret || '',
+        },
+        signal: AbortSignal.timeout(3000),
+      });
+
+      if (response.status === 200) {
+        const body = (await response.json()) as {
+          data?: { isEligible: boolean; reason?: string };
+          isEligible?: boolean;
+          reason?: string;
+        };
+        const result = body.data || body;
+
+        if (!result.isEligible) {
+          throw new AppException(
+            HttpStatus.BAD_REQUEST,
+            ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+            result.reason ||
+              'Kết quả đề xuất không đủ điều kiện để tạo đề xuất đặt lịch',
+          );
+        }
+
+        this.logger.log(
+          `Recommendation ${sourceMatchResultId} verified successfully via Matching Service`,
+        );
+        return;
+      }
+
+      if (
+        response.status === 400 ||
+        response.status === 403 ||
+        response.status === 404 ||
+        response.status === 409
+      ) {
+        const errorBody = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+          errorBody.message ||
+            'Kết quả đề xuất không tồn tại hoặc không đủ điều kiện',
+        );
+      }
+
+      // 5xx from Matching Service -> Fail closed
+      this.logger.error(
+        `Matching Service returned ${response.status} when verifying recommendation ${sourceMatchResultId}. Failing closed.`,
+      );
+      throw new AppException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        ORDER_ERROR_CODES.SERVICE_UNAVAILABLE,
+        'Không thể kết nối tới Matching Service để xác thực kết quả đề xuất. Vui lòng thử lại sau.',
+      );
+    } catch (err: unknown) {
+      if (err instanceof AppException) {
+        throw err;
+      }
+
+      // Fail-closed on network errors, DNS failure, timeout
+      this.logger.error(
+        `Matching Service verifier error (${(err as Error).message}). Failing closed.`,
+      );
+      throw new AppException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        ORDER_ERROR_CODES.SERVICE_UNAVAILABLE,
+        'Dịch vụ Matching tạm thời không phản hồi. Xác minh đề xuất thất bại (fail-closed).',
+      );
+    }
   }
 }

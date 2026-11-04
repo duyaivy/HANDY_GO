@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { AppMode } from '@/stores/use-auth-store';
 import { useRouter } from 'expo-router';
 import * as React from 'react';

@@ -237,6 +237,9 @@ export class CustomerMatchingController {
             : undefined,
           addressText: item.addressText || undefined,
           createdAt: item.createdAt.toISOString(),
+          biddingClosesAt: item.biddingClosesAt
+            ? item.biddingClosesAt.toISOString()
+            : undefined,
         })),
         total: result.total,
         page: result.page,

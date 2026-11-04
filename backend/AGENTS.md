@@ -118,17 +118,21 @@ pnpm run lint
 | | `Role`, `RegisterRole`<br>`StandardPermissions`<br>`TokenType` | Canonical enums & const maps for roles (`CUSTOMER`, `WORKER`, `ADMIN`), permissions (`AUTH_ME`, `PROFILE_READ`, ...), and token types (`TokenType.ACCESS`, `TokenType.REFRESH`). |
 | **`@app/database`**<br>`libs/database/src/` | `AuthPrismaService` | Prisma client connected to `auth_db` with connection pooling. |
 | | `UserTrustPrismaService` | Prisma client connected to `user_trust_db` with connection pooling. |
-| **Wallet service**<br>`apps/wallet-service/src/` | `WalletPrismaService` | Prisma client for the Wallet bounded context. Resolves the wallet schema consistently and passes it to the PostgreSQL driver adapter; use this client for Wallet transactions and row locks. |
-| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), and required key validation. |
+| **`@app/config`**<br>`libs/config/src/` | `ConfigModule.forRoot(...)`<br>`ConfigService` | Strongly-typed environment variables, port definitions, secrets (`isProduction`, `nodeEnv`, `cloudinaryVideoChunkSizeMb`, etc.), required key and URL validation. Usage: `ConfigModule.forRoot({ serviceName: 'bidding-service', defaultPort: 3005, requiredUrls: ['ORDER_SERVICE_URL'], requiredKeys: ['INTERNAL_SERVICE_SECRET'] })` rejects missing, blank or malformed Order URLs during startup. |
 | **`@app/rabbitmq`**<br>`libs/rabbitmq/src/` | `RabbitMQService` | RabbitMQ event broadcasting and RPC request-reply communications. |
 | | `RabbitMQContextService` | Manual ACK/NACK helper for RMQ consumers. ACK only after the database operation commits; NACK transient failures for broker redelivery. |
-| **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access: `get`, `set`, `del`, `expire`. |
+| **`@app/redis`**<br>`libs/redis/src/` | `RedisService` | Redis cache access, Pub/Sub with reconnection handling (`subscribe(channel, cb, onReconnect)`), strict error-propagating publishing (`publishStrict`), durable list and sorted-set index processing via `appendListItem`, `peekListHead`, `acknowledgeListHead`, `getListLength`, `addToSortedSet`, `removeFromSortedSet`, `getSortedSetRangeWithScores`, atomic cluster-safe `appendAndTrackPendingOrder` (Lua script `RPUSH` + `ZADD NX`), atomic lock-verified `cleanupPendingOrderIfEmpty` (Lua script `GET lockKey == lockToken` and `LLEN listKey == 0` -> `ZREM`), and `withDistributedLock`. |
 | **`@app/logger`**<br>`libs/logger/src/` | `LoggerModule.forRoot(name)`<br>`createLoggerConfig(serviceName)` | Pino structured logging with request IDs and secret redaction, including `x-internal-secret` and notification `pushToken` fields. Usage: `LoggerModule.forRoot('auth-service')`; logger settings live in `logger.config.ts`. |
 | **`@app/cloudinary`**<br>`libs/cloudinary/src/` | `CloudinaryModule`<br>`CloudinaryService` | **Cloudinary Media Storage Integration.** Streaming image upload (`uploadImage`) and signed direct big-video chunk upload initialization (`createVideoUploadSignature`). |
 
 ---
 
 ### 4.2. Service-Internal Utilities
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `WorkersModule`, `WorkersService.getSummaries` | `apps/user-trust-service/src/workers/` | Internal secret-protected `GET /api/v1/internal/workers/batch-summary?ids=<uuid>,<uuid>`; validates 1–100 IDs, queries active users with worker profiles, returns only public names, avatars and rating/order statistics. `workers.getSummaries(workerIds)`. |
+| `WorkerProfilesClient.getSummaries` | `apps/api-gateway/src/candidates/clients/worker-profiles.client.ts` | Batch profile lookup with a 3s timeout and configured server secret; enriches the selected AI recommendations with real names. `const profiles = await client.getSummaries(workerIds)`; upstream failure preserves candidates with null profiles. |
 
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
@@ -180,7 +184,8 @@ These components are reusable across wallet feature modules. They remain service
 | File Path | Function / Class | Purpose & Usage Contract |
 | :--- | :--- | :--- |
 | `apps/wallet-service/src/wallet-query/wallet-query.service.ts` | `WalletQueryService`, `WalletQueryRepository`, `WALLET_QUERY_REPOSITORY` | **Wallet query contract and service.** Reads the owner's wallet, transaction detail, and paginated/filterable transactions; serializes BIGINT values as decimal strings and computes available balance. Bind `WALLET_QUERY_REPOSITORY` to `WalletPrismaQueryRepository` in `WalletQueryModule`. |
-| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-query.dto.ts` | `WalletTransactionQueryDto` | **Wallet transaction query contract.** Validates page (minimum 1), limit (1–100), optional type/status, and ISO date filters `from`/`to`. Use as the controller's `@Query()` DTO. |
+| `apps/wallet-service/src/wallet-query/dto/wallet-transaction-query.dto.ts` | `WalletTransactionQueryDto` | **Wallet transaction query contract.** Validates page (minimum 1), limit (1–100), optional type/status, and ISO date filters `from`/`to`. Pagination uses explicit numeric TypeScript and Swagger types for SWC/Rspack builds. Use as the controller's `@Query()` DTO. |
+| `apps/wallet-service/src/wallet-events/dto/publish-outbox.dto.ts` | `PublishOutboxDto` | **Outbox publish request contract.** Optional integer `limit` (1–100, default 20) with explicit numeric TypeScript and Swagger types for SWC/Rspack builds. Use as `@Body() dto: PublishOutboxDto` on `POST /internal/wallet-events/publish-pending`; the current publisher uses its configured batch size. |
 | `apps/wallet-service/src/wallet-query/dto/wallet-response.dto.ts` | `WalletResponseDto` | **Wallet balance response contract.** Documents wallet identity/status and decimal-string `balance`, `reservedBalance`, and `availableBalance`. |
 | `apps/wallet-service/src/wallet-query/dto/wallet-transaction-response.dto.ts` | `WalletTransactionResponseDto`, `PaginatedWalletTransactionsResponseDto` | **Wallet transaction response contract.** Documents transaction detail and paginated list fields (`items`, `page`, `limit`, `total`, `totalPages`). |
 | `apps/wallet-service/src/wallet-ledger/wallet-prisma.service.ts` | `WalletPrismaService` | **Wallet-owned Prisma/PostgreSQL client.** Connects to the generated `@prisma/wallet-client` using `DATABASE_URL_WALLET` (or the default database URL with `wallet_service` schema). Inject via `WalletLedgerModule`; do not share this database client with other services. |
@@ -252,6 +257,21 @@ These components are reusable across wallet feature modules. They remain service
 | `MatchingOutboxPublisherService` | `apps/matching-service/src/outbox/matching-outbox-publisher.service.ts` | Retries the original durable outbox event with stable IDs; never treats an unbound DLQ routing key as successful delivery. `triggerPublish()`. |
 | `InternalMatchingController`, `CustomerMatchingController` | `apps/matching-service/src/controllers/` | Recommendations and eligibility require the current projection revision and an available lifecycle; worker discovery uses bounded database pagination. `checkResultEligibility(resultId, requestId, workerId)`. |
 | `BidsService.getBidsForRequest`, `BiddingClient`, `CandidatesAggregationService` | `apps/bidding-service/src/bids/bids.service.ts`, `apps/api-gateway/src/candidates/` | Request-wide bidder IDs for cross-page deduplication and explicit partial failure reporting. `aggregateCandidates(requestId, query, user)`. |
+
+### 4.8. Tracking Service (HG-47 Business Timeline & Lifecycle Monitoring)
+
+| Component | File Path | Purpose & Usage Example |
+| :--- | :--- | :--- |
+| `PrismaService` | `apps/tracking-service/src/common/prisma/prisma.service.ts` | **Tracking Database Client.** Manages connection pooling for `tracking_service` schema (`tracking_flows`, `tracking_events`, `consumed_events`). |
+| `TrustedGatewayGuard` | `apps/tracking-service/src/common/security/trusted-gateway.guard.ts` | **API Gateway Authenticator.** Verifies `x-internal-secret` and validates caller identity from gateway headers. `@UseGuards(TrustedGatewayGuard)`. |
+| `CurrentGatewayUser` | `apps/tracking-service/src/common/security/gateway-user.decorator.ts` | **Gateway User Decorator.** Extracts `{ userId, roles, isAdmin, isCustomer, isWorker }` from request headers. `@CurrentGatewayUser() user: GatewayUser`. |
+| TimelineStreamService | pps/tracking-service/src/common/stream/timeline-stream.service.ts | **Real-time SSE Stream Engine.** RxJS Subject & Redis Pub/Sub broadcasting with writeSequence cursor tracking, pre-query live subscription buffer, serialized live event draining with ascending sequence ordering, 25s heartbeat keep-alive with resilient missed-signal sync, role-based bid shielding with sequence advancement, and designated worker authorization. |
+| `TrackingEventsService` | `apps/tracking-service/src/events/tracking-events.service.ts` | PostgreSQL pending inbox; ACK after commit, transaction advisory locks by event ID, atomic timeline/inbox completion, bounded retry/backoff. Example: `recordDomainEvent(envelope)` then `reconcilePendingOrders()`. Redis only provides cache and SSE signals. |
+| `TrackingReconciliationScheduler` | `apps/tracking-service/src/events/tracking-reconciliation.scheduler.ts` | **Pending Order Reconciliation Scheduler.** Periodically scans pending order queues, resolves flow links via `TrackingEventsService.reconcilePendingOrders()`, flushes unlinked events, and emits structured alerts for stalled pending events. |
+| `TrackingEventsConsumer` | `apps/tracking-service/src/events/tracking-events.consumer.ts` | **RabbitMQ Event Consumer.** Consumes domain events across Order, Bidding, Matching, and Payment. Supports automatic retry (requeue) for transient errors and DLQ routing. |
+| `TimelineService` | `apps/tracking-service/src/timeline/timeline.service.ts` | **Cross-Service Timeline Query Engine.** Paginated history for requests, bids, and orders. Enforces privacy rules: worker cannot see competitor bids or competitor proposals. |
+| `SummaryService` | `apps/tracking-service/src/summary/summary.service.ts` | **Flow Progress & Milestone Aggregator.** Computes `currentPhase` and stage milestones (`serviceRequest`, `matching`, `bidding`, `bookingProposal`, `order`, `payment`) with competitor bid shielding. |
+
 
 ## 5. Feature Blueprint & Implementation Template
 

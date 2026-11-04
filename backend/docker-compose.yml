@@ -74,7 +74,7 @@ services:
       UPSTREAM_TIMEOUT_MS: '15000'
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004
@@ -131,7 +131,7 @@ services:
       NEST_PROJECT: user-trust-service
       PORT: '3002'
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -173,6 +173,8 @@ services:
       <<: *development-environment
       NEST_PROJECT: bidding-service
       PORT: '3005'
+      ORDER_SERVICE_URL: http://order-service:3004
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
     ports:
       - '3005:3005'
 
@@ -183,7 +185,7 @@ services:
       NEST_PROJECT: matching-service
       PORT: '3006'
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
-      AI_SERVICE_URL: http://host.docker.internal:8000
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -223,7 +225,7 @@ services:
       DATABASE_URL_NOTIFICATION: ${DATABASE_URL_NOTIFICATION:-}
       NOTIFICATION_EVENTS_ENABLED: ${NOTIFICATION_EVENTS_ENABLED:-true}
       NOTIFICATION_EVENT_PREFETCH: ${NOTIFICATION_EVENT_PREFETCH:-10}
-      NOTIFICATION_EVENT_POLICIES: ${NOTIFICATION_EVENT_POLICIES:-}
+      NOTIFICATION_EVENT_POLICIES: ${NOTIFICATION_EVENT_POLICIES:-'{"events":{"bid.submitted":{"mode":"optional","roles":["customer"]},"bid.revised":{"mode":"optional","roles":["customer"]},"matching.eligible_workers.ready":{"mode":"optional","roles":["worker"]},"booking_proposal.created":{"mode":"mandatory","roles":["worker"]},"matching.completed":{"mode":"optional","roles":["customer"]}},"transitions":{}}'}
       NOTIFICATION_SIMULATED_POLICIES: ${NOTIFICATION_SIMULATED_POLICIES:-false}
       PUSH_ENABLED: ${PUSH_ENABLED:-false}
       PUSH_WORKER_ENABLED: ${PUSH_WORKER_ENABLED:-true}
@@ -234,7 +236,7 @@ services:
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
       FIREBASE_SA_BASE64: ${FIREBASE_SA_BASE64:-}
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
-      PUSH_EVENT_POLICIES: ${PUSH_EVENT_POLICIES:-}
+      PUSH_EVENT_POLICIES: ${PUSH_EVENT_POLICIES:-'{"events":{"bid.submitted":{"mode":"optional","roles":["customer"]},"bid.revised":{"mode":"optional","roles":["customer"]},"matching.eligible_workers.ready":{"mode":"optional","roles":["worker"]},"booking_proposal.created":{"mode":"mandatory","roles":["worker"]},"matching.completed":{"mode":"optional","roles":["customer"]}},"transitions":{}}'}
       PUSH_SIMULATED_POLICIES: ${PUSH_SIMULATED_POLICIES:-false}
     ports:
       - '3008:3008'
@@ -252,6 +254,10 @@ services:
 
   tracking-service:
     <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/tracking-service/prisma/schema.prisma --config=apps/tracking-service/prisma/prisma.config.ts && exec node --enable-source-maps /app/dist/apps/$$NEST_PROJECT/main.js"
     environment:
       <<: *development-environment
       NEST_PROJECT: tracking-service

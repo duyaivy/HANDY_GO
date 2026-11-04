@@ -125,11 +125,22 @@ export async function bootstrapApplication(
     }
     if (optionsOrSetup.connectMicroservices) {
       await optionsOrSetup.connectMicroservices(app);
-      await app.startAllMicroservices();
-      logger.log(`Microservices started for ${config.serviceName}`);
     }
   }
 
   await app.listen(config.port);
   logger.log(`${config.serviceName} listening on port ${config.port}`);
+
+  if (typeof optionsOrSetup === 'object' && optionsOrSetup?.connectMicroservices) {
+    app
+      .startAllMicroservices()
+      .then(() => {
+        logger.log(`Microservices started for ${config.serviceName}`);
+      })
+      .catch((err) => {
+        logger.error(
+          `Error starting microservices for ${config.serviceName}: ${(err as Error).message}`,
+        );
+      });
+  }
 }

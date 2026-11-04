@@ -84,25 +84,42 @@ class ReleaseTests(unittest.TestCase):
         obj.transaction = obj.target = RELEASE
         obj.output = self.root / 'output'
         obj.journal = {'hosts': {}, 'rollback': {}, 'status': 'PREPARING'}
-        manifest = {'migration_hash': 'same', 'domain': 'api.example.com'}
+        manifest = {'migration_hash': 'same', 'domain': 'api.example.com', 'rollback_compatible': True}
+        states = {r: {'stable': None if bootstrap else {'release_id': OLD}, 'pending': None,
+                      'manifests': {OLD: manifest, RELEASE: manifest}} for r in coordinator.ROLES}
+        obj.cluster_lock = contextlib.nullcontext
+        obj.inspect_cluster = Mock(side_effect=lambda: states)
         obj.bundle = Mock(return_value=(manifest, b'archive'))
         obj.ssh_run = Mock(return_value=b'')
         obj.public_smoke = Mock()
         calls = []
 
-        def remote(role, action, target=None):
+        def remote(role, action, target=None, **kwargs):
             calls.append((role, action, target))
             if (role, action) == failure:
+                if action == 'apply':
+                    states[role]['pending'].update(touched=True, phase='APPLYING')
                 raise RuntimeError('Injected failure')
             if action == 'restore' and unreachable and role == 'vps2':
                 raise RuntimeError('Unreachable')
+            state = states[role]
             if action == 'begin':
+                state['pending'] = {'transaction': RELEASE, 'target': RELEASE, 'previous': state['stable'], 'touched': False, 'phase': 'SNAPSHOT'}
                 result = {'previous': None if bootstrap else {'release_id': OLD},
                           'previous_manifest': manifest, 'migration_hash': 'same'}
             elif action == 'restore':
+                state['stable'] = None if bootstrap else {'release_id': OLD}
+                state['pending']['phase'] = 'RESTORED'
                 result = {'rollback': 'NO_PREVIOUS_RELEASE' if bootstrap else 'RESTORED', 'release_id': OLD}
             else:
                 result = {}
+                if action == 'apply':
+                    state['pending'].update(touched=True, phase='VERIFIED')
+                elif action == 'commit':
+                    state['pending']['phase'] = 'COMMITTED'
+                    state['stable'] = {'release_id': RELEASE}
+                elif action == 'finish':
+                    state['pending'] = None
             obj.journal['hosts'].setdefault(role, {})[action] = result
             return result
 
@@ -121,20 +138,20 @@ class ReleaseTests(unittest.TestCase):
         obj, calls = self.make_coordinator(('vps1', 'apply'), unreachable=True)
         with self.assertRaisesRegex(RuntimeError, 'FAILED_NEEDS_INTERVENTION'):
             obj.execute()
-        self.assertEqual(obj.journal['rollback']['vps2'], 'FAILED_OR_UNREACHABLE')
+        self.assertIn('Unreachable', obj.journal['recovery_error'])
         self.assertFalse(any(a == 'finish' for _, a, _ in calls))
 
     def test_first_deploy_does_not_invent_previous_release(self):
         obj, calls = self.make_coordinator(('vps1', 'apply'), bootstrap=True)
         with self.assertRaisesRegex(RuntimeError, 'FAILED_NEEDS_INTERVENTION'):
             obj.execute()
-        self.assertTrue(all(v == 'NO_PREVIOUS_RELEASE' for v in obj.journal['rollback'].values()))
+        self.assertIn('bootstrap', obj.journal['recovery_error'])
 
     def test_prepare_failure_never_applies_and_unlocks_untouched_hosts(self):
         obj, calls = self.make_coordinator(('vps1', 'prepare'), bootstrap=True)
         remote = obj.remote
-        def untouched_restore(role, action, target=None):
-            result = remote(role, action, target)
+        def untouched_restore(role, action, target=None, **kwargs):
+            result = remote(role, action, target, **kwargs)
             if action == 'restore':
                 result['rollback'] = 'NOT_NEEDED'
             return result
@@ -148,7 +165,8 @@ class ReleaseTests(unittest.TestCase):
         obj, calls = self.make_coordinator(('vps2', 'begin'))
         with self.assertRaises(RuntimeError):
             obj.execute()
-        self.assertIn(('vps2', 'restore', None), calls)
+        self.assertNotIn(('vps2', 'restore', None), calls)
+        self.assertEqual(obj.journal['ownership']['vps2'], 'NO_JOURNAL')
         self.assertFalse(any(a == 'apply' for _, a, _ in calls))
 
     def test_staging_failure_does_not_require_transaction_recovery(self):
@@ -158,6 +176,14 @@ class ReleaseTests(unittest.TestCase):
             obj.execute()
         self.assertEqual(obj.journal['status'], 'FAILED_BEFORE_ROLLOUT')
         self.assertEqual(calls, [])
+
+    def test_changed_migration_plan_requires_review_before_apply(self):
+        obj, calls = self.make_coordinator()
+        obj.bundle.return_value = ({'migration_hash': 'new-wallet-owner', 'domain': 'api.example.com'}, b'archive')
+        with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
+            obj.execute()
+        self.assertFalse(any(action == 'apply' for _, action, _ in calls))
+        self.assertIn('run_migrations', obj.journal['error'])
 
     def test_bundle_ships_logging_helper_without_putting_env_in_artifacts(self):
         obj, _ = self.make_coordinator()
@@ -187,6 +213,11 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn('return 301 https://handygo.duyaivy.id.vn$request_uri;', nginx)
             self.assertNotIn('API_DOMAIN', nginx)
         self.assertEqual(manifest['domain'], 'handygo.duyaivy.id.vn')
+        migrations = sorted((PROD.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
+        sql_only = b''.join(str(p.relative_to(PROD.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
+        self.assertNotEqual(manifest['migration_hash'], coordinator.digest(sql_only))
+        self.assertEqual(manifest['migration_hash'], coordinator.digest(
+            sql_only + b'\0owners\0' + json.dumps(host.MIGRATIONS, sort_keys=True).encode()))
         self.assertIn('release_log.py', manifest['files'])
         self.assertNotIn('private-smtp-value', (obj.output / 'manifest.json').read_text())
 
@@ -211,17 +242,16 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(host, 'ROOT', self.root), self.assertRaisesRegex(RuntimeError, 'Unfinished'):
             obj.begin(RELEASE)
 
-    def test_first_deploy_partial_commit_is_cleared_when_restored(self):
+    def test_first_deploy_partial_commit_is_preserved_for_bootstrap_recovery(self):
         obj = host.Host.__new__(host.Host)
         obj.release_id, obj.names = RELEASE, ['catalog-service']
         obj.owner = Mock(return_value={'touched': True, 'previous': None, 'phase': 'COMMITTED'})
         obj.compose = Mock()
         host.write(self.root / 'stable.json', {'release_id': RELEASE})
-        with patch.object(host, 'ROOT', self.root):
-            result = obj.restore(RELEASE)
-        self.assertEqual(result['rollback'], 'NO_PREVIOUS_RELEASE')
-        self.assertFalse((self.root / 'stable.json').exists())
-        self.assertEqual(host.read(self.root / 'pending.json')['phase'], 'BOOTSTRAP_FAILED')
+        with patch.object(host, 'ROOT', self.root), self.assertRaisesRegex(RuntimeError, 'bootstrap'):
+            obj.restore(RELEASE)
+        self.assertEqual(host.read(self.root / 'stable.json'), {'release_id': RELEASE})
+        obj.compose.assert_not_called()
 
     def test_command_error_is_visible_without_credentials(self):
         path = self.root / 'shared.env'
@@ -356,6 +386,40 @@ class ReleaseTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn('--memory=384m', command)
         self.assertIn('--memory-swap=768m', command)
+
+    def test_wallet_migrates_once_on_vps3_before_any_service_starts(self):
+        calls = Mock()
+        for role in host.ROLES:
+            obj = host.Host.__new__(host.Host)
+            obj.role, obj.release_id, obj.bundle = role, RELEASE, self.root
+            obj.names = ['wallet-service'] if role == 'vps3' else ['auth-service']
+            obj.manifest = {'run_migrations': True, 'migration_image': 'test-image'}
+            obj.owner = Mock(return_value={'previous': None})
+            obj.compose, obj.verify = Mock(), Mock()
+            calls.attach_mock(obj.compose, role)
+            with patch.object(host, 'ROOT', self.root), patch.object(host, 'run') as run:
+                calls.attach_mock(run, 'migration_' + role)
+                obj.apply(RELEASE)
+        wallet = [c for c in calls.mock_calls if c.args and isinstance(c.args[0], list)
+                  and c.args[0][-1] == 'prisma:migrate:wallet']
+        self.assertEqual(len(wallet), 1)
+        self.assertEqual(wallet[0][0], 'migration_vps3')
+        first_start = next(c for c in calls.mock_calls if c[0] == 'vps3' and c.args[0] == 'up')
+        self.assertLess(calls.mock_calls.index(wallet[0]), calls.mock_calls.index(first_start))
+
+    def test_wallet_migration_failure_blocks_service_start(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.release_id, obj.bundle = 'vps3', RELEASE, self.root
+        obj.names = ['catalog-service', 'wallet-service']
+        obj.manifest = {'run_migrations': True, 'migration_image': 'test-image'}
+        obj.owner = Mock(return_value={'previous': None})
+        obj.compose, obj.verify = Mock(), Mock()
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'run',
+                side_effect=[None, RuntimeError('migration failed')]):
+            with self.assertRaisesRegex(RuntimeError, 'migration failed'):
+                obj.apply(RELEASE)
+        self.assertFalse(any(c.args[0] == 'up' for c in obj.compose.call_args_list))
+        obj.verify.assert_not_called()
 
     def test_bundle_tampering_is_rejected_before_any_docker_command(self):
         import hashlib

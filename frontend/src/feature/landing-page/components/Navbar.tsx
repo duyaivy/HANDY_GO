@@ -141,7 +141,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
               className="flex shrink-0 items-center"
             >
               <Image
-                src="/handygo-logo-horizontal.svg"
+                src="/handygo.svg"
                 alt="HandyGo"
                 width={270}
                 height={90}
@@ -151,7 +151,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
             </a>
 
             {/* DESKTOP MENU */}
-            <nav className="hidden min-w-0 items-center justify-center gap-1 xl:flex 2xl:gap-1.5">
+            <nav className="hidden min-w-0 items-center justify-center gap-1 lg:flex 2xl:gap-1.5">
               {navLinks.map((link) => {
                 const isActive = activeSection === link.id;
 
@@ -183,7 +183,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
             </nav>
 
             {/* DESKTOP DOWNLOAD BUTTON */}
-            <div className="hidden shrink-0 xl:flex">
+            <div className="hidden shrink-0 lg:flex">
               <button
                 type="button"
                 onClick={onOpenDownload}
@@ -206,7 +206,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
             </div>
 
             {/* MOBILE / TABLET */}
-            <div className="flex shrink-0 items-center gap-2 xl:hidden">
+            <div className="flex shrink-0 items-center gap-2 lg:hidden">
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(true)}
@@ -224,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenDownload }) => {
       {/* MOBILE DRAWER */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <div className="fixed inset-0 z-[60] flex justify-end xl:hidden">
+          <div className="fixed inset-0 z-[60] flex justify-end lg:hidden">
             {/* OVERLAY */}
             <motion.div
               initial={{ opacity: 0 }}

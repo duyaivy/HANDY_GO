@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Runner coordinator: stage all hosts, roll out serially, compensate every participant."""
 import argparse
+import base64
+from contextlib import contextmanager
+import select
 import datetime
 import hashlib
 import io
@@ -12,6 +15,7 @@ import shlex
 import subprocess
 import tarfile
 import time
+import uuid
 import urllib.request
 
 from release_log import emit, load_secrets, redact
@@ -28,7 +32,8 @@ def digest(data):
 
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + '\n')
+    from host import write
+    write(path, data)
 
 
 class Coordinator:
@@ -77,6 +82,9 @@ class Coordinator:
         (self.output / 'summary.md').write_text('\n'.join(lines) + '\n')
 
     def ssh_run(self, role, command, data=None, label='remote command', timeout=1800):
+        lock = getattr(self, 'lock_process', None)
+        if lock is not None and lock.poll() is not None:
+            raise RuntimeError('Cluster lock session lost; coordinator fenced')
         deadline = getattr(self, 'rollout_deadline', None)
         if deadline is not None and time.monotonic() >= deadline:
             raise RuntimeError('Rollout deadline reached; starting rollback with reserved job time')
@@ -97,19 +105,107 @@ class Coordinator:
         print(f'[{role}] SSH complete: {label}', flush=True)
         return result.stdout
 
-    def remote(self, role, action, target=None, wait_lock=False):
-        release_id = target or self.target
-        command = ['python3', '-u', f'{ROOT}/releases/{release_id}/host.py',
-                   action, role, release_id, self.transaction]
+    @contextmanager
+    def cluster_lock(self):
+        """Session lock, never a TTL. All supported entry points use VPS3 first."""
+        role = 'vps3'
+        script = f"""import fcntl,json,os,sys,tempfile
+from pathlib import Path
+root=Path({ROOT!r})
+f=open(root/'cluster.lock','a')
+fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+path=root/'cluster-epoch.json'
+epoch=json.loads(path.read_text())+1 if path.exists() else 1
+fd,name=tempfile.mkstemp(prefix='.epoch-',dir=root)
+with os.fdopen(fd,'w') as stream:
+    stream.write(json.dumps(epoch)); stream.flush(); os.fsync(stream.fileno())
+os.replace(name,path)
+directory=os.open(root,os.O_RDONLY); os.fsync(directory); os.close(directory)
+print('LOCKED:'+str(epoch),flush=True)
+sys.stdin.read()
+"""
+        process = subprocess.Popen([*self.ssh, '-i', self.identities[role], self.targets[role],
+                                    shlex.join(['python3', '-u', '-c', script])],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        try:
+            ready, _, _ = select.select([process.stdout], [], [], 30)
+            reply = process.stdout.readline().decode().strip() if ready else ''
+            if not re.fullmatch(r'LOCKED:[1-9][0-9]*', reply):
+                raise RuntimeError('RECOVERY_REQUIRED: cluster lock unavailable; another coordinator may be active')
+            self.lock_process = process
+            self.inspect_cluster()  # fail closed before changing any host fencing metadata
+            self.fence = reply.split(':')[1] + ':' + uuid.uuid4().hex
+            for host_role in ROLES:
+                self.executor(host_role, 'claim-fence')
+            yield
+        finally:
+            self.lock_process = None
+            process.stdin.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                process.wait(timeout=10)
+
+    def executor(self, role, action, target=None, wait_lock=True):
+        # Execute reviewed runner code, never host.py from an old release/artifact.
+        sources = {name: (HERE / name).read_text() for name in ('host.py', 'release_log.py')}
+        loader = ('import base64,json,sys,types; '
+                  's=json.loads(base64.b64decode(sys.argv[1])); '
+                  'm=types.ModuleType("release_log"); exec(s["release_log.py"],m.__dict__); '
+                  'sys.modules["release_log"]=m; sys.argv=sys.argv[1:]; '
+                  'exec(compile(s["host.py"],"trusted-host.py","exec"),{"__name__":"__main__"})')
+        payload = base64.b64encode(json.dumps(sources).encode()).decode()
+        command = ['python3', '-u', '-c', loader, payload, action, role,
+                   target or self.target, self.transaction]
+        if action != 'inspect':
+            command += ['--expected-state', self.states[role]['token']]
+            if getattr(self, 'fence', None):
+                command += ['--fence', self.fence]
         if wait_lock:
             command.append('--wait-lock')
-        options = {'timeout': 3600} if wait_lock else {}
         response = json.loads(self.ssh_run(role, shlex.join(command),
-                                            label=f'{action} release {release_id}', **options))
+                              label=f'{action} release {target or self.target}', timeout=3600))
+        if action == 'inspect':
+            return response
+        self.states[role] = response.pop('_state')
+        return response
+
+    def inspect_cluster(self):
+        # Complete all read-only inspection before any bundle staging or mutation.
+        states, errors = {}, {}
+        for role in ROLES:
+            try:
+                states[role] = self.executor(role, 'inspect')
+            except Exception as error:
+                errors[role] = redact(error)
+        if errors:
+            self.journal['inspection_errors'] = errors
+            self.persist()
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: cluster inspection failed; no mutation allowed')
+        self.states = states
+        return states
+
+    def remote(self, role, action, target=None, wait_lock=False):
+        response = self.executor(role, action, target, wait_lock=True)
         self.journal['hosts'].setdefault(role, {})[action] = response
         self.persist()
-        print(f'{role}: {action} completed', flush=True)
         return response
+
+    def preflight(self):
+        from recovery import reconcile
+        original = self.transaction, self.target
+        try:
+            for _ in range(len(ROLES) + 1):
+                reconcile(self, automatic=True)
+                if not any(state['pending'] for state in self.inspect_cluster().values()):
+                    break
+            else:
+                raise RuntimeError('RECOVERY_REQUIRED: bounded reconciliation did not finish')
+        finally:
+            self.transaction, self.target = original
+        self.journal.update(transaction=self.transaction, target_release=self.target)
+        self.persist()
 
     def bundle(self):
         if not re.fullmatch(r'[a-f0-9]{40}', self.args.commit or '') or not re.fullmatch(r'[a-f0-9]{40,64}', self.args.tree or ''):
@@ -146,6 +242,8 @@ class Coordinator:
         module.validate_env(Path(self.args.env_file))
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
+        # A newly enabled migration owner must require review even when SQL is unchanged.
+        migration_bytes += b'\0owners\0' + json.dumps(module.MIGRATIONS, sort_keys=True).encode()
         manifest = {
             'schema_version': 1, 'release_id': self.target, 'commit_sha': self.args.commit, 'domain': domain,
             'tree_sha': self.args.tree, 'run_id': self.args.run_id, 'run_attempt': self.args.attempt,
@@ -176,7 +274,13 @@ class Coordinator:
         return manifest, stream.getvalue()
 
     def execute(self):
+        with self.cluster_lock():
+            self.preflight()
+            self._execute()
+
+    def _execute(self):
         participants = []
+        attempted = []
         emit('deploy', f'{self.journal.get("operation", "deploy")} transaction {self.transaction}; target {self.target}')
         try:
             if self.args.rollback_release:
@@ -199,9 +303,11 @@ class Coordinator:
                     self.ssh_run(role, f'umask 077 && mkdir {shlex.quote(directory)} && tar -xzf - -C {shlex.quote(directory)}',
                                  archive, label=f'stage release bundle {self.target}')
             for role in ROLES:
-                # An uncertain SSH result may have acquired the lock. Include it BEFORE calling begin.
-                participants.append(role)
+                attempted.append(role)
+                self.journal.setdefault('ownership', {})[role] = 'BEGIN_OUTCOME_UNKNOWN'
                 snapshot = self.remote(role, 'begin')
+                participants.append(role)
+                self.journal['ownership'][role] = 'BEGIN_CONFIRMED'
                 previous = snapshot['previous']
                 if self.args.rollback_release and not previous:
                     raise RuntimeError('Cannot rollback an uninitialized host')
@@ -235,43 +341,31 @@ class Coordinator:
             self.journal['error'] = redact(error)
             self.journal['status'] = 'FAILED'
             self.persist()
-            if not participants:
+            if not attempted:
                 self.journal['status'] = 'FAILED_BEFORE_ROLLOUT'
                 self.persist()
                 raise RuntimeError('FAILED_BEFORE_ROLLOUT; no host transaction was started') from error
-            restored = {}
-            for role in reversed(participants):
-                try:
-                    restored[role] = self.remote(role, 'restore')
-                    self.journal['rollback'][role] = restored[role]['rollback']
-                except Exception as rollback_error:
-                    emit(role, f'FAILED restore: {rollback_error}')
-                    self.journal['rollback'][role] = 'FAILED_OR_UNREACHABLE'
-            verified = True
-            for role, result in restored.items():
-                if result['rollback'] == 'RESTORED':
-                    try:
-                        self.remote(role, 'verify', result['release_id'])
-                    except Exception as verify_error:
-                        emit(role, f'FAILED rollback verification: {verify_error}')
-                        verified = False
-                        self.journal['rollback'][role] = 'VERIFY_FAILED'
-                elif result['rollback'] != 'NOT_NEEDED':
-                    verified = False
-            success = verified and len(restored) == len(participants) and bool(participants)
-            if success and any(r['rollback'] == 'RESTORED' for r in restored.values()):
-                try:
-                    old = next(self.journal['hosts'][role]['begin']['previous_manifest']
-                               for role in restored if restored[role]['rollback'] == 'RESTORED')
-                    self.public_smoke(old)
-                except Exception as smoke_error:
-                    emit('deploy', f'FAILED rollback public smoke: {smoke_error}')
-                    success = False
-            self.journal['status'] = 'FAILED_ROLLBACK_SUCCESS' if success else 'FAILED_NEEDS_INTERVENTION'
+            from recovery import reconcile
+            try:
+                # Re-read every host under lock: an SSH timeout is not proof of ownership.
+                states = self.inspect_cluster()
+                for role in attempted:
+                    pending = states[role]['pending']
+                    self.journal['ownership'][role] = (
+                        'OWNED' if pending and pending['transaction'] == self.transaction
+                        and pending['target'] == self.target else
+                        'FOREIGN_OWNER' if pending else 'NO_JOURNAL')
+                reconcile(self, expected=(self.transaction, self.target))
+                if self.journal['status'] == 'STABLE':
+                    self.journal['status'] = 'FAILED_COMMIT_RECOVERED'
+                elif self.journal['status'] == 'RECOVERY_REQUIRED':
+                    self.journal['status'] = 'FAILED_NEEDS_INTERVENTION'
+                else:
+                    self.journal['status'] = 'FAILED_ROLLBACK_SUCCESS'
+            except Exception as recovery_error:
+                self.journal['recovery_error'] = redact(recovery_error)
+                self.journal['status'] = 'FAILED_NEEDS_INTERVENTION'
             self.persist()
-            emit('deploy', self.journal['status'])
-            if success:
-                self.unlock(participants)
             raise RuntimeError(self.journal['status']) from error
         self.unlock(participants)
 
@@ -279,6 +373,7 @@ class Coordinator:
         failures = []
         for role in participants:
             try:
+                self.remote(role, 'authorize-finish')
                 self.remote(role, 'finish')
             except Exception as error:
                 emit(role, f'FAILED finish: {error}')

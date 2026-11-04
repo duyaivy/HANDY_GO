@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import {
   useServiceListQuery,
@@ -9,7 +10,18 @@ import {
 } from "../hooks/use-services";
 import { useServiceQueryConfig } from "../hooks/use-service-query-config";
 import { useCategoryListQuery } from "@/feature/catagories/hooks/use-categories";
-import { Plus, Search, Layers, ChevronDown, Power, Trash2 } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Layers,
+  ChevronDown,
+  Power,
+  Trash2,
+  MoreVertical,
+  Eye,
+  Pencil,
+  Wrench,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Pagination,
@@ -23,7 +35,6 @@ import {
 
 import { ServiceCategory, ServiceItem } from "../types";
 
-import ServiceCard from "./service-card";
 import AddServiceModal from "./add-service";
 import EditServiceModal from "./edit-service";
 import DetailServiceModal from "./detail-service";
@@ -98,6 +109,63 @@ export default function ServiceTable() {
     null,
   );
   const [deleteError, setDeleteError] = useState("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
+  // FE-02: Render menu qua Portal để không bị overflow-x-auto cắt mất.
+  const toggleServiceMenu = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    serviceId: string,
+  ) => {
+    if (openMenuId === serviceId) {
+      setOpenMenuId(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuWidth = 192; // w-48
+    const estimatedMenuHeight = 224;
+    const viewportPadding = 8;
+    const openAbove =
+      window.innerHeight - rect.bottom <
+        estimatedMenuHeight + viewportPadding &&
+      rect.top >= estimatedMenuHeight + viewportPadding;
+
+    setMenuPosition({
+      top: openAbove
+        ? Math.max(viewportPadding, rect.top - estimatedMenuHeight - 4)
+        : Math.min(
+            rect.bottom + 4,
+            window.innerHeight - estimatedMenuHeight - viewportPadding,
+          ),
+      left: Math.max(
+        viewportPadding,
+        Math.min(
+          rect.right - menuWidth,
+          window.innerWidth - menuWidth - viewportPadding,
+        ),
+      ),
+    });
+    setOpenMenuId(serviceId);
+  };
+
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    const closeMenu = () => setOpenMenuId(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMenu();
+    };
+
+    window.addEventListener("scroll", closeMenu, true);
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("scroll", closeMenu, true);
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(
     null,
   );
@@ -157,21 +225,15 @@ export default function ServiceTable() {
   };
 
   return (
-    <div className="min-w-0 w-full space-y-5 sm:space-y-6">
+    <div className="min-w-0 w-full space-y-5 sm:space-y-6 font-['Inter',sans-serif] text-[#0F172A] leading-[1.6] antialiased">
       {/* HEADER */}
-      <div className="flex min-w-0 flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            <span>Quản lý</span>
-            <span>/</span>
-            <span className="text-slate-600">Dịch vụ</span>
-          </div>
-
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          <h1 className="text-xl font-semibold tracking-tight leading-[1.3] text-[#0F172A] sm:text-2xl">
             Quản lý dịch vụ
           </h1>
 
-          <p className="mt-1 text-sm leading-5 text-slate-500">
+          <p className="mt-1 text-[14px] font-normal text-[#64748B]">
             Quản lý dịch vụ theo từng danh mục trên HandyGo.
           </p>
         </div>
@@ -179,15 +241,15 @@ export default function ServiceTable() {
         <button
           type="button"
           onClick={openAddModal}
-          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-[#FF5E14] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#E9510D] sm:w-auto sm:px-5"
+          className="inline-flex w-auto shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#E9510D] sm:px-4 sm:text-sm"
         >
-          <Plus size={18} />
+          <Plus size={16} />
           Thêm dịch vụ
         </button>
       </div>
 
       {/* SUMMARY */}
-      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3 lg:gap-4">
         <SummaryCard
           title="Tổng dịch vụ"
           value={total}
@@ -223,7 +285,7 @@ export default function ServiceTable() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(200px,1fr)_220px_180px]">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-[minmax(200px,1fr)_220px_180px]">
             {/* SEARCH */}
             <div className="relative min-w-0">
               <Search
@@ -236,8 +298,8 @@ export default function ServiceTable() {
                 onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                   setSearch(event.target.value)
                 }
-                placeholder="Tìm tên dịch vụ..."
-                className="w-full min-w-0 rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                placeholder="Tìm dịch vụ..."
+                className="w-full min-w-0 rounded-lg border border-slate-200 py-2 pl-9 pr-2 text-xs outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:text-sm"
               />
             </div>
 
@@ -254,7 +316,7 @@ export default function ServiceTable() {
                     page: "1",
                   })
                 }
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                className="w-full min-w-0 appearance-none truncate rounded-lg border border-slate-200 bg-white py-2 pl-2 pr-7 text-xs text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:pl-3 sm:pr-9 sm:text-sm"
               >
                 <option value="all">Tất cả danh mục</option>
                 {categories.map((category) => (
@@ -265,12 +327,12 @@ export default function ServiceTable() {
               </select>
               <ChevronDown
                 size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
 
             {/* STATUS FILTER */}
-            <div className="relative min-w-0 sm:col-span-2 xl:col-span-1">
+            <div className="relative col-span-2 min-w-0 sm:col-span-2 xl:col-span-1">
               <select
                 value={statusFilter}
                 onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
@@ -284,7 +346,7 @@ export default function ServiceTable() {
                     page: "1",
                   })
                 }
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-3 pr-9 text-sm text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100"
+                className="w-full min-w-0 appearance-none truncate rounded-lg border border-slate-200 bg-white py-2 pl-2 pr-7 text-xs text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 sm:pl-3 sm:pr-9 sm:text-sm"
               >
                 <option value="all">Tất cả trạng thái</option>
                 <option value="active">Active</option>
@@ -292,94 +354,189 @@ export default function ServiceTable() {
               </select>
               <ChevronDown
                 size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"
               />
             </div>
           </div>
         </div>
 
-        {/* SERVICE GROUPS */}
-        <div className="space-y-7 p-4 sm:p-5">
-          {(isPending || isCategoryPending) && <ServiceListSkeleton />}
-          {isError && (
-            <p className="text-sm text-red-500">
-              Không thể tải danh sách dịch vụ.
-            </p>
-          )}
-          {!isPending &&
-            !isCategoryPending &&
-            !isError &&
-            categories
-              .filter(
-                (category) =>
-                  categoryFilter === "all" || category.id === categoryFilter,
-              )
-              .map((category) => {
-                const categoryServices = filteredServices.filter(
-                  (service) => service.categoryId === category.id,
-                );
-
-                if (categoryServices.length === 0) return null;
-
-                return (
-                  <section key={category.id} className="min-w-0">
-                    <div className="mb-4 flex min-w-0 items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-[#FF5E14] sm:h-10 sm:w-10">
-                          <Layers size={19} />
+        {/* SERVICE TABLE — layout theo CategoryTable; giữ nguyên dữ liệu và handlers */}
+        <div className="p-4 sm:p-5">
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[850px] text-left">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
+                  <th className="px-4 py-3.5 font-semibold">Dịch vụ</th>
+                  <th className="px-4 py-3.5 font-semibold">Danh mục</th>
+                  <th className="px-4 py-3.5 font-semibold">Trạng thái</th>
+                  <th className="px-4 py-3.5 text-right font-semibold">
+                    Thao tác
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-[14px]">
+                {isPending || isCategoryPending ? (
+                  Array.from({ length: limit }, (_, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-5 w-44" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-4 w-28" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <Skeleton className="h-6 w-24 rounded-full" />
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex justify-end">
+                          <Skeleton className="h-8 w-8 rounded-lg" />
                         </div>
-
-                        <div className="min-w-0">
-                          <h3 className="truncate text-sm font-bold text-slate-900">
-                            {category.name}
-                          </h3>
-                          <p className="mt-0.5 text-xs text-slate-400">
-                            {categoryServices.length} dịch vụ
-                          </p>
+                      </td>
+                    </tr>
+                  ))
+                ) : isError ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-4 py-12 text-center text-sm text-red-500"
+                    >
+                      Không thể tải danh sách dịch vụ.
+                    </td>
+                  </tr>
+                ) : filteredServices.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-12 text-center">
+                      <p className="text-sm font-semibold text-gray-700">
+                        Không tìm thấy dịch vụ
+                      </p>
+                      <p className="mt-1 text-[12px] text-[#64748B]">
+                        Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearch("");
+                          updateQuery({
+                            search: undefined,
+                            categoryId: undefined,
+                            isActive: undefined,
+                            page: "1",
+                          });
+                        }}
+                        className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
+                      >
+                        Xóa bộ lọc
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredServices.map((service) => (
+                    <tr
+                      key={service.id}
+                      onClick={() => openDetailModal(service)}
+                      onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openDetailModal(service);
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-label={`Xem chi tiết dịch vụ ${service.name}`}
+                      className="cursor-pointer transition hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
+                    >
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDetailModal(service);
+                          }}
+                          className="flex items-center gap-3 text-left"
+                        >
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-orange-50">
+                            {service.iconUrl ? (
+                              <img
+                                src={service.iconUrl}
+                                alt={service.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <Wrench size={22} className="text-[#FF5E14]" />
+                            )}
+                          </div>
+                          <span className="font-medium text-[#0F172A] hover:text-[#FF5E14]">
+                            {service.name}
+                          </span>
+                        </button>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-600">
+                        {categories.find(
+                          (category) => category.id === service.categoryId,
+                        )?.name ?? "—"}
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[12px] font-medium ${
+                            service.isActive
+                              ? "bg-green-50 text-green-700"
+                              : "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {service.isActive ? "Active" : "Disabled"}
+                        </span>
+                      </td>
+                      <td
+                        className="px-4 py-4 text-right"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        <div className="relative inline-block">
+                          <button
+                            type="button"
+                            aria-label={`Thao tác với ${service.name}`}
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === service.id}
+                            onClick={(event) =>
+                              toggleServiceMenu(event, service.id)
+                            }
+                            className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100"
+                          >
+                            <MoreVertical size={18} />
+                          </button>
                         </div>
-                      </div>
-
-                      <span className="hidden shrink-0 rounded-lg bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 min-[420px]:inline-flex">
-                        Danh mục
-                      </span>
-                    </div>
-
-                    <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                      {categoryServices.map((service) => (
-                        <ServiceCard
-                          key={service.id}
-                          service={service}
-                          onView={openDetailModal}
-                          onEdit={openEditModal}
-                          onToggleStatus={handleToggleStatus}
-                          onDelete={handleDeleteService}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                );
-              })}
-
-          {/* EMPTY STATE */}
-          {!isPending &&
-            !isCategoryPending &&
-            !isError &&
-            filteredServices.length === 0 && (
-              <div className="flex flex-col items-center justify-center px-3 py-12 text-center sm:py-16">
-                <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                  <Search size={24} />
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile cards: không cần kéo ngang để xem bảng. */}
+          <div className="space-y-3 md:hidden">
+            {isPending || isCategoryPending ? (
+              Array.from({ length: Math.min(limit, 5) }, (_, index) => (
+                <div
+                  key={index}
+                  className="space-y-3 rounded-xl border border-slate-200 p-4"
+                >
+                  <Skeleton className="h-5 w-2/3" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-6 w-24 rounded-full" />
                 </div>
-
-                <p className="text-sm font-bold text-slate-700">
+              ))
+            ) : isError ? (
+              <p className="py-8 text-center text-sm text-red-500">
+                Không thể tải danh sách dịch vụ.
+              </p>
+            ) : filteredServices.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm font-semibold text-slate-700">
                   Không tìm thấy dịch vụ
                 </p>
-
-                <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
-                  Thử thay đổi từ khóa hoặc bộ lọc để tìm dịch vụ.
-                </p>
-
                 <button
                   type="button"
+                  className="mt-2 text-sm font-semibold text-[#FF5E14]"
                   onClick={() => {
                     setSearch("");
                     updateQuery({
@@ -389,22 +546,75 @@ export default function ServiceTable() {
                       page: "1",
                     });
                   }}
-                  className="mt-4 text-sm font-semibold text-[#FF5E14] hover:underline"
                 >
                   Xóa bộ lọc
                 </button>
               </div>
+            ) : (
+              filteredServices.map((service) => (
+                <div
+                  key={service.id}
+                  className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
+                >
+                  {/* Danh mục và trạng thái nằm phía trên trên mobile. */}
+                  <div className="mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 break-words text-xs font-medium text-slate-500">
+                      {categories.find(
+                        (category) => category.id === service.categoryId,
+                      )?.name ?? "—"}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${service.isActive ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-600"}`}
+                    >
+                      {service.isActive ? "Active" : "Disabled"}
+                    </span>
+                  </div>
+                  <div className="flex min-w-0 items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => openDetailModal(service)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-orange-50">
+                        {service.iconUrl ? (
+                          <img
+                            src={service.iconUrl}
+                            alt={service.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <Wrench size={22} className="text-[#FF5E14]" />
+                        )}
+                      </div>
+                      <span className="min-w-0 break-words text-sm font-medium text-[#0F172A]">
+                        {service.name}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Thao tác với ${service.name}`}
+                      aria-haspopup="menu"
+                      aria-expanded={openMenuId === service.id}
+                      onClick={(event) => toggleServiceMenu(event, service.id)}
+                      className="shrink-0 rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                    >
+                      <MoreVertical size={19} />
+                    </button>
+                  </div>
+                </div>
+              ))
             )}
+          </div>
         </div>
         {!isPending && !isError && (
-          <div className="flex flex-col gap-3 border-t border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex flex-col items-center gap-3 border-t border-slate-100 p-3 sm:flex-row sm:justify-between sm:p-5">
             <p className="text-sm text-slate-500">
               Hiển thị {total === 0 ? 0 : (page - 1) * limit + 1}
               {" - "}
               {Math.min(page * limit, total)} trong tổng số {total} dịch vụ
             </p>
             {totalPages > 1 && (
-              <Pagination className="mx-0 w-auto justify-start sm:justify-end">
+              <Pagination className="mx-0 w-full justify-center sm:w-auto sm:justify-end">
                 <PaginationContent className="flex-wrap">
                   <PaginationItem>
                     <PaginationPrevious
@@ -474,6 +684,85 @@ export default function ServiceTable() {
           </div>
         )}
       </section>
+
+      {/* FE-02: Menu nằm ngoài vùng cuộn ngang của bảng. */}
+      {openMenuId &&
+        typeof document !== "undefined" &&
+        (() => {
+          const menuService = services.find(
+            (service) => service.id === openMenuId,
+          );
+          if (!menuService) return null;
+
+          return createPortal(
+            <>
+              <button
+                type="button"
+                aria-label="Đóng menu"
+                className="fixed inset-0 z-[80] cursor-default"
+                onClick={() => setOpenMenuId(null)}
+              />
+              <div
+                role="menu"
+                aria-label={`Thao tác với ${menuService.name}`}
+                className="fixed z-[81] w-48 rounded-lg border border-gray-100 bg-white py-1 text-left shadow-lg"
+                style={{ top: menuPosition.top, left: menuPosition.left }}
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    openDetailModal(menuService);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Eye size={16} /> Xem chi tiết
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    openEditModal(menuService);
+                    setOpenMenuId(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-[14px] text-[#0F172A] hover:bg-gray-50"
+                >
+                  <Pencil size={16} /> Chỉnh sửa
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={updateServiceStatus.isPending}
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    void handleToggleStatus(menuService);
+                  }}
+                  className={`flex w-full items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+                    menuService.isActive ? "text-orange-600" : "text-green-600"
+                  }`}
+                >
+                  <Power size={16} />{" "}
+                  {menuService.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+                </button>
+                <div className="my-1 border-t border-gray-100" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setOpenMenuId(null);
+                    handleDeleteService(menuService);
+                  }}
+                  className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={16} /> Xóa vĩnh viễn
+                </button>
+              </div>
+            </>,
+            document.body,
+          );
+        })()}
 
       {/* DELETE CONFIRMATION MODAL */}
       {serviceToDelete && (
@@ -575,45 +864,6 @@ export default function ServiceTable() {
   );
 }
 
-function ServiceListSkeleton() {
-  return (
-    <div
-      className="space-y-7"
-      role="status"
-      aria-label="Đang tải danh sách dịch vụ"
-    >
-      {Array.from({ length: 2 }, (_, group) => (
-        <section key={group} className="min-w-0">
-          <div className="mb-4 flex items-center gap-3 border-b border-slate-100 pb-3">
-            <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-20" />
-            </div>
-          </div>
-          <div className="grid min-w-0 grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-            {Array.from({ length: group === 0 ? 5 : 3 }, (_, index) => (
-              <div
-                key={index}
-                className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"
-              >
-                <Skeleton className="h-11 w-11 rounded-xl" />
-                <Skeleton className="h-4 w-4/5" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-2/3" />
-                <div className="flex justify-between pt-2">
-                  <Skeleton className="h-6 w-16 rounded-lg" />
-                  <Skeleton className="h-6 w-7 rounded-lg" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
 function SummaryCard({
   title,
   value,
@@ -632,16 +882,18 @@ function SummaryCard({
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:gap-4 sm:p-5">
+    <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:gap-4 sm:rounded-2xl sm:p-5">
       <div
-        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${colorClasses[color]}`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-12 sm:w-12 sm:rounded-xl ${colorClasses[color]}`}
       >
         {icon}
       </div>
 
       <div className="min-w-0">
-        <p className="text-xs leading-5 text-slate-500 sm:text-sm">{title}</p>
-        <p className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">
+        <p className="text-[11px] leading-4 text-slate-500 sm:text-sm">
+          {title}
+        </p>
+        <p className="mt-1 text-lg font-bold text-slate-900 sm:text-2xl">
           {value}
         </p>
       </div>

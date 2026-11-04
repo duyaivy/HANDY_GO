@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { HandyCoordinates, HandyMapRef } from '@/components/map/handy-map';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
