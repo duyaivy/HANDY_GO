@@ -87,8 +87,15 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
   it('handles switching between activity filter tabs without filter errors', () => {
     render(<CustomerOrdersScreen />);
 
+    // Verify Disputed tab exists and Reorder tab is removed
+    expect(screen.getByTestId('activity-filter-tab-disputed')).toBeOnTheScreen();
+    expect(screen.queryByTestId('activity-filter-tab-reorder')).toBeNull();
+
     const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
     fireEvent.press(inProcessTab);
+
+    const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+    fireEvent.press(disputedTab);
 
     const finishedTab = screen.getByTestId('activity-filter-tab-finished');
     fireEvent.press(finishedTab);
@@ -97,6 +104,48 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     fireEvent.press(cancelledTab);
 
     expect(screen.getByTestId('orders-customer-screen')).toBeOnTheScreen();
+  });
+
+  it('renders disputed orders correctly with Đang khiếu nại badge in Disputed tab', async () => {
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ord-disp-01',
+            orderCode: 'ORD-DISP-01',
+            serviceRequestId: 'req-01',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 250000,
+            agreedScope: 'Sửa bồn nước bị tràn',
+            addressText: '456 Lê Duẩn, Đà Nẵng',
+            status: 'disputed',
+            paymentState: 'unpaid',
+            createdAt: '2026-11-01T08:00:00Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<CustomerOrdersScreen />);
+
+    const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+    fireEvent.press(disputedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa bồn nước bị tràn')).toBeOnTheScreen();
+      expect(screen.getByText(/ORD-DISP-01/)).toBeOnTheScreen();
+      // 1 on the tab, 1 on the order badge
+      expect(screen.getAllByText('Đang khiếu nại')).toHaveLength(2);
+      expect(screen.getByText('Chi tiết đơn')).toBeOnTheScreen();
+      expect(screen.queryByText('Đặt lại')).toBeNull();
+    });
   });
 });
 

@@ -37,12 +37,13 @@ describe('activities feature skeleton and navigation flow', () => {
       // Title
       expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
 
-      // 5 Filter tabs: Đang tìm, Đang làm, Đặt lại, Hoàn thành, Đã hủy
+      // 5 Filter tabs: Đang tìm, Đang làm, Đang khiếu nại, Hoàn thành, Đã hủy
       expect(screen.getByText('Đang tìm')).toBeOnTheScreen();
       expect(screen.getByText('Đang làm')).toBeOnTheScreen();
-      expect(screen.getByText('Đặt lại')).toBeOnTheScreen();
+      expect(screen.getByText('Đang khiếu nại')).toBeOnTheScreen();
       expect(screen.getByText('Hoàn thành')).toBeOnTheScreen();
       expect(screen.getByText('Đã hủy')).toBeOnTheScreen();
+      expect(screen.queryByText('Đặt lại')).not.toBeOnTheScreen();
       expect(screen.queryByText('Tất cả')).not.toBeOnTheScreen();
 
       // Plumber order card
@@ -57,6 +58,9 @@ describe('activities feature skeleton and navigation flow', () => {
 
       const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
       fireEvent.press(inProcessTab);
+
+      const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+      fireEvent.press(disputedTab);
 
       // Remains on Activities without calling router
       expect(mockPush).not.toHaveBeenCalled();

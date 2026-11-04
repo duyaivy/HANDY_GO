@@ -19,7 +19,7 @@ import { useCustomerOrders } from '../../hooks/use-customer-orders';
 export const ACTIVITY_FILTER_TABS = [
   'Searching',
   'In process',
-  'Reorder',
+  'Disputed',
   'Finished',
   'Cancelled',
 ] as const;
@@ -29,7 +29,7 @@ export type ActivityFilterTab = (typeof ACTIVITY_FILTER_TABS)[number];
 const ACTIVITY_TAB_LABELS: Record<ActivityFilterTab, string> = {
   'Searching': 'Đang tìm',
   'In process': 'Đang làm',
-  'Reorder': 'Đặt lại',
+  'Disputed': 'Đang khiếu nại',
   'Finished': 'Hoàn thành',
   'Cancelled': 'Đã hủy',
 };
@@ -39,7 +39,8 @@ const VIETNAMESE_LABEL_MAP: Record<string, ActivityFilterTab> = {
   'đang tìm thợ': 'Searching',
   'đang làm': 'In process',
   'đang thực hiện': 'In process',
-  'đặt lại': 'Reorder',
+  'đang khiếu nại': 'Disputed',
+  'khiếu nại': 'Disputed',
   'hoàn thành': 'Finished',
   'đã hủy': 'Cancelled',
   'đã huỷ': 'Cancelled',
@@ -299,7 +300,7 @@ export function CustomerOrdersScreen({
       />
 
       <View testID={testID} className="flex-1 p-4">
-        {/* Filter tabs: Đang tìm, Đang làm, Đặt lại, Hoàn thành, Đã hủy */}
+        {/* Filter tabs: Đang tìm, Đang làm, Đang khiếu nại, Hoàn thành, Đã hủy */}
         <View className="mb-4 shrink-0" style={{ flexGrow: 0, flexShrink: 0 }}>
           <ScrollView
             horizontal
@@ -414,28 +415,18 @@ export function CustomerOrdersScreen({
                     <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
                       {req.addressText || 'Đà Nẵng'}
                     </Text>
-                    {isSearch
-                      ? (
-                          <Button
-                            label="Xem Radar thợ →"
-                            variant="default"
-                            className="h-8 shrink-0 rounded-xl bg-primary px-3"
-                            textClassName="text-[11px] font-bold text-white"
-                            onPress={() => router.push({
-                              pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
-                              params: { requestId: req.id },
-                            } as any)}
-                          />
-                        )
-                      : (
-                          <Button
-                            label="Đặt lại"
-                            variant="outline"
-                            className="h-8 shrink-0 rounded-xl border-primary px-3"
-                            textClassName="text-[11px] font-bold text-primary"
-                            onPress={() => router.push(RouteNames.CUSTOMER_HOME as any)}
-                          />
-                        )}
+                    {isSearch && (
+                      <Button
+                        label="Xem Radar thợ →"
+                        variant="default"
+                        className="h-8 shrink-0 rounded-xl bg-primary px-3"
+                        textClassName="text-[11px] font-bold text-white"
+                        onPress={() => router.push({
+                          pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
+                          params: { requestId: req.id },
+                        } as any)}
+                      />
+                    )}
                   </View>
                 </View>
               );
@@ -468,7 +459,7 @@ export function CustomerOrdersScreen({
           </View>
         )}
 
-        {/* Danh sách Orders (In process, Finished, Cancelled, All, Reorder) */}
+        {/* Danh sách Orders (In process, Disputed, Finished, Cancelled, All) */}
         {orders.length > 0 && (
           <View className="mb-4 gap-3">
             {isCancelledTab && (
@@ -546,7 +537,7 @@ export function CustomerOrdersScreen({
           </View>
         )}
 
-        {/* Nút Tải thêm chung cho các tab đơn nguồn (Searching, In process, Finished) */}
+        {/* Nút Tải thêm chung cho các tab đơn nguồn (Searching, In process, Disputed, Finished) */}
         {!isCancelledTab && hasNextPage && (
           <View className="my-2 items-center">
             <Button
@@ -571,7 +562,9 @@ export function CustomerOrdersScreen({
                   ? 'Chưa có đơn hoặc yêu cầu nào đã hủy'
                   : activeTab === 'Finished'
                     ? 'Chưa có đơn hàng nào hoàn tất'
-                    : 'Chưa có đơn hàng nào trong mục này'}
+                    : activeTab === 'Disputed'
+                      ? 'Chưa có đơn hàng nào đang khiếu nại'
+                      : 'Chưa có đơn hàng nào trong mục này'}
             </Text>
             {activeTab !== 'Searching' && (
               <Button

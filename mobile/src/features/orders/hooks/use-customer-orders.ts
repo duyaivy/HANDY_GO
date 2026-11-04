@@ -44,8 +44,9 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
 export function useCustomerOrders(activeTab = 'Searching') {
   const isSearchingTab = activeTab === 'Searching';
   const isCancelledTab = activeTab === 'Cancelled';
-  const isFinishedTab = activeTab === 'Finished' || activeTab === 'Reorder';
+  const isFinishedTab = activeTab === 'Finished';
   const isInProcessTab = activeTab === 'In process';
+  const isDisputedTab = activeTab === 'Disputed';
 
   // Server status filter per tab
   const requestsStatusFilter = isSearchingTab
@@ -58,9 +59,11 @@ export function useCustomerOrders(activeTab = 'Searching') {
     ? 'created,confirmed,in_progress,awaiting_customer_confirmation'
     : isFinishedTab
       ? 'completed'
-      : isCancelledTab
-        ? 'cancelled,disputed'
-        : '';
+      : isDisputedTab
+        ? 'disputed'
+        : isCancelledTab
+          ? 'cancelled'
+          : '';
 
   const shouldFetchRequests = isSearchingTab || isCancelledTab || activeTab === 'All';
   const shouldFetchOrders = !isSearchingTab;
@@ -161,6 +164,7 @@ export function useCustomerOrders(activeTab = 'Searching') {
     activeTab,
     isSearchingTab,
     isCancelledTab,
+    isDisputedTab,
     requests,
     orders,
 
