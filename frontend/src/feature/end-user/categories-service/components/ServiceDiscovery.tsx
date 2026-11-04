@@ -69,10 +69,22 @@ const subscribeToViewport = (callback: () => void) => {
   };
 };
 
+const CATEGORY_ITEM_WIDTH = 128;
+const CATEGORY_GAP = 20;
+
 const getCategoriesPerPage = () => {
-  if (window.innerWidth < 640) return 2;
-  if (window.innerWidth < 1024) return 4;
-  return 8;
+  const width = window.innerWidth;
+  const containerWidth = Math.min(
+    width - (width < 640 ? 32 : width < 1024 ? 48 : 64),
+    1280,
+  );
+
+  return Math.max(
+    1,
+    Math.floor(
+      (containerWidth + CATEGORY_GAP) / (CATEGORY_ITEM_WIDTH + CATEGORY_GAP),
+    ),
+  );
 };
 
 const getServerCategoriesPerPage = () => 8;
@@ -244,9 +256,9 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
 
             <form
               onSubmit={handleSearchSubmit}
-              className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm sm:flex-row"
+              className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"
             >
-              <div className="flex flex-1 items-center gap-3 px-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 px-2 sm:px-3">
                 <Search className="h-5 w-5 shrink-0 text-slate-400" />
 
                 <input
@@ -254,13 +266,13 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                   value={draftSearch}
                   onChange={(event) => setDraftSearch(event.target.value)}
                   placeholder="Tìm kiếm dịch vụ..."
-                  className="w-full bg-transparent py-3 text-sm outline-none"
+                  className="min-w-0 w-full bg-transparent py-2 text-sm outline-none"
                 />
               </div>
 
               <button
                 type="submit"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#FF5E14] px-6 py-3 text-sm font-bold text-white transition-colors hover:bg-[#E04F0E]"
+                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#FF5E14] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#E04F0E] sm:px-4 sm:text-sm"
               >
                 Tìm kiếm
                 <ArrowRight size={17} />
@@ -310,7 +322,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
           </div>
 
           {categoriesLoading ? (
-            <div className="grid grid-cols-2 gap-5 sm:grid-cols-4 lg:grid-cols-8">
+            <div className="grid grid-cols-[repeat(auto-fit,128px)] justify-center gap-x-5 gap-y-6">
               {Array.from({
                 length: categoriesPerPage,
               }).map((_, index) => (
@@ -350,7 +362,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                     return (
                       <div
                         key={pageIndex}
-                        className="grid w-full shrink-0 grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-4 lg:grid-cols-8"
+                        className="grid w-full shrink-0 grid-cols-[repeat(auto-fit,128px)] justify-center gap-x-5 gap-y-6"
                       >
                         {pageCategories.map((category) => {
                           const isSelected = categoryId === category.id;
@@ -457,26 +469,16 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
           </div>
 
           {/* BỘ LỌC */}
-          <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-            <div className="relative min-w-[220px] flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
-              <input
-                type="text"
-                value={draftSearch}
-                onChange={(event) => setDraftSearch(event.target.value)}
-                placeholder="Lọc dịch vụ..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-orange-500"
-              />
-            </div>
-
-            <div className="relative min-w-[170px]">
+          {/* BỘ LỌC DANH MỤC */}
+          <div className="mb-6 flex justify-end">
+            <div className="relative w-full sm:w-[200px]">
               <select
                 value={categoryId ?? ""}
                 onChange={(event) =>
                   handleCategoryChange(event.target.value || null)
                 }
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-orange-500"
+                className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white py-2 pl-4 pr-10 text-sm text-slate-700 outline-none transition-colors hover:border-orange-300 focus:border-[#FF5E14]"
               >
                 <option value="">Tất cả danh mục</option>
 
@@ -487,17 +489,11 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                 ))}
               </select>
 
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <ChevronDown
+                size={16}
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
             </div>
-
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50"
-            >
-              <RotateCcw size={16} />
-              Xóa bộ lọc
-            </button>
           </div>
 
           {/* GRID DỊCH VỤ */}
@@ -526,7 +522,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 lg:gap-5">
               {services.map((service) => (
                 <button
                   key={service.id}
@@ -572,7 +568,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
           {!servicesLoading && !servicesError && totalPages > 1 && (
             <nav
               aria-label="Phân trang dịch vụ"
-              className="mt-8 flex flex-wrap items-center justify-center gap-2"
+              className="mt-8 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2"
             >
               <button
                 type="button"
@@ -581,7 +577,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                   onPageChange(page - 1);
                   scrollToServices();
                 }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:text-sm disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Trước
               </button>
@@ -603,7 +599,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                       scrollToServices();
                     }}
                     aria-current={page === item ? "page" : undefined}
-                    className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${
+                    className={`h-8 min-w-8 rounded-lg px-1.5 text-xs font-bold transition-colors sm:h-9 sm:min-w-9 sm:text-sm ${
                       page === item
                         ? "bg-[#FF5E14] text-white"
                         : "bg-white text-slate-700 hover:bg-orange-50"
@@ -621,7 +617,7 @@ export const ServiceDiscovery: React.FC<ServiceDiscoveryProps> = ({
                   onPageChange(page + 1);
                   scrollToServices();
                 }}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs sm:text-sm disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Sau
               </button>

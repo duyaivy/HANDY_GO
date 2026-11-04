@@ -25,6 +25,21 @@ export class ServiceRequestProjectionService {
     biddingClosesAt?: string;
     selectionExpiresAt?: string;
   }): Promise<MatchingPrisma.ServiceRequestProjection> {
+    const existing = await this.prisma.serviceRequestProjection.findUnique({
+      where: { id: data.id },
+      select: { biddingClosesAt: true },
+    });
+
+    const publishedClosesAt = data.biddingClosesAt
+      ? new Date(data.biddingClosesAt)
+      : null;
+    const finalBiddingClosesAt =
+      existing?.biddingClosesAt &&
+      publishedClosesAt &&
+      existing.biddingClosesAt > publishedClosesAt
+        ? existing.biddingClosesAt
+        : publishedClosesAt;
+
     const metadata = {
       requestCode: data.requestCode,
       customerUserId: data.customerUserId,
@@ -34,9 +49,7 @@ export class ServiceRequestProjectionService {
       addressText: data.addressText ?? null,
       latitude: data.latitude,
       longitude: data.longitude,
-      biddingClosesAt: data.biddingClosesAt
-        ? new Date(data.biddingClosesAt)
-        : null,
+      biddingClosesAt: finalBiddingClosesAt,
       selectionExpiresAt: data.selectionExpiresAt
         ? new Date(data.selectionExpiresAt)
         : null,
@@ -141,6 +154,59 @@ export class ServiceRequestProjectionService {
     await this.prisma.serviceRequestProjection.updateMany({
       where: { id, status: { in: predecessors } },
       data: { status },
+    });
+  }
+
+  /**
+   * FIX-02: Extends bidding deadline for anti-sniping consistency.
+   * - Monotonic update: only updates if newClosesAt > current biddingClosesAt.
+   * - Handles out-of-order events: creates a placeholder if published event hasn't arrived yet.
+   * - Strictly preserves terminal statuses: never reopens cancelled, expired, converted_to_order, or bidding_closed.
+   */
+  async extendBiddingDeadline(
+    id: string,
+    newClosesAt: Date | string,
+  ): Promise<void> {
+    const newClosesAtDate =
+      typeof newClosesAt === 'string' ? new Date(newClosesAt) : newClosesAt;
+
+    if (Number.isNaN(newClosesAtDate.getTime())) {
+      throw new Error(`Invalid newClosesAt date: ${String(newClosesAt)}`);
+    }
+
+    // Out-of-order handling: if publication has not arrived yet, insert placeholder.
+    // If a row already exists (terminal tombstone or published), skipDuplicates avoids conflict.
+    await this.prisma.serviceRequestProjection.createMany({
+      data: {
+        id,
+        requestCode: 'TOMBSTONE',
+        customerUserId: '00000000-0000-0000-0000-000000000000',
+        serviceId: '00000000-0000-0000-0000-000000000000',
+        latitude: 0,
+        longitude: 0,
+        status: 'open_for_bidding',
+        matchingRevision: 0,
+        biddingClosesAt: newClosesAtDate,
+      },
+      skipDuplicates: true,
+    });
+
+    // Monotonic update on open_for_bidding requests only:
+    // Never updates cancelled, expired, converted_to_order, or bidding_closed
+    // Never decreases biddingClosesAt if an older/duplicate event arrives
+    await this.prisma.serviceRequestProjection.updateMany({
+      where: {
+        id,
+        status: 'open_for_bidding',
+        OR: [
+          { biddingClosesAt: null },
+          { biddingClosesAt: { lt: newClosesAtDate } },
+        ],
+      },
+      data: {
+        biddingClosesAt: newClosesAtDate,
+        updatedAt: new Date(),
+      },
     });
   }
 

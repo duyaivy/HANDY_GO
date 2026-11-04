@@ -8,8 +8,19 @@ import { ConfigService } from '@app/config';
 
 export interface RequestEligibilityResult {
   eligible: boolean;
+  serviceId?: string;
   reason?: string;
   requestStatus?: string;
+}
+
+const SERVICE_ID_DOMAIN_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
+
+export function isValidDomainServiceId(id: unknown): id is string {
+  return (
+    typeof id === 'string' &&
+    id.trim().length > 0 &&
+    SERVICE_ID_DOMAIN_REGEX.test(id.trim())
+  );
 }
 
 @Injectable()
@@ -46,13 +57,13 @@ export class RequestEligibilityVerifierService {
         const body: unknown = await response.json().catch(() => null);
         const data =
           typeof body === 'object' && body !== null && 'data' in body
-            ? body.data
+            ? (body as { data?: unknown }).data
             : undefined;
         if (
           typeof data !== 'object' ||
           data === null ||
           !('eligible' in data) ||
-          typeof data.eligible !== 'boolean'
+          typeof (data as Record<string, unknown>).eligible !== 'boolean'
         ) {
           this.logger.error({
             event: 'order_eligibility_failed',
@@ -63,15 +74,38 @@ export class RequestEligibilityVerifierService {
             'Dịch vụ Order tạm thời không phản hồi. Vui lòng thử lại sau.',
           );
         }
-        const result = data as RequestEligibilityResult;
-        if (!result.eligible) {
+        const rawResult = data as Record<string, unknown>;
+        if (!rawResult.eligible) {
           throw new ForbiddenException(
-            typeof result.reason === 'string'
-              ? result.reason
+            typeof rawResult.reason === 'string'
+              ? rawResult.reason
               : 'Thợ không đủ điều kiện tham gia báo giá cho yêu cầu này',
           );
         }
-        return result;
+
+        // When eligible is true, serviceId is mandatory and must match domain format
+        if (!isValidDomainServiceId(rawResult.serviceId)) {
+          this.logger.error({
+            event: 'order_eligibility_failed',
+            category: 'invalid_response_contract',
+            reason: 'missing_or_invalid_service_id',
+            serviceRequestId,
+          });
+          throw new ServiceUnavailableException(
+            'Dịch vụ Order phản hồi dữ liệu ngành nghề không hợp lệ. Vui lòng thử lại sau.',
+          );
+        }
+
+        return {
+          eligible: true,
+          serviceId: (rawResult.serviceId as string).trim(),
+          reason:
+            typeof rawResult.reason === 'string' ? rawResult.reason : undefined,
+          requestStatus:
+            typeof rawResult.requestStatus === 'string'
+              ? rawResult.requestStatus
+              : undefined,
+        };
       }
 
       if (
@@ -142,14 +176,26 @@ export class RequestEligibilityVerifierService {
   }
 
   /**
-   * PR42-06: Verifies worker hard eligibility via User & Trust Service.
+   * PR42-06 / FIX-01: Verifies worker hard eligibility via User & Trust Service.
    * Checks that worker account is active, KYC is approved, and the worker offers the requested service.
-   * Strictly fail-closed on service unavailability, timeout, or network failure.
+   * Strictly fail-closed on service unavailability, timeout, network failure, or invalid contract.
    */
   async verifyWorkerHardEligibility(
     workerId: string,
-    requiredServiceId?: string,
+    requiredServiceId: string,
   ): Promise<void> {
+    if (!isValidDomainServiceId(requiredServiceId)) {
+      this.logger.error({
+        event: 'worker_profile_verification_failed',
+        category: 'invalid_required_service_id',
+        workerId,
+        requiredServiceId,
+      });
+      throw new ServiceUnavailableException(
+        'Mã dịch vụ không hợp lệ để xác minh điều kiện thợ',
+      );
+    }
+
     const userTrustUrl = this.config
       .getUrl('USER_TRUST_SERVICE_URL')
       .replace(/\/+$/, '');
@@ -170,7 +216,7 @@ export class RequestEligibilityVerifierService {
         const body: unknown = await response.json().catch(() => null);
         const data =
           typeof body === 'object' && body !== null && 'data' in body
-            ? (body as any).data
+            ? (body as { data?: unknown }).data
             : body;
 
         if (!data || typeof data !== 'object') {
@@ -179,19 +225,32 @@ export class RequestEligibilityVerifierService {
           );
         }
 
-        // Hard check: KYC verified
-        if (!data.isVerified) {
+        const profile = data as Record<string, unknown>;
+
+        // Contract validation: serviceIds must be an array of strings
+        if (
+          !Array.isArray(profile.serviceIds) ||
+          !profile.serviceIds.every((id) => typeof id === 'string')
+        ) {
+          this.logger.error({
+            event: 'worker_profile_verification_failed',
+            category: 'invalid_service_ids_contract',
+            workerId,
+          });
+          throw new ServiceUnavailableException(
+            'Dịch vụ User & Trust phản hồi danh sách ngành nghề không hợp lệ.',
+          );
+        }
+
+        // Hard check: KYC verified (strictly boolean true)
+        if (profile.isVerified !== true) {
           throw new ForbiddenException(
             'Thợ chưa hoàn tất xác thực danh tính (KYC) để gửi báo giá',
           );
         }
 
         // Hard check: Service offering matches requested service
-        if (
-          requiredServiceId &&
-          Array.isArray(data.serviceIds) &&
-          !data.serviceIds.includes(requiredServiceId)
-        ) {
+        if (!profile.serviceIds.includes(requiredServiceId)) {
           throw new ForbiddenException(
             'Thợ chưa đăng ký ngành nghề dịch vụ phù hợp với yêu cầu này',
           );

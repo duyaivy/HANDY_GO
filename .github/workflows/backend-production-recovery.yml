@@ -1,0 +1,140 @@
+name: Backend production transaction recovery
+
+# Deliberately manual: no privileged workflow_run execution of source/artifacts
+# from the failed run. Safe automatic reconciliation runs in deploy preflight.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Inspect only, or execute the verified safe recovery plan'
+        required: true
+        type: choice
+        options: [inspect, recover]
+        default: inspect
+      original_run_id:
+        description: 'Original Backend production Run ID'
+        required: true
+        type: string
+      original_attempt:
+        description: 'Original Backend production attempt'
+        required: true
+        type: string
+      transaction:
+        description: 'Exact pending transaction ID (prod-YYYYMMDD-RUN-aATTEMPT)'
+        required: true
+        type: string
+      target:
+        description: 'Exact target release ID from the original journal (may differ for rollback)'
+        required: true
+        type: string
+      confirm:
+        description: 'Recover mode requires RECOVER_PRODUCTION; unsafe states remain blocked'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: github.repository == 'duyaivy/HANDY_GO' && github.ref == 'refs/heads/release'
+    name: Inspect or recover exact production transaction
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      VPS1_HOST: ${{ secrets.VPS1_HOST }}
+      VPS2_HOST: ${{ secrets.VPS2_HOST }}
+      VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      DEPLOY_USER: azureuser
+      API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
+      MODE: ${{ inputs.mode }}
+      ORIGINAL_RUN_ID: ${{ inputs.original_run_id }}
+      ORIGINAL_ATTEMPT: ${{ inputs.original_attempt }}
+      TRANSACTION: ${{ inputs.transaction }}
+      TARGET: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate recovery identity and approval
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ORIGINAL_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          [[ "$TRANSACTION" =~ ^prod-[0-9]{8}-${ORIGINAL_RUN_ID}-a${ORIGINAL_ATTEMPT}$ ]]
+          [[ "$TARGET" =~ ^prod-[0-9]{8}-[0-9]+-a[0-9]+$ ]]
+          [[ "$MODE" == inspect || ( "$MODE" == recover && "$CONFIRM" == RECOVER_PRODUCTION ) ]]
+          # API metadata only: never download or execute original-run artifacts.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_RUN_ID/attempts/$ORIGINAL_ATTEMPT" > "$RUNNER_TEMP/recovery-run.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          run = json.loads((Path(os.environ['RUNNER_TEMP']) / 'recovery-run.json').read_text())
+          expected_repo = os.environ['GITHUB_REPOSITORY']
+          if not (
+              run.get('id') == int(os.environ['ORIGINAL_RUN_ID'])
+              and run.get('run_attempt') == int(os.environ['ORIGINAL_ATTEMPT'])
+              and run.get('repository', {}).get('full_name') == expected_repo
+              and run.get('head_repository', {}).get('full_name') == expected_repo
+              and run.get('path') == '.github/workflows/backend-production.yml'
+              and run.get('head_branch') == 'release'
+              and run.get('event') in ('push', 'workflow_dispatch')
+              and run.get('status') == 'completed'
+          ):
+              raise SystemExit('Original run identity/source is not eligible for production recovery')
+          PY
+      - name: Validate recovery automation
+        run: |
+          python3 -m unittest discover -s deploy/production/tests -v
+          bash -n deploy/production/setup-ssh.sh
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/backend-production-recovery.yml
+      - name: Prepare existing production SSH identities
+        env:
+          VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
+          VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
+          VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+        run: bash deploy/production/setup-ssh.sh
+      - name: Inspect or reconcile durable host state
+        run: |
+          set -euo pipefail
+          install -d -m 700 recovery-output
+          args=(--run-id "$ORIGINAL_RUN_ID" --attempt "$ORIGINAL_ATTEMPT"
+            --transaction "$TRANSACTION" --target "$TARGET"
+            --domain "$API_DOMAIN" --output recovery-output)
+          if [[ "$MODE" == recover ]]; then args+=(--recover); fi
+          python3 deploy/production/recovery.py "${args[@]}" 2>&1 | tee recovery-output/recovery.log
+      - name: Summarize recovery outcome
+        if: always()
+        run: |
+          if [[ -f recovery-output/summary.md ]]; then
+            cat recovery-output/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Recovery did not reach the coordinator; pending state remains protected. Review identity, validation and SSH setup.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: backend-production-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backend/recovery-output/*.json
+            backend/recovery-output/recovery.log
+            backend/recovery-output/summary.md
+          retention-days: 90
+      - name: Remove recovery runner credentials
+        if: always()
+        run: |
+          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts

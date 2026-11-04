@@ -19,6 +19,7 @@ describe('BidsController', () => {
       getMyBids: vi.fn(),
       getBidById: vi.fn(),
       checkEligibility: vi.fn(),
+      getInternalBidderWorkerIds: vi.fn(),
     };
 
     configServiceMock = {
@@ -207,6 +208,42 @@ describe('BidsController', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.data).toEqual(mockResult);
+    });
+  });
+
+  describe('getInternalBidderWorkerIds (Internal BFF API - FIX-03)', () => {
+    it('should throw ForbiddenException if internal secret is missing or mismatched', async () => {
+      await expect(
+        controller.getInternalBidderWorkerIds(
+          '00000000-0000-0000-0000-000000000001',
+          'cust-1',
+          'customer',
+          'wrong-secret',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should pass and return allBidderWorkerIds when internal secret is valid', async () => {
+      const mockResult = {
+        serviceRequestId: '00000000-0000-0000-0000-000000000001',
+        allBidderWorkerIds: ['worker-1', 'worker-2'],
+      };
+      bidsServiceMock.getInternalBidderWorkerIds.mockResolvedValue(mockResult);
+
+      const response = await controller.getInternalBidderWorkerIds(
+        '00000000-0000-0000-0000-000000000001',
+        'cust-1',
+        'customer',
+        validSecret,
+      );
+
+      expect(response.statusCode).toBe(200);
+      expect(response.data).toEqual(mockResult);
+      expect(bidsServiceMock.getInternalBidderWorkerIds).toHaveBeenCalledWith(
+        '00000000-0000-0000-0000-000000000001',
+        'cust-1',
+        'customer',
+      );
     });
   });
 });

@@ -66,7 +66,7 @@ jobs:
           python3 scripts/validate-production-compose.py
           python3 -m unittest discover -s deploy/production/tests -v
           bash -n deploy/production/deploy.sh
-          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/pr-ci.yml /repo/.github/workflows/backend-production.yml
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/pr-ci.yml /repo/.github/workflows/backend-production.yml /repo/.github/workflows/backend-env-refresh.yml /repo/.github/workflows/backend-production-recovery.yml
       - uses: actions/upload-artifact@v6
         if: inputs.rollback_release == ''
         with:
@@ -181,7 +181,7 @@ jobs:
           done
           install -m 600 /dev/null ~/.ssh/handygo_known_hosts
           printf '%s\n' "$BACKEND_PRODUCTION_ENV" > "$RUNNER_TEMP/handygo-shared.env"
-      - name: Coordinate production release or manual rollback
+      - name: Preflight, reconcile and coordinate production release or manual rollback
         env:
           APP_IMAGE: ${{ needs.publish.outputs.app_image }}
           MIGRATION_IMAGE: ${{ needs.publish.outputs.migration_image }}
