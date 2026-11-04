@@ -18,6 +18,11 @@ image digests, Compose, Nginx, service registry và migration hash của stable 
 chạy; cập nhật executor/probe và thêm snapshot ENV mode 600. Stable trên ba VPS
 phải đồng nhất. Có downtime khi tạo lại từng container.
 
+Biến optional có thể bỏ qua/rỗng/whitespace; refresh không yêu cầu DIRECT_URL_*
+hoặc DB_DDL_VERIFIED_* vì không chạy migration. Ngân sách pool và cấu hình bắt
+buộc vẫn được validate. Xem [chính sách ENV](OPTIONAL-ENVIRONMENT.md). Cần release
+image mới để cập nhật logic fallback trong application; ENV refresh giữ image cũ.
+
 Trước khi restart, mỗi VPS kiểm tra candidate ENV bằng runtime image đã cache:
 `SELECT 1` với DB chung/override của host, Redis `PING`, RabbitMQ connect/close;
 VPS1 còn kiểm tra cặp RSA JWT và SMTP authentication bằng `verify()` (không gửi

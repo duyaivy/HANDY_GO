@@ -31,11 +31,13 @@ export class ConfigModule {
   }
 }
 
-function validateEnvironment(
+export function validateEnvironment(
   input: Record<string, unknown>,
   options: ConfigModuleOptions,
 ): Record<string, unknown> {
-  const config = { ...input };
+  const config = Object.fromEntries(Object.entries(input).map(([key, value]) =>
+    [key, typeof value === 'string' && !value.trim() ? undefined : value],
+  ));
   config.SERVICE_NAME = options.serviceName;
   config.NODE_ENV ??= 'development';
   config.LOG_LEVEL ??= config.NODE_ENV === 'production' ? 'info' : 'debug';

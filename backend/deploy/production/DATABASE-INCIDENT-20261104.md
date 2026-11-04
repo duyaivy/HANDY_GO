@@ -4,6 +4,8 @@ Release cần điều tra: `prod-20261103-41694703128-a1`.
 
 Đã sửa working tree local; không push, SSH, deploy, chạy migration production hay sửa journal production. Báo cáo dựa trên source hiện có, lỗi người dùng cung cấp và kiểm thử local. Không có log đầy đủ, Docker inspect hoặc ENV thực tế của release này. Nội dung nguyên văn của prompt `ROOT_CAUSE_FIX_AND_VERIFY` trước đó không có trong phiên này; giữ nguyên các safeguard và kiểm thử recovery đã có trong repository.
 
+> Cập nhật chính sách ENV: yêu cầu bắt buộc DIRECT_URL_* trong báo cáo lịch sử này đã được thay bằng [optional override + effective URL validation](OPTIONAL-ENVIRONMENT.md). DDL verification/session semantics vẫn bắt buộc khi chạy migrations.
+
 ## Matching gọi User Trust qua WireGuard
 
 Cùng ENV dùng chung cho cả ba VPS trước đây đặt `USER_TRUST_SERVICE_URL=http://user-trust-service:3002`. Docker Compose service DNS chỉ phân giải trong cùng Docker host; Matching ở VPS2 và Wallet ở VPS3 không thể dùng tên container User Trust tại VPS1. Đã đổi production example sang `http://10.77.0.1:3002` (WireGuard address VPS1), bind container port 3002 duy nhất trên WireGuard host IP (không public) và thêm preflight fail-closed nếu production ENV không trỏ đúng IP/port. Firewall cloud cần cho peer WireGuard truy cập TCP 3002. Local `.env.example` vẫn dùng localhost/service DNS để chạy phát triển.

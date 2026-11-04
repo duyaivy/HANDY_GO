@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PROD = ROOT / 'deploy/production'
@@ -37,3 +38,32 @@ for role in ('vps1', 'vps2', 'vps3'):
     for name in expected:
         assert int(services[name]['memswap_limit']) == 2 * int(services[name]['mem_limit'])
     print(f'{role}: exact service set and shared raw ENV resolved correctly')
+
+# A raw ENV snapshot may omit all optional settings. Compose must neither require
+# them nor inject empty overrides that mask application defaults.
+required_keys = ('NODE_ENV', 'DATABASE_URL', 'RABBITMQ_URL', 'REDIS_URL', 'OTP_SECRET',
+                 'INTERNAL_SERVICE_SECRET', 'JWT_PUBLIC_KEY', 'JWT_PRIVATE_KEY',
+                 'SMTP_USER', 'SMTP_PASS', 'CLOUDINARY_CLOUD_NAME',
+                 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
+example = dict(line.split('=', 1) for line in (PROD / 'env/production.env.example').read_text().splitlines()
+               if line and not line.startswith('#'))
+with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
+    snapshot = Path(temporary) / 'shared.env'
+    snapshot.write_text(''.join(f'{key}={example[key]}\n' for key in required_keys))
+    snapshot.chmod(0o600)
+    env['APP_ENV_FILE'] = str(snapshot)
+    for role in ('vps1', 'vps2', 'vps3'):
+        env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]
+        output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
+        services = json.loads(output)['services']
+        for name, service in services.items():
+            if name == 'nginx':
+                continue
+            assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'}
+        print(f'{role}: Compose resolves with every optional ENV absent')
+    # Infrastructure interpolation remains mandatory.
+    for required in ('APP_IMAGE', 'APP_ENV_FILE', 'PRIVATE_IP', 'NGINX_IMAGE'):
+        missing = {key: value for key, value in env.items() if key != required}
+        result = subprocess.run([*command, '--profile', 'vps1', 'config', '--quiet'],
+                                env=missing, capture_output=True, text=True)
+        assert result.returncode != 0, f'{required} must remain required'

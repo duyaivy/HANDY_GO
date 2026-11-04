@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import {
   Injectable,
   Logger,
@@ -15,7 +16,7 @@ import type { FanoutEventPayload } from './sse.interfaces.js';
 import crypto from 'node:crypto';
 
 export const EVENTS_TOPIC_EXCHANGE =
-  process.env.RABBITMQ_EXCHANGE || 'handy-go.events';
+  optionalValue(process.env.RABBITMQ_EXCHANGE) || 'handy-go.events';
 export const BIDDING_SSE_FANOUT_EXCHANGE = EVENTS_TOPIC_EXCHANGE;
 export const SSE_TOPIC_ROUTING_PATTERNS = [
   'bid.#',

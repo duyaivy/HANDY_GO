@@ -1,4 +1,4 @@
-import { databasePoolConfig, databasePoolError } from '@app/database';
+import { databasePoolConfig, databasePoolError, runtimeDatabaseUrl } from '@app/database';
 import {
   Injectable,
   OnModuleInit,
@@ -16,10 +16,7 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
 
   constructor() {
-    const connectionString =
-      process.env.DATABASE_URL_BIDDING ||
-      process.env.DATABASE_URL ||
-      'postgresql://postgres:postgres@localhost:5432/handygo?schema=bidding_service';
+    const connectionString = runtimeDatabaseUrl('bidding', 'postgresql://postgres:postgres@localhost:5432/handygo?schema=bidding_service');
     const adapter = new PrismaPg(databasePoolConfig(connectionString, 'bidding'), { onPoolError: databasePoolError('bidding') });
     super({ adapter });
   }

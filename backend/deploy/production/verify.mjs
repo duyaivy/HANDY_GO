@@ -15,9 +15,9 @@ async function http(url, expected = 200, headers = {}) {
 try {
   await http(`http://127.0.0.1:${process.env.PORT}/health`);
   const database = {
-    'auth-service': [process.env.DATABASE_URL_AUTH || process.env.DATABASE_URL, 'SELECT count(*) FROM auth_service.roles'],
-    'user-trust-service': [process.env.DATABASE_URL_USER_TRUST || process.env.DATABASE_URL, 'SELECT 1 FROM user_trust_service.users LIMIT 1'],
-    'catalog-service': [process.env.DATABASE_URL_CATALOG || process.env.DATABASE_URL, 'SELECT 1 FROM catalog_service.outbox_events LIMIT 1'],
+    'auth-service': [process.env.DATABASE_URL_AUTH?.trim() || process.env.DATABASE_URL, 'SELECT count(*) FROM auth_service.roles'],
+    'user-trust-service': [process.env.DATABASE_URL_USER_TRUST?.trim() || process.env.DATABASE_URL, 'SELECT 1 FROM user_trust_service.users LIMIT 1'],
+    'catalog-service': [process.env.DATABASE_URL_CATALOG?.trim() || process.env.DATABASE_URL, 'SELECT 1 FROM catalog_service.outbox_events LIMIT 1'],
   }[service];
   if (database) {
     probe = 'database SQL';
@@ -81,7 +81,7 @@ try {
     await http('http://127.0.0.1:3000/api/v1/users/me', 401, { 'x-user-id': 'forged' });
   }
   if (service === 'notification-service') {
-    const base = `http://127.0.0.1:${process.env.PORT}/${process.env.API_PREFIX || 'api/v1'}/notifications`;
+    const base = `http://127.0.0.1:${process.env.PORT}/${process.env.API_PREFIX?.trim() || 'api/v1'}/notifications`;
     probe = 'Notification rejects untrusted identity';
     await http(`${base}/unread-count`, 403, { 'x-user-id': randomUUID() });
     const headers = { 'x-internal-secret': process.env.INTERNAL_SERVICE_SECRET, 'x-user-id': randomUUID() };

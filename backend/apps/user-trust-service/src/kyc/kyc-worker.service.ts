@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@app/config';
 import { RabbitMQService } from '@app/rabbitmq';
@@ -33,8 +34,8 @@ export class KycWorkerService {
       process.env.AI_SERVICE_URL || 'http://localhost:8000';
     this.internalSecret =
       process.env.INTERNAL_SERVICE_SECRET || '';
-    this.aiTimeoutMs = process.env.AI_SERVICE_TIMEOUT_MS
-      ? Number(process.env.AI_SERVICE_TIMEOUT_MS)
+    this.aiTimeoutMs = optionalValue(process.env.AI_SERVICE_TIMEOUT_MS)
+      ? Number(optionalValue(process.env.AI_SERVICE_TIMEOUT_MS))
       : KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS;
   }
 

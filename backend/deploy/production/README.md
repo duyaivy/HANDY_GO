@@ -179,10 +179,10 @@ Các biến được liệt kê đầy đủ không đồng nghĩa source đã s
 | --- | --- |
 | PORT_* | Thông tin tham chiếu; cổng thực tế là PORT do Compose đặt. Đổi cổng cần cập nhật Compose, services.json và upstream URL. |
 | RABBITMQ_QUEUE_* | Thông tin tham chiếu; queue hiện được truyền trong code, source chưa đọc các biến này. Muốn cấu hình queue qua ENV cần bổ sung code đọc biến. |
-| DATABASE_URL_CATALOG | Tùy chọn; runtime và SQL probe ưu tiên DATABASE_URL_CATALOG, fallback DATABASE_URL. Migration production dùng DIRECT_URL_CATALOG. |
-| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Tùy chọn cho runtime/probe; fallback DATABASE_URL. Migration production yêu cầu DIRECT_URL_AUTH / DIRECT_URL_USER_TRUST riêng. |
+| DATABASE_URL_CATALOG | Tùy chọn; runtime và SQL probe ưu tiên DATABASE_URL_CATALOG, fallback DATABASE_URL. Migration ưu tiên DIRECT_URL_CATALOG rồi DATABASE_URL_CATALOG rồi DATABASE_URL. |
+| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Tùy chọn cho runtime/probe; fallback DATABASE_URL. Migration ưu tiên DIRECT_URL_AUTH / DIRECT_URL_USER_TRUST, fallback runtime URL tương ứng. |
 
-DATABASE_URL_AUTH, DATABASE_URL_USER_TRUST và DATABASE_URL_CATALOG có thể bỏ qua hoặc để rỗng trong bản production. DATABASE_URL chung vẫn bắt buộc và phải dùng URL database thật; các key khác không được để rỗng. Khi dùng chung, DATABASE_URL nên không có tham số schema để Auth và User Trust tự chọn schema mặc định auth_service và user_trust_service.
+DATABASE_URL_AUTH, DATABASE_URL_USER_TRUST và DATABASE_URL_CATALOG có thể bỏ qua hoặc để rỗng trong bản production. DATABASE_URL chung vẫn bắt buộc và phải dùng URL database thật; các biến optional khác cũng được bỏ qua, để rỗng hoặc chỉ whitespace; biến bắt buộc vẫn phải có giá trị hợp lệ. Xem [chính sách ENV](OPTIONAL-ENVIRONMENT.md). Khi dùng chung, DATABASE_URL nên không có tham số schema để Auth và User Trust tự chọn schema mặc định auth_service và user_trust_service.
 
 Khi thêm ENV cho service, thêm vào đúng mục ở cả hai template, triển khai code đọc/validate biến đó, rồi cập nhật secret BACKEND_PRODUCTION_ENV trước khi deploy. Nếu thêm service hoặc đổi vị trí/cổng, cập nhật thêm services.json, Compose và URL upstream trong mục Gateway cho đồng bộ. Sửa file example không tự thay đổi cấu hình đang chạy trên VPS.
 
@@ -197,7 +197,7 @@ Khi chuyển từ mapping Notification trên VPS3 sang VPS1, cập nhật **NOTI
 
 Ba bản sao ENV dùng cùng SHA-256 trong manifest. Mỗi release giữ một **snapshot của cùng ENV chung**, `releases/<id>/shared.env`, mode 600; không có auth.env/order.env/migration.env. Snapshot cũ là cần thiết để rollback đúng cấu hình. Đây là versioning của một cấu hình ứng dụng, không phải tách ENV theo service.
 
-Runtime mỗi dịch vụ ưu tiên `DATABASE_URL_<SERVICE>` rồi `DATABASE_URL`; schema riêng không đồng nghĩa pool riêng. Prisma v7 dùng `pg` nên phải đặt `DB_POOL_MAX` hoặc override theo service, không dùng URL `connection_limit`. Bundle production kiểm tra tổng budget theo endpoint/group và replica cao điểm. Migration production yêu cầu `DIRECT_URL_<SERVICE>` cùng schema và `DB_DDL_VERIFIED_<SERVICE>=true` sau khi operator kiểm chứng đích DB/khả năng DDL. Xem [báo cáo và cấu hình incident](DATABASE-INCIDENT-20261104.md).
+Runtime mỗi dịch vụ ưu tiên `DATABASE_URL_<SERVICE>` rồi `DATABASE_URL`; schema riêng không đồng nghĩa pool riêng. Prisma v7 dùng `pg` nên phải đặt `DB_POOL_MAX` hoặc override theo service, không dùng URL `connection_limit`. Bundle production kiểm tra tổng budget theo endpoint/group và replica cao điểm. Migration ưu tiên `DIRECT_URL_<SERVICE>` → `DATABASE_URL_<SERVICE>` → `DATABASE_URL`, dùng schema canonical và vẫn yêu cầu `DB_DDL_VERIFIED_<SERVICE>=true` khi thực sự chạy migration. Endpoint được chọn phải hỗ trợ session/DDL; Supabase Session Pooler được chấp nhận, Transaction Pooler không dùng cho Prisma Migrate. Xem [báo cáo và cấu hình incident](DATABASE-INCIDENT-20261104.md).
 
 JWT dùng cặp RSA production thật. Trên máy quản trị an toàn:
 

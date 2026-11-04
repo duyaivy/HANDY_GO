@@ -1,3 +1,4 @@
+import { optionalValue } from '@app/config';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -96,7 +97,7 @@ export class NotificationPolicy {
       this.policies = simulatedPolicies();
       return;
     }
-    const raw = config.get<string>('NOTIFICATION_EVENT_POLICIES');
+    const raw = optionalValue(config.get<string>('NOTIFICATION_EVENT_POLICIES'));
     if (!raw) {
       this.policies = { events: { ...DEFAULT_PRODUCTION_POLICIES }, transitions: {} };
       return;

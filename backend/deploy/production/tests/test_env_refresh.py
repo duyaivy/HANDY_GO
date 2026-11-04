@@ -83,6 +83,24 @@ class EnvRefreshTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exceeds limit'):
             self.coordinator().bundle()
 
+    def test_budget_aware_refresh_without_optional_database_or_feature_settings(self):
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        original = self.env.read_text()
+        optional = ('DIRECT_URL_', 'DATABASE_URL_', 'DB_DDL_VERIFIED_',
+                    'FIREBASE_', 'GOOGLE_APPLICATION_CREDENTIALS=',
+                    'CLOUDINARY_VIDEO_CHUNK_SIZE_MB=', 'NOTIFICATION_EVENT_POLICIES=',
+                    'PUSH_EVENT_POLICIES=')
+        stripped = '\n'.join(line for line in original.splitlines() if not line.startswith(optional)) + '\n'
+        for extra in ('', 'DIRECT_URL_AUTH=\nDATABASE_URL_ORDER=\nFIREBASE_SA_BASE64=\n',
+                      'DIRECT_URL_AUTH=   \nDATABASE_URL_ORDER=   \nNOTIFICATION_EVENT_POLICIES=   \n'):
+            with self.subTest(extra=bool(extra)):
+                self.env.write_text(stripped + extra)
+                manifest, data = self.coordinator().bundle()
+                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], 9)
+                self.assertEqual(manifest['config_sha256'], orchestrate.digest(self.env.read_bytes()))
+                with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+                    self.assertEqual(archive.extractfile('shared.env').read(), self.env.read_bytes())
+
     def test_refresh_of_a_previous_env_refresh_is_supported(self):
         self.old['files']['env-preflight.mjs'] = 'old-probe-checksum'
         self.assertTrue(self.coordinator().bundle()[0]['env_refresh'])

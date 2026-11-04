@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import {
   Injectable,
   Logger,
@@ -60,7 +61,7 @@ export class FirebasePushProvider
 
     let saPath =
       this.config.get('GOOGLE_APPLICATION_CREDENTIALS') ||
-      process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      optionalValue(process.env.GOOGLE_APPLICATION_CREDENTIALS);
 
     // Fallback: nếu không cấu hình GOOGLE_APPLICATION_CREDENTIALS, kiểm tra đường dẫn mặc định
     if (!saBase64 && (!saPath || !fs.existsSync(saPath))) {
@@ -78,7 +79,7 @@ export class FirebasePushProvider
 
     let projectId =
       this.config.get('FIREBASE_PROJECT_ID') ||
-      process.env.FIREBASE_PROJECT_ID;
+      optionalValue(process.env.FIREBASE_PROJECT_ID);
 
     try {
       const existingApp = getApps().find((a) => a.name === FIREBASE_APP_NAME);

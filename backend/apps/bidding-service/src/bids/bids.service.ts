@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import {
   Injectable,
   NotFoundException,
@@ -37,8 +38,8 @@ export const ANTI_SNIPING_TRIGGER_WINDOW_MS = 30 * 1000; // 30 giây cuối
 export const ANTI_SNIPING_EXTENSION_MS = 2 * 60 * 1000; // Gia hạn 2 phút
 export const MAX_ANTI_SNIPING_EXTENSIONS = 3; // Tối đa 3 lần gia hạn (tổng cộng 6 phút)
 export const MIN_REVISION_INTERVAL_MS =
-  process.env.BID_REVISION_COOLDOWN_MS !== undefined
-    ? Number(process.env.BID_REVISION_COOLDOWN_MS)
+  optionalValue(process.env.BID_REVISION_COOLDOWN_MS) !== undefined
+    ? Number(optionalValue(process.env.BID_REVISION_COOLDOWN_MS))
     : process.env.NODE_ENV === 'test'
       ? 0
       : 2 * 60 * 1000; // 2 phút

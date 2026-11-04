@@ -1,3 +1,4 @@
+import { optionalValue } from '../../config/src/optional-env.js';
 import { Transport, type RmqOptions } from '@nestjs/microservices';
 
 export function createRabbitMQOptions(
@@ -21,7 +22,7 @@ export function createRabbitMQOptions(
 
       prefetchCount, // giới hạn tối đa lượng message chưa ACK đang được giao
 
-      exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
+      exchange: optionalValue(process.env.RABBITMQ_EXCHANGE) ?? 'handy-go.events',
 
       exchangeType: 'topic',
 
