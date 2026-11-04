@@ -14,6 +14,7 @@ export const EVENT_PATTERNS = {
   ORDER_CREATED: 'order.created',
   ORDER_ACCEPTED: 'order.accepted',
   ORDER_STARTED: 'order.started',
+  ORDER_STATUS_CHANGED: 'order.status.changed',
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',
 
@@ -26,10 +27,17 @@ export const EVENT_PATTERNS = {
   BID_REVISED: 'bid.revised',
   BID_WITHDRAWN: 'bid.withdrawn',
 
+  BOOKING_PROPOSAL_CREATED: 'booking_proposal.created',
+  BOOKING_PROPOSAL_CHANGES_REQUESTED: 'booking_proposal.changes_requested',
+  BOOKING_PROPOSAL_REJECTED: 'booking_proposal.rejected',
+  BOOKING_PROPOSAL_WITHDRAWN: 'booking_proposal.withdrawn',
+  BOOKING_PROPOSAL_FINALIZED: 'booking_proposal.finalized',
+
   BID_CREATED: 'bid.created',
   BID_ACCEPTED: 'bid.accepted',
   BID_REJECTED: 'bid.rejected',
 
+  SERVICE_REQUEST_CREATED: 'service_request.created',
   SERVICE_REQUEST_PUBLISHED: 'service_request.published',
   SERVICE_REQUEST_MATCHING_INPUTS_CHANGED:
     'service_request.matching_inputs_changed',
@@ -44,8 +52,11 @@ export const EVENT_PATTERNS = {
 
   WORKER_MATCHED: 'worker.matched',
 
+  PAYMENT_PENDING: 'payment.pending',
+  PAYMENT_SUCCEEDED: 'payment.succeeded',
   PAYMENT_COMPLETED: 'payment.completed',
   PAYMENT_FAILED: 'payment.failed',
+  PAYMENT_REFUNDED: 'payment.refunded',
   PAYMENT_REFUND_REQUESTED: 'payment.refund.requested',
   PAYMENT_REFUND_COMPLETED: 'payment.refund.completed',
 
