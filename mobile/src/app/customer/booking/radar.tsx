@@ -99,6 +99,8 @@ export default function CustomerBookingRadarRoute() {
     requestId?: string;
     serviceName?: string;
     serviceId?: string;
+    latitude?: string;
+    longitude?: string;
   }>();
 
   const {
@@ -149,6 +151,10 @@ export default function CustomerBookingRadarRoute() {
     return (serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
   }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName]);
 
+  const paramLat = searchParams?.latitude ? Number(searchParams.latitude) : null;
+  const paramLng = searchParams?.longitude ? Number(searchParams.longitude) : null;
+  const hasParamCoords = paramLat !== null && paramLng !== null && !Number.isNaN(paramLat) && !Number.isNaN(paramLng) && (paramLat !== 0 || paramLng !== 0);
+
   const isLocationValid = Boolean(
     typeof latitude === 'number'
     && !Number.isNaN(latitude)
@@ -158,11 +164,14 @@ export default function CustomerBookingRadarRoute() {
   );
 
   const radarCoords = React.useMemo(() => {
+    if (hasParamCoords) {
+      return { latitude: paramLat!, longitude: paramLng! };
+    }
     if (isLocationValid) {
       return { latitude, longitude };
     }
     return DEFAULT_RADAR_CENTER;
-  }, [isLocationValid, latitude, longitude]);
+  }, [hasParamCoords, paramLat, paramLng, isLocationValid, latitude, longitude]);
 
   React.useEffect(() => {
     if (searchParams?.requestId || createdRequestId) {
@@ -199,6 +208,10 @@ export default function CustomerBookingRadarRoute() {
               hasValidCoords ? parsedLat : (latitude || 16.0748),
               hasValidCoords ? parsedLng : (longitude || 108.1499),
             );
+
+            if (hasValidCoords) {
+              mapRef.current?.flyTo({ latitude: parsedLat, longitude: parsedLng }, RADAR_ZOOM_LEVEL);
+            }
 
             if (req.description) {
               useBookingDraftStore.getState().setDescription(req.description);
@@ -480,11 +493,26 @@ export default function CustomerBookingRadarRoute() {
       return;
     }
 
-    const timer = setTimeout(() => {
+    mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+
+    const timer1 = setTimeout(() => {
       mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
     }, 150);
 
-    return () => clearTimeout(timer);
+    const timer2 = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 600);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [radarCoords]);
+
+  const handleMapLoaded = React.useCallback(() => {
+    if (radarCoords) {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }
   }, [radarCoords]);
 
   const handleRecenter = React.useCallback(async () => {
@@ -798,6 +826,7 @@ export default function CustomerBookingRadarRoute() {
                 showCenterPin={false}
                 style={StyleSheet.absoluteFillObject}
                 mapStyle={MapboxService.styles.light}
+                onDidFinishLoadingMap={handleMapLoaded}
               />
             )
           : (

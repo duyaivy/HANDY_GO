@@ -149,7 +149,8 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
       }
 
       const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
-      if (typeof newZoom === 'number') {
+      // Chỉ cập nhật zoom thực tế khi đã hoàn tất animation khởi tạo và zoom không phải là zoom uninitialized ở cold start
+      if (hasInitialAnimatedRef.current && typeof newZoom === 'number' && newZoom >= 6) {
         currentZoomRef.current = newZoom;
       }
 
@@ -210,10 +211,11 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
       isInternalCameraUpdate.current = true;
       cameraRef.current.setCamera({
         centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
-        zoomLevel: currentZoomRef.current ?? zoomLevel,
+        zoomLevel,
         animationDuration: 300,
       });
       hasInitialAnimatedRef.current = true;
+      currentZoomRef.current = zoomLevel;
     }
     onDidFinishLoadingMap?.();
   }, [onDidFinishLoadingMap, targetCenter.latitude, targetCenter.longitude, zoomLevel]);
@@ -225,20 +227,22 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         return;
       }
 
-      const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
-      if (typeof newZoom === 'number') {
-        currentZoomRef.current = newZoom;
-      }
-
       if (!hasInitialAnimatedRef.current) {
         hasInitialAnimatedRef.current = true;
+        currentZoomRef.current = zoomLevel;
         if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
           isInternalCameraUpdate.current = true;
           cameraRef.current.setCamera({
             centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
-            zoomLevel: currentZoomRef.current ?? zoomLevel,
+            zoomLevel,
             animationDuration: 300,
           });
+        }
+      }
+      else {
+        const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
+        if (typeof newZoom === 'number' && newZoom >= 6) {
+          currentZoomRef.current = newZoom;
         }
       }
 

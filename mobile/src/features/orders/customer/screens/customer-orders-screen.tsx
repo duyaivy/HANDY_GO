@@ -387,6 +387,8 @@ export function CustomerOrdersScreen({
                             requestId: req.id,
                             serviceName: getRequestServiceTitle(req),
                             serviceId: req.serviceId || undefined,
+                            latitude: req.latitude ? String(req.latitude) : undefined,
+                            longitude: req.longitude ? String(req.longitude) : undefined,
                           },
                         } as any)}
                       />
