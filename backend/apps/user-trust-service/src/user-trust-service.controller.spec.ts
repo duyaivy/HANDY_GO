@@ -15,6 +15,7 @@ describe('UserTrustServiceController', () => {
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      listUsers: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
       uploadAvatar: vi.fn().mockResolvedValue({ statusCode: 200 }),
       getBankAccounts: vi.fn().mockResolvedValue({ statusCode: 200 }),
       addBankAccount: vi.fn().mockResolvedValue({ statusCode: 201 }),
@@ -134,6 +135,16 @@ describe('UserTrustServiceController', () => {
 
     await controller.deleteMyBankAccount(user, 'bank-1');
     expect(serviceMock.deleteBankAccount).toHaveBeenCalledWith('user-1', 'bank-1');
+  });
+
+  it('should call service.listUsers for admin list users', async () => {
+    const query = { page: 1, limit: 10, search: 'test', role: 'customer' as const };
+    const result = await controller.listUsers(query);
+    expect(result).toEqual({ statusCode: 200, data: [], pagination: {} });
+    expect(serviceMock.listUsers).toHaveBeenCalledWith(query);
+
+    const adminResult = await controller.listAdminUsers(query);
+    expect(adminResult).toEqual({ statusCode: 200, data: [], pagination: {} });
   });
 
   describe('verifyBankAccount (internal)', () => {

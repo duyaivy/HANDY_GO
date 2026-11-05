@@ -51,6 +51,7 @@ import {
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 
 
@@ -314,6 +315,40 @@ export class UserTrustServiceController {
     @Param('id') accountId: string,
   ): Promise<unknown> {
     return this.userTrustService.deleteBankAccount(user.userId, accountId);
+  }
+
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_READ)
+  @Get('users')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Lấy danh sách người dùng (Dành cho Quản trị viên)',
+    description:
+      'Hỗ trợ phân trang, tìm kiếm theo họ tên/ID và lọc theo vai trò (customer, worker, all).',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách người dùng thành công' })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  @ApiResponse({ status: 403, description: 'Không đủ quyền Admin (cần user:read)' })
+  async listUsers(@Query() query: ListUsersDto): Promise<unknown> {
+    return this.userTrustService.listUsers(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_READ)
+  @Get('admin/users')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Lấy danh sách người dùng (Dành cho Quản trị viên - URL alias)',
+    description:
+      'Hỗ trợ phân trang, tìm kiếm theo họ tên/ID và lọc theo vai trò (customer, worker, all).',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách người dùng thành công' })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  @ApiResponse({ status: 403, description: 'Không đủ quyền Admin (cần user:read)' })
+  async listAdminUsers(@Query() query: ListUsersDto): Promise<unknown> {
+    return this.userTrustService.listUsers(query);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

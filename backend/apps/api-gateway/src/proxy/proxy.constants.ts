@@ -20,7 +20,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'user-trust-service',
     envKey: 'USER_TRUST_SERVICE_URL',
-    prefixes: ['/api/v1/users', '/api/v1/admin/kyc-cases'],
+    prefixes: ['/api/v1/users', '/api/v1/admin/users', '/api/v1/admin/kyc-cases'],
   },
   {
     upstreamName: 'ai-service',

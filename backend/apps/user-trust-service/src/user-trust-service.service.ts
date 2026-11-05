@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpStatus,
   ForbiddenException,
   Injectable,
   Logger,
@@ -11,6 +12,7 @@ import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CloudinaryService } from '@app/cloudinary';
 import { SubmitKycDto } from './dto/submit-kyc.dto.js';
@@ -504,6 +506,115 @@ export class UserTrustServiceService {
       statusCode: 201,
       message: 'Thêm tài khoản ngân hàng thành công',
       data: created,
+    };
+  }
+
+  async listUsers(query: ListUsersDto): Promise<unknown> {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 20));
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.role === 'customer') {
+      where.customerProfile = { isNot: null };
+    } else if (query.role === 'worker') {
+      where.workerProfile = { isNot: null };
+    }
+
+    if (query.search && query.search.trim().length > 0) {
+      const searchTrim = query.search.trim();
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          searchTrim,
+        );
+
+      if (isUuid) {
+        where.OR = [
+          { id: searchTrim },
+          { fullName: { contains: searchTrim, mode: 'insensitive' } },
+        ];
+      } else {
+        where.fullName = { contains: searchTrim, mode: 'insensitive' };
+      }
+    }
+
+    const [total, users] = await Promise.all([
+      this.db.user.count({ where }),
+      this.db.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customerProfile: true,
+          workerProfile: {
+            select: {
+              id: true,
+              status: true,
+              averageRating: true,
+              ratingCount: true,
+              completedOrderCount: true,
+              orderCountTotal: true,
+              verifiedAt: true,
+              approvedAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+          bankAccounts: {
+            select: {
+              id: true,
+              bankCode: true,
+              bankName: true,
+              accountNumber: true,
+              accountHolderName: true,
+              isDefault: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const items = users.map((u) => ({
+      id: u.id,
+      fullName: u.fullName,
+      avatarUrl: u.avatarUrl,
+      status: u.status,
+      roles: [
+        ...(u.customerProfile ? ['customer'] : []),
+        ...(u.workerProfile ? ['worker'] : []),
+      ],
+      customerProfile: u.customerProfile
+        ? {
+            id: u.customerProfile.id,
+            bio: u.customerProfile.bio,
+            createdAt: u.customerProfile.createdAt,
+            updatedAt: u.customerProfile.updatedAt,
+          }
+        : null,
+      workerProfile: u.workerProfile,
+      bankAccounts: u.bankAccounts,
+      createdAt: u.createdAt,
+      updatedAt: u.updatedAt,
+    }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Lấy danh sách người dùng thành công',
+      data: items,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
     };
   }
 

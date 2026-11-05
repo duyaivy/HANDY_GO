@@ -22,6 +22,7 @@ describe('UserTrustServiceService', () => {
         create: vi.fn(),
         upsert: vi.fn(),
         update: vi.fn(),
+        count: vi.fn(),
       },
       customerProfile: {
         findUnique: vi.fn(),
@@ -394,6 +395,115 @@ describe('UserTrustServiceService', () => {
       await expect(
         service.getProfile('user-001', 'user-001', [StandardPermissions.PROFILE_READ]),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('listUsers', () => {
+    it('should return paginated list of users with default params', async () => {
+      dbMock.user.count.mockResolvedValue(2);
+      dbMock.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          fullName: 'Nguyen Van A',
+          avatarUrl: null,
+          status: 'active',
+          customerProfile: { id: 'cp-1', bio: 'Customer bio', createdAt: new Date() },
+          workerProfile: null,
+          bankAccounts: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'user-2',
+          fullName: 'Tran Van B',
+          avatarUrl: 'https://cdn.com/b.jpg',
+          status: 'active',
+          customerProfile: null,
+          workerProfile: {
+            id: 'wp-1',
+            status: 'verified',
+            averageRating: 5.0,
+            ratingCount: 10,
+            completedOrderCount: 15,
+            orderCountTotal: 15,
+          },
+          bankAccounts: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const result: any = await service.listUsers({});
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0].roles).toContain('customer');
+      expect(result.data[1].roles).toContain('worker');
+      expect(result.pagination).toEqual({
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      });
+    });
+
+    it('should filter by role=worker and search term', async () => {
+      dbMock.user.count.mockResolvedValue(1);
+      dbMock.user.findMany.mockResolvedValue([
+        {
+          id: 'user-2',
+          fullName: 'Tran Van B',
+          avatarUrl: null,
+          status: 'active',
+          customerProfile: null,
+          workerProfile: { id: 'wp-1', status: 'verified' },
+          bankAccounts: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+
+      const result: any = await service.listUsers({
+        role: 'worker',
+        search: 'Tran',
+        page: 1,
+        limit: 10,
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(dbMock.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerProfile: { isNot: null },
+            fullName: { contains: 'Tran', mode: 'insensitive' },
+          }),
+          skip: 0,
+          take: 10,
+        }),
+      );
+    });
+
+    it('should filter by role=customer and UUID search', async () => {
+      dbMock.user.count.mockResolvedValue(1);
+      dbMock.user.findMany.mockResolvedValue([]);
+
+      const testUuid = '11111111-2222-3333-4444-555555555555';
+      await service.listUsers({
+        role: 'customer',
+        search: testUuid,
+      });
+
+      expect(dbMock.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerProfile: { isNot: null },
+            OR: [
+              { id: testUuid },
+              { fullName: { contains: testUuid, mode: 'insensitive' } },
+            ],
+          }),
+        }),
+      );
     });
   });
 
