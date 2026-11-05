@@ -269,15 +269,12 @@ export default function CustomerBookingSelectAddressRoute() {
   const handleBack = () => {
     Keyboard.dismiss();
     isInputFocusedRef.current = false;
-    if (debounceTimerRef.current) {
+    if (debounceTimerRef.current)
       clearTimeout(debounceTimerRef.current);
-    }
-    if (forwardGeocodeTimerRef.current) {
+    if (forwardGeocodeTimerRef.current)
       clearTimeout(forwardGeocodeTimerRef.current);
-    }
-    if (programmaticMovingTimerRef.current) {
+    if (programmaticMovingTimerRef.current)
       clearTimeout(programmaticMovingTimerRef.current);
-    }
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
       router.replace(RouteNames.CUSTOMER_BOOKING as any);
     }
@@ -289,15 +286,12 @@ export default function CustomerBookingSelectAddressRoute() {
   const handleSearchAnother = () => {
     Keyboard.dismiss();
     isInputFocusedRef.current = false;
-    if (debounceTimerRef.current) {
+    if (debounceTimerRef.current)
       clearTimeout(debounceTimerRef.current);
-    }
-    if (forwardGeocodeTimerRef.current) {
+    if (forwardGeocodeTimerRef.current)
       clearTimeout(forwardGeocodeTimerRef.current);
-    }
-    if (programmaticMovingTimerRef.current) {
+    if (programmaticMovingTimerRef.current)
       clearTimeout(programmaticMovingTimerRef.current);
-    }
     router.push(RouteNames.CUSTOMER_SEARCH_ADDRESS as any);
   };
 

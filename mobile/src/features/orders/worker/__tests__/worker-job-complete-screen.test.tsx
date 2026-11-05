@@ -22,7 +22,7 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
 
   beforeEach(() => {
     (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
-    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => { });
     mockPush.mockClear();
     mockBack.mockClear();
   });

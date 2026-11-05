@@ -58,9 +58,7 @@ export function WorkerJobCompleteScreen({
     return [];
   });
 
-  const [description, setDescription] = React.useState(
-    'Đã thay van khóa và hàn kín đường ống nước, kiểm tra không còn rò rỉ.',
-  );
+  const [description, setDescription] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
   const handleBack = () => {
