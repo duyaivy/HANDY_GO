@@ -169,6 +169,15 @@ export type UploadEvidencePayload = {
   description?: string;
 };
 
+export type EvidenceImageItem = {
+  id: string;
+  localUri: string;
+  remoteUrl?: string;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  progress: number;
+  errorMessage?: string;
+};
+
 export type PaginatedList<T> = {
   items: T[];
   total: number;
