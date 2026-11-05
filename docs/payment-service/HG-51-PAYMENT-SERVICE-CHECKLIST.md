@@ -32,14 +32,14 @@ Nguồn yêu cầu: [HG-51](https://quocduy0322.atlassian.net/browse/HG-51); [DB
 
 ## Công việc theo thứ tự phụ thuộc
 
-Tiến độ 03/11/2026, nhánh `feature/HG-51-payment-service`: đã tạo Prisma schema/client, migration ban đầu, hàm tính tiền chính xác, API tra cứu Customer/Worker và client Order eligibility. Client Order đã có unit test nhưng **chưa được nối vào luồng tạo hoặc thanh toán**.
+Tiến độ cập nhật 05/11/2026: ngoài nền tảng (schema/migration, tính tiền chính xác, state machine, API tra cứu, client Order/Wallet, outbox), đã triển khai **toàn bộ phần không phụ thuộc quyết định PO** ở mức code + unit test: inbox/retry, consumer Order events, commission snapshot (fail-closed), tạo/chọn method Payment, Cash, Point, top-up VNPAY (tắt đến khi cấu hình), payout mock (tắt đến khi có bank snapshot), reconciliation. Xem [README Payment](../../backend/apps/payment-service/README.md).
 
-- Lượt gần nhất đã thêm migration cho `failed_inbound_events` và `payouts.payout_operation_id`, state machine Payment/attempt có unit test, `WalletClient`, các helper tạo payload event, outbox repository/service và `PaymentDatabaseModule`. Đây mới là nền tảng, chưa phải các luồng hoàn chỉnh.
-- `PaymentDatabaseModule` và outbox mới **chưa được wire** vào ứng dụng; `PaymentQueryModule` vẫn dùng Prisma provider riêng, `WalletClient` chưa được sử dụng, `main.ts` chưa kết nối RabbitMQ consumer. Chưa có inbox/consumer/retry processor thực thi.
-- Sau các thay đổi gần nhất: `pnpm test apps/payment-service` đạt **43 test / 5 file**, `pnpm run typecheck` đạt. Đây không phải bằng chứng chạy nghiệp vụ tài chính.
-- Trước các thay đổi gần nhất: 13 integration test PostgreSQL 16 riêng (7 schema, 6 HTTP/JWT), Payment build và lint đã đạt; migration **ban đầu** đã chạy trên database test riêng. Migration mới chưa chạy trên PostgreSQL; cần chạy lại integration test, build và lint cho trạng thái hiện tại.
-- Chưa có luồng tạo/charge, refund, top-up VNPAY hay payout mock; chưa kiểm thử Payment–Wallet, race/lock hoặc RabbitMQ.
-- Chưa tạo commit hoặc PR. Tại lần kiểm tra gần nhất, checklist **không bị ignore** nhưng vẫn chưa được Git theo dõi; `.gitignore` có thay đổi sẵn của người dùng, không tự ý sửa hoặc revert.
+- `PaymentDatabaseModule` (outbox) và `PaymentInboundModule` (inbox) đã được wire ở module gốc; `main.ts` đã kết nối RabbitMQ consumer queue `payment-service`. Mỗi feature dùng `PaymentPrismaModule` chung.
+- Kiểm tra 05/11/2026: `vitest run apps/payment-service/src` đạt **110 test / 13 file**; Payment E2E (DI toàn module) đạt; `nest build payment-service` đạt; `oxlint apps/payment-service libs` exit 0; `tsc -p tsconfig.build.json` không có lỗi thuộc Payment. `pnpm run typecheck` toàn backend vẫn fail do thiếu generated `@prisma/tracking-client` của Tracking Service (không thuộc Payment). Đây là bằng chứng unit/mock, **không phải** bằng chứng chạy tài chính thật.
+- **Đã chạy trên Docker** (05/11/2026, container `handygo-payment-test`, PostgreSQL 16, DB `handygo_hg51_payment_test`, `127.0.0.1:55433`, dữ liệu tmpfs): cả 2 migration (kể cả `failed_inbound_events`/`payout_operation_id`) áp dụng thành công; **17 integration test / 3 file đạt** (7 schema, 6 HTTP/JWT, 4 mới trong `payment-flows.int-spec.ts`: migration bổ sung, duplicate `order.created`, snapshot commission, double click Point với `FOR UPDATE` → 1 attempt, 1 `payment.succeeded`). Chạy lại bằng `pnpm run test:payment:docker` (thêm `-KeepRunning` để giữ container; `pnpm run test:payment:down` để xóa). Wallet trong các test này là mock.
+- **Chưa chạy** (chưa có RabbitMQ test và Wallet/Order thật): kiểm thử RabbitMQ và Payment–Wallet–Order liên service.
+- **Cố ý chưa làm vì chờ PO** (xem [PO-DECISIONS.md](./PO-DECISIONS.md)): refund/partial refund (T017–T019), Admin + API quản lý commission (T009 phần Admin), seed commission mặc định (T007), nguồn bank snapshot payout (T024 phần snapshot), quy tắc DLQ replay/retention.
+- Chưa tạo commit hoặc PR. Checklist và các file mới chưa được Git theo dõi; `.gitignore` có thay đổi sẵn của người dùng, không tự ý sửa hoặc revert.
 
 Các checkbox chỉ đánh dấu hoàn thành khi đủ điều kiện nêu trong mục; các ghi chú “một phần” không có nghĩa task đã xong.
 
@@ -57,64 +57,84 @@ Các checkbox chỉ đánh dấu hoàn thành khi đủ điều kiện nêu tron
 - [ ] T005 Đảm bảo unique/index/foreign key nội bộ và DB CHECK về số tiền, tỷ lệ, tổng phân bổ, attempt, hạn hiệu lực; ngăn commission rules hiệu lực chồng nhau.
   - Một phần: migration đã có các constraint này và test một số trường hợp; cần tiếp tục xác minh đầy đủ cùng các luồng ghi.
 - [ ] T006 Định nghĩa legal transitions, CAS/locking, retry và idempotency theo từng aggregate; giữ status cũ, chưa phát trạng thái partial không tương thích.
-  - Một phần: đã có helper chuyển trạng thái Payment/attempt và test; chưa wire vào luồng nghiệp vụ, chưa có CAS/locking, retry hoặc idempotency thực thi.
+  - Một phần: transitions được áp dụng trong luồng Cash/Point; `SELECT ... FOR UPDATE` trên payment/top-up, CAS `updateMany` khi hủy/finalize, attempt cố định cho Point, idempotency bằng `consumed_events`, `provider_notifications`, idempotency key top-up. Mới kiểm thử bằng mock; test khóa/cạnh tranh trên PostgreSQL đã viết nhưng chưa chạy.
 - [ ] T007 Seed commission default chỉ sau khi PO chốt. Khi chưa có rule hợp lệ phải fail closed, không tự mặc định zero.
+  - Một phần: fail-closed đã có (`CommissionRuleService`, retry rồi `dead`) và có unit test; không seed — chờ PO.
 - [ ] T008 Test migration DB test riêng: tạo mới, unique/check, rollback/lock và schema isolation; không trỏ tới production.
-  - Một phần: 7 test schema đã chạy trên PostgreSQL test riêng, có rollback từng test; chưa kiểm thử lock và cạnh tranh.
+  - Một phần: 7 test schema đã chạy trên PostgreSQL test riêng trước đó; `payment-flows.int-spec.ts` (migration bổ sung, snapshot, double click với lock) đã viết nhưng **chưa chạy**.
 
 ### 2. Commission và event — PAY-07, PAY-08
 
 - [ ] T009 Tạo feature commission-rules: Admin GET/POST, authorization, audit, versioned rules không overlap; snapshot rate/fee/earning nguyên, half-up tại `order.created`.
+  - Một phần: snapshot rate/fee/earning tại `order.created` đã có và test; Admin GET/POST/audit **chưa làm** (chờ quyền Admin).
 - [ ] T010 Áp dụng transactional inbox/outbox, ACK sau commit, retry có giới hạn/DLQ; consume created/completed/cancelled, xử lý duplicate/out-of-order và không tự trừ ví.
-  - Một phần: đã thêm repository/service và helper payload outbox cùng schema lưu inbound lỗi; chưa wire publisher, inbox, consumer hay retry/DLQ, và chưa kiểm thử giao dịch hoặc RabbitMQ.
+  - Một phần: inbox giao dịch, retry có backoff/giới hạn, `dead`, ACK sau khi lưu lỗi/NACK khi không lưu được, consumer created/completed/cancelled (duplicate, completed-trước-created → retry) và consumer `wallet.topup.credited`/`wallet.withdrawal.requested` đã có + unit test. Chưa kiểm thử với PostgreSQL/RabbitMQ thật; DLQ replay chờ PO.
 - [ ] T011 Giữ `payment.pending`, `processing`, `succeeded`, `failed`, `cancelled`, `refunded` tương thích với Order và các consumer hiện hữu; test replay và hợp đồng payload.
+  - Một phần: phát `payment.pending` (order.completed), `succeeded`, `failed`, `cancelled` qua outbox; `processing` không phát event; chưa test hợp đồng với consumer Order/Tracking/Notification thật.
 
 ### 3. Payment Order — PAY-02 đến PAY-05
 
 - [ ] T012 `POST /payments`: xác minh Order completed, owner, amount/currency và trạng thái qua Order internal; upsert theo order, giữ snapshot, chỉ đổi method an toàn, không charge.
+  - Một phần: đã làm và unit test (owner, eligibility, amount mismatch, đổi method an toàn, không charge). Không tạo payment mới nếu `order.created` chưa xử lý (409) để không áp commission hồi tố.
 - [ ] T013 `POST /payments/:id/confirm-cash`: đúng Worker xác nhận, attempt và succeeded idempotent, ghi receivable; thu phí Wallet nếu đủ, thiếu giữ nợ, không credit Worker.
+  - Một phần: đã làm và unit test, gồm thu commission qua Wallet và giữ `due` khi thiếu; sweep thu lại trong reconciliation. Chưa test với Wallet thật.
 - [ ] T014 `POST /payments/:id/pay-with-points`: đúng Customer chủ động; attempt/operation cố định, Wallet debit/split atomic; chỉ succeeded sau xác nhận, timeout tra cứu trước retry, không tạo attempt mới khi outcome chưa rõ.
+  - Một phần: đã làm và unit test (xác nhận `confirm:true`, attempt cố định, chỉ 4xx chắc chắn mới failed, tra cứu operation, reconcile cùng operation). Từ chối Point khi worker earning = 0 (chờ PO). Chưa test với Wallet thật.
 - [ ] T015 `GET /payments/:id`, `/payments/order/:orderId`, `/payments/me`, `/:id/attempts`: đã triển khai owner/Worker, phân trang/filter, serialize BIGINT và redaction; quyền Admin toàn hệ thống chờ chốt permission.
   - Một phần: 6 HTTP integration tests xác minh JWT, quyền Customer/Worker, pagination, BIGINT và redaction; Admin chưa được bật.
 - [ ] T016 Test quyền, order chưa complete, amount mismatch, thay method, race/double click, thiếu tiền, lỗi Wallet, timeout sau commit và replay không debit hai lần.
+  - Một phần: unit test cho các ca trên (mock); double click có test PostgreSQL với `FOR UPDATE` đã viết nhưng chưa chạy; replay không debit hai lần dựa vào idempotency Wallet theo `paymentId:attemptId`, chưa chứng minh với Wallet thật.
 
 ### 4. Refund — PAY-06
 
 - [ ] T017 `POST/GET /payments/:id/refunds`: kiểm tra quyền, trạng thái, idempotency và cap bao gồm in-flight; khóa payment/accumulator và test concurrent.
+  - Chưa làm: chờ PO (Cash refund, Admin, partial refund).
 - [ ] T018 Point refund gọi Wallet với funding/reversal hợp lệ; thiếu nguồn `needs_review`, không mint. Cash refund có xác nhận thủ công, không giả lập chuyển khoản.
+  - Chưa làm: chờ PO (nguồn bù Point, quy trình Cash refund).
 - [ ] T019 Test full/partial, rounding tích lũy, duplicate, mismatch, timeout, rollback và compatibility projection; partial downstream để tắt đến khi được duyệt.
+  - Chưa làm: phụ thuộc T017–T018.
 
 ### 5. Top-up — PAY-09, PAY-10
 
 - [ ] T020 `POST/GET /payments/topups`: provider adapter, amount/idempotency/txnRef/expiry, kiểm soát replay và ownership; alias cũ ở Gateway nếu còn dùng.
+  - Một phần: `POST/GET /payments/topups`, `GET /payments/topups/:id` đã có + unit test (idempotency, ownership, 1 VND = 1 Point, hết hạn 15 phút). Trả 503 khi VNPAY chưa cấu hình. Chưa có alias Gateway.
 - [ ] T021 Với VNPAY sandbox đã chọn, triển khai và xác minh signature, credentials, reference, status và amount theo contract; redaction, duplicate/out-of-order, không tin return URL. Chưa có adapter hoặc credentials cấu hình.
+  - Một phần: adapter VNPAY (ký HMAC-SHA512, xác minh IPN, amount ×100, redaction, dedupe `provider_notifications`) đã có + unit test theo thuật toán công khai. **Chưa xác minh với sandbox thật** và chưa có credentials; adapter tắt khi thiếu cấu hình.
 - [ ] T022 Phát `payment.topup.succeeded` qua outbox sau callback hợp lệ; chỉ completed khi `wallet.topup.credited` đã xác minh; reconcile thiếu IPN/ACK/timeout.
+  - Một phần: IPN hợp lệ → `credit_pending` + outbox; chỉ `completed` khi nhận `wallet.topup.credited`; credit không có bằng chứng provider → `needs_review`; sweep expire checkout và gắn `needs_review` khi thiếu ACK sau 1 giờ. Chưa test RabbitMQ/Wallet thật; chưa thống nhất envelope event với Wallet (xem PO-DECISIONS #10).
 - [ ] T023 Test invalid signature/amount/expiry, duplicate, restart, Wallet ACK trễ; không phát credit khi không có bằng chứng provider.
+  - Một phần: unit test đủ các ca chữ ký sai, amount sai, duplicate, IPN đến sau khi hết hạn, provider thất bại; chưa test restart/Wallet ACK trễ trên hạ tầng thật.
 
 ### 6. Payout giả lập — PAY-11
 
 - [ ] T024 Consume `wallet.withdrawal.requested`, kiểm tra identity/amount/bank snapshot và idempotency, lưu payout trước dispatch; claim Wallet qua internal HTTP trước mock provider.
+  - Một phần: consume, validate, idempotent, lưu payout trước dispatch, claim Wallet trước provider đã có + unit test. **Bank snapshot chưa có nguồn được duyệt**: `BankSnapshotProvider` mặc định không trả gì nên payout giữ `pending`, không claim/dispatch.
 - [ ] T025 Dùng `PayoutProvider`/`MockPayoutProvider`, xử lý thành công/thất bại qua contract Wallet; timeout/unknown giữ hold và reconcile, không retry mù.
+  - Một phần: đã có và unit test; outcome provider không rõ → `needs_review` giữ hold; kết quả cuối được báo lại Wallet idempotent qua sweep.
 - [ ] T026 Tắt mock controls ngoài dev/sandbox và hiển thị rõ giả lập; test duplicate, crash, claim/cancel race và kết quả mâu thuẫn.
+  - Một phần: mock tắt mặc định và luôn tắt khi `NODE_ENV=production`, payout lưu `is_simulated=true`; test duplicate/mâu thuẫn event, claim bị từ chối. Chưa test crash/claim-cancel race với Wallet thật.
 
 ### 7. Kiểm chứng và bàn giao — PAY-01 đến PAY-11
 
 - [ ] T027 Tổ chức theo feature module NestJS với controller/service/DTO/tests riêng, tái sử dụng `@app/common`, `@app/auth`, `@app/rabbitmq`, outbox; cập nhật `backend/AGENTS.md` khi thêm thành phần dùng chung.
+  - Một phần: đã tổ chức theo feature và cập nhật `backend/AGENTS.md`; refund/commission-admin chưa có.
 - [ ] T028 Cập nhật gateway, cấu hình, health, deployment và tài liệu liên quan; provider callback có auth/signature policy riêng, không expose internal API.
+  - Một phần: README, `.env.example` đã cập nhật; IPN xác thực bằng chữ ký riêng. **Chưa** chỉnh Gateway để public route IPN và chưa cập nhật deployment/health.
 - [ ] T029 Unit + integration PostgreSQL/RabbitMQ + HTTP E2E bao phủ Cash, Point, refund, top-up, payout, retry, duplicate, cạnh tranh và đối soát; dùng hạ tầng test tách biệt.
+  - Một phần: unit test cho Cash, Point, top-up, payout, retry, duplicate, reconciliation; integration PostgreSQL đã viết chưa chạy; chưa có RabbitMQ/HTTP E2E cho các luồng mới; refund chưa có.
 - [ ] T030 Chạy `pnpm test apps/payment-service`, `pnpm run typecheck`, `pnpm run lint`, Payment build và test tích hợp mục tiêu trên trạng thái mới nhất; kết quả và giới hạn được ghi ở phần tiến độ. Việc này không thay thế độ phủ tài chính của T029.
+  - Một phần: unit (110), E2E, build, lint đạt; typecheck toàn backend vướng lỗi Tracking Service; integration PostgreSQL chưa chạy (không có hạ tầng).
 - [ ] T031 Báo phần đã chứng minh, phần chưa chạy và các gate cần PO duyệt. Không bật provider/payout thật.
+  - Một phần: xem phần tiến độ và `PO-DECISIONS.md`.
 
 ## Tiếp tục ở lượt sau
 
-1. Hoàn thiện và kiểm thử nền tảng trước khi triển khai nghiệp vụ: chạy migration mới trên PostgreSQL test riêng; wire database/outbox dùng chung mà không phá test query; triển khai inbox, consumer, ACK/NACK, retry có giới hạn và replay an toàn; kết nối RabbitMQ trong `main.ts`.
-2. Rà soát `WalletClient` và outbox trước khi dùng cho tiền thật: xác minh contract và response từng endpoint, phân biệt timeout/kết quả không chắc chắn với từ chối chắc chắn, kiểm tra header IP tin cậy; bảo đảm event được ghi cùng transaction thay đổi nghiệp vụ và kiểm thử duplicate/concurrency.
-3. Triển khai commission rules và consumer `order.created/completed/cancelled`; fail closed khi chưa có rule, snapshot chính xác và xử lý duplicate/out-of-order. Không tự chốt tỷ lệ hoặc permission Admin.
-4. Triển khai tạo Payment, Cash và Point; kiểm tra quyền, eligibility, locking, idempotency và tra cứu Wallet khi outcome chưa rõ. Sau đó làm refund có cap và xử lý Point/Cash đúng contract.
-5. Triển khai top-up VNPAY sandbox, IPN/return và Wallet ACK; sau đó payout mock với claim/status Wallet, xử lý outcome không chắc chắn và đối soát. Không bật provider hoặc payout thật.
-6. Cập nhật README, các vấn đề cần báo trong PR và checklist theo kết quả thực tế; chạy lại unit, typecheck, lint, build, PostgreSQL integration, Gateway và kiểm thử liên service/RabbitMQ khi hạ tầng cho phép.
+1. Khi có PostgreSQL test riêng và RabbitMQ test: chạy migration mới và `pnpm run test:integration:payment` (gồm `payment-flows.int-spec.ts`), sửa lỗi nếu có; thêm kiểm thử Payment–Wallet–Order liên service.
+2. Sau khi PO chốt: seed commission, quyền Admin + API commission, refund (Cash/Point/partial), nguồn bank snapshot, retention/DLQ replay; chốt envelope event top-up với Wallet.
+3. Cấu hình Gateway cho IPN VNPAY (public, chỉ xác thực chữ ký) và xác minh contract/response VNPAY sandbox với credentials được cấp.
+4. Cập nhật checklist/README và tick từng task chỉ khi có bằng chứng tích hợp tương ứng.
 
-Không đánh dấu hoàn thành PAY-01–PAY-11 chỉ dựa trên code nền tảng; mỗi task cần các contract, luồng và bằng chứng kiểm thử tương ứng. Các quyết định chưa được PO duyệt tiếp tục ghi vào mục cần xác nhận/PR thay vì tự đặt mặc định.
+Không đánh dấu hoàn thành PAY-01–PAY-11 chỉ dựa trên code nền tảng hoặc unit test với mock; mỗi task cần các contract, luồng và bằng chứng kiểm thử tương ứng. Các quyết định chưa được PO duyệt tiếp tục ghi vào mục cần xác nhận/PR thay vì tự đặt mặc định.
 
 ## Ánh xạ yêu cầu
 

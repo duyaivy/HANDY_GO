@@ -73,7 +73,10 @@
     "test:wallet:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-up.ps1",
     "test:wallet:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-down.ps1",
     "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts",
-    "test:integration:payment": "vitest run --config ./vitest.config.payment-integration.ts"
+    "test:integration:payment": "vitest run --config ./vitest.config.payment-integration.ts",
+    "test:payment:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/payment-test-up.ps1",
+    "test:payment:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/payment-test-down.ps1",
+    "test:payment:docker": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/payment-test-run.ps1"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",

@@ -70,16 +70,17 @@ export class WalletClient {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      const init: RequestInit = {
         method,
         headers: {
           'x-internal-secret': secret,
           'x-forwarded-for': '127.0.0.1',
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         },
-        body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
-      });
+      };
+      if (body !== undefined) init.body = JSON.stringify(body);
+      response = await fetch(url, init);
     } catch (error) {
       this.logger.warn(`Wallet request failed: ${error instanceof Error ? error.name : 'unknown'}`);
       return { outcome: 'unknown', message: 'Wallet service is unreachable' };

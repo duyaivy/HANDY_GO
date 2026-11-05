@@ -1,17 +1,17 @@
 import { Global, Module } from '@nestjs/common';
 import { OutboxPublisherService, OutboxRepository } from '@app/common';
-import { PaymentPrismaService } from './payment-prisma.service.js';
+import { PaymentPrismaModule } from './payment-prisma.module.js';
 import { PaymentOutboxRepository } from '../outbox/payment-outbox.repository.js';
 import { PaymentOutboxService } from '../outbox/payment-outbox.service.js';
 
 @Global()
 @Module({
+  imports: [PaymentPrismaModule],
   providers: [
-    PaymentPrismaService,
     PaymentOutboxService,
     { provide: OutboxRepository, useClass: PaymentOutboxRepository },
     OutboxPublisherService,
   ],
-  exports: [PaymentPrismaService, PaymentOutboxService],
+  exports: [PaymentPrismaModule, PaymentOutboxService],
 })
 export class PaymentDatabaseModule {}

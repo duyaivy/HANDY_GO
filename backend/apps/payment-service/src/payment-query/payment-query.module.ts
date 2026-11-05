@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtAuthGuard, TokenVerifierService } from '@app/auth';
-import { PaymentPrismaService } from '../common/database/payment-prisma.service.js';
+import { PaymentPrismaModule } from '../common/database/payment-prisma.module.js';
 import { PaymentQueryController } from './payment-query.controller.js';
 import { PaymentQueryService } from './payment-query.service.js';
 
 @Module({
-  imports: [JwtModule.register({})],
+  imports: [JwtModule.register({}), PaymentPrismaModule],
   controllers: [PaymentQueryController],
-  providers: [PaymentPrismaService, PaymentQueryService, JwtAuthGuard, TokenVerifierService],
+  providers: [PaymentQueryService, JwtAuthGuard, TokenVerifierService],
+  exports: [PaymentQueryService],
 })
 export class PaymentQueryModule {}

@@ -37,6 +37,15 @@ function paymentBase(payment: PaymentEventSubject) {
   };
 }
 
+export function paymentPendingEvent(payment: PaymentEventSubject): OutboxEventInput {
+  return {
+    aggregateType: 'payment',
+    aggregateId: payment.id,
+    eventType: 'payment.pending',
+    payload: { ...paymentBase(payment), method: payment.method },
+  };
+}
+
 export function paymentSucceededEvent(payment: PaymentEventSubject): OutboxEventInput {
   return {
     aggregateType: 'payment',
