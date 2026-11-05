@@ -2,18 +2,24 @@ import {
   Body,
   BadRequestException,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Logger,
+  Optional,
   Param,
   Patch,
   Query,
   Post,
+  UploadedFiles,
   UseGuards,
+  UseInterceptors,
   ForbiddenException,
   Headers
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { CloudinaryService } from '@app/cloudinary';
 import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 import { ConfigService } from '@app/config';
 import {
@@ -24,6 +30,8 @@ import {
 } from '@nestjs/microservices';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -43,6 +51,7 @@ import {
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 
 
 import crypto from 'node:crypto';
@@ -53,6 +62,8 @@ export class UserTrustServiceController {
   constructor(
     private readonly userTrustService: UserTrustServiceService,
     private readonly config: ConfigService,
+    @Optional()
+    private readonly cloudinaryService?: CloudinaryService,
   ) {}
 
   private readonly logger = new Logger(UserTrustServiceController.name);
@@ -186,21 +197,123 @@ export class UserTrustServiceController {
   @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
   @Patch('users/me')
   @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'file', maxCount: 1 },
+      { name: 'avatar', maxCount: 1 },
+    ]),
+  )
+  @ApiConsumes('application/json', 'multipart/form-data')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Cập nhật hồ sơ tài khoản đang đăng nhập' })
+  @ApiOperation({ summary: 'Cập nhật hồ sơ tài khoản đang đăng nhập (hỗ trợ đổi tên, bio, avatarUrl hoặc upload trực tiếp ảnh)' })
   @ApiResponse({ status: 200, description: 'Cập nhật hồ sơ thành công' })
   @ApiResponse({ status: 401, description: 'Chưa xác thực' })
   @ApiResponse({ status: 403, description: 'Không đủ quyền truy cập' })
   async updateMyProfile(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: UpdateProfileDto,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      avatar?: Express.Multer.File[];
+    },
   ): Promise<unknown> {
+    const avatarFile = files?.file?.[0] || files?.avatar?.[0];
+    if (avatarFile && this.cloudinaryService) {
+      const upload = await this.cloudinaryService.uploadImage(avatarFile);
+      dto.avatarUrl = upload.url;
+    }
     return this.userTrustService.updateProfile(
       user.userId,
       user.userId,
       dto,
       user.permissions,
     );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Post('users/me/avatar')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'file', maxCount: 1 },
+      { name: 'avatar', maxCount: 1 },
+    ]),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upload và cập nhật ảnh đại diện (avatar)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'File hình ảnh đại diện (JPEG, PNG, WebP)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Cập nhật avatar thành công' })
+  async uploadMyAvatar(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      avatar?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    const avatarFile = files?.file?.[0] || files?.avatar?.[0];
+    if (!avatarFile) {
+      throw new BadRequestException(
+        'Vui lòng chọn file hình ảnh avatar (trường `file` hoặc `avatar`)',
+      );
+    }
+    return this.userTrustService.uploadAvatar(user.userId, avatarFile);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('users/me/bank-accounts')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy danh sách tài khoản ngân hàng của tôi' })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách tài khoản ngân hàng thành công' })
+  async getMyBankAccounts(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<unknown> {
+    return this.userTrustService.getBankAccounts(user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Post('users/me/bank-accounts')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Thêm tài khoản ngân hàng mới' })
+  @ApiResponse({ status: 201, description: 'Thêm tài khoản ngân hàng thành công' })
+  async addMyBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateBankAccountDto,
+  ): Promise<unknown> {
+    return this.userTrustService.addBankAccount(user.userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Delete('users/me/bank-accounts/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Xóa tài khoản ngân hàng' })
+  @ApiResponse({ status: 200, description: 'Xóa tài khoản ngân hàng thành công' })
+  async deleteMyBankAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') accountId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.deleteBankAccount(user.userId, accountId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

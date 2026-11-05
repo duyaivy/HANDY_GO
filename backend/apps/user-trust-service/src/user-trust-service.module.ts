@@ -7,6 +7,7 @@ import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
 import { UserTrustDatabaseModule } from '@app/database';
 import { AuthModule } from '@app/auth';
+import { CloudinaryModule } from '@app/cloudinary';
 import { KycModule } from './kyc/kyc.module.js';
 import { WorkersModule } from './workers/index.js';
 
@@ -23,6 +24,7 @@ import { InternalServiceGuard } from './common/guards/internal-service.guard.js'
     RabbitMQModule,
     UserTrustDatabaseModule,
     AuthModule,
+    CloudinaryModule,
     KycModule,
     WorkersModule,
   ],

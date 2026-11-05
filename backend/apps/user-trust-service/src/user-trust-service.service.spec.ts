@@ -28,6 +28,14 @@ describe('UserTrustServiceService', () => {
         create: vi.fn(),
         upsert: vi.fn(),
       },
+      userBankAccount: {
+        findMany: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        updateMany: vi.fn(),
+        delete: vi.fn(),
+        count: vi.fn(),
+      },
       workerProfile: {
         findUnique: vi.fn(),
         upsert: vi.fn(),
@@ -406,6 +414,84 @@ describe('UserTrustServiceService', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.data.fullName).toBe('Nguyen Van New');
+    });
+
+    it('should update avatarUrl and bio in customerProfile', async () => {
+      dbMock.user.findUnique.mockResolvedValue({ id: 'user-001' });
+      dbMock.customerProfile.upsert.mockResolvedValue({ id: 'cp-1', bio: 'Thợ lành nghề' });
+      dbMock.user.update.mockResolvedValue({
+        id: 'user-001',
+        fullName: 'Nguyen Van A',
+        avatarUrl: 'https://cloudinary.com/avatar.jpg',
+        customerProfile: { bio: 'Thợ lành nghề' },
+      });
+
+      const result: any = await service.updateProfile(
+        'user-001',
+        'user-001',
+        { avatarUrl: 'https://cloudinary.com/avatar.jpg', bio: 'Thợ lành nghề' },
+        [StandardPermissions.PROFILE_UPDATE],
+      );
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.avatarUrl).toBe('https://cloudinary.com/avatar.jpg');
+      expect(result.data.customerProfile.bio).toBe('Thợ lành nghề');
+    });
+
+    it('should upload avatar via Cloudinary and save avatarUrl', async () => {
+      const cloudinaryMock = {
+        uploadImage: vi.fn().mockResolvedValue({
+          url: 'https://cloudinary.com/uploaded.jpg',
+          publicId: 'pid-1',
+          format: 'jpg',
+          bytes: 1024,
+        }),
+      };
+      (service as any).cloudinaryService = cloudinaryMock;
+
+      dbMock.user.findUnique.mockResolvedValue({ id: 'user-001' });
+      dbMock.user.update.mockResolvedValue({
+        id: 'user-001',
+        fullName: 'Nguyen Van A',
+        avatarUrl: 'https://cloudinary.com/uploaded.jpg',
+      });
+
+      const fakeFile = { buffer: Buffer.from('img'), mimetype: 'image/jpeg' } as any;
+      const result: any = await service.uploadAvatar('user-001', fakeFile);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.avatarUrl).toBe('https://cloudinary.com/uploaded.jpg');
+      expect(cloudinaryMock.uploadImage).toHaveBeenCalledWith(fakeFile);
+    });
+
+    it('should manage bank accounts (get, add, delete)', async () => {
+      dbMock.userBankAccount.findMany.mockResolvedValue([
+        { id: 'bank-1', bankCode: 'VCB', accountNumber: '123' },
+      ]);
+      const getResult: any = await service.getBankAccounts('user-001');
+      expect(getResult.statusCode).toBe(200);
+      expect(getResult.data).toHaveLength(1);
+
+      dbMock.userBankAccount.count.mockResolvedValue(0);
+      dbMock.userBankAccount.create.mockResolvedValue({
+        id: 'bank-2',
+        bankCode: 'MB',
+        accountNumber: '456',
+        isDefault: true,
+      });
+      const addResult: any = await service.addBankAccount('user-001', {
+        bankCode: 'MB',
+        bankName: 'MBBank',
+        accountNumber: '456',
+        accountHolderName: 'NGUYEN VAN A',
+      });
+      expect(addResult.statusCode).toBe(201);
+      expect(addResult.data.isDefault).toBe(true);
+
+      dbMock.userBankAccount.findFirst.mockResolvedValue({ id: 'bank-2', userId: 'user-001' });
+      dbMock.userBankAccount.delete.mockResolvedValue({ id: 'bank-2' });
+      const delResult: any = await service.deleteBankAccount('user-001', 'bank-2');
+      expect(delResult.statusCode).toBe(200);
     });
 
     it('should forbid updating another user profile without user:manage permission', async () => {

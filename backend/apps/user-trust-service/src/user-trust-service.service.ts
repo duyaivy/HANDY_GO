@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -10,6 +11,8 @@ import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import type { DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
+import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
+import { CloudinaryService } from '@app/cloudinary';
 import { SubmitKycDto } from './dto/submit-kyc.dto.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
@@ -58,6 +61,8 @@ export class UserTrustServiceService {
     private readonly db: UserTrustPrismaService,
     @Optional()
     private readonly rabbitmq?: RabbitMQService,
+    @Optional()
+    private readonly cloudinaryService?: CloudinaryService,
   ) {}
 
   /**
@@ -281,11 +286,16 @@ export class UserTrustServiceService {
         customerProfile: true,
         workerProfile: {
           include: {
+            serviceOfferings: true,
+            serviceAreas: true,
             kycCases: {
               orderBy: { createdAt: 'desc' },
               take: 1,
             },
           },
+        },
+        bankAccounts: {
+          orderBy: { createdAt: 'asc' },
         },
       },
     });
@@ -304,6 +314,7 @@ export class UserTrustServiceService {
         status: user.status,
         customerProfile: user.customerProfile,
         workerProfile: user.workerProfile,
+        bankAccounts: user.bankAccounts,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
@@ -334,13 +345,52 @@ export class UserTrustServiceService {
       throw new NotFoundException('Không tìm thấy thông tin người dùng');
     }
 
+    const now = new Date();
+    const updateUserData: any = {
+      updatedAt: now,
+    };
+    if (dto.fullName !== undefined) {
+      updateUserData.fullName = dto.fullName.trim();
+    }
+    if (dto.avatarUrl !== undefined) {
+      updateUserData.avatarUrl = dto.avatarUrl?.trim() || null;
+    }
+
+    let updatedCustomerProfile: any = null;
+    if (dto.bio !== undefined) {
+      updatedCustomerProfile = await this.db.customerProfile.upsert({
+        where: { userId: targetUserId },
+        update: {
+          bio: dto.bio?.trim() || null,
+          updatedAt: now,
+        },
+        create: {
+          id: crypto.randomUUID(),
+          userId: targetUserId,
+          bio: dto.bio?.trim() || null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    }
+
     const updated = await this.db.user.update({
       where: { id: targetUserId },
-      data: {
-        fullName: dto.fullName.trim(),
-        updatedAt: new Date(),
+      data: updateUserData,
+      include: {
+        customerProfile: true,
+        workerProfile: {
+          include: {
+            serviceOfferings: true,
+            serviceAreas: true,
+            kycCases: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        },
+        bankAccounts: true,
       },
-      include: { customerProfile: true, workerProfile: true },
     });
 
     return {
@@ -351,10 +401,127 @@ export class UserTrustServiceService {
         fullName: updated.fullName,
         avatarUrl: updated.avatarUrl,
         status: updated.status,
-        customerProfile: updated.customerProfile,
+        customerProfile: updatedCustomerProfile || updated.customerProfile,
         workerProfile: updated.workerProfile,
+        bankAccounts: updated.bankAccounts,
         updatedAt: updated.updatedAt,
       },
+    };
+  }
+
+  async uploadAvatar(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<unknown> {
+    if (!this.cloudinaryService) {
+      throw new BadRequestException(
+        'Dịch vụ upload ảnh Cloudinary chưa được cấu hình',
+      );
+    }
+
+    const existing = await this.db.user.findUnique({
+      where: { id: userId },
+    });
+    if (!existing) {
+      throw new NotFoundException('Không tìm thấy thông tin người dùng');
+    }
+
+    const uploadResult = await this.cloudinaryService.uploadImage(file);
+    const now = new Date();
+
+    const updated = await this.db.user.update({
+      where: { id: userId },
+      data: {
+        avatarUrl: uploadResult.url,
+        updatedAt: now,
+      },
+      include: {
+        customerProfile: true,
+        workerProfile: true,
+      },
+    });
+
+    return {
+      statusCode: 200,
+      message: 'Cập nhật ảnh đại diện thành công',
+      data: {
+        id: updated.id,
+        fullName: updated.fullName,
+        avatarUrl: updated.avatarUrl,
+        asset: uploadResult,
+        updatedAt: updated.updatedAt,
+      },
+    };
+  }
+
+  async getBankAccounts(userId: string): Promise<unknown> {
+    const accounts = await this.db.userBankAccount.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return {
+      statusCode: 200,
+      message: 'Lấy danh sách tài khoản ngân hàng thành công',
+      data: accounts,
+    };
+  }
+
+  async addBankAccount(
+    userId: string,
+    dto: CreateBankAccountDto,
+  ): Promise<unknown> {
+    const existingCount = await this.db.userBankAccount.count({
+      where: { userId },
+    });
+
+    const isDefault = dto.isDefault ?? existingCount === 0;
+    const now = new Date();
+
+    const created = await this.db.$transaction(async (tx) => {
+      if (isDefault && existingCount > 0) {
+        await tx.userBankAccount.updateMany({
+          where: { userId },
+          data: { isDefault: false, updatedAt: now },
+        });
+      }
+
+      return tx.userBankAccount.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId,
+          bankCode: dto.bankCode.trim().toUpperCase(),
+          bankName: dto.bankName.trim(),
+          accountNumber: dto.accountNumber.trim(),
+          accountHolderName: dto.accountHolderName.trim().toUpperCase(),
+          isDefault,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+    });
+
+    return {
+      statusCode: 201,
+      message: 'Thêm tài khoản ngân hàng thành công',
+      data: created,
+    };
+  }
+
+  async deleteBankAccount(userId: string, accountId: string): Promise<unknown> {
+    const account = await this.db.userBankAccount.findFirst({
+      where: { id: accountId, userId },
+    });
+    if (!account) {
+      throw new NotFoundException('Không tìm thấy tài khoản ngân hàng');
+    }
+
+    await this.db.userBankAccount.delete({
+      where: { id: accountId },
+    });
+
+    return {
+      statusCode: 200,
+      message: 'Xóa tài khoản ngân hàng thành công',
     };
   }
 

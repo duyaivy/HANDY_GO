@@ -15,6 +15,10 @@ describe('UserTrustServiceController', () => {
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      uploadAvatar: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      getBankAccounts: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      addBankAccount: vi.fn().mockResolvedValue({ statusCode: 201 }),
+      deleteBankAccount: vi.fn().mockResolvedValue({ statusCode: 200 }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -72,6 +76,64 @@ describe('UserTrustServiceController', () => {
       'user-1',
       ['profile:read'],
     );
+  });
+
+  it('should update profile and handle avatar upload via updateMyProfile', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:update'],
+    };
+
+    const result = await controller.updateMyProfile(user, { fullName: 'Updated Name' });
+    expect(result).toEqual({ statusCode: 200 });
+    expect(serviceMock.updateProfile).toHaveBeenCalledWith(
+      'user-1',
+      'user-1',
+      { fullName: 'Updated Name' },
+      ['profile:update'],
+    );
+  });
+
+  it('should upload avatar via uploadMyAvatar', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:update'],
+    };
+
+    const fakeFile = { buffer: Buffer.from('img') } as any;
+    const result = await controller.uploadMyAvatar(user, { file: [fakeFile] });
+    expect(result).toEqual({ statusCode: 200 });
+    expect(serviceMock.uploadAvatar).toHaveBeenCalledWith('user-1', fakeFile);
+  });
+
+  it('should delegate bank account requests to service', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:read', 'profile:update'],
+    };
+
+    await controller.getMyBankAccounts(user);
+    expect(serviceMock.getBankAccounts).toHaveBeenCalledWith('user-1');
+
+    await controller.addMyBankAccount(user, {
+      bankCode: 'VCB',
+      bankName: 'Vietcombank',
+      accountNumber: '123',
+      accountHolderName: 'NGUYEN A',
+    });
+    expect(serviceMock.addBankAccount).toHaveBeenCalledWith('user-1', expect.objectContaining({ bankCode: 'VCB' }));
+
+    await controller.deleteMyBankAccount(user, 'bank-1');
+    expect(serviceMock.deleteBankAccount).toHaveBeenCalledWith('user-1', 'bank-1');
   });
 
   describe('verifyBankAccount (internal)', () => {
