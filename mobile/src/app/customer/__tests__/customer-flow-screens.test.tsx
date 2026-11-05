@@ -247,7 +247,7 @@ describe('customer Skeleton & Route Flow', () => {
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith({
           pathname: '/customer/booking/radar',
-          params: { requestId: 'req-001' },
+          params: { requestId: 'req-001', serviceName: 'Dịch vụ tiện ích' },
         });
       });
     });
