@@ -68,7 +68,18 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
   const { theme } = useUniwind();
   const cameraRef = React.useRef<any>(null);
   const isInternalCameraUpdate = React.useRef(false);
+  const internalCameraTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInitialAnimatedRef = React.useRef(false);
+
+  const markInternalCameraUpdate = React.useCallback((durationMs: number) => {
+    isInternalCameraUpdate.current = true;
+    if (internalCameraTimerRef.current) {
+      clearTimeout(internalCameraTimerRef.current);
+    }
+    internalCameraTimerRef.current = setTimeout(() => {
+      isInternalCameraUpdate.current = false;
+    }, durationMs + 200);
+  }, []);
 
   const targetCenter = center || initialCenter;
   const [coords, setCoords] = React.useState<HandyCoordinates>(targetCenter);
@@ -83,11 +94,16 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
 
   React.useEffect(() => {
     MapboxService.init();
+    return () => {
+      if (internalCameraTimerRef.current) {
+        clearTimeout(internalCameraTimerRef.current);
+      }
+    };
   }, []);
 
   React.useEffect(() => {
     if (center && cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-      isInternalCameraUpdate.current = true;
+      markInternalCameraUpdate(400);
       cameraRef.current.setCamera({
         centerCoordinate: [center.longitude, center.latitude],
         zoomLevel,
@@ -95,7 +111,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
       });
       hasInitialAnimatedRef.current = true;
     }
-  }, [center, zoomLevel]);
+  }, [center, markInternalCameraUpdate, zoomLevel]);
 
   const currentZoomRef = React.useRef(zoomLevel);
 
@@ -108,7 +124,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
       setCoords(targetCoords);
       currentZoomRef.current = zoom;
       if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-        isInternalCameraUpdate.current = true;
+        markInternalCameraUpdate(800);
         cameraRef.current.setCamera({
           centerCoordinate: [targetCoords.longitude, targetCoords.latitude],
           zoomLevel: zoom,
@@ -119,7 +135,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
     },
     zoomIn: () => {
       if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-        isInternalCameraUpdate.current = true;
+        markInternalCameraUpdate(300);
         currentZoomRef.current = Math.min((currentZoomRef.current ?? zoomLevel) + 1, 20);
         cameraRef.current.setCamera({
           centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
@@ -130,7 +146,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
     },
     zoomOut: () => {
       if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-        isInternalCameraUpdate.current = true;
+        markInternalCameraUpdate(300);
         currentZoomRef.current = Math.max((currentZoomRef.current ?? zoomLevel) - 1, 3);
         cameraRef.current.setCamera({
           centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
@@ -144,7 +160,6 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
   const handleCameraChanged = React.useCallback(
     (payload: any) => {
       if (isInternalCameraUpdate.current) {
-        isInternalCameraUpdate.current = false;
         return;
       }
 
@@ -208,7 +223,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
 
   const handleDidFinishLoadingMap = React.useCallback(() => {
     if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-      isInternalCameraUpdate.current = true;
+      markInternalCameraUpdate(300);
       cameraRef.current.setCamera({
         centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
         zoomLevel,
@@ -218,12 +233,11 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
       currentZoomRef.current = zoomLevel;
     }
     onDidFinishLoadingMap?.();
-  }, [onDidFinishLoadingMap, targetCenter.latitude, targetCenter.longitude, zoomLevel]);
+  }, [markInternalCameraUpdate, onDidFinishLoadingMap, targetCenter.latitude, targetCenter.longitude, zoomLevel]);
 
   const handleMapIdle = React.useCallback(
     (payload: any) => {
       if (isInternalCameraUpdate.current) {
-        isInternalCameraUpdate.current = false;
         return;
       }
 
@@ -231,7 +245,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         hasInitialAnimatedRef.current = true;
         currentZoomRef.current = zoomLevel;
         if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-          isInternalCameraUpdate.current = true;
+          markInternalCameraUpdate(300);
           cameraRef.current.setCamera({
             centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
             zoomLevel,
@@ -257,7 +271,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
           const dist = Math.abs(longitude - targetCenter.longitude) + Math.abs(latitude - targetCenter.latitude);
           if (dist > 0.00001) {
             if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
-              isInternalCameraUpdate.current = true;
+              markInternalCameraUpdate(150);
               cameraRef.current.setCamera({
                 centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
                 zoomLevel: currentZoomRef.current,
@@ -268,7 +282,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         }
       }
     },
-    [panEnabled, targetCenter.latitude, targetCenter.longitude, zoomLevel],
+    [markInternalCameraUpdate, panEnabled, targetCenter.latitude, targetCenter.longitude, zoomLevel],
   );
 
   const styleURL = mapStyle || (theme === 'dark' ? MapboxService.styles.dark : MapboxService.styles.street);
