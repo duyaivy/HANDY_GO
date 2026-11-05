@@ -479,10 +479,15 @@ export default function CustomerBookingRadarRoute() {
     }
   };
 
-  // Map Bid Candidates (Section A - only active bids)
+  // Map Bid Candidates (Section A - only active bids, sorted by price ascending)
   const mappedBids: DisplayWorkerCandidate[] = React.useMemo(() => {
-    return bids
+    return [...bids]
       .filter((b: BidCandidate) => !b.status || b.status === 'active')
+      .sort((a, b) => {
+        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount) || 0;
+        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount) || 0;
+        return numA - numB;
+      })
       .map((b: BidCandidate) => ({
         id: b.workerUserId,
         name: b.workerProfile?.fullName || 'Thợ đối tác',
@@ -1059,9 +1064,18 @@ export default function CustomerBookingRadarRoute() {
                                 {/* Price and action span the card width on compact screens. */}
                                 <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
                                   <View className="min-w-0 flex-1">
-                                    <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
-                                      {worker.priceText}
-                                    </Text>
+                                    <View className="flex-row items-center gap-1.5">
+                                      <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
+                                        {worker.priceText}
+                                      </Text>
+                                      {idx === 0 && mappedBids.length > 1 && (
+                                        <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-950/50">
+                                          <Text className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                            Giá tốt nhất
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
                                     <Text className="mt-0.5 text-xs text-neutral-400">
                                       {worker.distance}
                                     </Text>
