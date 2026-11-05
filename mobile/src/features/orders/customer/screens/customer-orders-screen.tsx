@@ -383,7 +383,11 @@ export function CustomerOrdersScreen({
                         textClassName="text-[11px] font-bold text-white"
                         onPress={() => router.push({
                           pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
-                          params: { requestId: req.id },
+                          params: {
+                            requestId: req.id,
+                            serviceName: getRequestServiceTitle(req),
+                            serviceId: req.serviceId || undefined,
+                          },
                         } as any)}
                       />
                     )}

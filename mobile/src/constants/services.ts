@@ -52,15 +52,26 @@ export const KNOWN_SERVICES_BY_ID: Record<string, string> = {
   'srv-lock': 'Sửa khóa cửa',
   'srv-water-leak': 'Sửa rò rỉ nước',
   'srv-washing-machine': 'Sửa máy giặt',
+
+  // Chăm sóc mẹ và em bé & Dịch vụ gia đình
+  'srv-care-mom-baby': 'Chăm sóc mẹ và em bé',
+  'srv-mom-baby': 'Chăm sóc mẹ và em bé',
+  'cham-soc-me-va-be': 'Chăm sóc mẹ và em bé',
+  'cham-soc-me-be': 'Chăm sóc mẹ và em bé',
+  'me-va-be': 'Chăm sóc mẹ và em bé',
+  'me-be': 'Chăm sóc mẹ và em bé',
+  'srv-clean': 'Dọn dẹp nhà cửa',
+  'srv-paint': 'Sơn nhà',
 };
 
 /**
- * Resolves service title from serviceId or fallback name.
+ * Resolves service title from serviceId, fallback name, or description.
  * Prevents unintentional drift to default generic 'Dịch vụ tiện ích'.
  */
 export function resolveServiceName(
   serviceId?: string | null,
   fallbackName?: string | null,
+  description?: string | null,
 ): string {
   if (fallbackName && fallbackName.trim() && fallbackName.trim() !== 'Dịch vụ tiện ích') {
     return fallbackName.trim();
@@ -71,7 +82,16 @@ export function resolveServiceName(
       return KNOWN_SERVICES_BY_ID[serviceId];
     }
     const idLower = serviceId.toLowerCase();
-    if (idLower.includes('plumb') || idLower.includes('water')) {
+    if (
+      idLower.includes('me-be')
+      || idLower.includes('me-va-be')
+      || idLower.includes('mom')
+      || idLower.includes('baby')
+      || idLower.includes('cham-soc')
+    ) {
+      return 'Chăm sóc mẹ và em bé';
+    }
+    if (idLower.includes('plumb') || idLower.includes('water') || idLower.includes('nuoc')) {
       return 'Sửa ống nước';
     }
     if (idLower.includes('wash') || idLower.includes('giat')) {
@@ -82,6 +102,35 @@ export function resolveServiceName(
     }
     if (idLower.includes('electric') || idLower.includes('dien')) {
       return 'Thợ sửa điện';
+    }
+    if (idLower.includes('paint') || idLower.includes('son')) {
+      return 'Sơn nhà';
+    }
+    if (idLower.includes('clean') || idLower.includes('don-dep')) {
+      return 'Dọn dẹp nhà cửa';
+    }
+  }
+
+  if (description) {
+    const desc = description.trim();
+    const descLower = desc.toLowerCase();
+    if (
+      descLower.includes('chăm sóc mẹ')
+      || descLower.includes('mẹ và em bé')
+      || descLower.includes('mẹ và bé')
+      || descLower.includes('mẹ & bé')
+    ) {
+      return 'Chăm sóc mẹ và em bé';
+    }
+
+    const match = desc.match(
+      /(?:Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*|Cần\s+(?:thợ|người)?\s*)(.*?)(?:\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$|,)/i,
+    );
+    if (match && match[1]) {
+      const extracted = match[1].trim();
+      if (extracted && !extracted.toLowerCase().includes('hỗ trợ') && extracted.length < 50) {
+        return extracted.replace(/bão dưỡng/i, 'Bảo dưỡng');
+      }
     }
   }
 

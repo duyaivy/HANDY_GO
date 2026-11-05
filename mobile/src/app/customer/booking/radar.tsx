@@ -29,6 +29,7 @@ import { HandyMap } from '@/components/map/handy-map';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
@@ -94,7 +95,11 @@ async function fetchLatestActiveRequestId(): Promise<string | null> {
 export default function CustomerBookingRadarRoute() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ requestId?: string }>();
+  const searchParams = useLocalSearchParams<{
+    requestId?: string;
+    serviceName?: string;
+    serviceId?: string;
+  }>();
 
   const {
     addressText,
@@ -112,6 +117,37 @@ export default function CustomerBookingRadarRoute() {
     searchParams?.requestId || createdRequestId || null,
   );
   const [serverRequest, setServerRequest] = React.useState<any>(null);
+
+  // Phân giải tên dịch vụ hiển thị chuẩn xác (serverRequest -> searchParams -> bảng tra cứu -> draft store)
+  const displayServiceName = React.useMemo(() => {
+    if (serverRequest?.service?.name && typeof serverRequest.service.name === 'string' && serverRequest.service.name.trim()) {
+      return serverRequest.service.name.trim();
+    }
+    if (serverRequest?.serviceName && typeof serverRequest.serviceName === 'string' && serverRequest.serviceName.trim() && serverRequest.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serverRequest.serviceName.trim();
+    }
+    if (searchParams?.serviceName && typeof searchParams.serviceName === 'string' && searchParams.serviceName.trim() && searchParams.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return searchParams.serviceName.trim();
+    }
+    const effectiveServiceId = serverRequest?.serviceId || searchParams?.serviceId;
+    if (effectiveServiceId) {
+      const resolved = resolveServiceName(effectiveServiceId, undefined, serverRequest?.description || description);
+      if (resolved && resolved !== 'Dịch vụ tiện ích') {
+        return resolved;
+      }
+    }
+    const effectiveDesc = serverRequest?.description || description;
+    if (effectiveDesc) {
+      const resolvedFromDesc = resolveServiceName(undefined, undefined, effectiveDesc);
+      if (resolvedFromDesc && resolvedFromDesc !== 'Dịch vụ tiện ích') {
+        return resolvedFromDesc;
+      }
+    }
+    if (serviceName && serviceName.trim() && serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serviceName.trim();
+    }
+    return (serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
+  }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName]);
 
   const isLocationValid = Boolean(
     typeof latitude === 'number'
@@ -170,6 +206,21 @@ export default function CustomerBookingRadarRoute() {
             if (req.scheduledAt) {
               useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
             }
+            const detectedServiceName = (
+              (req as any)?.service?.name
+              || (req as any)?.serviceName
+              || (searchParams?.serviceName && searchParams.serviceName !== 'Dịch vụ tiện ích' ? searchParams.serviceName : undefined)
+              || (req.serviceId ? resolveServiceName(req.serviceId, undefined, req.description) : undefined)
+              || (req.description ? resolveServiceName(undefined, undefined, req.description) : undefined)
+            );
+            if (
+              detectedServiceName
+              && typeof detectedServiceName === 'string'
+              && detectedServiceName.trim()
+              && detectedServiceName.trim() !== 'Dịch vụ tiện ích'
+            ) {
+              useBookingDraftStore.getState().setService(req.serviceId || '', detectedServiceName.trim());
+            }
             const minP = Number(req.aiRefPriceMin);
             const maxP = Number(req.aiRefPriceMax);
             if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
@@ -185,7 +236,7 @@ export default function CustomerBookingRadarRoute() {
     return () => {
       isMounted = false;
     };
-  }, [activeRequestId, addressText, latitude, longitude]);
+  }, [activeRequestId, addressText, latitude, longitude, searchParams?.serviceName]);
   const orderCode = serverRequest?.requestCode || (activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---');
 
   const [isCancelling, setIsCancelling] = React.useState(false);
@@ -571,7 +622,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'bid',
           sourceBidId: worker.sourceBidId,
           agreedPrice: worker.price,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -586,7 +637,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'recommendation',
           sourceMatchResultId: worker.sourceMatchResultId,
           agreedPrice,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -689,7 +740,7 @@ export default function CustomerBookingRadarRoute() {
         {/* Khối Tên dịch vụ & Mã đơn đặt */}
         <View className="mx-2.5 flex-1 rounded-2xl border border-neutral-100 bg-white/95 px-4 py-2 shadow-sm backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/90">
           <Text className="text-base font-extrabold text-neutral-900 dark:text-white" numberOfLines={1}>
-            {serviceName || 'Sửa ống nước'}
+            {displayServiceName}
           </Text>
           <Text className="mt-0.5 text-xs font-semibold text-neutral-400">
             #
@@ -1414,7 +1465,7 @@ export default function CustomerBookingRadarRoute() {
                 </View>
 
                 <Text className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
-                  {serverRequest?.service?.name || serviceName || 'Sửa máy lạnh'}
+                  {displayServiceName}
                 </Text>
 
                 <View className="mt-2 flex-row items-start">
@@ -1424,7 +1475,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="flex-1 text-xs text-neutral-600 dark:text-neutral-300">
-                    {serverRequest?.description || description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
+                    {serverRequest?.description || description || `Cần tìm thợ ${displayServiceName}`}
                   </Text>
                 </View>
               </View>
