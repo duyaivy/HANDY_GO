@@ -123,7 +123,7 @@ export default function CustomerBookingSummaryRoute() {
         setCreatedRequestId(newId);
         router.push({
           pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
-          params: { requestId: newId },
+          params: { requestId: newId, serviceName },
         } as any);
       }
       else {
