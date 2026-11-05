@@ -82,6 +82,7 @@ export function resolveServiceName(
       return KNOWN_SERVICES_BY_ID[serviceId];
     }
     const idLower = serviceId.toLowerCase();
+    // 1. Chăm sóc gia đình & Mẹ và bé
     if (
       idLower.includes('me-be')
       || idLower.includes('me-va-be')
@@ -91,23 +92,64 @@ export function resolveServiceName(
     ) {
       return 'Chăm sóc mẹ và em bé';
     }
-    if (idLower.includes('plumb') || idLower.includes('water') || idLower.includes('nuoc')) {
+    // 2. Điện nước & Ống nước
+    if (idLower.includes('plumb') || idLower.includes('water') || idLower.includes('ong-nuoc') || idLower.includes('nuoc')) {
       return 'Sửa ống nước';
     }
+    if (idLower.includes('drain') || idLower.includes('thong-cong') || idLower.includes('cong')) {
+      return 'Thông cống';
+    }
+    if (idLower.includes('waterproof') || idLower.includes('chong-tham')) {
+      return 'Chống thấm';
+    }
+    // 3. Điện lạnh
+    if (idLower.includes('fridge') || idLower.includes('tu-lanh')) {
+      return idLower.includes('ve-sinh') ? 'Vệ sinh tủ lạnh' : 'Sửa tủ lạnh';
+    }
     if (idLower.includes('wash') || idLower.includes('giat')) {
-      return 'Sửa máy giặt';
+      return idLower.includes('ve-sinh') ? 'Vệ sinh máy giặt' : 'Sửa máy giặt';
     }
-    if (idLower.includes('ac') || idLower.includes('lanh')) {
-      return 'Sửa máy lạnh';
+    if (idLower.includes('ac') || idLower.includes('lanh') || idLower.includes('dieu-hoa')) {
+      return idLower.includes('ve-sinh') ? 'Vệ sinh máy lạnh' : 'Sửa máy lạnh';
     }
-    if (idLower.includes('electric') || idLower.includes('dien')) {
+    // 4. Điện & Chiếu sáng
+    if (idLower.includes('electric') || idLower.includes('dien') || idLower.includes('chieu-sang')) {
       return 'Thợ sửa điện';
     }
+    // 5. Khóa cửa & Cửa các loại
+    if (idLower.includes('lock') || idLower.includes('khoa') || idLower.includes('chia-khoa')) {
+      return 'Sửa khoá và làm chìa khoá';
+    }
+    if (idLower.includes('roller') || idLower.includes('cua-cuon')) {
+      return 'Bảo trì và sửa chữa cửa cuốn';
+    }
+    if (idLower.includes('glass') || idLower.includes('nhom-kinh') || idLower.includes('cua-kinh')) {
+      return 'Cửa nhôm kính';
+    }
+    // 6. Cơ khí, sắt hàn
+    if (idLower.includes('weld') || idLower.includes('han') || idLower.includes('sat') || idLower.includes('tien')) {
+      return 'Thợ sắt / Thợ hàn';
+    }
+    // 7. Xe cộ
+    if (idLower.includes('xe-may') || idLower.includes('moto') || idLower.includes('bike')) {
+      return 'Sửa xe máy';
+    }
+    if (idLower.includes('oto') || idLower.includes('car') || idLower.includes('o-to')) {
+      return 'Sửa xe oto';
+    }
+    // 8. Nhà cửa & Vệ sinh
     if (idLower.includes('paint') || idLower.includes('son')) {
       return 'Sơn nhà';
     }
-    if (idLower.includes('clean') || idLower.includes('don-dep')) {
+    if (idLower.includes('clean') || idLower.includes('don-dep') || idLower.includes('ve-sinh')) {
       return 'Dọn dẹp nhà cửa';
+    }
+    // 9. Điện tử & Thiết bị số
+    if (idLower.includes('computer') || idLower.includes('laptop') || idLower.includes('pc') || idLower.includes('may-tinh')) {
+      return 'Sửa máy tính';
+    }
+    if (idLower.includes('tv') || idLower.includes('tivi') || idLower.includes('am-thanh')) {
+      return 'Sửa tivi và âm thanh';
     }
   }
 
@@ -121,6 +163,39 @@ export function resolveServiceName(
       || descLower.includes('mẹ & bé')
     ) {
       return 'Chăm sóc mẹ và em bé';
+    }
+    if (descLower.includes('máy lạnh') || descLower.includes('điều hòa')) {
+      return descLower.includes('vệ sinh') ? 'Vệ sinh máy lạnh' : 'Sửa máy lạnh';
+    }
+    if (descLower.includes('máy giặt')) {
+      return descLower.includes('vệ sinh') ? 'Vệ sinh máy giặt' : 'Sửa máy giặt';
+    }
+    if (descLower.includes('tủ lạnh')) {
+      return descLower.includes('vệ sinh') ? 'Vệ sinh tủ lạnh' : 'Sửa tủ lạnh';
+    }
+    if (descLower.includes('thông cống') || descLower.includes('nghẹt cống') || descLower.includes('tắc cống')) {
+      return 'Thông cống';
+    }
+    if (descLower.includes('ống nước') || descLower.includes('rò rỉ nước') || descLower.includes('bồn cầu')) {
+      return 'Sửa ống nước';
+    }
+    if (descLower.includes('sửa điện') || descLower.includes('chập điện') || descLower.includes('mất điện') || descLower.includes('bóng đèn')) {
+      return 'Thợ sửa điện';
+    }
+    if (descLower.includes('khóa cửa') || descLower.includes('sửa khóa') || descLower.includes('mở khóa') || descLower.includes('làm chìa')) {
+      return 'Sửa khoá và làm chìa khoá';
+    }
+    if (descLower.includes('cửa cuốn')) {
+      return 'Bảo trì và sửa chữa cửa cuốn';
+    }
+    if (descLower.includes('dọn dẹp') || descLower.includes('lau dọn') || descLower.includes('vệ sinh nhà')) {
+      return 'Dọn dẹp nhà cửa';
+    }
+    if (descLower.includes('sơn nhà') || descLower.includes('sơn tường')) {
+      return 'Sơn nhà';
+    }
+    if (descLower.includes('máy tính') || descLower.includes('laptop') || descLower.includes('cài win')) {
+      return 'Sửa máy tính';
     }
 
     const match = desc.match(

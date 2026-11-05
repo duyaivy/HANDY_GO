@@ -42,6 +42,28 @@ describe('customerBookingRadarScreen - Service Name Preservation (TASK-04 Follow
       expect(resolveServiceName(null, null, 'Tôi cần người Chăm sóc mẹ và em bé')).toBe('Chăm sóc mẹ và em bé');
     });
 
+    it('resolves all other service categories across the entire system from slug or description', () => {
+      // Điện lạnh
+      expect(resolveServiceName('sua-tu-lanh-inverter')).toBe('Sửa tủ lạnh');
+      expect(resolveServiceName('ve-sinh-may-lanh-daikin')).toBe('Vệ sinh máy lạnh');
+      expect(resolveServiceName('sua-may-giat-electrolux')).toBe('Sửa máy giặt');
+      // Thoát nước & Ống nước
+      expect(resolveServiceName('thong-cong-nghet')).toBe('Thông cống');
+      expect(resolveServiceName('chong-tham-san-thuong')).toBe('Chống thấm');
+      expect(resolveServiceName('sua-ong-nuoc-ro-ri')).toBe('Sửa ống nước');
+      // Khóa cửa & Cửa cuốn
+      expect(resolveServiceName('sua-khoa-van-tay')).toBe('Sửa khoá và làm chìa khoá');
+      expect(resolveServiceName('sua-cua-cuon-austdoor')).toBe('Bảo trì và sửa chữa cửa cuốn');
+      // Điện & Xe cộ
+      expect(resolveServiceName('tho-sua-dien-dan-dung')).toBe('Thợ sửa điện');
+      expect(resolveServiceName('sua-xe-may-honda')).toBe('Sửa xe máy');
+      expect(resolveServiceName('sua-xe-oto-4-cho')).toBe('Sửa xe oto');
+      // Phân giải từ mô tả (Description extraction)
+      expect(resolveServiceName(null, null, 'Cần thợ thông cống nghẹt bồn rửa bát')).toBe('Thông cống');
+      expect(resolveServiceName(null, null, 'Nhà tôi cần vệ sinh máy lạnh 2 phòng ngủ')).toBe('Vệ sinh máy lạnh');
+      expect(resolveServiceName(null, null, 'Cần thợ sửa khóa cửa chính bị kẹt chìa')).toBe('Sửa khoá và làm chìa khoá');
+    });
+
     it('falls back safely when no specific service is recognized', () => {
       expect(resolveServiceName(null, null, null)).toBe('Dịch vụ tiện ích');
       expect(resolveServiceName(null, 'Dịch vụ tiện ích', null)).toBe('Dịch vụ tiện ích');
