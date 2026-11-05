@@ -1,5 +1,8 @@
 # HG-63 Follow-up: Danh sách Task Sửa lỗi & Hoàn thiện
 
+> 📊 **Báo cáo tổng hợp nghiệm thu:** [BÁO CÁO TỔNG HỢP HG-63 FOLLOW-UP](./BAO_CAO_TONG_HOP_HG_63_FOLLOWUP.md)  
+> 🧪 **Hướng dẫn kiểm thử thực tế trên Mobile:** [HƯỚNG DẪN KIỂM THỬ MOBILE](./HUONG-DAN-KIEM-THU-MOBILE.md)  
+
 Thư mục này quản lý toàn bộ các task sửa lỗi và hoàn thiện tiếp theo của nhánh `bugfix/HG-63-ui_mobile_app-followup` sau khi đã merge PR #56 vào `main`.
 
 ---
