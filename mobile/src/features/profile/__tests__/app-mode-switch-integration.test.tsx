@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { queryClient } from '@/lib/api/query-client';
 import { getDestination } from '@/lib/auth/navigation';
 import { storage } from '@/lib/storage';

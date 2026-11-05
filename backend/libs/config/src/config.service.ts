@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService as NestConfigService } from '@nestjs/config';
+import { optionalValue } from './optional-env.js';
 
 @Injectable()
 export class ConfigService {
@@ -30,7 +31,7 @@ export class ConfigService {
   }
 
   get otpSecret(): string {
-    const secret = this.config.get<string>('OTP_SECRET');
+    const secret = this.get('OTP_SECRET');
     if (!secret || secret.trim().length === 0) {
       throw new Error('OTP_SECRET environment variable is required');
     }
@@ -38,80 +39,80 @@ export class ConfigService {
   }
 
   get otpExpirationMinutes(): number {
-    const val = this.config.get<string>('OTP_EXPIRATION_MINUTES');
+    const val = this.get('OTP_EXPIRATION_MINUTES');
     return val ? Number(val) : 10;
   }
 
   get otpResendCooldownSeconds(): number {
-    const val = this.config.get<string>('OTP_RESEND_COOLDOWN_SECONDS');
+    const val = this.get('OTP_RESEND_COOLDOWN_SECONDS');
     return val ? Number(val) : 60;
   }
 
   get otpMaxAttempts(): number {
-    const val = this.config.get<string>('OTP_MAX_ATTEMPTS');
+    const val = this.get('OTP_MAX_ATTEMPTS');
     return val ? Number(val) : 5;
   }
 
   get internalServiceSecret(): string {
-    return this.config.get<string>('INTERNAL_SERVICE_SECRET') || '';
+    return this.get('INTERNAL_SERVICE_SECRET') || '';
   }
 
   get smtpHost(): string {
-    return this.config.get<string>('SMTP_HOST') || 'smtp.gmail.com';
+    return this.get('SMTP_HOST') || 'smtp.gmail.com';
   }
 
   get smtpPort(): number {
-    return Number(this.config.get<string>('SMTP_PORT') || 465);
+    return Number(this.get('SMTP_PORT') || 465);
   }
 
   get smtpSecure(): boolean {
-    return this.config.get<string>('SMTP_SECURE') === 'true';
+    return this.get('SMTP_SECURE') === 'true';
   }
 
   get smtpFrom(): string {
-    return this.config.get<string>('SMTP_FROM') || 'HANDY GO <noreply@handygo.vn>';
+    return this.get('SMTP_FROM') || 'HANDY GO <noreply@handygo.vn>';
   }
 
   get smtpUser(): string | undefined {
-    return this.config.get<string>('SMTP_USER') || undefined;
+    return this.get('SMTP_USER') || undefined;
   }
 
   get smtpPass(): string | undefined {
-    return this.config.get<string>('SMTP_PASS') || undefined;
+    return this.get('SMTP_PASS') || undefined;
   }
 
   get cloudinaryCloudName(): string {
-    return this.config.get<string>('CLOUDINARY_CLOUD_NAME') || '';
+    return this.get('CLOUDINARY_CLOUD_NAME') || '';
   }
 
   get cloudinaryApiKey(): string {
-    return this.config.get<string>('CLOUDINARY_API_KEY') || '';
+    return this.get('CLOUDINARY_API_KEY') || '';
   }
 
   get cloudinaryApiSecret(): string {
-    return this.config.get<string>('CLOUDINARY_API_SECRET') || '';
+    return this.get('CLOUDINARY_API_SECRET') || '';
   }
 
   get cloudinaryImageFolder(): string {
-    return this.config.get<string>('CLOUDINARY_IMAGE_FOLDER') || 'handy-go/images';
+    return this.get('CLOUDINARY_IMAGE_FOLDER') || 'handy-go/images';
   }
 
   get cloudinaryVideoFolder(): string {
-    return this.config.get<string>('CLOUDINARY_VIDEO_FOLDER') || 'handy-go/videos';
+    return this.get('CLOUDINARY_VIDEO_FOLDER') || 'handy-go/videos';
   }
 
   get cloudinaryImageMaxSizeMb(): number {
-    const val = this.config.get<string>('CLOUDINARY_IMAGE_MAX_SIZE_MB');
+    const val = this.get('CLOUDINARY_IMAGE_MAX_SIZE_MB');
     return val ? Number(val) : 10;
   }
 
   get cloudinaryVideoMaxSizeMb(): number {
-    const val = this.config.get<string>('CLOUDINARY_VIDEO_MAX_SIZE_MB');
+    const val = this.get('CLOUDINARY_VIDEO_MAX_SIZE_MB');
     return val ? Number(val) : 2048;
   }
 
   get cloudinaryVideoChunkSizeMb(): number {
-    const val = this.config.get<string>('CLOUDINARY_VIDEO_CHUNK_SIZE_MB');
+    const val = this.get('CLOUDINARY_VIDEO_CHUNK_SIZE_MB');
     return val ? Number(val) : 20;
   }
 
@@ -120,11 +121,11 @@ export class ConfigService {
   }
 
   get(key: string): string | undefined {
-    return this.config.get<string>(key);
+    return optionalValue(this.config.get<string>(key));
   }
 
   get nodeEnv(): string {
-    return this.config.get<string>('NODE_ENV') || 'development';
+    return this.get('NODE_ENV') || 'development';
   }
 
   get isProduction(): boolean {
@@ -132,7 +133,7 @@ export class ConfigService {
   }
 
   get redisUrl(): string {
-    return this.config.get<string>('REDIS_URL') || 'redis://localhost:6379';
+    return this.get('REDIS_URL') || 'redis://localhost:6379';
   }
 }
 

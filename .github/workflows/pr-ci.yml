@@ -35,6 +35,8 @@ jobs:
               - 'backend/**'
               - '.github/workflows/pr-ci.yml'
               - '.github/workflows/backend-production.yml'
+              - '.github/workflows/backend-production-recovery.yml'
+              - '.github/workflows/backend-env-refresh.yml'
             frontend:
               - 'frontend/**'
             mobile:
@@ -82,6 +84,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Python production validators
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install production config validator dependency
+        run: python -m pip install --disable-pip-version-check pyyaml==6.0.3
+
+      - name: Validate migration inventory and production configuration
+        run: |
+          python3 deploy/production/database_plan.py
+          python3 scripts/check-production-config.py
+          python3 scripts/validate-production-compose.py
+          node --test deploy/production/tests/env-preflight.test.mjs
+
       - name: Generate JWT keys
         run: pnpm run keys:generate
 
@@ -92,6 +109,11 @@ jobs:
         env:
           WALLET_MIGRATION_TEST_URL: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test
         run: node scripts/tests/wallet-migrations.mjs
+
+      - name: Verify all Prisma migrations and connection exhaustion on disposable PostgreSQL
+        env:
+          INCIDENT_DATABASE_TEST_URL: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test
+        run: node scripts/tests/database-incident.mjs
 
       - name: Verify deployment migration ordering and rollback
         run: python3 -m unittest discover -s deploy/production/tests -v

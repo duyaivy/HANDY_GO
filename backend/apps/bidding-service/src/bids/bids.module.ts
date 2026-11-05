@@ -5,9 +5,10 @@ import { WorkerProfileEnricherService } from './services/worker-profile-enricher
 import { RequestEligibilityVerifierService } from './services/request-eligibility-verifier.service.js';
 import { RoundsModule } from '../rounds/rounds.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
+import { SseModule } from '../sse/sse.module.js';
 
 @Module({
-  imports: [PrismaModule, RoundsModule],
+  imports: [PrismaModule, RoundsModule, SseModule],
   controllers: [BidsController],
   providers: [
     BidsService,

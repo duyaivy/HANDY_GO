@@ -2,6 +2,7 @@ import type { NotificationResponse } from 'expo-notifications';
 import type { AuthUser } from '@/services/auth/auth-api';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { act, render, waitFor } from '@/lib/test-utils';
 import { NotificationApi } from '@/services/notifications/notification-api';
@@ -33,6 +34,7 @@ it('refreshes on foreground push, deduplicates taps, removes listeners', async (
   const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
   act(() => received(response.notification));
   expect(refresh).toHaveBeenCalledWith({ queryKey: ['notifications', 'a'] });
+  expect(refresh).toHaveBeenCalledWith({ queryKey: ordersQueryKeys.all });
   act(() => {
     tapped(response);
     tapped(response);
@@ -51,4 +53,39 @@ it('unowned notification taps do not navigate', async () => {
   const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
   await act(async () => tapped(response));
   expect(mockRouter.push).not.toHaveBeenCalled();
+});
+
+it('routes matching notification tap directly to /worker?requestId=...', async () => {
+  useAuthStore.setState({ user: { id: 'w-1', roles: ['Worker'] } as AuthUser, isHydrated: true, isAuthenticated: true, isLoading: false, activeMode: 'Worker' });
+  const matchingResp = {
+    actionIdentifier: 'default',
+    notification: {
+      request: {
+        identifier: 'push-match-1',
+        content: {
+          data: {
+            notificationId: '22222222-2222-4222-8222-222222222222',
+            eventType: 'matching.eligible_workers.ready',
+            requestId: 'req-match-123',
+            category: 'matching',
+          },
+        },
+      },
+    },
+  } as unknown as NotificationResponse;
+
+  jest.mocked(NotificationApi.detail).mockResolvedValueOnce({
+    id: '22222222-2222-4222-8222-222222222222',
+    category: 'matching',
+    payload: {
+      eventType: 'matching.eligible_workers.ready',
+      requestId: 'req-match-123',
+    },
+  } as any);
+
+  render(<NotificationLifecycle />);
+  const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
+  await act(async () => tapped(matchingResp));
+
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/worker?requestId=req-match-123'));
 });

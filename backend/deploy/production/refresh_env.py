@@ -75,13 +75,30 @@ class EnvRefreshCoordinator(Coordinator):
             files[name] = content
         files[PREFLIGHT] = Path(__file__).with_name(PREFLIGHT).read_bytes()
 
-        from host import validate_env
+        from host import validate_env, validate_service_endpoints
         env_path = Path(self.args.env_file)
-        validate_env(env_path)
+        values = validate_env(env_path)
+        deployed_registry = json.loads(files['services.json'])['services']
+        current_registry = json.loads(Path(__file__).with_name('services.json').read_text())['services']
+        # Legacy bundles lack HTTP caller metadata. Keep their actual host/port
+        # while supplying reviewed caller metadata from the current coordinator.
+        endpoint_registry = {name: {**current_registry.get(name, {}), **item}
+                             for name, item in deployed_registry.items()}
+        for item in endpoint_registry.values():
+            if 'http_callers' in item:
+                item['http_callers'] = [name for name in item['http_callers'] if name in endpoint_registry]
+        validate_service_endpoints(values, endpoint_registry)
+        # Older images do not honor DB_POOL_*: never claim their budgets are enforced.
+        # For budget-aware releases, ENV-only refresh must revalidate the new limits.
+        database_budget = None
+        if 'database_budget' in previous:
+            from database_plan import validate_database_plan
+            database_budget = validate_database_plan(values, json.loads(files['services.json'])['services'])
         shared_env = env_path.read_bytes()
 
         manifest = copy.deepcopy(previous)
         manifest.update({
+            'container_verification_version': 1,
             'release_id': self.target,
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'run_id': self.args.run_id,
@@ -92,6 +109,8 @@ class EnvRefreshCoordinator(Coordinator):
             'env_refresh_from': previous_id,
             'files': {name: digest(content) for name, content in files.items()},
         })
+        if database_budget is not None:
+            manifest['database_budget'] = database_budget
         save(self.output / 'manifest.json', manifest)
         files['manifest.json'] = (json.dumps(manifest, indent=2) + '\n').encode()
         files['shared.env'] = shared_env
@@ -109,100 +128,11 @@ class EnvRefreshCoordinator(Coordinator):
         return manifest, archive_bytes.getvalue()
 
     def recover(self):
-        """Recover only this Actions attempt, using durable host state, even without artifacts.
-
-        Runs on a separate runner after failure/cancellation. Never deletes another
-        transaction's lock, and rechecks ownership under the host's flock on mutation.
-        """
+        from recovery import reconcile
         self.rollout_deadline = None
         self.journal['operation'] = 'env-recovery'
-        self.journal['status'] = 'RECOVERING'
-        self.persist()
-        try:
-            self._recover()
-        except Exception as error:
-            self.journal['status'] = 'FAILED_NEEDS_INTERVENTION'
-            from release_log import redact
-            self.journal['error'] = redact(error)
-            self.persist()
-            raise
-
-    def _recover(self):
-        inspect = (
-            'import json; from pathlib import Path; '
-            f'r=Path({ROOT!r}); '
-            'print(json.dumps({n: json.loads((r/(n+".json")).read_text()) '
-            'if (r/(n+".json")).exists() else None for n in ("pending", "stable")}))'
-        )
-        states = {role: json.loads(self.ssh_run(role, shlex.join(['python3', '-c', inspect]),
-                                                label='inspect durable transaction state')) for role in ROLES}
-        pattern = re.compile(rf'prod-[0-9]{{8}}-{self.args.run_id}-a{self.args.attempt}')
-        owned = {}
-        for role, state in states.items():
-            pending = state['pending']
-            if pending:
-                if not pattern.fullmatch(str(pending.get('transaction', ''))):
-                    raise RuntimeError(f'{role}: pending transaction belongs to another run; use production reconciliation')
-                if pending.get('target') != pending['transaction']:
-                    raise RuntimeError(f'{role}: ENV recovery refuses an unrelated rollback target')
-                owned[role] = pending
-        if not owned:
-            self.journal['status'] = 'RECOVERY_NOT_NEEDED'
-            self.persist()
-            return
-        transactions = {p['transaction'] for p in owned.values()}
-        if len(transactions) != 1:
-            raise RuntimeError('Hosts disagree on recovery transaction')
-        self.transaction = self.target = transactions.pop()
-        self.journal.update(transaction=self.transaction, target_release=self.target)
-        manifests = [json.loads(self.ssh_run(role, shlex.join([
-            'cat', f'{ROOT}/releases/{self.target}/manifest.json']), label='validate ENV recovery manifest'))
-            for role in ROLES]
-        manifest = manifests[0]
-        if any(m != manifest for m in manifests) or not (
-                manifest.get('release_id') == self.target and manifest.get('env_refresh') is True
-                and manifest.get('run_id') == self.args.run_id and manifest.get('run_attempt') == self.args.attempt):
-            raise RuntimeError('Recovery requires matching ENV-only manifests for this exact Actions attempt')
-
-        stable_ids = {role: (state['stable'] or {}).get('release_id') for role, state in states.items()}
-        if all(value == self.target for value in stable_ids.values()):
-            # The rollout committed globally; only cleanup was interrupted. Reverify
-            # the entire release before finishing the remaining matching locks.
-            if any(p['phase'] not in ('VERIFIED', 'COMMITTED') for p in owned.values()):
-                raise RuntimeError('Committed release has an unexpected pending phase')
-            for role in ROLES:
-                self.remote(role, 'verify', wait_lock=True)
-            self.public_smoke(manifest)
-            for role, pending in owned.items():
-                if pending['phase'] == 'VERIFIED':
-                    self.remote(role, 'commit', wait_lock=True)
-            status = 'STABLE'
-        else:
-            previous_ids = {(p.get('previous') or {}).get('release_id') for p in owned.values()}
-            if len(previous_ids) != 1:
-                raise RuntimeError('Hosts disagree on previous stable release')
-            previous_id = previous_ids.pop()
-            if not isinstance(previous_id, str) or not RELEASE_ID.fullmatch(previous_id):
-                raise RuntimeError('ENV recovery requires a previous stable release')
-            if any(stable_ids[role] != previous_id for role in ROLES if role not in owned):
-                raise RuntimeError('An unlocked host has an unexpected stable release; keep locks for reconciliation')
-            for role in reversed(ROLES):
-                if role in owned:
-                    result = self.remote(role, 'restore', wait_lock=True)
-                    self.journal['rollback'][role] = result['rollback']
-                    if result['rollback'] not in ('RESTORED', 'NOT_NEEDED'):
-                        raise RuntimeError(f'{role}: previous release was not restored')
-            for role in ROLES:
-                self.remote(role, 'verify', previous_id)
-            previous = json.loads(self.ssh_run('vps1', shlex.join([
-                'cat', f'{ROOT}/releases/{previous_id}/manifest.json']), label='read restored manifest'))
-            self.public_smoke(previous)
-            status = 'FAILED_ROLLBACK_SUCCESS'
-        # Locks remain if any restore/verification above fails. Retrying recovery is safe.
-        for role in owned:
-            self.remote(role, 'finish', wait_lock=True)
-        self.journal['status'] = status
-        self.persist()
+        with self.cluster_lock():
+            reconcile(self, env_only=True)
 
 
 def main():

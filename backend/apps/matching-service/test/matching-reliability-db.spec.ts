@@ -219,10 +219,73 @@ describe.skipIf(!url)(
       await expect(
         runs.persistMatchResults(persist(run, token)),
       ).rejects.toThrow('no longer available');
-      await expect(
-        projections.updateRequestStatus(randomUUID(), 'expired'),
-      ).rejects.toThrow('not yet available');
+      const earlyId = randomUUID();
+      requestIds.push(earlyId);
+      await projections.updateRequestStatus(earlyId, 'expired');
+      expect(await projections.getProjection(earlyId)).toMatchObject({
+        status: 'expired',
+        requestCode: 'TOMBSTONE',
+      });
     });
+    it.each(['cancelled', 'bidding_closed', 'expired', 'converted_to_order'])(
+      'hydrates %s tombstones and preserves status through replay and concurrent publication',
+      async (status) => {
+        for (const concurrent of [false, true]) {
+          const id = randomUUID();
+          requestIds.push(id);
+          const published = {
+            id,
+            requestCode: `REQ-${id.slice(0, 8)}`,
+            customerUserId: randomUUID(),
+            serviceId: randomUUID(),
+            description: 'Plumbing',
+            addressText: 'Da Nang',
+            latitude: 16.07,
+            longitude: 108.22,
+            matchingRevision: 3,
+            scheduledAt: '2030-01-02T01:00:00Z',
+            biddingClosesAt: '2030-01-01T01:00:00Z',
+            selectionExpiresAt: '2030-01-01T02:00:00Z',
+          };
+          if (concurrent) {
+            await Promise.all([
+              projections.upsertPublishedRequest(published),
+              projections.updateRequestStatus(id, status),
+              projections.upsertPublishedRequest(published),
+              projections.updateRequestStatus(id, status),
+            ]);
+          } else {
+            await projections.updateRequestStatus(id, status);
+            await projections.upsertPublishedRequest(published);
+          }
+          await projections.upsertPublishedRequest(published);
+          const row = await db.serviceRequestProjection.findUniqueOrThrow({
+            where: { id },
+          });
+          expect(row).toMatchObject({
+            status,
+            requestCode: published.requestCode,
+            customerUserId: published.customerUserId,
+            serviceId: published.serviceId,
+            description: published.description,
+            addressText: published.addressText,
+            matchingRevision: 3,
+            scheduledAt: new Date(published.scheduledAt),
+            biddingClosesAt: new Date(published.biddingClosesAt),
+            selectionExpiresAt: new Date(published.selectionExpiresAt),
+          });
+          expect(Number(row.latitude)).toBe(published.latitude);
+          expect(Number(row.longitude)).toBe(published.longitude);
+          if (status === 'bidding_closed') {
+            await projections.updateRequestStatus(id, 'converted_to_order');
+            await projections.upsertPublishedRequest(published);
+            expect((await projections.getProjection(id))?.status).toBe(
+              'converted_to_order',
+            );
+          }
+        }
+      },
+    );
     it('filters distance and paginates in SQL, excluding closed/expired requests', async () => {
       const { data } = await fixture();
       const second = { ...data, id: randomUUID(), requestCode: 'REQ-second' };

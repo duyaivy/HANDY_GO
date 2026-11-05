@@ -1,7 +1,7 @@
-/* eslint-disable max-lines-per-function */
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { Text } from '@/components/ui';
 import { ClockIcon, ShieldCheckIcon, SparklesIcon } from '@/components/ui/icons';
@@ -107,6 +107,7 @@ const POPULAR_SERVICES = [
 
 export function CustomerGuestOverview() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [searchQuery, setSearchQuery] = React.useState('');
 
   const handleSwitchToWorker = () => {
@@ -128,10 +129,14 @@ export function CustomerGuestOverview() {
   };
 
   return (
-    <View testID="customer-guest-overview-screen" className="flex-1 bg-neutral-50 dark:bg-neutral-950">
+    <View
+      testID="customer-guest-overview-screen"
+      className="flex-1 bg-neutral-50 dark:bg-neutral-950"
+      style={{ paddingTop: insets.top }}
+    >
       <ScrollView
         className="flex-1 px-4"
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 16 }}
         showsVerticalScrollIndicator={false}
       >
         {/* ── HEADER ── */}
@@ -280,7 +285,10 @@ export function CustomerGuestOverview() {
       </ScrollView>
 
       {/* ── STICKY BOTTOM BUTTON ── */}
-      <View className="absolute inset-x-0 bottom-0 border-t border-neutral-100 bg-white/95 p-4 shadow-lg backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95">
+      <View
+        style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+        className="border-t border-neutral-100 bg-white/95 px-4 pt-3 shadow-lg dark:border-neutral-800 dark:bg-neutral-900/95"
+      >
         <Pressable
           testID="customer-guest-cta-bottom"
           onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}

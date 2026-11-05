@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -265,8 +264,7 @@ describe('customer Skeleton & Route Flow', () => {
     it('renders radar skeleton and navigates to worker profile on card click', () => {
       render(<CustomerBookingRadarScreen />);
 
-      expect(screen.getByText('Tìm thợ radar')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Đang tìm thợ & nhận báo giá')).toBeOnTheScreen();
 
       fireEvent.press(screen.getByTestId('radar-worker-profile-btn'));
       expect(mockPush).toHaveBeenCalledWith('/customer/workers/th-01');
@@ -285,9 +283,9 @@ describe('customer Skeleton & Route Flow', () => {
       const orderDetailsBtn = screen.getByTestId('radar-order-details-btn');
       fireEvent.press(orderDetailsBtn);
 
-      expect(screen.getByText('Service order details')).toBeOnTheScreen();
-      expect(screen.getByText('Estimated cost')).toBeOnTheScreen();
-      expect(screen.getByText('Cancel order')).toBeOnTheScreen();
+      expect(screen.getByText('Chi tiết đơn đặt việc')).toBeOnTheScreen();
+      expect(screen.getAllByText('Chi phí ước tính').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Hủy tìm thợ')).toBeOnTheScreen();
 
       fireEvent.press(screen.getByTestId('close-order-modal-btn'));
     });

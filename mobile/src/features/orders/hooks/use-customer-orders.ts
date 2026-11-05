@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { Order, ServiceRequest } from '../types/order.types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
@@ -82,6 +81,8 @@ export function useCustomerOrders(activeTab = 'Searching') {
     enabled: shouldFetchRequests,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   // Lấy danh sách Orders (phân trang + server filter + infinite query)
@@ -100,6 +101,8 @@ export function useCustomerOrders(activeTab = 'Searching') {
     enabled: shouldFetchOrders,
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const requestsData = requestsQuery.data;
@@ -207,14 +210,15 @@ export function useCustomerOrderDetail(orderId?: string) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) {
-        return false;
+        return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 4s khi đơn đang thi công hoặc chờ nghiệm thu
-      if (['in_progress', 'awaiting_customer_confirmation'].includes(data.status)) {
-        return 4000;
+      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired)
+      if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
+        return 3000;
       }
       return false;
     },
+    refetchIntervalInBackground: false,
   });
 
   const historyQuery = useQuery({
@@ -227,6 +231,14 @@ export function useCustomerOrderDetail(orderId?: string) {
       return res.data;
     },
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
+    refetchInterval: () => {
+      const order = orderQuery.data;
+      if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
+        return 3000;
+      }
+      return false;
+    },
+    refetchIntervalInBackground: false,
   });
 
   const confirmCompletionMutation = useMutation({
@@ -290,7 +302,9 @@ export function useCustomerOrderDetail(orderId?: string) {
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
-    refetch: orderQuery.refetch,
+    refetch: async () => {
+      await Promise.all([orderQuery.refetch(), historyQuery.refetch()]);
+    },
     confirmCompletion: confirmCompletionMutation.mutateAsync,
     isConfirming: confirmCompletionMutation.isPending,
     requestRework: requestReworkMutation.mutateAsync,

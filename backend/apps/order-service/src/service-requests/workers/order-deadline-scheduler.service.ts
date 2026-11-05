@@ -1,3 +1,4 @@
+import { PollBackoff, safeOutboxError } from '@app/common';
 import {
   Injectable,
   Logger,
@@ -19,6 +20,7 @@ export class OrderDeadlineSchedulerService
   private readonly logger = new Logger(OrderDeadlineSchedulerService.name);
   private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
+  private readonly backoff = new PollBackoff();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,7 +52,7 @@ export class OrderDeadlineSchedulerService
     biddingClosedCount: number;
     expiredCount: number;
   }> {
-    if (this.isProcessing) {
+    if (this.isProcessing || !this.backoff.ready()) {
       this.logger.debug('Previous deadline scan cycle is still executing, skipping');
       return { biddingClosedCount: 0, expiredCount: 0 };
     }
@@ -127,7 +129,7 @@ export class OrderDeadlineSchedulerService
           });
         } catch (err) {
           this.logger.error(
-            `Failed to close bidding for request ${req.id}: ${(err as Error).message}`,
+            `Failed to close bidding for request ${req.id}: ${safeOutboxError(err)}`,
           );
         }
       }
@@ -213,7 +215,7 @@ export class OrderDeadlineSchedulerService
           });
         } catch (err) {
           this.logger.error(
-            `Failed to expire request ${req.id}: ${(err as Error).message}`,
+            `Failed to expire request ${req.id}: ${safeOutboxError(err)}`,
           );
         }
       }
@@ -223,6 +225,10 @@ export class OrderDeadlineSchedulerService
           `Deadline scan complete: closed bidding for ${biddingClosedCount} requests, expired ${expiredCount} requests`,
         );
       }
+      this.backoff.reset();
+    } catch (error) {
+      const delay = this.backoff.fail();
+      this.logger.error(`Deadline scan failed: ${safeOutboxError(error)}; retry no earlier than ${delay}ms`);
     } finally {
       this.isProcessing = false;
     }

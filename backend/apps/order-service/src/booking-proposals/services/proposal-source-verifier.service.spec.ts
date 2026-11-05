@@ -149,18 +149,60 @@ describe('ProposalSourceVerifierService (BE-10)', () => {
     });
   });
 
-  describe('Real run: Recommendation source verification (fail-closed for Matching)', () => {
-    it('strictly fails-closed on real run when recommendation is selected because Matching lacks contract', async () => {
-      await expect(
-        service.verifyProposalSource({
-          selectionSource: WorkerSelectionSource.recommendation,
-          serviceRequestId: 'req-1',
-          workerUserId: 'worker-1',
-          sourceMatchResultId: 'match-1',
+  describe('Real run: Recommendation source verification (PR42-05)', () => {
+    const recommendationParams = {
+      selectionSource: WorkerSelectionSource.recommendation,
+      serviceRequestId: 'req-1',
+      workerUserId: 'worker-1',
+      sourceMatchResultId: 'match-1',
+    };
+
+    it('passes when Matching Service returns 200 with isEligible=true', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ isEligible: true }),
+      });
+
+      await expect(service.verifyProposalSource(recommendationParams)).resolves.toBeUndefined();
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:3004/api/v1/internal/matching/results/match-1/eligibility?serviceRequestId=req-1&workerUserId=worker-1',
+        expect.objectContaining({
+          method: 'GET',
+          headers: { 'x-internal-secret': 'secret-12345' },
+          signal: expect.any(AbortSignal),
         }),
-      ).rejects.toMatchObject({
+      );
+    });
+
+    it('throws 400 when Matching Service returns 200 with isEligible=false', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ isEligible: false, reason: 'Yêu cầu không còn hiệu lực' }),
+      });
+
+      await expect(service.verifyProposalSource(recommendationParams)).rejects.toMatchObject({
         status: HttpStatus.BAD_REQUEST,
-        message: expect.stringContaining('chưa có hợp đồng xác thực'),
+        message: expect.stringContaining('Yêu cầu không còn hiệu lực'),
+      });
+    });
+
+    it('throws 400 when Matching Service returns 404/400', async () => {
+      mockFetch.mockResolvedValueOnce({
+        status: 404,
+        json: async () => ({ message: 'Không tìm thấy kết quả matching' }),
+      });
+
+      await expect(service.verifyProposalSource(recommendationParams)).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('Không tìm thấy kết quả matching'),
+      });
+    });
+
+    it('strictly fails-closed (503) when Matching Service is unavailable or times out', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Connection timeout'));
+
+      await expect(service.verifyProposalSource(recommendationParams)).rejects.toMatchObject({
+        status: HttpStatus.SERVICE_UNAVAILABLE,
       });
     });
   });

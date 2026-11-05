@@ -1,6 +1,7 @@
 import { DynamicModule, Global, Module } from '@nestjs/common';
 import { ConfigModule as NestConfigModule } from '@nestjs/config';
 import { ConfigService } from './config.service.js';
+import { validateProductionServiceEndpoints } from './service-endpoints.js';
 
 export interface ConfigModuleOptions {
   serviceName: string;
@@ -30,11 +31,13 @@ export class ConfigModule {
   }
 }
 
-function validateEnvironment(
+export function validateEnvironment(
   input: Record<string, unknown>,
   options: ConfigModuleOptions,
 ): Record<string, unknown> {
-  const config = { ...input };
+  const config = Object.fromEntries(Object.entries(input).map(([key, value]) =>
+    [key, typeof value === 'string' && !value.trim() ? undefined : value],
+  ));
   config.SERVICE_NAME = options.serviceName;
   config.NODE_ENV ??= 'development';
   config.LOG_LEVEL ??= config.NODE_ENV === 'production' ? 'info' : 'debug';
@@ -68,7 +71,7 @@ function validateEnvironment(
 
   for (const key of options.requiredUrls ?? []) {
     const value = config[key];
-    if (typeof value !== 'string' || value.length === 0) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
       throw new Error(`${key} is required`);
     }
     try {
@@ -77,6 +80,8 @@ function validateEnvironment(
       throw new Error(`${key} must be a valid URL`);
     }
   }
+
+  validateProductionServiceEndpoints(config, options.serviceName);
 
   for (const key of options.requiredKeys ?? []) {
     const value = config[key];
@@ -88,10 +93,11 @@ function validateEnvironment(
   if (config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB !== undefined) {
     const chunkSizeMb = Number(config.CLOUDINARY_VIDEO_CHUNK_SIZE_MB);
     if (isNaN(chunkSizeMb) || chunkSizeMb <= 5) {
-      throw new Error('CLOUDINARY_VIDEO_CHUNK_SIZE_MB must be a number greater than 5 MB');
+      throw new Error(
+        'CLOUDINARY_VIDEO_CHUNK_SIZE_MB must be a number greater than 5 MB',
+      );
     }
   }
 
   return config;
 }
-

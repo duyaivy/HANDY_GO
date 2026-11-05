@@ -1,3 +1,4 @@
+import { optionalValue } from '../../config/src/optional-env.js';
 import { Global, Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { RabbitMQService } from './rabbitmq.service.js';
@@ -18,7 +19,7 @@ import { RabbitMQContextService } from './rabbitmq.context.js';
           queueOptions: {
             durable: true,
           },
-          exchange: process.env.RABBITMQ_EXCHANGE ?? 'handy-go.events',
+          exchange: optionalValue(process.env.RABBITMQ_EXCHANGE) ?? 'handy-go.events',
           exchangeType: 'topic',
           wildcards: true,
           persistent: true,

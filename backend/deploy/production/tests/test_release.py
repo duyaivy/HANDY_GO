@@ -59,15 +59,15 @@ class ReleaseTests(unittest.TestCase):
             'CLOUDINARY_API_SECRET': 'test-api-secret',
         }
         path = self.root / 'shared.env'
-        optional = ('DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG')
-        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, values['DATABASE_URL'])):
+        optional = tuple(prefix + service.upper().replace('-', '_') for prefix in ('DATABASE_URL_', 'DIRECT_URL_') for services in host.MIGRATIONS.values() for service in services) + ('FIREBASE_SA_BASE64', 'GOOGLE_APPLICATION_CREDENTIALS', 'CLOUDINARY_VIDEO_CHUNK_SIZE_MB', 'NOTIFICATION_EVENT_QUEUE', 'AI_SERVICE_TIMEOUT_MS')
+        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, '   '), {'DIRECT_URL_AUTH': values['DATABASE_URL']}):
             with self.subTest(overrides=overrides):
                 expected = {**values, **overrides}
                 path.write_text(''.join(f'{key}={value}\n' for key, value in expected.items()))
                 self.assertEqual(host.validate_env(path), expected)
 
         for required in ('DATABASE_URL', 'SMTP_USER'):
-            for replacement in (None, ''):
+            for replacement in (None, '', '   '):
                 with self.subTest(required=required, replacement=replacement):
                     invalid = {**values}
                     if replacement is None:
@@ -84,25 +84,42 @@ class ReleaseTests(unittest.TestCase):
         obj.transaction = obj.target = RELEASE
         obj.output = self.root / 'output'
         obj.journal = {'hosts': {}, 'rollback': {}, 'status': 'PREPARING'}
-        manifest = {'migration_hash': 'same', 'domain': 'api.example.com'}
+        manifest = {'migration_hash': 'same', 'domain': 'api.example.com', 'rollback_compatible': True}
+        states = {r: {'stable': None if bootstrap else {'release_id': OLD}, 'pending': None,
+                      'manifests': {OLD: manifest, RELEASE: manifest}} for r in coordinator.ROLES}
+        obj.cluster_lock = contextlib.nullcontext
+        obj.inspect_cluster = Mock(side_effect=lambda: states)
         obj.bundle = Mock(return_value=(manifest, b'archive'))
         obj.ssh_run = Mock(return_value=b'')
         obj.public_smoke = Mock()
         calls = []
 
-        def remote(role, action, target=None):
+        def remote(role, action, target=None, **kwargs):
             calls.append((role, action, target))
             if (role, action) == failure:
+                if action == 'apply':
+                    states[role]['pending'].update(touched=True, phase='APPLYING')
                 raise RuntimeError('Injected failure')
             if action == 'restore' and unreachable and role == 'vps2':
                 raise RuntimeError('Unreachable')
+            state = states[role]
             if action == 'begin':
+                state['pending'] = {'transaction': RELEASE, 'target': RELEASE, 'previous': state['stable'], 'touched': False, 'phase': 'SNAPSHOT'}
                 result = {'previous': None if bootstrap else {'release_id': OLD},
                           'previous_manifest': manifest, 'migration_hash': 'same'}
             elif action == 'restore':
+                state['stable'] = None if bootstrap else {'release_id': OLD}
+                state['pending']['phase'] = 'RESTORED'
                 result = {'rollback': 'NO_PREVIOUS_RELEASE' if bootstrap else 'RESTORED', 'release_id': OLD}
             else:
                 result = {}
+                if action == 'apply':
+                    state['pending'].update(touched=True, phase='VERIFIED')
+                elif action == 'commit':
+                    state['pending']['phase'] = 'COMMITTED'
+                    state['stable'] = {'release_id': RELEASE}
+                elif action == 'finish':
+                    state['pending'] = None
             obj.journal['hosts'].setdefault(role, {})[action] = result
             return result
 
@@ -121,20 +138,20 @@ class ReleaseTests(unittest.TestCase):
         obj, calls = self.make_coordinator(('vps1', 'apply'), unreachable=True)
         with self.assertRaisesRegex(RuntimeError, 'FAILED_NEEDS_INTERVENTION'):
             obj.execute()
-        self.assertEqual(obj.journal['rollback']['vps2'], 'FAILED_OR_UNREACHABLE')
+        self.assertIn('Unreachable', obj.journal['recovery_error'])
         self.assertFalse(any(a == 'finish' for _, a, _ in calls))
 
     def test_first_deploy_does_not_invent_previous_release(self):
         obj, calls = self.make_coordinator(('vps1', 'apply'), bootstrap=True)
         with self.assertRaisesRegex(RuntimeError, 'FAILED_NEEDS_INTERVENTION'):
             obj.execute()
-        self.assertTrue(all(v == 'NO_PREVIOUS_RELEASE' for v in obj.journal['rollback'].values()))
+        self.assertIn('bootstrap', obj.journal['recovery_error'])
 
     def test_prepare_failure_never_applies_and_unlocks_untouched_hosts(self):
         obj, calls = self.make_coordinator(('vps1', 'prepare'), bootstrap=True)
         remote = obj.remote
-        def untouched_restore(role, action, target=None):
-            result = remote(role, action, target)
+        def untouched_restore(role, action, target=None, **kwargs):
+            result = remote(role, action, target, **kwargs)
             if action == 'restore':
                 result['rollback'] = 'NOT_NEEDED'
             return result
@@ -148,7 +165,8 @@ class ReleaseTests(unittest.TestCase):
         obj, calls = self.make_coordinator(('vps2', 'begin'))
         with self.assertRaises(RuntimeError):
             obj.execute()
-        self.assertIn(('vps2', 'restore', None), calls)
+        self.assertNotIn(('vps2', 'restore', None), calls)
+        self.assertEqual(obj.journal['ownership']['vps2'], 'NO_JOURNAL')
         self.assertFalse(any(a == 'apply' for _, a, _ in calls))
 
     def test_staging_failure_does_not_require_transaction_recovery(self):
@@ -171,7 +189,7 @@ class ReleaseTests(unittest.TestCase):
         obj, _ = self.make_coordinator()
         env_path = self.root / 'shared.env'
         template = (PROD / 'env/production.env.example').read_text()
-        env_path.write_text(template.replace('REPLACE_', 'fixture-secret-at-least-thirty-two-characters-')
+        env_path.write_text(template.replace('=false\n', '=true\n').replace('REPLACE_', 'fixture-secret-at-least-thirty-two-characters-')
                            .replace('SMTP_PASS=fixture-secret-at-least-thirty-two-characters-APP_PASSWORD',
                                     'SMTP_PASS=private-smtp-value'))
         evidence_path = self.root / 'evidence.json'
@@ -224,17 +242,16 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(host, 'ROOT', self.root), self.assertRaisesRegex(RuntimeError, 'Unfinished'):
             obj.begin(RELEASE)
 
-    def test_first_deploy_partial_commit_is_cleared_when_restored(self):
+    def test_first_deploy_partial_commit_is_preserved_for_bootstrap_recovery(self):
         obj = host.Host.__new__(host.Host)
         obj.release_id, obj.names = RELEASE, ['catalog-service']
         obj.owner = Mock(return_value={'touched': True, 'previous': None, 'phase': 'COMMITTED'})
         obj.compose = Mock()
         host.write(self.root / 'stable.json', {'release_id': RELEASE})
-        with patch.object(host, 'ROOT', self.root):
-            result = obj.restore(RELEASE)
-        self.assertEqual(result['rollback'], 'NO_PREVIOUS_RELEASE')
-        self.assertFalse((self.root / 'stable.json').exists())
-        self.assertEqual(host.read(self.root / 'pending.json')['phase'], 'BOOTSTRAP_FAILED')
+        with patch.object(host, 'ROOT', self.root), self.assertRaisesRegex(RuntimeError, 'bootstrap'):
+            obj.restore(RELEASE)
+        self.assertEqual(host.read(self.root / 'stable.json'), {'release_id': RELEASE})
+        obj.compose.assert_not_called()
 
     def test_command_error_is_visible_without_credentials(self):
         path = self.root / 'shared.env'
@@ -369,6 +386,20 @@ class ReleaseTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn('--memory=384m', command)
         self.assertIn('--memory-swap=768m', command)
+
+
+    def test_run_migrations_false_never_stops_or_invokes_prisma(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.release_id, obj.bundle = 'vps2', RELEASE, self.root
+        obj.names = ['order-service']
+        obj.manifest = {'run_migrations': False}
+        obj.owner = Mock(return_value={'phase': 'SNAPSHOT', 'previous': None})
+        obj.compose, obj.verify = Mock(), Mock()
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'run') as run:
+            obj.apply(RELEASE)
+        run.assert_not_called()
+        obj.compose.assert_any_call('up', '-d', '--no-build', '--no-deps', '--wait', '--wait-timeout', '240', 'order-service')
+        self.assertFalse(any(c.args[0] == 'stop' for c in obj.compose.call_args_list))
 
     def test_wallet_migrates_once_on_vps3_before_any_service_starts(self):
         calls = Mock()

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import type { Order, ServiceRequest } from '../../types/order.types';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
@@ -78,6 +77,27 @@ function formatOrderCreatedTime(createdAt?: string | null): string {
   }
   catch {
     return 'Vừa tạo';
+  }
+}
+
+function formatCancelledTime(cancelledAt?: string | null): string {
+  if (!cancelledAt) {
+    return 'Không rõ thời gian';
+  }
+  try {
+    const d = new Date(cancelledAt);
+    if (Number.isNaN(d.getTime())) {
+      return 'Không rõ thời gian';
+    }
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    return `${hh}:${min} - ${dd}/${mm}/${yyyy}`;
+  }
+  catch {
+    return 'Không rõ thời gian';
   }
 }
 
@@ -238,7 +258,6 @@ export function CustomerOrdersScreen({
     isFetchingNextRequests,
     isLoading,
     isOrdersError,
-    isRefetching,
     isRequestsError,
     orders,
     refetch,
@@ -247,6 +266,18 @@ export function CustomerOrdersScreen({
     requests,
   } = useCustomerOrders(activeTab);
 
+  const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
+
+  const handleManualRefresh = React.useCallback(async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    }
+    finally {
+      setIsManualRefreshing(false);
+    }
+  }, [refetch]);
+
   return (
     <Screen
       safeArea={false}
@@ -254,8 +285,8 @@ export function CustomerOrdersScreen({
       className="bg-neutral-50 dark:bg-neutral-950"
       refreshControl={(
         <RefreshControl
-          refreshing={isRefetching}
-          onRefresh={refetch}
+          refreshing={isManualRefreshing}
+          onRefresh={handleManualRefresh}
           tintColor={PRIMARY_COLOR}
         />
       )}
@@ -371,6 +402,14 @@ export function CustomerOrdersScreen({
                     {req.requestCode || req.id.slice(0, 8)}
                   </Text>
 
+                  {isCancelledTab && (
+                    <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
+                      Hủy lúc:
+                      {' '}
+                      {formatCancelledTime(req.cancelledAt || req.updatedAt)}
+                    </Text>
+                  )}
+
                   <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                     <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
                       {req.addressText || 'Đà Nẵng'}
@@ -465,6 +504,15 @@ export function CustomerOrdersScreen({
                     {' '}
                     {formatVND(ord.agreedPrice)}
                   </Text>
+
+                  {isCancelledTab && (
+                    <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
+                      Hủy lúc:
+                      {' '}
+                      {formatCancelledTime(ord.cancelledAt || ord.updatedAt)}
+                      {ord.cancelReason ? ` • Lý do: ${ord.cancelReason}` : ''}
+                    </Text>
+                  )}
 
                   <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                     <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>

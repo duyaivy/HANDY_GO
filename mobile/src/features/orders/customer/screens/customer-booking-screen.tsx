@@ -1,4 +1,5 @@
-/* eslint-disable max-lines-per-function */
+/* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
+import type { BookingImageItem } from '../components/booking-image-thumbnail';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -6,6 +7,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
   Modal,
   Pressable,
@@ -22,6 +24,12 @@ import { RouteNames } from '@/constants/route-names';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
+import {
+
+  BookingImageThumbnail,
+} from '../components/booking-image-thumbnail';
+
+export type { BookingImageItem };
 
 export type CustomerBookingScreenProps = {
   serviceId?: string;
@@ -92,13 +100,81 @@ export function CustomerBookingScreen({
   } = useBookingDraftStore();
 
   const isAuthenticated = useAuthStore.use.isAuthenticated();
-  const [isUploading, setIsUploading] = React.useState(false);
   const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(false);
 
   // Selected chips state (mặc định chưa chọn để tránh mang data cũ)
   const [selectedIssueType, setSelectedIssueType] = React.useState<string>('');
   const [selectedLocation, setSelectedLocation] = React.useState<string>('');
   const [selectedSeverity, setSelectedSeverity] = React.useState<string>('');
+
+  // Enhanced image items tracking with progress, status, and abort controllers
+  const [imageItems, setImageItems] = React.useState<BookingImageItem[]>(() => {
+    const currentMediaUrls = useBookingDraftStore.getState().mediaUrls;
+    return currentMediaUrls.map((url, idx) => ({
+      id: `preload-${idx}-${url}`,
+      localUri: url,
+      remoteUrl: url.startsWith('http') ? url : undefined,
+      status: url.startsWith('http') ? 'completed' : 'error',
+      progress: url.startsWith('http') ? 100 : 0,
+    }));
+  });
+
+  const imageItemsRef = React.useRef(imageItems);
+  imageItemsRef.current = imageItems;
+  const isMountedRef = React.useRef(true);
+  const isProceedingToNextStepRef = React.useRef(false);
+
+  const isAnyLoading = imageItems.some(
+    item => item.status === 'pending' || item.status === 'uploading' || item.status === 'processing',
+  );
+  const isUploading = isAnyLoading;
+  const hasError = imageItems.some(item => item.status === 'error');
+
+  // Lifecycle & Cleanup: abort tasks and reset draft if abandoning booking
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      imageItemsRef.current.forEach((item) => {
+        if (item.status !== 'completed') {
+          item.abortController?.abort();
+          removeMediaUrl(item.localUri);
+        }
+      });
+      if (!isProceedingToNextStepRef.current) {
+        useBookingDraftStore.getState().resetDraft();
+      }
+    };
+  }, [removeMediaUrl]);
+
+  // Sync if draft is reset or if mediaUrls is updated externally (e.g., sample photo in tests)
+  React.useEffect(() => {
+    const hasInFlightOrError = imageItemsRef.current.some(
+      item => item.status === 'pending' || item.status === 'uploading' || item.status === 'processing' || item.status === 'error',
+    );
+    if (mediaUrls.length === 0 && imageItemsRef.current.length > 0 && !hasInFlightOrError) {
+      setImageItems([]);
+      return;
+    }
+
+    setImageItems((prevItems) => {
+      const knownUrls = new Set(
+        prevItems.flatMap(i => [i.localUri, i.remoteUrl].filter(Boolean)),
+      );
+      const missing = mediaUrls.filter(u => !knownUrls.has(u));
+      if (missing.length === 0)
+        return prevItems;
+
+      const newItems: BookingImageItem[] = missing.map((url, idx) => ({
+        id: `synced-${Date.now()}-${idx}-${url}`,
+        localUri: url,
+        remoteUrl: url.startsWith('http') ? url : undefined,
+        status: url.startsWith('http') ? 'completed' : 'error',
+        progress: url.startsWith('http') ? 100 : 0,
+      }));
+      return [...prevItems, ...newItems];
+    });
+  }, [mediaUrls, isAnyLoading]);
 
   React.useEffect(() => {
     const store = useBookingDraftStore.getState();
@@ -117,6 +193,195 @@ export function CustomerBookingScreen({
       store.setService(targetServiceId, targetServiceName);
     }
   }, [targetServiceId, targetServiceName]);
+
+  // Sequential Upload Queue Runner
+  React.useEffect(() => {
+    if (!isMountedRef.current)
+      return;
+
+    // Wait if another item is currently in-flight
+    const currentlyUploading = imageItems.find(
+      item => item.status === 'uploading' || item.status === 'processing',
+    );
+    if (currentlyUploading) {
+      return;
+    }
+
+    // Pause queue if an item errored (requires retry or removal to avoid cascading failures)
+    const hasErrorItem = imageItems.find(item => item.status === 'error');
+    if (hasErrorItem) {
+      return;
+    }
+
+    // Find the next item waiting to upload
+    const nextPending = imageItems.find(item => item.status === 'pending');
+    if (!nextPending) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    // Mark current item as uploading and attach controller
+    setImageItems(prev =>
+      prev.map(item =>
+        item.id === nextPending.id
+          ? { ...item, status: 'uploading', progress: 0, abortController: controller }
+          : item,
+      ),
+    );
+
+    OrdersApi.uploadImage(nextPending.localUri, 'booking_issue', {
+      signal: controller.signal,
+      onProgress: (percent) => {
+        if (!isMountedRef.current)
+          return;
+        setImageItems(prev =>
+          prev.map((item) => {
+            if (item.id !== nextPending.id)
+              return item;
+            if (percent >= 100) {
+              return { ...item, status: 'processing', progress: 100 };
+            }
+            return { ...item, status: 'uploading', progress: percent };
+          }),
+        );
+      },
+    })
+      .then((uploadedUrl) => {
+        if (!isMountedRef.current)
+          return;
+        replaceMediaUrl(nextPending.localUri, uploadedUrl);
+        setImageItems(prev =>
+          prev.map(item =>
+            item.id === nextPending.id
+              ? {
+                  ...item,
+                  remoteUrl: uploadedUrl,
+                  status: 'completed',
+                  progress: 100,
+                  abortController: undefined,
+                }
+              : item,
+          ),
+        );
+      })
+      .catch((err: any) => {
+        if (!isMountedRef.current)
+          return;
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        console.warn('[BOOKING] Upload ảnh lên cloud thất bại:', err);
+        removeMediaUrl(nextPending.localUri);
+
+        const is401
+          = err?.kind === 'AUTH_ERROR'
+            || err?.statusCode === 401
+            || err?.response?.status === 401
+            || err?.message?.includes('401')
+            || err?.message?.includes('UNAUTHORIZED');
+
+        setImageItems(prev =>
+          prev.map(item =>
+            item.id === nextPending.id
+              ? {
+                  ...item,
+                  status: 'error',
+                  errorMessage: is401 ? 'Phiên làm việc hết hạn' : 'Tải ảnh thất bại',
+                  abortController: undefined,
+                }
+              : item,
+          ),
+        );
+
+        if (is401) {
+          Alert.alert(
+            'Phiên làm việc hết hạn',
+            'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại để tải ảnh.',
+            [
+              { text: 'Đóng', style: 'cancel' },
+              {
+                text: 'Đăng nhập',
+                onPress: () => router.push(RouteNames.LOGIN as any),
+              },
+            ],
+          );
+        }
+        else {
+          Alert.alert(
+            'Tải ảnh thất bại',
+            'Không thể tải ảnh lên máy chủ. Vui lòng thử lại sau hoặc kiểm tra kết nối mạng.',
+          );
+        }
+      });
+  }, [imageItems, replaceMediaUrl, removeMediaUrl, router]);
+
+  const queueUpload = React.useCallback(
+    (uris: string[]) => {
+      if (uris.length === 0)
+        return;
+
+      const currentCount = imageItemsRef.current.length;
+      const remaining = Math.max(0, 5 - currentCount);
+      if (uris.length > remaining) {
+        Alert.alert('Giới hạn ảnh', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hiện trường.');
+        return;
+      }
+
+      const itemsToAdd: BookingImageItem[] = uris.map(uri => ({
+        id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        localUri: uri,
+        status: 'pending',
+        progress: 0,
+      }));
+
+      // Update draft store immediately for tracking and compatibility
+      uris.forEach(uri => addMediaUrl(uri));
+
+      // Append to queue
+      setImageItems(prev => [...prev, ...itemsToAdd]);
+    },
+    [addMediaUrl],
+  );
+
+  const handleRemoveItem = React.useCallback(
+    (id: string) => {
+      const item = imageItemsRef.current.find(i => i.id === id);
+      if (item) {
+        if (item.abortController) {
+          item.abortController.abort();
+        }
+        removeMediaUrl(item.localUri);
+        if (item.remoteUrl) {
+          removeMediaUrl(item.remoteUrl);
+        }
+      }
+      setImageItems(prev => prev.filter(i => i.id !== id));
+    },
+    [removeMediaUrl],
+  );
+
+  const handleRetryItem = React.useCallback(
+    (id: string) => {
+      const item = imageItemsRef.current.find(i => i.id === id);
+      if (!item)
+        return;
+
+      if (!useBookingDraftStore.getState().mediaUrls.includes(item.localUri)) {
+        addMediaUrl(item.localUri);
+      }
+
+      setImageItems(prev =>
+        prev.map(i =>
+          i.id === id
+            ? { ...i, status: 'pending', progress: 0, errorMessage: undefined }
+            : i,
+        ),
+      );
+    },
+    [addMediaUrl],
+  );
 
   // Re-generate formatted description when selecting suggestions
   const handleSelectChip = (
@@ -161,62 +426,29 @@ export function CustomerBookingScreen({
     setDescription(quickText);
   };
 
-  const handleBack = () => {
+  const handleBack = React.useCallback(() => {
+    isProceedingToNextStepRef.current = false;
+    imageItemsRef.current.forEach((item) => {
+      item.abortController?.abort();
+    });
+    useBookingDraftStore.getState().resetDraft();
+    setImageItems([]);
     if (onBack) {
       onBack();
     }
     else {
       router.back();
     }
-  };
+  }, [onBack, router]);
 
-  const uploadSingleImage = async (localUri: string) => {
-    // Thêm preview ngay lập tức vào danh sách
-    addMediaUrl(localUri);
-    setIsUploading(true);
-    try {
-      const uploadedUrl = await OrdersApi.uploadImage(localUri, 'booking_issue');
-      if (!uploadedUrl) {
-        throw new Error('Upload did not return a URL');
-      }
-      replaceMediaUrl(localUri, uploadedUrl);
-    }
-    catch (err: any) {
-      console.warn('[BOOKING] Upload ảnh lên cloud thất bại:', err);
-      // Xóa ảnh lỗi khỏi danh sách để tránh gửi local URI lên server
-      removeMediaUrl(localUri);
-
-      const is401
-        = err?.kind === 'AUTH_ERROR'
-          || err?.statusCode === 401
-          || err?.response?.status === 401
-          || err?.message?.includes('401')
-          || err?.message?.includes('UNAUTHORIZED');
-
-      if (is401) {
-        Alert.alert(
-          'Phiên làm việc hết hạn',
-          'Phiên đăng nhập đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại để tải ảnh.',
-          [
-            { text: 'Đóng', style: 'cancel' },
-            {
-              text: 'Đăng nhập',
-              onPress: () => router.push(RouteNames.LOGIN as any),
-            },
-          ],
-        );
-      }
-      else {
-        Alert.alert(
-          'Tải ảnh thất bại',
-          'Không thể tải ảnh lên máy chủ. Vui lòng thử lại sau hoặc kiểm tra kết nối mạng.',
-        );
-      }
-    }
-    finally {
-      setIsUploading(false);
-    }
-  };
+  React.useEffect(() => {
+    const onHardwareBack = () => {
+      handleBack();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [handleBack]);
 
   // In-app Camera states
   const [isCameraOpen, setIsCameraOpen] = React.useState(false);
@@ -238,7 +470,12 @@ export function CustomerBookingScreen({
         return;
       }
 
-      const remainingSlots = Math.max(1, 5 - mediaUrls.length);
+      const remainingSlots = Math.max(0, 5 - imageItems.length);
+      if (remainingSlots <= 0) {
+        Alert.alert('Giới hạn ảnh', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hiện trường.');
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsMultipleSelection: true,
@@ -247,9 +484,12 @@ export function CustomerBookingScreen({
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        for (const asset of result.assets) {
-          await uploadSingleImage(asset.uri);
+        if (result.assets.length > remainingSlots) {
+          Alert.alert('Giới hạn ảnh', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hiện trường.');
+          return;
         }
+        const uris = result.assets.map(a => a.uri);
+        queueUpload(uris);
       }
     }
     catch (error) {
@@ -280,7 +520,7 @@ export function CustomerBookingScreen({
       return;
     }
 
-    if (mediaUrls.length >= 5) {
+    if (imageItems.length >= 5) {
       Alert.alert('Giới hạn ảnh', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hiện trường.');
       return;
     }
@@ -343,14 +583,14 @@ export function CustomerBookingScreen({
     }
   };
 
-  const handleConfirmCapturedPhoto = async () => {
+  const handleConfirmCapturedPhoto = () => {
     if (!capturedPreviewUri) {
       return;
     }
     const uriToUpload = capturedPreviewUri;
     setCapturedPreviewUri(null);
     setIsCameraOpen(false);
-    await uploadSingleImage(uriToUpload);
+    queueUpload([uriToUpload]);
   };
 
   const handleRetakePhoto = () => {
@@ -378,8 +618,16 @@ export function CustomerBookingScreen({
       return;
     }
 
-    if (isUploading) {
+    if (isUploading || isAnyLoading) {
       Alert.alert('Đang tải ảnh', 'Vui lòng đợi ảnh hiện trường tải lên hoàn tất.');
+      return;
+    }
+
+    if (hasError) {
+      Alert.alert(
+        'Ảnh chưa được lưu',
+        'Có ảnh chưa tải lên máy chủ thành công. Vui lòng xóa hoặc tải lại ảnh trước khi tiếp tục.',
+      );
       return;
     }
 
@@ -397,6 +645,7 @@ export function CustomerBookingScreen({
     if (!description.trim()) {
       setDescription(generateQuickDescription(serviceName));
     }
+    isProceedingToNextStepRef.current = true;
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_ADDRESS as any);
   };
 
@@ -617,66 +866,50 @@ export function CustomerBookingScreen({
               </Text>
               <Text className="text-xs text-neutral-500 dark:text-neutral-400">
                 Chụp ảnh rõ nơi bị hỏng để thợ chuẩn bị đồ nghề (
-                {mediaUrls.length}
+                {imageItems.length}
                 /5)
               </Text>
             </View>
-            {isUploading && (
-              <View className="flex-row items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 dark:bg-amber-950/40">
-                <ActivityIndicator size="small" color="#F5A524" />
-                <Text className="text-[11px] font-semibold text-[#F5A524]">Đang tải...</Text>
-              </View>
-            )}
           </View>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} className="gap-3">
-            {mediaUrls.map(url => (
-              <View key={url} className="relative size-20 overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-700">
-                <Image source={{ uri: url }} className="size-full" resizeMode="cover" />
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => removeMediaUrl(url)}
-                  className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70 active:bg-black"
-                >
-                  <Text className="text-[10px] font-bold text-white">✕</Text>
-                </Pressable>
-              </View>
+            {imageItems.map((item, index) => (
+              <BookingImageThumbnail
+                key={item.id}
+                item={item}
+                index={index}
+                onRemove={handleRemoveItem}
+                onRetry={handleRetryItem}
+              />
             ))}
 
-            {mediaUrls.length < 5 && (
+            {imageItems.length < 5 && (
               <Pressable
                 testID="booking-add-photo-btn"
                 onPress={handleAddPhotoPress}
-                disabled={isUploading}
-                className={`size-20 items-center justify-center rounded-2xl border-2 border-dashed active:opacity-75 ${
-                  isUploading
-                    ? 'border-neutral-300 bg-neutral-100 opacity-60 dark:border-neutral-700 dark:bg-neutral-800'
-                    : 'border-primary-200 bg-primary-50/40 active:bg-primary-50 dark:border-amber-800 dark:bg-amber-950/20'
-                }`}
+                className="size-20 items-center justify-center rounded-2xl border-2 border-dashed border-primary-200 bg-primary-50/40 active:bg-primary-50 active:opacity-75 dark:border-amber-800 dark:bg-amber-950/20"
               >
-                {isUploading
-                  ? (
-                      <ActivityIndicator size="small" color="#F5A524" />
-                    )
-                  : (
-                      <>
-                        <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                          <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
-                          <Circle cx="12" cy="13" r="3" />
-                        </Svg>
-                        <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
-                      </>
-                    )}
+                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
+                  <Circle cx="12" cy="13" r="3" />
+                </Svg>
+                <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
               </Pressable>
             )}
           </ScrollView>
         </View>
 
-        {/* 6. Nút Tiếp tục lớn bo tròn chuẩn HandyGo khách hàng (Màu cam #F5A524) */}
+        {/* 6. Nút Tiếp tục: vô hiệu hóa tương tác khi đang tải hoặc xử lý ảnh */}
         <Button
           testID="booking-next-btn"
           label="Tiếp tục"
-          className="mb-8 h-13 w-full rounded-full bg-[#F5A524] shadow-md shadow-amber-200 active:bg-primary-600"
+          accessibilityState={{ disabled: isAnyLoading }}
+          aria-disabled={isAnyLoading}
+          className={`mb-8 h-13 w-full rounded-full ${
+            isAnyLoading
+              ? 'bg-neutral-400 opacity-60 dark:bg-neutral-600'
+              : 'bg-[#F5A524] shadow-md shadow-amber-200 active:bg-primary-600'
+          }`}
           textClassName="text-base font-bold text-white"
           onPress={handleNext}
         />

@@ -18,16 +18,14 @@ vi.hoisted(() => {
 });
 
 import { Test, type TestingModule } from '@nestjs/testing';
-import {
-  type INestApplication,
-  ValidationPipe,
-} from '@nestjs/common';
+import { type INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { ApiGatewayModule } from '../src/api-gateway.module.js';
 import { TokenVerifierService } from '@app/auth';
 import { OrderClient } from '../src/candidates/clients/order.client.js';
 import { BiddingClient } from '../src/candidates/clients/bidding.client.js';
 import { MatchingClient } from '../src/candidates/clients/matching.client.js';
+import { WorkerProfilesClient } from '../src/candidates/clients/worker-profiles.client.js';
 
 describe('Candidates Aggregation API Integration', () => {
   let app: INestApplication;
@@ -64,11 +62,15 @@ describe('Candidates Aggregation API Integration', () => {
       .useValue(mockBiddingClient)
       .overrideProvider(MatchingClient)
       .useValue(mockMatchingClient)
+      .overrideProvider(WorkerProfilesClient)
+      .useValue({ getSummaries: vi.fn().mockResolvedValue(new Map()) })
       .compile();
 
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api/v1');
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
   });
 
@@ -94,8 +96,9 @@ describe('Candidates Aggregation API Integration', () => {
   });
 
   it('Requirement 11 & Gateway Auth: Missing Bearer token returns 401 Unauthorized', async () => {
-    const res = await request(app.getHttpServer())
-      .get(`/api/v1/requests/${validRequestId}/candidates`);
+    const res = await request(app.getHttpServer()).get(
+      `/api/v1/requests/${validRequestId}/candidates`,
+    );
 
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('UNAUTHORIZED');

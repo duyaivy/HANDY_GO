@@ -45,7 +45,7 @@ export class BiddingClient {
       'x-request-id': reqId,
     };
 
-    const bidsUrl = `${baseUrl}/requests/${requestId}/bids?page=${query.page}&limit=${query.limit}`;
+    const bidsUrl = `${baseUrl}/requests/${requestId}/bids?page=${query.page}&limit=${query.limit}&status=active`;
     const statusUrl = `${baseUrl}/requests/${requestId}/bidding-status`;
 
     const [bidsOutcome, statusOutcome] = await Promise.allSettled([

@@ -28,9 +28,9 @@ htmlcov/
 !.env.example
 !*.env.example
 
-# Docs ignore except dbml
+# Docs ignore except dbml and reviews
 !docs/dbml/
 !docs/dbml/**
+!docs/reviews/
+!docs/reviews/**
 
-# graphify
-graphify-out/

@@ -1,5 +1,74 @@
 # HANDYGO MOBILE
 
+## Build APK production trên máy local (macOS/Linux)
+
+Máy cần Node.js, pnpm, JDK, Android SDK/NDK và cấu hình `JAVA_HOME`,
+`ANDROID_HOME` phù hợp. Đăng nhập tài khoản Expo có quyền vào project `handygo`.
+
+```bash
+cd mobile
+pnpm install --frozen-lockfile
+pnpm dlx eas-cli login
+pnpm run build:production:android:local
+```
+
+Trước khi build, cấu hình `mobile/.env`: `EXPO_PUBLIC_API_URL` phải là URL
+backend production mà điện thoại truy cập được; điền `EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN`
+và `MAPBOX_DOWNLOADS_TOKEN` thật. Nếu dùng push notification, cung cấp
+`GOOGLE_SERVICES_JSON_BASE64` của Firebase Android package `com.handygo`.
+Nên dùng Base64 vì file Firebase bị gitignore không được đưa vào thư mục build tạm.
+Script nạp `.env` vào môi trường build (biến đã export trong terminal được ưu tiên),
+ép `EXPO_PUBLIC_APP_ENV=production` và bật kiểm tra env nghiêm ngặt.
+Script tự chọn tài nguyên theo RAM và số CPU của từng máy:
+
+| RAM | Profile | Gradle heap tối đa | Metaspace tối đa | Gradle/Metro worker tối đa |
+| --- | --- | --- | --- | --- |
+| Dưới 16 GiB | `low` | 2 GiB | 768 MiB | 2 |
+| 16–31 GiB | `balanced` | 4 GiB | 1 GiB | 4 |
+| Từ 32 GiB | `fast` | 8 GiB | 2 GiB | 6 |
+
+Số worker còn được giới hạn theo CPU (chừa 2 CPU, tối thiểu 1 worker).
+Mac M3 Pro 36 GB tự chọn `fast`; đồng đội dùng cùng lệnh, không phải sửa source.
+Đây là mức khởi đầu, chưa phải kết quả benchmark; heap không bao gồm RAM của
+compiler native, Metro và emulator. Máy ít RAM nên đóng emulator và dùng điện thoại thật.
+Nếu đang chạy nhiều ứng dụng hoặc gặp thiếu RAM, thêm `LOCAL_BUILD_PROFILE=low`
+vào `.env` riêng của máy. Giá trị hợp lệ: `auto` (mặc định), `low`, `balanced`, `fast`.
+Các mức này áp dụng cho `build:production:android:local`, không thay đổi build iOS/cloud
+hoặc lệnh development `pnpm android`.
+
+Script bật Gradle build cache và chạy song song khi có nhiều worker; cache được giữ
+trong Gradle User Home mặc định, không xóa giữa các lần build. EAS local vẫn tạo
+thư mục build mới, nên không tái sử dụng được toàn bộ output native như build development
+trong `android/`. Giữ cache giúp các task hỗ trợ caching có cơ hội được tái sử dụng.
+Có thể ghi đè các thuộc tính `-Dorg.gradle.jvmargs`, `-Dorg.gradle.workers.max`,
+`-Dorg.gradle.parallel`, `-Dorg.gradle.caching` trong `GRADLE_OPTS`;
+`LOCAL_BUILD_METRO_WORKERS` ghi đè riêng số worker Metro.
+
+Xem profile tự chọn mà không thực hiện build hay kết nối EAS:
+
+```bash
+pnpm run build:production:android:local --dry-run
+```
+
+Khi chỉ sửa JS/TS hoặc giao diện hằng ngày, dùng dev client đã cài và `pnpm start`
+để Fast Refresh; không cần xuất lại APK production mỗi lần sửa.
+
+Kết quả: `mobile/dist/handygo-production.apk`, bản release chạy độc lập không cần
+Metro. Profile `production-apk` kế thừa production, xuất APK và không tự tăng
+version trên EAS. Lệnh `build:production:android` hiện có vẫn tạo AAB trên EAS.
+Build local vẫn cần mạng để tải dependency và truy cập Expo/project/signing credentials;
+lần đầu EAS có thể yêu cầu thiết lập keystore. Các secret chỉ lưu trên EAS phải được
+cung cấp ở môi trường local. Mỗi lần build thành công sẽ ghi đè APK tại đường dẫn trên.
+
+Cài lên điện thoại đã bật USB debugging: `adb install -r dist/handygo-production.apk`
+(chạy trong `mobile`). Development và production cùng package `com.handygo`;
+nếu báo `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, bản đang cài dùng chữ ký khác.
+Cần ký cùng keystore hoặc gỡ bản cũ trước (gỡ app sẽ xóa dữ liệu local).
+
+Tham khảo: [Expo local builds](https://docs.expo.dev/build-reference/local-builds/)
+và [APK profiles](https://docs.expo.dev/build-reference/apk/),
+[Gradle build cache](https://docs.gradle.org/current/userguide/build_cache.html).
+
 > **Chạy trên điện thoại bằng Metro:** dùng [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Máy đã cài làm phần 1; máy mới làm phần 2 trước. Khi lệnh/env trong README này khác hướng dẫn đó, đối chiếu source và dùng quy trình mới.
 
 Ứng dụng di động của dự án HANDY GO, xây dựng bằng React Native và Expo Development Build. Source base được tổ chức theo business domain và vai trò người dùng để nhiều thành viên có thể phát triển song song với ít xung đột Git.

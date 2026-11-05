@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';

@@ -1,5 +1,6 @@
 """ENV refresh invariants and recovery after the coordinating runner disappears."""
 import argparse
+import contextlib
 import io
 import json
 from pathlib import Path
@@ -76,6 +77,30 @@ class EnvRefreshTests(unittest.TestCase):
         self.assertFalse(any('shared.env' in str(c.args) for c in obj.ssh_run.call_args_list))
         self.assertNotIn('fixture-at-least-thirty-two-characters-', (obj.output / 'manifest.json').read_text())
 
+    def test_budget_aware_refresh_cannot_increase_connections_past_limit(self):
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        self.env.write_text(self.env.read_text().replace('=false\n', '=true\n').replace('DB_POOL_MAX=1', 'DB_POOL_MAX=10'))
+        with self.assertRaisesRegex(ValueError, 'exceeds limit'):
+            self.coordinator().bundle()
+
+    def test_budget_aware_refresh_without_optional_database_or_feature_settings(self):
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        original = self.env.read_text()
+        optional = ('DIRECT_URL_', 'DATABASE_URL_', 'DB_DDL_VERIFIED_',
+                    'FIREBASE_', 'GOOGLE_APPLICATION_CREDENTIALS=',
+                    'CLOUDINARY_VIDEO_CHUNK_SIZE_MB=', 'NOTIFICATION_EVENT_POLICIES=',
+                    'PUSH_EVENT_POLICIES=')
+        stripped = '\n'.join(line for line in original.splitlines() if not line.startswith(optional)) + '\n'
+        for extra in ('', 'DIRECT_URL_AUTH=\nDATABASE_URL_ORDER=\nFIREBASE_SA_BASE64=\n',
+                      'DIRECT_URL_AUTH=   \nDATABASE_URL_ORDER=   \nNOTIFICATION_EVENT_POLICIES=   \n'):
+            with self.subTest(extra=bool(extra)):
+                self.env.write_text(stripped + extra)
+                manifest, data = self.coordinator().bundle()
+                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], 9)
+                self.assertEqual(manifest['config_sha256'], orchestrate.digest(self.env.read_bytes()))
+                with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
+                    self.assertEqual(archive.extractfile('shared.env').read(), self.env.read_bytes())
+
     def test_refresh_of_a_previous_env_refresh_is_supported(self):
         self.old['files']['env-preflight.mjs'] = 'old-probe-checksum'
         self.assertTrue(self.coordinator().bundle()[0]['env_refresh'])
@@ -133,9 +158,9 @@ class EnvRefreshTests(unittest.TestCase):
     def test_restore_uses_previous_env_and_local_image_cache(self):
         obj = host.Host.__new__(host.Host)
         obj.role = 'vps1'
-        obj.names, obj.manifest = ['auth-service'], {'env_refresh': True}
+        obj.names, obj.manifest = ['auth-service'], {'env_refresh': True, 'migration_hash': 'same', 'rollback_compatible': True}
         obj.owner = Mock(return_value={'touched': True, 'previous': {'release_id': OLD}})
-        old = Mock(names=['auth-service'], release_id=OLD)
+        old = Mock(names=['auth-service'], release_id=OLD, manifest={'migration_hash': 'same', 'rollback_compatible': True})
         with patch.object(host, 'ROOT', self.root), patch.object(host, 'Host', return_value=old):
             result = obj.restore(RELEASE)
         self.assertEqual(result['rollback'], 'RESTORED')
@@ -153,11 +178,20 @@ class EnvRefreshTests(unittest.TestCase):
                 return json.dumps(states[role]).encode()
             return json.dumps(self.old if f'/{OLD}/' in command else manifest).encode()
         obj.ssh_run = Mock(side_effect=ssh)
+        obj.cluster_lock = contextlib.nullcontext
+        def inspect():
+            # Preserve object mutations while returning the same validated manifest data.
+            for state in states.values():
+                state['manifests'] = {OLD: self.old, RELEASE: manifest}
+            return states
+        obj.inspect_cluster = Mock(side_effect=inspect)
         def remote(role, action, target=None, **kwargs):
             if action == 'restore':
                 states[role]['stable'] = {'release_id': OLD}
                 states[role]['pending']['phase'] = 'RESTORED'
                 return {'rollback': 'RESTORED', 'release_id': OLD}
+            if action == 'commit':
+                states[role]['pending']['phase'] = 'COMMITTED'
             if action == 'finish':
                 states[role]['pending'] = None
             return {}
@@ -207,10 +241,10 @@ class EnvRefreshTests(unittest.TestCase):
     def test_foreign_pending_transaction_is_never_modified(self):
         obj, states, _ = self.recovery()
         states['vps2']['pending']['transaction'] = OLD
-        with self.assertRaisesRegex(RuntimeError, 'another run'):
+        with self.assertRaisesRegex(RuntimeError, 'owner/target'):
             obj.recover()
         obj.remote.assert_not_called()
-        self.assertEqual(obj.journal['status'], 'FAILED_NEEDS_INTERVENTION')
+        self.assertEqual(obj.journal['status'], 'MANUAL_INTERVENTION_REQUIRED')
 
     def test_manifest_mismatch_and_non_env_release_are_rejected_before_mutation(self):
         obj, _, manifest = self.recovery()
@@ -224,7 +258,7 @@ class EnvRefreshTests(unittest.TestCase):
             with self.subTest(failure=failure):
                 obj, _, _ = self.recovery()
                 if failure == 'SSH':
-                    obj.ssh_run.side_effect = RuntimeError('unreachable')
+                    obj.inspect_cluster.side_effect = RuntimeError('unreachable')
                 else:
                     remote = obj.remote.side_effect
                     def fail_verify(role, action, *args, **kwargs):
@@ -235,7 +269,7 @@ class EnvRefreshTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     obj.recover()
                 self.assertFalse(any(c.args[1] == 'finish' for c in obj.remote.call_args_list))
-                self.assertEqual(obj.journal['status'], 'FAILED_NEEDS_INTERVENTION')
+                self.assertEqual(obj.journal['status'], 'MANUAL_INTERVENTION_REQUIRED')
 
     def test_no_pending_is_a_safe_no_op(self):
         obj, _, _ = self.recovery(pending=False)

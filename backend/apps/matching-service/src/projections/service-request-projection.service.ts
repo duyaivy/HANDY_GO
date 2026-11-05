@@ -1,14 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { MatchingPrismaService, MatchingPrisma } from '@app/database';
 
 @Injectable()
 export class ServiceRequestProjectionService {
-  private readonly logger = new Logger(ServiceRequestProjectionService.name);
-
   constructor(private readonly prisma: MatchingPrismaService) {}
 
   /**
    * Upserts the projection when a service request is published.
+   * If a terminal tombstone already exists (from an early cancelled / order.created event),
+   * updates the projection metadata while strictly preserving the terminal status.
    */
   async upsertPublishedRequest(data: {
     id: string;
@@ -25,32 +25,56 @@ export class ServiceRequestProjectionService {
     biddingClosesAt?: string;
     selectionExpiresAt?: string;
   }): Promise<MatchingPrisma.ServiceRequestProjection> {
-    const scheduledAtDate = data.scheduledAt
-      ? new Date(data.scheduledAt)
-      : null;
-
-    return this.prisma.serviceRequestProjection.upsert({
+    const existing = await this.prisma.serviceRequestProjection.findUnique({
       where: { id: data.id },
-      update: {}, // A replay must never reopen or roll back an existing projection.
-      create: {
-        biddingClosesAt: data.biddingClosesAt
-          ? new Date(data.biddingClosesAt)
-          : null,
-        selectionExpiresAt: data.selectionExpiresAt
-          ? new Date(data.selectionExpiresAt)
-          : null,
+      select: { biddingClosesAt: true },
+    });
+
+    const publishedClosesAt = data.biddingClosesAt
+      ? new Date(data.biddingClosesAt)
+      : null;
+    const finalBiddingClosesAt =
+      existing?.biddingClosesAt &&
+      publishedClosesAt &&
+      existing.biddingClosesAt > publishedClosesAt
+        ? existing.biddingClosesAt
+        : publishedClosesAt;
+
+    const metadata = {
+      requestCode: data.requestCode,
+      customerUserId: data.customerUserId,
+      serviceId: data.serviceId,
+      description: data.description ?? null,
+      scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : null,
+      addressText: data.addressText ?? null,
+      latitude: data.latitude,
+      longitude: data.longitude,
+      biddingClosesAt: finalBiddingClosesAt,
+      selectionExpiresAt: data.selectionExpiresAt
+        ? new Date(data.selectionExpiresAt)
+        : null,
+      matchingRevision: data.matchingRevision ?? 1,
+    };
+
+    // INSERT ... ON CONFLICT DO NOTHING arbitrates concurrent publish/terminal
+    // deliveries in PostgreSQL. Neither path can fail with an ID uniqueness race.
+    await this.prisma.serviceRequestProjection.createMany({
+      data: {
         id: data.id,
-        requestCode: data.requestCode,
-        customerUserId: data.customerUserId,
-        serviceId: data.serviceId,
-        description: data.description,
-        scheduledAt: scheduledAtDate,
-        addressText: data.addressText,
-        latitude: data.latitude,
-        longitude: data.longitude,
+        ...metadata,
         status: data.status || 'open_for_bidding',
-        matchingRevision: data.matchingRevision ?? 1,
       },
+      skipDuplicates: true,
+    });
+    // Only fill an unhydrated tombstone. Never overwrite later input revisions,
+    // and never write status from a delayed publication. The predicate is checked
+    // atomically even if another publisher or lifecycle event wins the race.
+    await this.prisma.serviceRequestProjection.updateMany({
+      where: { id: data.id, requestCode: 'TOMBSTONE', matchingRevision: 0 },
+      data: metadata,
+    });
+    return this.prisma.serviceRequestProjection.findUniqueOrThrow({
+      where: { id: data.id },
     });
   }
 
@@ -69,7 +93,8 @@ export class ServiceRequestProjectionService {
       where: { id: data.id },
     });
 
-    if (!existing) throw new Error('Request projection not yet available');
+    if (!existing || existing.requestCode === 'TOMBSTONE')
+      throw new Error('Request projection not yet available');
     await this.prisma.serviceRequestProjection.updateMany({
       where: {
         id: data.id,
@@ -83,24 +108,45 @@ export class ServiceRequestProjectionService {
           ? { description: data.description }
           : {}),
         ...(data.latitude !== undefined ? { latitude: data.latitude } : {}),
-        ...(data.longitude !== undefined
-          ? { longitude: data.longitude }
-          : {}),
+        ...(data.longitude !== undefined ? { longitude: data.longitude } : {}),
         updatedAt: new Date(),
       },
     });
-
   }
 
   /**
    * Updates request status (e.g. cancelled, converted_to_order).
+   * PR42-02: If projection does not exist yet when a terminal event arrives (out-of-order broker queues),
+   * creates a durable tombstone to prevent late published events from resurrecting this request.
    */
   async updateRequestStatus(id: string, status: string): Promise<void> {
-    const existing = await this.prisma.serviceRequestProjection.findUnique({
-      where: { id },
+    if (
+      ![
+        'bidding_closed',
+        'expired',
+        'cancelled',
+        'converted_to_order',
+      ].includes(status)
+    ) {
+      throw new Error(`Unsupported request lifecycle status: ${status}`);
+    }
+    // Persist the terminal observation even when publication has not arrived.
+    // A concurrent publisher may insert first; the conditional transition below
+    // then closes its row. A concurrent terminal event cannot be overwritten.
+    await this.prisma.serviceRequestProjection.createMany({
+      data: {
+        id,
+        requestCode: 'TOMBSTONE',
+        customerUserId: '00000000-0000-0000-0000-000000000000',
+        serviceId: '00000000-0000-0000-0000-000000000000',
+        latitude: 0,
+        longitude: 0,
+        status,
+        matchingRevision: 0,
+      },
+      skipDuplicates: true,
     });
 
-    if (!existing) throw new Error('Request projection not yet available');
     const predecessors =
       status === 'bidding_closed'
         ? ['open_for_bidding']
@@ -108,6 +154,59 @@ export class ServiceRequestProjectionService {
     await this.prisma.serviceRequestProjection.updateMany({
       where: { id, status: { in: predecessors } },
       data: { status },
+    });
+  }
+
+  /**
+   * FIX-02: Extends bidding deadline for anti-sniping consistency.
+   * - Monotonic update: only updates if newClosesAt > current biddingClosesAt.
+   * - Handles out-of-order events: creates a placeholder if published event hasn't arrived yet.
+   * - Strictly preserves terminal statuses: never reopens cancelled, expired, converted_to_order, or bidding_closed.
+   */
+  async extendBiddingDeadline(
+    id: string,
+    newClosesAt: Date | string,
+  ): Promise<void> {
+    const newClosesAtDate =
+      typeof newClosesAt === 'string' ? new Date(newClosesAt) : newClosesAt;
+
+    if (Number.isNaN(newClosesAtDate.getTime())) {
+      throw new Error(`Invalid newClosesAt date: ${String(newClosesAt)}`);
+    }
+
+    // Out-of-order handling: if publication has not arrived yet, insert placeholder.
+    // If a row already exists (terminal tombstone or published), skipDuplicates avoids conflict.
+    await this.prisma.serviceRequestProjection.createMany({
+      data: {
+        id,
+        requestCode: 'TOMBSTONE',
+        customerUserId: '00000000-0000-0000-0000-000000000000',
+        serviceId: '00000000-0000-0000-0000-000000000000',
+        latitude: 0,
+        longitude: 0,
+        status: 'open_for_bidding',
+        matchingRevision: 0,
+        biddingClosesAt: newClosesAtDate,
+      },
+      skipDuplicates: true,
+    });
+
+    // Monotonic update on open_for_bidding requests only:
+    // Never updates cancelled, expired, converted_to_order, or bidding_closed
+    // Never decreases biddingClosesAt if an older/duplicate event arrives
+    await this.prisma.serviceRequestProjection.updateMany({
+      where: {
+        id,
+        status: 'open_for_bidding',
+        OR: [
+          { biddingClosesAt: null },
+          { biddingClosesAt: { lt: newClosesAtDate } },
+        ],
+      },
+      data: {
+        biddingClosesAt: newClosesAtDate,
+        updatedAt: new Date(),
+      },
     });
   }
 
@@ -144,6 +243,8 @@ export class ServiceRequestProjectionService {
   /**
    * Worker job discovery: queries open requests matching the worker's offered services
    * and within at least one of the worker's active geographical service areas.
+   * PR42-01: Uses matching_service.service_request_projections as the sole read model,
+   * without cross-service database JOINs to order_service or bidding_service.
    */
   async findMatchingRequestsForWorker(params: {
     workerUserId: string;

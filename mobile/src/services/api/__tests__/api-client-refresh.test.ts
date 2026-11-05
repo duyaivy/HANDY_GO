@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import axios from 'axios';
 import { getToken, removeToken, setToken } from '@/lib/auth/utils';
 import { ApiClient, axiosInstance, setOnUnauthorizedCallback } from '../api-client';

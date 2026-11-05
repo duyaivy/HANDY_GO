@@ -75,6 +75,8 @@ services:
     profiles: [vps1]
     command: [node, dist/apps/user-trust-service/main.js]
     environment: {PORT: '3002', NODE_OPTIONS: '--max-old-space-size=96'}
+    # Cross-VPS callers use the WireGuard address; never publish this internal API publicly.
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3002:3002']
     mem_limit: 176m
     memswap_limit: 352m
   notification-service:

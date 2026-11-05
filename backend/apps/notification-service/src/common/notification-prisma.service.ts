@@ -1,3 +1,4 @@
+import { databasePoolConfig, databasePoolError } from '@app/database';
 import {
   Injectable,
   type OnModuleInit,
@@ -23,8 +24,8 @@ export class NotificationPrismaService
     const url = new URL(connectionString);
     const schema = url.searchParams.get('schema') || 'notification_service';
     const adapter = new PrismaPg(
-      { connectionString },
-      { schema },
+      databasePoolConfig(connectionString, 'notification'),
+      { schema, onPoolError: databasePoolError('notification') },
     );
     super({ adapter });
     this.schema = schema;

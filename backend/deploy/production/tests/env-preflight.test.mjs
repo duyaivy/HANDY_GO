@@ -10,6 +10,7 @@ const env = {
   DATABASE_URL: 'postgresql://fixture:private-value@database/app',
   REDIS_URL: 'rediss://fixture:private-value@redis',
   RABBITMQ_URL: 'amqps://fixture:private-value@broker',
+  NODE_ENV: 'production', USER_TRUST_SERVICE_URL: 'http://10.77.0.1:3002',
   SMTP_USER: 'fixture@example.com', SMTP_PASS: 'private-value',
 };
 
@@ -77,6 +78,13 @@ for (const [failure, expected, closed] of [
   });
 }
 
+test('cross-VPS User Trust calls require the VPS1 WireGuard IP', async () => {
+  const { calls, load } = fixture();
+  await assert.rejects(checkEnv('vps2', { ...env, USER_TRUST_SERVICE_URL: 'http://user-trust-service:3002' }, load, () => {}), /service endpoint configuration/);
+  assert.equal(calls.length, 0);
+  await checkEnv('vps2', env, load, () => {});
+});
+
 test('mismatched signing keys fail before dependency connections', async () => {
   const other = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const { calls, load } = fixture();
@@ -97,3 +105,15 @@ test('host database overrides are checked once and SMTP runs only on VPS1', asyn
   ]);
   assert.ok(!calls.includes('smtp-verify'));
 });
+
+for (const blank of [undefined, '', '   ']) {
+  test(`blank host overrides and SMTP defaults are unset: ${JSON.stringify(blank)}`, async () => {
+    const { calls, load } = fixture();
+    await checkEnv('vps1', { ...env, DATABASE_URL_AUTH: blank, DATABASE_URL_USER_TRUST: blank,
+      DATABASE_URL_NOTIFICATION: blank, SMTP_HOST: blank, SMTP_PORT: blank }, load, () => {});
+    assert.deepEqual(calls.filter(call => Array.isArray(call) && call[0] === 'database'), [['database', env.DATABASE_URL]]);
+    const options = calls.find(call => Array.isArray(call) && call[0] === 'smtp-options')[1];
+    assert.equal(options.host, 'smtp.gmail.com');
+    assert.equal(options.port, 465);
+  });
+}

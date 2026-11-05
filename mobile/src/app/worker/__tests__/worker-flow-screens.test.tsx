@@ -1,4 +1,3 @@
-/* eslint-disable max-lines-per-function */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 
