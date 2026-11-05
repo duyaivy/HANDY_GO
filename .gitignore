@@ -34,3 +34,4 @@ htmlcov/
 !docs/reviews/
 !docs/reviews/**
 
+graphify-out/
