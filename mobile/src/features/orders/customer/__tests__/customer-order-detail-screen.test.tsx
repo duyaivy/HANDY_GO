@@ -383,4 +383,43 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText('Liên Hệ Hỗ Trợ Khẩn Cấp')).toBeOnTheScreen();
     });
   });
+
+  it('resolves and displays real worker data from bid detail when order has selectedBidId', async () => {
+    const orderWithoutWorker = {
+      ...baseOrder,
+      worker: undefined,
+      workerName: undefined,
+      selectedBidId: 'bid-real-999',
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: orderWithoutWorker,
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const getBidSpy = jest.spyOn(OrdersApi, 'getBidDetail').mockResolvedValue({
+      data: {
+        id: 'bid-real-999',
+        workerProfile: {
+          fullName: 'Trần Văn Thực Tế',
+          avatarUrl: 'https://example.com/real-avatar.jpg',
+          averageRating: 4.9,
+          completedOrderCount: 42,
+          phoneNumber: '0988776655',
+        },
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+    await waitFor(() => {
+      expect(getBidSpy).toHaveBeenCalled();
+      expect(screen.getByText('Trần Văn Thực Tế')).toBeOnTheScreen();
+      expect(screen.getByText('4.9')).toBeOnTheScreen();
+      expect(screen.getByText(/42 đơn thành công/)).toBeOnTheScreen();
+    });
+  });
 });

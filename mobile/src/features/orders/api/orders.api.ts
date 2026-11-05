@@ -153,6 +153,19 @@ export const OrdersApi = {
     );
   },
 
+  // --- Bids ---
+  getBidDetail: async (bidId: string) => {
+    return ApiClient.get<{ statusCode: number; message: string; data: any }>(
+      `/bids/${bidId}`,
+    );
+  },
+
+  getRequestBids: async (requestId: string) => {
+    return ApiClient.get<{ statusCode: number; message: string; data: { items?: any[] } | any[] }>(
+      `/requests/${requestId}/bids`,
+    );
+  },
+
   // --- Orders ---
   getMyOrders: async (params?: Record<string, unknown>) => {
     return ApiClient.get<{ statusCode: number; message: string; data: PaginatedList<Order> | Order[] }>(

@@ -28,7 +28,7 @@ export function OrderWorkerCard({
   avatarUrl,
   phoneNumber = '0901234567',
   rating = 5.0,
-  completedJobs = 120,
+  completedJobs = 0,
   headline = 'Thợ chuyên nghiệp HandyGo',
 }: OrderWorkerCardProps) {
   const router = useRouter();

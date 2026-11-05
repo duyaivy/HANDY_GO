@@ -94,29 +94,47 @@ export function CustomerOrderDetailScreen({
     isConfirming,
     isDisputing,
     isLoading,
-    isRefetching,
     isRequestingRework,
     openDispute,
     order,
     refetch,
     requestRework,
     statusHistory,
+    worker,
   } = useCustomerOrderDetail(orderId);
+
+  const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
+  const handleManualRefresh = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    }
+    finally {
+      setIsManualRefreshing(false);
+    }
+  };
 
   const pageTitle = propTitle || (isPlumberOrder ? 'Chi tiết đơn hàng (Plumber)' : 'Chi tiết đơn hàng');
   const pageSubtitle = `Mã đơn: #${order?.orderCode || orderId}`;
 
-  // Worker Info Resolution
-  const displayWorkerName = (order as any)?.worker?.fullName
+  // Worker Info Resolution (Lấy data thợ thật)
+  const realWorker = worker || (order as any)?.worker;
+  const displayWorkerName = realWorker?.fullName
     || (order as any)?.workerName
     || (isPlumberOrder ? 'A CẢNH VĂN' : 'Thợ phụ trách');
   const displayWorkerId = order?.workerUserId || (isPlumberOrder ? 'a-canh-van' : undefined);
-  const displayWorkerAvatar = (order as any)?.worker?.avatarUrl || (order as any)?.workerAvatarUrl;
-  const displayWorkerPhone = (order as any)?.worker?.phone || (order as any)?.workerPhone || '0901234567';
-  const displayWorkerRating = (order as any)?.worker?.rating || 5.0;
-  const displayWorkerJobs = (order as any)?.worker?.completedJobsCount || 120;
-  const displayWorkerHeadline = (order as any)?.worker?.headline
-    || (isPlumberOrder ? 'Chuyên điện nước dân dụng & xử lý rò rỉ' : 'Đối tác chuyên nghiệp HandyGo');
+  const displayWorkerAvatar = realWorker?.avatarUrl || (order as any)?.workerAvatarUrl;
+  const displayWorkerPhone = realWorker?.phone || (order as any)?.workerPhone || '0901234567';
+  const displayWorkerRating = typeof realWorker?.rating === 'number'
+    ? realWorker.rating
+    : ((order as any)?.worker?.rating ?? 5.0);
+  const displayWorkerJobs = typeof realWorker?.completedJobsCount === 'number'
+    ? realWorker.completedJobsCount
+    : ((order as any)?.worker?.completedJobsCount ?? 0);
+  const displayWorkerHeadline = realWorker?.headline
+    || (realWorker?.fullName
+      ? 'Thợ đối tác chuyên nghiệp HandyGo'
+      : (isPlumberOrder ? 'Chuyên điện nước dân dụng & xử lý rò rỉ' : 'Đối tác chuyên nghiệp HandyGo'));
 
   // Service Info Resolution
   const resolvedServiceName = propServiceName
@@ -218,17 +236,15 @@ export function CustomerOrderDetailScreen({
         contentContainerStyle={{ paddingBottom: 110 }}
         refreshControl={(
           <RefreshControl
-            refreshing={Boolean(isRefetching)}
-            onRefresh={() => {
-              refetch();
-            }}
+            refreshing={isManualRefreshing}
+            onRefresh={handleManualRefresh}
             colors={['#F5A524']}
             tintColor="#F5A524"
           />
         )}
       >
         {/* Loading Indicator */}
-        {isLoading && (
+        {isLoading && !order && (
           <View className="items-center justify-center py-4">
             <ActivityIndicator size="small" color="#F5A524" />
           </View>

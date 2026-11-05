@@ -176,24 +176,24 @@ export function OrderStatusStepper({
   return (
     <View className="mb-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
       {/* Hero Status Banner */}
-      <View className={`border-b p-4 ${statusConfig.bgClass}`}>
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center gap-2.5">
-            <View className="size-9 items-center justify-center rounded-xl bg-white/80 shadow-xs dark:bg-neutral-800">
-              {statusConfig.icon}
-            </View>
-            <View className="flex-1 pr-2">
-              <Text className={`text-sm font-bold ${statusConfig.titleClass}`}>
+      <View className={`p-4 ${!isCancelled && !isDisputed ? 'border-b' : ''} ${statusConfig.bgClass}`}>
+        <View className="flex-row items-start gap-3">
+          <View className="size-9 shrink-0 items-center justify-center rounded-xl bg-white/80 shadow-xs dark:bg-neutral-800">
+            {statusConfig.icon}
+          </View>
+          <View className="min-w-0 flex-1">
+            <View className="flex-row items-start justify-between gap-2">
+              <Text className={`flex-1 text-sm font-bold ${statusConfig.titleClass}`} numberOfLines={2}>
                 {statusConfig.title}
               </Text>
-              <Text className={`mt-0.5 text-xs ${statusConfig.subtitleClass}`} numberOfLines={2}>
-                {statusConfig.subtitle}
-              </Text>
+              <View className={`shrink-0 rounded-full px-2 py-0.5 ${statusConfig.badgeBg}`}>
+                <Text className={`text-[10px] font-bold ${statusConfig.badgeTextClass}`}>
+                  {statusConfig.badgeText}
+                </Text>
+              </View>
             </View>
-          </View>
-          <View className={`rounded-full px-2.5 py-1 ${statusConfig.badgeBg}`}>
-            <Text className={`text-[11px] font-bold ${statusConfig.badgeTextClass}`}>
-              {statusConfig.badgeText}
+            <Text className={`mt-1 text-xs ${statusConfig.subtitleClass}`} numberOfLines={2}>
+              {statusConfig.subtitle}
             </Text>
           </View>
         </View>

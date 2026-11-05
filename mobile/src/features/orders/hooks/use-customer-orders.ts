@@ -216,8 +216,8 @@ export function useCustomerOrderDetail(orderId?: string) {
       if (!data) {
         return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired)
-      if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
+      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired/disputed)
+      if (!['completed', 'cancelled', 'expired', 'disputed'].includes(data.status)) {
         return 3000;
       }
       return false;
@@ -237,12 +237,69 @@ export function useCustomerOrderDetail(orderId?: string) {
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
     refetchInterval: () => {
       const order = orderQuery.data;
-      if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
+      if (order && !['completed', 'cancelled', 'expired', 'disputed'].includes(order.status)) {
         return 3000;
       }
       return false;
     },
     refetchIntervalInBackground: false,
+  });
+
+  const workerProfileQuery = useQuery({
+    queryKey: ['order-worker-profile', orderQuery.data?.workerUserId, (orderQuery.data as any)?.selectedBidId, orderQuery.data?.serviceRequestId],
+    queryFn: async () => {
+      const order = orderQuery.data;
+      if (!order) {
+        return null;
+      }
+      if ((order as any)?.worker?.fullName) {
+        return (order as any).worker;
+      }
+
+      const selectedBidId = (order as any)?.selectedBidId;
+      if (selectedBidId) {
+        try {
+          const res = await OrdersApi.getBidDetail(selectedBidId);
+          if (res?.data?.workerProfile) {
+            return {
+              fullName: res.data.workerProfile.fullName,
+              avatarUrl: res.data.workerProfile.avatarUrl,
+              rating: res.data.workerProfile.averageRating ?? 5.0,
+              completedJobsCount: res.data.workerProfile.completedOrderCount ?? 0,
+              phone: (res.data.workerProfile as any)?.phoneNumber || (res.data.workerProfile as any)?.phone || '0901234567',
+            };
+          }
+        }
+        catch {
+          // ignore and fall back to request bids
+        }
+      }
+
+      if (order.serviceRequestId) {
+        try {
+          const res = await OrdersApi.getRequestBids(order.serviceRequestId);
+          const rawItems = (res?.data as any)?.items || res?.data || [];
+          const items = Array.isArray(rawItems) ? rawItems : [];
+          const matched = items.find((b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId);
+          if (matched?.workerProfile) {
+            return {
+              fullName: matched.workerProfile.fullName,
+              avatarUrl: matched.workerProfile.avatarUrl,
+              rating: matched.workerProfile.averageRating ?? 5.0,
+              completedJobsCount: matched.workerProfile.completedOrderCount ?? 0,
+              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || '0901234567',
+            };
+          }
+        }
+        catch {
+          // ignore
+        }
+      }
+
+      return null;
+    },
+    enabled: Boolean(orderQuery.data && orderId && orderId !== '224466' && orderId !== 'demo-001'),
+    staleTime: 60000,
   });
 
   const confirmCompletionMutation = useMutation({
@@ -303,11 +360,12 @@ export function useCustomerOrderDetail(orderId?: string) {
 
   return {
     order: orderQuery.data,
+    worker: workerProfileQuery.data || (orderQuery.data as any)?.worker || null,
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
     refetch: async () => {
-      await Promise.all([orderQuery.refetch(), historyQuery.refetch()]);
+      await Promise.all([orderQuery.refetch(), historyQuery.refetch(), workerProfileQuery.refetch()]);
     },
     confirmCompletion: confirmCompletionMutation.mutateAsync,
     isConfirming: confirmCompletionMutation.isPending,
