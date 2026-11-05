@@ -20,6 +20,12 @@ function resolveValidServiceId(id?: string, name?: string): string {
     return id;
   }
   const lower = (name || '').toLowerCase();
+  if (lower.includes('giặt')) {
+    return 'cbb1b85c-32f9-4041-a0fd-df5cde04784f'; // Sửa máy giặt
+  }
+  if (lower.includes('tivi')) {
+    return '2f77c5e1-f653-4de8-b0b7-8ce969394d2e'; // Sửa tivi
+  }
   if (lower.includes('điện')) {
     return 'a34626a6-fbe8-44fe-9ceb-33e85285b0e8'; // Sửa điện
   }
@@ -28,6 +34,12 @@ function resolveValidServiceId(id?: string, name?: string): string {
   }
   if (lower.includes('cống')) {
     return '0ae3c4ef-005f-43c2-a995-c36d0a85da1c'; // Thông cống
+  }
+  if (lower.includes('sơn')) {
+    return '3c049147-4803-40e6-9ebb-37a313fad5e9'; // Sơn nhà
+  }
+  if (lower.includes('dọn')) {
+    return '4c441301-efeb-43d1-ae58-a51a4eb90997'; // Dọn dẹp nhà cửa
   }
   return 'b1026b8e-dd6c-478b-aeab-1afb582bcfd0'; // Sửa ống nước
 }

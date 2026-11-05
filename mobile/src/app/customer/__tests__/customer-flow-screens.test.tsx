@@ -139,7 +139,7 @@ describe('customer Skeleton & Route Flow', () => {
       fireEvent.press(bookNowBtn);
       expect(mockPush).toHaveBeenCalledWith({
         pathname: '/customer/booking',
-        params: { serviceId: 'srv-01' },
+        params: { serviceId: 'srv-01', serviceName: 'Sửa ống nước' },
       });
     });
   });
