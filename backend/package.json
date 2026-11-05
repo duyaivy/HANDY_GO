@@ -19,7 +19,8 @@
     "prisma:generate:bidding": "prisma generate --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts",
     "prisma:generate:notification": "prisma generate --schema=apps/notification-service/prisma/schema.prisma",
     "prisma:generate:matching": "prisma generate --schema=apps/matching-service/prisma/schema.prisma --config=apps/matching-service/prisma/prisma.config.ts",
-    "prisma:generate": "pnpm run prisma:generate:auth && pnpm run prisma:generate:user-trust && pnpm run prisma:generate:catalog && pnpm run prisma:generate:order && pnpm run prisma:generate:bidding && pnpm run prisma:generate:notification && pnpm run prisma:generate:matching && pnpm run prisma:generate:wallet",
+    "prisma:generate:payment": "prisma generate --schema=apps/payment-service/prisma/schema.prisma",
+    "prisma:generate": "pnpm run prisma:generate:auth && pnpm run prisma:generate:user-trust && pnpm run prisma:generate:catalog && pnpm run prisma:generate:order && pnpm run prisma:generate:bidding && pnpm run prisma:generate:notification && pnpm run prisma:generate:matching && pnpm run prisma:generate:wallet && pnpm run prisma:generate:payment",
     "prisma:generate:wallet": "prisma generate --schema=apps/wallet-service/prisma/schema.prisma",
     "prisma:migrate:auth": "prisma migrate deploy --schema=apps/auth-service/prisma/schema.prisma --config=apps/auth-service/prisma/prisma.config.ts",
     "prisma:migrate:user-trust": "prisma migrate deploy --schema=apps/user-trust-service/prisma/schema.prisma --config=apps/user-trust-service/prisma/prisma.config.ts",
@@ -28,6 +29,7 @@
     "prisma:migrate:bidding": "prisma migrate deploy --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts",
     "prisma:migrate:notification": "prisma migrate deploy --schema=apps/notification-service/prisma/schema.prisma --config=apps/notification-service/prisma/prisma.config.ts",
     "prisma:migrate:matching": "prisma migrate deploy --schema=apps/matching-service/prisma/schema.prisma --config=apps/matching-service/prisma/prisma.config.ts",
+    "prisma:migrate:payment": "prisma migrate deploy --config=apps/payment-service/prisma/prisma.config.ts",
     "prisma:migrate": "pnpm run prisma:migrate:auth && pnpm run prisma:migrate:user-trust && pnpm run prisma:migrate:catalog && pnpm run prisma:migrate:order && pnpm run prisma:migrate:bidding && pnpm run prisma:migrate:notification && pnpm run prisma:migrate:matching && pnpm run prisma:migrate:wallet",
     "prisma:migrate:wallet": "prisma migrate deploy --schema=apps/wallet-service/prisma/schema.prisma --config=apps/wallet-service/prisma/prisma.config.ts",
     "prisma:status:auth": "prisma migrate status --schema=apps/auth-service/prisma/schema.prisma --config=apps/auth-service/prisma/prisma.config.ts",
@@ -37,6 +39,7 @@
     "prisma:status:bidding": "prisma migrate status --schema=apps/bidding-service/prisma/schema.prisma --config=apps/bidding-service/prisma/prisma.config.ts",
     "prisma:status:notification": "prisma migrate status --schema=apps/notification-service/prisma/schema.prisma --config=apps/notification-service/prisma/prisma.config.ts",
     "prisma:status:matching": "prisma migrate status --schema=apps/matching-service/prisma/schema.prisma --config=apps/matching-service/prisma/prisma.config.ts",
+    "prisma:status:payment": "prisma migrate status --config=apps/payment-service/prisma/prisma.config.ts",
     "prisma:status": "pnpm run prisma:status:auth && pnpm run prisma:status:user-trust && pnpm run prisma:status:catalog && pnpm run prisma:status:order && pnpm run prisma:status:bidding && pnpm run prisma:status:notification && pnpm run prisma:status:matching && pnpm run prisma:status:wallet",
     "prisma:status:wallet": "prisma migrate status --schema=apps/wallet-service/prisma/schema.prisma --config=apps/wallet-service/prisma/prisma.config.ts",
     "prisma:studio:order": "prisma studio --config=apps/order-service/prisma/prisma.config.ts",
@@ -64,7 +67,8 @@
     "typecheck:wallet": "tsc --noEmit -p apps/wallet-service/tsconfig.typecheck.json",
     "test:wallet:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-up.ps1",
     "test:wallet:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-down.ps1",
-    "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts"
+    "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts",
+    "test:integration:payment": "vitest run --config ./vitest.config.payment-integration.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",

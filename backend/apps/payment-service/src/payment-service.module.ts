@@ -5,6 +5,7 @@ import { HealthModule } from './health/health.module.js';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
 import { RabbitMQModule } from '@app/rabbitmq';
+import { PaymentQueryModule } from './payment-query/payment-query.module.js';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { RabbitMQModule } from '@app/rabbitmq';
     LoggerModule.forRoot('payment-service'),
     HealthModule,
     RabbitMQModule,
+    PaymentQueryModule,
   ],
   controllers: [PaymentServiceController],
   providers: [PaymentServiceService],
