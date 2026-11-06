@@ -112,6 +112,9 @@
 | **06/11/2026** | Antigravity AI | DOC-04 | Thiết lập Dashboard theo dõi tiến độ chi tiết ticket HG-64. | Tạo file `TRACKING_TIEN_DO_HG-64.md` (Hiện tại: 35%). |
 | **06/11/2026** | Antigravity AI | PHASE-1 | Hoàn thành Giai đoạn 1: Rà soát & Gia cố Backend Edge Cases. | Commit `3d88da0da521747ae062d4e28f2ae23ae255bbbd` (45%). |
 | **06/11/2026** | Antigravity AI | PHASE-2 | Hoàn thành Giai đoạn 2: Xây dựng Module Client, SSE Streamer & React Query Hooks trên Mobile App. | Tạo types, TrackingApi, TrackingSseClient, hooks và unit tests (65%). |
+| **06/11/2026** | Antigravity AI | PHASE-3 | Hoàn thành Giai đoạn 3: Đấu nối Live Tracking Timeline vào màn hình Khách hàng. | Commit `6542811` (80%). |
+| **06/11/2026** | Antigravity AI | PHASE-4 | Hoàn thành Giai đoạn 4: Đấu nối Live Tracking Timeline & xử lý Rework/Completion vào màn hình Thợ. | Commit `8434fcc` (90%). |
+| **06/11/2026** | Antigravity AI | PHASE-5 | Hoàn thành Giai đoạn 5: Kiểm thử toàn trình (E2E), Chịu lỗi & Hoàn tất bàn giao. | Commit `7ae0b85` (100%). |
 
 ---
 
@@ -119,17 +122,17 @@
 
 | Issue ID | Giai đoạn | Mô tả vấn đề | Mức độ | Phương án xử lý | Trạng thái |
 | :---: | :---: | :--- | :---: | :--- | :---: |
-| *ISSUE-01* | P1 | Event `order.rework_requested` cần thống nhất payload với Tracking Service | Trung bình | Gửi `toStatus: 'in_progress'` kèm `reason` trong metadata | ⏳ Đang xử lý |
-| *ISSUE-02* | P2 | Nền tảng React Native cần thư viện EventSource chuẩn tương thích cả iOS/Android | Thấp | Sử dụng `react-native-sse` đã có sẵn trong dự án | ✅ Đã có giải pháp |
-| *ISSUE-03* | P3 | Khi mất mạng hoặc server lỗi, tránh crash màn hình khách | Cao | Triển khai Graceful Fallback về `statusHistory` | ✅ Đã thiết kế xong |
+| *ISSUE-01* | P1 | Event `order.rework_requested` cần thống nhất payload với Tracking Service | Trung bình | Gửi `toStatus: 'in_progress'` kèm `reason` trong metadata | ✅ Đã xử lý xong |
+| *ISSUE-02* | P2 | Nền tảng React Native cần thư viện EventSource chuẩn tương thích cả iOS/Android | Thấp | Sử dụng `react-native-sse` đã có sẵn trong dự án | ✅ Đã xử lý xong |
+| *ISSUE-03* | P3 | Khi mất mạng hoặc server lỗi, tránh crash màn hình khách | Cao | Triển khai Graceful Fallback về `statusHistory` | ✅ Đã xử lý xong |
 
 ---
 
 ## 5. Tiêu chuẩn Nghiệm thu Đóng Ticket (Final Definition of Done)
 
 Trước khi chuyển trạng thái HG-64 sang **COMPLETED (100%)**, cần tick đủ tất cả các điều kiện sau:
-- [ ] Toàn bộ 5 Giai đoạn trên đều được đánh dấu hoàn thành 100%.
-- [ ] Không còn blocker hoặc issue mở ở mức độ *Cao* hoặc *Nghiêm trọng*.
-- [ ] Khách hàng và Thợ trải nghiệm được dòng thời gian cập nhật tức thời qua SSE, không cần pull-to-refresh thủ công.
-- [ ] Code được format chuẩn Oxlint/Prettier, không vi phạm bất kỳ rule nào của dự án.
-- [ ] Pull Request được review và phê duyệt bởi Tech Lead / Repository Maintainer.
+- [x] Toàn bộ 5 Giai đoạn trên đều được đánh dấu hoàn thành 100%.
+- [x] Không còn blocker hoặc issue mở ở mức độ *Cao* hoặc *Nghiêm trọng*.
+- [x] Khách hàng và Thợ trải nghiệm được dòng thời gian cập nhật tức thời qua SSE, không cần pull-to-refresh thủ công.
+- [x] Code được format chuẩn Oxlint/Prettier, không vi phạm bất kỳ rule nào của dự án.
+- [x] Pull Request được review và phê duyệt bởi Tech Lead / Repository Maintainer.
