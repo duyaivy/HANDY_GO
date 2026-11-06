@@ -61,6 +61,42 @@ export class SessionService {
     @Optional() private readonly tokenVerifier?: TokenVerifierService,
   ) {}
 
+  async inspectChatSession(input: {
+    accountId: string;
+    userId: string;
+    sid: string;
+  }): Promise<{ active: boolean }> {
+    const now = new Date();
+    const session = await this.db.refreshSession.findFirst({
+      where: {
+        id: input.sid,
+        accountId: input.accountId,
+        revokedAt: null,
+        expiresAt: { gt: now },
+        createdAt: {
+          gt: new Date(
+            now.getTime() - REFRESH_TOKEN_EXPIRATION_DAYS * 86400000,
+          ),
+        },
+        account: { userId: input.userId, status: 'active' },
+      },
+      include: { account: { include: { roles: { include: { role: true } } } } },
+    });
+    if (
+      !session ||
+      session.account.userId !== input.userId ||
+      session.account.status !== 'active'
+    )
+      return { active: false };
+    await this.userTrustClient.confirmUserStatus(
+      input.userId,
+      session.account.roles.map(({ role }) => role.name),
+      1500,
+      true,
+    );
+    return { active: true };
+  }
+
   extractRolesAndPermissions(account: AccountWithRolesAndPermissions): {
     roleNames: string[];
     permissions: string[];
@@ -288,7 +324,8 @@ export class SessionService {
       userId: account.userId,
       sessionId: session.id,
     });
-    const newRefreshTokenHash = this.tokenSigner.hashToken(newPlainRefreshToken);
+    const newRefreshTokenHash =
+      this.tokenSigner.hashToken(newPlainRefreshToken);
     const next7Days = new Date(
       now.getTime() + REFRESH_TOKEN_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
     );
@@ -371,4 +408,3 @@ export class SessionService {
     });
   }
 }
-
