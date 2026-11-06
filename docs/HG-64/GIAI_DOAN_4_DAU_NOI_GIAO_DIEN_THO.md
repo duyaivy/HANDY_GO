@@ -4,7 +4,7 @@
 > **Giai đoạn:** 4/5  
 > **Tên giai đoạn:** Đấu nối Giao diện Thợ, Đồng bộ Trạng thái Làm lại (Rework) & Nghiệm thu (Completion)  
 > **Thời lượng ước tính:** 0.5 ngày  
-> **Trạng thái:** ⏳ Sẵn sàng thực hiện  
+> **Trạng thái:** ✅ Đã hoàn thành  
 
 ---
 
@@ -116,7 +116,7 @@ pnpm test src/features/orders/worker/__tests__/worker-job-detail-screen.test.tsx
 
 ## 4. Tiêu chuẩn hoàn thành Giai đoạn 4 (Sign-off Checklist)
 
-- [ ] Thợ xem được đúng timeline của đơn hàng mình nhận (không lộ thông tin các báo giá khác nhờ Bid Shielding).
-- [ ] Khi Khách bấm Rework từ máy khách, máy Thợ nhận được Alert tức thì qua SSE và nút "Báo hoàn tất" được kích hoạt lại.
-- [ ] Khi Khách bấm Nghiệm thu, máy Thợ chuyển trạng thái Đã hoàn thành tự động.
-- [ ] Sẵn sàng bước vào **Giai đoạn 5 (Kiểm thử toàn trình E2E & Nghiệm thu)**.
+- [x] Thợ xem được đúng timeline của đơn hàng mình nhận (không lộ thông tin các báo giá khác nhờ Bid Shielding).
+- [x] Khi Khách bấm Rework từ máy khách, máy Thợ nhận được Alert tức thì qua SSE và nút "Báo hoàn tất" được kích hoạt lại.
+- [x] Khi Khách bấm Nghiệm thu, máy Thợ chuyển trạng thái Đã hoàn thành tự động.
+- [x] Sẵn sàng bước vào **Giai đoạn 5 (Kiểm thử toàn trình E2E & Nghiệm thu)**.

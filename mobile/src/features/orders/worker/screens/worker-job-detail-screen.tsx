@@ -1,4 +1,5 @@
 import type { OrderStatusHistoryItem } from '../../types/order.types';
+import type { TrackingEventItem } from '@/features/tracking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -13,6 +14,11 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
+import {
+  OrderTrackingTimeline,
+  useTrackingEvents,
+  useTrackingSummary,
+} from '@/features/tracking';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
 function formatVND(amount: number | string | undefined | null): string {
@@ -64,7 +70,7 @@ export function WorkerJobDetailScreen({
   onBack,
 }: WorkerJobDetailScreenProps = {}) {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; serviceRequestId?: string }>();
   const jobId = propJobId || params.id || '';
 
   const {
@@ -77,10 +83,92 @@ export function WorkerJobDetailScreen({
     statusHistory,
   } = useWorkerJobDetail(jobId);
 
-  // Trạng thái local cho phép test mượt mà ngay cả khi mock
-  const [localStatus, setLocalStatus] = React.useState<string>(order?.status || 'created');
+  // Lấy serviceRequestId từ order hoặc params
+  const serviceRequestId = order?.serviceRequestId || params.serviceRequestId;
 
-  const currentStatus = order?.status || localStatus;
+  // Lấy dữ liệu summary từ Tracking Service
+  const {
+    data: trackingSummary,
+    isError: isTrackingError,
+    isLoading: isTrackingLoading,
+  } = useTrackingSummary(serviceRequestId);
+
+  // Trạng thái local cho phép test mượt mà ngay cả khi mock hoặc nhận sự kiện tức thì
+  const [localStatus, setLocalStatus] = React.useState<string | null>(null);
+  const [reworkReason, setReworkReason] = React.useState<string | null>(null);
+
+  // Xử lý sự kiện thời gian thực từ Tracking SSE
+  const handleWorkerRealtimeEvent = React.useCallback((event: TrackingEventItem) => {
+    // 1. Trường hợp Khách hàng yêu cầu sửa chữa (Rework)
+    if (
+      (event.eventType === 'order.status.changed' || event.eventType === 'order.rework_requested')
+      && event.toStatus === 'in_progress'
+      && (event.reason || (event.metadata as any)?.reason)
+    ) {
+      const reworkReasonText
+        = event.reason
+          || (event.metadata as any)?.reason
+          || 'Khách hàng yêu cầu chỉnh sửa lại công việc';
+      setLocalStatus('in_progress');
+      setReworkReason(reworkReasonText);
+      Alert.alert(
+        '⚠️ Yêu cầu chỉnh sửa công việc',
+        `Khách hàng vừa gửi yêu cầu sửa lại:\n\n"${reworkReasonText}"\n\nVui lòng kiểm tra và hoàn thiện lại công việc.`,
+        [{ text: 'Đã hiểu', style: 'default' }],
+      );
+    }
+
+    // 2. Trường hợp Khách hàng đã duyệt nghiệm thu thành công
+    if (event.eventType === 'order.completed' || event.toStatus === 'completed') {
+      setLocalStatus('completed');
+      Alert.alert(
+        '🎉 Nghiệm thu thành công!',
+        'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
+        [{ text: 'Tuyệt vời', style: 'default' }],
+      );
+    }
+
+    // 3. Trường hợp đơn bị tranh chấp / khiếu nại
+    if (event.eventType === 'order.disputed' || event.toStatus === 'disputed') {
+      setLocalStatus('disputed');
+      Alert.alert(
+        '🚨 Đơn hàng đang được khiếu nại',
+        'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.',
+        [{ text: 'Xem chi tiết', style: 'destructive' }],
+      );
+    }
+  }, []);
+
+  // Lắng nghe sự kiện SSE với callback xử lý thông báo
+  const { connectionStatus } = useTrackingEvents(serviceRequestId, handleWorkerRealtimeEvent);
+
+  const statusFromTracking = React.useMemo(() => {
+    if (trackingSummary?.order?.status) {
+      return trackingSummary.order.status;
+    }
+    if (trackingSummary?.currentPhase === 'ORDER_CONFIRMED') {
+      return 'confirmed';
+    }
+    if (trackingSummary?.currentPhase === 'ORDER_IN_PROGRESS') {
+      return 'in_progress';
+    }
+    if (trackingSummary?.currentPhase === 'ORDER_FINISHED') {
+      return 'awaiting_customer_confirmation';
+    }
+    if (trackingSummary?.currentPhase === 'COMPLETED') {
+      return 'completed';
+    }
+    if (trackingSummary?.currentPhase === 'DISPUTED') {
+      return 'disputed';
+    }
+    if (trackingSummary?.currentPhase === 'CANCELLED') {
+      return 'cancelled';
+    }
+    return undefined;
+  }, [trackingSummary]);
+
+  const currentStatus = localStatus || statusFromTracking || order?.status || 'created';
+  const activeReworkReason = reworkReason || trackingSummary?.order?.reworkReason;
 
   // Lean Dispatch Rule 3 (Guard): Kiểm tra nếu chưa tới 30 phút trước giờ hẹn
   const isTooEarly = React.useMemo(() => {
@@ -211,6 +299,43 @@ export function WorkerJobDetailScreen({
           </View>
         </View>
 
+        {/* Dòng thời gian Timeline các mốc trạng thái */}
+        {serviceRequestId && !isTrackingError && (trackingSummary || isTrackingLoading)
+          ? (
+              <OrderTrackingTimeline
+                summary={trackingSummary}
+                isLoading={isTrackingLoading}
+                connectionStatus={connectionStatus}
+              />
+            )
+          : (
+              /* FALLBACK: Render statusHistory tĩnh cũ nếu Tracking Service không khả dụng */
+              statusHistory && statusHistory.length > 0 && (
+                <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+                  <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
+                    Lịch sử trạng thái đơn hàng (Dự phòng)
+                  </Text>
+                  <View className="gap-2.5">
+                    {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
+                      <View key={item.id || idx} className="flex-row items-start gap-2.5">
+                        <View className="mt-1 size-2 rounded-full bg-primary" />
+                        <View className="flex-1">
+                          <Text className="text-xs font-bold text-neutral-900 dark:text-white">
+                            Chuyển sang:
+                            {' '}
+                            {formatOrderStatus(item.toStatus)}
+                          </Text>
+                          <Text className="text-[10px] text-neutral-400">
+                            {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )
+            )}
+
         {/* Khối hành động thi công theo trạng thái */}
         <View className="mb-6 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
@@ -255,14 +380,31 @@ export function WorkerJobDetailScreen({
           )}
 
           {currentStatus === 'in_progress' && (
-            <Button
-              testID="worker-complete-job-nav-btn"
-              label="3. Chụp Ảnh Bằng Chứng & Báo Xong Việc →"
-              variant="default"
-              className="h-12 w-full rounded-2xl bg-emerald-600 active:bg-emerald-700"
-              textClassName="text-sm font-bold text-white"
-              onPress={() => router.push(RouteNames.WORKER_JOB_COMPLETE(jobId) as any)}
-            />
+            <View>
+              {activeReworkReason && (
+                <View
+                  testID="worker-rework-alert-banner"
+                  className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30"
+                >
+                  <Text className="text-xs font-bold text-amber-800 dark:text-amber-200">
+                    ⚠️ Khách hàng yêu cầu chỉnh sửa lại công việc
+                  </Text>
+                  <Text className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    &quot;
+                    {activeReworkReason}
+                    &quot;
+                  </Text>
+                </View>
+              )}
+              <Button
+                testID="worker-complete-job-nav-btn"
+                label="3. Chụp Ảnh Bằng Chứng & Báo Xong Việc →"
+                variant="default"
+                className="h-12 w-full rounded-2xl bg-emerald-600 active:bg-emerald-700"
+                textClassName="text-sm font-bold text-white"
+                onPress={() => router.push(RouteNames.WORKER_JOB_COMPLETE(jobId) as any)}
+              />
+            </View>
           )}
 
           {currentStatus === 'awaiting_customer_confirmation' && (
@@ -283,6 +425,20 @@ export function WorkerJobDetailScreen({
               </Text>
               <Text className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
                 Khách hàng đã thanh toán và nghiệm thu thành công.
+              </Text>
+            </View>
+          )}
+
+          {currentStatus === 'disputed' && (
+            <View
+              testID="worker-disputed-banner"
+              className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/20"
+            >
+              <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
+                🚨 Đơn hàng đang được khiếu nại
+              </Text>
+              <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
+                {order?.disputeReason || trackingSummary?.order?.disputeReason || 'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.'}
               </Text>
             </View>
           )}
@@ -309,32 +465,6 @@ export function WorkerJobDetailScreen({
             </View>
           )}
         </View>
-
-        {/* Dòng thời gian Timeline */}
-        {statusHistory && statusHistory.length > 0 && (
-          <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-            <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
-              Lịch sử trạng thái đơn hàng
-            </Text>
-            <View className="gap-2.5">
-              {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
-                <View key={item.id || idx} className="flex-row items-start gap-2.5">
-                  <View className="mt-1 size-2 rounded-full bg-primary" />
-                  <View className="flex-1">
-                    <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                      Chuyển sang:
-                      {' '}
-                      {formatOrderStatus(item.toStatus)}
-                    </Text>
-                    <Text className="text-[10px] text-neutral-400">
-                      {new Date(item.createdAt).toLocaleString('vi-VN')}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* Tương thích automated test cũ */}
         <View className="mt-6 items-center justify-center py-2">
