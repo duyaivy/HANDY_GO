@@ -84,6 +84,7 @@ services:
       NOTIFICATION_SERVICE_URL: http://notification-service:3008
       WALLET_SERVICE_URL: http://wallet-service:3009
       TRACKING_SERVICE_URL: http://tracking-service:3010
+      MESSAGE_SERVICE_URL: http://message-service:3009
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -264,3 +265,22 @@ services:
       PORT: '3010'
     ports:
       - '3010:3010'
+
+  message-service:
+    <<: *app
+    command:
+      - sh
+      - -c
+      - "pnpm exec prisma generate --schema=apps/message-service/prisma/schema.prisma --config=apps/message-service/prisma/prisma.config.ts && pnpm run build:message && exec node --enable-source-maps /app/dist/message-runtime/apps/message-service/src/main.js"
+    environment:
+      <<: *development-environment
+      NEST_PROJECT: message-service
+      PORT: '3009'
+      DATABASE_URL_MESSAGE: ${DATABASE_URL_MESSAGE:-${DATABASE_URL}}
+      DIRECT_URL_MESSAGE: ${DIRECT_URL_MESSAGE:-${DATABASE_URL}}
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      ORDER_SERVICE_URL: http://order-service:3004
+      AUTH_SERVICE_URL: http://auth-service:3001
+      MEDIA_SERVICE_URL: http://api-gateway:3000
+    ports:
+      - '3011:3009'
