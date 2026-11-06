@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { JwtService } from '@nestjs/jwt';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { TokenVerifierService } from '../../../libs/auth/src/token-verifier.service.js';
 import { MessagePrisma } from './persistence.js';
 import { AuthorityClient } from './authority.js';
@@ -11,9 +12,7 @@ async function main() {
     if (!value) throw new Error(`${name} is required`);
     return value;
   };
-  const port = Number(
-    process.env.PORT ?? process.env.MESSAGE_PORT ?? 3009,
-  );
+  const port = Number(process.env.PORT ?? process.env.MESSAGE_PORT ?? 3009);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('Invalid MESSAGE_PORT');
   const authority = new AuthorityClient({
@@ -23,23 +22,29 @@ async function main() {
     auth: required('AUTH_SERVICE_URL'),
     media: required('MEDIA_SERVICE_URL'),
   });
-  const cursorSecret=required('MESSAGE_CURSOR_SECRET'),brokerUrl=required('RABBITMQ_URL');
+  const cursorSecret = required('MESSAGE_CURSOR_SECRET'),
+    brokerUrl = required('RABBITMQ_URL');
   const db = new MessagePrisma();
+  let app: NestExpressApplication | undefined;
   try {
-  await db.$connect();
-  const app = await createMessageApp({
-    db,
-    authority,
-    verifier: new TokenVerifierService(new JwtService()),
-    cursorSecret,
-    origins: (process.env.CORS_ORIGIN ?? 'http://localhost:8081')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-    brokerUrl,
-  });
-  await app.listen(port, process.env.MESSAGE_HOST ?? '0.0.0.0');
-  }catch(error){await db.$disconnect();throw error;}
+    await db.$connect();
+    app = await createMessageApp({
+      db,
+      authority,
+      verifier: new TokenVerifierService(new JwtService()),
+      cursorSecret,
+      origins: (process.env.CORS_ORIGIN ?? 'http://localhost:8081')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      brokerUrl,
+    });
+    await app.listen(port, process.env.MESSAGE_HOST ?? '0.0.0.0');
+  } catch (error) {
+    if (app) await app.close();
+    else await db.$disconnect();
+    throw error;
+  }
 }
 void main().catch(() => {
   console.error(

@@ -11,6 +11,30 @@ import { createMessageApp } from '../src/application.js';
 import { MessagePrisma } from '../src/persistence.js';
 import { AuthorityClient } from '../src/authority.js';
 
+function nextEvent(
+  socket: Socket,
+  event: string,
+  matches: (value: any) => boolean = () => true,
+  timeoutMs = 3000,
+): Promise<any> {
+  const result = new Promise<any>((resolve, reject) => {
+    const listener = (value: any) => {
+      if (!matches(value)) return;
+      clearTimeout(timer);
+      socket.off(event, listener);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      socket.off(event, listener);
+      reject(new Error(`Timed out waiting for ${event}`));
+    }, timeoutMs);
+    socket.on(event, listener);
+  });
+  // An ACK may fail before its already registered event is awaited.
+  void result.catch(() => {});
+  return result;
+}
+
 describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
   'real PostgreSQL REST and Socket.IO runtime',
   () => {
@@ -69,17 +93,33 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
         ...((await response.json()) as { data: any; code?: string }),
       };
     };
-    const socket = async (userId: string) => {
+    const client = (accessToken: string) => {
       const s = io(base, {
         path: '/api/v1/chat/socket.io/',
         transports: ['websocket'],
-        auth: { token: tokens.get(userId) ?? token(userId) },
+        auth: { token: accessToken },
+        autoConnect: false,
+        timeout: 2000,
         reconnection: false,
       });
       sockets.push(s);
+      return s;
+    };
+    const socket = async (userId: string) => {
+      const s = client(tokens.get(userId) ?? token(userId));
       await new Promise<void>((resolve, reject) => {
-        s.once('connect', resolve);
-        s.once('connect_error', reject);
+        const connected = () => {
+          s.off('connect_error', failed);
+          resolve();
+        };
+        const failed = (error: Error) => {
+          s.off('connect', connected);
+          s.disconnect();
+          reject(error);
+        };
+        s.once('connect', connected);
+        s.once('connect_error', failed);
+        s.connect();
       });
       return s;
     };
@@ -99,12 +139,35 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
           auth: 'http://auth',
           media: 'http://media',
         },
-        async (url,init) => {
+        async (url, init) => {
           const path = String(url);
-          if(path.includes('/media/')){
-            const body=JSON.parse(String(init?.body));
-            if(!['chat/image','chat/video'].includes(body.storageKey))return new Response('{}',{status:404});
-            return new Response(JSON.stringify({data:{storageKey:body.storageKey,ownerId:customer,verified:true,ready:true,private:true,mediaType:body.storageKey==='chat/image'?'IMAGE':'VIDEO',mimeType:body.storageKey==='chat/image'?'image/jpeg':'video/mp4',sizeBytes:100,width:100,height:100,durationMs:body.storageKey==='chat/image'?null:1000,url:'https://private.test/signed',urlExpiresAt:new Date(Date.now()+300000).toISOString()}}));
+          if (path.includes('/media/')) {
+            const body = JSON.parse(String(init?.body));
+            if (!['chat/image', 'chat/video'].includes(body.storageKey))
+              return new Response('{}', { status: 404 });
+            return new Response(
+              JSON.stringify({
+                data: {
+                  storageKey: body.storageKey,
+                  ownerId: customer,
+                  verified: true,
+                  ready: true,
+                  private: true,
+                  mediaType:
+                    body.storageKey === 'chat/image' ? 'IMAGE' : 'VIDEO',
+                  mimeType:
+                    body.storageKey === 'chat/image'
+                      ? 'image/jpeg'
+                      : 'video/mp4',
+                  sizeBytes: 100,
+                  width: 100,
+                  height: 100,
+                  durationMs: body.storageKey === 'chat/image' ? null : 1000,
+                  url: 'https://private.test/signed',
+                  urlExpiresAt: new Date(Date.now() + 300000).toISOString(),
+                },
+              }),
+            );
           }
           const data = path.includes('/chat-session')
             ? { active }
@@ -192,9 +255,7 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
         ).error.code,
       ).toBe('CONVERSATION_NOT_FOUND');
       await ack(b, 'conversation.join', { conversationId: conversation });
-      const received = new Promise<any>((resolve) =>
-        b.once('message.new', resolve),
-      );
+      const received = nextEvent(b, 'message.new');
       const payload = {
         conversationId: conversation,
         clientMessageId: randomUUID(),
@@ -270,17 +331,295 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
         ).status,
       ).toBe(400);
     });
+    it('rejects an invalid admission token with the public Socket.IO error data', async () => {
+      const s = client('invalid.access.token');
+      try {
+        const rejected = nextEvent(s, 'connect_error');
+        s.connect();
+        const error = await rejected;
+        expect(error.message).toBe('Unauthorized');
+        expect(error.data).toEqual({ code: 'UNAUTHORIZED', retryable: false });
+        expect(s.connected).toBe(false);
+      } finally {
+        s.disconnect();
+      }
+    });
+    it('does not persist, advance read state, or start typing for events without ACKs', async () => {
+      const sender = await socket(customer),
+        observer = await socket(worker);
+      const received: unknown[] = [];
+      const collect = (value: unknown) => received.push(value);
+      try {
+        expect(
+          (
+            await ack(observer, 'conversation.join', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        observer.on('message.new', collect);
+        observer.on('message.read.updated', collect);
+        observer.on('typing.update', collect);
+        const clientMessageId = randomUUID();
+        const readBefore = await db.conversationReadState.findUnique({
+          where: {
+            conversationId_userId: {
+              conversationId: conversation,
+              userId: customer,
+            },
+          },
+        });
+        const outboxBefore = await db.outboxEvent.count();
+        sender.emit('message.send', {
+          conversationId: conversation,
+          clientMessageId,
+          messageType: 'TEXT',
+          content: 'An unacknowledged message must not be stored',
+        });
+        sender.emit('message.read', {
+          conversationId: conversation,
+          lastReadSequence: '2',
+        });
+        sender.emit('typing.start', { conversationId: conversation });
+        // A round trip proves the preceding packets reached the live server.
+        expect(
+          (
+            await ack(sender, 'conversation.join', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(
+          await db.message.findUnique({
+            where: {
+              senderId_clientMessageId: { senderId: customer, clientMessageId },
+            },
+          }),
+        ).toBeNull();
+        expect(await db.outboxEvent.count()).toBe(outboxBefore);
+        expect(
+          await db.conversationReadState.findUnique({
+            where: {
+              conversationId_userId: {
+                conversationId: conversation,
+                userId: customer,
+              },
+            },
+          }),
+        ).toEqual(readBefore);
+        expect(received).toEqual([]);
+      } finally {
+        observer.off('message.new', collect);
+        observer.off('message.read.updated', collect);
+        observer.off('typing.update', collect);
+        sender.disconnect();
+        observer.disconnect();
+      }
+    });
+    it('delivers typing only to other users in the room and stops delivery after leave', async () => {
+      const firstDevice = await socket(customer),
+        secondDevice = await socket(customer),
+        observer = await socket(worker),
+        unjoined = await socket(worker);
+      const observerUpdates: any[] = [],
+        unjoinedUpdates: any[] = [],
+        selfUpdates: any[] = [];
+      const collectObserver = (value: any) => observerUpdates.push(value);
+      const collectUnjoined = (value: any) => unjoinedUpdates.push(value);
+      const collectSelf = (value: any) => selfUpdates.push(value);
+      try {
+        for (const s of [observer, firstDevice, secondDevice])
+          expect(
+            (
+              await ack(s, 'conversation.join', {
+                conversationId: conversation,
+              })
+            ).ok,
+          ).toBe(true);
+        observer.on('typing.update', collectObserver);
+        unjoined.on('typing.update', collectUnjoined);
+        firstDevice.on('typing.update', collectSelf);
+        secondDevice.on('typing.update', collectSelf);
+        const started = nextEvent(observer, 'typing.update');
+        expect(
+          (
+            await ack(firstDevice, 'typing.start', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        expect(await started).toMatchObject({
+          conversationId: conversation,
+          userId: customer,
+          isTyping: true,
+        });
+        observerUpdates.length = 0;
+        expect(
+          await ack(observer, 'conversation.leave', {
+            conversationId: conversation,
+          }),
+        ).toEqual({
+          ok: true,
+          data: { conversationId: conversation },
+        });
+        // The original joined worker remains a positive delivery control.
+        const stopped = nextEvent(
+          sockets[1]!,
+          'typing.update',
+          (value) => !value.isTyping,
+        );
+        expect(
+          (
+            await ack(firstDevice, 'typing.stop', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        await stopped;
+        const restarted = nextEvent(
+          sockets[1]!,
+          'typing.update',
+          (value) => value.isTyping,
+        );
+        expect(
+          (
+            await ack(secondDevice, 'typing.start', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        await restarted;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(observerUpdates).toEqual([]);
+        expect(unjoinedUpdates).toEqual([]);
+        expect(selfUpdates).toEqual([]);
+        expect(
+          (
+            await ack(observer, 'conversation.join', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        const rejoined = nextEvent(observer, 'typing.update');
+        expect(
+          (
+            await ack(secondDevice, 'typing.stop', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        expect(await rejoined).toMatchObject({
+          conversationId: conversation,
+          userId: customer,
+          isTyping: false,
+        });
+      } finally {
+        observer.off('typing.update', collectObserver);
+        unjoined.off('typing.update', collectUnjoined);
+        firstDevice.off('typing.update', collectSelf);
+        secondDevice.off('typing.update', collectSelf);
+        for (const s of [firstDevice, secondDevice, observer, unjoined])
+          s.disconnect();
+      }
+    });
+    it('keeps typing active for another device and clears it when the last device disconnects', async () => {
+      const firstDevice = await socket(customer),
+        secondDevice = await socket(customer),
+        observer = await socket(worker);
+      try {
+        expect(
+          (
+            await ack(observer, 'conversation.join', {
+              conversationId: conversation,
+            })
+          ).ok,
+        ).toBe(true);
+        for (const s of [firstDevice, secondDevice]) {
+          const started = nextEvent(observer, 'typing.update');
+          expect(
+            (await ack(s, 'typing.start', { conversationId: conversation })).ok,
+          ).toBe(true);
+          expect(await started).toMatchObject({
+            conversationId: conversation,
+            userId: customer,
+            isTyping: true,
+          });
+        }
+        const stillTyping = nextEvent(observer, 'typing.update');
+        firstDevice.disconnect();
+        expect(await stillTyping).toMatchObject({
+          conversationId: conversation,
+          userId: customer,
+          isTyping: true,
+        });
+        const stopped = nextEvent(observer, 'typing.update');
+        secondDevice.disconnect();
+        expect(await stopped).toMatchObject({
+          conversationId: conversation,
+          userId: customer,
+          isTyping: false,
+        });
+      } finally {
+        for (const s of [firstDevice, secondDevice, observer]) s.disconnect();
+      }
+    });
+    it('returns the public HTTP error envelope for unauthorized, malformed, and missing conversations', async () => {
+      const unauthenticated = await fetch(`${base}/api/v1/conversations`);
+      expect(unauthenticated.status).toBe(401);
+      expect(await unauthenticated.json()).toEqual({
+        statusCode: 401,
+        message: 'UNAUTHORIZED',
+        data: null,
+        code: 'UNAUTHORIZED',
+      });
+      for (const [userId, path, status, code] of [
+        [customer, '/conversations?limit=0', 400, 'VALIDATION_ERROR'],
+        [
+          outsider,
+          `/conversations/${conversation}`,
+          404,
+          'CONVERSATION_NOT_FOUND',
+        ],
+      ] as const) {
+        expect(await http(userId, path)).toEqual({
+          status,
+          statusCode: status,
+          message: code,
+          data: null,
+          code,
+        });
+      }
+    });
+    it('rejects HTTP JSON bodies above 16 KiB with the public payload-too-large envelope', async () => {
+      const before = await db.conversation.count();
+      const response = await http(customer, '/conversations', 'POST', {
+        bidId: bid,
+        padding: 'x'.repeat(16384),
+      });
+      expect(response).toEqual({
+        status: 413,
+        statusCode: 413,
+        message: 'PAYLOAD_TOO_LARGE',
+        data: null,
+        code: 'PAYLOAD_TOO_LARGE',
+      });
+      expect(await db.conversation.count()).toBe(before);
+    });
     it('typing expires and lifecycle denial applies to already joined sockets while history remains', async () => {
       const a = sockets[0]!,
         b = sockets[1]!;
-      const typing = new Promise<any>((resolve) =>
-        b.once('typing.update', resolve),
-      );
+      const typing = nextEvent(b, 'typing.update');
       expect(
         (await ack(a, 'typing.start', { conversationId: conversation })).ok,
       ).toBe(true);
       expect((await typing).isTyping).toBe(true);
-      const stopped=new Promise<any>(resolve=>b.once('typing.update',resolve));
+      const stopped = nextEvent(
+        b,
+        'typing.update',
+        (value) => !value.isTyping,
+        7000,
+      );
       expect((await stopped).isTyping).toBe(false);
       bidStatus = 'withdrawn';
       expect(
@@ -301,9 +640,10 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
         (await http(customer, `/conversations/${conversation}/messages`)).data
           .items,
       ).toHaveLength(2);
-    },10000);
+    }, 10000);
     it('rejects revoked sessions on existing socket', async () => {
       active = false;
+      const disconnected = nextEvent(sockets[0]!, 'disconnect');
       expect(
         (
           await ack(sockets[0]!, 'conversation.join', {
@@ -311,6 +651,8 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
           })
         ).error.code,
       ).toBe('UNAUTHORIZED');
+      expect(await disconnected).toBe('io server disconnect');
+      expect(sockets[0]!.connected).toBe(false);
     });
   },
 );
