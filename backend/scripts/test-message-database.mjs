@@ -377,7 +377,7 @@ try {
           'SELECT count(*) FROM message._prisma_migrations WHERE finished_at IS NOT NULL',
         )
       ).rows[0].count,
-      '1',
+      '2',
     );
     assert.equal(
       (
