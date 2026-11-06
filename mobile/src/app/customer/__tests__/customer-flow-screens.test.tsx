@@ -31,6 +31,7 @@ const mockBack = jest.fn();
 let mockParams: Record<string, string> = { id: 'demo-001' };
 
 jest.mock('expo-router', () => ({
+  Stack: { Screen: () => null },
   useRouter: jest.fn(() => ({
     push: mockPush,
     replace: mockReplace,
@@ -363,10 +364,9 @@ describe('customer Skeleton & Route Flow', () => {
       expect(screen.getByTestId('customer-search-address-screen')).toBeOnTheScreen();
     });
 
-    it('renders chat skeleton screen', () => {
+    it('requires authentication before showing private conversation history', () => {
       render(<CustomerChatScreen />);
-      expect(screen.getByText('Trò chuyện')).toBeOnTheScreen();
-      expect(screen.getByTestId('customer-chat-screen')).toBeOnTheScreen();
+      expect(screen.getByText('Vui lòng đăng nhập để xem trò chuyện.')).toBeOnTheScreen();
     });
   });
 
