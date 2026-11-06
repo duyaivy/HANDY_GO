@@ -8,11 +8,13 @@ PROD = ROOT / 'deploy/production'
 registry = json.loads((PROD / 'services.json').read_text())['services']
 services = yaml.safe_load((PROD / 'compose.production.yml').read_text())['services']
 apps = {p.name for p in (ROOT / 'apps').iterdir() if (p / 'src/main.ts').exists()}
-assert set(registry) == apps
-assert set(services) == apps | {'nginx'}
+foundations = {p.name for p in (ROOT / 'foundations').iterdir() if (p / 'src/main.ts').exists()} if (ROOT / 'foundations').is_dir() else set()
+all_services = apps | foundations
+assert set(registry) == all_services
+assert set(services) == all_services | {'nginx'}
 assert not any(PROD.glob('compose.vps*.yml'))
 assert set(p.name for p in (PROD / 'env').glob('*') if not p.name.startswith('.')) == {'production.env.example'}
-totals = {'vps1': 32, 'vps2': 0, 'vps3': 0}
+totals = {'vps1': 32, 'vps2': 0, 'vps3': 0, 'vps4': 0}
 for name, item in registry.items():
     service = services[name]
     assert item['state'] in ('READY', 'PARTIAL', 'NOT_READY')
@@ -27,8 +29,8 @@ for name, item in registry.items():
     assert 'build' not in service and 'depends_on' not in service
     if item.get('url_env'):
         assert item.get('wireguard_http') == bool(service.get('ports')), name
-    if item['host'] == 'vps1' and name == 'user-trust-service':
-        assert service['ports'] == ['${PRIVATE_IP:?WireGuard IP required}:3002:3002']
+    if item['host'] == 'vps1' and item.get('wireguard_http'):
+        assert service['ports'] == [f'${{PRIVATE_IP:?WireGuard IP required}}:{item["port"]}:{item["port"]}']
     elif item['host'] == 'vps1':
         assert 'ports' not in service
     else:
@@ -66,14 +68,14 @@ assert trigger['workflow_dispatch']['inputs']['bypass_pr_ci']['type'] == 'boolea
 assert trigger['workflow_dispatch']['inputs']['bypass_pr_ci']['default'] is False
 deploy_steps = workflow['jobs']['deploy']['steps']
 ssh_setup = next(step for step in deploy_steps if 'VPS1_SSH_KEY' in step.get('env', {}))
-for role in ('VPS1', 'VPS2', 'VPS3'):
+for role in ('VPS1', 'VPS2', 'VPS3', 'VPS4'):
     name = role + '_SSH_KEY'
     assert ssh_setup['env'][name] == '${{ secrets.' + name + ' }}'
 assert 'SSH_PRIVATE_KEY' not in ssh_setup['env']
 assert 'SSH_KNOWN_HOSTS' not in ssh_setup['env']
 cleanup = next(step for step in deploy_steps if step.get('name') == 'Remove runner secrets')
 assert cleanup['if'] == 'always()'
-assert all('~/.ssh/handygo_' + role in cleanup['run'] for role in ('vps1', 'vps2', 'vps3'))
+assert all('~/.ssh/handygo_' + role in cleanup['run'] for role in ('vps1', 'vps2', 'vps3', 'vps4'))
 verification = workflow['jobs']['verify']['steps']
 assert any(step.get('run') == 'python3 scripts/verify-production-ci.py' for step in verification)
 proof_step = next(step for step in verification if step.get('run') == 'python3 scripts/verify-production-ci.py')

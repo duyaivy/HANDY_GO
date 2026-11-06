@@ -13,8 +13,8 @@ env = {**os.environ, 'APP_IMAGE': 'ghcr.io/example/backend@sha256:' + 'a' * 64,
        'APP_ENV_FILE': str(PROD / 'env/production.env.example'),
        'PRIVATE_IP': '10.77.0.1', 'COMPOSE_PROFILES': ''}
 command = ['docker', 'compose', '--env-file', '/dev/null', '-f', str(PROD / 'compose.production.yml')]
-for role in ('vps1', 'vps2', 'vps3'):
-    env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]
+for role in ('vps1', 'vps2', 'vps3', 'vps4'):
+    env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]
     output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
     services = json.loads(output)['services']
     expected = {n for n, item in registry.items() if item['host'] == role and item['deploy']}
@@ -26,9 +26,7 @@ for role in ('vps1', 'vps2', 'vps3'):
         assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
     for name in expected - {'nginx'}:
-        if name == 'user-trust-service':
-            assert services[name]['ports'] == [{'mode': 'ingress', 'host_ip': '10.77.0.1', 'target': 3002, 'published': '3002', 'protocol': 'tcp'}]
-        elif role == 'vps1':
+        if role == 'vps1' and not registry[name].get('wireguard_http'):
             assert 'ports' not in services[name]
         else:
             port = services[name]['ports'][0]
@@ -52,8 +50,8 @@ with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
     snapshot.write_text(''.join(f'{key}={example[key]}\n' for key in required_keys))
     snapshot.chmod(0o600)
     env['APP_ENV_FILE'] = str(snapshot)
-    for role in ('vps1', 'vps2', 'vps3'):
-        env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]
+    for role in ('vps1', 'vps2', 'vps3', 'vps4'):
+        env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]
         output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
         services = json.loads(output)['services']
         for name, service in services.items():
