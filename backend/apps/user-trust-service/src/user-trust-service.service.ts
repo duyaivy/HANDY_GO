@@ -16,6 +16,7 @@ import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CloudinaryService } from '@app/cloudinary';
 import { SubmitKycDto } from './dto/submit-kyc.dto.js';
+import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -1553,5 +1554,234 @@ export class UserTrustServiceService {
       orderCountTotal: w.orderCountTotal || 0,
       status: w.status,
     }));
+  }
+
+  /**
+   * Lấy hồ sơ công khai của thợ (Public Profile) dành cho khách hàng
+   * xem khi nhận gợi ý từ AI Matching hoặc nhận báo giá từ Bidding.
+   */
+  async getWorkerPublicProfile(workerIdentifier: string): Promise<unknown> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        workerIdentifier,
+      );
+
+    if (!isUuid) {
+      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+    }
+
+    const worker = await this.db.workerProfile.findFirst({
+      where: {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      },
+      include: {
+        user: {
+          include: {
+            customerProfile: true,
+          },
+        },
+        serviceOfferings: {
+          where: { isActive: true },
+          orderBy: { createdAt: 'desc' },
+        },
+        serviceAreas: {
+          where: { isActive: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!worker || worker.user.status === 'deleted') {
+      throw new NotFoundException('Không tìm thấy thông tin thợ hoặc tài khoản đã bị xóa');
+    }
+
+    // Lấy phân bố số sao (1-5 sao)
+    const ratingGroups = await this.db.workerReview.groupBy({
+      by: ['rating'],
+      where: {
+        workerUserId: worker.userId,
+        status: 'published',
+      },
+      _count: {
+        rating: true,
+      },
+    });
+
+    const ratingDistribution: Record<number, number> = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+      5: 0,
+    };
+    for (const g of ratingGroups) {
+      if (g.rating >= 1 && g.rating <= 5) {
+        ratingDistribution[g.rating] = g._count.rating;
+      }
+    }
+
+    // Lấy 5 nhận xét gần nhất đã được phê duyệt (status: published)
+    const recentReviews = await this.db.workerReview.findMany({
+      where: {
+        workerUserId: worker.userId,
+        status: 'published',
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    const averageRatingNum =
+      worker.ratingCount > 0
+        ? Number(Number(worker.averageRating).toFixed(2))
+        : 0;
+
+    return {
+      statusCode: 200,
+      data: {
+        id: worker.id,
+        userId: worker.userId,
+        fullName: worker.user.fullName,
+        avatarUrl: worker.user.avatarUrl,
+        bio: worker.user.customerProfile?.bio ?? null,
+        status: worker.status,
+        isVerified: worker.status === 'verified',
+        verifiedAt: worker.verifiedAt,
+        approvedAt: worker.approvedAt,
+        memberSince: worker.createdAt,
+        stats: {
+          averageRating: averageRatingNum,
+          ratingCount: worker.ratingCount,
+          completedOrderCount: worker.completedOrderCount,
+          orderCountTotal: worker.orderCountTotal,
+          ratingDistribution,
+        },
+        services: worker.serviceOfferings.map((s) => ({
+          id: s.id,
+          serviceId: s.serviceId,
+          title: s.title,
+          description: s.description,
+          experienceYears: s.experienceYears ?? 0,
+          isActive: s.isActive,
+        })),
+        serviceAreas: worker.serviceAreas.map((a) => ({
+          id: a.id,
+          latitude: Number(a.latitude),
+          longitude: Number(a.longitude),
+          radiusKm: Number(a.radiusKm),
+          isActive: a.isActive,
+        })),
+        recentReviews: recentReviews.map((r) => ({
+          id: r.id,
+          orderId: r.orderId,
+          rating: r.rating,
+          attitudeRating: r.attitudeRating,
+          qualityRating: r.qualityRating,
+          speedRating: r.speedRating,
+          comment: r.comment,
+          createdAt: r.createdAt,
+          customer: {
+            id: r.customer.id,
+            fullName: r.customer.fullName,
+            avatarUrl: r.customer.avatarUrl,
+          },
+        })),
+      },
+    };
+  }
+
+  /**
+   * Lấy danh sách đánh giá nhận xét của thợ có hỗ trợ phân trang và lọc theo số sao
+   */
+  async getWorkerReviews(
+    workerIdentifier: string,
+    query: ListWorkerReviewsDto,
+  ): Promise<unknown> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        workerIdentifier,
+      );
+
+    if (!isUuid) {
+      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+    }
+
+    const worker = await this.db.workerProfile.findFirst({
+      where: {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      },
+      select: {
+        id: true,
+        userId: true,
+      },
+    });
+
+    if (!worker) {
+      throw new NotFoundException('Không tìm thấy thông tin thợ');
+    }
+
+    const take = Math.max(1, Math.min(50, Number(query.limit) || 10));
+    const skip = (Math.max(1, Number(query.page) || 1) - 1) * take;
+
+    const where: any = {
+      workerUserId: worker.userId,
+      status: 'published',
+    };
+
+    if (query.rating !== undefined && query.rating !== null) {
+      where.rating = Number(query.rating);
+    }
+
+    const [reviews, total] = await Promise.all([
+      this.db.workerReview.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+      this.db.workerReview.count({ where }),
+    ]);
+
+    return {
+      statusCode: 200,
+      data: reviews.map((r) => ({
+        id: r.id,
+        orderId: r.orderId,
+        rating: r.rating,
+        attitudeRating: r.attitudeRating,
+        qualityRating: r.qualityRating,
+        speedRating: r.speedRating,
+        comment: r.comment,
+        createdAt: r.createdAt,
+        customer: {
+          id: r.customer.id,
+          fullName: r.customer.fullName,
+          avatarUrl: r.customer.avatarUrl,
+        },
+      })),
+      pagination: {
+        page: Number(query.page) || 1,
+        limit: take,
+        total,
+        totalPages: Math.ceil(total / take),
+      },
+    };
   }
 }

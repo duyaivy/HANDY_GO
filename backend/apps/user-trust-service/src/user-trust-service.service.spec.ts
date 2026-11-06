@@ -39,9 +39,15 @@ describe('UserTrustServiceService', () => {
       },
       workerProfile: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
         upsert: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+      },
+      workerReview: {
+        groupBy: vi.fn(),
+        findMany: vi.fn(),
+        count: vi.fn(),
       },
       kycCase: {
         findUnique: vi.fn(),
@@ -651,6 +657,164 @@ describe('UserTrustServiceService', () => {
         where: { status: 'active', workerProfile: { isNot: null } },
         select: { id: true },
       });
+    });
+  });
+
+  describe('getWorkerPublicProfile', () => {
+    const validWorkerId = '00000000-0000-0000-0000-000000000001';
+    const validUserId = '00000000-0000-0000-0000-000000000002';
+
+    it('should throw BadRequestException if worker identifier is not UUID', async () => {
+      await expect(service.getWorkerPublicProfile('invalid-uuid')).rejects.toThrow(
+        'Mã định danh thợ không đúng định dạng UUID',
+      );
+    });
+
+    it('should throw NotFoundException if worker not found', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue(null);
+
+      await expect(service.getWorkerPublicProfile(validWorkerId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should return complete public worker profile with bio, stats, distribution, services, and reviews', async () => {
+      const mockWorker = {
+        id: validWorkerId,
+        userId: validUserId,
+        status: 'verified',
+        averageRating: 4.85,
+        ratingCount: 15,
+        completedOrderCount: 20,
+        orderCountTotal: 22,
+        verifiedAt: new Date('2026-10-01T00:00:00Z'),
+        approvedAt: new Date('2026-10-01T00:00:00Z'),
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        user: {
+          fullName: 'Trần Thợ Lành Nghề',
+          avatarUrl: 'https://example.com/avatar.jpg',
+          status: 'active',
+          customerProfile: {
+            bio: 'Thợ điện nước 10 năm kinh nghiệm, tận tâm, chu đáo.',
+          },
+        },
+        serviceOfferings: [
+          {
+            id: 'offering-1',
+            serviceId: '00000000-0000-0000-0000-000000000010',
+            title: 'Sửa điện nước dân dụng',
+            description: 'Khắc phục mọi sự cố chập điện, rò rỉ nước',
+            experienceYears: 10,
+            isActive: true,
+          },
+        ],
+        serviceAreas: [
+          {
+            id: 'area-1',
+            latitude: 10.762622,
+            longitude: 106.660172,
+            radiusKm: 15,
+            isActive: true,
+          },
+        ],
+      };
+
+      dbMock.workerProfile.findFirst.mockResolvedValue(mockWorker);
+      dbMock.workerReview.groupBy.mockResolvedValue([
+        { rating: 5, _count: { rating: 12 } },
+        { rating: 4, _count: { rating: 3 } },
+      ]);
+      dbMock.workerReview.findMany.mockResolvedValue([
+        {
+          id: 'review-1',
+          orderId: '00000000-0000-0000-0000-000000000050',
+          rating: 5,
+          attitudeRating: 'good',
+          qualityRating: 'excellent',
+          speedRating: 'fast',
+          comment: 'Thợ đến đúng giờ, làm rất nhiệt tình và sạch sẽ.',
+          createdAt: new Date('2026-11-01T00:00:00Z'),
+          customer: {
+            id: 'cust-1',
+            fullName: 'Lê Khách Hàng',
+            avatarUrl: null,
+          },
+        },
+      ]);
+
+      const result: any = await service.getWorkerPublicProfile(validWorkerId);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.id).toBe(validWorkerId);
+      expect(result.data.fullName).toBe('Trần Thợ Lành Nghề');
+      expect(result.data.bio).toBe('Thợ điện nước 10 năm kinh nghiệm, tận tâm, chu đáo.');
+      expect(result.data.isVerified).toBe(true);
+      expect(result.data.stats.averageRating).toBe(4.85);
+      expect(result.data.stats.ratingDistribution).toEqual({
+        1: 0,
+        2: 0,
+        3: 0,
+        4: 3,
+        5: 12,
+      });
+      expect(result.data.services).toHaveLength(1);
+      expect(result.data.services[0].title).toBe('Sửa điện nước dân dụng');
+      expect(result.data.recentReviews).toHaveLength(1);
+      expect(result.data.recentReviews[0].customer.fullName).toBe('Lê Khách Hàng');
+    });
+  });
+
+  describe('getWorkerReviews', () => {
+    const validWorkerId = '00000000-0000-0000-0000-000000000001';
+
+    it('should return paginated worker reviews', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: validWorkerId,
+        userId: 'user-w1',
+      });
+
+      dbMock.workerReview.findMany.mockResolvedValue([
+        {
+          id: 'rev-1',
+          orderId: 'order-1',
+          rating: 5,
+          attitudeRating: 'great',
+          qualityRating: 'great',
+          speedRating: 'fast',
+          comment: 'Rất hài lòng',
+          createdAt: new Date(),
+          customer: {
+            id: 'cust-1',
+            fullName: 'Nguyễn Văn A',
+            avatarUrl: null,
+          },
+        },
+      ]);
+      dbMock.workerReview.count.mockResolvedValue(1);
+
+      const result: any = await service.getWorkerReviews(validWorkerId, {
+        page: 1,
+        limit: 10,
+        rating: 5,
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data).toHaveLength(1);
+      expect(result.pagination).toEqual({
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+      });
+      expect(dbMock.workerReview.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            workerUserId: 'user-w1',
+            status: 'published',
+            rating: 5,
+          },
+        }),
+      );
     });
   });
 });

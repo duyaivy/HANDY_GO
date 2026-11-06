@@ -33,6 +33,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiOperation,
+  ApiParam,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -53,6 +54,7 @@ import {
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
+import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
 
 
 import crypto from 'node:crypto';
@@ -367,6 +369,74 @@ export class UserTrustServiceController {
     @Param('id') id: string,
   ): Promise<unknown> {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('workers/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Xem hồ sơ chi tiết của thợ (Public Worker Profile)',
+    description:
+      'Dành cho khách hàng khi xem gợi ý từ AI Matching hoặc nhận báo giá từ Bidding. ' +
+      'Bao gồm thông tin cá nhân, bio, số sao trung bình, phân bố đánh giá, danh sách dịch vụ và các nhận xét gần nhất.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID hồ sơ thợ (workerProfileId) hoặc ID người dùng (userId)',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy thông tin profile thợ thành công' })
+  @ApiResponse({ status: 400, description: 'ID thợ không hợp lệ' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy hồ sơ thợ' })
+  async getWorkerProfile(@Param('id') id: string): Promise<unknown> {
+    return this.userTrustService.getWorkerPublicProfile(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('workers/:id/profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Xem hồ sơ chi tiết của thợ (URL alias /profile)',
+    description: 'Bao gồm thông tin cá nhân, bio, đánh giá sao, dịch vụ và nhận xét gần đây.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID hồ sơ thợ (workerProfileId) hoặc ID người dùng (userId)',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy thông tin profile thợ thành công' })
+  @ApiResponse({ status: 400, description: 'ID thợ không hợp lệ' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy hồ sơ thợ' })
+  async getWorkerProfileAlias(@Param('id') id: string): Promise<unknown> {
+    return this.userTrustService.getWorkerPublicProfile(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('workers/:id/reviews')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Lấy danh sách đánh giá nhận xét của thợ có phân trang',
+    description: 'Hỗ trợ phân trang và lọc nhận xét theo số sao (1-5 sao).',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'ID hồ sơ thợ (workerProfileId) hoặc ID người dùng (userId)',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách nhận xét thành công' })
+  @ApiResponse({ status: 400, description: 'ID thợ không hợp lệ' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy hồ sơ thợ' })
+  async getWorkerReviews(
+    @Param('id') id: string,
+    @Query() query: ListWorkerReviewsDto,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerReviews(id, query);
   }
 
   /**

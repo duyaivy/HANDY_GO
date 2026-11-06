@@ -20,6 +20,8 @@ describe('UserTrustServiceController', () => {
       getBankAccounts: vi.fn().mockResolvedValue({ statusCode: 200 }),
       addBankAccount: vi.fn().mockResolvedValue({ statusCode: 201 }),
       deleteBankAccount: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      getWorkerPublicProfile: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'w1' } }),
+      getWorkerReviews: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -184,5 +186,21 @@ describe('UserTrustServiceController', () => {
     );
     expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
     expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
+  });
+
+  it('should call service.getWorkerPublicProfile for getWorkerProfile and alias', async () => {
+    const res1 = await controller.getWorkerProfile('worker-1');
+    expect(res1).toEqual({ statusCode: 200, data: { id: 'w1' } });
+    expect(serviceMock.getWorkerPublicProfile).toHaveBeenCalledWith('worker-1');
+
+    const res2 = await controller.getWorkerProfileAlias('worker-1');
+    expect(res2).toEqual({ statusCode: 200, data: { id: 'w1' } });
+  });
+
+  it('should call service.getWorkerReviews for getWorkerReviews', async () => {
+    const query = { page: 1, limit: 10, rating: 5 };
+    const res = await controller.getWorkerReviews('worker-1', query);
+    expect(res).toEqual({ statusCode: 200, data: [], pagination: {} });
+    expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('worker-1', query);
   });
 });
