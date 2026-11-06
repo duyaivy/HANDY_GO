@@ -22,6 +22,13 @@ describe('UserTrustServiceController', () => {
       deleteBankAccount: vi.fn().mockResolvedValue({ statusCode: 200 }),
       getWorkerPublicProfile: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'w1' } }),
       getWorkerReviews: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
+      submitWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 201, data: { id: 'reg-1' } }),
+      updateWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
+      getMyServiceRegistrations: vi.fn().mockResolvedValue({ statusCode: 200, data: [] }),
+      listAdminServiceRegistrations: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
+      getAdminServiceRegistrationDetail: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
+      reviewServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { status: 'approved' } }),
+      geocodeAddress: vi.fn().mockResolvedValue({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -202,5 +209,80 @@ describe('UserTrustServiceController', () => {
     const res = await controller.getWorkerReviews('worker-1', query);
     expect(res).toEqual({ statusCode: 200, data: [], pagination: {} });
     expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('worker-1', query);
+  });
+
+  describe('Worker Service Registration Controller Tests', () => {
+    const mockUser = {
+      accountId: 'acc-1',
+      userId: 'user-w1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.WORKER],
+      permissions: ['profile:update', 'profile:read'],
+    };
+
+    it('submitMyServiceRegistration delegates to service with idempotency key', async () => {
+      const dto: any = {
+        categoryIds: ['0986472e-1728-4731-82b2-ff77a7251326'],
+        services: [{ serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4' }],
+        serviceArea: { address: 'Đà Nẵng', latitude: 16.0544, longitude: 108.2022, radiusKm: 15 },
+        evidenceFiles: [{ url: 'https://example.com/proof.jpg', fileType: 'image' }],
+      };
+
+      const res = await controller.submitMyServiceRegistration(mockUser, dto, 'idem-key-1');
+      expect(res).toEqual({ statusCode: 201, data: { id: 'reg-1' } });
+      expect(serviceMock.submitWorkerServiceRegistration).toHaveBeenCalledWith('user-w1', dto, 'idem-key-1');
+    });
+
+    it('updateMyServiceRegistration delegates to service with idempotency key', async () => {
+      const dto: any = {
+        categoryIds: ['0986472e-1728-4731-82b2-ff77a7251326'],
+        services: [{ serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4' }],
+        serviceArea: { address: 'Đà Nẵng', latitude: 16.0544, longitude: 108.2022, radiusKm: 15 },
+        evidenceFiles: [{ url: 'https://example.com/proof.jpg', fileType: 'image' }],
+      };
+
+      const res = await controller.updateMyServiceRegistration(mockUser, 'reg-1', dto, undefined, 'x-idem-key-2');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'reg-1' } });
+      expect(serviceMock.updateWorkerServiceRegistration).toHaveBeenCalledWith('user-w1', 'reg-1', dto, 'x-idem-key-2');
+    });
+
+    it('getMyServiceRegistrations delegates to service', async () => {
+      const res = await controller.getMyServiceRegistrations(mockUser);
+      expect(res).toEqual({ statusCode: 200, data: [] });
+      expect(serviceMock.getMyServiceRegistrations).toHaveBeenCalledWith('user-w1');
+    });
+
+    it('geocodeAddress delegates to service', async () => {
+      const res = await controller.geocodeAddress('Đà Nẵng');
+      expect(res).toEqual({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } });
+      expect(serviceMock.geocodeAddress).toHaveBeenCalledWith('Đà Nẵng');
+    });
+
+    it('listAdminServiceRegistrations delegates to service', async () => {
+      const query = { page: 1, limit: 10, status: 'pending' as const };
+      const res = await controller.listAdminServiceRegistrations(query);
+      expect(res).toEqual({ statusCode: 200, data: [], pagination: {} });
+      expect(serviceMock.listAdminServiceRegistrations).toHaveBeenCalledWith(query);
+    });
+
+    it('getAdminServiceRegistrationDetail delegates to service', async () => {
+      const res = await controller.getAdminServiceRegistrationDetail('reg-1');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'reg-1' } });
+      expect(serviceMock.getAdminServiceRegistrationDetail).toHaveBeenCalledWith('reg-1');
+    });
+
+    it('reviewServiceRegistration delegates to service', async () => {
+      const adminUser = {
+        accountId: 'acc-admin',
+        userId: 'admin-1',
+        sessionId: 'sess-admin',
+        roles: ['admin'],
+        permissions: ['user:manage'],
+      };
+      const dto = { decision: 'approved' as const };
+      const res = await controller.reviewServiceRegistration(adminUser, 'reg-1', dto);
+      expect(res).toEqual({ statusCode: 200, data: { status: 'approved' } });
+      expect(serviceMock.reviewServiceRegistration).toHaveBeenCalledWith('admin-1', 'reg-1', dto);
+    });
   });
 });

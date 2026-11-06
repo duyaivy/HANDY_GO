@@ -12,11 +12,13 @@ import {
   Patch,
   Query,
   Post,
+  Put,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
   ForbiddenException,
-  Headers
+  Headers,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { CloudinaryService } from '@app/cloudinary';
@@ -32,6 +34,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiHeader,
   ApiOperation,
   ApiParam,
   ApiResponse,
@@ -55,6 +58,9 @@ import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
+import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dto.js';
+import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
+import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
 
 
 import crypto from 'node:crypto';
@@ -371,6 +377,163 @@ export class UserTrustServiceController {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
   }
 
+  // ==========================================
+  // WORKER SERVICE & AREA REGISTRATION (WORKER)
+  // ==========================================
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Post('workers/me/service-registrations')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Khóa chống gửi trùng lặp yêu cầu khi mạng lag hoặc chập chờn',
+  })
+  @ApiOperation({
+    summary: 'Thợ nộp đơn đăng ký dịch vụ làm việc và khu vực hoạt động',
+    description:
+      'Thợ chọn danh mục, dịch vụ thuộc danh mục, tọa độ và bán kính tìm việc, kèm ảnh/video minh chứng gửi admin duyệt. Hỗ trợ Idempotency-Key chống gửi trùng lặp.',
+  })
+  @ApiResponse({ status: 201, description: 'Nộp đơn đăng ký dịch vụ thành công' })
+  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ hoặc dịch vụ không tồn tại trong danh mục' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  async submitMyServiceRegistration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SubmitWorkerRegistrationDto,
+    @Headers('idempotency-key') idempotencyKeyHeader?: string,
+    @Headers('x-idempotency-key') xIdempotencyKeyHeader?: string,
+  ): Promise<unknown> {
+    const effectiveKey =
+      idempotencyKeyHeader || xIdempotencyKeyHeader || dto.idempotencyKey;
+    return this.userTrustService.submitWorkerServiceRegistration(
+      user.userId,
+      dto,
+      effectiveKey,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Put('workers/me/service-registrations/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: false,
+    description: 'Khóa chống gửi trùng lặp yêu cầu khi mạng lag hoặc chập chờn',
+  })
+  @ApiOperation({
+    summary: 'Thợ cập nhật đơn đăng ký dịch vụ (hoặc nộp lại đơn từ đơn bị từ chối)',
+    description:
+      'Nếu đơn đang chờ duyệt (pending): Cập nhật trực tiếp nội dung đơn đó. ' +
+      'Nếu đơn đã bị từ chối (rejected): Tạo một đơn mới (pending) để Admin duyệt lại và giữ nguyên đơn cũ làm lịch sử đối soát.',
+  })
+  @ApiParam({ name: 'id', description: 'ID đơn đăng ký dịch vụ cần sửa (UUID)' })
+  @ApiResponse({ status: 200, description: 'Cập nhật đơn đăng ký thành công' })
+  @ApiResponse({ status: 201, description: 'Nộp lại đơn mới thành công' })
+  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ hoặc đơn đã được duyệt' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy đơn đăng ký' })
+  async updateMyServiceRegistration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: SubmitWorkerRegistrationDto,
+    @Headers('idempotency-key') idempotencyKeyHeader?: string,
+    @Headers('x-idempotency-key') xIdempotencyKeyHeader?: string,
+  ): Promise<unknown> {
+    const effectiveKey =
+      idempotencyKeyHeader || xIdempotencyKeyHeader || dto.idempotencyKey;
+    return this.userTrustService.updateWorkerServiceRegistration(
+      user.userId,
+      id,
+      dto,
+      effectiveKey,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('workers/me/service-registrations')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Thợ xem lịch sử và trạng thái các đơn đăng ký dịch vụ của mình',
+    description: 'Bao gồm trạng thái pending, approved, rejected kèm lý do từ chối nếu có.',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách đơn đăng ký thành công' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  async getMyServiceRegistrations(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<unknown> {
+    return this.userTrustService.getMyServiceRegistrations(user.userId);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('workers/geocode')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Chuyển đổi địa chỉ sang tọa độ vĩ độ (lat) và kinh độ (long)',
+    description: 'Hỗ trợ thợ nhập địa chỉ để hệ thống tự động xác định lat và long.',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy tọa độ thành công' })
+  @ApiResponse({ status: 400, description: 'Chưa nhập địa chỉ' })
+  async geocodeAddress(
+    @Query('address') address: string,
+  ): Promise<unknown> {
+    return this.userTrustService.geocodeAddress(address);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Post('workers/me/evidence-upload')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'file', maxCount: 1 },
+      { name: 'evidence', maxCount: 1 },
+    ]),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Upload hình ảnh minh chứng năng lực dịch vụ lên Cloudinary',
+  })
+  @ApiResponse({ status: 200, description: 'Upload file minh chứng thành công' })
+  @ApiResponse({ status: 400, description: 'File không hợp lệ hoặc để trống' })
+  async uploadEvidenceFile(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      evidence?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    const file = files?.file?.[0] || files?.evidence?.[0];
+    if (!file) {
+      throw new BadRequestException('Vui lòng chọn file hình ảnh minh chứng (trường `file` hoặc `evidence`)');
+    }
+    return this.userTrustService.uploadEvidenceFile(user.userId, file);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Post('workers/me/video-upload-signature')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Khởi tạo chữ ký direct upload video minh chứng lên Cloudinary',
+  })
+  @ApiResponse({ status: 200, description: 'Khởi tạo chữ ký thành công' })
+  @ApiResponse({ status: 400, description: 'Thông số video không hợp lệ' })
+  async createEvidenceVideoSignature(
+    @Body() dto: { mimeType: string; fileSize: number },
+  ): Promise<unknown> {
+    return this.userTrustService.createEvidenceVideoSignature(dto);
+  }
+
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(StandardPermissions.PROFILE_READ)
   @Get('workers/:id')
@@ -437,6 +600,72 @@ export class UserTrustServiceController {
     @Query() query: ListWorkerReviewsDto,
   ): Promise<unknown> {
     return this.userTrustService.getWorkerReviews(id, query);
+  }
+
+  // ==========================================
+  // WORKER SERVICE REGISTRATION REVIEW (ADMIN)
+  // ==========================================
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Get('admin/worker-registrations')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin lấy danh sách đơn đăng ký dịch vụ của các thợ',
+    description: 'Hỗ trợ phân trang, lọc theo trạng thái (pending, approved, rejected), tìm kiếm theo tên hoặc địa chỉ.',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách đơn đăng ký thành công' })
+  @ApiResponse({ status: 401, description: 'Chưa đăng nhập' })
+  @ApiResponse({ status: 403, description: 'Không đủ quyền truy cập (yêu cầu user:manage)' })
+  async listAdminServiceRegistrations(
+    @Query() query: ListWorkerRegistrationsDto,
+  ): Promise<unknown> {
+    return this.userTrustService.listAdminServiceRegistrations(query);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Get('admin/worker-registrations/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin xem chi tiết một đơn đăng ký dịch vụ của thợ',
+    description: 'Xem đầy đủ danh mục, danh sách dịch vụ, khu vực hoạt động, và các hình ảnh/video minh chứng.',
+  })
+  @ApiParam({ name: 'id', description: 'ID đơn đăng ký dịch vụ (UUID)' })
+  @ApiResponse({ status: 200, description: 'Lấy chi tiết đơn đăng ký thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy đơn đăng ký' })
+  async getAdminServiceRegistrationDetail(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getAdminServiceRegistrationDetail(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.USER_MANAGE)
+  @Post('admin/worker-registrations/:id/review')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Admin phê duyệt hoặc từ chối đơn đăng ký dịch vụ của thợ',
+    description:
+      'Nếu duyệt: kích hoạt các dịch vụ vào hồ sơ thợ và thiết lập khu vực làm việc. Nếu từ chối: yêu cầu nhập lý do từ chối.',
+  })
+  @ApiParam({ name: 'id', description: 'ID đơn đăng ký dịch vụ (UUID)' })
+  @ApiResponse({ status: 200, description: 'Phê duyệt hoặc từ chối đơn thành công' })
+  @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ hoặc thiếu lý do từ chối' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy đơn đăng ký' })
+  async reviewServiceRegistration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: ReviewWorkerRegistrationDto,
+  ): Promise<unknown> {
+    return this.userTrustService.reviewServiceRegistration(
+      user.userId,
+      id,
+      dto,
+    );
   }
 
   /**

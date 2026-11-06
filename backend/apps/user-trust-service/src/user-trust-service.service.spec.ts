@@ -57,6 +57,22 @@ describe('UserTrustServiceService', () => {
         create: vi.fn(),
         update: vi.fn(),
       },
+      workerServiceRegistration: {
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        findMany: vi.fn(),
+        count: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      workerServiceOffering: {
+        upsert: vi.fn(),
+      },
+      workerServiceArea: {
+        updateMany: vi.fn(),
+        create: vi.fn(),
+      },
+      $queryRaw: vi.fn(),
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
 
@@ -815,6 +831,416 @@ describe('UserTrustServiceService', () => {
           },
         }),
       );
+    });
+  });
+
+  describe('Worker Service Registration', () => {
+    const workerUserId = 'user-w1';
+    const workerProfileId = 'wp-1';
+    const categoryId = '0986472e-1728-4731-82b2-ff77a7251326';
+    const serviceId = 'a26e3c78-f202-4ec0-a2f9-2462371d05a4';
+
+    const validDto: any = {
+      categoryIds: [categoryId],
+      services: [
+        {
+          serviceId,
+          title: 'Vệ sinh máy lạnh',
+          description: 'Hơn 5 năm kinh nghiệm',
+          experienceYears: 5,
+        },
+      ],
+      serviceArea: {
+        address: 'Quận Cẩm Lệ, Đà Nẵng',
+        latitude: 16.0544,
+        longitude: 108.2022,
+        radiusKm: 15,
+      },
+      evidenceFiles: [
+        {
+          url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+          fileType: 'image',
+          name: 'Chứng chỉ nghề',
+        },
+      ],
+    };
+
+    it('submitWorkerServiceRegistration successfully creates a pending registration', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+        status: 'draft',
+      });
+
+      dbMock.$queryRaw.mockResolvedValue([
+        {
+          id: serviceId,
+          name: 'Vệ sinh máy lạnh',
+          categoryId,
+          categoryName: 'Điện lạnh',
+          categoryIsActive: true,
+          isActive: true,
+        },
+      ]);
+
+      dbMock.workerServiceRegistration.findFirst.mockResolvedValue(null);
+      dbMock.workerServiceRegistration.create.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        status: 'pending',
+      });
+
+      const res = await service.submitWorkerServiceRegistration(workerUserId, validDto);
+
+      expect(res.statusCode).toBe(201);
+      expect(dbMock.workerServiceRegistration.create).toHaveBeenCalled();
+    });
+
+    it('submitWorkerServiceRegistration throws if catalog services do not match', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      dbMock.$queryRaw.mockResolvedValue([]); // No catalog service found
+
+      await expect(
+        service.submitWorkerServiceRegistration(workerUserId, validDto),
+      ).rejects.toThrow('Một hoặc nhiều dịch vụ đã chọn không tồn tại');
+    });
+
+    it('getMyServiceRegistrations returns list of registrations for the worker', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+      dbMock.workerServiceRegistration.findMany.mockResolvedValue([
+        { id: 'reg-1', status: 'pending' },
+      ]);
+
+      const res = await service.getMyServiceRegistrations(workerUserId);
+      expect(res.statusCode).toBe(200);
+      expect(res.data).toHaveLength(1);
+    });
+
+    it('listAdminServiceRegistrations returns paginated list of registrations', async () => {
+      dbMock.workerServiceRegistration.findMany.mockResolvedValue([
+        {
+          id: 'reg-1',
+          workerProfileId,
+          workerProfile: {
+            user: {
+              id: workerUserId,
+              fullName: 'Nguyễn Thợ',
+              avatarUrl: null,
+              status: 'active',
+            },
+          },
+          reviewer: null,
+          categoryIds: [categoryId],
+          services: [],
+          serviceArea: {},
+          evidenceFiles: [],
+          status: 'pending',
+          rejectionReason: null,
+          reviewedAt: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+      dbMock.workerServiceRegistration.count.mockResolvedValue(1);
+
+      const res = await service.listAdminServiceRegistrations({
+        page: 1,
+        limit: 10,
+        status: 'pending',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data).toHaveLength(1);
+      expect(res.pagination.total).toBe(1);
+    });
+
+    it('getAdminServiceRegistrationDetail returns detail of registration', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        workerProfile: {
+          user: {
+            id: workerUserId,
+            fullName: 'Nguyễn Thợ',
+            avatarUrl: null,
+            status: 'active',
+            createdAt: new Date(),
+          },
+        },
+        reviewer: null,
+        categoryIds: [categoryId],
+        services: [],
+        serviceArea: {},
+        evidenceFiles: [],
+        status: 'pending',
+        rejectionReason: null,
+        reviewedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await service.getAdminServiceRegistrationDetail('reg-1');
+      expect(res.statusCode).toBe(200);
+      expect(res.data.id).toBe('reg-1');
+      expect(res.data.worker.fullName).toBe('Nguyễn Thợ');
+    });
+
+    it('reviewServiceRegistration approves and activates services and area', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        services: [
+          { serviceId, serviceName: 'Vệ sinh máy lạnh', title: 'Vệ sinh máy lạnh' },
+        ],
+        serviceArea: {
+          address: 'Quận Cẩm Lệ',
+          latitude: 16.0544,
+          longitude: 108.2022,
+          radiusKm: 15,
+        },
+        workerProfile: {
+          status: 'draft',
+        },
+      });
+
+      dbMock.workerServiceRegistration.update.mockResolvedValue({ id: 'reg-1', status: 'approved' });
+      dbMock.workerServiceOffering.upsert.mockResolvedValue({});
+      dbMock.workerServiceArea.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerServiceArea.create.mockResolvedValue({});
+      dbMock.workerProfile.update.mockResolvedValue({});
+
+      const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
+        decision: 'approved',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data.status).toBe('approved');
+      expect(dbMock.workerServiceOffering.upsert).toHaveBeenCalled();
+      expect(dbMock.workerServiceArea.create).toHaveBeenCalled();
+    });
+
+    it('reviewServiceRegistration rejects with reason', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        workerProfile: { status: 'draft' },
+      });
+
+      dbMock.workerServiceRegistration.update.mockResolvedValue({
+        id: 'reg-1',
+        status: 'rejected',
+        rejectionReason: 'Ảnh mờ',
+      });
+
+      const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
+        decision: 'rejected',
+        reason: 'Ảnh mờ',
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data.status).toBe('rejected');
+      expect(res.data.reason).toBe('Ảnh mờ');
+    });
+
+    it('geocodeAddress returns coordinates for address', async () => {
+      const res = await service.geocodeAddress('Quận Cẩm Lệ, Đà Nẵng');
+      expect(res.statusCode).toBe(200);
+      expect(res.data.latitude).toBeDefined();
+      expect(res.data.longitude).toBeDefined();
+    });
+
+    describe('updateWorkerServiceRegistration', () => {
+      it('updates a pending registration directly', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-pending',
+          workerProfileId,
+          status: 'pending',
+        });
+
+        dbMock.$queryRaw.mockResolvedValue([
+          {
+            id: serviceId,
+            name: 'Vệ sinh máy lạnh',
+            categoryId,
+            categoryName: 'Điện lạnh',
+            categoryIsActive: true,
+            isActive: true,
+          },
+        ]);
+
+        dbMock.workerServiceRegistration.update.mockResolvedValue({
+          id: 'reg-pending',
+          status: 'pending',
+        });
+
+        const res = await service.updateWorkerServiceRegistration(
+          workerUserId,
+          'reg-pending',
+          validDto,
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.workerServiceRegistration.update).toHaveBeenCalled();
+      });
+
+      it('creates a new registration if existing registration was rejected (Huong A)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-rejected',
+          workerProfileId,
+          status: 'rejected',
+          rejectionReason: 'Ảnh mờ',
+        });
+
+        dbMock.$queryRaw.mockResolvedValue([
+          {
+            id: serviceId,
+            name: 'Vệ sinh máy lạnh',
+            categoryId,
+            categoryName: 'Điện lạnh',
+            categoryIsActive: true,
+            isActive: true,
+          },
+        ]);
+
+        dbMock.workerServiceRegistration.create.mockResolvedValue({
+          id: 'reg-new',
+          workerProfileId,
+          status: 'pending',
+        });
+
+        const res = await service.updateWorkerServiceRegistration(
+          workerUserId,
+          'reg-rejected',
+          validDto,
+        );
+
+        expect(res.statusCode).toBe(201);
+        expect(dbMock.workerServiceRegistration.create).toHaveBeenCalled();
+        expect(res.message).toContain('Nộp lại đơn đăng ký thành công');
+      });
+
+      it('throws BadRequestException if registration was already approved', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-approved',
+          workerProfileId,
+          status: 'approved',
+        });
+
+        await expect(
+          service.updateWorkerServiceRegistration(
+            workerUserId,
+            'reg-approved',
+            validDto,
+          ),
+        ).rejects.toThrow('không thể chỉnh sửa');
+      });
+
+      it('returns existing registration when idempotencyKey matches (Idempotent update)', async () => {
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-existing-idempotent',
+          status: 'pending',
+          idempotencyKey: 'idem-update-key-123',
+        });
+
+        const res = await service.updateWorkerServiceRegistration(
+          workerUserId,
+          'reg-pending',
+          validDto,
+          'idem-update-key-123',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(res.message).toContain('Idempotent');
+        expect(res.data.id).toBe('reg-existing-idempotent');
+        expect(dbMock.workerServiceRegistration.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('idempotency in submitWorkerServiceRegistration', () => {
+      it('returns existing record when idempotencyKey matches on submit', async () => {
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-existing-submit',
+          status: 'pending',
+          idempotencyKey: 'idem-submit-key-123',
+        });
+
+        const res = await service.submitWorkerServiceRegistration(
+          workerUserId,
+          validDto,
+          'idem-submit-key-123',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(res.message).toContain('Idempotent');
+        expect(res.data.id).toBe('reg-existing-submit');
+        expect(dbMock.workerServiceRegistration.create).not.toHaveBeenCalled();
+      });
+
+      it('handles P2002 race condition on concurrent duplicate submit', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        dbMock.$queryRaw.mockResolvedValue([
+          {
+            id: serviceId,
+            name: 'Vệ sinh máy lạnh',
+            categoryId,
+            categoryName: 'Điện lạnh',
+            categoryIsActive: true,
+            isActive: true,
+          },
+        ]);
+
+        // findUnique at start returns null (simulate concurrent race condition)
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce(null) // initial check
+          .mockResolvedValueOnce({
+            id: 'reg-race-winner',
+            status: 'pending',
+            idempotencyKey: 'idem-race-key',
+          }); // check after P2002
+
+        dbMock.workerServiceRegistration.findFirst.mockResolvedValue(null);
+
+        const p2002Error: any = new Error('Unique constraint failed');
+        p2002Error.code = 'P2002';
+        dbMock.workerServiceRegistration.create.mockRejectedValue(p2002Error);
+
+        const res = await service.submitWorkerServiceRegistration(
+          workerUserId,
+          validDto,
+          'idem-race-key',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(res.message).toContain('Idempotent');
+        expect(res.data.id).toBe('reg-race-winner');
+      });
     });
   });
 });

@@ -24,6 +24,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/users',
       '/api/v1/admin/users',
       '/api/v1/admin/kyc-cases',
+      '/api/v1/admin/worker-registrations',
       '/api/v1/workers',
     ],
   },

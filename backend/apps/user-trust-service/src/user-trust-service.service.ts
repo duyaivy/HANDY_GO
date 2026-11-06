@@ -17,6 +17,10 @@ import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { CloudinaryService } from '@app/cloudinary';
 import { SubmitKycDto } from './dto/submit-kyc.dto.js';
 import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
+import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dto.js';
+import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
+import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
+import { Prisma } from '@prisma/user-trust-client';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -1782,6 +1786,802 @@ export class UserTrustServiceService {
         total,
         totalPages: Math.ceil(total / take),
       },
+    };
+  }
+
+  private async validateAndEnrichServices(
+    categoryIds: string[],
+    services: any[],
+  ) {
+    if (!categoryIds || categoryIds.length === 0) {
+      throw new BadRequestException('Vui lòng chọn ít nhất 1 danh mục dịch vụ');
+    }
+
+    if (!services || services.length === 0) {
+      throw new BadRequestException('Vui lòng chọn ít nhất 1 dịch vụ đăng ký');
+    }
+
+    const serviceIds = [...new Set(services.map((s) => s.serviceId))];
+
+    // Xác thực danh mục và dịch vụ từ catalog_service
+    const catalogServices = await this.db.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        categoryId: string;
+        categoryName: string;
+        categoryIsActive: boolean;
+        isActive: boolean;
+      }>
+    >`
+      SELECT 
+        s.id, 
+        s.name, 
+        s.category_id as "categoryId", 
+        c.name as "categoryName", 
+        c.is_active as "categoryIsActive", 
+        s.is_active as "isActive"
+      FROM catalog_service.services s
+      JOIN catalog_service.categories c ON c.id = s.category_id
+      WHERE s.id = ANY(${serviceIds}::uuid[])
+    `;
+
+    if (catalogServices.length !== serviceIds.length) {
+      throw new BadRequestException(
+        'Một hoặc nhiều dịch vụ đã chọn không tồn tại trong danh mục hệ thống',
+      );
+    }
+
+    for (const cs of catalogServices) {
+      if (!categoryIds.includes(cs.categoryId)) {
+        throw new BadRequestException(
+          `Dịch vụ "${cs.name}" không thuộc danh mục bạn đã chọn`,
+        );
+      }
+      if (!cs.isActive || !cs.categoryIsActive) {
+        throw new BadRequestException(
+          `Dịch vụ "${cs.name}" hiện đang tạm ngừng nhận đăng ký`,
+        );
+      }
+    }
+
+    return services.map((svc) => {
+      const match = catalogServices.find((cs) => cs.id === svc.serviceId);
+      return {
+        serviceId: svc.serviceId,
+        serviceName: match?.name || '',
+        categoryId: match?.categoryId || '',
+        categoryName: match?.categoryName || '',
+        title: svc.title?.trim() || match?.name || '',
+        description: svc.description?.trim() || null,
+        experienceYears: svc.experienceYears ?? 0,
+      };
+    });
+  }
+
+  /**
+   * Worker nộp hồ sơ đăng ký danh mục, dịch vụ và khu vực làm việc (kèm minh chứng)
+   */
+  async submitWorkerServiceRegistration(
+    userId: string,
+    dto: SubmitWorkerRegistrationDto,
+    idempotencyKey?: string,
+  ) {
+    const resolvedKey = idempotencyKey || dto.idempotencyKey;
+
+    if (resolvedKey) {
+      const existing = await this.db.workerServiceRegistration.findUnique({
+        where: { idempotencyKey: resolvedKey },
+      });
+      if (existing) {
+        return {
+          statusCode: HttpStatus.OK,
+          message:
+            'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+          data: existing,
+        };
+      }
+    }
+
+    let workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!workerProfile) {
+      workerProfile = await this.db.workerProfile.create({
+        data: {
+          id: crypto.randomUUID(),
+          userId,
+          status: 'draft',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    if (!dto.evidenceFiles || dto.evidenceFiles.length === 0) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp ít nhất 1 hình ảnh hoặc video minh chứng',
+      );
+    }
+
+    const enrichedServices = await this.validateAndEnrichServices(
+      dto.categoryIds,
+      dto.services,
+    );
+
+    // Kiểm tra xem thợ đã có đơn đang chờ duyệt (pending) không
+    const existingPending = await this.db.workerServiceRegistration.findFirst({
+      where: {
+        workerProfileId: workerProfile.id,
+        status: 'pending',
+      },
+    });
+
+    if (existingPending) {
+      const updated = await this.db.workerServiceRegistration.update({
+        where: { id: existingPending.id },
+        data: {
+          categoryIds: dto.categoryIds,
+          services: enrichedServices,
+          serviceArea: dto.serviceArea as any,
+          evidenceFiles: dto.evidenceFiles as any,
+          idempotencyKey: resolvedKey || existingPending.idempotencyKey,
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'Cập nhật đơn đăng ký dịch vụ thành công, đang chờ Admin duyệt',
+        data: updated,
+      };
+    }
+
+    try {
+      const created = await this.db.workerServiceRegistration.create({
+        data: {
+          id: crypto.randomUUID(),
+          workerProfileId: workerProfile.id,
+          categoryIds: dto.categoryIds as any,
+          services: enrichedServices as any,
+          serviceArea: dto.serviceArea as any,
+          evidenceFiles: dto.evidenceFiles as any,
+          status: 'pending',
+          idempotencyKey: resolvedKey || null,
+        },
+      });
+
+      return {
+        statusCode: HttpStatus.CREATED,
+        message:
+          'Nộp đơn đăng ký dịch vụ thành công, vui lòng chờ Admin phê duyệt',
+        data: created,
+      };
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        if (resolvedKey) {
+          const duplicate = await this.db.workerServiceRegistration.findUnique({
+            where: { idempotencyKey: resolvedKey },
+          });
+          if (duplicate) {
+            return {
+              statusCode: HttpStatus.OK,
+              message:
+                'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+              data: duplicate,
+            };
+          }
+        }
+        const pendingRecord =
+          await this.db.workerServiceRegistration.findFirst({
+            where: {
+              workerProfileId: workerProfile.id,
+              status: 'pending',
+            },
+          });
+        if (pendingRecord) {
+          return {
+            statusCode: HttpStatus.OK,
+            message:
+              'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+            data: pendingRecord,
+          };
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Worker cập nhật đơn đăng ký dịch vụ (hoặc nộp lại đơn mới từ đơn đã bị từ chối)
+   */
+  async updateWorkerServiceRegistration(
+    userId: string,
+    registrationId: string,
+    dto: SubmitWorkerRegistrationDto,
+    idempotencyKey?: string,
+  ) {
+    const resolvedKey = idempotencyKey || dto.idempotencyKey;
+
+    if (resolvedKey) {
+      const existing = await this.db.workerServiceRegistration.findUnique({
+        where: { idempotencyKey: resolvedKey },
+      });
+      if (existing) {
+        return {
+          statusCode: HttpStatus.OK,
+          message:
+            'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+          data: existing,
+        };
+      }
+    }
+
+    const workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!workerProfile) {
+      throw new NotFoundException('Không tìm thấy hồ sơ thợ của bạn');
+    }
+
+    const registration = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+    });
+
+    if (!registration || registration.workerProfileId !== workerProfile.id) {
+      throw new NotFoundException('Không tìm thấy đơn đăng ký dịch vụ của bạn');
+    }
+
+    if (registration.status === 'approved') {
+      throw new BadRequestException(
+        'Đơn đăng ký này đã được phê duyệt, không thể chỉnh sửa. Nếu muốn đăng ký thêm dịch vụ, vui lòng nộp đơn mới.',
+      );
+    }
+
+    if (!dto.evidenceFiles || dto.evidenceFiles.length === 0) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp ít nhất 1 hình ảnh hoặc video minh chứng',
+      );
+    }
+
+    const enrichedServices = await this.validateAndEnrichServices(
+      dto.categoryIds,
+      dto.services,
+    );
+
+    // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
+    if (registration.status === 'pending') {
+      const updated = await this.db.workerServiceRegistration.update({
+        where: { id: registration.id },
+        data: {
+          categoryIds: dto.categoryIds,
+          services: enrichedServices,
+          serviceArea: dto.serviceArea as any,
+          evidenceFiles: dto.evidenceFiles as any,
+          idempotencyKey: resolvedKey || registration.idempotencyKey,
+          updatedAt: new Date(),
+        },
+      });
+
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'Cập nhật đơn đăng ký dịch vụ thành công, đang chờ Admin duyệt',
+        data: updated,
+      };
+    }
+
+    // TRƯỜNG HỢP 2: Đơn đã bị từ chối (rejected) -> Theo Hướng A: Tạo đơn mới (pending), giữ nguyên đơn cũ làm lịch sử đối soát
+    try {
+      const created = await this.db.workerServiceRegistration.create({
+        data: {
+          id: crypto.randomUUID(),
+          workerProfileId: workerProfile.id,
+          categoryIds: dto.categoryIds as any,
+          services: enrichedServices as any,
+          serviceArea: dto.serviceArea as any,
+          evidenceFiles: dto.evidenceFiles as any,
+          status: 'pending',
+          idempotencyKey: resolvedKey || null,
+        },
+      });
+
+      return {
+        statusCode: HttpStatus.CREATED,
+        message:
+          'Nộp lại đơn đăng ký thành công! Đơn mới đang chờ Admin duyệt, lịch sử đơn cũ được lưu giữ.',
+        data: created,
+      };
+    } catch (err: any) {
+      if (err?.code === 'P2002') {
+        if (resolvedKey) {
+          const duplicate = await this.db.workerServiceRegistration.findUnique({
+            where: { idempotencyKey: resolvedKey },
+          });
+          if (duplicate) {
+            return {
+              statusCode: HttpStatus.OK,
+              message:
+                'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+              data: duplicate,
+            };
+          }
+        }
+        const pendingRecord =
+          await this.db.workerServiceRegistration.findFirst({
+            where: {
+              workerProfileId: workerProfile.id,
+              status: 'pending',
+            },
+          });
+        if (pendingRecord) {
+          return {
+            statusCode: HttpStatus.OK,
+            message:
+              'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+            data: pendingRecord,
+          };
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Worker lấy danh sách các đơn đăng ký dịch vụ của mình
+   */
+  async getMyServiceRegistrations(userId: string) {
+    const workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!workerProfile) {
+      return {
+        statusCode: HttpStatus.OK,
+        data: [],
+      };
+    }
+
+    const registrations = await this.db.workerServiceRegistration.findMany({
+      where: { workerProfileId: workerProfile.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: registrations,
+    };
+  }
+
+  /**
+   * Admin lấy danh sách các đơn đăng ký dịch vụ của thợ (phân trang, lọc status, search)
+   */
+  async listAdminServiceRegistrations(query: ListWorkerRegistrationsDto) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    if (query.search && query.search.trim()) {
+      const s = query.search.trim();
+      where.OR = [
+        {
+          workerProfile: {
+            user: {
+              fullName: { contains: s, mode: 'insensitive' },
+            },
+          },
+        },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.db.workerServiceRegistration.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: query.sortBy === 'oldest' ? 'asc' : 'desc' },
+        include: {
+          workerProfile: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  avatarUrl: true,
+                  status: true,
+                },
+              },
+            },
+          },
+          reviewer: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      }),
+      this.db.workerServiceRegistration.count({ where }),
+    ]);
+
+    const mapped = items.map((item) => ({
+      id: item.id,
+      workerProfileId: item.workerProfileId,
+      worker: {
+        userId: item.workerProfile.user.id,
+        fullName: item.workerProfile.user.fullName,
+        avatarUrl: item.workerProfile.user.avatarUrl,
+        status: item.workerProfile.user.status,
+      },
+      categoryIds: item.categoryIds,
+      services: item.services,
+      serviceArea: item.serviceArea,
+      evidenceFiles: item.evidenceFiles,
+      status: item.status,
+      rejectionReason: item.rejectionReason,
+      reviewedAt: item.reviewedAt,
+      reviewer: item.reviewer,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: mapped,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Admin xem chi tiết 1 đơn đăng ký dịch vụ của thợ
+   */
+  async getAdminServiceRegistrationDetail(registrationId: string) {
+    const registration = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        workerProfile: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+                status: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
+        reviewer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    if (!registration) {
+      throw new NotFoundException(
+        `Không tìm thấy đơn đăng ký dịch vụ với ID: ${registrationId}`,
+      );
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        id: registration.id,
+        workerProfileId: registration.workerProfileId,
+        worker: {
+          userId: registration.workerProfile.user.id,
+          fullName: registration.workerProfile.user.fullName,
+          avatarUrl: registration.workerProfile.user.avatarUrl,
+          status: registration.workerProfile.user.status,
+          joinedAt: registration.workerProfile.user.createdAt,
+        },
+        categoryIds: registration.categoryIds,
+        services: registration.services,
+        serviceArea: registration.serviceArea,
+        evidenceFiles: registration.evidenceFiles,
+        status: registration.status,
+        rejectionReason: registration.rejectionReason,
+        reviewedAt: registration.reviewedAt,
+        reviewer: registration.reviewer,
+        createdAt: registration.createdAt,
+        updatedAt: registration.updatedAt,
+      },
+    };
+  }
+
+  /**
+   * Admin duyệt hoặc từ chối đơn đăng ký dịch vụ của thợ
+   */
+  async reviewServiceRegistration(
+    adminUserId: string,
+    registrationId: string,
+    dto: ReviewWorkerRegistrationDto,
+  ) {
+    const registration = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+      include: {
+        workerProfile: true,
+      },
+    });
+
+    if (!registration) {
+      throw new NotFoundException(
+        `Không tìm thấy đơn đăng ký dịch vụ với ID: ${registrationId}`,
+      );
+    }
+
+    const now = new Date();
+
+    // Đảm bảo thông tin admin user tồn tại trong bảng users để tránh lỗi foreign key
+    if (adminUserId) {
+      const adminExists = await this.db.user.findUnique({
+        where: { id: adminUserId },
+      });
+      if (!adminExists) {
+        await this.db.user.create({
+          data: {
+            id: adminUserId,
+            fullName: 'Administrator',
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      }
+    }
+
+    if (dto.decision === 'approved') {
+      await this.db.$transaction(async (tx) => {
+        // 1. Cập nhật trạng thái đơn đăng ký
+        await tx.workerServiceRegistration.update({
+          where: { id: registrationId },
+          data: {
+            status: 'approved',
+            rejectionReason: null,
+            reviewedByUserId: adminUserId,
+            reviewedAt: now,
+            updatedAt: now,
+          },
+        });
+
+        // 2. Kích hoạt/upsert các dịch vụ vào worker_service_offerings
+        const services = Array.isArray(registration.services)
+          ? (registration.services as any[])
+          : [];
+
+        for (const svc of services) {
+          if (!svc.serviceId) continue;
+          await tx.workerServiceOffering.upsert({
+            where: {
+              workerProfileId_serviceId: {
+                workerProfileId: registration.workerProfileId,
+                serviceId: svc.serviceId,
+              },
+            },
+            create: {
+              id: crypto.randomUUID(),
+              workerProfileId: registration.workerProfileId,
+              serviceId: svc.serviceId,
+              title: svc.title || svc.serviceName || null,
+              description: svc.description || null,
+              experienceYears: Number(svc.experienceYears) || 0,
+              isActive: true,
+              createdAt: now,
+              updatedAt: now,
+            },
+            update: {
+              title: svc.title || svc.serviceName || undefined,
+              description:
+                svc.description !== undefined ? svc.description : undefined,
+              experienceYears:
+                svc.experienceYears !== undefined
+                  ? Number(svc.experienceYears)
+                  : undefined,
+              isActive: true,
+              updatedAt: now,
+            },
+          });
+        }
+
+        // 3. Kích hoạt khu vực làm việc vào worker_service_areas
+        const area = registration.serviceArea as any;
+        if (
+          area &&
+          area.latitude !== undefined &&
+          area.longitude !== undefined
+        ) {
+          await tx.workerServiceArea.updateMany({
+            where: {
+              workerProfileId: registration.workerProfileId,
+              isActive: true,
+            },
+            data: { isActive: false },
+          });
+
+          await tx.workerServiceArea.create({
+            data: {
+              id: crypto.randomUUID(),
+              workerProfileId: registration.workerProfileId,
+              address: area.address || null,
+              latitude: new Prisma.Decimal(area.latitude),
+              longitude: new Prisma.Decimal(area.longitude),
+              radiusKm: new Prisma.Decimal(area.radiusKm || 15),
+              isActive: true,
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+
+        // 4. Nếu workerProfile đang ở draft, chuyển sang verified
+        if (registration.workerProfile.status === 'draft') {
+          await tx.workerProfile.update({
+            where: { id: registration.workerProfileId },
+            data: {
+              status: 'verified',
+              approvedAt: now,
+              updatedAt: now,
+            },
+          });
+        }
+      });
+
+      return {
+        statusCode: HttpStatus.OK,
+        message:
+          'Phê duyệt đơn đăng ký thành công! Dịch vụ và khu vực làm việc của thợ đã được kích hoạt',
+        data: {
+          id: registrationId,
+          status: 'approved',
+        },
+      };
+    }
+
+    // Từ chối (rejected)
+    await this.db.workerServiceRegistration.update({
+      where: { id: registrationId },
+      data: {
+        status: 'rejected',
+        rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+        reviewedByUserId: adminUserId,
+        reviewedAt: now,
+        updatedAt: now,
+      },
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Đã từ chối đơn đăng ký dịch vụ của thợ',
+      data: {
+        id: registrationId,
+        status: 'rejected',
+        reason: dto.reason,
+      },
+    };
+  }
+
+  /**
+   * API Geocoding: Lấy tọa độ lat, long từ địa chỉ
+   */
+  async geocodeAddress(address: string) {
+    if (!address || !address.trim()) {
+      throw new BadRequestException('Vui lòng cung cấp địa chỉ để lấy tọa độ');
+    }
+    const cleanAddress = address.trim();
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+        cleanAddress,
+      )}&format=json&limit=1`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'HandyGo-App/1.0 (contact@handygo.vn)' },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as any[];
+        if (Array.isArray(data) && data.length > 0) {
+          return {
+            statusCode: HttpStatus.OK,
+            data: {
+              address: cleanAddress,
+              latitude: parseFloat(data[0].lat),
+              longitude: parseFloat(data[0].lon),
+              displayName: data[0].display_name,
+            },
+          };
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Nominatim geocoding error: ${(err as Error).message}`);
+    }
+
+    const lower = cleanAddress.toLowerCase();
+    let defaultLat = 16.0544; // Danang
+    let defaultLon = 108.2022;
+    if (lower.includes('hà nội') || lower.includes('ha noi')) {
+      defaultLat = 21.0285;
+      defaultLon = 105.8542;
+    } else if (
+      lower.includes('hồ chí minh') ||
+      lower.includes('ho chi minh') ||
+      lower.includes('sài gòn') ||
+      lower.includes('sai gon')
+    ) {
+      defaultLat = 10.7769;
+      defaultLon = 106.7009;
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        address: cleanAddress,
+        latitude: defaultLat,
+        longitude: defaultLon,
+        displayName: cleanAddress,
+      },
+    };
+  }
+
+  /**
+   * Upload file minh chứng hình ảnh lên Cloudinary
+   */
+  async uploadEvidenceFile(userId: string, file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Vui lòng chọn file hình ảnh minh chứng');
+    }
+    if (!this.cloudinaryService) {
+      throw new BadRequestException('Dịch vụ Cloudinary chưa sẵn sàng');
+    }
+
+    const upload = await this.cloudinaryService.uploadImage(file);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Tải lên hình ảnh minh chứng thành công',
+      data: {
+        url: upload.url,
+        fileType: 'image',
+        format: upload.format,
+        width: upload.width,
+        height: upload.height,
+        bytes: upload.bytes,
+      },
+    };
+  }
+
+  /**
+   * Khởi tạo chữ ký direct upload video lên Cloudinary
+   */
+  async createEvidenceVideoSignature(dto: {
+    mimeType: string;
+    fileSize: number;
+  }) {
+    if (!this.cloudinaryService) {
+      throw new BadRequestException('Dịch vụ Cloudinary chưa sẵn sàng');
+    }
+    const signature =
+      await this.cloudinaryService.createVideoUploadSignature(dto);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Khởi tạo chữ ký tải lên video thành công',
+      data: signature,
     };
   }
 }
