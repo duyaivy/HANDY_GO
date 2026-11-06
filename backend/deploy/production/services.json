@@ -9,7 +9,12 @@
       "deploy": true,
       "scope": "gateway-media",
       "memory_mib": 160,
-      "migration": null
+      "migration": null,
+      "url_env": "MEDIA_SERVICE_URL",
+      "http_callers": [
+        "message-service"
+      ],
+      "wireguard_http": true
     },
     "auth-service": {
       "host": "vps1",
@@ -22,9 +27,10 @@
       "migration_order": 1,
       "url_env": "AUTH_SERVICE_URL",
       "http_callers": [
-        "api-gateway"
+        "api-gateway",
+        "message-service"
       ],
-      "wireguard_http": false
+      "wireguard_http": true
     },
     "user-trust-service": {
       "host": "vps1",
@@ -71,7 +77,8 @@
       "url_env": "ORDER_SERVICE_URL",
       "http_callers": [
         "api-gateway",
-        "bidding-service"
+        "bidding-service",
+        "message-service"
       ],
       "wireguard_http": true
     },
@@ -87,7 +94,8 @@
       "url_env": "BIDDING_SERVICE_URL",
       "http_callers": [
         "api-gateway",
-        "order-service"
+        "order-service",
+        "message-service"
       ],
       "wireguard_http": true
     },
@@ -165,6 +173,19 @@
         "api-gateway",
         "user-trust-service"
       ],
+      "wireguard_http": true
+    },
+    "message-service": {
+      "host": "vps4",
+      "port": 3009,
+      "state": "READY",
+      "deploy": true,
+      "scope": "message-core",
+      "memory_mib": 256,
+      "migration": "message",
+      "migration_order": 0,
+      "url_env": "MESSAGE_SERVICE_URL",
+      "http_callers": [],
       "wireguard_http": true
     }
   }
