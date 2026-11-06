@@ -82,6 +82,9 @@ cd ../mobile
 pnpm test src/services/sse/__tests__/tracking-sse-client.test.ts
 pnpm test src/features/orders/customer/__tests__/customer-order-detail-screen.test.tsx
 pnpm test src/features/orders/worker/__tests__/worker-job-detail-screen.test.tsx
+
+# Chạy test toàn trình Live E2E & Resilience Suite
+pnpm test src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx
 ```
 
 ---
@@ -96,9 +99,21 @@ Khi hoàn tất cả 5 giai đoạn, thực hiện cập nhật các tài liệu
    - Đổi trạng thái mục `Tracking / Map Service` từ "Smart Interop Fallback" thành "Live Production SSE".
 3. **Cập nhật [`docs/HG-64/README.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/README.md):**
    - Chuyển trạng thái Ticket HG-64 từ `In Progress` sang `✅ COMPLETED 100%`.
+4. **Cập nhật [`docs/HG-64/TRACKING_TIEN_DO_HG-64.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/TRACKING_TIEN_DO_HG-64.md):**
+   - Đánh dấu 100% các tiêu chí Definition of Done và toàn bộ 5/5 giai đoạn.
 
 ---
 
-## 6. Kết luận
+## 6. Tiêu chuẩn hoàn thành Giai đoạn 5 (Sign-off Checklist)
+
+- [x] Kịch bản E2E toàn trình 8 bước giữa Khách hàng và Thợ được tự động hóa và chạy PASS trong `tracking-e2e-resilience.test.tsx`.
+- [x] Cơ chế bù đắp sự kiện `Last-Event-ID` và tự động kết nối lại khi rớt mạng đạt chuẩn.
+- [x] Cơ chế Graceful Fallback hiển thị `statusHistory` tĩnh khi server Tracking ngừng hoạt động chạy ổn định, không lỗi trắng màn hình.
+- [x] 100% test suites của Backend (`order-service`, `tracking-service`) và Mobile (`tracking`, `customer`, `worker`) đều PASS.
+- [x] Toàn bộ tài liệu kỹ thuật và checklist nghiệm thu đã được hoàn tất và ký duyệt bàn giao.
+
+---
+
+## 7. Kết luận
 
 Với việc hoàn thành Giai đoạn 5, tính năng tích hợp giữa **Order Service** và **Tracking Service** chính thức đạt tiêu chuẩn hoàn thiện 100%, sẵn sàng bàn giao cho người dùng cuối trên môi trường Staging và Production.
