@@ -14,6 +14,11 @@ import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import {
+  OrderTrackingTimeline,
+  useTrackingEvents,
+  useTrackingSummary,
+} from '@/features/tracking';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
@@ -82,7 +87,7 @@ export function CustomerOrderDetailScreen({
   onBack,
 }: CustomerOrderDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ id?: string }>();
+  const searchParams = useLocalSearchParams<{ id?: string; serviceRequestId?: string }>();
   const orderId = propOrderId || searchParams?.id || 'demo-001';
 
   const isPlumberOrder = orderId === '224466' || orderId.toLowerCase().includes('plumber');
@@ -105,6 +110,19 @@ export function CustomerOrderDetailScreen({
     requestRework,
     statusHistory,
   } = useCustomerOrderDetail(orderId);
+
+  // Lấy serviceRequestId từ chi tiết order (hoặc search params)
+  const serviceRequestId = order?.serviceRequestId || (searchParams?.serviceRequestId as string | undefined);
+
+  // Lấy dữ liệu summary từ Tracking Service
+  const {
+    data: trackingSummary,
+    isError: isTrackingError,
+    isLoading: isTrackingLoading,
+  } = useTrackingSummary(serviceRequestId);
+
+  // Kết nối luồng thời gian thực SSE
+  const { connectionStatus } = useTrackingEvents(serviceRequestId);
 
   const handleCancelOrder = () => {
     Alert.alert(
@@ -320,30 +338,41 @@ export function CustomerOrderDetailScreen({
         )}
 
         {/* Dòng thời gian Timeline các mốc trạng thái */}
-        {statusHistory && statusHistory.length > 0 && (
-          <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-            <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
-              Lịch sử trạng thái đơn hàng
-            </Text>
-            <View className="gap-2.5">
-              {statusHistory.map((item: OrderStatusHistoryItem, index: number) => (
-                <View key={item.id || index} className="flex-row items-start gap-2.5">
-                  <View className="mt-1 size-2 rounded-full bg-primary" />
-                  <View className="flex-1">
-                    <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                      Chuyển sang:
-                      {' '}
-                      {formatOrderStatus(item.toStatus)}
-                    </Text>
-                    <Text className="text-[10px] text-neutral-400">
-                      {new Date(item.createdAt).toLocaleString('vi-VN')}
-                    </Text>
+        {serviceRequestId && !isTrackingError && (trackingSummary || isTrackingLoading)
+          ? (
+              <OrderTrackingTimeline
+                summary={trackingSummary}
+                isLoading={isTrackingLoading}
+                connectionStatus={connectionStatus}
+              />
+            )
+          : (
+              /* FALLBACK: Render statusHistory tĩnh cũ nếu Tracking Service không khả dụng */
+              statusHistory && statusHistory.length > 0 && (
+                <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+                  <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
+                    Lịch sử trạng thái đơn hàng (Dự phòng)
+                  </Text>
+                  <View className="gap-2.5">
+                    {statusHistory.map((item: OrderStatusHistoryItem, index: number) => (
+                      <View key={item.id || index} className="flex-row items-start gap-2.5">
+                        <View className="mt-1 size-2 rounded-full bg-primary" />
+                        <View className="flex-1">
+                          <Text className="text-xs font-bold text-neutral-900 dark:text-white">
+                            Chuyển sang:
+                            {' '}
+                            {formatOrderStatus(item.toStatus)}
+                          </Text>
+                          <Text className="text-[10px] text-neutral-400">
+                            {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
                   </View>
                 </View>
-              ))}
-            </View>
-          </View>
-        )}
+              )
+            )}
 
         {/* Khối nút hành động tương tác theo trạng thái */}
         {order?.status === 'awaiting_customer_confirmation' && (

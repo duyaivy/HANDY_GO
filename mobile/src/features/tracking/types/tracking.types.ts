@@ -1,27 +1,27 @@
-export type TrackingPhase =
-  | 'DRAFT'
-  | 'SEEKING_WORKERS'
-  | 'BOOKING_PROPOSAL'
-  | 'ORDER_CONFIRMED'
-  | 'ORDER_IN_PROGRESS'
-  | 'ORDER_FINISHED'
-  | 'COMPLETED'
-  | 'CANCELLED'
-  | 'EXPIRED'
-  | 'DISPUTED';
+export type TrackingPhase
+  = | 'DRAFT'
+    | 'SEEKING_WORKERS'
+    | 'BOOKING_PROPOSAL'
+    | 'ORDER_CONFIRMED'
+    | 'ORDER_IN_PROGRESS'
+    | 'ORDER_FINISHED'
+    | 'COMPLETED'
+    | 'CANCELLED'
+    | 'EXPIRED'
+    | 'DISPUTED';
 
 export type MilestoneStatus = 'completed' | 'in_progress' | 'pending' | 'skipped';
 
-export interface TrackingMilestone {
+export type TrackingMilestone = {
   key: string;
   title: string;
   description: string;
   status: MilestoneStatus;
   reachedAt: string | null;
   actorUserId?: string | null;
-}
+};
 
-export interface TrackingEventItem {
+export type TrackingEventItem = {
   id: string;
   eventId: string;
   entityType: string;
@@ -36,24 +36,24 @@ export interface TrackingEventItem {
   occurredAt: string;
   recordedAt: string;
   writeSequence?: number;
-}
+};
 
-export interface ServiceRequestMilestoneData {
+export type ServiceRequestMilestoneData = {
   status: string;
   createdAt: string;
   publishedAt?: string;
   cancelledAt?: string;
   expiredAt?: string;
   convertedAt?: string;
-}
+};
 
-export interface MatchingMilestoneData {
+export type MatchingMilestoneData = {
   status: string;
   matchCount?: number;
   completedAt?: string;
-}
+};
 
-export interface BiddingMilestoneData {
+export type BiddingMilestoneData = {
   status: string;
   bidCount: number;
   openedAt?: string;
@@ -64,17 +64,17 @@ export interface BiddingMilestoneData {
     amount?: number;
     status?: string;
   };
-}
+};
 
-export interface ProposalMilestoneData {
+export type ProposalMilestoneData = {
   status?: string;
   proposalId?: string;
   revisionNo?: number;
   workerId?: string;
   finalizedAt?: string;
-}
+};
 
-export interface OrderMilestoneData {
+export type OrderMilestoneData = {
   id?: string;
   orderId?: string;
   status?: string;
@@ -86,14 +86,14 @@ export interface OrderMilestoneData {
   cancelledAt?: string;
   reworkReason?: string;
   disputeReason?: string;
-}
+};
 
-export interface PaymentMilestoneData {
+export type PaymentMilestoneData = {
   status?: string;
   lastEventAt?: string;
-}
+};
 
-export interface TrackingSummaryResponse {
+export type TrackingSummaryResponse = {
   flowId?: string;
   serviceRequestId: string;
   orderId: string | null;
@@ -111,26 +111,26 @@ export interface TrackingSummaryResponse {
   lastUpdatedAt: string;
   createdAt?: string;
   updatedAt?: string;
-}
+};
 
-export interface TrackingTimelineResponse {
+export type TrackingTimelineResponse = {
   serviceRequestId: string;
   items: TrackingEventItem[];
   page: number;
   limit: number;
   total: number;
   totalPages?: number;
-}
+};
 
 export type TrackingSseEventType = 'connected' | 'ping' | 'timeline_event';
 
-export interface TrackingSseMessage {
+export type TrackingSseMessage = {
   type: TrackingSseEventType;
   serviceRequestId?: string;
   message?: string;
   payload?: TrackingEventItem;
   timestamp?: string;
-}
+};
 
 /**
  * Computes an ordered array of TrackingMilestones from a backend TrackingSummaryResponse.

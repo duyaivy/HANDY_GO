@@ -1,8 +1,8 @@
+import type { TrackingSummaryResponse, TrackingTimelineResponse } from '../types/tracking.types';
 import { request } from '@/services/api/api-client';
 import {
   computeMilestonesFromSummary,
-  type TrackingSummaryResponse,
-  type TrackingTimelineResponse,
+
 } from '../types/tracking.types';
 
 export const TrackingApi = {

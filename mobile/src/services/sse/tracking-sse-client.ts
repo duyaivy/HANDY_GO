@@ -1,5 +1,5 @@
-import { Platform } from 'react-native';
 import type { TrackingEventItem, TrackingSseMessage } from '@/features/tracking/types/tracking.types';
+import { Platform } from 'react-native';
 import { getToken } from '@/lib/auth/utils';
 import { refreshTokens, resolveApiBaseUrl } from '@/services/api/api-client';
 import { Logger } from '@/services/logger/logger';
@@ -112,11 +112,13 @@ export class TrackingSseClient {
 
   private emit<K extends keyof TrackingSseEventMap>(event: K, data: TrackingSseEventMap[K]): void {
     const handlers = this.eventListeners.get(event);
-    if (!handlers) return;
+    if (!handlers)
+      return;
     for (const handler of Array.from(handlers)) {
       try {
         handler(data);
-      } catch (err) {
+      }
+      catch (err) {
         Logger.error('TRACKING_SSE_LISTENER_ERROR', `Error in handler for ${String(event)}`, err);
       }
     }
@@ -126,19 +128,22 @@ export class TrackingSseClient {
     for (const listener of Array.from(this.listeners)) {
       try {
         listener(event);
-      } catch (err) {
+      }
+      catch (err) {
         Logger.warn('TRACKING_SSE_EVENT_ERROR', 'Error in event listener callback', err);
       }
     }
   }
 
   private notifyStatus(status: TrackingConnectionStatus): void {
-    if (this.status === status) return;
+    if (this.status === status)
+      return;
     this.status = status;
     for (const listener of Array.from(this.statusListeners)) {
       try {
         listener(status);
-      } catch (err) {
+      }
+      catch (err) {
         Logger.warn('TRACKING_SSE_STATUS_ERROR', 'Error in status listener callback', err);
       }
     }
@@ -166,7 +171,8 @@ export class TrackingSseClient {
         this.clearTimers();
         this.cleanupActiveConnection();
         await this.startStream(generation);
-      } finally {
+      }
+      finally {
         if (generation === this.generation) {
           this.connectionPromise = null;
         }
@@ -195,13 +201,15 @@ export class TrackingSseClient {
     if (this.abortController) {
       try {
         this.abortController.abort();
-      } catch {}
+      }
+      catch {}
       this.abortController = null;
     }
     if (this.activeXhr) {
       try {
         this.activeXhr.abort();
-      } catch {}
+      }
+      catch {}
       this.activeXhr = null;
     }
     if (this.isConnected) {
@@ -237,7 +245,8 @@ export class TrackingSseClient {
   }
 
   private scheduleReconnect(immediate = false): void {
-    if (this.isClosed || !this.autoReconnect) return;
+    if (this.isClosed || !this.autoReconnect)
+      return;
     this.clearTimers();
     this.notifyStatus('reconnecting');
 
@@ -260,14 +269,16 @@ export class TrackingSseClient {
   }
 
   private async startStream(generation: number): Promise<void> {
-    if (this.isClosed) return;
+    if (this.isClosed)
+      return;
 
     let token = getToken()?.access;
     if (!token) {
       Logger.warn('TRACKING_SSE_NO_TOKEN', 'No access token available for SSE stream. Attempting refresh...');
       try {
         token = await refreshTokens();
-      } catch (err) {
+      }
+      catch (err) {
         Logger.error('TRACKING_SSE_AUTH_HALTED', 'No valid token and refresh failed. Halting reconnection.', err);
         this.emit('error', new Error('Authentication required: no access token available'));
         this.clearTimers();
@@ -276,7 +287,8 @@ export class TrackingSseClient {
       }
     }
 
-    if (this.isClosed || generation !== this.generation) return;
+    if (this.isClosed || generation !== this.generation)
+      return;
 
     const url = this.buildStreamUrl();
     const parser = new SseStreamParser();
@@ -303,11 +315,14 @@ export class TrackingSseClient {
 
       if (useFetch) {
         await this.streamViaFetch(url, parser, { token, signal });
-      } else {
+      }
+      else {
         this.streamViaXhr(url, token, parser);
       }
-    } catch (err: any) {
-      if (this.isClosed || signal.aborted) return;
+    }
+    catch (err: any) {
+      if (this.isClosed || signal.aborted)
+        return;
 
       Logger.warn('TRACKING_SSE_STREAM_ERROR', 'Stream failed with error', err?.message || err);
       this.emit('error', err instanceof Error ? err : new Error(String(err)));
@@ -338,12 +353,15 @@ export class TrackingSseClient {
         headers,
         signal,
       });
-    } catch (fetchErr: any) {
-      if (signal.aborted || this.isClosed) return;
+    }
+    catch (fetchErr: any) {
+      if (signal.aborted || this.isClosed)
+        return;
       throw fetchErr;
     }
 
-    if (signal.aborted || this.isClosed) return;
+    if (signal.aborted || this.isClosed)
+      return;
 
     if (response.status === 401) {
       Logger.warn('TRACKING_SSE_AUTH_EXPIRED', 'SSE connection 401 Unauthorized. Refreshing token...');
@@ -351,7 +369,8 @@ export class TrackingSseClient {
         await refreshTokens();
         this.scheduleReconnect(true);
         return;
-      } catch (refreshErr) {
+      }
+      catch (refreshErr) {
         Logger.error('TRACKING_SSE_REFRESH_FAILED', 'Token refresh failed during SSE reconnect', refreshErr);
         this.emit('error', new Error('Authentication expired and token refresh failed'));
         this.clearTimers();
@@ -372,13 +391,15 @@ export class TrackingSseClient {
 
       while (!this.isClosed && !signal.aborted) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done)
+          break;
         if (value) {
           const chunk = decoder ? decoder.decode(value, { stream: true }) : String.fromCharCode(...value);
           parser.feed(chunk);
         }
       }
-    } else {
+    }
+    else {
       Logger.warn(
         'TRACKING_SSE_FETCH_NO_READER',
         'Fetch response.body.getReader not available. Falling back to XMLHttpRequest.',
@@ -414,7 +435,8 @@ export class TrackingSseClient {
     }
 
     xhr.onreadystatechange = () => {
-      if (this.isClosed || this.activeXhr !== xhr) return;
+      if (this.isClosed || this.activeXhr !== xhr)
+        return;
 
       if (xhr.readyState === 2) {
         if (xhr.status === 401) {
@@ -423,7 +445,8 @@ export class TrackingSseClient {
           const generation = this.generation;
           try {
             xhr.abort();
-          } catch {}
+          }
+          catch {}
           Logger.warn('TRACKING_SSE_XHR_401', 'XHR received 401 Unauthorized. Refreshing tokens...');
           refreshTokens()
             .then(() => {
@@ -446,7 +469,8 @@ export class TrackingSseClient {
     };
 
     xhr.onprogress = () => {
-      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth) return;
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
+        return;
       const text = xhr.responseText || '';
       const newChunk = text.slice(lastProcessedIndex);
       lastProcessedIndex = text.length;
@@ -456,13 +480,15 @@ export class TrackingSseClient {
     };
 
     xhr.onload = () => {
-      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth) return;
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
+        return;
       this.cleanupActiveConnection();
       this.scheduleReconnect();
     };
 
     xhr.onerror = (_e) => {
-      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth) return;
+      if (this.isClosed || this.activeXhr !== xhr || isAbortingForAuth)
+        return;
       this.cleanupActiveConnection();
       this.emit('error', new Error('XHR Network error during SSE connection'));
       this.scheduleReconnect();
@@ -510,12 +536,14 @@ export class TrackingSseClient {
             }
             this.notifyListeners(item);
             this.emit('timeline_event', item);
-          } else {
+          }
+          else {
             Logger.debug('TRACKING_SSE_UNKNOWN_EVENT', `Received unhandled event: ${eventName}`, parsedData);
           }
           break;
       }
-    } catch (parseErr) {
+    }
+    catch (parseErr) {
       Logger.warn('TRACKING_SSE_DATA_PARSE_ERROR', `Failed to parse SSE JSON for ${eventName}: ${rawData}`, parseErr);
     }
   }

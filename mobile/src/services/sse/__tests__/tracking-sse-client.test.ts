@@ -1,10 +1,11 @@
+import type { TrackingEventItem } from '@/features/tracking/types/tracking.types';
+import {
+  computeMilestonesFromSummary,
+
+} from '@/features/tracking/types/tracking.types';
 import {
   TrackingSseClient,
 } from '../tracking-sse-client';
-import {
-  computeMilestonesFromSummary,
-  type TrackingEventItem,
-} from '@/features/tracking/types/tracking.types';
 
 // Mock auth & API client
 const mockGetToken = jest.fn(() => ({ access: 'mock-access-token', refresh: 'mock-refresh-token' }));

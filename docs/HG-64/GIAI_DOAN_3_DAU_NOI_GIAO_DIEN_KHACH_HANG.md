@@ -4,7 +4,7 @@
 > **Giai đoạn:** 3/5  
 > **Tên giai đoạn:** Đấu nối Giao diện Khách hàng, Thay thế Stepper tĩnh bằng Live Timeline  
 > **Thời lượng ước tính:** 1.0 ngày  
-> **Trạng thái:** ⏳ Sẵn sàng thực hiện  
+> **Trạng thái:** ✅ Đã hoàn thành  
 
 ---
 
@@ -235,7 +235,7 @@ pnpm test src/features/orders/customer/__tests__/customer-order-detail-screen.te
 
 ## 4. Tiêu chuẩn hoàn thành Giai đoạn 3 (Sign-off Checklist)
 
-- [ ] Component `OrderTrackingTimeline` hiển thị đẹp mắt, đầy đủ 7 cột mốc.
-- [ ] Màn hình chi tiết đơn hàng của khách hàng tự động cập nhật khi có sự kiện SSE từ Thợ.
-- [ ] Nếu ngắt kết nối mạng hoặc server Tracking dừng, màn hình fallback êm dịu về `statusHistory` mà không gặp crash/lỗi màn hình trắng.
-- [ ] Sẵn sàng chuyển sang **Giai đoạn 4 (Đấu nối giao diện Thợ)**.
+- [x] Component `OrderTrackingTimeline` hiển thị đẹp mắt, đầy đủ 7 cột mốc.
+- [x] Màn hình chi tiết đơn hàng của khách hàng tự động cập nhật khi có sự kiện SSE từ Thợ.
+- [x] Nếu ngắt kết nối mạng hoặc server Tracking dừng, màn hình fallback êm dịu về `statusHistory` mà không gặp crash/lỗi màn hình trắng.
+- [x] Sẵn sàng chuyển sang **Giai đoạn 4 (Đấu nối giao diện Thợ)**.

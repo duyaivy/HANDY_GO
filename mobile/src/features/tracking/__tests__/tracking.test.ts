@@ -1,6 +1,6 @@
+import { request } from '@/services/api/api-client';
 import { TrackingApi } from '../api/tracking.api';
 import { TRACKING_QUERY_KEYS } from '../hooks/use-tracking-summary';
-import { request } from '@/services/api/api-client';
 
 jest.mock('@/services/api/api-client', () => ({
   request: jest.fn(),
