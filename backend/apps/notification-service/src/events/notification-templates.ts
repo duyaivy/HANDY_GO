@@ -9,6 +9,10 @@ export interface NotificationTemplate {
 }
 
 const templates = {
+  'message.created': [
+    'Tin nhắn mới',
+    'Bạn có tin nhắn mới về yêu cầu dịch vụ.',
+  ],
   'matching.eligible_workers.ready': [
     'Có công việc mới phù hợp',
     'Một yêu cầu dịch vụ phù hợp với bạn vừa xuất hiện.',
