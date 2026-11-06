@@ -71,7 +71,6 @@ export default function CustomerBookingSelectAddressRoute() {
         const shouldUpdateAddress = showFeedback || (!isInputFocusedRef.current && !currentAddressRef.current.trim());
         if (shouldUpdateAddress) {
           setCurrentAddress(result.coordinates.addressText);
-          setAddress(result.coordinates.addressText, result.coordinates.latitude, result.coordinates.longitude);
         }
         setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
         setGpsStatus('success');
@@ -111,7 +110,7 @@ export default function CustomerBookingSelectAddressRoute() {
     finally {
       setIsLocating(false);
     }
-  }, [setAddress, triggerProgrammaticMove]);
+  }, [triggerProgrammaticMove]);
 
   const handleRegionChange = React.useCallback(
     (coords: HandyCoordinates) => {
@@ -222,7 +221,7 @@ export default function CustomerBookingSelectAddressRoute() {
   }, []);
 
   React.useEffect(() => {
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== 'test' || (globalThis as any).__TEST_COLD_START_GPS__) {
       void fetchDeviceGpsLocation(false);
     }
   }, [fetchDeviceGpsLocation]);

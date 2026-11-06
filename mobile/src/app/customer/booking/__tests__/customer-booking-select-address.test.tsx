@@ -60,6 +60,7 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
     jest.useRealTimers();
     keyboardDismissSpy.mockRestore();
     jest.restoreAllMocks();
+    delete (globalThis as any).__TEST_COLD_START_GPS__;
   });
 
   it('Kịch bản 1: Nhập địa chỉ thủ công không bao giờ tự động sập bàn phím (Keyboard.dismiss)', () => {
@@ -92,18 +93,16 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
     fireEvent.changeText(input, '123 Nguyễn Lương Bằng');
 
     // Chờ debounce forward geocode 700ms
-    act(() => {
+    await act(async () => {
       jest.advanceTimersByTime(700);
     });
 
-    await waitFor(() => {
-      expect(forwardSpy).toHaveBeenCalledWith('123 Nguyễn Lương Bằng', expect.any(Object));
-      expect(mockFlyTo).toHaveBeenCalledWith({ latitude: 16.075, longitude: 108.152 }, 16);
-    });
+    expect(forwardSpy).toHaveBeenCalledWith('123 Nguyễn Lương Bằng', expect.any(Object));
+    expect(mockFlyTo).toHaveBeenCalledWith({ latitude: 16.075, longitude: 108.152 }, 16);
 
     // Giả lập bản đồ di chuyển và bắn sự kiện onRegionDidChange
     expect(capturedOnRegionDidChange).not.toBeNull();
-    act(() => {
+    await act(async () => {
       capturedOnRegionDidChange!({ latitude: 16.075, longitude: 108.152 });
       jest.advanceTimersByTime(600);
     });
@@ -130,18 +129,19 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
     expect(keyboardDismissSpy).toHaveBeenCalled();
 
     // 2. Chờ debounce 500ms cho reverse geocoding
-    act(() => {
+    await act(async () => {
       jest.advanceTimersByTime(500);
     });
 
-    await waitFor(() => {
-      expect(reverseSpy).toHaveBeenCalledWith(16.06, 108.16);
-      expect(input.props.value).toBe('456 Tôn Đức Thắng, Liên Chiểu');
-      expect(useBookingDraftStore.getState().addressText).toBe('456 Tôn Đức Thắng, Liên Chiểu');
-    });
+    expect(reverseSpy).toHaveBeenCalledWith(16.06, 108.16);
+    expect(input.props.value).toBe('456 Tôn Đức Thắng, Liên Chiểu');
+    expect(useBookingDraftStore.getState().addressText).toBe('456 Tôn Đức Thắng, Liên Chiểu');
   });
 
   it('Kịch bản 4: Cold-start GPS ngầm không đè bẹp nội dung người dùng đang gõ', async () => {
+    (globalThis as any).__TEST_COLD_START_GPS__ = true;
+    jest.spyOn(MapboxService, 'forwardGeocode').mockResolvedValue(null);
+
     let resolveGps: (val: any) => void;
     const gpsPromise = new Promise((resolve) => {
       resolveGps = resolve;
