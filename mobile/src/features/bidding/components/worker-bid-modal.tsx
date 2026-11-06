@@ -12,6 +12,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
+import { ChatEntry } from '@/features/chat/chat-entry';
 import { isBeforeDeadline, useDeadlineClock } from '../hooks/use-deadline-clock';
 import {
   useMyBidForRequest,
@@ -426,6 +427,7 @@ export function WorkerBidModal({
                 {bidQuery.isError && <Button label="Thử lại" onPress={() => { void bidQuery.refetch(); }} />}
               </View>
             )}
+            {effectiveBid && ['active', 'selected'].includes(effectiveBid.status) && <ChatEntry enabled={visible} bidId={effectiveBid.id} name="Khách hàng" onOpen={onClose} />}
             {/* Action Buttons */}
             <View className="gap-2.5 pb-4">
               <Button
