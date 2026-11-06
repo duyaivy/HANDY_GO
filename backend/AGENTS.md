@@ -57,3 +57,6 @@ microservice sang microservice khác. Thư viện dùng chung giữa service n�
 | `NOTIFICATION_EVENTS`, `EventDataMap`, `validateNotificationEvent` | `apps/notification-service/src/events/event-contracts.ts` | Contract và validation chung cho các luồng nhận event của Notification. |
 | `PushErrorClassifier`, `PushPayloadBuilder` | `apps/notification-service/src/push/` | Phân loại lỗi FCM và tạo payload push với metadata được phép. |
 | `searchCatalogPage` | `apps/catalog-service/src/common/catalog-search.ts` | Tìm tên/mô tả không phân biệt dấu bằng PostgreSQL, giữ bộ lọc, thứ tự và count/page; trả ID trang để hydrate qua Prisma. |
+| `TimelineStreamService` | `apps/tracking-service/src/common/stream/timeline-stream.service.ts` | Quản lý luồng SSE thời gian thực, Redis Pub/Sub đa replica và bù đắp sự kiện qua Last-Event-ID (HG-64). |
+| `SummaryService` | `apps/tracking-service/src/summary/summary.service.ts` | Tính toán tổng hợp trạng thái flow, các mốc tiến trình và bảo vệ Bid Shielding (HG-64). |
+| `TrackingEventsConsumer` | `apps/tracking-service/src/events/tracking-events.consumer.ts` | Tiêu thụ và xử lý bất đồng bộ các sự kiện domain từ Order Service qua RabbitMQ topic exchange (HG-64). |

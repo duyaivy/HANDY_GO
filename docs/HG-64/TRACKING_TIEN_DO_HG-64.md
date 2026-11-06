@@ -5,15 +5,15 @@
 > **Nhánh Git:** `feature/HG-64-integrate-tracking-service-into-order-service`  
 > **Khởi tạo:** 06/11/2026  
 > **Cập nhật lần cuối:** 06/11/2026  
-> **Trạng thái hiện tại:** 🟡 **IN PROGRESS (65% Hoàn thành)**  
-> *(Nền tảng Backend Core, Giai đoạn 1 Backend Edge Cases và Giai đoạn 2 Mobile Client & SSE đã hoàn tất 100%)*
+> **Trạng thái hiện tại:** 🟢 **COMPLETED (100% Hoàn thành)**  
+> *(Toàn bộ 5/5 giai đoạn Backend, Mobile Client, SSE Real-time, UI Khách hàng, UI Thợ và E2E Resilience đã hoàn tất 100%)*
 
 ---
 
 ## 1. Dashboard Tổng quan Tiến độ (Progress Overview)
 
 ```
-[█████████████░░░░░░░] 65% Hoàn thành tổng thể
+[████████████████████] 100% Hoàn thành tổng thể
 ```
 
 | Giai đoạn | Nội dung công việc | Ước lượng | Tỉ trọng | Trạng thái | Tiến độ |
@@ -21,10 +21,10 @@
 | **Core BE** | **Nền tảng Backend Core (PR #44)** | Đã merge | 35% | ✅ Đã hoàn tất | 100% |
 | **Phase 1** | Rà soát & Gia cố Backend Edge Cases | 0.5 ngày | 10% | ✅ Đã hoàn tất | 100% |
 | **Phase 2** | Xây dựng Client API & SSE trên Mobile | 1.0 ngày | 20% | ✅ Đã hoàn tất | 100% |
-| **Phase 3** | Đấu nối Giao diện Khách hàng (Live Timeline) | 1.0 ngày | 15% | ⏳ Sẵn sàng | 0% |
-| **Phase 4** | Đấu nối Giao diện Thợ (Rework & Completion Sync) | 0.5 ngày | 10% | ⏳ Sẵn sàng | 0% |
-| **Phase 5** | Kiểm thử toàn trình (E2E) & Bàn giao | 1.0 ngày | 10% | ⏳ Sẵn sàng | 0% |
-| **TỔNG CỘNG** | **Toàn bộ tiến trình tích hợp** | **4.0 ngày** | **100%** | 🟡 **Đang tiến hành** | **65%** |
+| **Phase 3** | Đấu nối Giao diện Khách hàng (Live Timeline) | 1.0 ngày | 15% | ✅ Đã hoàn tất | 100% |
+| **Phase 4** | Đấu nối Giao diện Thợ (Rework & Completion Sync) | 0.5 ngày | 10% | ✅ Đã hoàn tất | 100% |
+| **Phase 5** | Kiểm thử toàn trình (E2E) & Bàn giao | 1.0 ngày | 10% | ✅ Đã hoàn tất | 100% |
+| **TỔNG CỘNG** | **Toàn bộ tiến trình tích hợp** | **4.0 ngày** | **100%** | 🟢 **Hoàn tất** | **100%** |
 
 ---
 
@@ -68,36 +68,36 @@
 ### 🔹 Giai đoạn 3: Đấu nối Giao diện Khách hàng (Customer Order Detail)
 *Tài liệu hướng dẫn: [`docs/HG-64/GIAI_DOAN_3_DAU_NOI_GIAO_DIEN_KHACH_HANG.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/GIAI_DOAN_3_DAU_NOI_GIAO_DIEN_KHACH_HANG.md)*
 
-- [ ] **TASK-64-3.1:** Xây dựng component `TrackingMilestoneItem` hiển thị từng cột mốc (icon, đường nối, màu trạng thái, nhãn thời gian).
-- [ ] **TASK-64-3.2:** Xây dựng component `OrderTrackingTimeline` trực quan hóa 7 cột mốc chính và huy hiệu trạng thái Live SSE Indicator.
-- [ ] **TASK-64-3.3:** Nhúng `useTrackingSummary` và `useTrackingEvents` vào [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx).
-- [ ] **TASK-64-3.4:** Thay thế khối stepper cũ bằng `OrderTrackingTimeline`.
-- [ ] **TASK-64-3.5:** Cài đặt cơ chế phòng vệ **Graceful Fallback**: tự động rơi về hiển thị `statusHistory` tĩnh nếu API Tracking gặp lỗi.
-- [ ] **TASK-64-3.6:** Viết Component test kiểm chứng giao diện Khách hàng tự nhảy mốc khi nhận sự kiện mock SSE.
+- [x] **TASK-64-3.1:** Xây dựng component `TrackingMilestoneItem` hiển thị từng cột mốc (icon, đường nối, màu trạng thái, nhãn thời gian).
+- [x] **TASK-64-3.2:** Xây dựng component `OrderTrackingTimeline` trực quan hóa 7 cột mốc chính và huy hiệu trạng thái Live SSE Indicator.
+- [x] **TASK-64-3.3:** Nhúng `useTrackingSummary` và `useTrackingEvents` vào [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx).
+- [x] **TASK-64-3.4:** Thay thế khối stepper cũ bằng `OrderTrackingTimeline`.
+- [x] **TASK-64-3.5:** Cài đặt cơ chế phòng vệ **Graceful Fallback**: tự động rơi về hiển thị `statusHistory` tĩnh nếu API Tracking gặp lỗi.
+- [x] **TASK-64-3.6:** Viết Component test kiểm chứng giao diện Khách hàng tự nhảy mốc khi nhận sự kiện mock SSE.
 
 ---
 
 ### 🔹 Giai đoạn 4: Đấu nối Giao diện Thợ (Worker Job Detail)
 *Tài liệu hướng dẫn: [`docs/HG-64/GIAI_DOAN_4_DAU_NOI_GIAO_DIEN_THO.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/GIAI_DOAN_4_DAU_NOI_GIAO_DIEN_THO.md)*
 
-- [ ] **TASK-64-4.1:** Nhúng `OrderTrackingTimeline` vào [`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx).
-- [ ] **TASK-64-4.2:** Viết hàm `handleWorkerRealtimeEvent` lắng nghe sự kiện từ `useTrackingEvents`.
-- [ ] **TASK-64-4.3:** Xử lý bật Alert thông báo kèm lý do khi Khách hàng gửi yêu cầu làm lại (`rework`).
-- [ ] **TASK-64-4.4:** Tự động mở lại nút cho phép thợ hoàn tất và chụp ảnh minh chứng lại khi có rework.
-- [ ] **TASK-64-4.5:** Xử lý bật Alert chúc mừng khi Khách hàng bấm nghiệm thu (`completed`).
-- [ ] **TASK-64-4.6:** Đảm bảo nguyên tắc bảo mật và Bid Shielding: Thợ chỉ xem được dòng thời gian đơn hàng mình phụ trách.
+- [x] **TASK-64-4.1:** Nhúng `OrderTrackingTimeline` vào [`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx).
+- [x] **TASK-64-4.2:** Viết hàm `handleWorkerRealtimeEvent` lắng nghe sự kiện từ `useTrackingEvents`.
+- [x] **TASK-64-4.3:** Xử lý bật Alert thông báo kèm lý do khi Khách hàng gửi yêu cầu làm lại (`rework`).
+- [x] **TASK-64-4.4:** Tự động mở lại nút cho phép thợ hoàn tất và chụp ảnh minh chứng lại khi có rework.
+- [x] **TASK-64-4.5:** Xử lý bật Alert chúc mừng khi Khách hàng bấm nghiệm thu (`completed`).
+- [x] **TASK-64-4.6:** Đảm bảo nguyên tắc bảo mật và Bid Shielding: Thợ chỉ xem được dòng thời gian đơn hàng mình phụ trách.
 
 ---
 
 ### 🔹 Giai đoạn 5: Kiểm thử Toàn trình (E2E), Tối ưu & Bàn giao
 *Tài liệu hướng dẫn: [`docs/HG-64/GIAI_DOAN_5_KIEM_THU_TOAN_TRINH_VA_NGHIEM_THU.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/GIAI_DOAN_5_KIEM_THU_TOAN_TRINH_VA_NGHIEM_THU.md)*
 
-- [ ] **TASK-64-5.1:** Thực hiện kịch bản Live E2E 8 bước trên 2 thiết bị thực tế (Khách hàng $\leftrightarrow$ Thợ).
-- [ ] **TASK-64-5.2:** Kiểm thử rớt mạng (Airplane Mode 15s) trên thiết bị di động, xác minh cơ chế `Last-Event-ID` bù đắp mốc sự kiện.
-- [ ] **TASK-64-5.3:** Kiểm thử tắt container Tracking Service trong Docker, xác minh Mobile App fallback êm dịu không bị trắng màn hình.
-- [ ] **TASK-64-5.4:** Chạy toàn bộ test suite của Backend và Mobile (`pnpm test`), đảm bảo 100% test files pass.
-- [ ] **TASK-64-5.5:** Cập nhật tài liệu [`backend/AGENTS.md`](file:///d:/SCHOOL/PBL6/backend/AGENTS.md) và [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](file:///d:/SCHOOL/PBL6/docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md).
-- [ ] **TASK-64-5.6:** Hoàn tất báo cáo nghiệm thu và đóng ticket HG-64.
+- [x] **TASK-64-5.1:** Thực hiện kịch bản Live E2E 8 bước trên 2 thiết bị thực tế (Khách hàng $\leftrightarrow$ Thợ).
+- [x] **TASK-64-5.2:** Kiểm thử rớt mạng (Airplane Mode 15s) trên thiết bị di động, xác minh cơ chế `Last-Event-ID` bù đắp mốc sự kiện.
+- [x] **TASK-64-5.3:** Kiểm thử tắt container Tracking Service trong Docker, xác minh Mobile App fallback êm dịu không bị trắng màn hình.
+- [x] **TASK-64-5.4:** Chạy toàn bộ test suite của Backend và Mobile (`pnpm test`), đảm bảo 100% test files pass.
+- [x] **TASK-64-5.5:** Cập nhật tài liệu [`backend/AGENTS.md`](file:///d:/SCHOOL/PBL6/backend/AGENTS.md) và [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](file:///d:/SCHOOL/PBL6/docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md).
+- [x] **TASK-64-5.6:** Hoàn tất báo cáo nghiệm thu và đóng ticket HG-64.
 
 ---
 

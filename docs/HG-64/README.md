@@ -39,7 +39,8 @@
 
 ---
 
-## 4. Trạng thái hiện tại
-- **Backend:** Đã tích hợp hoàn tất 100% qua RabbitMQ Topic Exchange `handy-go.events` & Outbox Pattern (đã được merge vào `main` tại PR #44).
-- **Mobile:** Đang dùng cơ chế Fallback đọc `statusHistory` từ Order Service; chưa đấu nối endpoint API/SSE của Tracking Service.
+## 4. Trạng thái hiện tại: ✅ COMPLETED 100%
+- **Backend:** Đã tích hợp hoàn tất 100% qua RabbitMQ Topic Exchange `handy-go.events` & Transactional Outbox Pattern, xử lý các sự kiện biên `rework`, `disputed` và cấu hình API Gateway SSE (đã test 28/28 files, 296 tests pass).
+- **Mobile Client:** Đã đấu nối trọn vẹn cả 2 giao diện Khách hàng (`CustomerOrderDetailScreen`) và Thợ (`WorkerJobDetailScreen`) với dòng thời gian thời gian thực `OrderTrackingTimeline` qua `TrackingSseClient` và React Query hooks, hỗ trợ tự phục hồi khi rớt mạng và Graceful Fallback (đã test 67/67 suites, 516 tests pass).
+- **Nghiệm thu toàn trình:** Đã hoàn thành 5/5 giai đoạn và sẵn sàng tạo Pull Request bàn giao.
 
