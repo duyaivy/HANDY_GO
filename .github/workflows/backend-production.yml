@@ -147,6 +147,7 @@ jobs:
       VPS1_HOST: ${{ secrets.VPS1_HOST }}
       VPS2_HOST: ${{ secrets.VPS2_HOST }}
       VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      VPS4_HOST: ${{ secrets.VPS4_HOST }}
       DEPLOY_USER: azureuser
       API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
     steps:
@@ -161,11 +162,12 @@ jobs:
           VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
           VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
           VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+          VPS4_SSH_KEY: ${{ secrets.VPS4_SSH_KEY }}
           BACKEND_PRODUCTION_ENV: ${{ secrets.BACKEND_PRODUCTION_ENV }}
         run: |
           umask 077
           install -d -m 700 ~/.ssh
-          for role in VPS1 VPS2 VPS3; do
+          for role in VPS1 VPS2 VPS3 VPS4; do
             key_name="${role}_SSH_KEY"
             if [[ -z "${!key_name}" ]]; then
               echo "::error::Missing production secret $key_name"
@@ -220,4 +222,4 @@ jobs:
           retention-days: 90
       - name: Remove runner secrets
         if: always()
-        run: rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"
+        run: rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_vps4 ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"

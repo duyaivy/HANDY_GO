@@ -160,7 +160,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.own('vps3')
         self.reconcile()
         self.assertFalse(self.cluster.actions('restore'))
-        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('verify')), len(orchestrate.ROLES))
         self.assertEqual(len(self.cluster.actions('finish')), 1)
         self.assertIsNone(self.cluster.states['vps3']['pending'])
 
@@ -201,7 +201,7 @@ class RecoveryTests(unittest.TestCase):
             self.cluster.own(role, phase='COMMITTED')
         self.reconcile()
         self.assertFalse(self.cluster.actions('restore'))
-        self.assertEqual(len(self.cluster.actions('finish')), 3)
+        self.assertEqual(len(self.cluster.actions('finish')), len(orchestrate.ROLES))
         self.assertTrue(all(call[2] == INCIDENT_A for call in self.cluster.actions('verify')))
         self.assertEqual(self.c.journal['status'], 'STABLE')
 
@@ -265,11 +265,11 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.c.journal['status'], 'MANUAL_INTERVENTION_REQUIRED')
 
     def test_runner_cancelled_between_apply_and_commit_restores_safe_snapshot(self):
-        for role, phase in zip(orchestrate.ROLES, ('VERIFIED', 'APPLYING', 'SNAPSHOT')):
+        for role, phase in zip(orchestrate.ROLES, ('VERIFIED', 'APPLYING', 'SNAPSHOT', 'SNAPSHOT')):
             self.cluster.own(role, phase=phase)
         self.reconcile()
-        self.assertEqual(len(self.cluster.actions('restore')), 3)
-        self.assertEqual(len(self.cluster.actions('finish')), 3)
+        self.assertEqual(len(self.cluster.actions('restore')), len(orchestrate.ROLES))
+        self.assertEqual(len(self.cluster.actions('finish')), len(orchestrate.ROLES))
         self.assertFalse(self.cluster.actions('commit'))
 
     def test_recovery_retried_twice_is_idempotent(self):
@@ -369,8 +369,8 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.fail['vps2', 'begin'] = KeyboardInterrupt('Runner cancelled')
         with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
             self.c.execute()
-        self.assertEqual([call[0] for call in self.cluster.actions('begin')], ['vps3', 'vps2'])
-        self.assertEqual([call[0] for call in self.cluster.actions('finish')], ['vps3'])
+        self.assertEqual([call[0] for call in self.cluster.actions('begin')], ['vps4', 'vps3', 'vps2'])
+        self.assertEqual([call[0] for call in self.cluster.actions('finish')], ['vps4', 'vps3'])
         self.assertFalse(self.cluster.actions('apply'))
         self.assertFalse(self.cluster.actions('restore'))
         self.assertIn('Runner cancelled', self.c.journal['error'])
@@ -392,10 +392,10 @@ class RecoveryTests(unittest.TestCase):
             self.c.execute()
         self.assertEqual(self.cluster.states['vps2']['pending'], foreign)
         self.assertFalse(self.cluster.actions('restore'))
-        self.assertEqual([(call[0], call[3]) for call in self.cluster.actions('finish')], [('vps3', INCIDENT_B)])
+        self.assertEqual([(call[0], call[3]) for call in self.cluster.actions('finish')], [('vps4', INCIDENT_B), ('vps3', INCIDENT_B)])
         self.assertIsNone(self.cluster.states['vps3']['pending'])
         self.assertIsNotNone(self.cluster.states['vps2']['pending'])
-        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('verify')), len(orchestrate.ROLES))
         self.assertEqual(self.c.journal['ownership']['vps3'], 'OWNED')
         self.assertEqual(self.c.journal['ownership']['vps2'], 'FOREIGN_OWNER')
         self.assertIn('Unfinished transaction', self.c.journal['error'])
@@ -413,7 +413,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.fail['vps2', 'begin'] = RuntimeError('SSH timed out')
         with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
             self.c.execute()
-        self.assertEqual({call[0] for call in self.cluster.actions('finish')}, {'vps3', 'vps2'})
+        self.assertEqual({call[0] for call in self.cluster.actions('finish')}, {'vps4', 'vps3', 'vps2'})
         self.assertEqual(self.c.journal['ownership']['vps2'], 'OWNED')
         self.assertFalse(self.cluster.actions('apply'))
         self.assertFalse(self.cluster.actions('restore'))
@@ -422,7 +422,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.fail['vps2', 'begin'] = RuntimeError('Begin rejected before write')
         with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
             self.c.execute()
-        self.assertEqual([call[0] for call in self.cluster.actions('finish')], ['vps3'])
+        self.assertEqual([call[0] for call in self.cluster.actions('finish')], ['vps4', 'vps3'])
         self.assertEqual(self.c.journal['ownership']['vps2'], 'NO_JOURNAL')
         self.assertFalse(self.cluster.actions('apply'))
 
@@ -512,7 +512,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.states['vps3']['manifests'][INCIDENT_A] = manifest(INCIDENT_A)
         self.reconcile()
         self.assertFalse(self.cluster.actions('restore'))
-        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('verify')), len(orchestrate.ROLES))
         self.assertEqual(len(self.cluster.actions('finish')), 1)
         self.assertIsNone(self.cluster.states['vps3']['pending'])
 
@@ -573,7 +573,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.own('vps3', phase='SNAPSHOT')
         self.reconcile(automatic=True)
         self.assertFalse(self.cluster.actions('restore'))
-        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('verify')), len(orchestrate.ROLES))
         self.assertEqual(len(self.cluster.actions('finish')), 1)
         self.assertIsNone(self.cluster.states['vps3']['pending'])
         self.assertEqual(self.c.journal['status'], 'FAILED_ROLLBACK_SUCCESS')
@@ -613,7 +613,7 @@ class RecoveryTests(unittest.TestCase):
         self.cluster.own('vps3', phase='APPLYING')
         self.reconcile(automatic=False)
         self.assertEqual(len(self.cluster.actions('restore')), 1)
-        self.assertEqual(len(self.cluster.actions('verify')), 3)
+        self.assertEqual(len(self.cluster.actions('verify')), len(orchestrate.ROLES))
         self.assertEqual(len(self.cluster.actions('finish')), 1)
         self.assertIsNone(self.cluster.states['vps3']['pending'])
         self.assertEqual(self.c.journal['status'], 'FAILED_ROLLBACK_SUCCESS')

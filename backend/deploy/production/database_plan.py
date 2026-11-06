@@ -140,7 +140,11 @@ def migration_inventory(root, registry):
     scripts = json.loads((root / 'package.json').read_text()).get('scripts', {})
     registered = migration_services(registry)
     inventory = {}
-    for app in sorted((root / 'apps').iterdir()):
+    app_dirs = sorted((root / 'apps').iterdir())
+    foundations = root / 'foundations'
+    if foundations.is_dir():
+        app_dirs.extend(sorted(foundations.iterdir()))
+    for app in app_dirs:
         if not app.is_dir():
             continue
         schemas = sorted(app.rglob('*.prisma'))
@@ -156,7 +160,7 @@ def migration_inventory(root, registry):
         if key not in registered or registered[key][0] != app.name:
             raise ValueError(f'Migration owner classification missing or invalid: {app.name}')
         entry = registry[app.name]
-        if entry.get('deploy') is not True or entry.get('state') == 'NOT_READY' or entry.get('host') not in ('vps1', 'vps2', 'vps3'):
+        if entry.get('deploy') is not True or entry.get('state') == 'NOT_READY' or entry.get('host') not in ('vps1', 'vps2', 'vps3', 'vps4'):
             raise ValueError(f'Migration service has no production execution path: {app.name}')
         schema, config = _script_paths(root, key, scripts.get('prisma:migrate:' + key, ''))
         if schema != schemas[0].resolve() or not config.is_relative_to(app.resolve()):
@@ -184,7 +188,8 @@ def migration_inventory(root, registry):
             raise ValueError(f'Migration SQL missing: {key}')
         if set(path.resolve() for path in sql_files) != set(path.resolve() for path in migrations.glob('*/migration.sql')):
             raise ValueError(f'Migration SQL outside configured execution path: {key}')
-        if database_match[1] != key or database_match[2] != key.replace('-', '_') + '_service':
+        expected_schema = 'message' if key == 'message' else key.replace('-', '_') + '_service'
+        if database_match[1] != key or database_match[2] != expected_schema:
             raise ValueError(f'Migration database/schema contract mismatch: {key}')
         if type(entry.get('migration_order')) is not int or entry['migration_order'] < 0:
             raise ValueError(f'Migration execution order missing: {key}')
@@ -205,7 +210,7 @@ def validate_migration_owners(root, registry, owners):
     configured = [name for names in owners.values() for name in names]
     if len(configured) != len(set(configured)):
         raise ValueError('Migration owners must cover every Prisma service exactly once')
-    if set(owners) != {'vps1', 'vps2', 'vps3'}:
+    if set(owners) != {'vps1', 'vps2', 'vps3', 'vps4'}:
         raise ValueError('Migration owner roles must match production VPS topology')
     inventory = migration_inventory(root, registry)
     if set(configured) != set(inventory):

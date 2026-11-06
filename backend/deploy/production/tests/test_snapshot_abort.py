@@ -159,7 +159,7 @@ class ClusterSnapshotAbortTests(unittest.TestCase):
 
     def test_explicit_abort_observes_twice_without_restore_verify_commit_or_normal_finish(self):
         self.abort()
-        self.assertEqual(len(self.cluster.actions('observe-runtime')), 6)
+        self.assertEqual(len(self.cluster.actions('observe-runtime')), 2 * len(host.ROLES))
         self.sleep.assert_called_once_with(20)
         for action in ('restore', 'verify', 'commit', 'finish', 'authorize-finish', 'apply'):
             self.assertFalse(self.cluster.actions(action))
