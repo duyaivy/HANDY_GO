@@ -45,7 +45,7 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
   let keyboardDismissSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     keyboardDismissSpy = jest.spyOn(Keyboard, 'dismiss');
     useBookingDraftStore.getState().resetDraft();
     capturedOnRegionDidChange = null;
@@ -55,12 +55,12 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
   });
 
   afterEach(() => {
-    cleanup();
+    delete (globalThis as any).__TEST_COLD_START_GPS__;
     jest.clearAllTimers();
     jest.useRealTimers();
+    cleanup();
     keyboardDismissSpy.mockRestore();
     jest.restoreAllMocks();
-    delete (globalThis as any).__TEST_COLD_START_GPS__;
   });
 
   it('Kịch bản 1: Nhập địa chỉ thủ công không bao giờ tự động sập bàn phím (Keyboard.dismiss)', () => {
@@ -104,7 +104,7 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
     expect(capturedOnRegionDidChange).not.toBeNull();
     await act(async () => {
       capturedOnRegionDidChange!({ latitude: 16.075, longitude: 108.152 });
-      jest.advanceTimersByTime(600);
+      jest.advanceTimersByTime(1000);
     });
 
     // Kiểm tra: Bàn phím KHÔNG bị đóng, reverseGeocode KHÔNG được gọi đè lên input
@@ -133,9 +133,11 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
       jest.advanceTimersByTime(500);
     });
 
-    expect(reverseSpy).toHaveBeenCalledWith(16.06, 108.16);
-    expect(input.props.value).toBe('456 Tôn Đức Thắng, Liên Chiểu');
-    expect(useBookingDraftStore.getState().addressText).toBe('456 Tôn Đức Thắng, Liên Chiểu');
+    await waitFor(() => {
+      expect(reverseSpy).toHaveBeenCalledWith(16.06, 108.16);
+      expect(input.props.value).toBe('456 Tôn Đức Thắng, Liên Chiểu');
+      expect(useBookingDraftStore.getState().addressText).toBe('456 Tôn Đức Thắng, Liên Chiểu');
+    });
   });
 
   it('Kịch bản 4: Cold-start GPS ngầm không đè bẹp nội dung người dùng đang gõ', async () => {
@@ -172,6 +174,11 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
     // Văn bản trong ô input không bị ghi đè bởi vị trí GPS
     expect(input.props.value).toBe('Ngõ 55 Điện Biên Phủ');
     expect(keyboardDismissSpy).not.toHaveBeenCalled();
+
+    // Hoàn thành các timer còn lại (700ms debounce, 1000ms programmatic move)
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
   });
 
   it('Kịch bản 5: Bấm nút clear "✕" xóa trắng nội dung và hủy timer forward geocode', () => {
