@@ -69,6 +69,10 @@ export class ApiGatewayModule implements NestModule {
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
     consumer
       .apply(GatewayAuthMiddleware)
+      .exclude({
+        path: 'internal/media/chat/verify',
+        method: RequestMethod.POST,
+      })
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
     consumer
       .apply(ProxyMiddleware)
