@@ -5,26 +5,26 @@
 > **Nhánh Git:** `feature/HG-64-integrate-tracking-service-into-order-service`  
 > **Khởi tạo:** 06/11/2026  
 > **Cập nhật lần cuối:** 06/11/2026  
-> **Trạng thái hiện tại:** 🟡 **IN PROGRESS (45% Hoàn thành)**  
-> *(Nền tảng Backend Core và Giai đoạn 1 Rà soát & Gia cố Backend Edge Cases đã hoàn tất 100%)*
+> **Trạng thái hiện tại:** 🟡 **IN PROGRESS (65% Hoàn thành)**  
+> *(Nền tảng Backend Core, Giai đoạn 1 Backend Edge Cases và Giai đoạn 2 Mobile Client & SSE đã hoàn tất 100%)*
 
 ---
 
 ## 1. Dashboard Tổng quan Tiến độ (Progress Overview)
 
 ```
-[█████████░░░░░░░░░░░] 45% Hoàn thành tổng thể
+[█████████████░░░░░░░] 65% Hoàn thành tổng thể
 ```
 
 | Giai đoạn | Nội dung công việc | Ước lượng | Tỉ trọng | Trạng thái | Tiến độ |
 | :---: | :--- | :---: | :---: | :---: | :---: |
 | **Core BE** | **Nền tảng Backend Core (PR #44)** | Đã merge | 35% | ✅ Đã hoàn tất | 100% |
 | **Phase 1** | Rà soát & Gia cố Backend Edge Cases | 0.5 ngày | 10% | ✅ Đã hoàn tất | 100% |
-| **Phase 2** | Xây dựng Client API & SSE trên Mobile | 1.0 ngày | 20% | ⏳ Sẵn sàng | 0% |
+| **Phase 2** | Xây dựng Client API & SSE trên Mobile | 1.0 ngày | 20% | ✅ Đã hoàn tất | 100% |
 | **Phase 3** | Đấu nối Giao diện Khách hàng (Live Timeline) | 1.0 ngày | 15% | ⏳ Sẵn sàng | 0% |
 | **Phase 4** | Đấu nối Giao diện Thợ (Rework & Completion Sync) | 0.5 ngày | 10% | ⏳ Sẵn sàng | 0% |
 | **Phase 5** | Kiểm thử toàn trình (E2E) & Bàn giao | 1.0 ngày | 10% | ⏳ Sẵn sàng | 0% |
-| **TỔNG CỘNG** | **Toàn bộ tiến trình tích hợp** | **4.0 ngày** | **100%** | 🟡 **Đang tiến hành** | **45%** |
+| **TỔNG CỘNG** | **Toàn bộ tiến trình tích hợp** | **4.0 ngày** | **100%** | 🟡 **Đang tiến hành** | **65%** |
 
 ---
 
@@ -55,13 +55,13 @@
 ### 🔹 Giai đoạn 2: Xây dựng Module Client & Real-time SSE trên Mobile
 *Tài liệu hướng dẫn: [`docs/HG-64/GIAI_DOAN_2_MOBILE_CLIENT_VA_SSE.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/GIAI_DOAN_2_MOBILE_CLIENT_VA_SSE.md)*
 
-- [ ] **TASK-64-2.1:** Tạo tệp kiểu dữ liệu `mobile/src/features/tracking/types/tracking.types.ts` (`TrackingSummaryResponse`, `TrackingMilestone`, `TrackingEventItem`, ...).
-- [ ] **TASK-64-2.2:** Xây dựng module `TrackingApi` (`getSummary`, `getTimeline`) tại `mobile/src/features/tracking/api/tracking.api.ts`.
-- [ ] **TASK-64-2.3:** Phát triển `TrackingSseClient` tại `mobile/src/services/sse/tracking-sse-client.ts` (Auto-reconnect, Backoff lũy thừa, Last-Event-ID, Heartbeat timeout).
-- [ ] **TASK-64-2.4:** Viết Custom Hook `useTrackingSummary` tích hợp React Query cache.
-- [ ] **TASK-64-2.5:** Viết Custom Hook `useTrackingTimeline` hỗ trợ phân trang dòng sự kiện.
-- [ ] **TASK-64-2.6:** Viết Custom Hook `useTrackingEvents` tự động invalidate cache và gọi callback khi có sự kiện thời gian thực.
-- [ ] **TASK-64-2.7:** Viết Unit tests cho `TrackingSseClient` và các hook React Query mới tạo.
+- [x] **TASK-64-2.1:** Tạo tệp kiểu dữ liệu `mobile/src/features/tracking/types/tracking.types.ts` (`TrackingSummaryResponse`, `TrackingMilestone`, `TrackingEventItem`, ...).
+- [x] **TASK-64-2.2:** Xây dựng module `TrackingApi` (`getSummary`, `getTimeline`) tại `mobile/src/features/tracking/api/tracking.api.ts`.
+- [x] **TASK-64-2.3:** Phát triển `TrackingSseClient` tại `mobile/src/services/sse/tracking-sse-client.ts` (Auto-reconnect, Backoff lũy thừa, Last-Event-ID, Heartbeat timeout, Token refresh).
+- [x] **TASK-64-2.4:** Viết Custom Hook `useTrackingSummary` tích hợp React Query cache.
+- [x] **TASK-64-2.5:** Viết Custom Hook `useTrackingTimeline` hỗ trợ phân trang dòng sự kiện.
+- [x] **TASK-64-2.6:** Viết Custom Hook `useTrackingEvents` tự động invalidate cache và gọi callback khi có sự kiện thời gian thực.
+- [x] **TASK-64-2.7:** Viết Unit tests cho `TrackingSseClient` và các hook React Query mới tạo (100% pass, 482/482 mobile tests pass).
 
 ---
 
@@ -110,6 +110,8 @@
 | **06/11/2026** | Antigravity AI | DOC-02 | Lập kế hoạch chi tiết 5 giai đoạn hoàn thiện 100% tích hợp. | Tạo file `KE_HOACH_CHI_TIET_HOAN_THANH_TICH_HOP.md`. |
 | **06/11/2026** | Antigravity AI | DOC-03 | Soạn thảo trọn bộ 5 file hướng dẫn kỹ thuật cho từng giai đoạn. | Tạo các file `GIAI_DOAN_1_...` đến `GIAI_DOAN_5_...`. |
 | **06/11/2026** | Antigravity AI | DOC-04 | Thiết lập Dashboard theo dõi tiến độ chi tiết ticket HG-64. | Tạo file `TRACKING_TIEN_DO_HG-64.md` (Hiện tại: 35%). |
+| **06/11/2026** | Antigravity AI | PHASE-1 | Hoàn thành Giai đoạn 1: Rà soát & Gia cố Backend Edge Cases. | Commit `3d88da0da521747ae062d4e28f2ae23ae255bbbd` (45%). |
+| **06/11/2026** | Antigravity AI | PHASE-2 | Hoàn thành Giai đoạn 2: Xây dựng Module Client, SSE Streamer & React Query Hooks trên Mobile App. | Tạo types, TrackingApi, TrackingSseClient, hooks và unit tests (65%). |
 
 ---
 

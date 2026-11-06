@@ -246,9 +246,31 @@ axiosInstance.interceptors.response.use(
 );
 
 /**
+ * Generic request helper wrapping axiosInstance.
+ * Automatically normalizes `/api/v1/` prefix if provided in URL (since baseURL already includes it),
+ * and unwraps standard API success response envelopes ({ statusCode, message, data }).
+ */
+export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+  const normalizedConfig: AxiosRequestConfig = { ...config };
+  if (normalizedConfig.url && normalizedConfig.url.startsWith('/api/v1/')) {
+    normalizedConfig.url = normalizedConfig.url.slice('/api/v1'.length);
+  }
+  const response = await axiosInstance.request<any>(normalizedConfig);
+  const body = response.data;
+  if (body && typeof body === 'object' && 'data' in body && ('statusCode' in body || 'message' in body)) {
+    return body.data as T;
+  }
+  return body as T;
+}
+
+/**
  * Standard API Client with typed helper methods.
  */
 export const ApiClient = {
+  request: async <T>(config: AxiosRequestConfig): Promise<T> => {
+    return request<T>(config);
+  },
+
   get: async <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
     const response = await axiosInstance.get<T>(url, config);
     return response.data;

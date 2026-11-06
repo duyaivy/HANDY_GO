@@ -4,7 +4,7 @@
 > **Giai đoạn:** 2/5  
 > **Tên giai đoạn:** Xây dựng Module Client, SSE Streamer & React Query Hooks trên Mobile App  
 > **Thời lượng ước tính:** 1.0 ngày  
-> **Trạng thái:** ⏳ Sẵn sàng thực hiện  
+> **Trạng thái:** ✅ Đã hoàn thành 100% (Commit: Phase 2 Client, SSE & Hooks)  
 
 ---
 
@@ -387,7 +387,8 @@ pnpm test src/services/sse/__tests__/tracking-sse-client.test.ts
 
 ## 4. Tiêu chuẩn hoàn thành Giai đoạn 2 (Sign-off Checklist)
 
-- [ ] Các tệp DTO và Types được định nghĩa đầy đủ tại `mobile/src/features/tracking/types/`.
-- [ ] `TrackingApi` gọi đúng các endpoint của API Gateway.
-- [ ] `TrackingSseClient` hỗ trợ reconnect và Last-Event-ID.
-- [ ] Các hook `useTrackingSummary` và `useTrackingEvents` hoàn thành, sẵn sàng nhúng vào UI ở **Giai đoạn 3**.
+- [x] Các tệp DTO và Types được định nghĩa đầy đủ tại `mobile/src/features/tracking/types/`.
+- [x] `TrackingApi` gọi đúng các endpoint của API Gateway (`/api/v1/tracking/*`).
+- [x] `TrackingSseClient` hỗ trợ reconnect, heartbeat watchdog, token refresh và Last-Event-ID.
+- [x] Các hook `useTrackingSummary`, `useTrackingTimeline` và `useTrackingEvents` hoàn thành, sẵn sàng nhúng vào UI ở **Giai đoạn 3**.
+- [x] 100% Unit tests pass: `tracking-sse-client.test.ts` (10/10 tests) và `tracking.test.ts` (3/3 tests).
