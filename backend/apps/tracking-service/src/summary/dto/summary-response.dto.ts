@@ -21,7 +21,10 @@ export class ServiceRequestMilestoneDto {
 }
 
 export class MatchingMilestoneDto {
-  @ApiProperty({ example: 'completed', enum: ['idle', 'started', 'completed', 'failed'] })
+  @ApiProperty({
+    example: 'completed',
+    enum: ['idle', 'started', 'completed', 'failed'],
+  })
   status!: string;
 
   @ApiPropertyOptional({ example: 3 })
@@ -32,7 +35,10 @@ export class MatchingMilestoneDto {
 }
 
 export class BiddingMilestoneDto {
-  @ApiProperty({ example: 'open', enum: ['idle', 'open', 'closed', 'finalized'] })
+  @ApiProperty({
+    example: 'open',
+    enum: ['idle', 'open', 'closed', 'finalized'],
+  })
   status!: string;
 
   @ApiProperty({ example: 5 })
@@ -47,7 +53,9 @@ export class BiddingMilestoneDto {
   @ApiPropertyOptional()
   finalizedAt?: Date;
 
-  @ApiPropertyOptional({ description: 'Thông tin báo giá riêng của thợ đang truy vấn' })
+  @ApiPropertyOptional({
+    description: 'Thông tin báo giá riêng của thợ đang truy vấn',
+  })
   myBid?: {
     bidId: string;
     amount?: number;
@@ -87,6 +95,12 @@ export class OrderMilestoneDto {
 
   @ApiPropertyOptional()
   cancelledAt?: Date;
+
+  @ApiPropertyOptional({ description: 'Lý do yêu cầu làm lại nếu có rework' })
+  reworkReason?: string;
+
+  @ApiPropertyOptional({ description: 'Lý do tranh chấp nếu có khiếu nại' })
+  disputeReason?: string;
 }
 
 export class PaymentMilestoneDto {

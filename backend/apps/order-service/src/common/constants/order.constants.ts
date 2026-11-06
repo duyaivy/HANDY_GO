@@ -38,6 +38,7 @@ export const ORDER_CONSTANTS = {
   EVENT_ORDER_COMPLETED: 'order.completed',
   EVENT_ORDER_CANCELLED: 'order.cancelled',
   EVENT_ORDER_DISPUTED: 'order.disputed',
+  EVENT_ORDER_REWORK_REQUESTED: 'order.rework_requested',
 
   // Inbound Event Types
   EVENT_PAYMENT_SUCCEEDED: 'payment.succeeded',

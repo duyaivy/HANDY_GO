@@ -19,7 +19,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_CREATED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_CREATED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED)
@@ -27,7 +31,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED)
@@ -35,7 +43,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED)
@@ -43,7 +55,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CONVERTED_TO_ORDER)
@@ -111,7 +127,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.BIDDING_ROUND_FINALIZED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.BID_SUBMITTED)
@@ -147,7 +167,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.BOOKING_PROPOSAL_CREATED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.BOOKING_PROPOSAL_CREATED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.BOOKING_PROPOSAL_CHANGES_REQUESTED)
@@ -234,6 +258,26 @@ export class TrackingEventsConsumer {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_CANCELLED);
   }
 
+  @EventPattern(EVENT_PATTERNS.ORDER_DISPUTED)
+  async handleOrderDisputed(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(data, context, EVENT_PATTERNS.ORDER_DISPUTED);
+  }
+
+  @EventPattern(EVENT_PATTERNS.ORDER_REWORK_REQUESTED)
+  async handleOrderReworkRequested(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.ORDER_REWORK_REQUESTED,
+    );
+  }
+
   // ==========================================================================
   // PAYMENT EVENTS
   // ==========================================================================
@@ -289,7 +333,10 @@ export class TrackingEventsConsumer {
   ): Promise<void> {
     const eventId = data?.eventId || data?.id;
     try {
-      const result = await this.eventsService.recordDomainEvent(data, fallbackPattern);
+      const result = await this.eventsService.recordDomainEvent(
+        data,
+        fallbackPattern,
+      );
       if (result.reason === 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW') {
         this.logger.warn(
           `Message ${eventId} (${fallbackPattern}) acknowledged without recording: invalid payload missing serviceRequestId and orderId.`,
@@ -311,7 +358,12 @@ export class TrackingEventsConsumer {
   }
 
   private isTransientError(error: any): boolean {
-    if (['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(error?.code)) return true;
+    if (
+      ['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(
+        error?.code,
+      )
+    )
+      return true;
     const msg = error?.message || '';
     return (
       msg.includes('connection') ||

@@ -43,10 +43,7 @@ export class TrackingEventsService {
       'unknown.event';
 
     const rawEventId =
-      data.eventId ||
-      data.id ||
-      rawPayload.eventId ||
-      rawPayload.id;
+      data.eventId || data.id || rawPayload.eventId || rawPayload.id;
     if (!rawEventId || String(rawEventId).length > 128) {
       throw new Error('INVALID_EVENT_ID: a stable event ID is required');
     }
@@ -75,17 +72,25 @@ export class TrackingEventsService {
     let orderId: string | undefined =
       data.orderId ||
       rawPayload.orderId ||
-      (data.aggregateType === 'order' && data.aggregateId ? data.aggregateId : undefined) ||
-      (rawPayload.aggregateType === 'order' && rawPayload.aggregateId ? rawPayload.aggregateId : undefined) ||
+      (data.aggregateType === 'order' && data.aggregateId
+        ? data.aggregateId
+        : undefined) ||
+      (rawPayload.aggregateType === 'order' && rawPayload.aggregateId
+        ? rawPayload.aggregateId
+        : undefined) ||
       (rawPayload.order?.id ? rawPayload.order.id : undefined) ||
       (rawPayload.payment?.orderId ? rawPayload.payment.orderId : undefined) ||
-      (eventType.startsWith('order.') && rawPayload.id ? rawPayload.id : undefined);
+      (eventType.startsWith('order.') && rawPayload.id
+        ? rawPayload.id
+        : undefined);
 
     let customerId: string | undefined =
       rawPayload.customerId ||
       rawPayload.customerUserId ||
       data.customerId ||
-      (eventType.startsWith('service_request.') ? rawPayload.userId : undefined);
+      (eventType.startsWith('service_request.')
+        ? rawPayload.userId
+        : undefined);
 
     if (customerId && !isUUID(customerId)) {
       customerId = undefined;
@@ -107,18 +112,28 @@ export class TrackingEventsService {
         // ACK is only possible after this transaction commits.
         await this.prisma.$transaction(async (tx) => {
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${String(rawEventId)}, 0))::text`;
-          if (await tx.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) return;
+          if (
+            await tx.consumedEvent.findUnique({
+              where: { eventId: String(rawEventId) },
+            })
+          )
+            return;
           await tx.pendingTrackingEvent.upsert({
             where: { eventId: String(rawEventId) },
             create: {
-              eventId: String(rawEventId), orderId: orderId!, eventType,
+              eventId: String(rawEventId),
+              orderId: orderId!,
+              eventType,
               envelope: JSON.parse(JSON.stringify(data)),
             },
             update: {},
           });
         });
-        const linked = await this.prisma.trackingFlow.findUnique({ where: { orderId } });
-        if (linked) await this.flushPendingOrderEvents(orderId, linked.serviceRequestId);
+        const linked = await this.prisma.trackingFlow.findUnique({
+          where: { orderId },
+        });
+        if (linked)
+          await this.flushPendingOrderEvents(orderId, linked.serviceRequestId);
         return { recorded: false, reason: 'BUFFERED_PENDING_ORDER_CREATED' };
       }
     }
@@ -132,7 +147,12 @@ export class TrackingEventsService {
 
     // 3. Resolve Entity Type, Entity ID and Source Service
     const entityType = this.resolveEntityType(eventType);
-    const entityId = this.resolveEntityId(eventType, rawPayload, serviceRequestId, orderId);
+    const entityId = this.resolveEntityId(
+      eventType,
+      rawPayload,
+      serviceRequestId,
+      orderId,
+    );
     const sourceService =
       data.sourceService ||
       rawPayload.sourceService ||
@@ -148,9 +168,7 @@ export class TrackingEventsService {
     const actorUserId = rawActorId && isUUID(rawActorId) ? rawActorId : null;
 
     const fromStatus =
-      rawPayload.fromStatus ||
-      rawPayload.previousStatus ||
-      null;
+      rawPayload.fromStatus || rawPayload.previousStatus || null;
 
     const toStatus =
       rawPayload.toStatus ||
@@ -160,10 +178,7 @@ export class TrackingEventsService {
       null;
 
     const reason =
-      rawPayload.reason ||
-      rawPayload.message ||
-      data.reason ||
-      null;
+      rawPayload.reason || rawPayload.message || data.reason || null;
 
     const aggregateVersion =
       typeof data.aggregateVersion === 'number'
@@ -189,8 +204,14 @@ export class TrackingEventsService {
 
       await this.prisma.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${String(rawEventId)}, 0))::text`;
-        if (await tx.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) {
-          await tx.pendingTrackingEvent.deleteMany({ where: { eventId: String(rawEventId) } });
+        if (
+          await tx.consumedEvent.findUnique({
+            where: { eventId: String(rawEventId) },
+          })
+        ) {
+          await tx.pendingTrackingEvent.deleteMany({
+            where: { eventId: String(rawEventId) },
+          });
           return;
         }
         // Consumption, timeline write and pending deletion commit together.
@@ -243,7 +264,9 @@ export class TrackingEventsService {
             writeSequence: updatedFlow.eventSequence,
           },
         });
-        await tx.pendingTrackingEvent.deleteMany({ where: { eventId: String(rawEventId) } });
+        await tx.pendingTrackingEvent.deleteMany({
+          where: { eventId: String(rawEventId) },
+        });
       });
 
       this.logger.log(
@@ -284,7 +307,12 @@ export class TrackingEventsService {
       return { recorded: true };
     } catch (error: any) {
       // Prisma unique constraint violation (code P2002) -> idempotent duplicate
-      if (error?.code === 'P2002' && await this.prisma.consumedEvent.findUnique({ where: { eventId: String(rawEventId) } })) {
+      if (
+        error?.code === 'P2002' &&
+        (await this.prisma.consumedEvent.findUnique({
+          where: { eventId: String(rawEventId) },
+        }))
+      ) {
         this.logger.warn(
           `Duplicate event ${rawEventId} caught via database constraint. Treating as consumed.`,
         );
@@ -298,62 +326,110 @@ export class TrackingEventsService {
     }
   }
 
-  async flushPendingOrderEvents(orderId: string, serviceRequestId: string): Promise<FlushPendingOrderResult> {
+  async flushPendingOrderEvents(
+    orderId: string,
+    serviceRequestId: string,
+  ): Promise<FlushPendingOrderResult> {
     const pending = await this.prisma.pendingTrackingEvent.findMany({
       where: { orderId, nextAttemptAt: { lte: new Date() } },
-      orderBy: [{ receivedAt: 'asc' }, { eventId: 'asc' }], take: 100,
+      orderBy: [{ receivedAt: 'asc' }, { eventId: 'asc' }],
+      take: 100,
     });
     let flushedCount = 0;
     let failed = false;
     for (const event of pending) {
       try {
         const original = event.envelope as unknown as EventEnvelope;
-        const result = await this.recordDomainEvent({
-          ...original, eventId: event.eventId, serviceRequestId, orderId,
-        }, event.eventType, true);
-        if (!result.recorded && result.reason !== 'ALREADY_CONSUMED' && result.reason !== 'IDEMPOTENT_DUPLICATE') {
+        const result = await this.recordDomainEvent(
+          {
+            ...original,
+            eventId: event.eventId,
+            serviceRequestId,
+            orderId,
+          },
+          event.eventType,
+          true,
+        );
+        if (
+          !result.recorded &&
+          result.reason !== 'ALREADY_CONSUMED' &&
+          result.reason !== 'IDEMPOTENT_DUPLICATE'
+        ) {
           throw new Error(`Pending event rejected: ${result.reason}`);
         }
         // A prior successful delivery may have committed before this pending scan.
-        if (!result.recorded) await this.prisma.pendingTrackingEvent.deleteMany({ where: { eventId: event.eventId } });
+        if (!result.recorded)
+          await this.prisma.pendingTrackingEvent.deleteMany({
+            where: { eventId: event.eventId },
+          });
         flushedCount++;
       } catch (error: any) {
         failed = true;
         // Retain poison messages as well as transient failures for operator recovery.
         await this.prisma.pendingTrackingEvent.updateMany({
           where: { eventId: event.eventId },
-          data: { attempts: { increment: 1 }, lastError: String(error.message).slice(0, 1000),
-            nextAttemptAt: new Date(Date.now() + Math.min(300_000, 1000 * 2 ** Math.min(event.attempts, 8))) },
+          data: {
+            attempts: { increment: 1 },
+            lastError: String(error.message).slice(0, 1000),
+            nextAttemptAt: new Date(
+              Date.now() +
+                Math.min(300_000, 1000 * 2 ** Math.min(event.attempts, 8)),
+            ),
+          },
         });
-        this.logger.warn(`Pending event ${event.eventId} retained for retry: ${error.message}`);
+        this.logger.warn(
+          `Pending event ${event.eventId} retained for retry: ${error.message}`,
+        );
       }
     }
     return { status: failed ? 'failed' : 'completed', flushedCount };
   }
 
-  async reconcilePendingOrders(maxAgeAlertMs = TrackingEventsService.MAX_PENDING_AGE_ALERT_MS): Promise<{
-    scanned: number; flushedOrders: number; stalledOrders: number;
+  async reconcilePendingOrders(
+    maxAgeAlertMs = TrackingEventsService.MAX_PENDING_AGE_ALERT_MS,
+  ): Promise<{
+    scanned: number;
+    flushedOrders: number;
+    stalledOrders: number;
   }> {
     // Visit a bounded, rotating batch: unresolved orders cannot starve ready ones.
     const events = await this.prisma.pendingTrackingEvent.findMany({
       where: { nextAttemptAt: { lte: new Date() } },
-      orderBy: [{ nextAttemptAt: 'asc' }, { eventId: 'asc' }], take: 100,
+      orderBy: [{ nextAttemptAt: 'asc' }, { eventId: 'asc' }],
+      take: 100,
     });
     let flushedOrders = 0;
     let stalledOrders = 0;
-    const orders = new Set(events.map(event => event.orderId));
+    const orders = new Set(events.map((event) => event.orderId));
     for (const orderId of orders) {
-      const flow = await this.prisma.trackingFlow.findUnique({ where: { orderId } });
+      const flow = await this.prisma.trackingFlow.findUnique({
+        where: { orderId },
+      });
       if (flow) {
-        const result = await this.flushPendingOrderEvents(orderId, flow.serviceRequestId);
+        const result = await this.flushPendingOrderEvents(
+          orderId,
+          flow.serviceRequestId,
+        );
         if (result.flushedCount) flushedOrders++;
       } else {
-        const ids = events.filter(event => event.orderId === orderId).map(event => event.eventId);
-        await this.prisma.pendingTrackingEvent.updateMany({ where: { eventId: { in: ids } },
-          data: { nextAttemptAt: new Date(Date.now() + 15_000) } });
-        if (events.some(event => event.orderId === orderId && Date.now() - event.receivedAt.getTime() > maxAgeAlertMs)) {
+        const ids = events
+          .filter((event) => event.orderId === orderId)
+          .map((event) => event.eventId);
+        await this.prisma.pendingTrackingEvent.updateMany({
+          where: { eventId: { in: ids } },
+          data: { nextAttemptAt: new Date(Date.now() + 15_000) },
+        });
+        if (
+          events.some(
+            (event) =>
+              event.orderId === orderId &&
+              Date.now() - event.receivedAt.getTime() > maxAgeAlertMs,
+          )
+        ) {
           stalledOrders++;
-          this.logger.warn(`[PENDING_ORDER_STALLED_ALERT] Order ${orderId} is awaiting its flow`);
+          this.logger.warn(
+            `[PENDING_ORDER_STALLED_ALERT] Order ${orderId} is awaiting its flow`,
+          );
         }
       }
     }
@@ -416,7 +492,11 @@ export class TrackingEventsService {
   }
 
   private resolveSourceService(eventType: string): string {
-    if (eventType.startsWith('service_request.') || eventType.startsWith('booking_proposal.') || eventType.startsWith('order.')) {
+    if (
+      eventType.startsWith('service_request.') ||
+      eventType.startsWith('booking_proposal.') ||
+      eventType.startsWith('order.')
+    ) {
       return 'order-service';
     }
     if (eventType.startsWith('bidding.') || eventType.startsWith('bid.')) {
@@ -463,6 +543,18 @@ export class TrackingEventsService {
       'serviceCategoryId',
       'changesRequested',
       'targetDate',
+      'reworkReason',
+      'disputeReason',
+      'resolution',
+      'resolutionNote',
+      'reason',
+      'reworkRequestedAt',
+      'disputedAt',
+      'resolvedAt',
+      'finishedAt',
+      'notificationKind',
+      'previousStatus',
+      'nextStatus',
     ];
 
     for (const key of safeKeys) {

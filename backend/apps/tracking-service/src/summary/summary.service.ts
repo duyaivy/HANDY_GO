@@ -189,7 +189,8 @@ export class SummaryService {
 
     if (latestProposalEvent) {
       const meta = latestProposalEvent.metadata as any;
-      const proposalWorkerId = meta?.workerId || latestProposalEvent.actorUserId;
+      const proposalWorkerId =
+        meta?.workerId || latestProposalEvent.actorUserId;
 
       // Privacy: If user is Worker, only expose proposal details if they are the designated worker
       const isAuthorizedForProposal =
@@ -204,9 +205,11 @@ export class SummaryService {
               ? 'finalized'
               : latestProposalEvent.eventType === 'booking_proposal.rejected'
                 ? 'rejected'
-                : latestProposalEvent.eventType === 'booking_proposal.changes_requested'
+                : latestProposalEvent.eventType ===
+                    'booking_proposal.changes_requested'
                   ? 'changes_requested'
-                  : latestProposalEvent.eventType === 'booking_proposal.withdrawn'
+                  : latestProposalEvent.eventType ===
+                      'booking_proposal.withdrawn'
                     ? 'withdrawn'
                     : 'proposed',
           proposalId: latestProposalEvent.entityId,
@@ -268,6 +271,22 @@ export class SummaryService {
           orderStatus = 'cancelled';
         } else if (latestOrderEvent.eventType === 'order.completed') {
           orderStatus = 'completed';
+        } else if (
+          latestOrderEvent.eventType === 'order.disputed' ||
+          targetStatus === 'disputed'
+        ) {
+          orderStatus = 'disputed';
+        } else if (
+          latestOrderEvent.eventType === 'order.rework_requested' ||
+          meta?.notificationKind === 'rework_requested' ||
+          (targetStatus === 'in_progress' &&
+            (latestOrderEvent.fromStatus === 'finished' ||
+              latestOrderEvent.fromStatus ===
+                'awaiting_customer_confirmation' ||
+              meta?.previousStatus === 'finished' ||
+              meta?.previousStatus === 'awaiting_customer_confirmation'))
+        ) {
+          orderStatus = 'in_progress';
         } else if (targetStatus) {
           orderStatus = targetStatus;
         } else if (latestOrderEvent.eventType === 'order.started') {
@@ -279,12 +298,51 @@ export class SummaryService {
         }
       }
 
+      const latestRework = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.rework_requested' ||
+            (e.metadata as any)?.notificationKind === 'rework_requested' ||
+            Boolean((e.metadata as any)?.reworkReason) ||
+            ((e.toStatus === 'in_progress' ||
+              (e.metadata as any)?.nextStatus === 'in_progress') &&
+              (e.fromStatus === 'finished' ||
+                e.fromStatus === 'awaiting_customer_confirmation' ||
+                (e.metadata as any)?.previousStatus === 'finished' ||
+                (e.metadata as any)?.previousStatus ===
+                  'awaiting_customer_confirmation') &&
+              Boolean(e.reason)),
+        );
+
+      const latestDispute = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.disputed' ||
+            e.toStatus === 'disputed' ||
+            (e.metadata as any)?.nextStatus === 'disputed' ||
+            Boolean((e.metadata as any)?.disputeReason),
+        );
+
+      const reworkReason =
+        latestRework?.reason ||
+        (latestRework?.metadata as any)?.reworkReason ||
+        (latestRework?.metadata as any)?.reason;
+
+      const disputeReason =
+        latestDispute?.reason ||
+        (latestDispute?.metadata as any)?.disputeReason ||
+        (latestDispute?.metadata as any)?.reason;
+
       orderMilestone = {
         orderId: flow.orderId || orderCreatedEvent?.entityId,
         status: orderStatus,
         createdAt: orderCreatedEvent?.occurredAt || flow.updatedAt,
         completedAt: orderCompleted?.occurredAt,
         cancelledAt: orderCancelled?.occurredAt,
+        ...(reworkReason ? { reworkReason } : {}),
+        ...(disputeReason ? { disputeReason } : {}),
       };
     }
 
@@ -331,9 +389,15 @@ export class SummaryService {
       updatedAt: flow.updatedAt,
     };
 
-    const isImmutable = ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(currentPhase);
+    const isImmutable = ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(
+      currentPhase,
+    );
     if (isImmutable && this.redis) {
-      await this.redis.set(cacheKey, result, SummaryService.IMMUTABLE_TTL_SECONDS);
+      await this.redis.set(
+        cacheKey,
+        result,
+        SummaryService.IMMUTABLE_TTL_SECONDS,
+      );
       this.logger.debug(
         `Cached immutable summary for ${cacheKey} (TTL: ${SummaryService.IMMUTABLE_TTL_SECONDS}s)`,
       );
@@ -394,10 +458,16 @@ export class SummaryService {
     if (order?.orderId) {
       return 'ORDER_CREATED';
     }
-    if (proposal?.status === 'finalized' || req.status === 'converted_to_order') {
+    if (
+      proposal?.status === 'finalized' ||
+      req.status === 'converted_to_order'
+    ) {
       return 'CONVERTED_TO_ORDER';
     }
-    if (proposal?.status === 'proposed' || proposal?.status === 'changes_requested') {
+    if (
+      proposal?.status === 'proposed' ||
+      proposal?.status === 'changes_requested'
+    ) {
       return 'PROPOSAL_NEGOTIATION';
     }
     if (bidding.status === 'finalized') {

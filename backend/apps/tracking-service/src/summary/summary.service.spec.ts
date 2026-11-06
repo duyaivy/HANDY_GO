@@ -380,7 +380,10 @@ describe('SummaryService', () => {
       };
 
       const cachedService = new SummaryService(prismaMock, redisMock);
-      const result = await cachedService.getRequestSummary(serviceRequestId, user);
+      const result = await cachedService.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
 
       expect(result).toBe(cachedData);
       expect(redisMock.get).toHaveBeenCalledWith(
@@ -435,7 +438,10 @@ describe('SummaryService', () => {
       });
 
       const cachedService = new SummaryService(prismaMock, redisMock);
-      const _result = await cachedService.getRequestSummary(serviceRequestId, user);
+      const _result = await cachedService.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
 
       expect(redisMock.set).toHaveBeenCalledWith(
         `tracking:summary:${serviceRequestId}:cust:${customerId}`,
@@ -503,7 +509,10 @@ describe('SummaryService', () => {
         ],
       });
 
-      const inProgressSummary = await service.getRequestSummary(serviceRequestId, user);
+      const inProgressSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(inProgressSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
       expect(inProgressSummary.order?.status).toBe('in_progress');
 
@@ -533,7 +542,10 @@ describe('SummaryService', () => {
         ],
       });
 
-      const disputedSummary = await service.getRequestSummary(serviceRequestId, user);
+      const disputedSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(disputedSummary.currentPhase).toBe('DISPUTED');
       expect(disputedSummary.order?.status).toBe('disputed');
 
@@ -569,9 +581,213 @@ describe('SummaryService', () => {
         ],
       });
 
-      const nextStatusSummary = await service.getRequestSummary(serviceRequestId, user);
+      const nextStatusSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(nextStatusSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
       expect(nextStatusSummary.order?.status).toBe('in_progress');
+    });
+
+    it('should transition to ORDER_IN_PROGRESS and record reworkReason when rework is requested', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.finished',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 20000),
+            toStatus: 'awaiting_customer_confirmation',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'finished',
+            toStatus: 'in_progress',
+            reason: 'Vòi nước vẫn còn rò rỉ sau khi sửa',
+            metadata: {
+              previousStatus: 'finished',
+              nextStatus: 'in_progress',
+              reworkReason: 'Vòi nước vẫn còn rò rỉ sau khi sửa',
+              notificationKind: 'rework_requested',
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(summary.order?.status).toBe('in_progress');
+      expect(summary.order?.reworkReason).toBe(
+        'Vòi nước vẫn còn rò rỉ sau khi sửa',
+      );
+    });
+
+    it('should compute DISPUTED phase and record disputeReason when dispute is filed', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.disputed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            toStatus: 'disputed',
+            reason: 'Thợ không đến đúng hẹn và làm hỏng tường',
+            metadata: {
+              disputeReason: 'Thợ không đến đúng hẹn và làm hỏng tường',
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('DISPUTED');
+      expect(summary.order?.status).toBe('disputed');
+      expect(summary.order?.disputeReason).toBe(
+        'Thợ không đến đúng hẹn và làm hỏng tường',
+      );
+    });
+
+    it('should accurately compute phase when dispute is resolved by Admin', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      // 1. Resolved with resume_previous_state -> ORDER_IN_PROGRESS
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 20000),
+            toStatus: 'disputed',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'disputed',
+            toStatus: 'in_progress',
+            reason: 'Hòa giải thành công',
+            metadata: {
+              previousStatus: 'disputed',
+              nextStatus: 'in_progress',
+              resolution: 'resume_previous_state',
+            },
+          },
+        ],
+      });
+
+      const resumedSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
+      expect(resumedSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(resumedSummary.order?.status).toBe('in_progress');
+
+      // 2. Resolved with cancel -> CANCELLED
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'disputed',
+            toStatus: 'cancelled',
+            metadata: {
+              previousStatus: 'disputed',
+              nextStatus: 'cancelled',
+              resolution: 'cancel',
+            },
+          },
+        ],
+      });
+
+      const cancelledSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
+      expect(cancelledSummary.currentPhase).toBe('CANCELLED');
+      expect(cancelledSummary.order?.status).toBe('cancelled');
     });
   });
 });

@@ -37,3 +37,5 @@ docs/*
 
 !docs/RABBITMQ_LOCAL_DEV_GUIDE.md
 !docs/WORKER_ORDER_AUTO_UPDATE_ANALYSIS.md
+!docs/HG-64/
+!docs/HG-64/**

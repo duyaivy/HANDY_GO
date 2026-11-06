@@ -31,7 +31,10 @@ export class ProxyMiddleware implements NestMiddleware {
         route.timeoutMs !== undefined
           ? route.timeoutMs
           : route.timeoutEnvKey
-            ? Number(this.config.get(route.timeoutEnvKey) || this.config.upstreamTimeoutMs)
+            ? Number(
+                this.config.get(route.timeoutEnvKey) ||
+                  this.config.upstreamTimeoutMs,
+              )
             : this.config.upstreamTimeoutMs;
 
       console.log(
@@ -45,7 +48,10 @@ export class ProxyMiddleware implements NestMiddleware {
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
         ...(route.pathRewrite
-          ? { pathRewrite: (path, req) => route.pathRewrite!(path, req as Request) }
+          ? {
+              pathRewrite: (path, req) =>
+                route.pathRewrite!(path, req as Request),
+            }
           : {}),
         on: {
           proxyReq: (proxyReq, req) => {
@@ -57,7 +63,31 @@ export class ProxyMiddleware implements NestMiddleware {
                 : existingRequestId) || crypto.randomUUID();
 
             proxyReq.setHeader('x-request-id', requestId);
+
+            // Real-time SSE streams: disable gzip buffering by requesting uncompressed identity stream
+            const acceptHeader = String(clientReq.headers['accept'] || '');
+            const isSse =
+              route.upstreamName.endsWith('-sse') ||
+              acceptHeader.includes('text/event-stream');
+
+            if (isSse) {
+              proxyReq.setHeader('accept-encoding', 'identity');
+              proxyReq.setHeader('cache-control', 'no-cache');
+            }
+
             fixRequestBody(proxyReq, req);
+          },
+          proxyRes: (proxyRes, req, res) => {
+            const clientRes = res as Response;
+            const contentType = String(proxyRes.headers['content-type'] || '');
+            const isSse =
+              route.upstreamName.endsWith('-sse') ||
+              contentType.includes('text/event-stream');
+
+            if (isSse && !clientRes.headersSent) {
+              clientRes.setHeader('X-Accel-Buffering', 'no');
+              clientRes.setHeader('Cache-Control', 'no-cache, no-transform');
+            }
           },
           error: (err: Error, req, res) => {
             if (!('writeHead' in res)) {

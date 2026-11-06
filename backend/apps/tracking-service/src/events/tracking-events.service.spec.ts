@@ -30,7 +30,10 @@ describe('TrackingEventsService', () => {
     prismaMock = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       pendingTrackingEvent: {
-        upsert: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        deleteMany: vi.fn(),
+        updateMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
       },
       consumedEvent: {
         findUnique: vi.fn(),
@@ -74,7 +77,9 @@ describe('TrackingEventsService', () => {
 
     it('should catch database constraint P2002 error gracefully and mark as IDEMPOTENT_DUPLICATE', async () => {
       const eventId = randomUUID();
-      prismaMock.consumedEvent.findUnique.mockResolvedValueOnce(null).mockResolvedValue({ eventId });
+      prismaMock.consumedEvent.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ eventId });
       prismaMock.$transaction.mockRejectedValue({ code: 'P2002' });
 
       const result = await service.recordDomainEvent({
@@ -284,17 +289,27 @@ describe('TrackingEventsService', () => {
   });
 
   describe('PostgreSQL pending inbox', () => {
-    const pendingData = () => ({ eventId: randomUUID(), eventType: 'order.status.changed', payload: { orderId: randomUUID(), nextStatus: 'in_progress' } });
+    const pendingData = () => ({
+      eventId: randomUUID(),
+      eventType: 'order.status.changed',
+      payload: { orderId: randomUUID(), nextStatus: 'in_progress' },
+    });
 
     it('commits pending without Redis and preserves the original envelope and ID on redelivery', async () => {
       const event = pendingData();
       await service.recordDomainEvent(event);
       await service.recordDomainEvent(event);
       expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledTimes(2);
-      expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
-        where: { eventId: event.eventId }, update: {},
-        create: expect.objectContaining({ envelope: event, orderId: event.payload.orderId }),
-      }));
+      expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { eventId: event.eventId },
+          update: {},
+          create: expect.objectContaining({
+            envelope: event,
+            orderId: event.payload.orderId,
+          }),
+        }),
+      );
       expect(prismaMock.consumedEvent.create).not.toHaveBeenCalled();
     });
 
@@ -302,10 +317,14 @@ describe('TrackingEventsService', () => {
       let rejectCommit!: (error: Error) => void;
       prismaMock.$transaction.mockImplementationOnce(async (callback: any) => {
         await callback(prismaMock);
-        await new Promise((_resolve, reject) => { rejectCommit = reject; });
+        await new Promise((_resolve, reject) => {
+          rejectCommit = reject;
+        });
       });
       let resolved = false;
-      const promise = service.recordDomainEvent(pendingData()).then(() => { resolved = true; });
+      const promise = service.recordDomainEvent(pendingData()).then(() => {
+        resolved = true;
+      });
       await vi.waitFor(() => expect(rejectCommit).toBeDefined());
       expect(resolved).toBe(false);
       rejectCommit(new Error('commit failed'));
@@ -313,13 +332,19 @@ describe('TrackingEventsService', () => {
     });
 
     it('rejects missing event IDs instead of generating a different ID on retry', async () => {
-      await expect(service.recordDomainEvent({ orderId: randomUUID() })).rejects.toThrow('INVALID_EVENT_ID');
+      await expect(
+        service.recordDomainEvent({ orderId: randomUUID() }),
+      ).rejects.toThrow('INVALID_EVENT_ID');
     });
 
     it('rechecks flow after pending commit to close the creation race', async () => {
       const event = pendingData();
-      prismaMock.trackingFlow.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ serviceRequestId: 'request' });
-      const flush = vi.spyOn(service, 'flushPendingOrderEvents').mockResolvedValue({ status: 'completed', flushedCount: 1 });
+      prismaMock.trackingFlow.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ serviceRequestId: 'request' });
+      const flush = vi
+        .spyOn(service, 'flushPendingOrderEvents')
+        .mockResolvedValue({ status: 'completed', flushedCount: 1 });
       await service.recordDomainEvent(event);
       expect(flush).toHaveBeenCalledWith(event.payload.orderId, 'request');
     });
@@ -327,37 +352,88 @@ describe('TrackingEventsService', () => {
     it('deletes pending in the same transaction as the tracking event write', async () => {
       const event = pendingData();
       prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID() });
-      const tx = { ...prismaMock, pendingTrackingEvent: { deleteMany: vi.fn() } };
-      prismaMock.$transaction.mockImplementationOnce((callback: any) => callback(tx));
-      await service.recordDomainEvent({ ...event, serviceRequestId: randomUUID() }, undefined, true);
-      expect(tx.pendingTrackingEvent.deleteMany).toHaveBeenCalledWith({ where: { eventId: event.eventId } });
+      const tx = {
+        ...prismaMock,
+        pendingTrackingEvent: { deleteMany: vi.fn() },
+      };
+      prismaMock.$transaction.mockImplementationOnce((callback: any) =>
+        callback(tx),
+      );
+      await service.recordDomainEvent(
+        { ...event, serviceRequestId: randomUUID() },
+        undefined,
+        true,
+      );
+      expect(tx.pendingTrackingEvent.deleteMany).toHaveBeenCalledWith({
+        where: { eventId: event.eventId },
+      });
       expect(prismaMock.pendingTrackingEvent.deleteMany).not.toHaveBeenCalled();
     });
 
     it('keeps failed pending for retry and does not prevent the next event from progressing', async () => {
       const event = pendingData();
-      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([{ ...event, orderId: event.payload.orderId, envelope: event, attempts: 0 }]);
-      vi.spyOn(service, 'recordDomainEvent').mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValueOnce({ recorded: true });
-      const failed = await service.flushPendingOrderEvents(event.payload.orderId, randomUUID());
+      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([
+        {
+          ...event,
+          orderId: event.payload.orderId,
+          envelope: event,
+          attempts: 0,
+        },
+      ]);
+      vi.spyOn(service, 'recordDomainEvent')
+        .mockRejectedValueOnce(new Error('database unavailable'))
+        .mockResolvedValueOnce({ recorded: true });
+      const failed = await service.flushPendingOrderEvents(
+        event.payload.orderId,
+        randomUUID(),
+      );
       expect(failed.status).toBe('failed');
       expect(prismaMock.pendingTrackingEvent.deleteMany).not.toHaveBeenCalled();
-      expect(prismaMock.pendingTrackingEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ attempts: { increment: 1 } }) }));
-      expect((await service.flushPendingOrderEvents(event.payload.orderId, randomUUID())).flushedCount).toBe(1);
+      expect(prismaMock.pendingTrackingEvent.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ attempts: { increment: 1 } }),
+        }),
+      );
+      expect(
+        (
+          await service.flushPendingOrderEvents(
+            event.payload.orderId,
+            randomUUID(),
+          )
+        ).flushedCount,
+      ).toBe(1);
     });
 
     it('scheduler retries durable pending after constructing a new service instance', async () => {
       const event = pendingData();
-      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([{ ...event, orderId: event.payload.orderId, envelope: event, attempts: 0, receivedAt: new Date() }]);
-      prismaMock.trackingFlow.findUnique.mockResolvedValue({ serviceRequestId: randomUUID() });
+      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([
+        {
+          ...event,
+          orderId: event.payload.orderId,
+          envelope: event,
+          attempts: 0,
+          receivedAt: new Date(),
+        },
+      ]);
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        serviceRequestId: randomUUID(),
+      });
       const restarted = new TrackingEventsService(prismaMock);
-      const flush = vi.spyOn(restarted, 'flushPendingOrderEvents').mockResolvedValue({ status: 'completed', flushedCount: 1 });
+      const flush = vi
+        .spyOn(restarted, 'flushPendingOrderEvents')
+        .mockResolvedValue({ status: 'completed', flushedCount: 1 });
       expect((await restarted.reconcilePendingOrders()).flushedOrders).toBe(1);
       expect(flush).toHaveBeenCalled();
     });
 
     it('does not ACK an unrelated unique violation as a consumed event', async () => {
       prismaMock.$transaction.mockRejectedValue({ code: 'P2002' });
-      await expect(service.recordDomainEvent({ ...pendingData(), serviceRequestId: randomUUID() })).rejects.toMatchObject({ code: 'P2002' });
+      await expect(
+        service.recordDomainEvent({
+          ...pendingData(),
+          serviceRequestId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
     });
   });
 
@@ -396,6 +472,42 @@ describe('TrackingEventsService', () => {
         prismaMock.trackingEvent.create.mock.calls[0][0].data.metadata;
       expect(passedMetadata.secretToken).toBeUndefined();
       expect(passedMetadata.password).toBeUndefined();
+    });
+
+    it('should retain reworkReason, disputeReason, and resolution in metadata (whitelist)', async () => {
+      const serviceRequestId = randomUUID();
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+      });
+
+      await service.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'order.status.changed',
+        serviceRequestId,
+        payload: {
+          previousStatus: 'finished',
+          nextStatus: 'in_progress',
+          reworkReason: 'Khách yêu cầu sơn lại lớp thứ hai',
+          disputeReason: 'Tranh chấp tiến độ thi công',
+          resolution: 'resume_previous_state',
+          resolutionNote: 'Admin yêu cầu thợ hoàn thành sơn lớp 2',
+          secretInternalKey: 'must-not-be-included',
+        },
+      });
+
+      const passedMetadata =
+        prismaMock.trackingEvent.create.mock.calls[0][0].data.metadata;
+      expect(passedMetadata.reworkReason).toBe(
+        'Khách yêu cầu sơn lại lớp thứ hai',
+      );
+      expect(passedMetadata.disputeReason).toBe('Tranh chấp tiến độ thi công');
+      expect(passedMetadata.resolution).toBe('resume_previous_state');
+      expect(passedMetadata.resolutionNote).toBe(
+        'Admin yêu cầu thợ hoàn thành sơn lớp 2',
+      );
+      expect(passedMetadata.secretInternalKey).toBeUndefined();
     });
   });
 
