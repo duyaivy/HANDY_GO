@@ -525,7 +525,37 @@ export class KycRepository {
   );
   }
 
-  async listKycCases(status?: string, page = 1, limit = 20) {
+  async listKycCases(
+    statusOrOptions?:
+      | string
+      | {
+          status?: string;
+          page?: number;
+          limit?: number;
+          search?: string;
+          sortBy?: 'newest' | 'oldest';
+        },
+    pageArg = 1,
+    limitArg = 20,
+    searchArg?: string,
+    sortByArg: 'newest' | 'oldest' = 'newest',
+  ) {
+    let status: string | undefined;
+    let page = pageArg;
+    let limit = limitArg;
+    let search = searchArg;
+    let sortBy = sortByArg;
+
+    if (statusOrOptions && typeof statusOrOptions === 'object') {
+      status = statusOrOptions.status;
+      page = statusOrOptions.page ?? 1;
+      limit = statusOrOptions.limit ?? 20;
+      search = statusOrOptions.search;
+      sortBy = statusOrOptions.sortBy ?? 'newest';
+    } else {
+      status = statusOrOptions;
+    }
+
     const take = Math.max(1, Math.min(100, Number(limit) || 20));
     const skip = (Math.max(1, Number(page) || 1) - 1) * take;
 
@@ -534,12 +564,49 @@ export class KycRepository {
       where.status = status;
     }
 
+    if (search && search.trim()) {
+      const trimmedSearch = search.trim();
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          trimmedSearch,
+        );
+
+      if (isUuid) {
+        where.OR = [
+          { id: trimmedSearch },
+          { workerProfileId: trimmedSearch },
+          { workerProfile: { userId: trimmedSearch } },
+          {
+            workerProfile: {
+              user: {
+                fullName: {
+                  contains: trimmedSearch,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+        ];
+      } else {
+        where.workerProfile = {
+          user: {
+            fullName: {
+              contains: trimmedSearch,
+              mode: 'insensitive',
+            },
+          },
+        };
+      }
+    }
+
+    const sortOrder = sortBy === 'oldest' ? 'asc' : 'desc';
+
     const [cases, total] = await Promise.all([
       this.db.kycCase.findMany({
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: sortOrder },
         include: {
           workerProfile: {
             include: { user: true },

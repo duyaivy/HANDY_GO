@@ -31,9 +31,20 @@ export const KycTable: React.FC = () => {
     type: "success" | "error";
   } | null>(null);
 
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const { data, isPending, isFetching, isError, error, refetch } =
     useKycListQuery({
       status: filterStatus === "all" ? undefined : filterStatus,
+      search: debouncedSearch || undefined,
+      sortBy,
       page: currentPage,
       limit: itemsPerPage,
     });
@@ -82,51 +93,13 @@ export const KycTable: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  // Swagger chưa hỗ trợ search/sort: chỉ xử lý trong trang hiện tại.
-  const filteredRecords = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    const getSortDate = (record: KycRecord) => {
-      switch (filterStatus) {
-        case "approved":
-        case "rejected":
-          return record.reviewedAt ?? record.submittedAt ?? record.createdAt;
-
-        case "reviewing":
-        case "submitted":
-          return record.submittedAt ?? record.createdAt;
-
-        case "draft":
-          return record.createdAt;
-
-        case "all":
-        default:
-          return record.updatedAt ?? record.submittedAt ?? record.createdAt;
-      }
-    };
-
-    return [...records]
-      .filter(
-        (record) =>
-          !query ||
-          record.workerProfile.user.fullName.toLowerCase().includes(query) ||
-          record.id.toLowerCase().includes(query),
-      )
-      .sort((a, b) => {
-        const aTime = new Date(getSortDate(a)).getTime();
-        const bTime = new Date(getSortDate(b)).getTime();
-
-        return sortBy === "newest" ? bTime - aTime : aTime - bTime;
-      });
-  }, [records, searchQuery, sortBy, filterStatus]);
-
   const totalPages = Math.max(1, data?.pagination.totalPages ?? 1);
 
   // FE-01: Sau khi duyệt/từ chối thành công, trở về trang 1.
   // Không cập nhật state đồng bộ trong effect (react-hooks/set-state-in-effect).
 
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  const paginatedRecords = filteredRecords;
+  const paginatedRecords = records;
 
   // Hiển thị tối đa 5 trang liên tiếp, kèm trang đầu/cuối và dấu ...
   const visiblePages = useMemo<
@@ -331,7 +304,10 @@ export const KycTable: React.FC = () => {
           <div className="relative min-w-0 md:w-[130px]">
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as "newest" | "oldest")}
+              onChange={(e) => {
+                setSortBy(e.target.value as "newest" | "oldest");
+                setCurrentPage(1);
+              }}
               className="w-full appearance-none pl-3.5 pr-8 py-2.5 rounded-xl bg-white border border-slate-200 text-[13px] font-medium text-[#0F172A] focus:outline-none focus:border-[#FF5E14] shadow-2xs cursor-pointer"
             >
               <option value="newest">Mới nhất</option>
