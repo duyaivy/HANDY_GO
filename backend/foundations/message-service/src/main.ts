@@ -1,0 +1,47 @@
+import 'reflect-metadata';
+import { JwtService } from '@nestjs/jwt';
+import { TokenVerifierService } from '../../../libs/auth/src/token-verifier.service.js';
+import { MessagePrisma } from './persistence.js';
+import { AuthorityClient } from './authority.js';
+import { createMessageApp } from './application.js';
+
+async function main() {
+  const required = (name: string) => {
+    const value = process.env[name]?.trim();
+    if (!value) throw new Error(`${name} is required`);
+    return value;
+  };
+  const port = Number(process.env.MESSAGE_PORT ?? 3011);
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error('Invalid MESSAGE_PORT');
+  const authority = new AuthorityClient({
+    secret: required('INTERNAL_SERVICE_SECRET'),
+    bidding: required('BIDDING_SERVICE_URL'),
+    order: required('ORDER_SERVICE_URL'),
+    auth: required('AUTH_SERVICE_URL'),
+    media: required('MEDIA_SERVICE_URL'),
+  });
+  const cursorSecret=required('MESSAGE_CURSOR_SECRET'),brokerUrl=required('RABBITMQ_URL');
+  const db = new MessagePrisma();
+  try {
+  await db.$connect();
+  const app = await createMessageApp({
+    db,
+    authority,
+    verifier: new TokenVerifierService(new JwtService()),
+    cursorSecret,
+    origins: (process.env.CORS_ORIGIN ?? 'http://localhost:8081')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    brokerUrl,
+  });
+  await app.listen(port, process.env.MESSAGE_HOST ?? '127.0.0.1');
+  }catch(error){await db.$disconnect();throw error;}
+}
+void main().catch(() => {
+  console.error(
+    'Message Service startup failed; check explicit service configuration and dependencies',
+  );
+  process.exitCode = 1;
+});
