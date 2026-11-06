@@ -13,7 +13,7 @@
     "apps/bidding-service/prisma/prisma.config.ts",
     "apps/notification-service/prisma/prisma.config.ts",
     "apps/tracking-service/prisma/prisma.config.ts",
-    "apps/matching-service/prisma/prisma.config.ts"
+    "apps/matching-service/prisma/prisma.config.ts",
+    "foundations/message-service/prisma/prisma.config.ts"
   ]
 }
-

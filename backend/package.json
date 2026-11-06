@@ -68,7 +68,14 @@
     "typecheck:wallet": "tsc --noEmit -p apps/wallet-service/tsconfig.typecheck.json",
     "test:wallet:up": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-up.ps1",
     "test:wallet:down": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/wallet-test-down.ps1",
-    "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts"
+    "test:integration:wallet": "vitest run --config ./vitest.config.integration.ts",
+    "prisma:validate:message": "prisma validate --config=foundations/message-service/prisma/prisma.config.ts",
+    "prisma:generate:message": "prisma generate --config=foundations/message-service/prisma/prisma.config.ts",
+    "prisma:migrate:message": "prisma migrate deploy --config=foundations/message-service/prisma/prisma.config.ts",
+    "prisma:status:message": "prisma migrate status --config=foundations/message-service/prisma/prisma.config.ts",
+    "test:message:contracts": "vitest run libs/common/src/message-contracts",
+    "test:message:database": "node scripts/test-message-database.mjs",
+    "typecheck:message": "tsc --noEmit -p tsconfig.message-contracts.json"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",
