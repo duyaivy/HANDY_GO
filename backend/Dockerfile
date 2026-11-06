@@ -24,9 +24,15 @@ const { services } = JSON.parse(fs.readFileSync('deploy/production/services.json
 for (const [name, service] of Object.entries(services)) {
   if (!service.deploy) continue;
   if (service.state === 'NOT_READY') throw new Error(`NOT_READY: ${name}`);
-  execFileSync('pnpm', ['exec', 'nest', 'build', name], { stdio: 'inherit' });
-  fs.mkdirSync(`/artifacts/apps/${name}`, { recursive: true });
-  fs.copyFileSync(`dist/apps/${name}/main.js`, `/artifacts/apps/${name}/main.js`);
+  if (name === 'message-service') {
+    execFileSync('pnpm', ['run', 'build:message'], { stdio: 'inherit' });
+    fs.mkdirSync('/artifacts/message-runtime', { recursive: true });
+    fs.cpSync('dist/message-runtime', '/artifacts/message-runtime', { recursive: true });
+  } else {
+    execFileSync('pnpm', ['exec', 'nest', 'build', name], { stdio: 'inherit' });
+    fs.mkdirSync(`/artifacts/apps/${name}`, { recursive: true });
+    fs.copyFileSync(`dist/apps/${name}/main.js`, `/artifacts/apps/${name}/main.js`);
+  }
 }
 JS
 
@@ -43,10 +49,12 @@ FROM build AS production-dependencies
 RUN cp -a node_modules/@prisma/auth-client /auth-client \
     && cp -a node_modules/@prisma/user-trust-client /user-trust-client \
     && cp -a node_modules/@prisma/notification-client /notification-client \
+    && cp -a node_modules/@prisma/message-client /message-client \
     && pnpm prune --prod \
     && cp -a /auth-client node_modules/@prisma/auth-client \
     && cp -a /user-trust-client node_modules/@prisma/user-trust-client \
-    && cp -a /notification-client node_modules/@prisma/notification-client
+    && cp -a /notification-client node_modules/@prisma/notification-client \
+    && cp -a /message-client node_modules/@prisma/message-client
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

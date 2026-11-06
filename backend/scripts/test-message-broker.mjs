@@ -81,12 +81,12 @@ try {
       [
         'migrate',
         'deploy',
-        '--config=foundations/message-service/prisma/prisma.config.ts',
+        '--config=apps/message-service/prisma/prisma.config.ts',
       ],
     ],
     [
       './node_modules/.bin/vitest',
-      ['run', 'foundations/message-service/test/broker.integration.spec.ts'],
+      ['run', 'apps/message-service/test/broker.integration.spec.ts'],
     ],
   ]) {
     const result = spawnSync(command, args, { env, stdio: 'inherit' });
