@@ -47,13 +47,13 @@ try {
     [
       'migrate',
       'deploy',
-      '--config=foundations/message-service/prisma/prisma.config.ts',
+      '--config=apps/message-service/prisma/prisma.config.ts',
     ],
     { env, stdio: 'inherit' },
   );
   const result = spawnSync(
     './node_modules/.bin/vitest',
-    ['run', 'foundations/message-service/test/runtime.spec.ts'],
+    ['run', 'apps/message-service/test/runtime.spec.ts'],
     { env, stdio: 'inherit' },
   );
   process.exitCode = result.status ?? 1;

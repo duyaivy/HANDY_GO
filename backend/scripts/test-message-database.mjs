@@ -68,7 +68,7 @@ try {
     const args = [
       'migrate',
       'deploy',
-      '--config=foundations/message-service/prisma/prisma.config.ts',
+      '--config=apps/message-service/prisma/prisma.config.ts',
     ];
     for (let i = 0; i < 2; i++) {
       console.log(
@@ -401,9 +401,9 @@ try {
         'migrate',
         'diff',
         '--from-config-datasource',
-        '--to-schema=foundations/message-service/prisma/schema.prisma',
+        '--to-schema=apps/message-service/prisma/schema.prisma',
         '--exit-code',
-        '--config=foundations/message-service/prisma/prisma.config.ts',
+        '--config=apps/message-service/prisma/prisma.config.ts',
       ],
       {
         cwd: new URL('..', import.meta.url),

@@ -11,7 +11,9 @@ async function main() {
     if (!value) throw new Error(`${name} is required`);
     return value;
   };
-  const port = Number(process.env.MESSAGE_PORT ?? 3011);
+  const port = Number(
+    process.env.PORT ?? process.env.MESSAGE_PORT ?? 3009,
+  );
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error('Invalid MESSAGE_PORT');
   const authority = new AuthorityClient({
@@ -36,7 +38,7 @@ async function main() {
       .filter(Boolean),
     brokerUrl,
   });
-  await app.listen(port, process.env.MESSAGE_HOST ?? '127.0.0.1');
+  await app.listen(port, process.env.MESSAGE_HOST ?? '0.0.0.0');
   }catch(error){await db.$disconnect();throw error;}
 }
 void main().catch(() => {
