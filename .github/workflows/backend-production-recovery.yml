@@ -54,6 +54,7 @@ jobs:
       VPS1_HOST: ${{ secrets.VPS1_HOST }}
       VPS2_HOST: ${{ secrets.VPS2_HOST }}
       VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      VPS4_HOST: ${{ secrets.VPS4_HOST }}
       DEPLOY_USER: azureuser
       API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
       MODE: ${{ inputs.mode }}
@@ -107,6 +108,7 @@ jobs:
           VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
           VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
           VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+          VPS4_SSH_KEY: ${{ secrets.VPS4_SSH_KEY }}
         run: bash deploy/production/setup-ssh.sh
       - name: Inspect or reconcile durable host state
         run: |
@@ -138,4 +140,4 @@ jobs:
       - name: Remove recovery runner credentials
         if: always()
         run: |
-          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts
+          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_vps4 ~/.ssh/handygo_known_hosts
