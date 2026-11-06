@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { searchCatalogPage } from '../common/catalog-search.js';
 import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
@@ -85,15 +86,13 @@ export class CategoriesService {
   }
 
   async findAll(query: QueryCategoryDto) {
-    const cacheKey = `catalog:categories:list:${
-      [
-        `ia:${query.isActive ?? 'all'}`,
-        `s:${query.search ?? ''}`,
-        `pid:${query.parentId ?? 'all'}`,
-        `p:${query.page ?? 1}`,
-        `l:${query.limit ?? 20}`,
-      ].join(',')
-    }`;
+    const cacheKey = `catalog:categories:list:v2:${JSON.stringify([
+      query.isActive ?? null,
+      query.search ?? '',
+      query.parentId ?? null,
+      query.page ?? 1,
+      query.limit ?? 20,
+    ])}`;
 
     const cached = await this.redis.get<unknown>(cacheKey);
     if (cached) return cached;
@@ -104,13 +103,6 @@ export class CategoriesService {
       where.isActive = query.isActive;
     }
 
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
-
     if (query.parentId !== undefined) {
       where.parentId = query.parentId;
     }
@@ -119,23 +111,44 @@ export class CategoriesService {
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
 
-    const [total, items] = await Promise.all([
-      this.prisma.category.count({ where }),
-      this.prisma.category.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: [{ parentId: 'asc' }, { name: 'asc' }],
-        include: {
-          parent: {
-            select: { id: true, name: true },
+    const load = async (db: Prisma.TransactionClient) => {
+      const matched = query.search
+        ? await searchCatalogPage(db, 'categories', {
+            ...query, search: query.search, page, limit,
+          })
+        : undefined;
+      const [total, hydrated] = await Promise.all([
+        matched ? Promise.resolve(matched.total) : db.category.count({ where }),
+        db.category.findMany({
+          where: matched ? { id: { in: matched.ids } } : where,
+          ...(matched ? {} : { skip, take: limit }),
+          orderBy: [{ parentId: 'asc' }, { name: 'asc' }],
+          include: {
+            parent: {
+              select: { id: true, name: true },
+            },
+            _count: {
+               select: { children: true, services: true },
+            },
           },
-          _count: {
-             select: { children: true, services: true },
-          },
-        },
-      }),
-    ]);
+        }),
+      ]);
+
+      const byId = new Map(hydrated.map((item) => [item.id, item]));
+      const items = matched
+        ? matched.ids.flatMap((id) => {
+            const item = byId.get(id);
+            return item ? [item] : [];
+          })
+        : hydrated;
+      return { total, items };
+    };
+    // Search selection and relation hydration must see the same row versions.
+    const { total, items } = query.search
+      ? await this.prisma.$transaction(load, {
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        })
+      : await load(this.prisma);
 
     const result = {
       data: items,
