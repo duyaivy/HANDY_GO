@@ -24,6 +24,8 @@ export interface Order {
   worker: string;
   customerName?: string;
   workerName?: string;
+  customerUserId?: string;
+  workerUserId?: string;
 
   // Trạng thái tải thông tin người dùng
   customerNameLoading?: boolean;

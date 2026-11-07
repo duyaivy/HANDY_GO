@@ -43,6 +43,7 @@ interface OrderDetailModalProps {
   isSubmitting: boolean;
   onRetry: () => void;
   onClose: () => void;
+  onViewUser: (id: string, role: "customer" | "worker") => void;
   onCancelOrder: (orderId: string, reason: string) => Promise<void>;
   onResolveDispute: (
     orderId: string,
@@ -72,6 +73,7 @@ export default function OrderDetailModal({
   onRetry,
   onClose,
   onCancelOrder,
+  onViewUser,
   onResolveDispute,
 }: OrderDetailModalProps) {
   const [tab, setTab] = useState<Tab>(
@@ -433,7 +435,14 @@ export default function OrderDetailModal({
                   />
                 )}
 
-                {tab === "history" && <OrderHistoryTab history={history} />}
+                {tab === "history" && (
+                  <OrderHistoryTab
+                    history={history}
+                    customerUserId={detail?.customerUserId ?? order.customer}
+                    workerUserId={detail?.workerUserId ?? order.worker}
+                    onViewUser={onViewUser}
+                  />
+                )}
 
                 {tab === "evidence" && (
                   <OrderEvidenceTab

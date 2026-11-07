@@ -104,7 +104,9 @@ export default function OrderManagement() {
   // MODAL STATE
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Order | null>(null);
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
+    null,
+  );
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 
   // VALIDATE UUID
@@ -146,9 +148,17 @@ export default function OrderManagement() {
   });
 
   const rawOrders = isValidFilters ? (ordersQuery.data?.items ?? []) : [];
-  const userIds = [...new Set(rawOrders.flatMap((order) => [order.customerUserId, order.workerUserId]).filter(Boolean))];
+  const userIds = [
+    ...new Set(
+      rawOrders
+        .flatMap((order) => [order.customerUserId, order.workerUserId])
+        .filter(Boolean),
+    ),
+  ];
   const userQueries = useOrderUsersQuery(userIds);
-  const userMap = new Map(userIds.map((id, index) => [id, userQueries[index]] as const));
+  const userMap = new Map(
+    userIds.map((id, index) => [id, userQueries[index]] as const),
+  );
 
   const orders: Order[] = rawOrders.map((item) => {
     const customerQuery = userMap.get(item.customerUserId);
@@ -424,7 +434,9 @@ export default function OrderManagement() {
                   aria-expanded={statusDropdownOpen}
                   onClick={() => setStatusDropdownOpen((open) => !open)}
                   className={`${selectClassName} flex items-center justify-between gap-2 text-left ${
-                    statusDropdownOpen ? "border-[#FF5E14] ring-1 ring-[#FF5E14]" : ""
+                    statusDropdownOpen
+                      ? "border-[#FF5E14] ring-1 ring-[#FF5E14]"
+                      : ""
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate">
@@ -461,28 +473,32 @@ export default function OrderManagement() {
                     </div>
 
                     <div className="max-h-64 overflow-y-auto p-1.5">
-                      {(Object.entries(STATUS_LABELS) as [OrderStatus, string][]).map(
-                        ([value, label]) => {
-                          const checked = selectedStatuses.includes(value);
-                          return (
-                            <label
-                              key={value}
-                              className={`flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors hover:bg-orange-50 ${
-                                checked ? "bg-orange-50/60 text-slate-900" : "text-slate-700"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleStatus(value)}
-                                className="h-4 w-4 shrink-0 cursor-pointer accent-[#FF5E14]"
-                              />
-                              <span className="min-w-0 flex-1">{label}</span>
-                              {checked && <Check className="h-3.5 w-3.5 text-[#FF5E14]" />}
-                            </label>
-                          );
-                        },
-                      )}
+                      {(
+                        Object.entries(STATUS_LABELS) as [OrderStatus, string][]
+                      ).map(([value, label]) => {
+                        const checked = selectedStatuses.includes(value);
+                        return (
+                          <label
+                            key={value}
+                            className={`flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors hover:bg-orange-50 ${
+                              checked
+                                ? "bg-orange-50/60 text-slate-900"
+                                : "text-slate-700"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleStatus(value)}
+                              className="h-4 w-4 shrink-0 cursor-pointer accent-[#FF5E14]"
+                            />
+                            <span className="min-w-0 flex-1">{label}</span>
+                            {checked && (
+                              <Check className="h-3.5 w-3.5 text-[#FF5E14]" />
+                            )}
+                          </label>
+                        );
+                      })}
                     </div>
 
                     <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5">
@@ -692,6 +708,13 @@ export default function OrderManagement() {
         }}
         onCancelOrder={handleCancelOrder}
         onResolveDispute={handleResolveDispute}
+        onViewUser={(id, role) => {
+          if (role === "customer") {
+            setSelectedCustomerId(id);
+          } else {
+            setSelectedWorkerId(id);
+          }
+        }}
       />
     </div>
   );

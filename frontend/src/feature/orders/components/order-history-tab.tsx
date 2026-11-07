@@ -8,16 +8,23 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
-  Copy,
   UserRound,
   Wrench,
 } from "lucide-react";
 
+import { Skeleton } from "@/components/ui/skeleton";
+
 import { STATUS_LABELS } from "@/lib/order-utils";
 import type { OrderStatusHistoryItem } from "../types";
+import { useUserDetailQuery } from "@/feature/users/hooks/use-users";
+
+type UserRole = "customer" | "worker";
 
 interface Props {
   history: OrderStatusHistoryItem[];
+  customerUserId?: string | null;
+  workerUserId?: string | null;
+  onViewUser?: (id: string, role: UserRole) => void;
 }
 
 const REASON_LABELS: Record<string, string> = {
@@ -52,11 +59,6 @@ function formatDateTime(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function shortenId(value: string) {
-  if (value.length <= 20) return value;
-  return `${value.slice(0, 8)}...${value.slice(-5)}`;
 }
 
 function getStatusStyle(status: string) {
@@ -129,17 +131,31 @@ function getStatusStyle(status: string) {
   }
 }
 
-function UserId({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
+interface HistoryUserProps {
+  userId: string;
+  customerUserId?: string | null;
+  workerUserId?: string | null;
+  onViewUser?: (id: string, role: UserRole) => void;
+}
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  };
+function HistoryUser({
+  userId,
+  customerUserId,
+  workerUserId,
+  onViewUser,
+}: HistoryUserProps) {
+  const { data: user, isPending } = useUserDetailQuery(userId);
+
+  const fullName = user?.fullName?.trim() || userId;
+
+  const role: UserRole | null =
+    userId === customerUserId
+      ? "customer"
+      : userId === workerUserId
+        ? "worker"
+        : null;
+
+  const canViewDetail = Boolean(role && onViewUser);
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -151,26 +167,45 @@ function UserId({ value }: { value: string }) {
 
       <span className="text-[11px] text-slate-500">Người thực hiện:</span>
 
-      <button
-        type="button"
-        onClick={() => void handleCopy()}
-        title={value}
-        aria-label={`Sao chép mã người thực hiện ${value}`}
-        className="inline-flex max-w-full cursor-pointer items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-600 transition-colors hover:bg-slate-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
-      >
-        <span className="truncate">{shortenId(value)}</span>
+      {isPending ? (
+        <Skeleton className="h-6 w-28 rounded-md" />
+      ) : (
+        <button
+          type="button"
+          disabled={!canViewDetail}
+          onClick={(event) => {
+            event.stopPropagation();
 
-        {copied ? (
-          <Check size={11} className="shrink-0 text-emerald-600" />
-        ) : (
-          <Copy size={11} className="shrink-0 text-slate-400" />
-        )}
-      </button>
+            if (role) {
+              onViewUser?.(userId, role);
+            }
+          }}
+          title={fullName}
+          className={`
+            inline-flex max-w-full items-center gap-1.5
+            rounded-md bg-slate-100 px-2 py-1
+            text-[11px] font-medium text-slate-700
+            transition-colors
+            ${
+              canViewDetail
+                ? "cursor-pointer hover:bg-orange-50 hover:text-[#FF5E14]"
+                : "cursor-default"
+            }
+          `}
+        >
+          <span className="truncate">{fullName}</span>
+        </button>
+      )}
     </div>
   );
 }
 
-export default function OrderHistoryTab({ history }: Props) {
+export default function OrderHistoryTab({
+  history,
+  customerUserId,
+  workerUserId,
+  onViewUser,
+}: Props) {
   const sortedHistory = [...history].sort((a, b) => {
     const timeA = new Date(a.createdAt).getTime();
     const timeB = new Date(b.createdAt).getTime();
@@ -184,6 +219,7 @@ export default function OrderHistoryTab({ history }: Props) {
     return (
       <div className="rounded-xl bg-slate-50 px-4 py-8 text-center">
         <Clock3 size={24} className="mx-auto mb-2 text-slate-300" />
+
         <p className="text-[13px] text-slate-500">
           Chưa có lịch sử trạng thái.
         </p>
@@ -227,9 +263,15 @@ export default function OrderHistoryTab({ history }: Props) {
 
           return (
             <li key={item.id} className="flex min-w-0 gap-2.5 sm:gap-3">
+              {/* TIMELINE */}
               <div className="flex w-7 shrink-0 flex-col items-center">
                 <div
-                  className={`relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${statusStyle.background} ${statusStyle.border}`}
+                  className={`
+                    relative z-10 flex h-7 w-7 shrink-0
+                    items-center justify-center rounded-full border
+                    ${statusStyle.background}
+                    ${statusStyle.border}
+                  `}
                 >
                   <StatusIcon
                     size={14}
@@ -247,6 +289,7 @@ export default function OrderHistoryTab({ history }: Props) {
                 )}
               </div>
 
+              {/* NỘI DUNG */}
               <div className={`min-w-0 flex-1 ${isLast ? "" : "pb-5"}`}>
                 <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:justify-between sm:gap-x-4">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -288,7 +331,12 @@ export default function OrderHistoryTab({ history }: Props) {
 
                 {item.changedByUserId && (
                   <div className="mt-2.5">
-                    <UserId value={item.changedByUserId} />
+                    <HistoryUser
+                      userId={item.changedByUserId}
+                      customerUserId={customerUserId}
+                      workerUserId={workerUserId}
+                      onViewUser={onViewUser}
+                    />
                   </div>
                 )}
               </div>
