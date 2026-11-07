@@ -902,18 +902,6 @@ export default function CustomerBookingRadarRoute() {
 
       {/* ── 2. Khu vực Radar Toàn màn hình (Map Background + Radar Scanner) ── */}
       <View testID="booking-radar-screen" pointerEvents="box-none" className="relative flex-1 items-center justify-center overflow-hidden bg-[#F8FAFC] dark:bg-neutral-950">
-        {/* Huy hiệu Bán kính quét chuẩn nghiệp vụ 7km */}
-        <View
-          testID="radar-radius-badge"
-          pointerEvents="none"
-          className="absolute top-3 z-20 flex-row items-center gap-1.5 rounded-full border border-sky-200/80 bg-white/95 px-3 py-1 shadow-sm backdrop-blur-md dark:border-sky-900/60 dark:bg-neutral-900/90"
-        >
-          <View className="size-2 rounded-full bg-[#F5A524]" />
-          <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
-            Bán kính quét: 7km
-          </Text>
-        </View>
-
         {/* Bản đồ Mapbox thực tế làm nền */}
         {radarCoords
           ? (

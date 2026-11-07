@@ -54,20 +54,6 @@ afterEach(() => {
 });
 
 describe('customerBookingRadarScreen locate-me button', () => {
-  it('renders radar scanning radius badge (7km)', () => {
-    useBookingDraftStore.setState({
-      latitude: 16.0748,
-      longitude: 108.1499,
-      addressText: '54 Nguyễn Lương Bằng, Đà Nẵng',
-      createdRequestId: 'req-test-123',
-    });
-
-    render(<CustomerBookingRadarScreen />);
-    const badge = screen.getByTestId('radar-radius-badge');
-    expect(badge).toBeTruthy();
-    expect(screen.getByText('Bán kính quét: 7km')).toBeTruthy();
-  });
-
   it('renders radar-spiderweb-group that scales dynamically with map zoom', () => {
     useBookingDraftStore.setState({
       latitude: 16.0748,
