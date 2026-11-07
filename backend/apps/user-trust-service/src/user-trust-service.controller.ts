@@ -469,6 +469,28 @@ export class UserTrustServiceController {
     return this.userTrustService.getMyServiceRegistrations(user.userId);
   }
 
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Delete('workers/me/service-registrations/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Thợ hủy đơn đăng ký dịch vụ đang chờ duyệt',
+    description: 'Chỉ có thể hủy đơn đăng ký khi đơn đang ở trạng thái pending (chờ duyệt).',
+  })
+  @ApiParam({ name: 'id', description: 'ID đơn đăng ký dịch vụ cần hủy (UUID)' })
+  @ApiResponse({ status: 200, description: 'Hủy đơn đăng ký dịch vụ thành công' })
+  @ApiResponse({ status: 400, description: 'Đơn không ở trạng thái pending' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy đơn đăng ký' })
+  async cancelMyServiceRegistration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ): Promise<unknown> {
+    return this.userTrustService.cancelWorkerServiceRegistration(
+      user.userId,
+      id,
+    );
+  }
+
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(StandardPermissions.PROFILE_READ)
   @Get('workers/geocode')

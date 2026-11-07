@@ -1948,7 +1948,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           status: 'pending',
-          idempotencyKey: resolvedKey || null,
+          idempotencyKey: resolvedKey || crypto.randomUUID(),
         },
       });
 
@@ -2083,7 +2083,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           status: 'pending',
-          idempotencyKey: resolvedKey || null,
+          idempotencyKey: resolvedKey || crypto.randomUUID(),
         },
       });
 
@@ -2148,9 +2148,56 @@ export class UserTrustServiceService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // Ẩn các đơn thợ đã chủ động hủy khỏi danh sách hiển thị của thợ
+    const visibleRegistrations = registrations.filter(
+      (r) => !r.rejectionReason?.includes('hủy'),
+    );
+
     return {
       statusCode: HttpStatus.OK,
-      data: registrations,
+      data: visibleRegistrations,
+    };
+  }
+
+  /**
+   * Worker hủy đơn đăng ký dịch vụ đang chờ duyệt
+   */
+  async cancelWorkerServiceRegistration(userId: string, registrationId: string) {
+    const workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!workerProfile) {
+      throw new NotFoundException('Không tìm thấy hồ sơ thợ của bạn');
+    }
+
+    const registration = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+    });
+
+    if (!registration || registration.workerProfileId !== workerProfile.id) {
+      throw new NotFoundException('Không tìm thấy đơn đăng ký dịch vụ của bạn');
+    }
+
+    if (registration.status !== 'pending') {
+      throw new BadRequestException(
+        'Chỉ có thể hủy đơn đăng ký đang chờ phê duyệt',
+      );
+    }
+
+    const updated = await this.db.workerServiceRegistration.update({
+      where: { id: registrationId },
+      data: {
+        status: 'rejected',
+        rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+        updatedAt: new Date(),
+      },
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Hủy đơn đăng ký dịch vụ thành công',
+      data: updated,
     };
   }
 

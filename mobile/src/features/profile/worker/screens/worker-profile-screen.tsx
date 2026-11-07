@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, OrdersIcon, WalletIcon } from '@/components/ui/icons';
+import { ArrowRight, OrdersIcon, Settings, WalletIcon, WrenchIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
@@ -108,44 +108,57 @@ export function WorkerProfileScreen() {
           </View>
         </Pressable>
 
-        {/* Navigation Menu Options: Professional skills, Setting */}
-        <View className="mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <Pressable
-            testID="profile-skills-item"
-            accessibilityRole="button"
-            accessibilityLabel="Professional skills"
-            onPress={() => router.push(RouteNames.WORKER_SKILLS as any)}
-            className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
-          >
-            <View>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Professional skills
-              </Text>
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+        {/* Thẻ Kỹ năng chuyên môn (Kỹ năng & Thêm dịch vụ công việc) */}
+        <Pressable
+          testID="profile-skills-item"
+          accessibilityRole="button"
+          accessibilityLabel="Kỹ năng chuyên môn"
+          onPress={() => router.push(RouteNames.WORKER_SKILLS as any)}
+          className="mt-4 flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs active:bg-blue-50/80 dark:border-neutral-800 dark:bg-neutral-900 dark:active:bg-blue-950/30"
+        >
+          <View className="flex-1 flex-row items-center pr-3">
+            <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
+              <WrenchIcon size={20} color="#FFFFFF" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
                 Kỹ năng chuyên môn
               </Text>
+              <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
+                Kỹ năng & Thêm dịch vụ công việc
+              </Text>
             </View>
-            <Text className="text-xs font-semibold text-neutral-400">&gt;</Text>
-          </Pressable>
+          </View>
+          <View className="size-8 items-center justify-center rounded-full bg-blue-600/10 dark:bg-blue-900/40">
+            <ArrowRight color={SECONDARY_COLOR} />
+          </View>
+        </Pressable>
 
-          <Pressable
-            testID="profile-setting-item"
-            accessibilityRole="button"
-            accessibilityLabel="Setting"
-            onPress={() => router.push(RouteNames.WORKER_SETTINGS as any)}
-            className="flex-row items-center justify-between p-4 active:bg-blue-50/80 dark:active:bg-blue-950/30"
-          >
-            <View>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+        {/* Setting Card */}
+        <Pressable
+          testID="profile-setting-item"
+          accessibilityRole="button"
+          accessibilityLabel="Setting"
+          onPress={() => router.push(RouteNames.WORKER_SETTINGS as any)}
+          className="mt-4 flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs active:bg-blue-50/80 dark:border-neutral-800 dark:bg-neutral-900 dark:active:bg-blue-950/30"
+        >
+          <View className="flex-1 flex-row items-center pr-3">
+            <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
+              <Settings color="#FFFFFF" width={20} height={20} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
                 Setting
               </Text>
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+              <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
                 Cài đặt ứng dụng
               </Text>
             </View>
-            <Text className="text-xs font-semibold text-neutral-400">&gt;</Text>
-          </Pressable>
-        </View>
+          </View>
+          <View className="size-8 items-center justify-center rounded-full bg-blue-600/10 dark:bg-blue-900/40">
+            <ArrowRight color={SECONDARY_COLOR} />
+          </View>
+        </Pressable>
 
         {/* Account Details Card */}
         <View className="mt-6 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">

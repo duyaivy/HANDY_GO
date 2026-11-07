@@ -296,7 +296,7 @@ describe('workerProfileScreen', () => {
 
     const skillsItem = screen.getByTestId('profile-skills-item');
     expect(skillsItem).toBeOnTheScreen();
-    expect(screen.getByText('Professional skills')).toBeOnTheScreen();
+    expect(screen.getByText('Kỹ năng chuyên môn')).toBeOnTheScreen();
 
     fireEvent.press(skillsItem);
     expect(mockPush).toHaveBeenCalledWith('/worker/skills');

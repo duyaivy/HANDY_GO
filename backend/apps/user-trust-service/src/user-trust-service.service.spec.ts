@@ -909,18 +909,93 @@ describe('UserTrustServiceService', () => {
       ).rejects.toThrow('Một hoặc nhiều dịch vụ đã chọn không tồn tại');
     });
 
-    it('getMyServiceRegistrations returns list of registrations for the worker', async () => {
+    it('getMyServiceRegistrations returns list of registrations and filters out cancelled ones', async () => {
       dbMock.workerProfile.findUnique.mockResolvedValue({
         id: workerProfileId,
         userId: workerUserId,
       });
       dbMock.workerServiceRegistration.findMany.mockResolvedValue([
-        { id: 'reg-1', status: 'pending' },
+        { id: 'reg-1', status: 'pending', rejectionReason: null },
+        { id: 'reg-2', status: 'approved', rejectionReason: null },
+        { id: 'reg-3', status: 'rejected', rejectionReason: 'Ảnh mờ không rõ thiết bị' },
+        { id: 'reg-4', status: 'rejected', rejectionReason: '[Thợ chủ động hủy yêu cầu]' },
       ]);
 
       const res = await service.getMyServiceRegistrations(workerUserId);
       expect(res.statusCode).toBe(200);
-      expect(res.data).toHaveLength(1);
+      expect(res.data).toHaveLength(3);
+      expect(res.data.map((r: any) => r.id)).toEqual(['reg-1', 'reg-2', 'reg-3']);
+      expect(res.data.find((r: any) => r.id === 'reg-4')).toBeUndefined();
+    });
+
+    describe('cancelWorkerServiceRegistration', () => {
+      it('successfully cancels a pending registration by setting status rejected and reason', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-to-cancel',
+          workerProfileId,
+          status: 'pending',
+        });
+
+        dbMock.workerServiceRegistration.update.mockResolvedValue({
+          id: 'reg-to-cancel',
+          status: 'rejected',
+          rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+        });
+
+        const res = await service.cancelWorkerServiceRegistration(
+          workerUserId,
+          'reg-to-cancel',
+        );
+
+        expect(res.statusCode).toBe(200);
+        expect(res.message).toBe('Hủy đơn đăng ký dịch vụ thành công');
+        expect(dbMock.workerServiceRegistration.update).toHaveBeenCalledWith({
+          where: { id: 'reg-to-cancel' },
+          data: expect.objectContaining({
+            status: 'rejected',
+            rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+          }),
+        });
+      });
+
+      it('throws BadRequestException if registration status is not pending', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-approved',
+          workerProfileId,
+          status: 'approved',
+        });
+
+        await expect(
+          service.cancelWorkerServiceRegistration(workerUserId, 'reg-approved'),
+        ).rejects.toThrow('Chỉ có thể hủy đơn đăng ký đang chờ phê duyệt');
+      });
+
+      it('throws NotFoundException if registration does not belong to the worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-other-worker',
+          workerProfileId: 'other-profile-id',
+          status: 'pending',
+        });
+
+        await expect(
+          service.cancelWorkerServiceRegistration(workerUserId, 'reg-other-worker'),
+        ).rejects.toThrow('Không tìm thấy đơn đăng ký dịch vụ của bạn');
+      });
     });
 
     it('listAdminServiceRegistrations returns paginated list of registrations', async () => {

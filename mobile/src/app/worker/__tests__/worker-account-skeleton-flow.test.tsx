@@ -73,27 +73,27 @@ describe('worker Account Skeleton & Navigation Flow (Vua Thợ)', () => {
 
       const skillsItem = screen.getByTestId('profile-skills-item');
       expect(skillsItem).toBeOnTheScreen();
-      expect(screen.getByText('Professional skills')).toBeOnTheScreen();
+      expect(screen.getByText('Kỹ năng chuyên môn')).toBeOnTheScreen();
 
       fireEvent.press(skillsItem);
       expect(mockPush).toHaveBeenCalledWith('/worker/skills');
     });
 
-    it('2. renders Professional skills skeleton with Add professional skills button', () => {
+    it('2. renders Professional skills screen with Add professional skills button and tabs', () => {
       render(<WorkerSkillsScreen />);
 
-      expect(screen.getByText('Professional skills')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Kỹ năng chuyên môn')).toBeOnTheScreen();
+      expect(screen.getByText('Dịch vụ & Kỹ năng')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-skills-screen')).toBeOnTheScreen();
       expect(screen.getByTestId('add-professional-skills-btn')).toBeOnTheScreen();
     });
 
-    it('3. navigates from Professional skills to Profession analysis when pressing Add professional skills', () => {
+    it('3. navigates to register service screen when pressing Add professional skills button', () => {
       render(<WorkerSkillsScreen />);
 
       const addSkillsBtn = screen.getByTestId('add-professional-skills-btn');
       fireEvent.press(addSkillsBtn);
-      expect(mockPush).toHaveBeenCalledWith('/worker/application/analysis');
+      expect(mockPush).toHaveBeenCalledWith('/worker/skills/register');
     });
 
     it('4. automatically returns from Profession analysis after analysis completes without fake timers', () => {

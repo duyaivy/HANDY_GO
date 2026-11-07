@@ -71,6 +71,7 @@ export const RouteNames = {
   WORKER_APPLICATION_COMPLETE_MODAL: '/worker/application/complete-modal',
   WORKER_BALANCE: '/worker/balance',
   WORKER_SKILLS: '/worker/skills',
+  WORKER_SKILLS_REGISTER: '/worker/skills/register',
   WORKER_PROFESSIONAL_SKILLS: '/worker/skills',
   WORKER_SETTINGS: '/worker/settings',
   WORKER_SETTING: '/worker/settings',
