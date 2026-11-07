@@ -162,7 +162,7 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
               <div className="space-y-1 pl-6">
                 <button
                   type="button"
-                  onClick={() => navigateTo("/manager/customers")}
+                  onClick={() => navigateTo("/manager/user/customers")}
                   className={subMenuClass(activeItem === "customers")}
                 >
                   <span>└</span>
@@ -171,7 +171,7 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
 
                 <button
                   type="button"
-                  onClick={() => navigateTo("/manager/workers")}
+                  onClick={() => navigateTo("/manager/user/workers")}
                   className={subMenuClass(activeItem === "workers")}
                 >
                   <span>└</span>
