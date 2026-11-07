@@ -23,6 +23,8 @@ import {
   RefreshTokenDto,
   LogoutDto,
   ChangePasswordDto,
+  RequestChangeEmailDto,
+  ConfirmChangeEmailDto,
 } from './index.js';
 import {
   AuthSuccessResponseDto,
@@ -130,5 +132,41 @@ export class LoginController {
     @Body() dto: ChangePasswordDto,
   ): Promise<ChangePasswordResponse> {
     return this.loginFlow.changePassword(user.accountId, dto);
+  }
+
+  @RequirePermissions(StandardPermissions.AUTH_ME)
+  @Post('change-email/request')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Yêu cầu đổi email - gửi mã OTP 6 số đến email mới',
+    description: 'Chỉ áp dụng cho người dùng đã đăng nhập trong trang cá nhân.',
+  })
+  @ApiResponse({ status: 200, description: 'Gửi OTP đổi email thành công' })
+  @ApiResponse({ status: 400, description: 'Email không hợp lệ hoặc đã tồn tại' })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  async requestChangeEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: RequestChangeEmailDto,
+  ) {
+    return this.loginFlow.requestChangeEmail(user.accountId, dto);
+  }
+
+  @RequirePermissions(StandardPermissions.AUTH_ME)
+  @Post('change-email/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Xác thực OTP và hoàn tất đổi email',
+    description: 'Xác minh mã OTP 6 số đã gửi đến email mới và cập nhật email tài khoản.',
+  })
+  @ApiResponse({ status: 200, description: 'Cập nhật email thành công' })
+  @ApiResponse({ status: 400, description: 'Mã OTP không chính xác hoặc đã hết hạn' })
+  @ApiResponse({ status: 401, description: 'Chưa xác thực' })
+  async confirmChangeEmail(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ConfirmChangeEmailDto,
+  ) {
+    return this.loginFlow.confirmChangeEmail(user.accountId, dto);
   }
 }
