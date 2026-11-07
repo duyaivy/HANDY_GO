@@ -1,77 +1,62 @@
 "use client";
 
-import { ChevronRight, Copy, Inbox } from "lucide-react";
+import { ChevronRight, Inbox } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+
 import type { Order } from "../types";
-import {
-  formatCurrency,
-  STATUS_COLORS,
-  STATUS_LABELS,
-} from "@/lib/order-utils";
+import { formatCurrency, STATUS_COLORS, STATUS_LABELS } from "@/lib/order-utils";
 
 interface OrdersTableProps {
   orders: Order[];
   onViewDetail: (id: string) => void;
+  onViewUser: (id: string, type: "customer" | "worker") => void;
   isLoading?: boolean;
 }
+
+const SKELETON_ROWS = 5;
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]";
 
 export default function OrdersTable({
   orders,
   onViewDetail,
+  onViewUser,
   isLoading = false,
 }: OrdersTableProps) {
-  const shortenId = (id?: string) => {
-    if (!id) return "Chưa cập nhật";
-    return `${id.slice(0, 8)}…`;
-  };
-
-  const copyId = async (id: string) => {
-    try {
-      await navigator.clipboard.writeText(id);
-    } catch (error) {
-      console.error("Không thể sao chép UUID:", error);
+  const renderUserName = (
+    id: string,
+    name: string | undefined,
+    isLoading: boolean | undefined,
+    type: "customer" | "worker",
+  ) => {
+    if (isLoading && !name) {
+      return <Skeleton className="h-4 w-24 max-w-full rounded-md" />;
     }
-  };
 
-  const renderUserId = (id?: string) => (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span
-        className="truncate font-mono text-[13px] text-slate-700"
-        title={id || "Chưa cập nhật"}
+    if (!id) return <span className="text-xs text-slate-500">Chưa cập nhật</span>;
+
+    return (
+      <button
+        type="button"
+        title={name || id}
+        onClick={(event) => {
+          event.stopPropagation();
+          onViewUser(id, type);
+        }}
+        className={`block max-w-full truncate text-left text-[13px] font-medium text-slate-700 transition-colors hover:text-[#FF5E14] hover:underline ${FOCUS_RING}`}
       >
-        {shortenId(id)}
-      </span>
-
-      {id && (
-        <button
-          type="button"
-          title="Sao chép UUID"
-          aria-label={`Sao chép UUID ${id}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            void copyId(id);
-          }}
-          className="
-            shrink-0 cursor-pointer rounded-md p-1
-            text-slate-400 transition-colors
-            hover:bg-slate-100 hover:text-[#FF5E14]
-            focus-visible:outline-2
-            focus-visible:outline-offset-2
-            focus-visible:outline-[#FF5E14]
-          "
-        >
-          <Copy className="h-3.5 w-3.5" />
-        </button>
-      )}
-    </div>
-  );
+        {name || `${id.slice(0, 8)}…`}
+      </button>
+    );
+  };
 
   const renderStatus = (order: Order) => (
     <span
       className={`
         inline-flex max-w-full items-center
-        rounded-full px-2.5 py-1
-        text-[12px] font-medium whitespace-nowrap
+        whitespace-nowrap rounded-full px-2.5 py-1
+        text-[11px] font-medium sm:text-[12px]
         ${STATUS_COLORS[order.status]}
       `}
     >
@@ -79,7 +64,7 @@ export default function OrdersTable({
     </span>
   );
 
-  const renderAction = (order: Order, mobile = false) => {
+  const renderAction = (order: Order, fullWidthOnMobile = false) => {
     const isDisputed = order.status === "disputed";
 
     return (
@@ -93,22 +78,27 @@ export default function OrdersTable({
           isDisputed ? "Xem tranh chấp" : "Xem chi tiết"
         } đơn hàng ${order.orderCode}`}
         className={`
-          inline-flex items-center justify-center gap-1
-          rounded-lg border border-slate-200 bg-white
-          font-semibold text-slate-700
-          transition-all duration-200
-          hover:border-slate-300 hover:bg-slate-50
-          focus-visible:outline-2
-          focus-visible:outline-offset-2
-          focus-visible:outline-slate-400
-          ${mobile ? "w-full px-4 py-2.5 text-[13px]" : "px-3 py-2 text-[12px]"}
+          inline-flex items-center justify-center
+          whitespace-nowrap border font-semibold
+          border-slate-200 bg-white text-slate-700
+          transition-colors duration-200
+          hover:border-orange-200 hover:bg-orange-50
+          hover:text-[#FF5E14]
+          ${
+            fullWidthOnMobile
+              ? "h-9 gap-1 rounded-lg px-3.5 text-[13px]"
+              : "h-7 gap-0.5 rounded-md px-2 text-[11px] lg:px-2.5 lg:text-[12px]"
+          }
+          ${FOCUS_RING}
         `}
       >
-        <span>
-          {isDisputed ? "Tranh chấp" : mobile ? "Xem chi tiết" : "Chi tiết"}
-        </span>
-
-        <ChevronRight className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+        <span>{isDisputed ? "Tranh chấp" : "Chi tiết"}</span>
+        <ChevronRight
+          className={`shrink-0 ${
+            fullWidthOnMobile ? "h-3.5 w-3.5" : "h-3 w-3"
+          }`}
+          strokeWidth={2}
+        />
       </button>
     );
   };
@@ -116,87 +106,226 @@ export default function OrdersTable({
   const emptyState = (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
       <Inbox size={30} strokeWidth={1.5} className="text-slate-400" />
-
       <p className="text-[14px] text-slate-400">Không tìm thấy đơn hàng nào</p>
     </div>
   );
 
   return (
     <div
-      className="w-full min-w-0 font-['Inter',sans-serif] leading-[1.6] text-[#0F172A] antialiased"
+      className="
+        w-full min-w-0 font-['Inter',sans-serif]
+        leading-[1.6] text-[#0F172A] antialiased
+      "
       aria-busy={isLoading}
     >
-      {/* DESKTOP TABLE */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[760px] table-fixed border-collapse text-left">
-          {/* Điều chỉnh tỷ lệ chiều rộng các cột */}
+      {/* ===================== MOBILE (< md): DẠNG THẺ ===================== */}
+      <div className="md:hidden">
+        {isLoading ? (
+          <ul className="space-y-3" aria-hidden="true">
+            {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+              <li
+                key={`order-card-skeleton-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-5 w-3/4 rounded-md" />
+                    <Skeleton className="h-3.5 w-1/2 rounded-md" />
+                  </div>
+                  <Skeleton className="h-6 w-20 shrink-0 rounded-full" />
+                </div>
+
+                <Skeleton className="mt-4 h-6 w-32 rounded-md" />
+
+                <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-3">
+                  <Skeleton className="h-4 w-full rounded-md" />
+                  <Skeleton className="h-4 w-full rounded-md" />
+                </div>
+
+                <Skeleton className="mt-4 h-11 w-full rounded-xl" />
+              </li>
+            ))}
+          </ul>
+        ) : orders.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            {emptyState}
+          </div>
+        ) : (
+          <ul className="space-y-3">
+            {orders.map((order) => (
+              <li
+                key={order.id}
+                tabIndex={0}
+                onClick={() => onViewDetail(order.id)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
+
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onViewDetail(order.id);
+                  }
+                }}
+                aria-label={`Xem đơn hàng ${order.orderCode}`}
+                className={`
+                  cursor-pointer rounded-2xl border border-slate-200
+                  bg-white p-4 shadow-sm transition-colors
+                  active:bg-slate-50
+                  ${FOCUS_RING}
+                `}
+              >
+                {/* 1. Tên dịch vụ + trạng thái */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="line-clamp-2 break-words text-[15px] font-semibold leading-snug text-[#0F172A]"
+                      title={order.service}
+                    >
+                      {order.service}
+                    </p>
+                    <p
+                      className="mt-0.5 truncate text-[13px] text-[#64748B]"
+                      title={order.orderCode}
+                    >
+                      Mã đơn: {order.orderCode}
+                    </p>
+                  </div>
+
+                  <div className="shrink-0">{renderStatus(order)}</div>
+                </div>
+
+                {/* 2. Tổng tiền: thông tin quan trọng nhất */}
+                <p className="mt-4 text-[20px] font-semibold leading-none text-[#0F172A]">
+                  {formatCurrency(order.price)}
+                </p>
+
+                {/* 3. Người liên quan: mỗi dòng một thông tin */}
+                <dl className="mt-4 divide-y divide-slate-200/70 rounded-xl bg-slate-50 px-3">
+                  <div className="flex items-center justify-between gap-3 py-2.5">
+                    <dt className="shrink-0 text-[13px] text-[#64748B]">
+                      Khách hàng
+                    </dt>
+                    <dd className="min-w-0">
+                      {renderUserName(order.customer, order.customerName, order.customerNameLoading, "customer")}
+                    </dd>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 py-2.5">
+                    <dt className="shrink-0 text-[13px] text-[#64748B]">
+                      Thợ thực hiện
+                    </dt>
+                    <dd className="min-w-0">
+                      {renderUserName(order.worker, order.workerName, order.workerNameLoading, "worker")}
+                    </dd>
+                  </div>
+                </dl>
+
+                {/* 4. Nút thao tác full-width, dễ bấm bằng ngón cái */}
+                <div className="mt-4 flex justify-end">
+                  {renderAction(order, true)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ===================== TABLET / DESKTOP (>= md): DẠNG BẢNG ===================== */}
+      <div
+        className="
+          hidden w-full min-w-0 overflow-x-auto
+          overscroll-x-contain md:block
+          [scrollbar-width:thin]
+          [scrollbar-color:#CBD5E1_transparent]
+        "
+      >
+        <table
+          className="
+            w-full min-w-[720px]
+            table-fixed border-collapse text-left
+            xl:min-w-0
+          "
+        >
           <colgroup>
-            <col className="w-[26%]" />
-            <col className="w-[16%]" />
-            <col className="w-[16%]" />
-            <col className="w-[14%]" />
+            <col className="w-[24%]" />
+            <col className="w-[15%]" />
+            <col className="w-[15%]" />
+            <col className="w-[15%]" />
             <col className="w-[17%]" />
-            <col className="w-[11%]" />
+            <col className="w-[14%]" />
           </colgroup>
 
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
-              <th className="px-6 py-3.5">Đơn hàng</th>
-
-              <th className="px-4 py-3.5">Khách hàng</th>
-
-              <th className="px-4 py-3.5">Thợ thực hiện</th>
-
-              <th className="px-4 py-3.5 text-left">Tổng tiền</th>
-
-              <th className="px-4 py-3.5">Trạng thái</th>
-
-              <th className="px-3 py-3.5 text-center">Thao tác</th>
+            <tr
+              className="
+                border-b border-slate-100
+                bg-slate-50/70
+                text-[12px] font-semibold text-[#0F172A]
+                lg:text-[13px]
+              "
+            >
+              <th
+                scope="col"
+                className="whitespace-nowrap px-4 py-3.5 lg:px-5 xl:px-6"
+              >
+                Đơn hàng
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Khách hàng
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Thợ thực hiện
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Tổng tiền
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Trạng thái
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-3.5 text-center"
+              >
+                Thao tác
+              </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-slate-100 text-[14px]">
+          <tbody className="divide-y divide-slate-100 text-[13px] lg:text-[14px]">
             {isLoading ? (
-              Array.from({ length: 5 }, (_, index) => (
+              Array.from({ length: SKELETON_ROWS }, (_, index) => (
                 <tr key={`order-skeleton-${index}`} aria-hidden="true">
-                  {/* Tên công việc / Mã đơn */}
-                  <td className="px-6 py-4">
-                    <div className="space-y-2">
+                  <td className="px-4 py-4 lg:px-5 xl:px-6">
+                    <div className="min-w-0 space-y-2">
                       <Skeleton className="h-4 w-36 max-w-full rounded-md" />
                       <Skeleton className="h-3 w-28 max-w-full rounded-md" />
                     </div>
                   </td>
 
-                  {/* Khách hàng */}
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-20 rounded-md" />
+                  <td className="px-3 py-4 xl:px-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full rounded-md" />
                       <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
                     </div>
                   </td>
 
-                  {/* Thợ thực hiện */}
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-20 rounded-md" />
+                  <td className="px-3 py-4 xl:px-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full rounded-md" />
                       <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
                     </div>
                   </td>
 
-                  {/* Tổng tiền */}
-                  <td className="px-4 py-4">
+                  <td className="px-3 py-4 xl:px-4">
                     <Skeleton className="h-4 w-24 max-w-full rounded-md" />
                   </td>
 
-                  {/* Trạng thái */}
-                  <td className="px-4 py-4">
-                    <Skeleton className="h-7 w-24 rounded-full" />
+                  <td className="px-3 py-4 xl:px-4">
+                    <Skeleton className="h-7 w-24 max-w-full rounded-full" />
                   </td>
 
-                  {/* Thao tác */}
                   <td className="px-3 py-4">
                     <div className="flex justify-center">
-                      <Skeleton className="h-8 w-20 rounded-lg" />
+                      <Skeleton className="h-8 w-20 max-w-full rounded-lg" />
                     </div>
                   </td>
                 </tr>
@@ -221,25 +350,22 @@ export default function OrdersTable({
                   }}
                   aria-label={`Xem đơn hàng ${order.orderCode}`}
                   className="
-                    group cursor-pointer
-                    transition-colors
+                    group cursor-pointer transition-colors
                     hover:bg-slate-50/60
                     focus-visible:bg-slate-50/60
                     focus-visible:outline-2
                     focus-visible:outline-offset-[-2px]
-                    focus-visible:outline-slate-400
+                    focus-visible:outline-[#FF5E14]
                   "
                 >
-                  {/* Đơn hàng */}
-                  <td className="px-6 py-4">
+                  <td className="px-4 py-4 lg:px-5 xl:px-6">
                     <div className="min-w-0">
                       <p
-                        className="truncate text-[14px] font-medium leading-tight text-[#0F172A]"
+                        className="truncate text-[13px] font-medium leading-tight text-[#0F172A] lg:text-[14px]"
                         title={order.service}
                       >
                         {order.service}
                       </p>
-
                       <p
                         className="mt-1 truncate text-[12px] font-normal text-[#64748B]"
                         title={order.orderCode}
@@ -249,23 +375,22 @@ export default function OrdersTable({
                     </div>
                   </td>
 
-                  {/* Khách hàng */}
-                  <td className="px-4 py-4">{renderUserId(order.customer)}</td>
+                  <td className="px-3 py-4 xl:px-4">
+                    {renderUserName(order.customer, order.customerName, order.customerNameLoading, "customer")}
+                  </td>
 
-                  {/* Thợ thực hiện */}
-                  <td className="px-4 py-4">{renderUserId(order.worker)}</td>
+                  <td className="px-3 py-4 xl:px-4">
+                    {renderUserName(order.worker, order.workerName, order.workerNameLoading, "worker")}
+                  </td>
 
-                  {/* Tổng tiền - căn trái */}
-                  <td className="whitespace-nowrap px-4 py-4 text-left">
-                    <span className="text-[14px] font-medium text-[#0F172A]">
+                  <td className="whitespace-nowrap px-3 py-4 text-left xl:px-4">
+                    <span className="text-[13px] font-medium text-[#0F172A] lg:text-[14px]">
                       {formatCurrency(order.price)}
                     </span>
                   </td>
 
-                  {/* Trạng thái */}
-                  <td className="px-4 py-4">{renderStatus(order)}</td>
+                  <td className="px-3 py-4 xl:px-4">{renderStatus(order)}</td>
 
-                  {/* Thao tác */}
                   <td className="whitespace-nowrap px-3 py-4">
                     <div className="flex items-center justify-center">
                       {renderAction(order)}
@@ -276,108 +401,6 @@ export default function OrdersTable({
             )}
           </tbody>
         </table>
-      </div>
-
-      {/* MOBILE CARDS */}
-      <div className="divide-y divide-slate-100 md:hidden">
-        {isLoading
-          ? Array.from({ length: 4 }, (_, index) => (
-              <div
-                key={`order-mobile-skeleton-${index}`}
-                className="space-y-4 p-4 sm:p-5"
-                aria-hidden="true"
-              >
-                {/* Tên công việc + trạng thái */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <Skeleton className="h-4 w-40 max-w-full rounded-md" />
-                    <Skeleton className="h-3 w-32 max-w-full rounded-md" />
-                  </div>
-
-                  <Skeleton className="h-7 w-20 shrink-0 rounded-full" />
-                </div>
-
-                {/* Thông tin đơn hàng */}
-                <div className="space-y-3 rounded-xl bg-slate-50/70 p-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="min-w-0 space-y-2">
-                      <Skeleton className="h-3 w-20 rounded-md" />
-                      <Skeleton className="h-4 w-24 max-w-full rounded-md" />
-                    </div>
-
-                    <div className="min-w-0 space-y-2">
-                      <Skeleton className="h-3 w-20 rounded-md" />
-                      <Skeleton className="h-4 w-24 max-w-full rounded-md" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-slate-200 pt-3">
-                    <Skeleton className="h-3 w-20 rounded-md" />
-                    <Skeleton className="h-4 w-24 rounded-md" />
-                  </div>
-                </div>
-
-                {/* Nút chi tiết */}
-                <Skeleton className="h-10 w-full rounded-lg" />
-              </div>
-            ))
-          : orders.length === 0
-            ? emptyState
-            : orders.map((order) => (
-                <div key={order.id} className="space-y-4 p-4 sm:p-5">
-                  {/* Tên công việc / Mã đơn / Trạng thái */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p
-                        className="break-words text-[14px] font-medium leading-tight text-[#0F172A]"
-                        title={order.service}
-                      >
-                        {order.service}
-                      </p>
-
-                      <p className="mt-1 break-all text-[12px] text-[#64748B]">
-                        {order.orderCode}
-                      </p>
-                    </div>
-
-                    {renderStatus(order)}
-                  </div>
-
-                  {/* Thông tin đơn hàng */}
-                  <div className="space-y-3 rounded-xl bg-slate-50/70 p-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="min-w-0">
-                        <p className="mb-1 text-[12px] text-slate-500">
-                          Khách hàng
-                        </p>
-
-                        {renderUserId(order.customer)}
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="mb-1 text-[12px] text-slate-500">
-                          Thợ thực hiện
-                        </p>
-
-                        {renderUserId(order.worker)}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-3">
-                      <span className="text-[12px] text-slate-500">
-                        Tổng tiền
-                      </span>
-
-                      <span className="text-[14px] font-medium text-[#0F172A]">
-                        {formatCurrency(order.price)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Thao tác */}
-                  {renderAction(order, true)}
-                </div>
-              ))}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   RotateCcw,
+  Check,
 } from "lucide-react";
 
 import OrderDetailModal from "./order-detail-modal";
@@ -32,6 +33,9 @@ import type {
 } from "../types";
 
 import { PAYMENT_LABELS, STATUS_LABELS } from "@/lib/order-utils";
+import { useOrderUsersQuery } from "@/feature/users/hooks/use-users";
+import CustomerDetailModal from "@/feature/users/customers/components/customer-detail";
+import WorkerDetailModal from "@/feature/users/workers/components/worker-detail";
 
 const PAGE_SIZE = 10;
 
@@ -59,15 +63,49 @@ function mapOrder(order: OrderResponse): Order {
 
 export default function OrderManagement() {
   // FILTER STATE
-  const [status, setStatus] = useState<OrderStatus | "all">("all");
+  const [selectedStatuses, setSelectedStatuses] = useState<OrderStatus[]>([]);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [payment, setPayment] = useState<PaymentState | "all">("all");
   const [customerUserId, setCustomerUserId] = useState("");
   const [workerUserId, setWorkerUserId] = useState("");
   const [page, setPage] = useState(1);
 
+  // Đóng dropdown khi click ra ngoài hoặc nhấn Escape.
+  useEffect(() => {
+    if (!statusDropdownOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!statusDropdownRef.current?.contains(event.target as Node)) {
+        setStatusDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setStatusDropdownOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [statusDropdownOpen]);
+
+  const toggleStatus = (value: OrderStatus) => {
+    setSelectedStatuses((previous) =>
+      previous.includes(value)
+        ? previous.filter((item) => item !== value)
+        : [...previous, value],
+    );
+    setPage(1);
+  };
+
   // MODAL STATE
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedSnapshot, setSelectedSnapshot] = useState<Order | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
 
   // VALIDATE UUID
   const isValidCustomerId =
@@ -83,7 +121,9 @@ export default function OrderManagement() {
     page,
     limit: PAGE_SIZE,
 
-    ...(status !== "all" ? { status } : {}),
+    ...(selectedStatuses.length > 0
+      ? { status: selectedStatuses.join(",") }
+      : {}),
     ...(payment !== "all" ? { paymentState: payment } : {}),
 
     ...(customerUserId.trim() && isValidCustomerId
@@ -105,9 +145,22 @@ export default function OrderManagement() {
     status: "disputed",
   });
 
-  const orders = isValidFilters
-    ? (ordersQuery.data?.items ?? []).map(mapOrder)
-    : [];
+  const rawOrders = isValidFilters ? (ordersQuery.data?.items ?? []) : [];
+  const userIds = [...new Set(rawOrders.flatMap((order) => [order.customerUserId, order.workerUserId]).filter(Boolean))];
+  const userQueries = useOrderUsersQuery(userIds);
+  const userMap = new Map(userIds.map((id, index) => [id, userQueries[index]] as const));
+
+  const orders: Order[] = rawOrders.map((item) => {
+    const customerQuery = userMap.get(item.customerUserId);
+    const workerQuery = userMap.get(item.workerUserId);
+    return {
+      ...mapOrder(item),
+      customerName: customerQuery?.data?.fullName || undefined,
+      workerName: workerQuery?.data?.fullName || undefined,
+      customerNameLoading: Boolean(customerQuery?.isPending),
+      workerNameLoading: Boolean(workerQuery?.isPending),
+    };
+  });
 
   const total = isValidFilters ? (ordersQuery.data?.total ?? 0) : 0;
 
@@ -117,6 +170,18 @@ export default function OrderManagement() {
   );
 
   const currentPage = isValidFilters ? (ordersQuery.data?.page ?? page) : 1;
+
+  // TỰ ĐỘNG ĐIỀU CHỈNH TRANG KHI TOTAL PAGES GIẢM
+  // Không dùng useEffect nên không gặp lỗi set-state-in-effect.
+  if (
+    isValidFilters &&
+    ordersQuery.isSuccess &&
+    !ordersQuery.isFetching &&
+    ordersQuery.data?.page === page &&
+    page > totalPages
+  ) {
+    setPage(totalPages);
+  }
 
   const disputedCount = disputedOrdersQuery.data?.total ?? 0;
 
@@ -163,7 +228,9 @@ export default function OrderManagement() {
     orders.find((item) => item.id === selectedOrderId) ?? selectedSnapshot;
 
   const detailQuery = useOrderDetailQuery(selectedOrderId ?? undefined);
+
   const historyQuery = useOrderHistoryQuery(selectedOrderId ?? undefined);
+
   const evidenceQuery = useOrderEvidenceQuery(selectedOrderId ?? undefined);
 
   // MUTATIONS
@@ -172,7 +239,8 @@ export default function OrderManagement() {
 
   // HANDLERS
   const resetFilters = () => {
-    setStatus("all");
+    setSelectedStatuses([]);
+    setStatusDropdownOpen(false);
     setPayment("all");
     setCustomerUserId("");
     setWorkerUserId("");
@@ -180,7 +248,8 @@ export default function OrderManagement() {
   };
 
   const handleViewDisputes = () => {
-    setStatus("disputed");
+    setSelectedStatuses(["disputed"]);
+    setStatusDropdownOpen(false);
     setPayment("all");
     setCustomerUserId("");
     setWorkerUserId("");
@@ -216,14 +285,14 @@ export default function OrderManagement() {
 
   // STYLES
   const inputClassName =
-    "h-10 w-full min-w-0 rounded-xl border border-slate-200 " +
-    "bg-white px-3.5 text-[13px] text-[#0F172A] " +
+    "h-10 w-full min-w-0 truncate rounded-xl border border-slate-200 " +
+    "bg-white px-3 text-[13px] text-[#0F172A] " +
     "placeholder:text-slate-400 outline-none transition-colors " +
     "focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14]";
 
   const selectClassName =
-    "h-10 w-full min-w-0 appearance-none cursor-pointer " +
-    "rounded-xl border border-slate-200 bg-white pl-3.5 pr-9 " +
+    "h-10 w-full min-w-0 appearance-none cursor-pointer truncate " +
+    "rounded-xl border border-slate-200 bg-white pl-3 pr-8 " +
     "text-[13px] text-[#0F172A] outline-none transition-colors " +
     "focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14]";
 
@@ -304,10 +373,10 @@ export default function OrderManagement() {
               </button>
             </div>
 
-            {/* BỘ LỌC */}
-            <div className="flex flex-wrap items-center gap-3">
+            {/* BỘ LỌC: 2 cột x 2 hàng trên mobile, 1 hàng 4 ô từ tablet (md) */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {/* MÃ KHÁCH HÀNG */}
-              <div className="w-full min-w-0 sm:w-[220px]">
+              <div className="min-w-0">
                 <input
                   type="text"
                   value={customerUserId}
@@ -327,7 +396,7 @@ export default function OrderManagement() {
               </div>
 
               {/* MÃ THỢ */}
-              <div className="w-full min-w-0 sm:w-[220px]">
+              <div className="min-w-0">
                 <input
                   type="text"
                   value={workerUserId}
@@ -346,31 +415,96 @@ export default function OrderManagement() {
                 />
               </div>
 
-              {/* TRẠNG THÁI ĐƠN HÀNG */}
-              <div className="relative w-full min-w-0 sm:w-[170px]">
-                <select
-                  value={status}
-                  onChange={(event) => {
-                    setStatus(event.target.value as OrderStatus | "all");
-                    setPage(1);
-                  }}
-                  aria-label="Trạng thái đơn hàng"
-                  className={selectClassName}
+              {/* TRẠNG THÁI ĐƠN HÀNG: CHỌN NHIỀU */}
+              <div ref={statusDropdownRef} className="relative min-w-0">
+                <button
+                  type="button"
+                  aria-label="Lọc theo trạng thái đơn hàng"
+                  aria-haspopup="true"
+                  aria-expanded={statusDropdownOpen}
+                  onClick={() => setStatusDropdownOpen((open) => !open)}
+                  className={`${selectClassName} flex items-center justify-between gap-2 text-left ${
+                    statusDropdownOpen ? "border-[#FF5E14] ring-1 ring-[#FF5E14]" : ""
+                  }`}
                 >
-                  <option value="all">Tất cả trạng thái</option>
+                  <span className="min-w-0 flex-1 truncate">
+                    {selectedStatuses.length === 0
+                      ? "Tất cả trạng thái"
+                      : selectedStatuses.length === 1
+                        ? STATUS_LABELS[selectedStatuses[0]]
+                        : `Đã chọn ${selectedStatuses.length} trạng thái`}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+                      statusDropdownOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
 
-                  {Object.entries(STATUS_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                {statusDropdownOpen && (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-[min(300px,calc(100vw-32px))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl sm:left-0 sm:right-auto sm:w-[300px]">
+                    <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2.5">
+                      <span className="text-[12px] font-semibold text-slate-700">
+                        Chọn trạng thái
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedStatuses([]);
+                          setPage(1);
+                        }}
+                        disabled={selectedStatuses.length === 0}
+                        className="text-[12px] font-medium text-[#FF5E14] hover:text-orange-700 disabled:cursor-not-allowed disabled:text-slate-300"
+                      >
+                        Xóa chọn
+                      </button>
+                    </div>
 
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <div className="max-h-64 overflow-y-auto p-1.5">
+                      {(Object.entries(STATUS_LABELS) as [OrderStatus, string][]).map(
+                        ([value, label]) => {
+                          const checked = selectedStatuses.includes(value);
+                          return (
+                            <label
+                              key={value}
+                              className={`flex min-h-10 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors hover:bg-orange-50 ${
+                                checked ? "bg-orange-50/60 text-slate-900" : "text-slate-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleStatus(value)}
+                                className="h-4 w-4 shrink-0 cursor-pointer accent-[#FF5E14]"
+                              />
+                              <span className="min-w-0 flex-1">{label}</span>
+                              {checked && <Check className="h-3.5 w-3.5 text-[#FF5E14]" />}
+                            </label>
+                          );
+                        },
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2.5">
+                      <span className="text-[11px] text-slate-500">
+                        {selectedStatuses.length === 0
+                          ? "Hiển thị tất cả"
+                          : `${selectedStatuses.length} trạng thái được chọn`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setStatusDropdownOpen(false)}
+                        className="rounded-lg bg-[#FF5E14] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[#E65310] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]"
+                      >
+                        Xong
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* TRẠNG THÁI THANH TOÁN */}
-              <div className="relative w-full min-w-0 sm:w-[170px]">
+              <div className="relative min-w-0">
                 <select
                   value={payment}
                   onChange={(event) => {
@@ -389,7 +523,7 @@ export default function OrderManagement() {
                   ))}
                 </select>
 
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
 
@@ -422,12 +556,16 @@ export default function OrderManagement() {
               orders={orders}
               isLoading={isValidFilters && ordersQuery.isPending}
               onViewDetail={handleViewDetail}
+              onViewUser={(id, type) => {
+                if (type === "customer") setSelectedCustomerId(id);
+                else setSelectedWorkerId(id);
+              }}
             />
           )}
 
           {/* PHÂN TRANG GIỐNG KYC */}
           <div className="border-t border-slate-100 px-3 py-4 sm:px-6">
-            <div className="flex flex-col items-center justify-between gap-3 text-[13px] text-[#64748B] sm:flex-row">
+            <div className="flex flex-col items-center justify-between gap-3 text-[13px] text-[#64748B] xl:flex-row">
               <div className="flex items-center gap-2">
                 <span>· Tổng {total} đơn hàng</span>
 
@@ -514,6 +652,15 @@ export default function OrderManagement() {
           </div>
         </div>
       </div>
+
+      <CustomerDetailModal
+        userId={selectedCustomerId}
+        onClose={() => setSelectedCustomerId(null)}
+      />
+      <WorkerDetailModal
+        userId={selectedWorkerId}
+        onClose={() => setSelectedWorkerId(null)}
+      />
 
       {/* MODAL CHI TIẾT */}
       <OrderDetailModal

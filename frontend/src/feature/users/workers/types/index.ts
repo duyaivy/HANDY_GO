@@ -47,6 +47,7 @@ export interface WorkerItem {
 
   // Trạng thái hồ sơ thợ trong worker_profiles
   status: WorkerStatus;
+  
 
   // Thông tin đánh giá và đơn hàng
   rating: number;
@@ -56,6 +57,7 @@ export interface WorkerItem {
 
   // Thời gian
   createdAt: string;
+  
   verifiedAt?: string;
   approvedAt?: string;
 

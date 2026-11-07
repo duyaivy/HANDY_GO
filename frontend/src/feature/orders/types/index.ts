@@ -1,4 +1,3 @@
-
 export type OrderStatus =
   | "created"
   | "confirmed"
@@ -15,10 +14,7 @@ export type PaymentState =
   | "refunded"
   | "failed";
 
-export type DisputeAction =
-  | "resume_previous_state"
-  | "cancel"
-  | "complete";
+export type DisputeAction = "resume_previous_state" | "cancel" | "complete";
 
 export interface Order {
   id: string;
@@ -26,6 +22,12 @@ export interface Order {
   service: string;
   customer: string;
   worker: string;
+  customerName?: string;
+  workerName?: string;
+
+  // Trạng thái tải thông tin người dùng
+  customerNameLoading?: boolean;
+  workerNameLoading?: boolean;
   price: number;
   status: OrderStatus;
   paymentState: PaymentState;
@@ -40,7 +42,7 @@ export interface Order {
 export interface OrderQuery {
   page: number;
   limit: number;
-  status?: OrderStatus;
+  status?: string;
   paymentState?: PaymentState;
   customerUserId?: string;
   workerUserId?: string;
