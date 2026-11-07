@@ -169,4 +169,37 @@ describe('handyMap component', () => {
     expect(camera.props.centerCoordinate).toEqual([108.1499, 16.0748]);
     expect(camera.props.zoomLevel).toBe(14.5);
   });
+
+  it('passes minZoomLevel and maxZoomLevel to Mapbox.Camera', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        center={{ latitude: 16.0748, longitude: 108.1499 }}
+        zoomLevel={12.0}
+        minZoomLevel={10.5}
+        maxZoomLevel={15.0}
+      />,
+    );
+
+    const camera = screen.getByTestId('mapbox-camera');
+    expect(camera).toBeTruthy();
+    expect(camera.props.minZoomLevel).toBe(10.5);
+    expect(camera.props.maxZoomLevel).toBe(15.0);
+    expect(camera.props.zoomLevel).toBe(12.0);
+  });
+
+  it('forces pinchPanEnabled to false when panEnabled is false', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        pinchPanEnabled={true}
+        zoomEnabled={true}
+      />,
+    );
+
+    const mapView = screen.getByTestId('mapbox-map-view');
+    expect(mapView.props.gestureSettings.pinchPanEnabled).toBe(false);
+    expect(mapView.props.gestureSettings.panEnabled).toBe(false);
+    expect(mapView.props.gestureSettings.pinchZoomEnabled).toBe(true);
+  });
 });

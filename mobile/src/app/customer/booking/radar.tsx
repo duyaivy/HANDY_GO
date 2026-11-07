@@ -60,7 +60,13 @@ type DisplayWorkerCandidate = {
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
-const RADAR_ZOOM_LEVEL = 14.5;
+// Bán kính quét Radar mặc định: 7km.
+// Vòng tròn radar hiển thị đường kính 340px (bán kính r = 160px).
+// Tại vĩ độ 16° (Đà Nẵng/Việt Nam), zoom level 12.0 tương ứng chính xác với bán kính quét ~6.5 - 7km.
+const RADAR_DEFAULT_ZOOM = 12.0;
+const RADAR_MIN_ZOOM = 10.5; // Giới hạn zoom nhỏ (bán kính tối đa ~15km, tránh thu nhỏ ra toàn bộ Việt Nam)
+const RADAR_MAX_ZOOM = 15.0; // Giới hạn zoom to (bán kính tối thiểu ~800m)
+const RADAR_ZOOM_LEVEL = RADAR_DEFAULT_ZOOM;
 const DEFAULT_RADAR_CENTER = { latitude: 16.0748, longitude: 108.1499 };
 
 const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
@@ -848,6 +854,18 @@ export default function CustomerBookingRadarRoute() {
 
       {/* ── 2. Khu vực Radar Toàn màn hình (Map Background + Radar Scanner) ── */}
       <View testID="booking-radar-screen" pointerEvents="box-none" className="relative flex-1 items-center justify-center overflow-hidden bg-[#F8FAFC] dark:bg-neutral-950">
+        {/* Huy hiệu Bán kính quét chuẩn nghiệp vụ 7km */}
+        <View
+          testID="radar-radius-badge"
+          pointerEvents="none"
+          className="absolute top-3 z-20 flex-row items-center gap-1.5 rounded-full border border-sky-200/80 bg-white/95 px-3 py-1 shadow-sm backdrop-blur-md dark:border-sky-900/60 dark:bg-neutral-900/90"
+        >
+          <View className="size-2 rounded-full bg-[#F5A524]" />
+          <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
+            Bán kính quét: 7km
+          </Text>
+        </View>
+
         {/* Bản đồ Mapbox thực tế làm nền */}
         {radarCoords
           ? (
@@ -855,7 +873,9 @@ export default function CustomerBookingRadarRoute() {
                 ref={mapRef}
                 initialCenter={radarCoords}
                 center={radarCoords}
-                zoomLevel={RADAR_ZOOM_LEVEL}
+                zoomLevel={RADAR_DEFAULT_ZOOM}
+                minZoomLevel={RADAR_MIN_ZOOM}
+                maxZoomLevel={RADAR_MAX_ZOOM}
                 interactive={true}
                 panEnabled={false}
                 pinchPanEnabled={false}
