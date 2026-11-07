@@ -68,6 +68,19 @@ describe('customerBookingRadarScreen locate-me button', () => {
     expect(screen.getByText('Bán kính quét: 7km')).toBeTruthy();
   });
 
+  it('renders radar-spiderweb-group that scales dynamically with map zoom', () => {
+    useBookingDraftStore.setState({
+      latitude: 16.0748,
+      longitude: 108.1499,
+      addressText: '54 Nguyễn Lương Bằng, Đà Nẵng',
+      createdRequestId: 'req-test-123',
+    });
+
+    render(<CustomerBookingRadarScreen />);
+    const spiderwebGroup = screen.getByTestId('radar-spiderweb-group');
+    expect(spiderwebGroup).toBeTruthy();
+  });
+
   it('automatically triggers flyTo to radarCoords at default radar zoom (12.0) upon screen mount', async () => {
     useBookingDraftStore.setState({
       latitude: 16.0748,

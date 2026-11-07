@@ -495,6 +495,36 @@ export default function CustomerBookingRadarRoute() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const radarScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const currentZoomLevelRef = React.useRef(RADAR_DEFAULT_ZOOM);
+
+  const handleZoomChange = React.useCallback(
+    (zoom: number, isGesture = false) => {
+      if (typeof zoom !== 'number' || Number.isNaN(zoom)) {
+        return;
+      }
+      currentZoomLevelRef.current = zoom;
+      // Tính toán tỷ lệ co giãn theo mức zoom thực tế của bản đồ: scale = 2^(zoom - RADAR_DEFAULT_ZOOM)
+      // Khi thu nhỏ bản đồ (zoom out): mạng nhện radar thu nhỏ đồng bộ cùng bản đồ
+      // Khi phóng to bản đồ (zoom in): mạng nhện radar phóng to đồng bộ cùng bản đồ
+      const rawScale = 2 ** (zoom - RADAR_DEFAULT_ZOOM);
+      const clampedScale = Math.min(Math.max(rawScale, 0.25), 8.0);
+
+      if (isGesture) {
+        radarScaleAnim.setValue(clampedScale);
+      }
+      else {
+        Animated.timing(radarScaleAnim, {
+          toValue: clampedScale,
+          duration: 250,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }).start();
+      }
+    },
+    [radarScaleAnim],
+  );
+
   const mapRef = React.useRef<HandyMapRef>(null);
   const [isLocating, setIsLocating] = React.useState(false);
 
@@ -886,6 +916,7 @@ export default function CustomerBookingRadarRoute() {
                 style={StyleSheet.absoluteFillObject}
                 mapStyle={MapboxService.styles.light}
                 onDidFinishLoadingMap={handleMapLoaded}
+                onZoomDidChange={handleZoomChange}
               />
             )
           : (
@@ -908,8 +939,20 @@ export default function CustomerBookingRadarRoute() {
           <Rect width="100%" height="100%" fill="url(#radarVignette)" />
         </Svg>
 
-        {/* Các vòng tròn đồng tâm Radar */}
-        <View pointerEvents="none" className="pointer-events-none absolute size-[340px] items-center justify-center">
+        {/* Nhóm Mạng nhện Radar + Tia quét + Chấm thợ (co giãn đồng bộ 100% cùng bản đồ) */}
+        <Animated.View
+          testID="radar-spiderweb-group"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 340,
+            height: 340,
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{ scale: radarScaleAnim }],
+          }}
+        >
+          {/* Các vòng tròn đồng tâm Radar (Mạng nhện) */}
           <Svg width={340} height={340} viewBox="0 0 340 340">
             <Circle cx="170" cy="170" r="160" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.5} />
             <Circle cx="170" cy="170" r="130" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.6} />
@@ -919,51 +962,51 @@ export default function CustomerBookingRadarRoute() {
             <Path d="M 170 10 L 170 330 M 10 170 L 330 170" stroke="#94A3B8" strokeWidth="0.8" opacity={0.5} />
             <Path d="M 55 55 L 285 285 M 55 285 L 285 55" stroke="#94A3B8" strokeWidth="0.8" opacity={0.35} />
           </Svg>
-        </View>
 
-        {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            width: 320,
-            height: 320,
-            transform: [{ rotate: spinInterpolation }],
-          }}
-          className="items-center justify-center"
-        >
-          <Svg width={320} height={320} viewBox="0 0 320 320">
-            <Defs>
-              <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
-                <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
-              </LinearGradient>
-            </Defs>
-            <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
-            <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
-          </Svg>
+          {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 320,
+              height: 320,
+              transform: [{ rotate: spinInterpolation }],
+            }}
+            className="items-center justify-center"
+          >
+            <Svg width={320} height={320} viewBox="0 0 320 320">
+              <Defs>
+                <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
+                  <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
+                </LinearGradient>
+              </Defs>
+              <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
+              <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
+            </Svg>
+          </Animated.View>
+
+          {/* Chấm các Thợ thật xuất hiện trên Radar */}
+          {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
+            const radarPositions = [
+              { top: 185, right: 145 },
+              { top: 130, left: 140 },
+              { bottom: 175, right: 155 },
+              { bottom: 140, left: 160 },
+            ];
+            const pos = radarPositions[idx % radarPositions.length];
+            return (
+              <View
+                key={w.id}
+                pointerEvents="none"
+                style={pos}
+                className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
+              >
+                <View className="size-1.5 rounded-full bg-white" />
+              </View>
+            );
+          })}
         </Animated.View>
-
-        {/* Chấm các Thợ thật xuất hiện trên Radar */}
-        {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
-          const radarPositions = [
-            { top: 185, right: 145 },
-            { top: 130, left: 140 },
-            { bottom: 175, right: 155 },
-            { bottom: 140, left: 160 },
-          ];
-          const pos = radarPositions[idx % radarPositions.length];
-          return (
-            <View
-              key={w.id}
-              pointerEvents="none"
-              style={pos}
-              className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
-            >
-              <View className="size-1.5 rounded-full bg-white" />
-            </View>
-          );
-        })}
 
         {/* Điểm định vị trung tâm của Khách (Bulls-eye Target chuẩn Vua Thợ) */}
         <Animated.View

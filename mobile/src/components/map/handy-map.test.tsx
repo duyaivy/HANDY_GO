@@ -202,4 +202,40 @@ describe('handyMap component', () => {
     expect(mapView.props.gestureSettings.panEnabled).toBe(false);
     expect(mapView.props.gestureSettings.pinchZoomEnabled).toBe(true);
   });
+
+  it('triggers onZoomDidChange callback on zoomIn, zoomOut, and flyTo', () => {
+    const onZoomDidChangeSpy = jest.fn();
+    const refHolder: { current: HandyMapRef | null } = { current: null };
+    function TestWrapper() {
+      const ref = React.useRef<HandyMapRef>(null);
+      React.useEffect(() => {
+        refHolder.current = ref.current;
+      }, []);
+      return (
+        <HandyMap
+          ref={ref}
+          zoomLevel={12.0}
+          minZoomLevel={10.0}
+          maxZoomLevel={16.0}
+          onZoomDidChange={onZoomDidChangeSpy}
+        />
+      );
+    }
+    render(<TestWrapper />);
+
+    act(() => {
+      refHolder.current?.zoomIn();
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(13.0, false);
+
+    act(() => {
+      refHolder.current?.zoomOut();
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(12.0, false);
+
+    act(() => {
+      refHolder.current?.flyTo({ latitude: 10.762622, longitude: 106.660172 }, 14.0);
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(14.0, false);
+  });
 });
