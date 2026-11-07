@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { calculateAllocation, parseOrderAmount } from './payment-money.js';
+import {
+  calculateAllocation,
+  parseCommissionRate,
+  parseOrderAmount,
+} from './payment-money.js';
 
 describe('payment money', () => {
   it.each([
@@ -19,20 +23,60 @@ describe('payment money', () => {
   it.each([
     [100n, '5.00', 5n, 95n],
     [10n, '5', 1n, 9n],
-    [1n, '49.99', 0n, 1n],
-    [1n, '50.00', 1n, 0n],
-    [9223372036854775807n, '100.00', 9223372036854775807n, 0n],
+    [1n, '29.99', 0n, 1n],
+    [500000n, '10.00', 50000n, 450000n],
+    [1n, '30.00', 0n, 1n],
+    [9223372036854775807n, '30.00', 2767011611056432742n, 6456360425798343065n],
     [250n, '0', 0n, 250n],
   ])('allocates %s VND at %s percent', (amount, rate, fee, earning) => {
-    expect(calculateAllocation(amount, rate)).toEqual({ platformFee: fee, workerEarning: earning });
+    expect(calculateAllocation(amount, rate)).toEqual({
+      platformFee: fee,
+      workerEarning: earning,
+    });
   });
 
-  it.each(['-1', '100.01', '1.001', '5e0', '', 'NaN'])(
-    'rejects invalid commission rate %s',
-    (rate) => expect(() => calculateAllocation(100n, rate)).toThrow(),
+  it('always leaves the worker a positive earning under the policy cap', () => {
+    for (const amount of [1n, 2n, 3n, 7n, 999n]) {
+      expect(
+        calculateAllocation(amount, '30.00').workerEarning,
+      ).toBeGreaterThan(0n);
+    }
+  });
+
+  it.each([
+    '-1',
+    '30.01',
+    '31',
+    '50.00',
+    '100.00',
+    '100.01',
+    '1.001',
+    '5e0',
+    '',
+    'NaN',
+  ])('rejects invalid commission rate %s', (rate) =>
+    expect(() => calculateAllocation(100n, rate)).toThrow(),
   );
 
-  it.each([0n, -1n, 9223372036854775808n])('rejects amount outside BIGINT range', (amount) => {
-    expect(() => calculateAllocation(amount, '5')).toThrow();
+  it('normalizes accepted commission rates', () => {
+    expect(parseCommissionRate('10')).toEqual({
+      basisPoints: 1000n,
+      normalized: '10.00',
+    });
+    expect(parseCommissionRate('0.5')).toEqual({
+      basisPoints: 50n,
+      normalized: '0.50',
+    });
+    expect(parseCommissionRate('30')).toEqual({
+      basisPoints: 3000n,
+      normalized: '30.00',
+    });
   });
+
+  it.each([0n, -1n, 9223372036854775808n])(
+    'rejects amount outside BIGINT range',
+    (amount) => {
+      expect(() => calculateAllocation(amount, '5')).toThrow();
+    },
+  );
 });

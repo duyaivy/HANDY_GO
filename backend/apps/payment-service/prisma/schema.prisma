@@ -292,13 +292,44 @@ model Refund {
   walletTransferId  String?      @map("wallet_transfer_id") @db.Uuid
   providerRefundId  String?      @map("provider_refund_id") @db.VarChar(150)
   failureReason     String?      @map("failure_reason")
+  approvedByUserId  String?      @map("approved_by_user_id") @db.Uuid
+  approvedAt        DateTime?    @map("approved_at") @db.Timestamptz(6)
+  rejectedByUserId  String?      @map("rejected_by_user_id") @db.Uuid
+  rejectedAt        DateTime?    @map("rejected_at") @db.Timestamptz(6)
+  decisionNote      String?      @map("decision_note")
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   refundedAt        DateTime?    @map("refunded_at") @db.Timestamptz(6)
   updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
   payment           Payment      @relation(fields: [paymentId], references: [id])
 
   @@index([paymentId, createdAt])
+  @@index([status, createdAt])
   @@map("refunds")
+}
+
+model AdminAuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(80)
+  entityType  String   @map("entity_type") @db.VarChar(40)
+  entityId    String   @map("entity_id") @db.VarChar(200)
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  reason      String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId, createdAt], map: "admin_audit_logs_entity_idx")
+  @@index([actorUserId, createdAt], map: "admin_audit_logs_actor_idx")
+  @@map("admin_audit_logs")
+}
+
+model DailyReconciliationReport {
+  reportDate       DateTime @id @map("report_date") @db.Date
+  summary          Json
+  discrepancyCount Int      @default(0) @map("discrepancy_count")
+  generatedAt      DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  @@map("daily_reconciliation_reports")
 }
 
 model OutboxEvent {

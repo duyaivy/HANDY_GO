@@ -1,9 +1,21 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { TopupProvider, type ProviderNotification, type TopupCheckoutInput } from './topup-provider.js';
+import {
+  TopupProvider,
+  type ProviderNotification,
+  type TopupCheckoutInput,
+} from './topup-provider.js';
 
 const SANDBOX_PAY_URL = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const AUDIT_FIELDS = ['vnp_TxnRef', 'vnp_Amount', 'vnp_ResponseCode', 'vnp_TransactionStatus', 'vnp_TransactionNo', 'vnp_BankCode', 'vnp_PayDate'];
+const AUDIT_FIELDS = [
+  'vnp_TxnRef',
+  'vnp_Amount',
+  'vnp_ResponseCode',
+  'vnp_TransactionStatus',
+  'vnp_TransactionNo',
+  'vnp_BankCode',
+  'vnp_PayDate',
+];
 
 // VNPAY signs the key-sorted query with values encoded using `+` for spaces.
 function encode(value: string): string {
@@ -20,7 +32,10 @@ function canonical(params: Record<string, string>): string {
 
 // VNPAY expects yyyyMMddHHmmss in GMT+7.
 function vnpDate(date: Date): string {
-  return new Date(date.getTime() + 7 * 3_600_000).toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  return new Date(date.getTime() + 7 * 3_600_000)
+    .toISOString()
+    .replace(/[-:T]/g, '')
+    .slice(0, 14);
 }
 
 /**
@@ -48,7 +63,9 @@ export class VnpayTopupProvider extends TopupProvider {
   }
 
   private sign(payload: string): string {
-    return createHmac('sha512', this.secret ?? '').update(Buffer.from(payload, 'utf-8')).digest('hex');
+    return createHmac('sha512', this.secret ?? '')
+      .update(Buffer.from(payload, 'utf-8'))
+      .digest('hex');
   }
 
   buildCheckoutUrl(input: TopupCheckoutInput): string {
@@ -86,21 +103,37 @@ export class VnpayTopupProvider extends TopupProvider {
       auditPayload: {},
     };
     const received = query.vnp_SecureHash;
-    if (!this.isConfigured() || typeof received !== 'string' || !/^[0-9a-f]{128}$/i.test(received)) return invalid;
+    if (
+      !this.isConfigured() ||
+      typeof received !== 'string' ||
+      !/^[0-9a-f]{128}$/i.test(received)
+    )
+      return invalid;
 
     const params: Record<string, string> = {};
     for (const [key, value] of Object.entries(query)) {
-      if (key.startsWith('vnp_') && key !== 'vnp_SecureHash' && key !== 'vnp_SecureHashType' && typeof value === 'string') {
+      if (key.startsWith('vnp_') && typeof value !== 'string') return invalid;
+      if (
+        key.startsWith('vnp_') &&
+        key !== 'vnp_SecureHash' &&
+        key !== 'vnp_SecureHashType' &&
+        typeof value === 'string'
+      ) {
         params[key] = value;
       }
     }
     const expected = Buffer.from(this.sign(canonical(params)), 'hex');
     const actual = Buffer.from(received, 'hex');
-    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return invalid;
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
+      return invalid;
+    if (params.vnp_TmnCode !== this.tmnCode) return invalid;
 
     // VNPAY transmits amounts multiplied by 100; anything that is not a whole VND is rejected.
     const rawAmount = params.vnp_Amount;
-    const amountVnd = typeof rawAmount === 'string' && /^[1-9]\d*00$/.test(rawAmount) ? BigInt(rawAmount) / 100n : null;
+    const amountVnd =
+      typeof rawAmount === 'string' && /^[1-9]\d*00$/.test(rawAmount)
+        ? BigInt(rawAmount) / 100n
+        : null;
     const responseCode = params.vnp_ResponseCode ?? '';
     const transactionStatus = params.vnp_TransactionStatus;
     const txnRef = params.vnp_TxnRef || null;
@@ -109,11 +142,16 @@ export class VnpayTopupProvider extends TopupProvider {
       signatureValid: true,
       txnRef,
       amountVnd,
-      success: responseCode === '00' && (transactionStatus === undefined || transactionStatus === '00'),
+      success: responseCode === '00' && transactionStatus === '00',
       responseCode,
       providerTransactionNo,
       eventKey: `${txnRef ?? 'none'}:${providerTransactionNo ?? 'none'}:${responseCode}`,
-      auditPayload: Object.fromEntries(AUDIT_FIELDS.filter((key) => params[key] !== undefined).map((key) => [key, params[key]])),
+      auditPayload: Object.fromEntries(
+        AUDIT_FIELDS.filter((key) => params[key] !== undefined).map((key) => [
+          key,
+          params[key],
+        ]),
+      ),
     };
   }
 }

@@ -2,7 +2,10 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { AppException, ERROR_CODES } from '@app/common';
 import type { Prisma } from '@prisma/payment-client';
 import { PaymentPrismaService } from '../common/database/payment-prisma.service.js';
-import { PaymentPaginationDto, PaymentQueryDto } from './dto/payment-query.dto.js';
+import {
+  PaymentPaginationDto,
+  PaymentQueryDto,
+} from './dto/payment-query.dto.js';
 
 const paymentSelect = {
   id: true,
@@ -40,12 +43,17 @@ export class PaymentQueryService {
     };
   }
 
-  async findById(id: string, userId: string) {
+  async findById(id: string, userId: string, admin = false) {
     const payment = await this.database.client.payment.findFirst({
-      where: { id, ...this.visibleTo(userId) },
+      where: { id, ...(admin ? {} : this.visibleTo(userId)) },
       select: paymentSelect,
     });
-    if (!payment) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Payment not found');
+    if (!payment)
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        ERROR_CODES.NOT_FOUND,
+        'Payment not found',
+      );
     return this.serialize(payment);
   }
 
@@ -54,13 +62,18 @@ export class PaymentQueryService {
       where: { orderId, ...this.visibleTo(userId) },
       select: paymentSelect,
     });
-    if (!payment) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Payment not found');
+    if (!payment)
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        ERROR_CODES.NOT_FOUND,
+        'Payment not found',
+      );
     return this.serialize(payment);
   }
 
-  async list(userId: string, query: PaymentQueryDto) {
+  async list(userId: string, query: PaymentQueryDto, admin = false) {
     const where: Prisma.PaymentWhereInput = {
-      ...this.visibleTo(userId),
+      ...(admin ? {} : this.visibleTo(userId)),
       ...(query.status ? { status: query.status } : {}),
       ...(query.method ? { method: query.method } : {}),
     };
@@ -74,7 +87,13 @@ export class PaymentQueryService {
       }),
       this.database.client.payment.count({ where }),
     ]);
-    return { items: items.map((item) => this.serialize(item)), page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) };
+    return {
+      items: items.map((item) => this.serialize(item)),
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
   }
 
   async listAttempts(id: string, userId: string, query: PaymentPaginationDto) {
@@ -82,18 +101,36 @@ export class PaymentQueryService {
       where: { id, ...this.visibleTo(userId) },
       select: { id: true },
     });
-    if (!payment) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Payment not found');
+    if (!payment)
+      throw new AppException(
+        HttpStatus.NOT_FOUND,
+        ERROR_CODES.NOT_FOUND,
+        'Payment not found',
+      );
     const where: Prisma.PaymentAttemptWhereInput = { paymentId: payment.id };
     const [items, total] = await this.database.client.$transaction([
       this.database.client.paymentAttempt.findMany({
         where,
-        select: { id: true, attemptNo: true, method: true, status: true, attemptedAt: true, completedAt: true },
+        select: {
+          id: true,
+          attemptNo: true,
+          method: true,
+          status: true,
+          attemptedAt: true,
+          completedAt: true,
+        },
         orderBy: { attemptNo: 'desc' },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
       this.database.client.paymentAttempt.count({ where }),
     ]);
-    return { items, page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) };
+    return {
+      items,
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    };
   }
 }

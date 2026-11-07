@@ -1,5 +1,7 @@
 # HG-51 Payment Service — test evidence (2026-11-05)
 
+> Historical evidence for 05/11 only. Policy and implementation have since changed (commission 0–30%, refunds only to Point, Admin approval). Current results and remaining gates are in [evidence 07/11](HG-51-test-evidence-2026-11-07.md). Statements below such as “waiting for PO” and the old 100% fixtures do not describe the current implementation.
+
 Raw results of the checks run on branch `feature/HG-51-payment-service` before opening the PR. All commands ran from `HANDY_GO/backend`. Wallet and Order were mocked; RabbitMQ and cross-service flows were **not** run.
 
 ## Environment

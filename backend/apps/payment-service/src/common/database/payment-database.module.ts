@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { OutboxPublisherService, OutboxRepository } from '@app/common';
 import { PaymentPrismaModule } from './payment-prisma.module.js';
+import { AdminAuditService } from '../audit/admin-audit.service.js';
 import { PaymentOutboxRepository } from '../outbox/payment-outbox.repository.js';
 import { PaymentOutboxService } from '../outbox/payment-outbox.service.js';
 
@@ -9,9 +10,10 @@ import { PaymentOutboxService } from '../outbox/payment-outbox.service.js';
   imports: [PaymentPrismaModule],
   providers: [
     PaymentOutboxService,
+    AdminAuditService,
     { provide: OutboxRepository, useClass: PaymentOutboxRepository },
     OutboxPublisherService,
   ],
-  exports: [PaymentPrismaModule, PaymentOutboxService],
+  exports: [PaymentPrismaModule, PaymentOutboxService, AdminAuditService],
 })
 export class PaymentDatabaseModule {}

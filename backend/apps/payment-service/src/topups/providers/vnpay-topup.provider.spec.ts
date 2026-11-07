@@ -8,13 +8,19 @@ const saved = { ...process.env };
 function sign(params: Record<string, string>): string {
   const data = Object.keys(params)
     .sort()
-    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key]).replace(/%20/g, '+')}`)
+    .map(
+      (key) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(params[key]).replace(/%20/g, '+')}`,
+    )
     .join('&');
-  return createHmac('sha512', SECRET).update(Buffer.from(data, 'utf-8')).digest('hex');
+  return createHmac('sha512', SECRET)
+    .update(Buffer.from(data, 'utf-8'))
+    .digest('hex');
 }
 
 function ipn(overrides: Record<string, string> = {}) {
   const params = {
+    vnp_TmnCode: 'TESTCODE',
     vnp_Amount: '10000000',
     vnp_TxnRef: 'HGTEST1',
     vnp_ResponseCode: '00',
@@ -25,7 +31,11 @@ function ipn(overrides: Record<string, string> = {}) {
     vnp_OrderInfo: 'Nap Point HGTEST1',
     ...overrides,
   };
-  return { ...params, vnp_SecureHashType: 'HmacSHA512', vnp_SecureHash: sign(params) };
+  return {
+    ...params,
+    vnp_SecureHashType: 'HmacSHA512',
+    vnp_SecureHash: sign(params),
+  };
 }
 
 beforeEach(() => {
@@ -42,20 +52,37 @@ describe('VnpayTopupProvider', () => {
     delete process.env.VNPAY_HASH_SECRET;
     const provider = new VnpayTopupProvider();
     expect(provider.isConfigured()).toBe(false);
-    expect(() => provider.buildCheckoutUrl({ txnRef: 'x', amountVnd: 1n, ipAddress: '127.0.0.1', createdAt: new Date(), expiresAt: new Date(), orderInfo: 'x' })).toThrow();
+    expect(() =>
+      provider.buildCheckoutUrl({
+        txnRef: 'x',
+        amountVnd: 1n,
+        ipAddress: '127.0.0.1',
+        createdAt: new Date(),
+        expiresAt: new Date(),
+        orderInfo: 'x',
+      }),
+    ).toThrow();
     expect(provider.verifyNotification(ipn()).signatureValid).toBe(false);
   });
 
   it('builds a signed checkout URL with the amount multiplied by 100', () => {
     const provider = new VnpayTopupProvider();
     const url = provider.buildCheckoutUrl({
-      txnRef: 'HGTEST1', amountVnd: 100000n, ipAddress: '10.0.0.1',
-      createdAt: new Date('2026-11-05T00:00:00Z'), expiresAt: new Date('2026-11-05T00:15:00Z'), orderInfo: 'Nap Point HGTEST1',
+      txnRef: 'HGTEST1',
+      amountVnd: 100000n,
+      ipAddress: '10.0.0.1',
+      createdAt: new Date('2026-11-05T00:00:00Z'),
+      expiresAt: new Date('2026-11-05T00:15:00Z'),
+      orderInfo: 'Nap Point HGTEST1',
     });
     const [base, query] = url.split('?');
     expect(base).toContain('sandbox.vnpayment.vn');
     const [signData, hash] = query.split('&vnp_SecureHash=');
-    expect(hash).toBe(createHmac('sha512', SECRET).update(Buffer.from(signData, 'utf-8')).digest('hex'));
+    expect(hash).toBe(
+      createHmac('sha512', SECRET)
+        .update(Buffer.from(signData, 'utf-8'))
+        .digest('hex'),
+    );
     const params = new URLSearchParams(signData);
     expect(params.get('vnp_Amount')).toBe('10000000');
     expect(params.get('vnp_CreateDate')).toBe('20261105070000');
@@ -66,7 +93,11 @@ describe('VnpayTopupProvider', () => {
   it('accepts a correctly signed IPN and exposes whole-VND amounts', () => {
     const result = new VnpayTopupProvider().verifyNotification(ipn());
     expect(result).toMatchObject({
-      signatureValid: true, txnRef: 'HGTEST1', amountVnd: 100000n, success: true, providerTransactionNo: '14000001',
+      signatureValid: true,
+      txnRef: 'HGTEST1',
+      amountVnd: 100000n,
+      success: true,
+      providerTransactionNo: '14000001',
       eventKey: 'HGTEST1:14000001:00',
     });
     expect(result.auditPayload).not.toHaveProperty('vnp_SecureHash');
@@ -74,15 +105,37 @@ describe('VnpayTopupProvider', () => {
 
   it('rejects tampered, unsigned or malformed notifications', () => {
     const provider = new VnpayTopupProvider();
-    expect(provider.verifyNotification({ ...ipn(), vnp_Amount: '99999900' }).signatureValid).toBe(false);
+    expect(
+      provider.verifyNotification({ ...ipn(), vnp_Amount: '99999900' })
+        .signatureValid,
+    ).toBe(false);
     const { vnp_SecureHash: _hash, ...unsigned } = ipn();
     expect(provider.verifyNotification(unsigned).signatureValid).toBe(false);
-    expect(provider.verifyNotification({ ...ipn(), vnp_SecureHash: 'abc' }).signatureValid).toBe(false);
+    expect(
+      provider.verifyNotification({ ...ipn(), vnp_SecureHash: 'abc' })
+        .signatureValid,
+    ).toBe(false);
   });
 
   it('does not treat provider failures or fractional amounts as success', () => {
     const provider = new VnpayTopupProvider();
-    expect(provider.verifyNotification(ipn({ vnp_ResponseCode: '24', vnp_TransactionStatus: '02' })).success).toBe(false);
-    expect(provider.verifyNotification(ipn({ vnp_Amount: '10000050' })).amountVnd).toBeNull();
+    expect(
+      provider.verifyNotification(
+        ipn({ vnp_ResponseCode: '24', vnp_TransactionStatus: '02' }),
+      ).success,
+    ).toBe(false);
+    expect(
+      provider.verifyNotification(ipn({ vnp_Amount: '10000050' })).amountVnd,
+    ).toBeNull();
+  });
+
+  it('rejects another merchant and never accepts a missing transaction status', () => {
+    const provider = new VnpayTopupProvider();
+    expect(
+      provider.verifyNotification(ipn({ vnp_TmnCode: 'OTHER' })).signatureValid,
+    ).toBe(false);
+    expect(
+      provider.verifyNotification(ipn({ vnp_TransactionStatus: '' })).success,
+    ).toBe(false);
   });
 });

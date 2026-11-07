@@ -13,6 +13,7 @@ import { PaymentOrdersModule } from './payment-orders/payment-orders.module.js';
 import { PayoutsModule } from './payouts/payouts.module.js';
 import { ReconciliationModule } from './reconciliation/reconciliation.module.js';
 import { TopupsModule } from './topups/topups.module.js';
+import { RefundsModule } from './refunds/refunds.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { TopupsModule } from './topups/topups.module.js';
     OrderEventsModule,
     // Static `/payments/topups*` routes must be registered before `/payments/:id`.
     TopupsModule,
+    RefundsModule,
     PaymentOrdersModule,
     PaymentQueryModule,
     PayoutsModule,

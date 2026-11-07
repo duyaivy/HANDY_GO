@@ -1,12 +1,24 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { backgroundJobEnabled, errorName, startLoop } from '../common/runtime/background-job.js';
+import {
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
+import {
+  backgroundJobEnabled,
+  errorName,
+  startLoop,
+} from '../common/runtime/background-job.js';
 import { PaymentOrdersService } from '../payment-orders/payment-orders.service.js';
 import { PayoutsService } from '../payouts/payouts.service.js';
 import { TopupsService } from '../topups/topups.service.js';
+import { PaymentOperationsService } from './payment-operations.service.js';
 
 const STALE_ATTEMPT_MS = 30_000;
 
-export function reconcileIntervalMs(env: NodeJS.ProcessEnv = process.env): number {
+export function reconcileIntervalMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
   const parsed = Number(env.PAYMENT_RECONCILER_INTERVAL_MS);
   return Number.isInteger(parsed) && parsed >= 1_000 ? parsed : 15_000;
 }
@@ -21,6 +33,7 @@ export class PaymentReconcilerService implements OnModuleInit, OnModuleDestroy {
     private readonly orders: PaymentOrdersService,
     private readonly topups: TopupsService,
     private readonly payouts: PayoutsService,
+    private readonly operations: PaymentOperationsService,
   ) {}
 
   onModuleInit(): void {
@@ -28,7 +41,8 @@ export class PaymentReconcilerService implements OnModuleInit, OnModuleDestroy {
     this.timer = startLoop(
       () => this.runOnce(),
       reconcileIntervalMs(),
-      (error) => this.logger.warn(`Reconciliation cycle failed: ${errorName(error)}`),
+      (error) =>
+        this.logger.warn(`Reconciliation cycle failed: ${errorName(error)}`),
     );
   }
 
@@ -39,18 +53,31 @@ export class PaymentReconcilerService implements OnModuleInit, OnModuleDestroy {
 
   async runOnce(): Promise<Record<string, number | string>> {
     const steps: Array<[string, () => Promise<unknown>]> = [
-      ['pointAttempts', () => this.orders.resumeStaleAttempts(STALE_ATTEMPT_MS)],
+      [
+        'pointAttempts',
+        () => this.orders.resumeStaleAttempts(STALE_ATTEMPT_MS),
+      ],
       ['commissions', () => this.orders.collectDueCommissions()],
       ['topups', async () => JSON.stringify(await this.topups.reconcile())],
       ['payouts', () => this.payouts.processBatch()],
+      [
+        'dailyReport',
+        async () =>
+          (await this.operations.dailyReport()).reportDate
+            .toISOString()
+            .slice(0, 10),
+      ],
     ];
     const summary: Record<string, number | string> = {};
     for (const [name, run] of steps) {
       try {
         const value = await run();
-        summary[name] = typeof value === 'number' || typeof value === 'string' ? value : 'ok';
+        summary[name] =
+          typeof value === 'number' || typeof value === 'string' ? value : 'ok';
       } catch (error) {
-        this.logger.warn(`Reconciliation step ${name} failed: ${errorName(error)}`);
+        this.logger.warn(
+          `Reconciliation step ${name} failed: ${errorName(error)}`,
+        );
         summary[name] = 'failed';
       }
     }
