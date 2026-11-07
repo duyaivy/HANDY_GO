@@ -29,6 +29,7 @@ import { HandyMap } from '@/components/map/handy-map';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
@@ -59,6 +60,14 @@ type DisplayWorkerCandidate = {
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
+// Bán kính quét Radar mặc định: 7km.
+// Vòng tròn radar hiển thị đường kính 340px (bán kính r = 160px).
+// Tại vĩ độ 16° (Đà Nẵng/Việt Nam), zoom level 12.0 tương ứng chính xác với bán kính quét ~6.5 - 7km.
+const RADAR_DEFAULT_ZOOM = 12.0;
+const RADAR_MIN_ZOOM = 10.5; // Giới hạn zoom nhỏ (bán kính tối đa ~15km, tránh thu nhỏ ra toàn bộ Việt Nam)
+const RADAR_MAX_ZOOM = 15.0; // Giới hạn zoom to (bán kính tối thiểu ~800m)
+const RADAR_ZOOM_LEVEL = RADAR_DEFAULT_ZOOM;
+const DEFAULT_RADAR_CENTER = { latitude: 16.0748, longitude: 108.1499 };
 
 const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   id: 'a7d8c9e0-1122-4344-8566-778899aabbcc',
@@ -92,7 +101,13 @@ async function fetchLatestActiveRequestId(): Promise<string | null> {
 export default function CustomerBookingRadarRoute() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ requestId?: string }>();
+  const searchParams = useLocalSearchParams<{
+    requestId?: string;
+    serviceName?: string;
+    serviceId?: string;
+    latitude?: string;
+    longitude?: string;
+  }>();
 
   const {
     addressText,
@@ -111,6 +126,41 @@ export default function CustomerBookingRadarRoute() {
   );
   const [serverRequest, setServerRequest] = React.useState<any>(null);
 
+  // Phân giải tên dịch vụ hiển thị chuẩn xác (serverRequest -> searchParams -> bảng tra cứu -> draft store)
+  const displayServiceName = React.useMemo(() => {
+    if (serverRequest?.service?.name && typeof serverRequest.service.name === 'string' && serverRequest.service.name.trim()) {
+      return serverRequest.service.name.trim();
+    }
+    if (serverRequest?.serviceName && typeof serverRequest.serviceName === 'string' && serverRequest.serviceName.trim() && serverRequest.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serverRequest.serviceName.trim();
+    }
+    if (searchParams?.serviceName && typeof searchParams.serviceName === 'string' && searchParams.serviceName.trim() && searchParams.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return searchParams.serviceName.trim();
+    }
+    const effectiveServiceId = serverRequest?.serviceId || searchParams?.serviceId;
+    if (effectiveServiceId) {
+      const resolved = resolveServiceName(effectiveServiceId, undefined, serverRequest?.description || description);
+      if (resolved && resolved !== 'Dịch vụ tiện ích') {
+        return resolved;
+      }
+    }
+    const effectiveDesc = serverRequest?.description || description;
+    if (effectiveDesc) {
+      const resolvedFromDesc = resolveServiceName(undefined, undefined, effectiveDesc);
+      if (resolvedFromDesc && resolvedFromDesc !== 'Dịch vụ tiện ích') {
+        return resolvedFromDesc;
+      }
+    }
+    if (serviceName && serviceName.trim() && serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serviceName.trim();
+    }
+    return (serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
+  }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName]);
+
+  const paramLat = searchParams?.latitude ? Number(searchParams.latitude) : null;
+  const paramLng = searchParams?.longitude ? Number(searchParams.longitude) : null;
+  const hasParamCoords = paramLat !== null && paramLng !== null && !Number.isNaN(paramLat) && !Number.isNaN(paramLng) && (paramLat !== 0 || paramLng !== 0);
+
   const isLocationValid = Boolean(
     typeof latitude === 'number'
     && !Number.isNaN(latitude)
@@ -119,12 +169,20 @@ export default function CustomerBookingRadarRoute() {
     && (latitude !== 0 || longitude !== 0),
   );
 
-  const radarCoords = React.useMemo(() => {
+  // P2-01: Tách tọa độ hợp lệ đã được xác minh khỏi tọa độ mặc định để render map
+  const verifiedCoords = React.useMemo(() => {
+    if (hasParamCoords) {
+      return { latitude: paramLat!, longitude: paramLng! };
+    }
     if (isLocationValid) {
       return { latitude, longitude };
     }
     return null;
-  }, [isLocationValid, latitude, longitude]);
+  }, [hasParamCoords, paramLat, paramLng, isLocationValid, latitude, longitude]);
+
+  const radarCoords = React.useMemo(() => {
+    return verifiedCoords || DEFAULT_RADAR_CENTER;
+  }, [verifiedCoords]);
 
   React.useEffect(() => {
     if (searchParams?.requestId || createdRequestId) {
@@ -162,11 +220,30 @@ export default function CustomerBookingRadarRoute() {
               hasValidCoords ? parsedLng : (longitude || 108.1499),
             );
 
+            if (hasValidCoords) {
+              mapRef.current?.flyTo({ latitude: parsedLat, longitude: parsedLng }, RADAR_ZOOM_LEVEL);
+            }
+
             if (req.description) {
               useBookingDraftStore.getState().setDescription(req.description);
             }
             if (req.scheduledAt) {
               useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
+            }
+            const detectedServiceName = (
+              (req as any)?.service?.name
+              || (req as any)?.serviceName
+              || (searchParams?.serviceName && searchParams.serviceName !== 'Dịch vụ tiện ích' ? searchParams.serviceName : undefined)
+              || (req.serviceId ? resolveServiceName(req.serviceId, undefined, req.description) : undefined)
+              || (req.description ? resolveServiceName(undefined, undefined, req.description) : undefined)
+            );
+            if (
+              detectedServiceName
+              && typeof detectedServiceName === 'string'
+              && detectedServiceName.trim()
+              && detectedServiceName.trim() !== 'Dịch vụ tiện ích'
+            ) {
+              useBookingDraftStore.getState().setService(req.serviceId || '', detectedServiceName.trim());
             }
             const minP = Number(req.aiRefPriceMin);
             const maxP = Number(req.aiRefPriceMax);
@@ -183,7 +260,7 @@ export default function CustomerBookingRadarRoute() {
     return () => {
       isMounted = false;
     };
-  }, [activeRequestId, addressText, latitude, longitude]);
+  }, [activeRequestId, addressText, latitude, longitude, searchParams?.serviceName]);
   const orderCode = serverRequest?.requestCode || (activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---');
 
   const [isCancelling, setIsCancelling] = React.useState(false);
@@ -418,18 +495,96 @@ export default function CustomerBookingRadarRoute() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const radarScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const inverseScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const currentZoomLevelRef = React.useRef(RADAR_DEFAULT_ZOOM);
+
+  const handleZoomChange = React.useCallback(
+    (zoom: number, isGesture = false) => {
+      if (typeof zoom !== 'number' || Number.isNaN(zoom)) {
+        return;
+      }
+      currentZoomLevelRef.current = zoom;
+      // Tính toán tỷ lệ co giãn tối ưu:
+      // - Khi thu nhỏ (zoom out < 12.0): mạng nhện radar thu nhỏ đồng bộ cùng bản đồ (xuống tối thiểu 0.35)
+      // - Khi phóng to (zoom in > 12.0): mạng nhện chỉ mở rộng nhẹ tối đa 1.22 để không bị phình to che khuất bản đồ
+      let targetScale: number;
+      if (zoom <= RADAR_DEFAULT_ZOOM) {
+        targetScale = Math.max(2 ** (zoom - RADAR_DEFAULT_ZOOM), 0.35);
+      }
+      else {
+        targetScale = Math.min(1.0 + (zoom - RADAR_DEFAULT_ZOOM) * 0.08, 1.22);
+      }
+
+      // Tỷ lệ đảo ngược để triệt tiêu việc scale làm phình to chấm thợ
+      const invScale = 1 / targetScale;
+
+      if (isGesture) {
+        radarScaleAnim.setValue(targetScale);
+        inverseScaleAnim.setValue(invScale);
+      }
+      else {
+        Animated.parallel([
+          Animated.timing(radarScaleAnim, {
+            toValue: targetScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(inverseScaleAnim, {
+            toValue: invScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    },
+    [inverseScaleAnim, radarScaleAnim],
+  );
+
   const mapRef = React.useRef<HandyMapRef>(null);
   const [isLocating, setIsLocating] = React.useState(false);
+
+  // Tự động căn đúng tâm vị trí khách hàng với mức zoom radar tối ưu (14.5) khi màn hình mở ra
+  React.useEffect(() => {
+    if (!radarCoords) {
+      return;
+    }
+
+    mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+
+    const timer1 = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 150);
+
+    const timer2 = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 600);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [radarCoords]);
+
+  const handleMapLoaded = React.useCallback(() => {
+    if (radarCoords) {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }
+  }, [radarCoords]);
 
   const handleRecenter = React.useCallback(async () => {
     setIsLocating(true);
     try {
-      if (radarCoords) {
-        mapRef.current?.flyTo(radarCoords, 11.5);
+      if (verifiedCoords) {
+        // Đã có tọa độ xác thực từ đơn/bản vẽ -> bay về tọa độ xác thực
+        mapRef.current?.flyTo(verifiedCoords, RADAR_ZOOM_LEVEL);
       }
       else {
+        // P2-01: Chưa có tọa độ xác thực -> chủ động truy xuất GPS thiết bị
         const result = await DeviceLocationService.getDeviceLocationResult();
-        if (result.coordinates) {
+        if (result.status === 'gps_success' && result.coordinates) {
           useBookingDraftStore.getState().setAddress(
             result.coordinates.addressText || addressText,
             result.coordinates.latitude,
@@ -440,7 +595,25 @@ export default function CustomerBookingRadarRoute() {
               latitude: result.coordinates.latitude,
               longitude: result.coordinates.longitude,
             },
-            11.5,
+            RADAR_ZOOM_LEVEL,
+          );
+        }
+        else if (result.status === 'permission_denied') {
+          Alert.alert(
+            'Quyền truy cập bị từ chối',
+            'Vui lòng cấp quyền truy cập vị trí trong cài đặt thiết bị để tự động định vị vị trí của bạn.',
+          );
+        }
+        else if (result.status === 'module_missing') {
+          Alert.alert(
+            'Không hỗ trợ GPS',
+            'Thiết bị hoặc bản dựng hiện tại chưa tích hợp module GPS native.',
+          );
+        }
+        else {
+          Alert.alert(
+            'Không thể lấy vị trí',
+            'Không thể xác định vị trí GPS thiết bị. Vui lòng thử lại.',
           );
         }
       }
@@ -453,7 +626,7 @@ export default function CustomerBookingRadarRoute() {
         setIsLocating(false);
       }, 400);
     }
-  }, [radarCoords, addressText]);
+  }, [verifiedCoords, addressText]);
 
   const handleBack = () => {
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
@@ -464,26 +637,45 @@ export default function CustomerBookingRadarRoute() {
     }
   };
 
-  // Map Bid Candidates (Section A - only active bids)
+  // Map Bid Candidates (Section A - only active bids, sorted by price ascending)
   const mappedBids: DisplayWorkerCandidate[] = React.useMemo(() => {
-    return bids
+    return [...bids]
       .filter((b: BidCandidate) => !b.status || b.status === 'active')
-      .map((b: BidCandidate) => ({
-        id: b.workerUserId,
-        name: b.workerProfile?.fullName || 'Thợ đối tác',
-        rating: b.workerProfile?.averageRating ?? 5.0,
-        totalOrders: b.workerProfile?.completedOrderCount ?? 0,
-        completionRate: 98,
-        price: b.amount,
-        priceText: `${b.amount.toLocaleString('vi-VN')}đ`,
-        distance: typeof b.workerProfile?.distanceKm === 'number'
-          ? `${b.workerProfile.distanceKm.toFixed(1)}km`
-          : 'Gần bạn',
-        avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-        selectionSource: 'bid' as const,
-        sourceBidId: b.sourceBidId,
-        message: b.message || undefined,
-      }));
+      .sort((a, b) => {
+        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount);
+        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount);
+        const isValidA = typeof numA === 'number' && !Number.isNaN(numA) && numA > 0;
+        const isValidB = typeof numB === 'number' && !Number.isNaN(numB) && numB > 0;
+
+        // P2-06: Đặt giá không hợp lệ/thiếu giá ở cuối danh sách thay vì quy về 0
+        if (isValidA && !isValidB)
+          return -1;
+        if (!isValidA && isValidB)
+          return 1;
+        if (!isValidA && !isValidB)
+          return 0;
+        return numA - numB;
+      })
+      .map((b: BidCandidate) => {
+        const rawAmount = typeof b.amount === 'number' ? b.amount : Number(b.amount);
+        const isValidPrice = typeof rawAmount === 'number' && !Number.isNaN(rawAmount) && rawAmount > 0;
+        return {
+          id: b.workerUserId,
+          name: b.workerProfile?.fullName || 'Thợ đối tác',
+          rating: typeof b.workerProfile?.averageRating === 'number' ? b.workerProfile.averageRating : 0,
+          totalOrders: b.workerProfile?.completedOrderCount ?? 0,
+          completionRate: 98,
+          price: isValidPrice ? rawAmount : 0,
+          priceText: isValidPrice ? `${rawAmount.toLocaleString('vi-VN')}đ` : 'Báo giá thỏa thuận',
+          distance: typeof b.workerProfile?.distanceKm === 'number'
+            ? `${b.workerProfile.distanceKm.toFixed(1)}km`
+            : 'Gần bạn',
+          avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
+          selectionSource: 'bid' as const,
+          sourceBidId: b.sourceBidId,
+          message: b.message || undefined,
+        };
+      });
   }, [bids]);
 
   // Map AI Recommendations (Section B)
@@ -551,7 +743,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'bid',
           sourceBidId: worker.sourceBidId,
           agreedPrice: worker.price,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -566,7 +758,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'recommendation',
           sourceMatchResultId: worker.sourceMatchResultId,
           agreedPrice,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -669,7 +861,7 @@ export default function CustomerBookingRadarRoute() {
         {/* Khối Tên dịch vụ & Mã đơn đặt */}
         <View className="mx-2.5 flex-1 rounded-2xl border border-neutral-100 bg-white/95 px-4 py-2 shadow-sm backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/90">
           <Text className="text-base font-extrabold text-neutral-900 dark:text-white" numberOfLines={1}>
-            {serviceName || 'Sửa ống nước'}
+            {displayServiceName}
           </Text>
           <Text className="mt-0.5 text-xs font-semibold text-neutral-400">
             #
@@ -717,7 +909,9 @@ export default function CustomerBookingRadarRoute() {
                 ref={mapRef}
                 initialCenter={radarCoords}
                 center={radarCoords}
-                zoomLevel={11.5}
+                zoomLevel={RADAR_DEFAULT_ZOOM}
+                minZoomLevel={RADAR_MIN_ZOOM}
+                maxZoomLevel={RADAR_MAX_ZOOM}
                 interactive={true}
                 panEnabled={false}
                 pinchPanEnabled={false}
@@ -727,6 +921,8 @@ export default function CustomerBookingRadarRoute() {
                 showCenterPin={false}
                 style={StyleSheet.absoluteFillObject}
                 mapStyle={MapboxService.styles.light}
+                onDidFinishLoadingMap={handleMapLoaded}
+                onZoomDidChange={handleZoomChange}
               />
             )
           : (
@@ -749,8 +945,20 @@ export default function CustomerBookingRadarRoute() {
           <Rect width="100%" height="100%" fill="url(#radarVignette)" />
         </Svg>
 
-        {/* Các vòng tròn đồng tâm Radar */}
-        <View pointerEvents="none" className="pointer-events-none absolute size-[340px] items-center justify-center">
+        {/* Nhóm Mạng nhện Radar + Tia quét + Chấm thợ (co giãn đồng bộ 100% cùng bản đồ) */}
+        <Animated.View
+          testID="radar-spiderweb-group"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 340,
+            height: 340,
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{ scale: radarScaleAnim }],
+          }}
+        >
+          {/* Các vòng tròn đồng tâm Radar (Mạng nhện) */}
           <Svg width={340} height={340} viewBox="0 0 340 340">
             <Circle cx="170" cy="170" r="160" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.5} />
             <Circle cx="170" cy="170" r="130" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.6} />
@@ -760,51 +968,57 @@ export default function CustomerBookingRadarRoute() {
             <Path d="M 170 10 L 170 330 M 10 170 L 330 170" stroke="#94A3B8" strokeWidth="0.8" opacity={0.5} />
             <Path d="M 55 55 L 285 285 M 55 285 L 285 55" stroke="#94A3B8" strokeWidth="0.8" opacity={0.35} />
           </Svg>
-        </View>
 
-        {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            width: 320,
-            height: 320,
-            transform: [{ rotate: spinInterpolation }],
-          }}
-          className="items-center justify-center"
-        >
-          <Svg width={320} height={320} viewBox="0 0 320 320">
-            <Defs>
-              <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
-                <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
-              </LinearGradient>
-            </Defs>
-            <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
-            <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
-          </Svg>
+          {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 320,
+              height: 320,
+              transform: [{ rotate: spinInterpolation }],
+            }}
+            className="items-center justify-center"
+          >
+            <Svg width={320} height={320} viewBox="0 0 320 320">
+              <Defs>
+                <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
+                  <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
+                </LinearGradient>
+              </Defs>
+              <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
+              <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
+            </Svg>
+          </Animated.View>
+
+          {/* Chấm các Thợ thật xuất hiện trên Radar (tự động counter-scale để luôn giữ kích thước chuẩn 14px) */}
+          {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
+            const radarPositions = [
+              { top: 185, right: 145 },
+              { top: 130, left: 140 },
+              { bottom: 175, right: 155 },
+              { bottom: 140, left: 160 },
+            ];
+            const pos = radarPositions[idx % radarPositions.length];
+            return (
+              <Animated.View
+                key={w.id}
+                pointerEvents="none"
+                style={[
+                  pos,
+                  {
+                    position: 'absolute',
+                    transform: [{ scale: inverseScaleAnim }],
+                  },
+                ]}
+                className="size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
+              >
+                <View className="size-1.5 rounded-full bg-white" />
+              </Animated.View>
+            );
+          })}
         </Animated.View>
-
-        {/* Chấm các Thợ thật xuất hiện trên Radar */}
-        {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
-          const radarPositions = [
-            { top: 185, right: 145 },
-            { top: 130, left: 140 },
-            { bottom: 175, right: 155 },
-            { bottom: 140, left: 160 },
-          ];
-          const pos = radarPositions[idx % radarPositions.length];
-          return (
-            <View
-              key={w.id}
-              pointerEvents="none"
-              style={pos}
-              className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
-            >
-              <View className="size-1.5 rounded-full bg-white" />
-            </View>
-          );
-        })}
 
         {/* Điểm định vị trung tâm của Khách (Bulls-eye Target chuẩn Vua Thợ) */}
         <Animated.View
@@ -1044,9 +1258,18 @@ export default function CustomerBookingRadarRoute() {
                                 {/* Price and action span the card width on compact screens. */}
                                 <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
                                   <View className="min-w-0 flex-1">
-                                    <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
-                                      {worker.priceText}
-                                    </Text>
+                                    <View className="flex-row items-center gap-1.5">
+                                      <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
+                                        {worker.priceText}
+                                      </Text>
+                                      {idx === 0 && mappedBids.length > 1 && typeof worker.price === 'number' && worker.price > 0 && (
+                                        <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-950/50">
+                                          <Text className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                            Giá tốt nhất
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
                                     <Text className="mt-0.5 text-xs text-neutral-400">
                                       {worker.distance}
                                     </Text>
@@ -1385,7 +1608,7 @@ export default function CustomerBookingRadarRoute() {
                 </View>
 
                 <Text className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
-                  {serverRequest?.service?.name || serviceName || 'Sửa máy lạnh'}
+                  {displayServiceName}
                 </Text>
 
                 <View className="mt-2 flex-row items-start">
@@ -1395,7 +1618,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="flex-1 text-xs text-neutral-600 dark:text-neutral-300">
-                    {serverRequest?.description || description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
+                    {serverRequest?.description || description || `Cần tìm thợ ${displayServiceName}`}
                   </Text>
                 </View>
               </View>

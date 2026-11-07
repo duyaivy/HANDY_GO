@@ -210,6 +210,22 @@ export function useWorkerJobDetail(jobId?: string) {
     },
   });
 
+  const uploadMultipleEvidencesMutation = useMutation({
+    mutationFn: async (payloads: UploadEvidencePayload[]) => {
+      if (!jobId) {
+        throw new Error('Job ID is required');
+      }
+      const results = await Promise.all(
+        payloads.map(payload => OrdersApi.uploadEvidence(jobId, payload)),
+      );
+      return results.map(r => r.data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+    },
+  });
+
   const finishOrderMutation = useMutation({
     mutationFn: async () => {
       if (!jobId) {
@@ -236,6 +252,8 @@ export function useWorkerJobDetail(jobId?: string) {
     isStartingOrder: startOrderMutation.isPending,
     uploadEvidence: uploadEvidenceMutation.mutateAsync,
     isUploadingEvidence: uploadEvidenceMutation.isPending,
+    uploadMultipleEvidences: uploadMultipleEvidencesMutation.mutateAsync,
+    isUploadingMultipleEvidences: uploadMultipleEvidencesMutation.isPending,
     finishOrder: finishOrderMutation.mutateAsync,
     isFinishingOrder: finishOrderMutation.isPending,
   };

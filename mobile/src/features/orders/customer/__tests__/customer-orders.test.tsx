@@ -43,7 +43,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
 
   it('renders CustomerOrderDetailScreen displaying orderId passed as prop and placeholder text', () => {
     render(<CustomerOrderDetailScreen orderId="demo-001" />);
-    expect(screen.getByText('Báo giá thợ')).toBeOnTheScreen();
+    expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
     expect(screen.getByText('Mã đơn: #demo-001')).toBeOnTheScreen();
     expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
   });
@@ -53,6 +53,48 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     const backBtn = screen.getByTestId('app-bar-back-btn');
     fireEvent.press(backBtn);
     expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('renders CustomerOrderDetailScreen with real worker info and filters invalid evidences', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ord-real-001',
+        orderCode: 'ORD-REAL-001',
+        serviceRequestId: 'req-01',
+        customerUserId: 'cust-1',
+        workerUserId: 'worker-uuid-456',
+        workerName: 'Trần Văn Chuyên Nghiệp',
+        worker: {
+          fullName: 'Trần Văn Chuyên Nghiệp',
+        },
+        agreedPrice: 350000,
+        agreedScope: 'Thay vòi nước bồn rửa bát',
+        addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
+        status: 'in_progress',
+        paymentState: 'unpaid',
+        evidences: [
+          { id: 'ev-1', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: 'https://example.com/photo1.jpg', createdAt: '2026-11-01T08:00:00Z' },
+          { id: 'ev-2', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: '', createdAt: '2026-11-01T08:00:00Z' },
+          { id: 'ev-3', orderId: 'ord-real-001', mediaType: 'image', mediaUrl: 'undefined', createdAt: '2026-11-01T08:00:00Z' },
+        ],
+        createdAt: '2026-11-01T08:00:00Z',
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<CustomerOrderDetailScreen orderId="ord-real-001" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
+      expect(screen.getByText('Mã đơn: #ORD-REAL-001')).toBeOnTheScreen();
+      expect(screen.getByText('Trần Văn Chuyên Nghiệp')).toBeOnTheScreen();
+      expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
+    });
+
+    const workerProfileBtn = screen.getByTestId('worker-profile-btn');
+    fireEvent.press(workerProfileBtn);
+    expect(mockPush).toHaveBeenCalledWith('/customer/workers/worker-uuid-456');
   });
 
   it('renders CustomerBookingScreen and handles photo attachment and next navigation', () => {
@@ -87,8 +129,15 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
   it('handles switching between activity filter tabs without filter errors', () => {
     render(<CustomerOrdersScreen />);
 
+    // Verify Disputed tab exists and Reorder tab is removed
+    expect(screen.getByTestId('activity-filter-tab-disputed')).toBeOnTheScreen();
+    expect(screen.queryByTestId('activity-filter-tab-reorder')).toBeNull();
+
     const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
     fireEvent.press(inProcessTab);
+
+    const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+    fireEvent.press(disputedTab);
 
     const finishedTab = screen.getByTestId('activity-filter-tab-finished');
     fireEvent.press(finishedTab);
@@ -97,6 +146,48 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     fireEvent.press(cancelledTab);
 
     expect(screen.getByTestId('orders-customer-screen')).toBeOnTheScreen();
+  });
+
+  it('renders disputed orders correctly with Đang khiếu nại badge in Disputed tab', async () => {
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ord-disp-01',
+            orderCode: 'ORD-DISP-01',
+            serviceRequestId: 'req-01',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 250000,
+            agreedScope: 'Sửa bồn nước bị tràn',
+            addressText: '456 Lê Duẩn, Đà Nẵng',
+            status: 'disputed',
+            paymentState: 'unpaid',
+            createdAt: '2026-11-01T08:00:00Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<CustomerOrdersScreen />);
+
+    const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+    fireEvent.press(disputedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa bồn nước bị tràn')).toBeOnTheScreen();
+      expect(screen.getByText(/ORD-DISP-01/)).toBeOnTheScreen();
+      // 1 on the tab, 1 on the order badge
+      expect(screen.getAllByText('Đang khiếu nại')).toHaveLength(2);
+      expect(screen.getByText('Chi tiết đơn')).toBeOnTheScreen();
+      expect(screen.queryByText('Đặt lại')).toBeNull();
+    });
   });
 });
 

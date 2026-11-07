@@ -1,4 +1,5 @@
 export * from './api/orders.api';
+export * from './components';
 export * from './customer';
 export * from './hooks';
 export * from './stores/use-booking-draft-store';

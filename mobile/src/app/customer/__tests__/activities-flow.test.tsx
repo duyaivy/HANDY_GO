@@ -37,12 +37,13 @@ describe('activities feature skeleton and navigation flow', () => {
       // Title
       expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
 
-      // 5 Filter tabs: Đang tìm, Đang làm, Đặt lại, Hoàn thành, Đã hủy
+      // 5 Filter tabs: Đang tìm, Đang làm, Đang khiếu nại, Hoàn thành, Đã hủy
       expect(screen.getByText('Đang tìm')).toBeOnTheScreen();
       expect(screen.getByText('Đang làm')).toBeOnTheScreen();
-      expect(screen.getByText('Đặt lại')).toBeOnTheScreen();
+      expect(screen.getByText('Đang khiếu nại')).toBeOnTheScreen();
       expect(screen.getByText('Hoàn thành')).toBeOnTheScreen();
       expect(screen.getByText('Đã hủy')).toBeOnTheScreen();
+      expect(screen.queryByText('Đặt lại')).not.toBeOnTheScreen();
       expect(screen.queryByText('Tất cả')).not.toBeOnTheScreen();
 
       // Plumber order card
@@ -58,12 +59,15 @@ describe('activities feature skeleton and navigation flow', () => {
       const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
       fireEvent.press(inProcessTab);
 
+      const disputedTab = screen.getByTestId('activity-filter-tab-disputed');
+      fireEvent.press(disputedTab);
+
       // Remains on Activities without calling router
       expect(mockPush).not.toHaveBeenCalled();
       expect(mockReplace).not.toHaveBeenCalled();
     });
 
-    it('navigates to Chi tiết báo giá dịch vụ when pressing "View 1 quotes"', () => {
+    it('navigates to Chi tiết đơn hàng when pressing "View 1 quotes"', () => {
       render(<CustomerOrdersScreen />);
 
       const viewQuotesBtn = screen.getByTestId('view-quotes-btn');
@@ -73,12 +77,12 @@ describe('activities feature skeleton and navigation flow', () => {
     });
   });
 
-  describe('page 2: Chi tiết báo giá dịch vụ (Plumber) (/customer/orders/[id])', () => {
-    it('renders Chi tiết báo giá dịch vụ (Plumber) for order #224466 with worker section', () => {
+  describe('page 2: Chi tiết đơn hàng (Plumber) (/customer/orders/[id])', () => {
+    it('renders Chi tiết đơn hàng (Plumber) for order #224466 with worker section', () => {
       mockParams = { id: '224466' };
       render(<CustomerOrderDetailRoute />);
 
-      expect(screen.getByText('Chi tiết báo giá dịch vụ (Plumber)')).toBeOnTheScreen();
+      expect(screen.getByText('Chi tiết đơn hàng (Plumber)')).toBeOnTheScreen();
       expect(screen.getByText('A CẢNH VĂN')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-profile-btn')).toBeOnTheScreen();
       expect(screen.getByText('Worker profile')).toBeOnTheScreen();
@@ -113,7 +117,7 @@ describe('activities feature skeleton and navigation flow', () => {
       expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
     });
 
-    it('navigates back to Chi tiết báo giá dịch vụ when pressing AppBar Back button', () => {
+    it('navigates back to Chi tiết đơn hàng when pressing AppBar Back button', () => {
       render(<WorkerDetailScreen workerId="a-canh-van" />);
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
@@ -124,27 +128,27 @@ describe('activities feature skeleton and navigation flow', () => {
   });
 
   describe('full 5-step navigation flow simulation', () => {
-    it('executes the complete sequence: Activities -> Chi tiết báo giá -> Hồ sơ thợ -> Back -> Back', () => {
+    it('executes the complete sequence: Activities -> Chi tiết đơn hàng -> Hồ sơ thợ -> Back -> Back', () => {
       // Step 1: User opens Activities screen
       const { unmount: unmountActivities } = render(<CustomerOrdersTabRoute />);
       expect(screen.getByText('Hoạt động')).toBeOnTheScreen();
 
-      // Step 2: Press "View 1 quotes" on Plumber card (#224466) -> opens Chi tiết báo giá
+      // Step 2: Press "View 1 quotes" on Plumber card (#224466) -> opens Chi tiết đơn hàng
       const viewQuotesBtn = screen.getByTestId('view-quotes-btn');
       fireEvent.press(viewQuotesBtn);
       expect(mockPush).toHaveBeenCalledWith('/customer/orders/224466');
       unmountActivities();
 
-      // Step 3: Open Chi tiết báo giá dịch vụ (#224466) and press "Worker profile" -> opens Hồ sơ thợ
+      // Step 3: Open Chi tiết đơn hàng (#224466) and press "Worker profile" -> opens Hồ sơ thợ
       mockParams = { id: '224466' };
       const { unmount: unmountQuoteDetail } = render(<CustomerOrderDetailRoute />);
-      expect(screen.getByText('Chi tiết báo giá dịch vụ (Plumber)')).toBeOnTheScreen();
+      expect(screen.getByText('Chi tiết đơn hàng (Plumber)')).toBeOnTheScreen();
       const workerProfileBtn = screen.getByTestId('worker-profile-btn');
       fireEvent.press(workerProfileBtn);
       expect(mockPush).toHaveBeenCalledWith('/customer/workers/a-canh-van');
       unmountQuoteDetail();
 
-      // Step 4: On Hồ sơ thợ (A CẢNH VĂN), press Back -> returns to Chi tiết báo giá dịch vụ
+      // Step 4: On Hồ sơ thợ (A CẢNH VĂN), press Back -> returns to Chi tiết đơn hàng
       mockParams = { id: 'a-canh-van' };
       const { unmount: unmountWorkerProfile } = render(<CustomerWorkerDetailRoute />);
       expect(screen.getByText('Hồ sơ thợ / Worker profile (A CẢNH VĂN)')).toBeOnTheScreen();
@@ -153,7 +157,7 @@ describe('activities feature skeleton and navigation flow', () => {
       expect(mockBack).toHaveBeenCalledTimes(1);
       unmountWorkerProfile();
 
-      // Step 5: On Chi tiết báo giá dịch vụ, press Back -> returns to Activities
+      // Step 5: On Chi tiết đơn hàng, press Back -> returns to Activities
       mockParams = { id: '224466' };
       render(<CustomerOrderDetailRoute />);
       const backOnQuoteBtn = screen.getByTestId('app-bar-back-btn');

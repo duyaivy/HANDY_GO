@@ -44,8 +44,9 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
 export function useCustomerOrders(activeTab = 'Searching') {
   const isSearchingTab = activeTab === 'Searching';
   const isCancelledTab = activeTab === 'Cancelled';
-  const isFinishedTab = activeTab === 'Finished' || activeTab === 'Reorder';
+  const isFinishedTab = activeTab === 'Finished';
   const isInProcessTab = activeTab === 'In process';
+  const isDisputedTab = activeTab === 'Disputed';
 
   // Server status filter per tab
   const requestsStatusFilter = isSearchingTab
@@ -58,9 +59,11 @@ export function useCustomerOrders(activeTab = 'Searching') {
     ? 'created,confirmed,in_progress,awaiting_customer_confirmation'
     : isFinishedTab
       ? 'completed'
-      : isCancelledTab
-        ? 'cancelled,disputed'
-        : '';
+      : isDisputedTab
+        ? 'disputed'
+        : isCancelledTab
+          ? 'cancelled'
+          : '';
 
   const shouldFetchRequests = isSearchingTab || isCancelledTab || activeTab === 'All';
   const shouldFetchOrders = !isSearchingTab;
@@ -161,6 +164,7 @@ export function useCustomerOrders(activeTab = 'Searching') {
     activeTab,
     isSearchingTab,
     isCancelledTab,
+    isDisputedTab,
     requests,
     orders,
 
@@ -212,7 +216,9 @@ export function useCustomerOrderDetail(orderId?: string) {
       if (!data) {
         return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired)
+      if (data.status === 'disputed') {
+        return 8000;
+      }
       if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
         return 3000;
       }
@@ -233,12 +239,106 @@ export function useCustomerOrderDetail(orderId?: string) {
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
     refetchInterval: () => {
       const order = orderQuery.data;
+      if (order?.status === 'disputed') {
+        return 8000;
+      }
       if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
         return 3000;
       }
       return false;
     },
     refetchIntervalInBackground: false,
+  });
+
+  const workerProfileQuery = useQuery({
+    queryKey: ['order-worker-profile', orderQuery.data?.workerUserId, (orderQuery.data as any)?.selectedBidId, orderQuery.data?.serviceRequestId],
+    queryFn: async () => {
+      const order = orderQuery.data;
+      if (!order) {
+        return null;
+      }
+      if ((order as any)?.worker?.fullName) {
+        return (order as any).worker;
+      }
+
+      const selectedBidId = (order as any)?.selectedBidId;
+      if (selectedBidId) {
+        try {
+          const res = await OrdersApi.getBidDetail(selectedBidId);
+          if (res?.data?.workerProfile) {
+            return {
+              fullName: res.data.workerProfile.fullName,
+              avatarUrl: res.data.workerProfile.avatarUrl,
+              rating: typeof res.data.workerProfile.averageRating === 'number' ? res.data.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof res.data.workerProfile.completedOrderCount === 'number' ? res.data.workerProfile.completedOrderCount : undefined,
+              phone: (res.data.workerProfile as any)?.phoneNumber || (res.data.workerProfile as any)?.phone || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore and fall back to request candidates/bids
+        }
+      }
+
+      if (order.serviceRequestId) {
+        try {
+          const candRes = await OrdersApi.getCandidates(order.serviceRequestId);
+          const biddingItems = candRes?.data?.bidding?.items || [];
+          const matchedBid = biddingItems.find(
+            (b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId,
+          );
+          if (matchedBid?.workerProfile) {
+            return {
+              fullName: matchedBid.workerProfile.fullName,
+              avatarUrl: matchedBid.workerProfile.avatarUrl,
+              rating: typeof matchedBid.workerProfile.averageRating === 'number' ? matchedBid.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedBid.workerProfile.completedOrderCount === 'number' ? matchedBid.workerProfile.completedOrderCount : undefined,
+              phone: (matchedBid.workerProfile as any)?.phoneNumber || (matchedBid.workerProfile as any)?.phone || undefined,
+            };
+          }
+
+          const recItems = candRes?.data?.matching?.recommendations || [];
+          const matchedRec = recItems.find(
+            (r: any) => r.workerId === order.workerUserId || r.workerUserId === order.workerUserId,
+          );
+          if (matchedRec?.workerProfile) {
+            return {
+              fullName: matchedRec.workerProfile.fullName,
+              avatarUrl: matchedRec.workerProfile.avatarUrl,
+              rating: typeof matchedRec.workerProfile.averageRating === 'number' ? matchedRec.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedRec.workerProfile.completedOrderCount === 'number' ? matchedRec.workerProfile.completedOrderCount : undefined,
+              phone: (matchedRec.workerProfile as any)?.phoneNumber || (matchedRec.workerProfile as any)?.phone || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore and fall back to request bids
+        }
+
+        try {
+          const res = await OrdersApi.getRequestBids(order.serviceRequestId);
+          const rawItems = (res?.data as any)?.items || res?.data || [];
+          const items = Array.isArray(rawItems) ? rawItems : [];
+          const matched = items.find((b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId);
+          if (matched?.workerProfile) {
+            return {
+              fullName: matched.workerProfile.fullName,
+              avatarUrl: matched.workerProfile.avatarUrl,
+              rating: typeof matched.workerProfile.averageRating === 'number' ? matched.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matched.workerProfile.completedOrderCount === 'number' ? matched.workerProfile.completedOrderCount : undefined,
+              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore
+        }
+      }
+
+      return null;
+    },
+    enabled: Boolean(orderQuery.data && orderId && orderId !== '224466' && orderId !== 'demo-001'),
+    staleTime: 60000,
   });
 
   const confirmCompletionMutation = useMutation({
@@ -299,11 +399,12 @@ export function useCustomerOrderDetail(orderId?: string) {
 
   return {
     order: orderQuery.data,
+    worker: workerProfileQuery.data || (orderQuery.data as any)?.worker || null,
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
     refetch: async () => {
-      await Promise.all([orderQuery.refetch(), historyQuery.refetch()]);
+      await Promise.all([orderQuery.refetch(), historyQuery.refetch(), workerProfileQuery.refetch()]);
     },
     confirmCompletion: confirmCompletionMutation.mutateAsync,
     isConfirming: confirmCompletionMutation.isPending,

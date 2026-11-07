@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { PlaceholderScreen } from '@/components/placeholder-screen';
 import { Button } from '@/components/ui/button';
 import { RouteNames } from '@/constants/route-names';
+import { resolveServiceName } from '@/constants/services';
 
 export type ServiceDetailScreenProps = {
   serviceId?: string;
@@ -31,7 +32,10 @@ export function ServiceDetailScreen({ serviceId: propServiceId }: ServiceDetailS
           onPress={() =>
             router.push({
               pathname: RouteNames.CUSTOMER_BOOKING,
-              params: { serviceId },
+              params: {
+                serviceId,
+                serviceName: resolveServiceName(serviceId),
+              },
             } as any)}
         />
       </View>
