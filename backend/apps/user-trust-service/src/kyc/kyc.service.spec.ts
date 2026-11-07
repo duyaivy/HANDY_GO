@@ -229,4 +229,42 @@ describe('KycService', () => {
       ).rejects.toThrow(BadRequestException);
     });
   });
+
+  describe('listAdminKycCases', () => {
+    it('delegates status, pagination, search and sortBy to repository', async () => {
+      repoMock.listKycCases.mockResolvedValue({
+        cases: [{ id: 'case-1', status: 'reviewing' }],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      });
+
+      const query = {
+        status: 'reviewing',
+        search: 'Nguyễn Văn A',
+        sortBy: 'newest' as const,
+        page: 1,
+        limit: 10,
+      };
+
+      const res = await service.listAdminKycCases(query);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data).toHaveLength(1);
+      expect(res.pagination).toEqual({
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+      });
+      expect(repoMock.listKycCases).toHaveBeenCalledWith(
+        'reviewing',
+        1,
+        10,
+        'Nguyễn Văn A',
+        'newest',
+      );
+    });
+  });
 });

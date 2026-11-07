@@ -10,7 +10,11 @@ import { ProfileDetailHeaderCard } from '@/features/profile-detail/components';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { useAuthStore } from '@/stores/use-auth-store';
 
-export function CustomerProfileDetailScreen() {
+export type CustomerProfileDetailScreenProps = {
+  onBack?: () => void;
+};
+
+export function CustomerProfileDetailScreen({ onBack }: CustomerProfileDetailScreenProps = {}) {
   const router = useRouter();
   const user = useAuthStore.use.user();
   const {
@@ -23,8 +27,16 @@ export function CustomerProfileDetailScreen() {
   const handleStartVerification = () => router.push(RouteNames.ACCOUNT_VERIFICATION_INTRO as any);
 
   const handleBack = React.useCallback(() => {
-    router.replace(RouteNames.CUSTOMER_PROFILE as any);
-  }, [router]);
+    if (onBack) {
+      onBack();
+    }
+    else if (router.canGoBack()) {
+      router.back();
+    }
+    else {
+      router.replace(RouteNames.CUSTOMER_PROFILE as any);
+    }
+  }, [onBack, router]);
 
   React.useEffect(() => {
     const onBackPress = () => {
@@ -53,11 +65,15 @@ export function CustomerProfileDetailScreen() {
         <ProfileDetailHeaderCard
           fullName={profile?.fullName}
           avatarUrl={profile?.avatarUrl}
+          bio={profile?.customerProfile?.bio}
           phone={user?.phone}
           email={user?.email}
           accountStatus={profile?.status}
           workerStatus={profile?.workerProfile?.status}
+          workerProfile={profile?.workerProfile}
+          createdAt={profile?.createdAt}
           onStartVerification={handleStartVerification}
+          onProfileUpdated={() => void refetch()}
         />
 
         {isLoading && (
