@@ -9,6 +9,7 @@ export default function WorkerLayout() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="profile/detail" options={{ headerShown: false }} />
+        <Stack.Screen name="reviews" options={{ headerShown: false }} />
       </Stack>
     </>
   );

@@ -258,6 +258,28 @@ describe('workerProfileScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/worker/balance');
   });
 
+  it('navigates to Worker reviews screen when Jobs and Reviews card is pressed', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    const reviewsCard = screen.getByTestId('view-worker-reviews-btn');
+    expect(reviewsCard).toBeOnTheScreen();
+    expect(screen.getByText('Công việc và đánh giá')).toBeOnTheScreen();
+
+    fireEvent.press(reviewsCard);
+    expect(mockPush).toHaveBeenCalledWith('/worker/reviews');
+  });
+
   it('navigates to Professional skills screen when skills item is pressed', () => {
     useAuthStore.setState({
       isAuthenticated: true,

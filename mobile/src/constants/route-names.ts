@@ -64,6 +64,7 @@ export const RouteNames = {
   WORKER_WALLET_DEPOSIT: '/worker/wallet/deposit',
   WORKER_WALLET_WITHDRAW: '/worker/wallet/withdraw',
   WORKER_APPLICATION_STATUS: '/worker/application/status',
+  WORKER_REVIEWS: '/worker/reviews',
   WORKER_NOTIFICATIONS: '/worker/notifications',
   WORKER_APPLICATION_REGISTER: '/worker/application/register',
   WORKER_APPLICATION_ANALYSIS: '/worker/application/analysis',

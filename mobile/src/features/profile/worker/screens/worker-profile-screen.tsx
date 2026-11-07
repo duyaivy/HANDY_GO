@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, ShieldCheckIcon, WalletIcon } from '@/components/ui/icons';
+import { ArrowRight, OrdersIcon, WalletIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
@@ -56,24 +56,24 @@ export function WorkerProfileScreen() {
           onSwitch={handleSwitchToCustomer}
         />
 
-        {/* Application & KYC Progress Card */}
+        {/* Jobs and Reviews Card (Công việc và đánh giá) */}
         <Pressable
-          testID="view-application-status-btn"
+          testID="view-worker-reviews-btn"
           accessibilityRole="button"
-          accessibilityLabel="Tiến độ xét duyệt hồ sơ & KYC"
-          onPress={() => router.push(RouteNames.WORKER_APPLICATION_STATUS as any)}
+          accessibilityLabel="Công việc và đánh giá"
+          onPress={() => router.push(RouteNames.WORKER_REVIEWS as any)}
           className="mt-4 flex-row items-center justify-between rounded-2xl border border-blue-200 bg-blue-50/80 p-4 shadow-xs active:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40"
         >
           <View className="flex-1 flex-row items-center pr-3">
             <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
-              <ShieldCheckIcon size={20} color="#FFFFFF" />
+              <OrdersIcon size={20} color="#FFFFFF" />
             </View>
             <View className="flex-1">
               <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                Tiến độ xét duyệt hồ sơ & KYC
+                Công việc và đánh giá
               </Text>
               <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
-                Theo dõi trạng thái xét duyệt
+                Thống kê đơn hoàn thành & nhận xét
               </Text>
             </View>
           </View>
