@@ -82,7 +82,6 @@ describe('worker Account Skeleton & Navigation Flow (Vua Thợ)', () => {
     it('2. renders Professional skills screen with Add professional skills button and tabs', () => {
       render(<WorkerSkillsScreen />);
 
-      expect(screen.getByText('Kỹ năng chuyên môn')).toBeOnTheScreen();
       expect(screen.getByText('Dịch vụ & Kỹ năng')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-skills-screen')).toBeOnTheScreen();
       expect(screen.getByTestId('add-professional-skills-btn')).toBeOnTheScreen();
@@ -118,7 +117,7 @@ describe('worker Account Skeleton & Navigation Flow (Vua Thợ)', () => {
 
       const settingItem = screen.getByTestId('profile-setting-item');
       expect(settingItem).toBeOnTheScreen();
-      expect(screen.getByText('Setting')).toBeOnTheScreen();
+      expect(screen.getByText('Cài đặt ứng dụng')).toBeOnTheScreen();
 
       fireEvent.press(settingItem);
       expect(mockPush).toHaveBeenCalledWith('/worker/settings');

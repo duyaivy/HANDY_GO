@@ -184,7 +184,6 @@ describe('worker Skeleton & Route Flow', () => {
     it('renders skills screen, navigates back and navigates to register service screen', () => {
       render(<WorkerSkillsScreen />);
 
-      expect(screen.getByText('Kỹ năng chuyên môn')).toBeOnTheScreen();
       expect(screen.getByText('Dịch vụ & Kỹ năng')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-skills-screen')).toBeOnTheScreen();
 

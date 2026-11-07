@@ -318,9 +318,34 @@ describe('workerProfileScreen', () => {
 
     const settingItem = screen.getByTestId('profile-setting-item');
     expect(settingItem).toBeOnTheScreen();
-    expect(screen.getByText('Setting')).toBeOnTheScreen();
+    expect(screen.getByText('Cài đặt ứng dụng')).toBeOnTheScreen();
 
     fireEvent.press(settingItem);
     expect(mockPush).toHaveBeenCalledWith('/worker/settings');
+  });
+
+  it('renders service & utilities group, settings & support group, and navigates to support', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    expect(screen.getByText('Dịch vụ & Tiện ích')).toBeOnTheScreen();
+    expect(screen.getByText('Cài đặt & Hỗ trợ')).toBeOnTheScreen();
+
+    const supportBtn = screen.getByTestId('worker-support-btn');
+    expect(supportBtn).toBeOnTheScreen();
+    expect(screen.getByText('Trung tâm hỗ trợ')).toBeOnTheScreen();
+
+    fireEvent.press(supportBtn);
+    expect(mockPush).toHaveBeenCalledWith('/customer/support');
   });
 });
