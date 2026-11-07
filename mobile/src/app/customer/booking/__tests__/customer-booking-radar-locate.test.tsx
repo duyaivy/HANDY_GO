@@ -1,6 +1,8 @@
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { DeviceLocationService } from '@/services/location/device-location';
 import CustomerBookingRadarScreen from '../radar';
 
 const mockFlyTo = jest.fn();
@@ -119,5 +121,70 @@ describe('customerBookingRadarScreen locate-me button', () => {
 
     fireEvent.press(zoomOutBtn);
     expect(mockZoomOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('P2-01: actively queries real GPS when request lacks coordinates', async () => {
+    // Không có tọa độ trong store
+    useBookingDraftStore.setState({
+      latitude: 0,
+      longitude: 0,
+      addressText: '',
+      createdRequestId: 'req-no-coords-123',
+    });
+
+    const gpsSpy = jest.spyOn(DeviceLocationService, 'getDeviceLocationResult').mockResolvedValue({
+      status: 'gps_success',
+      isRealGps: true,
+      coordinates: {
+        latitude: 10.7725,
+        longitude: 106.6980,
+        addressText: 'Quận 1, TP. Hồ Chí Minh',
+      },
+    });
+
+    render(<CustomerBookingRadarScreen />);
+    mockFlyTo.mockClear();
+
+    const locateBtn = screen.getByTestId('locate-me-btn');
+    fireEvent.press(locateBtn);
+
+    await waitFor(() => {
+      expect(gpsSpy).toHaveBeenCalled();
+      expect(mockFlyTo).toHaveBeenCalledWith(
+        {
+          latitude: 10.7725,
+          longitude: 106.6980,
+        },
+        14.5,
+      );
+    });
+  });
+
+  it('P2-01: alerts user when GPS permission is denied on unpositioned request', async () => {
+    useBookingDraftStore.setState({
+      latitude: 0,
+      longitude: 0,
+      addressText: '',
+      createdRequestId: 'req-no-coords-123',
+    });
+
+    jest.spyOn(DeviceLocationService, 'getDeviceLocationResult').mockResolvedValue({
+      status: 'permission_denied',
+      isRealGps: false,
+      coordinates: null,
+    });
+    const alertSpy = jest.spyOn(Alert, 'alert');
+
+    render(<CustomerBookingRadarScreen />);
+
+    const locateBtn = screen.getByTestId('locate-me-btn');
+    fireEvent.press(locateBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Quyền truy cập bị từ chối',
+        expect.stringContaining('cài đặt thiết bị'),
+      );
+    });
   });
 });

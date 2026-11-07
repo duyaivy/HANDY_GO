@@ -124,13 +124,17 @@ export function CustomerOrderDetailScreen({
     || (isPlumberOrder ? 'A CẢNH VĂN' : 'Thợ phụ trách');
   const displayWorkerId = order?.workerUserId || (isPlumberOrder ? 'a-canh-van' : undefined);
   const displayWorkerAvatar = realWorker?.avatarUrl || (order as any)?.workerAvatarUrl;
-  const displayWorkerPhone = realWorker?.phone || (order as any)?.workerPhone || '0901234567';
+  const displayWorkerPhone = realWorker?.phone || (order as any)?.workerPhone || (isPlumberOrder ? '0901234567' : undefined);
   const displayWorkerRating = typeof realWorker?.rating === 'number'
     ? realWorker.rating
-    : ((order as any)?.worker?.rating ?? 5.0);
+    : (typeof (order as any)?.worker?.rating === 'number'
+        ? (order as any).worker.rating
+        : (isPlumberOrder ? 5.0 : undefined));
   const displayWorkerJobs = typeof realWorker?.completedJobsCount === 'number'
     ? realWorker.completedJobsCount
-    : ((order as any)?.worker?.completedJobsCount ?? 0);
+    : (typeof (order as any)?.worker?.completedJobsCount === 'number'
+        ? (order as any).worker.completedJobsCount
+        : (isPlumberOrder ? 12 : undefined));
   const displayWorkerHeadline = realWorker?.headline
     || (realWorker?.fullName
       ? 'Thợ đối tác chuyên nghiệp HandyGo'
@@ -194,8 +198,9 @@ export function CustomerOrderDetailScreen({
       await confirmCompletion();
       Alert.alert('Thành công', 'Đã nghiệm thu hoàn tất đơn hàng!');
     }
-    catch {
-      Alert.alert('Nghiệm thu', 'Đã hoàn tất nghiệm thu đơn hàng thành công!');
+    catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Không thể nghiệm thu đơn hàng. Vui lòng thử lại sau.';
+      Alert.alert('Lỗi nghiệm thu', message);
     }
   };
 
@@ -204,8 +209,9 @@ export function CustomerOrderDetailScreen({
       await requestRework('Cần thợ kiểm tra lại phần mối nối còn rò rỉ nước.');
       Alert.alert('Đã gửi yêu cầu', 'Yêu cầu sửa lại đã được chuyển đến thợ.');
     }
-    catch {
-      Alert.alert('Yêu cầu sửa lại', 'Đã ghi nhận yêu cầu sửa lại.');
+    catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Không thể gửi yêu cầu sửa lại. Vui lòng thử lại sau.';
+      Alert.alert('Lỗi yêu cầu sửa lại', message);
     }
   };
 
@@ -214,8 +220,9 @@ export function CustomerOrderDetailScreen({
       await openDispute('Thợ thi công chưa đạt yêu cầu.');
       Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ sẽ liên hệ bạn trong 15 phút.');
     }
-    catch {
-      Alert.alert('Khiếu nại', 'Đã ghi nhận khiếu nại của bạn.');
+    catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'Không thể mở khiếu nại. Vui lòng thử lại sau.';
+      Alert.alert('Lỗi khiếu nại', message);
     }
   };
 

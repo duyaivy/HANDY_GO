@@ -43,6 +43,9 @@ export default function CustomerBookingSelectAddressRoute() {
   const currentCoordsRef = React.useRef(currentCoords);
   currentCoordsRef.current = currentCoords;
 
+  const reverseGeocodeSeqRef = React.useRef(0);
+  const forwardGeocodeSeqRef = React.useRef(0);
+
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const forwardGeocodeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const programmaticMovingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,13 +71,24 @@ export default function CustomerBookingSelectAddressRoute() {
     try {
       const result = await DeviceLocationService.getDeviceLocationResult();
       if (result.status === 'gps_success' && result.coordinates) {
-        const shouldUpdateAddress = showFeedback || (!isInputFocusedRef.current && !currentAddressRef.current.trim());
-        if (shouldUpdateAddress) {
+        // P1-03: Chỉ tự cập nhật vị trí GPS khi chưa có địa chỉ xác nhận trước đó,
+        // hoặc khi người dùng chủ động bấm nút "Dùng vị trí hiện tại" (showFeedback = true).
+        // Đảm bảo địa chỉ và tọa độ luôn nhất quán, không bị đổi coords B với address A.
+        const hasExistingAddress = Boolean(currentAddressRef.current.trim());
+        const shouldApplyGps = showFeedback || (!isInputFocusedRef.current && !hasExistingAddress);
+
+        if (shouldApplyGps) {
+          reverseGeocodeSeqRef.current += 1;
+          forwardGeocodeSeqRef.current += 1;
+
           setCurrentAddress(result.coordinates.addressText);
+          setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
+          setGpsStatus('success');
+          triggerProgrammaticMove({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude }, 16);
         }
-        setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
-        setGpsStatus('success');
-        triggerProgrammaticMove({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude }, 16);
+        else {
+          setGpsStatus('success');
+        }
       }
       else if (result.status === 'permission_denied') {
         setGpsStatus('permission_denied');
@@ -132,10 +146,17 @@ export default function CustomerBookingSelectAddressRoute() {
         clearTimeout(debounceTimerRef.current);
       }
 
+      const seq = ++reverseGeocodeSeqRef.current;
       debounceTimerRef.current = setTimeout(async () => {
         try {
           const streetAddress = await MapboxService.reverseGeocode(coords.latitude, coords.longitude);
-          if (streetAddress && !isInputFocusedRef.current && !isProgrammaticMovingRef.current) {
+          // P2-03: Kiểm tra seq ID để đảm bảo request về muộn không ghi đè lựa chọn mới hơn
+          if (
+            seq === reverseGeocodeSeqRef.current
+            && streetAddress
+            && !isInputFocusedRef.current
+            && !isProgrammaticMovingRef.current
+          ) {
             setCurrentAddress(streetAddress);
             setAddress(streetAddress, coords.latitude, coords.longitude);
           }
@@ -160,10 +181,12 @@ export default function CustomerBookingSelectAddressRoute() {
         return;
       }
 
+      const seq = ++forwardGeocodeSeqRef.current;
       forwardGeocodeTimerRef.current = setTimeout(async () => {
         try {
           const result = await MapboxService.forwardGeocode(text, currentCoordsRef.current);
-          if (result) {
+          // P2-03: Kiểm tra seq ID để đảm bảo response về muộn không ghi đè lựa chọn mới hơn
+          if (seq === forwardGeocodeSeqRef.current && result) {
             setCurrentCoords({ latitude: result.latitude, longitude: result.longitude });
             setAddress(text, result.latitude, result.longitude);
             triggerProgrammaticMove({ latitude: result.latitude, longitude: result.longitude }, 16);
@@ -185,9 +208,10 @@ export default function CustomerBookingSelectAddressRoute() {
     }
     const trimmed = currentAddress.trim();
     if (trimmed.length >= 3) {
+      const seq = ++forwardGeocodeSeqRef.current;
       try {
         const result = await MapboxService.forwardGeocode(trimmed, currentCoordsRef.current);
-        if (result) {
+        if (seq === forwardGeocodeSeqRef.current && result) {
           setCurrentCoords({ latitude: result.latitude, longitude: result.longitude });
           setAddress(trimmed, result.latitude, result.longitude);
           triggerProgrammaticMove({ latitude: result.latitude, longitude: result.longitude }, 16);
@@ -203,6 +227,8 @@ export default function CustomerBookingSelectAddressRoute() {
     if (forwardGeocodeTimerRef.current) {
       clearTimeout(forwardGeocodeTimerRef.current);
     }
+    reverseGeocodeSeqRef.current += 1;
+    forwardGeocodeSeqRef.current += 1;
     setCurrentAddress('');
   }, []);
 

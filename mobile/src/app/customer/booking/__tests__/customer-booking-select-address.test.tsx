@@ -261,4 +261,84 @@ describe('customerBookingSelectAddressRoute - Input & Focus Isolation (TASK-10)'
       expect(mockFlyTo).toHaveBeenCalledWith({ latitude: 16.071, longitude: 108.153 }, 16);
     });
   });
+
+  it('P1-03 Regression: pre-set address A + coords A is NOT overridden by background cold-start GPS', async () => {
+    (globalThis as any).__TEST_COLD_START_GPS__ = true;
+    useBookingDraftStore.getState().setAddress('Địa chỉ đã chọn A', 16.05, 108.20);
+
+    const gpsSpy = jest.spyOn(DeviceLocationService, 'getDeviceLocationResult').mockResolvedValue({
+      status: 'gps_success',
+      isRealGps: true,
+      coordinates: {
+        latitude: 10.76,
+        longitude: 106.66,
+        addressText: 'Vị trí GPS B hoàn toàn khác',
+      },
+    });
+
+    render(<CustomerBookingSelectAddressRoute />);
+    const input = screen.getByTestId('booking-address-input');
+
+    await waitFor(() => {
+      expect(gpsSpy).toHaveBeenCalled();
+    });
+
+    // Địa chỉ hiển thị vẫn phải là 'Địa chỉ đã chọn A'
+    expect(input.props.value).toBe('Địa chỉ đã chọn A');
+    // Tuyệt đối không flyTo tới tọa độ GPS B
+    expect(mockFlyTo).not.toHaveBeenCalledWith({ latitude: 10.76, longitude: 106.66 }, 16);
+  });
+
+  it('P2-03: late out-of-order reverse geocode responses are discarded and do not overwrite newer choices', async () => {
+    let resolveFirstPromise: ((val: string) => void) | null = null;
+    let resolveSecondPromise: ((val: string) => void) | null = null;
+
+    let callCount = 0;
+    jest.spyOn(MapboxService, 'reverseGeocode').mockImplementation(() => {
+      callCount += 1;
+      if (callCount === 1) {
+        return new Promise<string>((resolve) => {
+          resolveFirstPromise = resolve;
+        });
+      }
+      return new Promise<string>((resolve) => {
+        resolveSecondPromise = resolve;
+      });
+    });
+
+    render(<CustomerBookingSelectAddressRoute />);
+    const input = screen.getByTestId('booking-address-input');
+
+    // Trigger first region change (drag map to location 1)
+    act(() => {
+      capturedOnRegionDidChange?.({ latitude: 16.1, longitude: 108.1 });
+    });
+    // Advance debounce timer 500ms
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+
+    // Trigger second region change (drag map to location 2)
+    act(() => {
+      capturedOnRegionDidChange?.({ latitude: 16.2, longitude: 108.2 });
+    });
+    act(() => {
+      jest.advanceTimersByTime(500);
+    });
+
+    // Second request finishes first with Address 2
+    await act(async () => {
+      resolveSecondPromise?.('Địa chỉ mới nhất 2');
+    });
+
+    expect(input.props.value).toBe('Địa chỉ mới nhất 2');
+
+    // First request finishes late with Address 1
+    await act(async () => {
+      resolveFirstPromise?.('Địa chỉ cũ đến muộn 1');
+    });
+
+    // Stale Address 1 must be discarded by seq ID check!
+    expect(input.props.value).toBe('Địa chỉ mới nhất 2');
+  });
 });

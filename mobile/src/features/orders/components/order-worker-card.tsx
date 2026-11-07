@@ -19,6 +19,7 @@ export type OrderWorkerCardProps = {
   phoneNumber?: string;
   rating?: number;
   completedJobs?: number;
+  completionRate?: number;
   headline?: string;
 };
 
@@ -26,9 +27,10 @@ export function OrderWorkerCard({
   workerId,
   workerName = 'Thợ phụ trách',
   avatarUrl,
-  phoneNumber = '0901234567',
-  rating = 5.0,
-  completedJobs = 0,
+  phoneNumber,
+  rating,
+  completedJobs,
+  completionRate,
   headline = 'Thợ chuyên nghiệp HandyGo',
 }: OrderWorkerCardProps) {
   const router = useRouter();
@@ -39,6 +41,10 @@ export function OrderWorkerCard({
       return;
     }
     const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+    if (!cleanPhone) {
+      Alert.alert('Thông báo', 'Số điện thoại của thợ không hợp lệ.');
+      return;
+    }
     const url = `tel:${cleanPhone}`;
     Linking.canOpenURL(url)
       .then((supported) => {
@@ -65,6 +71,11 @@ export function OrderWorkerCard({
     }
   };
 
+  const hasRating = typeof rating === 'number' && !Number.isNaN(rating) && rating > 0;
+  const hasPhone = Boolean(phoneNumber && phoneNumber.trim().length >= 8);
+  const hasStats = (typeof completionRate === 'number' && completionRate > 0)
+    || (typeof completedJobs === 'number' && completedJobs > 0);
+
   return (
     <View
       testID="worker-quote-section"
@@ -74,12 +85,22 @@ export function OrderWorkerCard({
         <Text className="text-xs font-semibold tracking-wider text-neutral-500 uppercase dark:text-neutral-400">
           Thợ phụ trách thực hiện
         </Text>
-        <View className="flex-row items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 dark:bg-amber-950/40">
-          <StarIcon size={12} color="#F59E0B" fill="#F59E0B" />
-          <Text className="text-xs font-bold text-amber-700 dark:text-amber-400">
-            {rating.toFixed(1)}
-          </Text>
-        </View>
+        {hasRating
+          ? (
+              <View className="flex-row items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 dark:bg-amber-950/40">
+                <StarIcon size={12} color="#F59E0B" fill="#F59E0B" />
+                <Text className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                  {rating.toFixed(1)}
+                </Text>
+              </View>
+            )
+          : (
+              <View className="rounded-full bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
+                <Text className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  Chưa có đánh giá
+                </Text>
+              </View>
+            )}
       </View>
 
       <View className="mt-3 flex-row items-center gap-3">
@@ -112,13 +133,19 @@ export function OrderWorkerCard({
           <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
             {headline}
           </Text>
-          <Text className="mt-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-            98% hoàn thành •
-            {' '}
-            {completedJobs}
-            {' '}
-            đơn thành công
-          </Text>
+          {hasStats
+            ? (
+                <Text className="mt-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                  {typeof completionRate === 'number' && completionRate > 0 ? `${completionRate}% hoàn thành` : ''}
+                  {typeof completionRate === 'number' && completionRate > 0 && typeof completedJobs === 'number' && completedJobs > 0 ? ' • ' : ''}
+                  {typeof completedJobs === 'number' && completedJobs > 0 ? `${completedJobs} đơn thành công` : ''}
+                </Text>
+              )
+            : (
+                <Text className="mt-0.5 text-[11px] font-medium text-neutral-400 dark:text-neutral-500">
+                  Chưa có dữ liệu đơn
+                </Text>
+              )}
         </View>
       </View>
 
@@ -127,12 +154,17 @@ export function OrderWorkerCard({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Gọi điện cho thợ"
+          accessibilityState={{ disabled: !hasPhone }}
           onPress={handleCall}
-          className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/80 active:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:active:bg-blue-900/60"
+          className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border ${
+            hasPhone
+              ? 'border-blue-200 bg-blue-50/80 active:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:active:bg-blue-900/60'
+              : 'border-neutral-200 bg-neutral-100 opacity-60 dark:border-neutral-800 dark:bg-neutral-900'
+          }`}
         >
-          <PhoneIcon size={16} color="#2563EB" />
-          <Text className="text-xs font-bold text-blue-700 dark:text-blue-300">
-            Gọi điện
+          <PhoneIcon size={16} color={hasPhone ? '#2563EB' : '#9CA3AF'} />
+          <Text className={`text-xs font-bold ${hasPhone ? 'text-blue-700 dark:text-blue-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
+            {hasPhone ? 'Gọi điện' : 'Chưa có số'}
           </Text>
         </Pressable>
 

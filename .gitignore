@@ -28,7 +28,12 @@ htmlcov/
 !.env.example
 !*.env.example
 
-# Docs ignore except dbml
+# Docs ignore except dbml and reviews
 docs/*
 !docs/dbml/
 !docs/dbml/**
+!docs/reviews/
+!docs/reviews/**
+
+!docs/RABBITMQ_LOCAL_DEV_GUIDE.md
+!docs/WORKER_ORDER_AUTO_UPDATE_ANALYSIS.md

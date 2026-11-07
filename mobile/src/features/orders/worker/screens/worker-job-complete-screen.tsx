@@ -274,7 +274,20 @@ export function WorkerJobCompleteScreen({
     }
   };
 
+  const isInvalidStatus = Boolean(
+    order?.status && order.status !== 'in_progress' && jobId !== 'JOB-1020',
+  );
+
   const handleFinishJob = async () => {
+    // 0. Chặn nộp nếu trạng thái đơn không phải in_progress (P2-05)
+    if (isInvalidStatus) {
+      Alert.alert(
+        'Trạng thái không hợp lệ',
+        `Đơn hàng đang ở trạng thái "${order?.status}". Chỉ đơn việc đang thi công (in_progress) mới có thể nộp ảnh minh chứng hoàn thành.`,
+      );
+      return;
+    }
+
     // 1. Kiểm tra tối thiểu 1 ảnh minh chứng (ORD-10)
     if (evidenceItems.length === 0) {
       Alert.alert(
@@ -524,12 +537,20 @@ export function WorkerJobCompleteScreen({
               ? 'Đang gửi bằng chứng...'
               : isUploadingAny
                 ? 'Đang tải ảnh lên máy chủ...'
-                : 'Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)'
+                : isInvalidStatus
+                  ? `Không thể nộp (Trạng thái: ${order?.status})`
+                  : 'Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)'
           }
           variant="default"
-          disabled={isSubmitting || isUploadingAny}
-          className="h-12 w-full rounded-2xl bg-emerald-600 active:bg-emerald-700"
-          textClassName="text-sm font-bold text-white"
+          disabled={isSubmitting || isUploadingAny || isInvalidStatus}
+          className={`h-12 w-full rounded-2xl ${
+            isInvalidStatus
+              ? 'bg-neutral-300 opacity-60 dark:bg-neutral-800'
+              : 'bg-emerald-600 active:bg-emerald-700'
+          }`}
+          textClassName={`text-sm font-bold ${
+            isInvalidStatus ? 'text-neutral-500 dark:text-neutral-400' : 'text-white'
+          }`}
           onPress={handleFinishJob}
         />
 

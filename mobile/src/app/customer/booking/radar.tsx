@@ -163,15 +163,20 @@ export default function CustomerBookingRadarRoute() {
     && (latitude !== 0 || longitude !== 0),
   );
 
-  const radarCoords = React.useMemo(() => {
+  // P2-01: Tách tọa độ hợp lệ đã được xác minh khỏi tọa độ mặc định để render map
+  const verifiedCoords = React.useMemo(() => {
     if (hasParamCoords) {
       return { latitude: paramLat!, longitude: paramLng! };
     }
     if (isLocationValid) {
       return { latitude, longitude };
     }
-    return DEFAULT_RADAR_CENTER;
+    return null;
   }, [hasParamCoords, paramLat, paramLng, isLocationValid, latitude, longitude]);
+
+  const radarCoords = React.useMemo(() => {
+    return verifiedCoords || DEFAULT_RADAR_CENTER;
+  }, [verifiedCoords]);
 
   React.useEffect(() => {
     if (searchParams?.requestId || createdRequestId) {
@@ -518,12 +523,14 @@ export default function CustomerBookingRadarRoute() {
   const handleRecenter = React.useCallback(async () => {
     setIsLocating(true);
     try {
-      if (radarCoords) {
-        mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+      if (verifiedCoords) {
+        // Đã có tọa độ xác thực từ đơn/bản vẽ -> bay về tọa độ xác thực
+        mapRef.current?.flyTo(verifiedCoords, RADAR_ZOOM_LEVEL);
       }
       else {
+        // P2-01: Chưa có tọa độ xác thực -> chủ động truy xuất GPS thiết bị
         const result = await DeviceLocationService.getDeviceLocationResult();
-        if (result.coordinates) {
+        if (result.status === 'gps_success' && result.coordinates) {
           useBookingDraftStore.getState().setAddress(
             result.coordinates.addressText || addressText,
             result.coordinates.latitude,
@@ -537,6 +544,24 @@ export default function CustomerBookingRadarRoute() {
             RADAR_ZOOM_LEVEL,
           );
         }
+        else if (result.status === 'permission_denied') {
+          Alert.alert(
+            'Quyền truy cập bị từ chối',
+            'Vui lòng cấp quyền truy cập vị trí trong cài đặt thiết bị để tự động định vị vị trí của bạn.',
+          );
+        }
+        else if (result.status === 'module_missing') {
+          Alert.alert(
+            'Không hỗ trợ GPS',
+            'Thiết bị hoặc bản dựng hiện tại chưa tích hợp module GPS native.',
+          );
+        }
+        else {
+          Alert.alert(
+            'Không thể lấy vị trí',
+            'Không thể xác định vị trí GPS thiết bị. Vui lòng thử lại.',
+          );
+        }
       }
     }
     catch {
@@ -547,7 +572,7 @@ export default function CustomerBookingRadarRoute() {
         setIsLocating(false);
       }, 400);
     }
-  }, [radarCoords, addressText]);
+  }, [verifiedCoords, addressText]);
 
   const handleBack = () => {
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
@@ -563,26 +588,40 @@ export default function CustomerBookingRadarRoute() {
     return [...bids]
       .filter((b: BidCandidate) => !b.status || b.status === 'active')
       .sort((a, b) => {
-        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount) || 0;
-        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount) || 0;
+        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount);
+        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount);
+        const isValidA = typeof numA === 'number' && !Number.isNaN(numA) && numA > 0;
+        const isValidB = typeof numB === 'number' && !Number.isNaN(numB) && numB > 0;
+
+        // P2-06: Đặt giá không hợp lệ/thiếu giá ở cuối danh sách thay vì quy về 0
+        if (isValidA && !isValidB)
+          return -1;
+        if (!isValidA && isValidB)
+          return 1;
+        if (!isValidA && !isValidB)
+          return 0;
         return numA - numB;
       })
-      .map((b: BidCandidate) => ({
-        id: b.workerUserId,
-        name: b.workerProfile?.fullName || 'Thợ đối tác',
-        rating: b.workerProfile?.averageRating ?? 5.0,
-        totalOrders: b.workerProfile?.completedOrderCount ?? 0,
-        completionRate: 98,
-        price: b.amount,
-        priceText: `${b.amount.toLocaleString('vi-VN')}đ`,
-        distance: typeof b.workerProfile?.distanceKm === 'number'
-          ? `${b.workerProfile.distanceKm.toFixed(1)}km`
-          : 'Gần bạn',
-        avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-        selectionSource: 'bid' as const,
-        sourceBidId: b.sourceBidId,
-        message: b.message || undefined,
-      }));
+      .map((b: BidCandidate) => {
+        const rawAmount = typeof b.amount === 'number' ? b.amount : Number(b.amount);
+        const isValidPrice = typeof rawAmount === 'number' && !Number.isNaN(rawAmount) && rawAmount > 0;
+        return {
+          id: b.workerUserId,
+          name: b.workerProfile?.fullName || 'Thợ đối tác',
+          rating: typeof b.workerProfile?.averageRating === 'number' ? b.workerProfile.averageRating : 0,
+          totalOrders: b.workerProfile?.completedOrderCount ?? 0,
+          completionRate: 98,
+          price: isValidPrice ? rawAmount : 0,
+          priceText: isValidPrice ? `${rawAmount.toLocaleString('vi-VN')}đ` : 'Báo giá thỏa thuận',
+          distance: typeof b.workerProfile?.distanceKm === 'number'
+            ? `${b.workerProfile.distanceKm.toFixed(1)}km`
+            : 'Gần bạn',
+          avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
+          selectionSource: 'bid' as const,
+          sourceBidId: b.sourceBidId,
+          message: b.message || undefined,
+        };
+      });
   }, [bids]);
 
   // Map AI Recommendations (Section B)
@@ -1148,7 +1187,7 @@ export default function CustomerBookingRadarRoute() {
                                       <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
                                         {worker.priceText}
                                       </Text>
-                                      {idx === 0 && mappedBids.length > 1 && (
+                                      {idx === 0 && mappedBids.length > 1 && typeof worker.price === 'number' && worker.price > 0 && (
                                         <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-950/50">
                                           <Text className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
                                             Giá tốt nhất

@@ -216,8 +216,10 @@ export function useCustomerOrderDetail(orderId?: string) {
       if (!data) {
         return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired/disputed)
-      if (!['completed', 'cancelled', 'expired', 'disputed'].includes(data.status)) {
+      if (data.status === 'disputed') {
+        return 8000;
+      }
+      if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
         return 3000;
       }
       return false;
@@ -237,7 +239,10 @@ export function useCustomerOrderDetail(orderId?: string) {
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
     refetchInterval: () => {
       const order = orderQuery.data;
-      if (order && !['completed', 'cancelled', 'expired', 'disputed'].includes(order.status)) {
+      if (order?.status === 'disputed') {
+        return 8000;
+      }
+      if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
         return 3000;
       }
       return false;
@@ -264,18 +269,52 @@ export function useCustomerOrderDetail(orderId?: string) {
             return {
               fullName: res.data.workerProfile.fullName,
               avatarUrl: res.data.workerProfile.avatarUrl,
-              rating: res.data.workerProfile.averageRating ?? 5.0,
-              completedJobsCount: res.data.workerProfile.completedOrderCount ?? 0,
-              phone: (res.data.workerProfile as any)?.phoneNumber || (res.data.workerProfile as any)?.phone || '0901234567',
+              rating: typeof res.data.workerProfile.averageRating === 'number' ? res.data.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof res.data.workerProfile.completedOrderCount === 'number' ? res.data.workerProfile.completedOrderCount : undefined,
+              phone: (res.data.workerProfile as any)?.phoneNumber || (res.data.workerProfile as any)?.phone || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore and fall back to request candidates/bids
+        }
+      }
+
+      if (order.serviceRequestId) {
+        try {
+          const candRes = await OrdersApi.getCandidates(order.serviceRequestId);
+          const biddingItems = candRes?.data?.bidding?.items || [];
+          const matchedBid = biddingItems.find(
+            (b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId,
+          );
+          if (matchedBid?.workerProfile) {
+            return {
+              fullName: matchedBid.workerProfile.fullName,
+              avatarUrl: matchedBid.workerProfile.avatarUrl,
+              rating: typeof matchedBid.workerProfile.averageRating === 'number' ? matchedBid.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedBid.workerProfile.completedOrderCount === 'number' ? matchedBid.workerProfile.completedOrderCount : undefined,
+              phone: (matchedBid.workerProfile as any)?.phoneNumber || (matchedBid.workerProfile as any)?.phone || undefined,
+            };
+          }
+
+          const recItems = candRes?.data?.matching?.recommendations || [];
+          const matchedRec = recItems.find(
+            (r: any) => r.workerId === order.workerUserId || r.workerUserId === order.workerUserId,
+          );
+          if (matchedRec?.workerProfile) {
+            return {
+              fullName: matchedRec.workerProfile.fullName,
+              avatarUrl: matchedRec.workerProfile.avatarUrl,
+              rating: typeof matchedRec.workerProfile.averageRating === 'number' ? matchedRec.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedRec.workerProfile.completedOrderCount === 'number' ? matchedRec.workerProfile.completedOrderCount : undefined,
+              phone: (matchedRec.workerProfile as any)?.phoneNumber || (matchedRec.workerProfile as any)?.phone || undefined,
             };
           }
         }
         catch {
           // ignore and fall back to request bids
         }
-      }
 
-      if (order.serviceRequestId) {
         try {
           const res = await OrdersApi.getRequestBids(order.serviceRequestId);
           const rawItems = (res?.data as any)?.items || res?.data || [];
@@ -285,9 +324,9 @@ export function useCustomerOrderDetail(orderId?: string) {
             return {
               fullName: matched.workerProfile.fullName,
               avatarUrl: matched.workerProfile.avatarUrl,
-              rating: matched.workerProfile.averageRating ?? 5.0,
-              completedJobsCount: matched.workerProfile.completedOrderCount ?? 0,
-              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || '0901234567',
+              rating: typeof matched.workerProfile.averageRating === 'number' ? matched.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matched.workerProfile.completedOrderCount === 'number' ? matched.workerProfile.completedOrderCount : undefined,
+              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || undefined,
             };
           }
         }

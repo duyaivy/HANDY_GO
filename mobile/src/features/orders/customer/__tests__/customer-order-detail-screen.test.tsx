@@ -422,4 +422,146 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText(/42 đơn thành công/)).toBeOnTheScreen();
     });
   });
+
+  it('P1-02: does not display fake sample phone number, rating, or completion percentage when worker metadata is missing', async () => {
+    const orderWithIncompleteWorker = {
+      ...baseOrder,
+      workerUserId: 'worker-no-phone',
+      workerName: 'Thợ Không Số',
+      worker: {
+        fullName: 'Thợ Không Số',
+        // phone and rating are undefined
+        phone: undefined,
+        rating: undefined,
+        completedJobsCount: undefined,
+      },
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: orderWithIncompleteWorker,
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const openSpy = jest.spyOn(Linking, 'openURL');
+    const alertSpy = jest.spyOn(Alert, 'alert');
+
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Thợ Không Số')).toBeOnTheScreen();
+      // Should show 'Chưa có đánh giá', not 5.0
+      expect(screen.getByText('Chưa có đánh giá')).toBeOnTheScreen();
+      expect(screen.queryByText('5.0')).toBeNull();
+      // Should not show fake 98% hoàn thành
+      expect(screen.queryByText(/98% hoàn thành/)).toBeNull();
+      // Should display 'Chưa có số'
+      expect(screen.getByText('Chưa có số')).toBeOnTheScreen();
+    });
+
+    const callBtn = screen.getByLabelText('Gọi điện cho thợ');
+    fireEvent.press(callBtn);
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
+  });
+
+  it('P1-04: displays error alert when confirmCompletion or requestRework rejects and does not show success alert', async () => {
+    const awaitingOrder = {
+      ...baseOrder,
+      status: 'awaiting_customer_confirmation',
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: awaitingOrder,
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const confirmCompletionSpy = jest.spyOn(OrdersApi, 'confirmCompletion').mockRejectedValue(
+      new Error('Lỗi máy chủ 500 khi nghiệm thu'),
+    );
+    const requestReworkSpy = jest.spyOn(OrdersApi, 'requestRework').mockRejectedValue(
+      new Error('Lỗi mạng khi yêu cầu sửa lại'),
+    );
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('customer-confirm-completion-btn')).toBeOnTheScreen();
+    });
+
+    // Press Confirm Completion -> API fails
+    fireEvent.press(screen.getByTestId('customer-confirm-completion-btn'));
+
+    await waitFor(() => {
+      expect(confirmCompletionSpy).toHaveBeenCalledWith('ord-test-001');
+      expect(alertSpy).toHaveBeenCalledWith('Lỗi nghiệm thu', 'Lỗi máy chủ 500 khi nghiệm thu');
+      expect(alertSpy).not.toHaveBeenCalledWith('Thành công', expect.anything());
+    });
+
+    // Press Request Rework -> API fails
+    fireEvent.press(screen.getByTestId('customer-request-rework-btn'));
+
+    await waitFor(() => {
+      expect(requestReworkSpy).toHaveBeenCalledWith(
+        'ord-test-001',
+        'Cần thợ kiểm tra lại phần mối nối còn rò rỉ nước.',
+      );
+      expect(alertSpy).toHaveBeenCalledWith('Lỗi yêu cầu sửa lại', 'Lỗi mạng khi yêu cầu sửa lại');
+      expect(alertSpy).not.toHaveBeenCalledWith('Đã gửi yêu cầu', expect.anything());
+    });
+  });
+
+  it('P2-04: resolves worker profile from AI recommendation candidates when order lacks selectedBidId', async () => {
+    const orderFromRecommendation = {
+      ...baseOrder,
+      worker: undefined,
+      workerName: undefined,
+      selectedBidId: undefined,
+      serviceRequestId: 'req-rec-001',
+      workerUserId: 'worker-ai-rec-456',
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: orderFromRecommendation,
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const getCandidatesSpy = jest.spyOn(OrdersApi, 'getCandidates').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        requestId: 'req-rec-001',
+        requestStatus: 'converted_to_order',
+        matching: {
+          recommendations: [
+            {
+              selectionSource: 'recommendation',
+              workerUserId: 'worker-ai-rec-456',
+              workerId: 'worker-ai-rec-456',
+              workerProfile: {
+                fullName: 'Lê Hoàng Đề Xuất',
+                avatarUrl: 'https://example.com/rec-avatar.jpg',
+                averageRating: 4.8,
+                completedOrderCount: 77,
+                phoneNumber: '0977889900',
+              },
+            },
+          ],
+        },
+      },
+    } as any);
+
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+    await waitFor(() => {
+      expect(getCandidatesSpy).toHaveBeenCalledWith('req-rec-001');
+      expect(screen.getByText('Lê Hoàng Đề Xuất')).toBeOnTheScreen();
+      expect(screen.getByText('4.8')).toBeOnTheScreen();
+      expect(screen.getByText(/77 đơn thành công/)).toBeOnTheScreen();
+    });
+  });
 });

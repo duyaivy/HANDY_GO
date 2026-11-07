@@ -154,4 +154,83 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
       );
     });
   });
+
+  it('P2-06: places invalid or missing bid prices at the end of the list and does not tag invalid prices as Giá tốt nhất', async () => {
+    const mockBidsWithInvalidPrice = {
+      bidding: {
+        status: 'open_for_bidding',
+        items: [
+          {
+            selectionSource: 'bid',
+            sourceBidId: 'bid-mid',
+            workerUserId: 'worker-mid',
+            amount: 200000,
+            status: 'active',
+            workerProfile: {
+              fullName: 'Thợ Hợp Lệ 200k',
+              averageRating: 4.8,
+              completedOrderCount: 30,
+              distanceKm: 2.0,
+            },
+          },
+          {
+            selectionSource: 'bid',
+            sourceBidId: 'bid-invalid',
+            workerUserId: 'worker-invalid',
+            amount: 0, // Giá không hợp lệ
+            status: 'active',
+            workerProfile: {
+              fullName: 'Thợ Giá Không Hợp Lệ',
+              averageRating: 4.5,
+              completedOrderCount: 10,
+              distanceKm: 1.0,
+            },
+          },
+          {
+            selectionSource: 'bid',
+            sourceBidId: 'bid-best',
+            workerUserId: 'worker-best',
+            amount: 150000, // Giá tốt nhất hợp lệ
+            status: 'active',
+            workerProfile: {
+              fullName: 'Thợ Hợp Lệ 150k',
+              averageRating: 4.9,
+              completedOrderCount: 50,
+              distanceKm: 1.5,
+            },
+          },
+        ],
+      },
+      matching: {
+        status: 'completed',
+        recommendations: [],
+      },
+    };
+
+    jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue(mockBidsWithInvalidPrice as any);
+
+    useBookingDraftStore.setState({
+      createdRequestId: 'req-real-sorting-001',
+      serviceName: 'Sửa điện',
+    });
+
+    render(<CustomerBookingRadarScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Báo giá từ thợ (3)')).toBeOnTheScreen();
+    });
+
+    // Thợ 150k phải ở đầu danh sách (idx === 0)
+    expect(screen.getByText('Thợ Hợp Lệ 150k')).toBeOnTheScreen();
+    expect(screen.getByText('150.000đ')).toBeOnTheScreen();
+    expect(screen.getByText('Giá tốt nhất')).toBeOnTheScreen();
+
+    // Thợ 200k ở vị trí thứ hai
+    expect(screen.getByText('Thợ Hợp Lệ 200k')).toBeOnTheScreen();
+    expect(screen.getByText('200.000đ')).toBeOnTheScreen();
+
+    // Thợ giá không hợp lệ phải xếp cuối cùng và hiển thị 'Báo giá thỏa thuận'
+    expect(screen.getByText('Thợ Giá Không Hợp Lệ')).toBeOnTheScreen();
+    expect(screen.getByText('Báo giá thỏa thuận')).toBeOnTheScreen();
+  });
 });

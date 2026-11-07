@@ -264,4 +264,71 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
       expect.stringContaining('tối đa 5 hình ảnh minh chứng'),
     );
   });
+
+  it('P2-05: disables submit button and prevents completion when order status is not in_progress (confirmed, cancelled, completed)', async () => {
+    // 1. Test status = confirmed
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'confirmed',
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const finishSpy = jest.spyOn(OrdersApi, 'finishOrder');
+    const { unmount } = render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeOnTheScreen();
+    });
+
+    const finishBtn = screen.getByTestId('worker-finish-order-btn');
+    expect(finishBtn.props.accessibilityState?.disabled).toBe(true);
+
+    fireEvent.press(finishBtn);
+    expect(finishSpy).not.toHaveBeenCalled();
+    unmount();
+
+    // 2. Test status = cancelled
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'cancelled',
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const { unmount: unmount2 } = render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeOnTheScreen();
+    });
+
+    const finishBtnCancelled = screen.getByTestId('worker-finish-order-btn');
+    expect(finishBtnCancelled.props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByText('Không thể nộp (Trạng thái: cancelled)')).toBeOnTheScreen();
+    unmount2();
+
+    // 3. Test status = completed
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'completed',
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeOnTheScreen();
+    });
+
+    const finishBtnCompleted = screen.getByTestId('worker-finish-order-btn');
+    expect(finishBtnCompleted.props.accessibilityState?.disabled).toBe(true);
+    expect(screen.getByText('Không thể nộp (Trạng thái: completed)')).toBeOnTheScreen();
+  });
 });
