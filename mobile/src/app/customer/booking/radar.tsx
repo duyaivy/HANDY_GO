@@ -496,6 +496,7 @@ export default function CustomerBookingRadarRoute() {
   });
 
   const radarScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const inverseScaleAnim = React.useRef(new Animated.Value(1)).current;
   const currentZoomLevelRef = React.useRef(RADAR_DEFAULT_ZOOM);
 
   const handleZoomChange = React.useCallback(
@@ -504,25 +505,42 @@ export default function CustomerBookingRadarRoute() {
         return;
       }
       currentZoomLevelRef.current = zoom;
-      // Tính toán tỷ lệ co giãn theo mức zoom thực tế của bản đồ: scale = 2^(zoom - RADAR_DEFAULT_ZOOM)
-      // Khi thu nhỏ bản đồ (zoom out): mạng nhện radar thu nhỏ đồng bộ cùng bản đồ
-      // Khi phóng to bản đồ (zoom in): mạng nhện radar phóng to đồng bộ cùng bản đồ
-      const rawScale = 2 ** (zoom - RADAR_DEFAULT_ZOOM);
-      const clampedScale = Math.min(Math.max(rawScale, 0.25), 8.0);
-
-      if (isGesture) {
-        radarScaleAnim.setValue(clampedScale);
+      // Tính toán tỷ lệ co giãn tối ưu:
+      // - Khi thu nhỏ (zoom out < 12.0): mạng nhện radar thu nhỏ đồng bộ cùng bản đồ (xuống tối thiểu 0.35)
+      // - Khi phóng to (zoom in > 12.0): mạng nhện chỉ mở rộng nhẹ tối đa 1.22 để không bị phình to che khuất bản đồ
+      let targetScale: number;
+      if (zoom <= RADAR_DEFAULT_ZOOM) {
+        targetScale = Math.max(2 ** (zoom - RADAR_DEFAULT_ZOOM), 0.35);
       }
       else {
-        Animated.timing(radarScaleAnim, {
-          toValue: clampedScale,
-          duration: 250,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }).start();
+        targetScale = Math.min(1.0 + (zoom - RADAR_DEFAULT_ZOOM) * 0.08, 1.22);
+      }
+
+      // Tỷ lệ đảo ngược để triệt tiêu việc scale làm phình to chấm thợ
+      const invScale = 1 / targetScale;
+
+      if (isGesture) {
+        radarScaleAnim.setValue(targetScale);
+        inverseScaleAnim.setValue(invScale);
+      }
+      else {
+        Animated.parallel([
+          Animated.timing(radarScaleAnim, {
+            toValue: targetScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(inverseScaleAnim, {
+            toValue: invScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]).start();
       }
     },
-    [radarScaleAnim],
+    [inverseScaleAnim, radarScaleAnim],
   );
 
   const mapRef = React.useRef<HandyMapRef>(null);
@@ -986,7 +1004,7 @@ export default function CustomerBookingRadarRoute() {
             </Svg>
           </Animated.View>
 
-          {/* Chấm các Thợ thật xuất hiện trên Radar */}
+          {/* Chấm các Thợ thật xuất hiện trên Radar (tự động counter-scale để luôn giữ kích thước chuẩn 14px) */}
           {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
             const radarPositions = [
               { top: 185, right: 145 },
@@ -996,14 +1014,20 @@ export default function CustomerBookingRadarRoute() {
             ];
             const pos = radarPositions[idx % radarPositions.length];
             return (
-              <View
+              <Animated.View
                 key={w.id}
                 pointerEvents="none"
-                style={pos}
-                className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
+                style={[
+                  pos,
+                  {
+                    position: 'absolute',
+                    transform: [{ scale: inverseScaleAnim }],
+                  },
+                ]}
+                className="size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
               >
                 <View className="size-1.5 rounded-full bg-white" />
-              </View>
+              </Animated.View>
             );
           })}
         </Animated.View>
