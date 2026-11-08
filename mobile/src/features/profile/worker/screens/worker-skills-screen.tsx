@@ -31,9 +31,9 @@ import { Image } from '@/components/ui/image';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { OrdersApi } from '@/features/orders';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
-import { OrdersApi } from '@/features/orders';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 function formatCurrency(val?: number | null): string {
@@ -227,7 +227,9 @@ export function WorkerSkillsScreen() {
     }
   }, [togglingServiceId, profileQuery]);
 
-  const approvedServices: WorkerServiceOfferingItem[] = profileQuery.data?.services ?? [];
+  const approvedServices: WorkerServiceOfferingItem[] = React.useMemo(() => {
+    return profileQuery.data?.services ?? [];
+  }, [profileQuery.data?.services]);
   // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
   const registrations: WorkerServiceRegistrationItem[] = React.useMemo(() => {
     return (registrationsQuery.data ?? []).filter(
@@ -344,7 +346,7 @@ export function WorkerSkillsScreen() {
                 {totalApproved}
               </Text>
               <Text
-                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
@@ -365,7 +367,7 @@ export function WorkerSkillsScreen() {
                 {totalOrders}
               </Text>
               <Text
-                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
@@ -389,7 +391,7 @@ export function WorkerSkillsScreen() {
                 {formatCurrency(totalRevenue)}
               </Text>
               <Text
-                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
