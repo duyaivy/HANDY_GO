@@ -57,6 +57,14 @@ const eligible = (overrides = {}) => ({
 });
 
 describe('PaymentOrdersService.open', () => {
+  it('replays after Order is paid without creating a charge or allowing a method change', async () => {
+    const h = build({ status: 'succeeded' });
+    h.orders.getEligibility.mockResolvedValue(eligible({ paymentState: 'paid', isEligibleForSettlement: false }));
+    await expect(h.service.open(customerId, { orderId, method: 'point' })).resolves.toMatchObject({ status: 'succeeded' });
+    expect(h.wallet.debitPayment).not.toHaveBeenCalled();
+    expect(h.tx.payment.update).not.toHaveBeenCalled();
+    await expect(h.service.open(customerId, { orderId, method: 'cash' })).rejects.toMatchObject({ status: 409 });
+  });
   it('hides payments from users other than the order customer', async () => {
     const { service, orders } = build();
     orders.getEligibility.mockResolvedValue(eligible());

@@ -18,6 +18,7 @@ import { requireUserId } from '../common/auth/require-user-id.js';
 import { PaymentInboxService } from '../common/inbound/payment-inbox.service.js';
 import { PaymentPaginationDto } from '../payment-query/dto/payment-query.dto.js';
 import { CreateTopupDto } from './dto/create-topup.dto.js';
+import { SimulateTopupDto } from './dto/simulate-topup.dto.js';
 import {
   TopupsService,
   WALLET_TOPUP_CREDITED,
@@ -60,6 +61,11 @@ export class TopupIpnController {
 @Controller('payments/topups')
 export class TopupsController {
   constructor(private readonly service: TopupsService) {}
+
+  @Post(':id/simulate')
+  async simulate(@CurrentUser() user: AuthenticatedUser | undefined, @Param('id', ParseUUIDPipe) id: string, @Body() dto: SimulateTopupDto) {
+    return buildSuccessResponse(await this.service.simulate(requireUserId(user), id, dto.outcome), 'Simulated provider result recorded; query status for Wallet confirmation');
+  }
 
   @Post()
   async create(

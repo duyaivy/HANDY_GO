@@ -103,6 +103,7 @@ export function topupSucceededEvent(topup: {
   userId: string;
   pointsToCredit: bigint;
   idempotencyKey: string;
+  provider?: string;
 }): OutboxEventInput {
   const business = {
     userId: topup.userId,
@@ -110,6 +111,8 @@ export function topupSucceededEvent(topup: {
     topupId: topup.id,
     amount: topup.pointsToCredit.toString(),
     idempotencyKey: topup.idempotencyKey,
+    provider: topup.provider ?? 'vnpay',
+    isSimulated: topup.provider === 'mock',
   };
   return {
     aggregateType: 'topup',

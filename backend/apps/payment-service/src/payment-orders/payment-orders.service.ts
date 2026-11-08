@@ -48,7 +48,6 @@ export class PaymentOrdersService {
   async open(userId: string, dto: CreatePaymentDto) {
     const eligibility = await this.orders.getEligibility(dto.orderId);
     if (eligibility.customerUserId !== userId) throw notFound();
-    if (!eligibility.isEligibleForSettlement) throw conflict('Order is not eligible for payment');
 
     const paymentId = await this.database.client.$transaction(async (tx) => {
       const found = await tx.payment.findUnique({ where: { orderId: dto.orderId } });
@@ -66,6 +65,7 @@ export class PaymentOrdersService {
         if (payment.method === dto.method) return payment.id;
         throw conflict('Payment is already settled with another method');
       }
+      if (!eligibility.isEligibleForSettlement) throw conflict('Order is not eligible for payment');
       if (!OPEN_STATUSES.includes(payment.status)) throw conflict(`Payment is ${payment.status} and cannot change method`);
       if (payment.method !== dto.method || !payment.orderCompletedAt) {
         await tx.payment.update({

@@ -40,8 +40,8 @@ function setup(options: { enabled?: boolean; snapshot?: Record<string, unknown> 
     },
   };
   const wallet = {
-    claimWithdrawal: vi.fn().mockResolvedValue({ outcome: 'ok', status: 200, data: {} }),
-    finishWithdrawal: vi.fn().mockResolvedValue({ outcome: 'ok', status: 200, data: {} }),
+    claimWithdrawal: vi.fn().mockResolvedValue({ outcome: 'ok', status: 200, data: { id: withdrawalId, payoutOperationId, status: 'processing' } }),
+    finishWithdrawal: vi.fn().mockImplementation(async (_id, body) => ({ outcome: 'ok', status: 200, data: { id: withdrawalId, payoutOperationId, status: body.status } })),
   };
   const provider = {
     name: 'mock', simulated: true, isEnabled: () => options.enabled ?? true,
@@ -81,6 +81,22 @@ describe('PayoutsService.onWithdrawalRequested', () => {
 });
 
 describe('PayoutsService.advance', () => {
+  it('never sends after an unconfirmed 2xx claim response', async () => {
+    const h = setup();
+    h.wallet.claimWithdrawal.mockResolvedValue({ outcome: 'ok', status: 200, data: { status: 'requested' } });
+    await h.service.advance(payout() as never);
+    expect(h.provider.send).not.toHaveBeenCalled();
+  });
+
+  it('does not complete Payment when Wallet returns needs_review instead of captured funds', async () => {
+    const h = setup();
+    const row = payout();
+    h.client.payout.findUnique.mockResolvedValue({ ...row, status: 'processing' });
+    h.wallet.finishWithdrawal.mockResolvedValue({ outcome: 'ok', status: 200, data: { id: withdrawalId, payoutOperationId, status: 'needs_review' } });
+    await h.service.advance(row as never);
+    expect(h.client.payout.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'needs_review', failureReason: 'wallet_finish_not_confirmed' }) }));
+    expect(h.client.payout.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'completed' }) }));
+  });
   it('does nothing when the payout provider is disabled', async () => {
     const { service, wallet, provider } = setup({ enabled: false });
     await service.advance(payout() as never);

@@ -2,6 +2,18 @@ name: handygo-payment-test
 
 # Isolated, throwaway PostgreSQL for Payment integration tests (data lives in tmpfs).
 services:
+  rabbitmq-test:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo_test
+      RABBITMQ_DEFAULT_PASS: handygo_test_pw
+    ports:
+      - '127.0.0.1:56674:5672'
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 10s
+      retries: 20
   postgres-test:
     image: postgres:16-alpine
     container_name: handygo-payment-test

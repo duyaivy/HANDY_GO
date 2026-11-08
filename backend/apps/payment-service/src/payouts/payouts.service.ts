@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { Payout, Prisma } from '@prisma/payment-client';
 import { WalletClient } from '../common/clients/wallet.client.js';
 import { PaymentPrismaService } from '../common/database/payment-prisma.service.js';
@@ -75,6 +75,32 @@ export class PayoutsService implements OnModuleInit {
     return pending.length + processing.length;
   }
 
+  /** Explicit operator resolution for the simulated provider. Never sends another payout. */
+  async resolveSandbox(id: string, status: 'succeeded' | 'failed', actor: string, reason: string) {
+    if (!reason.trim()) throw new ConflictException('Resolution reason is required');
+    if (process.env.NODE_ENV === 'production' || !this.provider.simulated || this.provider.name !== 'mock' || !this.provider.isEnabled())
+      throw new ForbiddenException('Sandbox mock payout resolution is disabled');
+    await this.database.client.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM payment_service.payouts WHERE id = ${id}::uuid FOR UPDATE`;
+      const payout = await tx.payout.findUnique({ where: { id } });
+      if (!payout || payout.userId === actor || !payout.isSimulated || payout.provider !== 'mock')
+        throw new ForbiddenException('An independent Admin must resolve a simulated payout');
+      const attempt = await tx.payoutAttempt.findFirst({ where: { payoutId: id }, orderBy: { attemptNo: 'desc' } });
+      if (!attempt || payout.status !== 'needs_review' || !['provider_outcome_unknown', 'dispatch_interrupted'].includes(payout.failureReason ?? ''))
+        throw new ConflictException('Payout has no uncertain simulated dispatch to resolve');
+      await tx.payoutAttempt.update({ where: { id: attempt.id }, data: {
+        status, completedAt: new Date(), providerReference: status === 'succeeded' ? `MOCK-RESOLVED-${id}` : null,
+        failureReason: status === 'failed' ? 'Simulated payout manually resolved as failed' : null,
+      } });
+      await tx.payout.update({ where: { id }, data: { status: 'processing', failureReason: null } });
+      await tx.adminAuditLog.create({ data: { actorUserId: actor, action: 'payout.mock_resolved', entityType: 'payout', entityId: id,
+        reason, beforeState: { status: payout.status, reason: payout.failureReason }, afterState: { status, provider: 'mock', isSimulated: true } } });
+    });
+    await this.reportToWallet(id);
+    const row = await this.database.client.payout.findUniqueOrThrow({ where: { id } });
+    return { id: row.id, status: row.status, provider: row.provider, isSimulated: row.isSimulated, amountVnd: row.amountVnd.toString() };
+  }
+
   private async hold(payout: Payout, reason: string): Promise<void> {
     if (payout.failureReason !== reason) {
       await this.database.client.payout.updateMany({ where: { id: payout.id, status: payout.status }, data: { failureReason: reason } });
@@ -107,6 +133,8 @@ export class PayoutsService implements OnModuleInit {
     });
     if (claim.outcome === 'unknown') return this.hold(payout, 'wallet_claim_unavailable');
     if (claim.outcome === 'rejected') return this.review(payout, `wallet_claim_rejected_${claim.status}`);
+    if (claim.data.id !== payout.withdrawalId || claim.data.payoutOperationId !== payout.payoutOperationId || claim.data.status !== 'processing')
+      return this.hold(payout, 'wallet_claim_not_confirmed');
 
     const attempt = await this.database.client.$transaction(async (tx) => {
       const moved = await tx.payout.updateMany({
@@ -155,6 +183,8 @@ export class PayoutsService implements OnModuleInit {
     });
     if (result.outcome === 'unknown') return; // retried by the next sweep
     if (result.outcome === 'rejected') return this.review(payout, `wallet_finish_rejected_${result.status}`);
+    if (result.data.id !== payout.withdrawalId || result.data.payoutOperationId !== payout.payoutOperationId || result.data.status !== (succeeded ? 'succeeded' : 'failed'))
+      return this.review(payout, 'wallet_finish_not_confirmed');
     await this.database.client.payout.updateMany({
       where: { id: payoutId, status: 'processing' },
       data: succeeded

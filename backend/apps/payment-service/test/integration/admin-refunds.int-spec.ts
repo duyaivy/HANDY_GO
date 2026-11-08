@@ -47,6 +47,8 @@ let database: PaymentPrismaService,
   operations: PaymentOperationsService;
 let app: INestApplication;
 let seedEnv: NodeJS.ProcessEnv;
+const wallet = { getOperation: vi.fn().mockResolvedValue({ outcome: 'missing' }), refundCredit: vi.fn().mockResolvedValue({ outcome: 'rejected', status: 409, message: 'Unfunded' }) };
+const outbox = { enqueue: vi.fn() };
 const runOnce = vi.fn().mockResolvedValue({ pointAttempts: 0 });
 function token(id: string, roles: string[] = [], permissions: string[] = []) {
   return jwt.sign(
@@ -113,7 +115,7 @@ beforeAll(async () => {
     .toString();
   database = new PaymentPrismaService();
   audit = new AdminAuditService(database);
-  refunds = new RefundsService(database, audit);
+  refunds = new RefundsService(database, audit, wallet as never, outbox as never);
   rules = new CommissionRulesAdminService(database, audit);
   operations = new PaymentOperationsService(database, audit);
   seedEnv = {
@@ -373,7 +375,7 @@ describe('Refund reservations and Admin decisions (PostgreSQL)', () => {
     const unavailableAudit = {
       record: vi.fn().mockRejectedValue(new Error('Audit unavailable')),
     };
-    const service = new RefundsService(database, unavailableAudit as never);
+    const service = new RefundsService(database, unavailableAudit as never, wallet as never, outbox as never);
     await expect(
       service.decide(admin, refund.id, { approve: true, reason: 'Reviewed' }),
     ).rejects.toThrow(/Audit unavailable/);

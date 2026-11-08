@@ -15,15 +15,15 @@ class DatabaseIncidentTests(unittest.TestCase):
     def setUp(self):
         self.registry = json.loads((PROD / 'services.json').read_text())['services']
         self.values = {'DATABASE_URL': 'postgresql://tenant:secret@pool.example/postgres',
-                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '15', 'DB_POOL_RESERVE_PRIMARY': '6'}
+                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '15', 'DB_POOL_RESERVE_PRIMARY': str(15 - len(SERVICES))}
         for service in SERVICES:
             suffix = service.upper().replace('-', '_')
             self.values.update({f'DB_POOL_GROUP_{suffix}': 'PRIMARY', f'DB_POOL_REPLICAS_{suffix}': '1',
                                 f'DIRECT_URL_{suffix}': 'postgresql://ddl:secret@direct.example/postgres',
                                 f'DB_DDL_VERIFIED_{suffix}': 'true'})
 
-    def test_nine_services_fit_explicit_budget(self):
-        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], 9)
+    def test_registered_services_fit_explicit_budget(self):
+        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], len(SERVICES))
 
     def test_old_default_and_rollout_overlap_exceed_session_pool(self):
         for update in ({'DB_POOL_MAX': '10'}, {'DB_POOL_REPLICAS_ORDER': '2'}):
@@ -59,7 +59,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                         values[key] = blank
             values['DB_POOL_TIMEOUT_MS'] = values['DB_POOL_IDLE_MS'] = blank or ''
             with self.subTest(blank=blank):
-                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 9)
+                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], len(SERVICES))
                 for service in SERVICES:
                     self.assertEqual(migration_endpoint(values, service, migrating=True).hostname, 'pool.example')
 
@@ -161,7 +161,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                         target.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(source, target)
             registry = copy.deepcopy(self.registry)
-            self.assertEqual(len(migration_inventory(root, registry)), 9)
+            self.assertEqual(len(migration_inventory(root, registry)), len(SERVICES))
             registry['api-gateway']['migration'] = 'api-gateway'
             with self.assertRaises(ValueError): migration_inventory(root, registry)
             duplicate = copy.deepcopy(self.registry)

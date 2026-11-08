@@ -5,6 +5,15 @@ import {
 } from './gateway-auth-route.policy.js';
 
 describe('GatewayAuthRoutePolicy (Unit)', () => {
+  it('opens only exact GET VNPAY callbacks, keeping payment routes protected', () => {
+    for (const callback of ['ipn', 'return']) {
+      const path = `/api/v1/payments/topups/vnpay/${callback}`;
+      expect(isPublicRoute(`${path}?vnp_SecureHash=test`, 'GET')).toBe(true);
+      for (const method of ['POST', 'PUT', 'DELETE', 'HEAD']) expect(isPublicRoute(path, method)).toBe(false);
+      expect(isPublicRoute(`${path}/extra`, 'GET')).toBe(false);
+    }
+    expect(isPublicRoute('/api/v1/payments/topups', 'GET')).toBe(false);
+  });
   describe('PUBLIC_ROUTE_RULES structure', () => {
     it('defines non-empty list of route rules', () => {
       expect(PUBLIC_ROUTE_RULES.length).toBeGreaterThan(0);

@@ -1,4 +1,6 @@
-﻿# HG-51 — Payment Service: kế hoạch và checklist
+# HG-51 — Payment Service: kế hoạch và checklist
+
+> Checklist dưới đây ghi nhận mốc 07/11. Bản cập nhật theo review 08/11 và yêu cầu top-up mô phỏng nằm tại [quyết định hiện hành](PO-DECISIONS.md) và [evidence mới](evidence/HG-51-review-update-2026-11-08.md). Các nhận định chưa nối Wallet/Gateway bên dưới là lịch sử.
 
 Cập nhật **07/11/2026**. Nguồn: [PO Final](../HandyGo_PO_Decisions_Final_VI.md), [quy chuẩn backend](../../backend/AGENTS.md), [Vibe Coding](../../backend/docs/VIBE_CODING_GUIDELINES.md), [DBML v2](../dbml/payment-service-v2.dbml). Mã hiện hành và hướng dẫn vận hành: [README Payment](../../backend/apps/payment-service/README.md). Bằng chứng kiểm thử: [07/11](evidence/HG-51-test-evidence-2026-11-07.md), [lịch sử 05/11](evidence/HG-51-test-evidence-2026-11-05.md).
 

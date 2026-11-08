@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { RefundsModule } from '../refunds/refunds.module.js';
 import { PaymentOrdersModule } from '../payment-orders/payment-orders.module.js';
 import { PayoutsModule } from '../payouts/payouts.module.js';
 import { TopupsModule } from '../topups/topups.module.js';
@@ -14,6 +15,7 @@ import { PaymentOperationsService } from './payment-operations.service.js';
     PaymentOrdersModule,
     TopupsModule,
     PayoutsModule,
+    RefundsModule,
   ],
   controllers: [PaymentOperationsController],
   providers: [

@@ -6,7 +6,7 @@ import { migrationUrl } from '../../../scripts/migration-url.js';
 
 const envPaths = [
   path.resolve(process.cwd(), '.env'),
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../  ../.env'),
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.env'),
 ];
 const envPath = envPaths.find(existsSync);
 if (envPath) process.loadEnvFile(envPath);

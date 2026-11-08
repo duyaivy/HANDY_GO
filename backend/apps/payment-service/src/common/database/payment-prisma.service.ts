@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/payment-client';
 import { AppException, ERROR_CODES } from '@app/common';
+import { databasePoolConfig, databasePoolError } from '@app/database';
 
 @Injectable()
 export class PaymentPrismaService implements OnModuleDestroy {
@@ -30,7 +31,7 @@ export class PaymentPrismaService implements OnModuleDestroy {
       }
       url.searchParams.set('schema', 'payment_service');
       this.instance = new PrismaClient({
-        adapter: new PrismaPg({ connectionString: url.toString() }, { schema: 'payment_service' }),
+        adapter: new PrismaPg(databasePoolConfig(url.toString(), 'payment'), { schema: 'payment_service', onPoolError: databasePoolError('payment') }),
       });
     }
     return this.instance;

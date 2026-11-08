@@ -10,6 +10,8 @@ import { PaymentOutboxService } from '../common/outbox/payment-outbox.service.js
 import type { PaymentPaginationDto } from '../payment-query/dto/payment-query.dto.js';
 import type { CreateTopupDto } from './dto/create-topup.dto.js';
 import { TopupProvider } from './providers/topup-provider.js';
+import type { ProviderNotification } from './providers/topup-provider.js';
+import { MockTopupProvider } from './providers/mock-topup.provider.js';
 
 export const WALLET_TOPUP_CREDITED = 'wallet.topup.credited';
 export const TOPUP_TTL_MS = 15 * 60_000;
@@ -64,6 +66,8 @@ export class TopupsService implements OnModuleInit {
       amountVnd: topup.amountVnd.toString(),
       pointsToCredit: topup.pointsToCredit.toString(),
       provider: topup.provider,
+      isSimulated: topup.provider === 'mock',
+      simulationEndpoint: topup.provider === 'mock' ? `POST /payments/topups/${topup.id}/simulate` : null,
       status: topup.status,
       // The hosted checkout link is only useful while the payment can still be made.
       checkoutUrl: PENDING_STATUSES.includes(topup.status) ? topup.checkoutUrl : null,
@@ -153,9 +157,25 @@ export class TopupsService implements OnModuleInit {
       this.logger.warn('Rejected top-up IPN with an invalid signature');
       return IPN_RESPONSE.invalidSignature;
     }
+    return this.handleNotification(notification);
+  }
+
+  async simulate(userId: string, id: string, outcome: 'succeeded' | 'failed') {
+    if (!(this.provider instanceof MockTopupProvider) || !this.provider.isConfigured())
+      throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Mock top-ups are disabled');
+    const topup = await this.database.client.topupRequest.findFirst({ where: { id, userId } });
+    if (!topup) throw notFound();
+    if (topup.provider !== 'mock' || !topup.providerTransactionRef)
+      throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.CONFLICT, 'Top-up is not simulated');
+    await this.handleNotification(this.provider.confirmation(topup.providerTransactionRef, topup.amountVnd, outcome === 'succeeded'));
+    return this.get(userId, id);
+  }
+
+  private async handleNotification(notification: ProviderNotification): Promise<IpnResponse> {
     if (!notification.txnRef) return IPN_RESPONSE.notFound;
     const topup = await this.database.client.topupRequest.findUnique({ where: { providerTransactionRef: notification.txnRef } });
     if (!topup) return IPN_RESPONSE.notFound;
+    if (topup.provider !== this.provider.name) return IPN_RESPONSE.notFound;
     if (notification.amountVnd !== topup.amountVnd) {
       await this.recordNotification(topup.id, notification, 'amount mismatch');
       return IPN_RESPONSE.invalidAmount;
@@ -206,8 +226,8 @@ export class TopupsService implements OnModuleInit {
     return {
       provider: this.provider.name,
       eventKey: notification.eventKey,
-      notificationType: 'topup_ipn',
-      signatureValid: true,
+      notificationType: this.provider.name === 'mock' ? 'topup_simulation' : 'topup_ipn',
+      signatureValid: this.provider.name !== 'mock',
       payload: notification.auditPayload as Prisma.InputJsonObject,
       relatedTopupId: topupId,
       ...(processingError ? { processingError } : {}),
@@ -228,7 +248,7 @@ export class TopupsService implements OnModuleInit {
     const amount = requirePositiveInteger(data, 'amount');
     const topup = await tx.topupRequest.findUnique({ where: { id: topupId } });
     if (!topup) throw new PermanentInboundError('wallet.topup.credited references an unknown top-up');
-    if (topup.userId !== userId || topup.pointsToCredit !== amount) {
+    if (topup.userId !== userId || topup.pointsToCredit !== amount || (topup.provider === 'mock' && data.isSimulated !== true)) {
       throw new PermanentInboundError('wallet.topup.credited contradicts the top-up');
     }
     if (topup.status === 'completed') return;

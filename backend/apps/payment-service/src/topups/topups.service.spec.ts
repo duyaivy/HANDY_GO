@@ -15,7 +15,7 @@ function notification(overrides: Partial<ProviderNotification> = {}): ProviderNo
 }
 
 function setup(topup: Record<string, unknown> | null = null, configured = true) {
-  const state = { topup: topup ? { id: topupId, userId, amountVnd: 50000n, pointsToCredit: 50000n, idempotencyKey: 'key-12345', status: 'awaiting_payment', providerPaidAt: null, ...topup } : null } as { topup: Record<string, any> | null };
+  const state = { topup: topup ? { id: topupId, userId, provider: 'vnpay', amountVnd: 50000n, pointsToCredit: 50000n, idempotencyKey: 'key-12345', status: 'awaiting_payment', providerPaidAt: null, ...topup } : null } as { topup: Record<string, any> | null };
   const tx = {
     $queryRaw: vi.fn().mockResolvedValue([]),
     providerNotification: { createMany: vi.fn().mockResolvedValue({ count: 1 }), updateMany: vi.fn() },

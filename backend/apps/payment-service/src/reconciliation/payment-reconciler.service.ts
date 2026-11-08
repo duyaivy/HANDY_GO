@@ -13,6 +13,7 @@ import { PaymentOrdersService } from '../payment-orders/payment-orders.service.j
 import { PayoutsService } from '../payouts/payouts.service.js';
 import { TopupsService } from '../topups/topups.service.js';
 import { PaymentOperationsService } from './payment-operations.service.js';
+import { RefundsService } from '../refunds/refunds.service.js';
 
 const STALE_ATTEMPT_MS = 30_000;
 
@@ -34,6 +35,7 @@ export class PaymentReconcilerService implements OnModuleInit, OnModuleDestroy {
     private readonly topups: TopupsService,
     private readonly payouts: PayoutsService,
     private readonly operations: PaymentOperationsService,
+    private readonly refunds: RefundsService,
   ) {}
 
   onModuleInit(): void {
@@ -58,6 +60,7 @@ export class PaymentReconcilerService implements OnModuleInit, OnModuleDestroy {
         () => this.orders.resumeStaleAttempts(STALE_ATTEMPT_MS),
       ],
       ['commissions', () => this.orders.collectDueCommissions()],
+      ['refunds', () => this.refunds.resumeApproved()],
       ['topups', async () => JSON.stringify(await this.topups.reconcile())],
       ['payouts', () => this.payouts.processBatch()],
       [

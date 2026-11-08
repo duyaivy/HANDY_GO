@@ -96,7 +96,7 @@ class EnvRefreshTests(unittest.TestCase):
             with self.subTest(extra=bool(extra)):
                 self.env.write_text(stripped + extra)
                 manifest, data = self.coordinator().bundle()
-                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], 9)
+                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], len(host.MIGRATIONS['vps1']) + len(host.MIGRATIONS['vps2']) + len(host.MIGRATIONS['vps3']))
                 self.assertEqual(manifest['config_sha256'], orchestrate.digest(self.env.read_bytes()))
                 with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
                     self.assertEqual(archive.extractfile('shared.env').read(), self.env.read_bytes())

@@ -1,18 +1,18 @@
 import { ForbiddenException } from '@nestjs/common';
-import { Role, type AuthenticatedUser } from '@app/auth';
+import { Role, StandardPermissions, type AuthenticatedUser } from '@app/auth';
 import { isUUID } from 'class-validator';
 
 // Colon-style names follow the existing project convention (e.g. `wallet:adjust`).
 // Auth Service must grant them to the Admin roles that may use these Payment APIs.
 export const PAYMENT_PERMISSIONS = {
-  readAll: 'payment:read:all',
-  commissionManage: 'commission:manage',
-  refundReadAll: 'refund:read:all',
-  refundCreate: 'refund:create',
-  refundApprove: 'refund:approve',
-  refundConfirm: 'refund:confirm',
-  reconcile: 'payment:reconcile',
-  dlqReplay: 'payment:dlq:replay',
+  readAll: StandardPermissions.PAYMENT_READ_ALL,
+  commissionManage: StandardPermissions.COMMISSION_MANAGE,
+  refundReadAll: StandardPermissions.REFUND_READ_ALL,
+  refundCreate: StandardPermissions.REFUND_CREATE,
+  refundApprove: StandardPermissions.REFUND_APPROVE,
+  refundConfirm: StandardPermissions.REFUND_CONFIRM,
+  reconcile: StandardPermissions.PAYMENT_RECONCILE,
+  dlqReplay: StandardPermissions.PAYMENT_DLQ_REPLAY,
 } as const;
 
 export type PaymentPermission =

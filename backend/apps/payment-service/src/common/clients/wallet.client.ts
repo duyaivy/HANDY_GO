@@ -11,6 +11,9 @@ export type WalletCallResult<T = Record<string, unknown>> =
 export interface WalletOperationStatus {
   operationId: string;
   status: string;
+  transferId?: string;
+  kind?: string;
+  amount?: string;
 }
 
 @Injectable()
@@ -32,7 +35,7 @@ export class WalletClient {
     return result;
   }
 
-  refundCredit(userId: string, body: { paymentId: string; refundId: string; amount: string }) {
+  refundCredit(userId: string, body: { paymentId: string; refundId: string; amount: string; method: 'point' | 'cash'; grossAmount: string }) {
     return this.post(`/internal/wallets/${userId}/refund-credit`, body);
   }
 

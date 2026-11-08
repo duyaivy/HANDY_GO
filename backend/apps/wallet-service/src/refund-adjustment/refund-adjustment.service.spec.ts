@@ -3,6 +3,7 @@ import { RefundAdjustmentService } from './refund-adjustment.service.js';
 describe('RefundAdjustmentService', () => {
   it('rejects a refund with no original payment', async () => {
     const tx = {
+      $queryRaw: vi.fn(),
       walletTransfer: {
         findUnique: vi.fn().mockResolvedValue(null),
         findFirst: vi.fn().mockResolvedValue(null),

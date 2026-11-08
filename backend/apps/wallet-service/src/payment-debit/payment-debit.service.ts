@@ -36,8 +36,8 @@ export class PaymentDebitService {
   }
 
   async getStatus(operationId: string) {
-    const transfer = await this.ledger.prisma.walletTransfer.findUnique({ where: { operationId } });
-    if (!transfer) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Payment operation not found');
-    return { operationId, status: transfer.status };
+    const operation = await this.ledger.getOperation(operationId);
+    if (!operation) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Payment operation not found');
+    return operation;
   }
 }

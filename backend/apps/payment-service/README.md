@@ -1,8 +1,8 @@
-﻿# Payment Service
+# Payment Service
 
-Payment điều phối thanh toán; Wallet sở hữu balance, ledger và hold. VND/Point là số nguyên chính xác, **1 Point = 1 VND**. Cập nhật bàn giao: **07/11/2026**.
+Payment điều phối thanh toán; Wallet sở hữu balance, ledger và hold. VND/Point là số nguyên chính xác, **1 Point = 1 VND**. Cập nhật bàn giao: **08/11/2026**.
 
-Nguồn chính sách: [PO đã chốt](../../../docs/HandyGo_PO_Decisions_Final_VI.md). Theo dõi [checklist HG-51](../../../docs/payment-service/HG-51-PAYMENT-SERVICE-CHECKLIST.md), [phụ thuộc còn mở](../../../docs/payment-service/PO-DECISIONS.md) và [test evidence mới](../../../docs/payment-service/evidence/HG-51-test-evidence-2026-11-07.md). Không sửa Wallet/User Trust trong đợt này.
+Nguồn chính sách: [PO đã chốt](../../../docs/HandyGo_PO_Decisions_Final_VI.md). Theo dõi [phạm vi sandbox hiện tại](../../../docs/payment-service/PO-DECISIONS.md) và [evidence 08/11](../../../docs/payment-service/evidence/HG-51-review-update-2026-11-08.md). Theo yêu cầu mới, top-up mô phỏng cổng thanh toán; Wallet, ledger và RabbitMQ chạy thật trong sandbox. Đợt này sửa Payment, Wallet, Gateway, Auth và cấu hình triển khai.
 
 ## Tính năng và giới hạn
 
@@ -12,9 +12,9 @@ Nguồn chính sách: [PO đã chốt](../../../docs/HandyGo_PO_Decisions_Final_
 | `commission-rules/` | Snapshot theo `[effective_from,effective_to)`; rate 0–30%, mặc định seed 10%, ROUND_HALF_UP bằng bigint. Admin tạo version tương lai, đóng version trước; DB exclusion chống overlap. Không sửa Payment lịch sử. |
 | `payment-orders/` | Customer chủ động chọn method/xác nhận Point; Worker được giao xác nhận Cash. Point chỉ succeeded sau Wallet commit; timeout tra cứu/retry cùng operation. Cash không cộng Point cho Worker, ghi công nợ hoa hồng. |
 | `payment-query/` | Owner/Worker tra cứu, phân trang và BIGINT string. Admin có permission riêng được đọc Payment toàn hệ thống bằng projection đã che provider details. |
-| `refunds/` | Customer hoặc Admin tạo yêu cầu full/partial; khóa Payment để giữ tổng reservation không vượt amount. Admin khác người yêu cầu/Customer duyệt hoặc từ chối, có audit. Cash/Point đều chỉ có đích Point. **Duyệt → needs_review; chưa gọi Wallet, chưa completed, chưa đổi Payment sang refunded/partially_refunded, chưa phát event refund.** |
-| `topups/` | VNPAY sandbox có kiểm tra chữ ký, merchant, amount và trạng thái; IPN hợp lệ mới ghi outbox, Wallet ACK mới completed. Browser return không thay đổi dữ liệu. |
-| `payouts/` | Lưu trước dispatch; bank snapshot phải xác thực. Default snapshot provider chưa có dữ liệu nên không claim/dispatch. Mock tắt mặc định và luôn tắt ở production. |
+| `refunds/` | Full/partial, chỉ hoàn Point, Admin độc lập và audit. Point thu hồi từ settlement gốc; Cash debit quỹ Platform có nguồn. Retry cùng operation, chỉ completed sau xác minh ledger Wallet; thiếu nguồn/timeout giữ needs_review. |
+| `topups/` | TOPUP_MOCK_ENABLED=true bật provider mô phỏng ở non-production; owner xác nhận qua API có JWT. Credit qua outbox/RabbitMQ/Wallet thật. VNPAY adapter vẫn kiểm tra signature/merchant/amount/status. Chỉ Wallet ACK mới completed; browser return không settlement. |
+| `payouts/` | Snapshot sandbox xác minh owner/active qua User Trust; claim trước mock send, Wallet capture/release thật. Unknown giữ hold, Admin resolve sandbox có audit, không gửi lại. Mock mặc định tắt và bị chặn ở production. |
 | `common/inbound/`, `common/outbox/` | Inbox/outbox giao dịch, retry có giới hạn, ACK sau persist lỗi; event ID có thể là string không phải UUID. |
 | `reconciliation/` | Sweep Point attempts, commission, top-up, payout; Admin có thể yêu cầu chạy và audit. DLQ replay chỉ đổi dead → retrying, giữ ID/payload để inbox xử lý. Báo cáo một snapshot mỗi ngày Việt Nam về các bản ghi chưa xử lý, **chưa so khớp ledger Wallet/provider**. |
 
@@ -84,13 +84,14 @@ Order trước rollout không có rule hiệu lực tiếp tục retry rồi dea
 | `PAYMENT_RECONCILER_ENABLED`, `PAYMENT_RECONCILER_INTERVAL_MS` | Sweep hiện mặc định 15s; tắt trong test. Mốc 60s trong tài liệu PO là đề xuất, chưa tự thay cấu hình vận hành. |
 | `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET`, `VNPAY_RETURN_URL`, `VNPAY_PAY_URL` | VNPAY sandbox; chưa đủ config trả 503. Không ghi secrets vào tài liệu/log. |
 | `VNPAY_IPN_URL` | Giá trị đăng ký với merchant, adapter không tự đăng ký/đọc biến này. |
+| `TOPUP_MOCK_ENABLED` | Bật trên Payment và Wallet sandbox; mặc định false, luôn bị chặn ở production. Không dùng chung ví quy đổi thật. |
 | `PAYOUT_MOCK_ENABLED`, `PAYOUT_MOCK_OUTCOME` | Mock chỉ dev/sandbox, vẫn cần bank snapshot hợp lệ. |
 
 VNPAY production public base theo PO là `https://handygo.duyaivy.id.vn/api/v1`, local qua Gateway `http://localhost:3000/api/v1`. Callback thật local cần HTTPS tunnel tới Gateway và merchant chấp thuận URL. Return handler JSON hiện đã tồn tại ở Payment nhưng **Gateway routes, cấu hình merchant và credentials chưa được xác minh**. Không public trực tiếp port 3007. Return handler không redirect tới URL do client đưa vào; người dùng phải query top-up của mình bằng JWT.
 
-Refund chưa thể dispatch: Wallet cần contract credit/reversal có nguồn bảo đảm, mapping operation ID/idempotency/status, quy tắc điều chỉnh commission/phần dư; Order/Notification cần thống nhất event full/partial. Giữ toàn bộ refund đã duyệt ở needs_review đến khi các gate này được làm và test. Không có cờ bật giả, không dùng `refund-credit` hiện có như bằng chứng nguồn bảo đảm.
+Refund đã nối Wallet qua funded contract và lookup ledger. Xem quyết định sandbox Cash compensation/commission tại [PO-DECISIONS.md](../../../docs/payment-service/PO-DECISIONS.md); cần Finance duyệt riêng trước khi dùng tiền thật.
 
-User Trust sở hữu tài khoản ngân hàng verified. Payment chờ API nội bộ có auth/version/ownership và phương án mã hóa/quản lý khóa. Default snapshot không giả lập bank data. Không có tự động xóa audit/event; mốc retention 90 ngày/10 năm còn là đề xuất cần duyệt.
+User Trust sở hữu bank account verified. Snapshot cho mock chỉ lưu ID và kết quả xác minh, không lưu bank secret. Không tự xóa audit/event; retention vẫn cần quyết định riêng.
 
 ## Kiểm thử
 
@@ -103,8 +104,8 @@ pnpm exec vitest run --config vitest.config.e2e.ts apps/payment-service/test/app
 pnpm run test:payment:docker
 ```
 
-Docker test dùng PostgreSQL 16, DB `handygo_hg51_payment_test`, port 55433, dữ liệu tmpfs, tự teardown; `-KeepRunning` để giữ khi debug. Test từ chối database khác hoặc host không local. Wallet/Order trong flow tests vẫn là mock. Chi tiết kết quả, phạm vi và giới hạn nằm trong evidence ngày 07/11.
+Docker test dùng PostgreSQL 16 (port 55433, DB handygo_hg51_payment_test, schema Payment/Wallet/Order riêng) và RabbitMQ (port 56674); tự teardown, -KeepRunning để debug. Suite mới chạy controller/client HTTP thật qua Gateway, JWT RS256, broker thật, funded refund và withdrawal thật. Một số suite cũ vẫn dùng mocks; xem evidence 08/11 để phân biệt.
 
 ## Questions to carry into the PR
 
-Các việc còn mở được liệt kê theo owner tại [PO-DECISIONS.md](../../../docs/payment-service/PO-DECISIONS.md): rollout/actor thật, Wallet refund funding, User Trust snapshot, consumer refund events, Gateway/VNPAY sandbox, RabbitMQ/liên service và retention. Không coi unit/DB test là bằng chứng đã chạy tài chính thật.
+Các phần còn mở và ranh giới nghiệm thu nằm tại [PO-DECISIONS.md](../../../docs/payment-service/PO-DECISIONS.md) và evidence 08/11. Không có deployment hoặc giao dịch ngân hàng thật trong đợt này.
