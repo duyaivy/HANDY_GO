@@ -29,6 +29,7 @@ describe('UserTrustServiceController', () => {
       getAdminServiceRegistrationDetail: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
       reviewServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { status: 'approved' } }),
       geocodeAddress: vi.fn().mockResolvedValue({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } }),
+      updateServiceOffering: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'offering-1', isActive: true } }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -283,6 +284,38 @@ describe('UserTrustServiceController', () => {
       const res = await controller.reviewServiceRegistration(adminUser, 'reg-1', dto);
       expect(res).toEqual({ statusCode: 200, data: { status: 'approved' } });
       expect(serviceMock.reviewServiceRegistration).toHaveBeenCalledWith('admin-1', 'reg-1', dto);
+    });
+
+    it('updateServiceOffering delegates to service', async () => {
+      const workerUser = {
+        accountId: 'acc-w1',
+        userId: 'user-w1',
+        sessionId: 'sess-w1',
+        roles: ['worker'],
+        permissions: ['profile:update'],
+      };
+      const dto = { isActive: false };
+      const res = await controller.updateServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001', dto);
+      expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
+        'user-w1',
+        '00000000-0000-0000-0000-000000000001',
+        false,
+      );
+    });
+
+    it('toggleServiceOffering delegates to service without boolean', async () => {
+      const workerUser = {
+        accountId: 'acc-w1',
+        userId: 'user-w1',
+        sessionId: 'sess-w1',
+        roles: ['worker'],
+        permissions: ['profile:update'],
+      };
+      const res = await controller.toggleServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001');
+      expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
+        'user-w1',
+        '00000000-0000-0000-0000-000000000001',
+      );
     });
   });
 });

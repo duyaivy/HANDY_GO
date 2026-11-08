@@ -61,6 +61,7 @@ import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
 import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dto.js';
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
+import { UpdateServiceOfferingDto } from './dto/update-service-offering.dto.js';
 
 
 import crypto from 'node:crypto';
@@ -488,6 +489,50 @@ export class UserTrustServiceController {
     return this.userTrustService.cancelWorkerServiceRegistration(
       user.userId,
       id,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Patch('workers/me/service-offerings/:offeringId')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bật/tắt hoặc cập nhật trạng thái hoạt động của một dịch vụ đã duyệt',
+    description: 'Cho phép thợ chủ động tạm dừng hoặc tiếp tục nhận việc cho dịch vụ cụ thể.',
+  })
+  @ApiParam({ name: 'offeringId', description: 'ID của WorkerServiceOffering (UUID)' })
+  @ApiResponse({ status: 200, description: 'Cập nhật trạng thái dịch vụ thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy hồ sơ thợ hoặc dịch vụ' })
+  async updateServiceOffering(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('offeringId', new ParseUUIDPipe({ version: '4' })) offeringId: string,
+    @Body() dto: UpdateServiceOfferingDto,
+  ): Promise<unknown> {
+    return this.userTrustService.updateServiceOffering(
+      user.userId,
+      offeringId,
+      dto.isActive,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Patch('workers/me/service-offerings/:offeringId/toggle')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Đảo trạng thái hoạt động (bật/tắt) của một dịch vụ đã duyệt',
+  })
+  @ApiParam({ name: 'offeringId', description: 'ID của WorkerServiceOffering (UUID)' })
+  @ApiResponse({ status: 200, description: 'Đảo trạng thái dịch vụ thành công' })
+  async toggleServiceOffering(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('offeringId', new ParseUUIDPipe({ version: '4' })) offeringId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.updateServiceOffering(
+      user.userId,
+      offeringId,
     );
   }
 

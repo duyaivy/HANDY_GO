@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -75,6 +76,8 @@ describe('UserTrustServiceService', () => {
       },
       workerServiceOffering: {
         upsert: vi.fn(),
+        findUnique: vi.fn(),
+        update: vi.fn(),
       },
       workerServiceArea: {
         updateMany: vi.fn(),
@@ -1546,6 +1549,92 @@ describe('UserTrustServiceService', () => {
         expect(res.message).toContain('Idempotent');
         expect(res.data.id).toBe('reg-race-winner');
       });
+    });
+  });
+
+  describe('updateServiceOffering', () => {
+    const userId = '00000000-0000-0000-0000-000000000001';
+    const workerProfileId = '00000000-0000-0000-0000-000000000002';
+    const offeringId = '00000000-0000-0000-0000-000000000003';
+
+    it('should throw BadRequestException if offeringId is not a valid UUID', async () => {
+      await expect(
+        service.updateServiceOffering(userId, 'invalid-uuid', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException if workerProfile not found', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.updateServiceOffering(userId, offeringId, true),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw NotFoundException if offering not found or belongs to another worker', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerProfileId });
+      dbMock.workerServiceOffering.findUnique.mockResolvedValue({
+        id: offeringId,
+        workerProfileId: 'other-worker-id',
+      });
+
+      await expect(
+        service.updateServiceOffering(userId, offeringId, true),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should update offering isActive to specified value', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerProfileId });
+      dbMock.workerServiceOffering.findUnique.mockResolvedValue({
+        id: offeringId,
+        workerProfileId,
+        isActive: true,
+      });
+      dbMock.workerServiceOffering.update.mockResolvedValue({
+        id: offeringId,
+        serviceId: 's1',
+        title: 'Sửa điện',
+        isActive: false,
+        updatedAt: new Date(),
+      });
+
+      const res: any = await service.updateServiceOffering(userId, offeringId, false);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data.isActive).toBe(false);
+      expect(dbMock.workerServiceOffering.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: offeringId },
+          data: expect.objectContaining({ isActive: false }),
+        }),
+      );
+    });
+
+    it('should toggle offering isActive if no boolean provided', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerProfileId });
+      dbMock.workerServiceOffering.findUnique.mockResolvedValue({
+        id: offeringId,
+        workerProfileId,
+        isActive: false,
+      });
+      dbMock.workerServiceOffering.update.mockResolvedValue({
+        id: offeringId,
+        serviceId: 's1',
+        title: 'Sửa điện',
+        isActive: true,
+        updatedAt: new Date(),
+      });
+
+      const res: any = await service.updateServiceOffering(userId, offeringId);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.data.isActive).toBe(true);
+      expect(dbMock.workerServiceOffering.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: offeringId },
+          data: expect.objectContaining({ isActive: true }),
+        }),
+      );
     });
   });
 });

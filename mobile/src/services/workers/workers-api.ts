@@ -269,6 +269,16 @@ export const WorkersApi = {
     );
   },
 
+  toggleServiceOffering: async (
+    offeringId: string,
+    isActive?: boolean,
+  ): Promise<ApiResponse<{ id: string; serviceId: string; isActive: boolean }>> => {
+    return ApiClient.patch<ApiResponse<{ id: string; serviceId: string; isActive: boolean }>>(
+      `/workers/me/service-offerings/${offeringId}`,
+      isActive !== undefined ? { isActive } : undefined,
+    );
+  },
+
   uploadEvidenceFile: async (formData: FormData): Promise<ApiResponse<{ url: string; fileType: 'image' | 'video' }>> => {
     return ApiClient.post<ApiResponse<{ url: string; fileType: 'image' | 'video' }>>(
       '/workers/me/evidence-upload',

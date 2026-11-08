@@ -1640,7 +1640,6 @@ export class UserTrustServiceService {
           },
         },
         serviceOfferings: {
-          where: { isActive: true },
           orderBy: { createdAt: 'desc' },
         },
         serviceAreas: {
@@ -2289,6 +2288,66 @@ export class UserTrustServiceService {
       statusCode: HttpStatus.OK,
       message: 'Hủy đơn đăng ký dịch vụ thành công',
       data: current,
+    };
+  }
+
+  /**
+   * Thợ cập nhật hoặc đảo trạng thái hoạt động (bật/tắt) của một dịch vụ đã duyệt
+   */
+  async updateServiceOffering(
+    userId: string,
+    offeringId: string,
+    isActive?: boolean,
+  ): Promise<unknown> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        offeringId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException(
+        'Mã định danh dịch vụ không đúng định dạng UUID',
+      );
+    }
+
+    const workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+    if (!workerProfile) {
+      throw new NotFoundException('Hồ sơ thợ không tồn tại');
+    }
+
+    const offering = await this.db.workerServiceOffering.findUnique({
+      where: { id: offeringId },
+    });
+    if (!offering || offering.workerProfileId !== workerProfile.id) {
+      throw new NotFoundException(
+        'Dịch vụ nghiệp vụ không tồn tại hoặc không thuộc quyền sở hữu của bạn',
+      );
+    }
+
+    const nextActive =
+      typeof isActive === 'boolean' ? isActive : !offering.isActive;
+
+    const updated = await this.db.workerServiceOffering.update({
+      where: { id: offeringId },
+      data: {
+        isActive: nextActive,
+        updatedAt: new Date(),
+      },
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: nextActive
+        ? 'Đã kích hoạt dịch vụ thành công'
+        : 'Đã tạm dừng dịch vụ thành công',
+      data: {
+        id: updated.id,
+        serviceId: updated.serviceId,
+        isActive: updated.isActive,
+        title: updated.title,
+        updatedAt: updated.updatedAt,
+      },
     };
   }
 

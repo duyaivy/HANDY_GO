@@ -169,12 +169,37 @@ export function WorkerSkillsScreen() {
     }
   }, [profileQuery, registrationsQuery]);
 
-  const handleToggleService = (serviceId: string, currentVal: boolean) => {
+  const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
+
+  const handleToggleService = React.useCallback(async (serviceId: string, currentVal: boolean) => {
+    if (togglingServiceId) {
+      return;
+    }
+    const nextVal = !currentVal;
     setServicesActiveState(prev => ({
       ...prev,
-      [serviceId]: !currentVal,
+      [serviceId]: nextVal,
     }));
-  };
+    setTogglingServiceId(serviceId);
+
+    try {
+      await WorkersApi.toggleServiceOffering(serviceId, nextVal);
+      await profileQuery.refetch();
+    }
+    catch (err: any) {
+      setServicesActiveState(prev => ({
+        ...prev,
+        [serviceId]: currentVal,
+      }));
+      Alert.alert(
+        'Lỗi',
+        err?.message || 'Không thể cập nhật trạng thái dịch vụ. Vui lòng thử lại.',
+      );
+    }
+    finally {
+      setTogglingServiceId(null);
+    }
+  }, [togglingServiceId, profileQuery]);
 
   const approvedServices: WorkerServiceOfferingItem[] = profileQuery.data?.services ?? [];
   // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
@@ -480,6 +505,7 @@ export function WorkerSkillsScreen() {
                               <Switch
                                 testID={`toggle-service-switch-${service.id}`}
                                 value={isServiceActive}
+                                disabled={togglingServiceId === service.id}
                                 onValueChange={() => handleToggleService(service.id, isServiceActive)}
                                 trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
                                 thumbColor={isServiceActive ? '#2563EB' : '#9CA3AF'}
