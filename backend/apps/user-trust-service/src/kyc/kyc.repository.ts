@@ -588,14 +588,24 @@ export class KycRepository {
           },
         ];
       } else {
-        where.workerProfile = {
-          user: {
-            fullName: {
+        where.OR = [
+          {
+            workerProfile: {
+              user: {
+                fullName: {
+                  contains: trimmedSearch,
+                  mode: 'insensitive',
+                },
+              },
+            },
+          },
+          {
+            idNumberMasked: {
               contains: trimmedSearch,
               mode: 'insensitive',
             },
           },
-        };
+        ];
       }
     }
 
