@@ -1155,6 +1155,30 @@ describe('UserTrustServiceService', () => {
       expect(res.data.status).toBe('approved');
       expect(dbMock.workerServiceOffering.upsert).toHaveBeenCalled();
       expect(dbMock.workerServiceArea.create).toHaveBeenCalled();
+      expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+    });
+
+    it('does not upgrade workerProfile status to verified on service approval (preserves KYC independence)', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        status: 'pending',
+        services: [{ serviceId, serviceName: 'Vệ sinh máy lạnh' }],
+        serviceArea: null,
+        workerProfile: {
+          id: workerProfileId,
+          status: 'draft',
+        },
+      });
+
+      dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerServiceOffering.upsert.mockResolvedValue({});
+
+      await service.reviewServiceRegistration('admin-1', 'reg-1', {
+        decision: 'approved',
+      });
+
+      expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
     });
 
     it('reviewServiceRegistration rejects with reason', async () => {

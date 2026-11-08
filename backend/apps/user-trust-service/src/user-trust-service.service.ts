@@ -2580,18 +2580,6 @@ export class UserTrustServiceService {
             },
           });
         }
-
-        // 4. Nếu workerProfile đang ở draft, chuyển sang verified
-        if (registration.workerProfile.status === 'draft') {
-          await tx.workerProfile.update({
-            where: { id: registration.workerProfileId },
-            data: {
-              status: 'verified',
-              approvedAt: now,
-              updatedAt: now,
-            },
-          });
-        }
       });
 
       return {
