@@ -40,7 +40,8 @@
         "api-gateway",
         "matching-service",
         "bidding-service",
-        "wallet-service"
+        "wallet-service",
+        "payment-service"
       ],
       "wireguard_http": true
     },
