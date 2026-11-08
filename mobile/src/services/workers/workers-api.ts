@@ -280,4 +280,22 @@ export const WorkersApi = {
       },
     );
   },
+
+  createEvidenceVideoSignature: async (params: {
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+  }): Promise<ApiResponse<{
+    uploadId: string;
+    cloudName: string;
+    apiKey: string;
+    timestamp: number;
+    signature: string;
+    publicId: string;
+    folder: string;
+    resourceType: string;
+    uploadUrl: string;
+  }>> => {
+    return ApiClient.post('/workers/me/video-upload-signature', params);
+  },
 };

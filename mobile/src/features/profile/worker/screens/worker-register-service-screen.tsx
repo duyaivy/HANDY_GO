@@ -349,41 +349,82 @@ export function WorkerRegisterServiceScreen() {
     const isVideo = asset.type === 'video' || uri.endsWith('.mp4') || uri.endsWith('.mov');
     const fileType: 'image' | 'video' = isVideo ? 'video' : 'image';
     const filename = uri.split('/').pop() || (isVideo ? 'evidence.mp4' : 'evidence.jpg');
-
-    const formData = new FormData();
-    const mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
-    formData.append('file', {
-      uri,
-      name: filename,
-      type: mimeType,
-    } as any);
+    const mimeType = isVideo ? (uri.endsWith('.mov') ? 'video/quicktime' : 'video/mp4') : 'image/jpeg';
 
     try {
       setIsUploadingFile(true);
-      const res = await WorkersApi.uploadEvidenceFile(formData);
-      const uploadedUrl = res.data?.url || uri;
+      let remoteUrl: string | undefined;
+
+      if (isVideo) {
+        // Direct upload to Cloudinary using backend signature
+        const sigRes = await WorkersApi.createEvidenceVideoSignature({
+          fileName: filename,
+          mimeType: 'video/mp4',
+          fileSize: asset.fileSize || 5 * 1024 * 1024,
+        });
+
+        const sigData = sigRes.data;
+        if (!sigData || !sigData.uploadUrl) {
+          throw new Error('Không thể khởi tạo chữ ký tải video');
+        }
+
+        const cloudFormData = new FormData();
+        cloudFormData.append('file', {
+          uri,
+          name: filename,
+          type: mimeType,
+        } as any);
+        cloudFormData.append('api_key', sigData.apiKey);
+        cloudFormData.append('timestamp', String(sigData.timestamp));
+        cloudFormData.append('signature', sigData.signature);
+        cloudFormData.append('public_id', sigData.publicId);
+        cloudFormData.append('folder', sigData.folder);
+
+        const cloudRes = await fetch(sigData.uploadUrl, {
+          method: 'POST',
+          body: cloudFormData,
+        });
+
+        if (!cloudRes.ok) {
+          throw new Error(`Upload video lên Cloudinary thất bại (HTTP ${cloudRes.status})`);
+        }
+
+        const cloudJson = await cloudRes.json();
+        remoteUrl = cloudJson.secure_url || cloudJson.url;
+      }
+      else {
+        // Image upload via backend evidence endpoint
+        const formData = new FormData();
+        formData.append('file', {
+          uri,
+          name: filename,
+          type: mimeType,
+        } as any);
+
+        const res = await WorkersApi.uploadEvidenceFile(formData);
+        remoteUrl = res.data?.url;
+      }
+
+      if (!remoteUrl || (!remoteUrl.startsWith('http://') && !remoteUrl.startsWith('https://'))) {
+        throw new Error('Đường dẫn tệp từ máy chủ không hợp lệ');
+      }
+
       setEvidenceList(prev => [
         ...prev,
         {
           id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          url: uploadedUrl,
-          fileType: res.data?.fileType || fileType,
+          url: remoteUrl,
+          fileType,
           name: filename,
         },
       ]);
     }
     catch (err: any) {
-      console.warn('[REGISTER SERVICE] Upload file thất bại, lưu tệp cục bộ:', err);
-      setEvidenceList(prev => [
-        ...prev,
-        {
-          id: `ev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          url: uri,
-          fileType,
-          name: filename,
-        },
-      ]);
-      Alert.alert('Đã đính kèm tệp', 'Tệp đã được chọn và chuẩn bị gửi lên hệ thống cùng hồ sơ.');
+      console.warn('[REGISTER SERVICE] Upload file thất bại:', err);
+      Alert.alert(
+        'Tải tệp thất bại',
+        `Không thể tải tệp "${filename}" lên máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.`,
+      );
     }
     finally {
       setIsUploadingFile(false);
@@ -501,6 +542,17 @@ export function WorkerRegisterServiceScreen() {
       Alert.alert(
         'Cần minh chứng năng lực',
         'Vui lòng tải lên ít nhất 1 hình ảnh hoặc video minh chứng tay nghề/đồ nghề để Admin kiểm duyệt.',
+      );
+      return;
+    }
+
+    const invalidEvidence = evidenceList.some(
+      e => !e.url.startsWith('http://') && !e.url.startsWith('https://'),
+    );
+    if (invalidEvidence) {
+      Alert.alert(
+        'Tệp minh chứng không hợp lệ',
+        'Một số tệp chưa được tải lên máy chủ thành công (chứa đường dẫn cục bộ). Vui lòng xóa và tải lại.',
       );
       return;
     }
