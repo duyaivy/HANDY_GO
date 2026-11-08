@@ -693,6 +693,7 @@ export default function OrderManagement() {
       {/* MODAL CHI TIẾT */}
       <OrderDetailModal
         key={selectedOrder?.id ?? "closed"}
+        hasNestedModalOpen={Boolean(selectedCustomerId || selectedWorkerId)}
         order={selectedOrder}
         detail={detailQuery.data ?? null}
         history={history}
