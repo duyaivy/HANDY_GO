@@ -30,7 +30,7 @@ export function CustomerProfileDetailScreen({ onBack }: CustomerProfileDetailScr
     if (onBack) {
       onBack();
     }
-    else if (router.canGoBack()) {
+    else if (typeof router.canGoBack === 'function' ? router.canGoBack() : typeof router.back === 'function') {
       router.back();
     }
     else {
@@ -54,6 +54,7 @@ export function CustomerProfileDetailScreen({ onBack }: CustomerProfileDetailScr
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Quay lại"
+            testID="app-bar-back-btn"
             onPress={handleBack}
             className="absolute top-1 left-4 size-10 items-center justify-center rounded-full active:bg-neutral-200 dark:active:bg-neutral-800"
           >
