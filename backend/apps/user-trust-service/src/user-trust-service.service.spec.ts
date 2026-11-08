@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
+  ConflictException,
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
@@ -1260,10 +1261,22 @@ describe('UserTrustServiceService', () => {
       });
 
       it('returns existing registration when idempotencyKey matches (Idempotent update)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
         dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
           id: 'reg-existing-idempotent',
+          workerProfileId,
           status: 'pending',
           idempotencyKey: 'idem-update-key-123',
+          categoryIds: [categoryId],
+          services: [{ serviceId }],
+          serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+          evidenceFiles: [
+            { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' },
+          ],
         });
 
         const res = await service.updateWorkerServiceRegistration(
@@ -1281,11 +1294,24 @@ describe('UserTrustServiceService', () => {
     });
 
     describe('idempotency in submitWorkerServiceRegistration', () => {
-      it('returns existing record when idempotencyKey matches on submit', async () => {
+      it('returns existing record when idempotencyKey and payload match for same worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
         dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
           id: 'reg-existing-submit',
+          workerProfileId,
           status: 'pending',
           idempotencyKey: 'idem-submit-key-123',
+          categoryIds: [categoryId],
+          services: [{ serviceId }],
+          serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+          evidenceFiles: [
+            { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' },
+          ],
         });
 
         const res = await service.submitWorkerServiceRegistration(
@@ -1298,6 +1324,62 @@ describe('UserTrustServiceService', () => {
         expect(res.message).toContain('Idempotent');
         expect(res.data.id).toBe('reg-existing-submit');
         expect(dbMock.workerServiceRegistration.create).not.toHaveBeenCalled();
+      });
+
+      it('throws ConflictException if idempotencyKey belongs to a different worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-other-worker',
+          workerProfileId: 'wp-other-worker',
+          status: 'pending',
+          idempotencyKey: 'idem-submit-key-123',
+          categoryIds: [categoryId],
+          services: [{ serviceId }],
+          serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+          evidenceFiles: [
+            { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' },
+          ],
+        });
+
+        await expect(
+          service.submitWorkerServiceRegistration(
+            workerUserId,
+            validDto,
+            'idem-submit-key-123',
+          ),
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('throws ConflictException if same idempotencyKey is used with different payload', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-same-worker',
+          workerProfileId,
+          status: 'pending',
+          idempotencyKey: 'idem-submit-key-123',
+          categoryIds: ['other-cat-id'],
+          services: [{ serviceId: 'other-service-id' }],
+          serviceArea: { address: 'Hà Nội' },
+          evidenceFiles: [],
+        });
+
+        await expect(
+          service.submitWorkerServiceRegistration(
+            workerUserId,
+            validDto,
+            'idem-submit-key-123',
+          ),
+        ).rejects.toThrow(ConflictException);
       });
 
       it('handles P2002 race condition on concurrent duplicate submit', async () => {
@@ -1323,8 +1405,17 @@ describe('UserTrustServiceService', () => {
           .mockResolvedValueOnce(null) // initial check
           .mockResolvedValueOnce({
             id: 'reg-race-winner',
+            workerProfileId,
             status: 'pending',
             idempotencyKey: 'idem-race-key',
+            categoryIds: [categoryId],
+            services: [{ serviceId }],
+            serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+            evidenceFiles: [
+              {
+                url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              },
+            ],
           }); // check after P2002
 
         dbMock.workerServiceRegistration.findFirst.mockResolvedValue(null);

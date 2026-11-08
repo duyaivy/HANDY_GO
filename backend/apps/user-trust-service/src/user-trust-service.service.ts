@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   HttpStatus,
   ForbiddenException,
   Injectable,
@@ -34,6 +35,56 @@ function maskIdNumber(idStr?: string | null): string {
   const end = clean.slice(-3);
   const stars = '*'.repeat(Math.max(3, clean.length - 6));
   return `${start}${stars}${end}`;
+}
+
+function isRegistrationPayloadMatch(
+  existing: any,
+  dto: SubmitWorkerRegistrationDto,
+): boolean {
+  if (!existing || !dto) return false;
+  try {
+    const existingCatIds = Array.isArray(existing.categoryIds)
+      ? [...existing.categoryIds].map(String).sort()
+      : [];
+    const dtoCatIds = Array.isArray(dto.categoryIds)
+      ? [...dto.categoryIds].map(String).sort()
+      : [];
+    if (JSON.stringify(existingCatIds) !== JSON.stringify(dtoCatIds)) {
+      return false;
+    }
+
+    const existingServiceIds = Array.isArray(existing.services)
+      ? existing.services.map((s: any) => String(s?.serviceId || '')).sort()
+      : [];
+    const dtoServiceIds = Array.isArray(dto.services)
+      ? dto.services.map((s: any) => String(s?.serviceId || '')).sort()
+      : [];
+    if (JSON.stringify(existingServiceIds) !== JSON.stringify(dtoServiceIds)) {
+      return false;
+    }
+
+    const existingAddr = (existing.serviceArea?.address || '')
+      .trim()
+      .toLowerCase();
+    const dtoAddr = (dto.serviceArea?.address || '').trim().toLowerCase();
+    if (existingAddr !== dtoAddr) {
+      return false;
+    }
+
+    const existingEvidence = Array.isArray(existing.evidenceFiles)
+      ? existing.evidenceFiles.map((e: any) => String(e?.url || '')).sort()
+      : [];
+    const dtoEvidence = Array.isArray(dto.evidenceFiles)
+      ? dto.evidenceFiles.map((e: any) => String(e?.url || '')).sort()
+      : [];
+    if (JSON.stringify(existingEvidence) !== JSON.stringify(dtoEvidence)) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export interface UserRegisteredData {
@@ -1859,20 +1910,6 @@ export class UserTrustServiceService {
   ) {
     const resolvedKey = idempotencyKey || dto.idempotencyKey;
 
-    if (resolvedKey) {
-      const existing = await this.db.workerServiceRegistration.findUnique({
-        where: { idempotencyKey: resolvedKey },
-      });
-      if (existing) {
-        return {
-          statusCode: HttpStatus.OK,
-          message:
-            'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
-          data: existing,
-        };
-      }
-    }
-
     let workerProfile = await this.db.workerProfile.findUnique({
       where: { userId },
     });
@@ -1887,6 +1924,30 @@ export class UserTrustServiceService {
           updatedAt: new Date(),
         },
       });
+    }
+
+    if (resolvedKey) {
+      const existing = await this.db.workerServiceRegistration.findUnique({
+        where: { idempotencyKey: resolvedKey },
+      });
+      if (existing) {
+        if (existing.workerProfileId !== workerProfile.id) {
+          throw new ConflictException(
+            'Idempotency-Key đã được sử dụng bởi một tài khoản khác',
+          );
+        }
+        if (!isRegistrationPayloadMatch(existing, dto)) {
+          throw new ConflictException(
+            'Idempotency-Key đã được sử dụng với nội dung yêu cầu khác (Payload conflict)',
+          );
+        }
+        return {
+          statusCode: HttpStatus.OK,
+          message:
+            'Đơn đăng ký dịch vụ đã được tiếp nhận trước đó (Idempotent)',
+          data: existing,
+        };
+      }
     }
 
     if (!dto.evidenceFiles || dto.evidenceFiles.length === 0) {
@@ -1955,6 +2016,16 @@ export class UserTrustServiceService {
             where: { idempotencyKey: resolvedKey },
           });
           if (duplicate) {
+            if (duplicate.workerProfileId !== workerProfile.id) {
+              throw new ConflictException(
+                'Idempotency-Key đã được sử dụng bởi một tài khoản khác',
+              );
+            }
+            if (!isRegistrationPayloadMatch(duplicate, dto)) {
+              throw new ConflictException(
+                'Idempotency-Key đã được sử dụng với nội dung yêu cầu khác (Payload conflict)',
+              );
+            }
             return {
               statusCode: HttpStatus.OK,
               message:
@@ -1994,11 +2065,29 @@ export class UserTrustServiceService {
   ) {
     const resolvedKey = idempotencyKey || dto.idempotencyKey;
 
+    const workerProfile = await this.db.workerProfile.findUnique({
+      where: { userId },
+    });
+
+    if (!workerProfile) {
+      throw new NotFoundException('Không tìm thấy hồ sơ thợ của bạn');
+    }
+
     if (resolvedKey) {
       const existing = await this.db.workerServiceRegistration.findUnique({
         where: { idempotencyKey: resolvedKey },
       });
       if (existing) {
+        if (existing.workerProfileId !== workerProfile.id) {
+          throw new ConflictException(
+            'Idempotency-Key đã được sử dụng bởi một tài khoản khác',
+          );
+        }
+        if (!isRegistrationPayloadMatch(existing, dto)) {
+          throw new ConflictException(
+            'Idempotency-Key đã được sử dụng với nội dung yêu cầu khác (Payload conflict)',
+          );
+        }
         return {
           statusCode: HttpStatus.OK,
           message:
@@ -2006,14 +2095,6 @@ export class UserTrustServiceService {
           data: existing,
         };
       }
-    }
-
-    const workerProfile = await this.db.workerProfile.findUnique({
-      where: { userId },
-    });
-
-    if (!workerProfile) {
-      throw new NotFoundException('Không tìm thấy hồ sơ thợ của bạn');
     }
 
     const registration = await this.db.workerServiceRegistration.findUnique({
@@ -2090,6 +2171,16 @@ export class UserTrustServiceService {
             where: { idempotencyKey: resolvedKey },
           });
           if (duplicate) {
+            if (duplicate.workerProfileId !== workerProfile.id) {
+              throw new ConflictException(
+                'Idempotency-Key đã được sử dụng bởi một tài khoản khác',
+              );
+            }
+            if (!isRegistrationPayloadMatch(duplicate, dto)) {
+              throw new ConflictException(
+                'Idempotency-Key đã được sử dụng với nội dung yêu cầu khác (Payload conflict)',
+              );
+            }
             return {
               statusCode: HttpStatus.OK,
               message:
