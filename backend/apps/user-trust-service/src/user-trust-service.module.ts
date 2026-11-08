@@ -12,6 +12,7 @@ import { KycModule } from './kyc/kyc.module.js';
 import { WorkersModule } from './workers/index.js';
 
 import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
+import { CatalogClient } from './clients/catalog.client.js';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { InternalServiceGuard } from './common/guards/internal-service.guard.js'
     WorkersModule,
   ],
   controllers: [UserTrustServiceController],
-  providers: [UserTrustServiceService, InternalServiceGuard],
-  exports: [UserTrustServiceService, InternalServiceGuard],
+  providers: [UserTrustServiceService, InternalServiceGuard, CatalogClient],
+  exports: [UserTrustServiceService, InternalServiceGuard, CatalogClient],
 })
 export class UserTrustServiceModule {}

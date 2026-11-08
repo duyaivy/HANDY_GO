@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
@@ -21,6 +22,7 @@ import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dt
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
 import { Prisma } from '@prisma/user-trust-client';
+import { CatalogClient } from './clients/catalog.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -70,6 +72,8 @@ export class UserTrustServiceService {
     private readonly rabbitmq?: RabbitMQService,
     @Optional()
     private readonly cloudinaryService?: CloudinaryService,
+    @Optional()
+    private readonly catalogClient?: CatalogClient,
   ) {}
 
   /**
@@ -1803,28 +1807,14 @@ export class UserTrustServiceService {
 
     const serviceIds = [...new Set(services.map((s) => s.serviceId))];
 
-    // Xác thực danh mục và dịch vụ từ catalog_service
-    const catalogServices = await this.db.$queryRaw<
-      Array<{
-        id: string;
-        name: string;
-        categoryId: string;
-        categoryName: string;
-        categoryIsActive: boolean;
-        isActive: boolean;
-      }>
-    >`
-      SELECT 
-        s.id, 
-        s.name, 
-        s.category_id as "categoryId", 
-        c.name as "categoryName", 
-        c.is_active as "categoryIsActive", 
-        s.is_active as "isActive"
-      FROM catalog_service.services s
-      JOIN catalog_service.categories c ON c.id = s.category_id
-      WHERE s.id = ANY(${serviceIds}::uuid[])
-    `;
+    if (!this.catalogClient) {
+      throw new ServiceUnavailableException(
+        'Catalog client is not configured or unavailable',
+      );
+    }
+
+    // Xác thực danh mục và dịch vụ từ Catalog Service qua HTTP Client thay vì truy vấn trực tiếp schema DB
+    const catalogServices = await this.catalogClient.getServices(serviceIds);
 
     if (catalogServices.length !== serviceIds.length) {
       throw new BadRequestException(

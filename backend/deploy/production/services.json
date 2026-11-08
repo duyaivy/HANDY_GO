@@ -162,7 +162,8 @@
       "migration_order": 0,
       "url_env": "CATALOG_SERVICE_URL",
       "http_callers": [
-        "api-gateway"
+        "api-gateway",
+        "user-trust-service"
       ],
       "wireguard_http": true
     }

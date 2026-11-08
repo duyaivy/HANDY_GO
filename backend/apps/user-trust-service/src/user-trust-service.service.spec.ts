@@ -1,13 +1,19 @@
 import { Test, type TestingModule } from '@nestjs/testing';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import { UserTrustServiceService } from './user-trust-service.service.js';
+import { CatalogClient } from './clients/catalog.client.js';
 
 describe('UserTrustServiceService', () => {
   let service: UserTrustServiceService;
   let dbMock: any;
+  let catalogClientMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -76,10 +82,16 @@ describe('UserTrustServiceService', () => {
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
 
+    catalogClientMock = {
+      getService: vi.fn(),
+      getServices: vi.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UserTrustServiceService,
         { provide: UserTrustPrismaService, useValue: dbMock },
+        { provide: CatalogClient, useValue: catalogClientMock },
       ],
     }).compile();
 
@@ -872,7 +884,7 @@ describe('UserTrustServiceService', () => {
         status: 'draft',
       });
 
-      dbMock.$queryRaw.mockResolvedValue([
+      catalogClientMock.getServices.mockResolvedValue([
         {
           id: serviceId,
           name: 'Vệ sinh máy lạnh',
@@ -902,11 +914,26 @@ describe('UserTrustServiceService', () => {
         userId: workerUserId,
       });
 
-      dbMock.$queryRaw.mockResolvedValue([]); // No catalog service found
+      catalogClientMock.getServices.mockResolvedValue([]); // No catalog service found
 
       await expect(
         service.submitWorkerServiceRegistration(workerUserId, validDto),
       ).rejects.toThrow('Một hoặc nhiều dịch vụ đã chọn không tồn tại');
+    });
+
+    it('submitWorkerServiceRegistration throws ServiceUnavailableException if catalog service fails', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      catalogClientMock.getServices.mockRejectedValue(
+        new ServiceUnavailableException('Catalog unavailable'),
+      );
+
+      await expect(
+        service.submitWorkerServiceRegistration(workerUserId, validDto),
+      ).rejects.toThrow(ServiceUnavailableException);
     });
 
     it('getMyServiceRegistrations returns list of registrations and filters out cancelled ones', async () => {
@@ -1144,7 +1171,7 @@ describe('UserTrustServiceService', () => {
           status: 'pending',
         });
 
-        dbMock.$queryRaw.mockResolvedValue([
+        catalogClientMock.getServices.mockResolvedValue([
           {
             id: serviceId,
             name: 'Vệ sinh máy lạnh',
@@ -1183,7 +1210,7 @@ describe('UserTrustServiceService', () => {
           rejectionReason: 'Ảnh mờ',
         });
 
-        dbMock.$queryRaw.mockResolvedValue([
+        catalogClientMock.getServices.mockResolvedValue([
           {
             id: serviceId,
             name: 'Vệ sinh máy lạnh',
@@ -1280,7 +1307,7 @@ describe('UserTrustServiceService', () => {
           status: 'draft',
         });
 
-        dbMock.$queryRaw.mockResolvedValue([
+        catalogClientMock.getServices.mockResolvedValue([
           {
             id: serviceId,
             name: 'Vệ sinh máy lạnh',
