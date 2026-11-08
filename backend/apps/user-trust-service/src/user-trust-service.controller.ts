@@ -551,7 +551,13 @@ export class UserTrustServiceController {
   @ApiResponse({ status: 200, description: 'Khởi tạo chữ ký thành công' })
   @ApiResponse({ status: 400, description: 'Thông số video không hợp lệ' })
   async createEvidenceVideoSignature(
-    @Body() dto: { mimeType: string; fileSize: number },
+    @Body()
+    dto: {
+      fileName?: string;
+      mimeType: string;
+      fileSize: number;
+      checksumSha256?: string;
+    },
   ): Promise<unknown> {
     return this.userTrustService.createEvidenceVideoSignature(dto);
   }

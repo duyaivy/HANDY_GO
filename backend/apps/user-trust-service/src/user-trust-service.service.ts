@@ -2617,14 +2617,21 @@ export class UserTrustServiceService {
    * Khởi tạo chữ ký direct upload video lên Cloudinary
    */
   async createEvidenceVideoSignature(dto: {
+    fileName?: string;
     mimeType: string;
     fileSize: number;
+    checksumSha256?: string;
   }) {
     if (!this.cloudinaryService) {
       throw new BadRequestException('Dịch vụ Cloudinary chưa sẵn sàng');
     }
     const signature =
-      await this.cloudinaryService.createVideoUploadSignature(dto);
+      await this.cloudinaryService.createVideoUploadSignature({
+        fileName: dto.fileName || `evidence-${Date.now()}.mp4`,
+        fileSize: dto.fileSize,
+        mimeType: dto.mimeType,
+        checksumSha256: dto.checksumSha256,
+      });
     return {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký tải lên video thành công',

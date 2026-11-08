@@ -398,7 +398,7 @@ export class LoginFlowService {
     if (!challenge || challenge.expiresAt < now) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
-        ERROR_CODES.INVALID_OTP,
+        ERROR_CODES.OTP_INVALID,
         'Mã OTP không hợp lệ hoặc đã hết hạn',
       );
     }
@@ -406,7 +406,7 @@ export class LoginFlowService {
     if (challenge.attempts >= 5) {
       throw new AppException(
         HttpStatus.TOO_MANY_REQUESTS,
-        ERROR_CODES.TOO_MANY_ATTEMPTS,
+        ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
         'Bạn đã nhập sai OTP quá 5 lần. Vui lòng yêu cầu mã mới.',
       );
     }
@@ -423,7 +423,7 @@ export class LoginFlowService {
       });
       throw new AppException(
         HttpStatus.BAD_REQUEST,
-        ERROR_CODES.INVALID_OTP,
+        ERROR_CODES.OTP_INVALID,
         'Mã OTP không chính xác. Vui lòng kiểm tra lại.',
       );
     }
