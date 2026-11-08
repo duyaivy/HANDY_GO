@@ -2266,8 +2266,12 @@ export class UserTrustServiceService {
       );
     }
 
-    const updated = await this.db.workerServiceRegistration.update({
-      where: { id: registrationId },
+    const updated = await this.db.workerServiceRegistration.updateMany({
+      where: {
+        id: registrationId,
+        workerProfileId: workerProfile.id,
+        status: 'pending',
+      },
       data: {
         status: 'rejected',
         rejectionReason: '[Thợ chủ động hủy yêu cầu]',
@@ -2275,10 +2279,20 @@ export class UserTrustServiceService {
       },
     });
 
+    if (updated.count === 0) {
+      throw new ConflictException(
+        'Đơn đăng ký không còn ở trạng thái chờ duyệt hoặc đã được xử lý',
+      );
+    }
+
+    const current = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+    });
+
     return {
       statusCode: HttpStatus.OK,
       message: 'Hủy đơn đăng ký dịch vụ thành công',
-      data: updated,
+      data: current,
     };
   }
 
@@ -2455,39 +2469,48 @@ export class UserTrustServiceService {
       );
     }
 
+    if (registration.status !== 'pending') {
+      throw new ConflictException(
+        `Đơn đăng ký không ở trạng thái chờ duyệt (trạng thái hiện tại: ${registration.status})`,
+      );
+    }
+
     const now = new Date();
 
-    // Đảm bảo thông tin admin user tồn tại trong bảng users để tránh lỗi foreign key
+    let reviewerId: string | null = null;
     if (adminUserId) {
       const adminExists = await this.db.user.findUnique({
         where: { id: adminUserId },
+        select: { id: true },
       });
-      if (!adminExists) {
-        await this.db.user.create({
-          data: {
-            id: adminUserId,
-            fullName: 'Administrator',
-            status: 'active',
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
+      if (adminExists) {
+        reviewerId = adminUserId;
+      } else {
+        this.logger.warn(
+          `Admin user ${adminUserId} not found in user-trust users table; leaving reviewedByUserId as null`,
+        );
       }
     }
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký
-        await tx.workerServiceRegistration.update({
-          where: { id: registrationId },
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update)
+        const updateResult = await tx.workerServiceRegistration.updateMany({
+          where: { id: registrationId, status: 'pending' },
           data: {
             status: 'approved',
             rejectionReason: null,
-            reviewedByUserId: adminUserId,
+            reviewedByUserId: reviewerId,
             reviewedAt: now,
             updatedAt: now,
           },
         });
+
+        if (updateResult.count === 0) {
+          throw new ConflictException(
+            'Đơn đăng ký đã được xử lý hoặc đã bị hủy bởi thợ',
+          );
+        }
 
         // 2. Kích hoạt/upsert các dịch vụ vào worker_service_offerings
         const services = Array.isArray(registration.services)
@@ -2583,16 +2606,22 @@ export class UserTrustServiceService {
     }
 
     // Từ chối (rejected)
-    await this.db.workerServiceRegistration.update({
-      where: { id: registrationId },
+    const updateResult = await this.db.workerServiceRegistration.updateMany({
+      where: { id: registrationId, status: 'pending' },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
-        reviewedByUserId: adminUserId,
+        reviewedByUserId: reviewerId,
         reviewedAt: now,
         updatedAt: now,
       },
     });
+
+    if (updateResult.count === 0) {
+      throw new ConflictException(
+        'Đơn đăng ký đã được xử lý hoặc đã bị hủy bởi thợ',
+      );
+    }
 
     return {
       statusCode: HttpStatus.OK,

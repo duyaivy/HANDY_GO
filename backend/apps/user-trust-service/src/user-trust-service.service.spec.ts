@@ -71,6 +71,7 @@ describe('UserTrustServiceService', () => {
         count: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       workerServiceOffering: {
         upsert: vi.fn(),
@@ -963,17 +964,20 @@ describe('UserTrustServiceService', () => {
           userId: workerUserId,
         });
 
-        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
-          id: 'reg-to-cancel',
-          workerProfileId,
-          status: 'pending',
-        });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: 'reg-to-cancel',
+            workerProfileId,
+            status: 'pending',
+          })
+          .mockResolvedValueOnce({
+            id: 'reg-to-cancel',
+            workerProfileId,
+            status: 'rejected',
+            rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+          });
 
-        dbMock.workerServiceRegistration.update.mockResolvedValue({
-          id: 'reg-to-cancel',
-          status: 'rejected',
-          rejectionReason: '[Thợ chủ động hủy yêu cầu]',
-        });
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
 
         const res = await service.cancelWorkerServiceRegistration(
           workerUserId,
@@ -982,13 +986,36 @@ describe('UserTrustServiceService', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.message).toBe('Hủy đơn đăng ký dịch vụ thành công');
-        expect(dbMock.workerServiceRegistration.update).toHaveBeenCalledWith({
-          where: { id: 'reg-to-cancel' },
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'reg-to-cancel',
+            workerProfileId,
+            status: 'pending',
+          },
           data: expect.objectContaining({
             status: 'rejected',
             rejectionReason: '[Thợ chủ động hủy yêu cầu]',
           }),
         });
+      });
+
+      it('throws ConflictException if concurrent cancel or review occurs (updateMany count 0)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-to-cancel',
+          workerProfileId,
+          status: 'pending',
+        });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.cancelWorkerServiceRegistration(workerUserId, 'reg-to-cancel'),
+        ).rejects.toThrow(ConflictException);
       });
 
       it('throws BadRequestException if registration status is not pending', async () => {
@@ -1099,6 +1126,7 @@ describe('UserTrustServiceService', () => {
       dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
         id: 'reg-1',
         workerProfileId,
+        status: 'pending',
         services: [
           { serviceId, serviceName: 'Vệ sinh máy lạnh', title: 'Vệ sinh máy lạnh' },
         ],
@@ -1113,7 +1141,7 @@ describe('UserTrustServiceService', () => {
         },
       });
 
-      dbMock.workerServiceRegistration.update.mockResolvedValue({ id: 'reg-1', status: 'approved' });
+      dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
       dbMock.workerServiceOffering.upsert.mockResolvedValue({});
       dbMock.workerServiceArea.updateMany.mockResolvedValue({ count: 1 });
       dbMock.workerServiceArea.create.mockResolvedValue({});
@@ -1133,14 +1161,11 @@ describe('UserTrustServiceService', () => {
       dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
         id: 'reg-1',
         workerProfileId,
+        status: 'pending',
         workerProfile: { status: 'draft' },
       });
 
-      dbMock.workerServiceRegistration.update.mockResolvedValue({
-        id: 'reg-1',
-        status: 'rejected',
-        rejectionReason: 'Ảnh mờ',
-      });
+      dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
 
       const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'rejected',
@@ -1150,6 +1175,40 @@ describe('UserTrustServiceService', () => {
       expect(res.statusCode).toBe(200);
       expect(res.data.status).toBe('rejected');
       expect(res.data.reason).toBe('Ảnh mờ');
+    });
+
+    it('throws ConflictException if reviewing a registration that is not pending', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        status: 'approved',
+        workerProfile: { status: 'verified' },
+      });
+
+      await expect(
+        service.reviewServiceRegistration('admin-1', 'reg-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('throws ConflictException if concurrent review or cancellation occurs during approve (updateMany count 0)', async () => {
+      dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+        id: 'reg-1',
+        workerProfileId,
+        status: 'pending',
+        services: [],
+        serviceArea: null,
+        workerProfile: { status: 'draft' },
+      });
+
+      dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.reviewServiceRegistration('admin-1', 'reg-1', {
+          decision: 'approved',
+        }),
+      ).rejects.toThrow(ConflictException);
     });
 
     it('geocodeAddress returns coordinates for address', async () => {
