@@ -24,7 +24,6 @@
     "prisma:generate": "pnpm run prisma:generate:auth && pnpm run prisma:generate:user-trust && pnpm run prisma:generate:catalog && pnpm run prisma:generate:order && pnpm run prisma:generate:bidding && pnpm run prisma:generate:notification && pnpm run prisma:generate:matching && pnpm run prisma:generate:wallet && pnpm run prisma:generate:payment && pnpm run prisma:generate:tracking",
     "prisma:generate:wallet": "prisma generate --schema=apps/wallet-service/prisma/schema.prisma",
     "prisma:generate:tracking": "prisma generate --schema=apps/tracking-service/prisma/schema.prisma --config=apps/tracking-service/prisma/prisma.config.ts",
-   
     "prisma:migrate:auth": "prisma migrate deploy --schema=apps/auth-service/prisma/schema.prisma --config=apps/auth-service/prisma/prisma.config.ts",
     "prisma:migrate:user-trust": "prisma migrate deploy --schema=apps/user-trust-service/prisma/schema.prisma --config=apps/user-trust-service/prisma/prisma.config.ts",
     "prisma:migrate:catalog": "prisma migrate deploy --schema=apps/catalog-service/prisma/schema.prisma --config=apps/catalog-service/prisma.config.ts",
@@ -126,7 +125,7 @@
     "@types/ioredis": "^5.0.0",
     "@types/jest": "^30.0.0",
     "@types/multer": "^2.3.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^24.19.2",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.0.0",
