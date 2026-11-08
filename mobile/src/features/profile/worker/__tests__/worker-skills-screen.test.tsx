@@ -372,6 +372,79 @@ describe('workerSkillsScreen', () => {
       // 2. Đơn do thợ chủ động hủy PHẢI BỊ ẨN HOÀN TOÀN
       expect(screen.queryByText('Sửa ống nước rò rỉ')).toBeNull();
       expect(screen.queryByText('Đã hủy')).toBeNull();
+
+      // 3. Đơn bị từ chối được phép hiển thị nút Chỉnh sửa
+      expect(screen.getByTestId('edit-registration-btn-reg-rejected-admin')).toBeOnTheScreen();
+    });
+  });
+
+  it('does not render edit button for approved registrations', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-101',
+          userId: 'worker-101',
+          status: 'verified',
+          averageRating: 5,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [
+        {
+          id: 'reg-approved-uuid',
+          workerProfileId: 'wp-101',
+          status: 'approved',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 'svc-dieu-hoa',
+              serviceName: 'Lắp đặt điều hòa',
+              title: 'Lắp đặt điều hòa treo tường',
+              experienceYears: 2,
+            },
+          ],
+          evidenceFiles: [],
+        },
+      ],
+    });
+
+    render(<WorkerSkillsScreen />);
+    fireEvent.press(screen.getByTestId('tab-registrations'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Đã duyệt')).toBeOnTheScreen();
+      expect(screen.queryByTestId('edit-registration-btn-reg-approved-uuid')).toBeNull();
+      expect(screen.queryByTestId('cancel-registration-btn-reg-approved-uuid')).toBeNull();
     });
   });
 });

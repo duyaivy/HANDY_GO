@@ -99,6 +99,10 @@ export function WorkerSkillsScreen() {
 
   const handleEditRegistration = React.useCallback(
     (reg: WorkerServiceRegistrationItem) => {
+      if (reg.status === 'approved') {
+        Alert.alert('Thông báo', 'Đơn đăng ký đã được phê duyệt không thể chỉnh sửa.');
+        return;
+      }
       router.push({
         pathname: RouteNames.WORKER_SKILLS_REGISTER as any,
         params: {
@@ -592,6 +596,7 @@ export function WorkerSkillsScreen() {
                       const isCancelled
                         = reg.status === 'rejected'
                           && Boolean(reg.rejectionReason?.includes('hủy'));
+                      const canEdit = isPending || (reg.status === 'rejected' && !isCancelled);
 
                       const badgeClass = isApproved
                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
@@ -682,33 +687,37 @@ export function WorkerSkillsScreen() {
                           )}
 
                           {/* Action Buttons: Chỉnh sửa & Hủy yêu cầu */}
-                          <View className="mt-3.5 flex-row items-center gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                            {/* Nút Chỉnh sửa dịch vụ */}
-                            <Pressable
-                              testID={`edit-registration-btn-${reg.id}`}
-                              onPress={() => handleEditRegistration(reg)}
-                              className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/70 py-2 active:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40"
-                            >
-                              <EditIcon size={14} color="#2563EB" />
-                              <Text className="text-xs font-bold text-blue-700 dark:text-blue-300">
-                                Chỉnh sửa
-                              </Text>
-                            </Pressable>
+                          {(canEdit || isPending) && (
+                            <View className="mt-3.5 flex-row items-center gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                              {/* Nút Chỉnh sửa dịch vụ (chỉ pending hoặc rejected) */}
+                              {canEdit && (
+                                <Pressable
+                                  testID={`edit-registration-btn-${reg.id}`}
+                                  onPress={() => handleEditRegistration(reg)}
+                                  className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50/70 py-2 active:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40"
+                                >
+                                  <EditIcon size={14} color="#2563EB" />
+                                  <Text className="text-xs font-bold text-blue-700 dark:text-blue-300">
+                                    Chỉnh sửa
+                                  </Text>
+                                </Pressable>
+                              )}
 
-                            {/* Nút Hủy yêu cầu (chỉ khi pending) */}
-                            {isPending && (
-                              <Pressable
-                                testID={`cancel-registration-btn-${reg.id}`}
-                                onPress={() => handleCancelRegistration(reg.id, serviceTitle)}
-                                className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 py-2 active:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40"
-                              >
-                                <CloseIcon size={14} color="#DC2626" />
-                                <Text className="text-xs font-bold text-red-700 dark:text-red-400">
-                                  Hủy yêu cầu
-                                </Text>
-                              </Pressable>
-                            )}
-                          </View>
+                              {/* Nút Hủy yêu cầu (chỉ khi pending) */}
+                              {isPending && (
+                                <Pressable
+                                  testID={`cancel-registration-btn-${reg.id}`}
+                                  onPress={() => handleCancelRegistration(reg.id, serviceTitle)}
+                                  className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50/70 py-2 active:bg-red-100 dark:border-red-900/60 dark:bg-red-950/40"
+                                >
+                                  <CloseIcon size={14} color="#DC2626" />
+                                  <Text className="text-xs font-bold text-red-700 dark:text-red-400">
+                                    Hủy yêu cầu
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </View>
+                          )}
 
                           <View className="mt-2 flex-row items-center justify-between text-[10px] text-neutral-400">
                             <Text className="text-[10px] text-neutral-400">
