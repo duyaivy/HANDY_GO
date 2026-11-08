@@ -3,4 +3,3 @@ import { WorkerRegisterServiceScreen } from '@/features/profile/worker/screens/w
 export default function WorkerSkillsRegisterRoute() {
   return <WorkerRegisterServiceScreen />;
 }
-

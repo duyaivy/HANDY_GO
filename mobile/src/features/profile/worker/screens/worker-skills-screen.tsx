@@ -180,7 +180,7 @@ export function WorkerSkillsScreen() {
   // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
   const registrations: WorkerServiceRegistrationItem[] = React.useMemo(() => {
     return (registrationsQuery.data ?? []).filter(
-      (reg) => !reg.rejectionReason?.includes('hủy'),
+      reg => !reg.rejectionReason?.includes('hủy'),
     );
   }, [registrationsQuery.data]);
 
@@ -563,9 +563,9 @@ export function WorkerSkillsScreen() {
                     {registrations.map((reg) => {
                       const isApproved = reg.status === 'approved';
                       const isPending = reg.status === 'pending';
-                      const isCancelled =
-                        reg.status === 'rejected' &&
-                        Boolean(reg.rejectionReason?.includes('hủy'));
+                      const isCancelled
+                        = reg.status === 'rejected'
+                          && Boolean(reg.rejectionReason?.includes('hủy'));
 
                       const badgeClass = isApproved
                         ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'

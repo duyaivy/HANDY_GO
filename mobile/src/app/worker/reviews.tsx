@@ -3,4 +3,3 @@ import { WorkerReviewsScreen } from '@/features/profile/worker/screens/worker-re
 export default function WorkerReviewsRoute() {
   return <WorkerReviewsScreen />;
 }
-

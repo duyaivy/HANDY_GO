@@ -612,8 +612,8 @@ export function WorkerRegisterServiceScreen() {
       return;
     }
 
-    const idempotencyKey =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    const idempotencyKey
+      = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
         : `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
