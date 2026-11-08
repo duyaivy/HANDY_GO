@@ -1,8 +1,5 @@
-import OrderTable from '@/feature/orders/components/order-table';
-import React from 'react';
+import OrderManagement from "@/feature/orders/components/order-management";
 
-
-// Next.js Route: /manage/orders (Booking Management)
-export default function ManageOrdersPage() {
-  return <OrderTable />;
+export default function OrdersPage() {
+  return <OrderManagement />;
 }
