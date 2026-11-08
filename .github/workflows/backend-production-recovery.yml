@@ -9,7 +9,7 @@ on:
         description: 'Inspect only, or execute the verified safe recovery plan'
         required: true
         type: choice
-        options: [inspect, recover]
+        options: [inspect, recover, abort-untouched]
         default: inspect
       original_run_id:
         description: 'Original Backend production Run ID'
@@ -28,7 +28,7 @@ on:
         required: true
         type: string
       confirm:
-        description: 'Recover mode requires RECOVER_PRODUCTION; unsafe states remain blocked'
+        description: 'recover: RECOVER_PRODUCTION; abort-untouched: ABORT_UNTOUCHED_SNAPSHOT (previous remains unverified)'
         required: false
         type: string
 
@@ -76,7 +76,7 @@ jobs:
           [[ "$ORIGINAL_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
           [[ "$TRANSACTION" =~ ^prod-[0-9]{8}-${ORIGINAL_RUN_ID}-a${ORIGINAL_ATTEMPT}$ ]]
           [[ "$TARGET" =~ ^prod-[0-9]{8}-[0-9]+-a[0-9]+$ ]]
-          [[ "$MODE" == inspect || ( "$MODE" == recover && "$CONFIRM" == RECOVER_PRODUCTION ) ]]
+          [[ "$MODE" == inspect || ( "$MODE" == recover && "$CONFIRM" == RECOVER_PRODUCTION ) || ( "$MODE" == abort-untouched && "$CONFIRM" == ABORT_UNTOUCHED_SNAPSHOT ) ]]
           # API metadata only: never download or execute original-run artifacts.
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ORIGINAL_RUN_ID/attempts/$ORIGINAL_ATTEMPT" > "$RUNNER_TEMP/recovery-run.json"
           python3 - <<'PY'
@@ -116,6 +116,7 @@ jobs:
             --transaction "$TRANSACTION" --target "$TARGET"
             --domain "$API_DOMAIN" --output recovery-output)
           if [[ "$MODE" == recover ]]; then args+=(--recover); fi
+          if [[ "$MODE" == abort-untouched ]]; then args+=(--abort-untouched); fi
           python3 deploy/production/recovery.py "${args[@]}" 2>&1 | tee recovery-output/recovery.log
       - name: Summarize recovery outcome
         if: always()

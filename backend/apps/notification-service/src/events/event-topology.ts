@@ -1,3 +1,4 @@
+import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import type { ConfirmChannel } from 'amqplib';
 import { createRabbitMQOptions, RABBITMQ_QUEUES } from '@app/rabbitmq';
 import { NOTIFICATION_EVENTS } from './event-contracts.js';
@@ -13,12 +14,12 @@ export interface EventTransportOptions {
 export function eventTransportOptions(): EventTransportOptions {
   const shared = createRabbitMQOptions(RABBITMQ_QUEUES.NOTIFICATION).options!;
   const prefetch = Number(
-    process.env.NOTIFICATION_EVENT_PREFETCH ?? shared.prefetchCount,
+    optionalValue(process.env.NOTIFICATION_EVENT_PREFETCH) ?? shared.prefetchCount,
   );
   if (!Number.isInteger(prefetch) || prefetch < 1 || prefetch > 50)
     throw new Error('INVALID_NOTIFICATION_EVENT_PREFETCH');
   const queue =
-    process.env.NOTIFICATION_EVENT_QUEUE ??
+    optionalValue(process.env.NOTIFICATION_EVENT_QUEUE) ??
     `${RABBITMQ_QUEUES.NOTIFICATION}.events.v1`;
   if (!/^[a-zA-Z0-9._-]{1,150}$/.test(queue))
     throw new Error('INVALID_NOTIFICATION_EVENT_QUEUE');

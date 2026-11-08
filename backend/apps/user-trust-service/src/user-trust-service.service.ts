@@ -1252,4 +1252,28 @@ export class UserTrustServiceService {
       })),
     };
   }
+
+  async getWorkersBatchSummary(userIds: string[]): Promise<any[]> {
+    if (!userIds || userIds.length === 0) return [];
+    const workers = await this.db.workerProfile.findMany({
+      where: {
+        userId: { in: userIds },
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    return workers.map((w) => ({
+      workerId: w.userId,
+      workerUserId: w.userId,
+      fullName: w.user.fullName,
+      avatarUrl: w.user.avatarUrl,
+      averageRating: Number(w.averageRating || 5.0),
+      ratingCount: w.ratingCount || 0,
+      completedOrderCount: w.completedOrderCount || 0,
+      orderCountTotal: w.orderCountTotal || 0,
+      status: w.status,
+    }));
+  }
 }

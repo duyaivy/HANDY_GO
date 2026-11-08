@@ -1,3 +1,8 @@
+export {
+  type BookingImageItem,
+  BookingImageThumbnail,
+  type BookingImageThumbnailProps,
+} from './components/booking-image-thumbnail';
 export { CustomerBookingScreen, type CustomerBookingScreenProps } from './screens/customer-booking-screen';
 export { CustomerOrderCancelDialog, type CustomerOrderCancelDialogProps } from './screens/customer-order-cancel-dialog';
 export { CustomerOrderDetailScreen, type CustomerOrderDetailScreenProps } from './screens/customer-order-detail-screen';

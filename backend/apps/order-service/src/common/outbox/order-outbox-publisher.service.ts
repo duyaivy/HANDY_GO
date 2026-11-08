@@ -1,3 +1,4 @@
+import { PollBackoff, safeOutboxError } from '@app/common';
 import {
   Injectable,
   Logger,
@@ -14,6 +15,8 @@ export class OrderOutboxPublisherService
   private readonly logger = new Logger(OrderOutboxPublisherService.name);
   private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
+  private readonly backoff = new PollBackoff();
+  private stopped = false;
 
   constructor(
     private readonly repository: OrderOutboxRepository,
@@ -21,6 +24,7 @@ export class OrderOutboxPublisherService
   ) {}
 
   onModuleInit(): void {
+    this.stopped = false;
     // Poll every 3 seconds for pending outbox events
     this.timer = setInterval(() => {
       void this.publishPendingEvents();
@@ -30,6 +34,7 @@ export class OrderOutboxPublisherService
   }
 
   onModuleDestroy(): void {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -41,7 +46,7 @@ export class OrderOutboxPublisherService
   }
 
   async publishPendingEvents(): Promise<number> {
-    if (this.isProcessing) {
+    if (this.isProcessing || this.stopped || !this.backoff.ready()) {
       return 0;
     }
     this.isProcessing = true;
@@ -53,6 +58,7 @@ export class OrderOutboxPublisherService
 
       for (const event of pendingEvents) {
         if (event.status === 'dlq_retry') {
+          let dlqDelivered = false;
           try {
             await this.rabbitmq.emit('handy-go.dlq', {
               failedEventId: event.id,
@@ -63,19 +69,21 @@ export class OrderOutboxPublisherService
               error: event.lastError,
             });
 
+            dlqDelivered = true;
             await this.repository.markFailed(
               event.id,
               'Routing to DLQ completed after retry',
               event.retryCount,
             );
           } catch (dlqErr) {
+            if (dlqDelivered) throw dlqErr;
             this.logger.error(
-              `Retry publishing event ${event.id} to DLQ failed: ${(dlqErr as Error).message}`,
+              `Retry publishing event ${event.id} to DLQ failed: ${safeOutboxError(dlqErr)}`,
             );
             await this.repository.scheduleDlqRetry(
               event.id,
               new Date(Date.now() + 10000),
-              `DLQ retry failed: ${(dlqErr as Error).message}`,
+              `DLQ retry failed: ${safeOutboxError(dlqErr)}`,
               event.retryCount,
             );
           }
@@ -83,18 +91,21 @@ export class OrderOutboxPublisherService
         }
 
         // status === 'pending'
+        let delivered = false;
         try {
           const envelope = this.buildEnvelope(event);
           await this.rabbitmq.emit(event.eventType, envelope);
+          delivered = true;
           await this.repository.markPublished(event.id, new Date());
           publishedCount++;
           this.logger.debug(
             `Published outbox event ${event.eventType} (${event.id})`,
           );
         } catch (error) {
+          if (delivered) throw error;
           const newRetryCount = event.retryCount + 1;
           const errorMessage =
-            (error as Error).message || 'RabbitMQ publish failed';
+            safeOutboxError(error);
           this.logger.error(
             `Error publishing outbox event ${event.id} (attempt ${newRetryCount}): ${errorMessage}`,
           );
@@ -119,7 +130,7 @@ export class OrderOutboxPublisherService
               await this.repository.scheduleDlqRetry(
                 event.id,
                 new Date(Date.now() + 10000),
-                `DLQ routing failed: ${(dlqErr as Error).message}`,
+                `DLQ routing failed: ${safeOutboxError(dlqErr)}`,
                 newRetryCount,
               );
             }
@@ -136,7 +147,12 @@ export class OrderOutboxPublisherService
         }
       }
 
+      this.backoff.reset();
       return publishedCount;
+    } catch (error) {
+      const delay = this.backoff.fail();
+      this.logger.error(`Outbox cycle failed: ${safeOutboxError(error)}; retry in ${delay}ms; check database budget and broker health. Durable events remain pending.`);
+      return 0;
     } finally {
       this.isProcessing = false;
     }

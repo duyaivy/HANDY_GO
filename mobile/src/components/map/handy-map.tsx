@@ -13,10 +13,13 @@ export type HandyCoordinates = {
 
 export type HandyMapRef = {
   flyTo: (coords: HandyCoordinates, zoom?: number) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
 };
 
 export type HandyMapProps = {
   initialCenter?: HandyCoordinates;
+  center?: HandyCoordinates;
   zoomLevel?: number;
   interactive?: boolean;
   showCenterPin?: boolean;
@@ -26,6 +29,12 @@ export type HandyMapProps = {
   onRegionDidChange?: (coords: HandyCoordinates) => void;
   children?: React.ReactNode;
   mapStyle?: string;
+  // Cử chỉ tùy biến nâng cao:
+  panEnabled?: boolean;
+  zoomEnabled?: boolean;
+  rotateEnabled?: boolean;
+  pitchEnabled?: boolean;
+  pinchPanEnabled?: boolean;
 };
 
 // Default center: Hòa Khánh, Liên Chiểu, Đà Nẵng
@@ -37,6 +46,7 @@ const DEFAULT_COORDS: HandyCoordinates = {
 export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObject<HandyMapRef | null> }) {
   const {
     initialCenter = DEFAULT_COORDS,
+    center,
     zoomLevel = 15,
     interactive = true,
     showCenterPin = false,
@@ -46,11 +56,25 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
     onRegionDidChange,
     children,
     mapStyle,
+    panEnabled,
+    zoomEnabled,
+    rotateEnabled,
+    pitchEnabled,
+    pinchPanEnabled,
   } = props;
 
   const { theme } = useUniwind();
   const cameraRef = React.useRef<any>(null);
-  const [coords, setCoords] = React.useState<HandyCoordinates>(initialCenter);
+  const isInternalCameraUpdate = React.useRef(false);
+
+  const targetCenter = center || initialCenter;
+  const [coords, setCoords] = React.useState<HandyCoordinates>(targetCenter);
+
+  const isPan = panEnabled ?? interactive ?? true;
+  const isZoom = zoomEnabled ?? interactive ?? true;
+  const isRotate = rotateEnabled ?? interactive ?? true;
+  const isPitch = pitchEnabled ?? interactive ?? true;
+  const isPinchPan = pinchPanEnabled ?? isPan;
 
   const Mapbox = React.useMemo(() => MapboxService.getMapbox(), []);
 
@@ -58,10 +82,29 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
     MapboxService.init();
   }, []);
 
+  React.useEffect(() => {
+    if (center && cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+      isInternalCameraUpdate.current = true;
+      cameraRef.current.setCamera({
+        centerCoordinate: [center.longitude, center.latitude],
+        zoomLevel,
+        animationDuration: 400,
+      });
+    }
+  }, [center, zoomLevel]);
+
+  const currentZoomRef = React.useRef(zoomLevel);
+
+  React.useEffect(() => {
+    currentZoomRef.current = zoomLevel;
+  }, [zoomLevel]);
+
   React.useImperativeHandle(ref, () => ({
     flyTo: (targetCoords: HandyCoordinates, zoom = zoomLevel) => {
       setCoords(targetCoords);
+      currentZoomRef.current = zoom;
       if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+        isInternalCameraUpdate.current = true;
         cameraRef.current.setCamera({
           centerCoordinate: [targetCoords.longitude, targetCoords.latitude],
           zoomLevel: zoom,
@@ -70,10 +113,65 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         });
       }
     },
+    zoomIn: () => {
+      if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+        isInternalCameraUpdate.current = true;
+        currentZoomRef.current = Math.min((currentZoomRef.current ?? zoomLevel) + 1, 20);
+        cameraRef.current.setCamera({
+          centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+          zoomLevel: currentZoomRef.current,
+          animationDuration: 300,
+        });
+      }
+    },
+    zoomOut: () => {
+      if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+        isInternalCameraUpdate.current = true;
+        currentZoomRef.current = Math.max((currentZoomRef.current ?? zoomLevel) - 1, 3);
+        cameraRef.current.setCamera({
+          centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+          zoomLevel: currentZoomRef.current,
+          animationDuration: 300,
+        });
+      }
+    },
   }));
 
-  const handleRegionDidChange = React.useCallback(
+  const handleCameraChanged = React.useCallback(
     (payload: any) => {
+      if (isInternalCameraUpdate.current) {
+        isInternalCameraUpdate.current = false;
+        return;
+      }
+
+      const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
+      if (typeof newZoom === 'number') {
+        currentZoomRef.current = newZoom;
+      }
+
+      if (panEnabled === false) {
+        let featureCoords = payload?.geometry?.coordinates;
+        if (!featureCoords && Array.isArray(payload?.properties?.center)) {
+          featureCoords = payload.properties.center;
+        }
+
+        if (Array.isArray(featureCoords) && featureCoords.length >= 2) {
+          const [longitude, latitude] = featureCoords;
+          const dist = Math.abs(longitude - targetCenter.longitude) + Math.abs(latitude - targetCenter.latitude);
+          if (dist > 0.00002) {
+            if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+              isInternalCameraUpdate.current = true;
+              cameraRef.current.setCamera({
+                centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+                zoomLevel: currentZoomRef.current,
+                animationDuration: 0,
+              });
+            }
+          }
+        }
+        return;
+      }
+
       if (!onRegionDidChange) {
         return;
       }
@@ -85,7 +183,12 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
 
         if (Array.isArray(featureCoords) && featureCoords.length >= 2) {
           const [longitude, latitude] = featureCoords;
-          if (typeof latitude === 'number' && typeof longitude === 'number' && !Number.isNaN(latitude) && !Number.isNaN(longitude)) {
+          if (
+            typeof latitude === 'number'
+            && typeof longitude === 'number'
+            && !Number.isNaN(latitude)
+            && !Number.isNaN(longitude)
+          ) {
             setCoords({ latitude, longitude });
             onRegionDidChange({ latitude, longitude });
           }
@@ -95,7 +198,44 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
         // Safe fallback
       }
     },
-    [onRegionDidChange],
+    [onRegionDidChange, panEnabled, targetCenter.latitude, targetCenter.longitude],
+  );
+
+  const handleMapIdle = React.useCallback(
+    (payload: any) => {
+      if (isInternalCameraUpdate.current) {
+        isInternalCameraUpdate.current = false;
+        return;
+      }
+
+      const newZoom = payload?.properties?.zoom ?? payload?.properties?.zoomLevel;
+      if (typeof newZoom === 'number') {
+        currentZoomRef.current = newZoom;
+      }
+
+      if (panEnabled === false) {
+        let featureCoords = payload?.geometry?.coordinates;
+        if (!featureCoords && Array.isArray(payload?.properties?.center)) {
+          featureCoords = payload.properties.center;
+        }
+
+        if (Array.isArray(featureCoords) && featureCoords.length >= 2) {
+          const [longitude, latitude] = featureCoords;
+          const dist = Math.abs(longitude - targetCenter.longitude) + Math.abs(latitude - targetCenter.latitude);
+          if (dist > 0.00001) {
+            if (cameraRef.current && typeof cameraRef.current.setCamera === 'function') {
+              isInternalCameraUpdate.current = true;
+              cameraRef.current.setCamera({
+                centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
+                zoomLevel: currentZoomRef.current,
+                animationDuration: 150,
+              });
+            }
+          }
+        }
+      }
+    },
+    [panEnabled, targetCenter.latitude, targetCenter.longitude],
   );
 
   const styleURL = mapStyle || (theme === 'dark' ? MapboxService.styles.dark : MapboxService.styles.street);
@@ -112,20 +252,28 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
               scaleBarEnabled={false}
               logoEnabled={false}
               attributionEnabled={false}
-              scrollEnabled={interactive}
-              pitchEnabled={interactive}
-              rotateEnabled={interactive}
-              zoomEnabled={interactive}
-              onMapIdle={handleRegionDidChange}
-              onCameraChanged={handleRegionDidChange}
-              onRegionDidChange={handleRegionDidChange}
+              scrollEnabled={isPan}
+              pitchEnabled={isPitch}
+              rotateEnabled={isRotate}
+              zoomEnabled={isZoom}
+              gestureSettings={{
+                pinchPanEnabled: isPinchPan,
+                panEnabled: isPan,
+                pinchZoomEnabled: isZoom,
+              }}
+              onRegionDidChange={handleCameraChanged}
+              onMapIdle={handleMapIdle}
+              onCameraChanged={handleCameraChanged}
             >
               <Mapbox.Camera
                 ref={cameraRef}
                 defaultSettings={{
-                  centerCoordinate: [initialCenter.longitude, initialCenter.latitude],
+                  centerCoordinate: [targetCenter.longitude, targetCenter.latitude],
                   zoomLevel,
                 }}
+                {...(panEnabled === false
+                  ? { centerCoordinate: [targetCenter.longitude, targetCenter.latitude] }
+                  : {})}
               />
               {showUserLocation && (
                 <Mapbox.UserLocation visible showsUserHeadingIndicator />
@@ -135,7 +283,7 @@ export function HandyMap({ ref, ...props }: HandyMapProps & { ref?: React.RefObj
           )
         : (
             <FallbackMapView
-              center={coords}
+              center={center || coords}
               isDark={theme === 'dark'}
             />
           )}

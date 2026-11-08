@@ -27,7 +27,7 @@ export class ServiceRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outboxRepo: OrderOutboxRepository,
-  ) {}
+  ) { }
 
   /**
    * Create a new service request in `draft` status.
@@ -54,21 +54,43 @@ export class ServiceRequestsService {
           status: RequestStatus.draft,
           ...(dto.media && dto.media.length > 0
             ? {
-                media: {
-                  createMany: {
-                    data: dto.media.map((m) => ({
-                      mediaType: m.mediaType,
-                      mediaUrl: m.mediaUrl,
-                    })),
-                  },
+              media: {
+                createMany: {
+                  data: dto.media.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                  })),
                 },
-              }
+              },
+            }
             : {}),
         },
         include: {
           media: true,
         },
       });
+
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_SERVICE_REQUEST,
+          aggregateId: created.id,
+          eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_CREATED,
+          eventVersion: 1,
+          payload: {
+            serviceRequestId: created.id,
+            requestId: created.id,
+            requestCode: created.requestCode,
+            customerUserId: created.customerUserId,
+            customerId: created.customerUserId,
+            serviceId: created.serviceId,
+            description: created.description,
+            status: created.status,
+            createdAt:
+              created.createdAt?.toISOString?.() ?? new Date().toISOString(),
+          },
+        },
+        tx,
+      );
 
       this.logger.log(
         `Created draft service request: ${created.id} (${created.requestCode}) for user ${userId}`,
@@ -254,7 +276,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       if (dto.media !== undefined) {
@@ -360,7 +382,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
@@ -449,7 +471,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read request under lock to ensure it hasn't been concurrently published/cancelled
@@ -607,11 +629,11 @@ export class ServiceRequestsService {
     const now = new Date();
     const biddingClosesAt = new Date(
       now.getTime() +
-        ORDER_CONSTANTS.DEFAULT_BIDDING_DURATION_HOURS * 3600 * 1000,
+      ORDER_CONSTANTS.DEFAULT_BIDDING_DURATION_HOURS * 3600 * 1000,
     );
     const selectionExpiresAt = new Date(
       biddingClosesAt.getTime() +
-        ORDER_CONSTANTS.DEFAULT_SELECTION_DURATION_HOURS * 3600 * 1000,
+      ORDER_CONSTANTS.DEFAULT_SELECTION_DURATION_HOURS * 3600 * 1000,
     );
 
     return this.prisma.$transaction(async (tx) => {
@@ -623,7 +645,7 @@ export class ServiceRequestsService {
             WHERE id = ${id}::uuid
             FOR UPDATE
           `;
-        } catch {}
+        } catch { }
       }
 
       // 2. Re-read the latest state after acquiring the lock to prevent TOCTOU race with updateDraft
@@ -799,6 +821,7 @@ export class ServiceRequestsService {
         },
         data: {
           status: RequestStatus.cancelled,
+          cancelledAt: now,
           version: { increment: 1 },
         },
       });

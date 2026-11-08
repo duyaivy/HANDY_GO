@@ -59,15 +59,15 @@ class ReleaseTests(unittest.TestCase):
             'CLOUDINARY_API_SECRET': 'test-api-secret',
         }
         path = self.root / 'shared.env'
-        optional = ('DATABASE_URL_AUTH', 'DATABASE_URL_USER_TRUST', 'DATABASE_URL_CATALOG')
-        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, values['DATABASE_URL'])):
+        optional = tuple(prefix + service.upper().replace('-', '_') for prefix in ('DATABASE_URL_', 'DIRECT_URL_') for services in host.MIGRATIONS.values() for service in services) + ('FIREBASE_SA_BASE64', 'GOOGLE_APPLICATION_CREDENTIALS', 'CLOUDINARY_VIDEO_CHUNK_SIZE_MB', 'NOTIFICATION_EVENT_QUEUE', 'AI_SERVICE_TIMEOUT_MS')
+        for overrides in ({}, dict.fromkeys(optional, ''), dict.fromkeys(optional, '   '), {'DIRECT_URL_AUTH': values['DATABASE_URL']}):
             with self.subTest(overrides=overrides):
                 expected = {**values, **overrides}
                 path.write_text(''.join(f'{key}={value}\n' for key, value in expected.items()))
                 self.assertEqual(host.validate_env(path), expected)
 
         for required in ('DATABASE_URL', 'SMTP_USER'):
-            for replacement in (None, ''):
+            for replacement in (None, '', '   '):
                 with self.subTest(required=required, replacement=replacement):
                     invalid = {**values}
                     if replacement is None:
@@ -189,7 +189,7 @@ class ReleaseTests(unittest.TestCase):
         obj, _ = self.make_coordinator()
         env_path = self.root / 'shared.env'
         template = (PROD / 'env/production.env.example').read_text()
-        env_path.write_text(template.replace('REPLACE_', 'fixture-secret-at-least-thirty-two-characters-')
+        env_path.write_text(template.replace('=false\n', '=true\n').replace('REPLACE_', 'fixture-secret-at-least-thirty-two-characters-')
                            .replace('SMTP_PASS=fixture-secret-at-least-thirty-two-characters-APP_PASSWORD',
                                     'SMTP_PASS=private-smtp-value'))
         evidence_path = self.root / 'evidence.json'
@@ -386,6 +386,20 @@ class ReleaseTests(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertIn('--memory=384m', command)
         self.assertIn('--memory-swap=768m', command)
+
+
+    def test_run_migrations_false_never_stops_or_invokes_prisma(self):
+        obj = host.Host.__new__(host.Host)
+        obj.role, obj.release_id, obj.bundle = 'vps2', RELEASE, self.root
+        obj.names = ['order-service']
+        obj.manifest = {'run_migrations': False}
+        obj.owner = Mock(return_value={'phase': 'SNAPSHOT', 'previous': None})
+        obj.compose, obj.verify = Mock(), Mock()
+        with patch.object(host, 'ROOT', self.root), patch.object(host, 'run') as run:
+            obj.apply(RELEASE)
+        run.assert_not_called()
+        obj.compose.assert_any_call('up', '-d', '--no-build', '--no-deps', '--wait', '--wait-timeout', '240', 'order-service')
+        self.assertFalse(any(c.args[0] == 'stop' for c in obj.compose.call_args_list))
 
     def test_wallet_migrates_once_on_vps3_before_any_service_starts(self):
         calls = Mock()

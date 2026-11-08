@@ -1,3 +1,4 @@
+import { PollBackoff, safeOutboxError } from './poll-backoff.js';
 import {
   Injectable,
   Logger,
@@ -12,6 +13,8 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OutboxPublisherService.name);
   private timer: NodeJS.Timeout | null = null;
   private isProcessing = false;
+  private readonly backoff = new PollBackoff();
+  private stopped = false;
 
   constructor(
     private readonly repository: OutboxRepository,
@@ -19,6 +22,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
+    this.stopped = false;
     // Poll every 3 seconds for pending outbox events
     this.timer = setInterval(() => {
       void this.publishPendingEvents();
@@ -27,6 +31,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleDestroy(): void {
+    this.stopped = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -38,7 +43,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publishPendingEvents(): Promise<number> {
-    if (this.isProcessing) {
+    if (this.isProcessing || this.stopped || !this.backoff.ready()) {
       return 0;
     }
     this.isProcessing = true;
@@ -51,6 +56,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
 
       for (const event of pendingEvents) {
         if (event.status === 'dlq_retry') {
+          let dlqDelivered = false;
           // Retry DLQ publish
           try {
             await this.rabbitmq.emit('handy-go.dlq', {
@@ -62,19 +68,21 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
               error: event.lastError,
             });
 
+            dlqDelivered = true;
             await this.repository.markFailed(
               event.id,
               'Routing to DLQ completed after retry',
               event.retryCount,
             );
           } catch (dlqErr) {
+            if (dlqDelivered) throw dlqErr;
             this.logger.error(
-              `Retry publishing event ${event.id} to DLQ failed: ${(dlqErr as Error).message}`,
+              `Retry publishing event ${event.id} to DLQ failed: ${safeOutboxError(dlqErr)}`,
             );
             await this.repository.scheduleDlqRetry(
               event.id,
               new Date(Date.now() + 10000),
-              `DLQ retry failed: ${(dlqErr as Error).message}`,
+              `DLQ retry failed: ${safeOutboxError(dlqErr)}`,
               event.retryCount,
             );
           }
@@ -82,6 +90,7 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
         }
 
         // status === 'pending'
+        let delivered = false;
         try {
           const payloadObj =
             event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
@@ -149,12 +158,14 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
 
           await this.rabbitmq.emit(event.eventType, envelope);
 
+          delivered = true;
           await this.repository.markPublished(event.id, new Date());
           publishedCount++;
         } catch (error) {
+          if (delivered) throw error;
           const newRetryCount = event.retryCount + 1;
           const errorMessage =
-            (error as Error).message || 'RabbitMQ publish failed';
+            safeOutboxError(error);
           this.logger.error(
             `Error publishing event ${event.id} (attempt ${newRetryCount}): ${errorMessage}`,
           );
@@ -178,13 +189,13 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
               );
             } catch (dlqErr) {
               this.logger.error(
-                `Failed to publish event ${event.id} to DLQ: ${(dlqErr as Error).message}`,
+                `Failed to publish event ${event.id} to DLQ: ${safeOutboxError(dlqErr)}`,
               );
               // Do NOT mark completed or drop event! Keep status as dlq_retry
               await this.repository.scheduleDlqRetry(
                 event.id,
                 new Date(Date.now() + 5000),
-                `DLQ publish failed: ${(dlqErr as Error).message}`,
+                `DLQ publish failed: ${safeOutboxError(dlqErr)}`,
                 newRetryCount,
               );
             }
@@ -202,11 +213,11 @@ export class OutboxPublisherService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
+      this.backoff.reset();
       return publishedCount;
-    } catch (dbError) {
-      this.logger.debug(
-        `Pending outbox scan skipped: ${(dbError as Error).message}`,
-      );
+    } catch (error) {
+      const delay = this.backoff.fail();
+      this.logger.error(`Outbox cycle failed: ${safeOutboxError(error)}; retry in ${delay}ms; check database budget and broker health. Durable events remain pending.`);
       return 0;
     } finally {
       this.isProcessing = false;

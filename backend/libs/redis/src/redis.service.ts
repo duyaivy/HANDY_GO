@@ -4,6 +4,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ConfigService } from '@app/config';
 import { Redis } from 'ioredis';
 
@@ -12,6 +13,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RedisService.name);
   private client!: Redis;
   private isConnected = false;
+
+  private subClient?: Redis;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -39,6 +42,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.subClient) {
+      await this.subClient.quit().catch(() => {});
+    }
     if (this.client) {
       await this.client.quit().catch(() => {});
       this.logger.log('Disconnected from Redis');
@@ -104,5 +110,332 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`Redis delByPattern error for pattern "${pattern}": ${(error as Error).message}`);
     }
+  }
+
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      await this.client.expire(key, ttlSeconds);
+    } catch (error) {
+      this.logger.warn(`Redis expire error for key "${key}": ${(error as Error).message}`);
+    }
+  }
+
+  async rpush(key: string, value: unknown): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      await this.client.rpush(key, serialized);
+    } catch (error) {
+      this.logger.warn(`Redis rpush error for key "${key}": ${(error as Error).message}`);
+    }
+  }
+
+  async lrange<T>(key: string, start: number, stop: number): Promise<T[]> {
+    if (!this.isConnected) return [];
+    try {
+      const items = await this.client.lrange(key, start, stop);
+      return items.map((item) => {
+        try {
+          return JSON.parse(item) as T;
+        } catch {
+          return item as unknown as T;
+        }
+      });
+    } catch (error) {
+      this.logger.warn(`Redis lrange error for key "${key}": ${(error as Error).message}`);
+      return [];
+    }
+  }
+
+  async appendListItem(key: string, value: unknown): Promise<void> {
+    this.assertConnected();
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError(`Value for Redis list "${key}" is not serializable`);
+    }
+    await this.client.rpush(key, serialized);
+  }
+
+  async peekListHead<T>(
+    key: string,
+  ): Promise<{ value: T; serialized: string } | null> {
+    this.assertConnected();
+    const serialized = await this.client.lindex(key, 0);
+    if (serialized === null) {
+      return null;
+    }
+    return { value: JSON.parse(serialized) as T, serialized };
+  }
+
+  async acknowledgeListHead(
+    key: string,
+    serialized: string,
+    lockKey: string,
+    lockToken: string,
+  ): Promise<boolean> {
+    this.assertConnected();
+    const result = await this.client.eval(
+      'if redis.call("GET", KEYS[2]) == ARGV[2] and redis.call("LINDEX", KEYS[1], 0) == ARGV[1] then redis.call("LPOP", KEYS[1]); return 1 else return 0 end',
+      2,
+      key,
+      lockKey,
+      serialized,
+      lockToken,
+    );
+    return Number(result) === 1;
+  }
+
+  async getListLength(key: string): Promise<number> {
+    this.assertConnected();
+    return await this.client.llen(key);
+  }
+
+  async addToSortedSet(
+    key: string,
+    member: string,
+    score: number,
+  ): Promise<void> {
+    this.assertConnected();
+    await this.client.zadd(key, 'NX', score, member);
+  }
+
+  async removeFromSortedSet(key: string, member: string): Promise<void> {
+    this.assertConnected();
+    await this.client.zrem(key, member);
+  }
+
+  async getSortedSetRangeWithScores(
+    key: string,
+    start = 0,
+    stop = -1,
+  ): Promise<Array<{ member: string; score: number }>> {
+    this.assertConnected();
+    const results = (await this.client.zrange(key, start, String(stop), 'WITHSCORES')) as string[];
+    const items: Array<{ member: string; score: number }> = [];
+    for (let i = 0; i < results.length; i += 2) {
+      items.push({
+        member: results[i],
+        score: Number(results[i + 1]),
+      });
+    }
+    return items;
+  }
+
+  /**
+   * Atomically appends an item to a list and records the member in a sorted set index.
+   * If member already exists in the sorted set, its score is preserved (ZADD NX).
+   * Ensures keys can share a hash tag (e.g. {pending}) for Redis Cluster cross-slot safety.
+   */
+  async appendAndTrackPendingOrder(
+    listKey: string,
+    indexKey: string,
+    value: unknown,
+    member: string,
+    score = Date.now(),
+  ): Promise<void> {
+    this.assertConnected();
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+      throw new TypeError(`Value for Redis list "${listKey}" is not serializable`);
+    }
+
+    await this.client.eval(
+      `
+      redis.call('RPUSH', KEYS[1], ARGV[1])
+      redis.call('ZADD', KEYS[2], 'NX', ARGV[3], ARGV[2])
+      return 1
+      `,
+      2,
+      listKey,
+      indexKey,
+      serialized,
+      member,
+      String(score),
+    );
+  }
+
+  /**
+   * Atomically verifies that the distributed lock is still owned by lockToken
+   * and that the list is empty (LLEN == 0). If both conditions hold, removes member from indexKey.
+   * Returns:
+   *   0: list was empty and member was atomically removed from index
+   *  >0: list still has items (remains in index, not removed)
+   *  -1: lock was lost or expired (remains in index, not removed)
+   */
+  async cleanupPendingOrderIfEmpty(
+    listKey: string,
+    lockKey: string,
+    indexKey: string,
+    lockToken: string,
+    member: string,
+  ): Promise<number> {
+    this.assertConnected();
+    const result = await this.client.eval(
+      `
+      local currentLock = redis.call('GET', KEYS[2])
+      if currentLock ~= ARGV[1] then
+        return -1
+      end
+      local len = redis.call('LLEN', KEYS[1])
+      if len == 0 then
+        redis.call('ZREM', KEYS[3], ARGV[2])
+        return 0
+      else
+        return len
+      end
+      `,
+      3,
+      listKey,
+      lockKey,
+      indexKey,
+      lockToken,
+      member,
+    );
+    return Number(result);
+  }
+
+  async withDistributedLock(
+    key: string,
+    callback: (
+      isLockOwner: () => boolean,
+      lockToken: string,
+    ) => Promise<void>,
+    ttlMs = 30_000,
+  ): Promise<boolean> {
+    this.assertConnected();
+    const token = randomUUID();
+    const acquired = await this.client.set(key, token, 'PX', ttlMs, 'NX');
+    if (acquired !== 'OK') {
+      return false;
+    }
+
+    let lockOwned = true;
+    let renewing = false;
+    const heartbeat = setInterval(() => {
+      if (renewing || !lockOwned) {
+        return;
+      }
+      renewing = true;
+      void this.client
+        .eval(
+          'if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("PEXPIRE", KEYS[1], ARGV[2]) else return 0 end',
+          1,
+          key,
+          token,
+          String(ttlMs),
+        )
+        .then((result) => {
+          if (Number(result) !== 1) {
+            lockOwned = false;
+          }
+        })
+        .catch((error: Error) => {
+          lockOwned = false;
+          this.logger.warn(
+            `Redis lock renewal error for key "${key}": ${error.message}`,
+          );
+        })
+        .finally(() => {
+          renewing = false;
+        });
+    }, Math.max(1, Math.floor(ttlMs / 3)));
+    heartbeat.unref();
+
+    try {
+      await callback(() => lockOwned, token);
+    } finally {
+      clearInterval(heartbeat);
+      try {
+        await this.client.eval(
+          'if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) else return 0 end',
+          1,
+          key,
+          token,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Redis lock release error for key "${key}": ${(error as Error).message}`,
+        );
+      }
+    }
+
+    return true;
+  }
+
+  async publish(channel: string, message: unknown): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+      await this.client.publish(channel, payload);
+    } catch (error) {
+      this.logger.warn(`Redis publish error on channel "${channel}": ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Publishes a message to a channel with strict error propagation.
+   * Throws an error if Redis is disconnected or if the publish command fails.
+   */
+  async publishStrict(channel: string, message: unknown): Promise<number> {
+    this.assertConnected();
+    const payload = typeof message === 'string' ? message : JSON.stringify(message);
+    return await this.client.publish(channel, payload);
+  }
+
+  private assertConnected(): void {
+    if (!this.isConnected) {
+      throw new Error('Redis is not connected');
+    }
+  }
+
+  async subscribe(
+    channel: string,
+    callback: (message: string) => void,
+    onReconnect?: () => void,
+  ): Promise<() => Promise<void>> {
+    const redisUrl = this.config.redisUrl;
+    if (!this.subClient) {
+      this.subClient = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        enableOfflineQueue: false,
+        lazyConnect: true,
+      });
+      await this.subClient.connect().catch((err) => {
+        this.logger.warn(`Could not connect Redis subscriber: ${(err as Error).message}`);
+      });
+    }
+
+    try {
+      await this.subClient.subscribe(channel);
+    } catch (err: any) {
+      this.logger.warn(`Could not subscribe to channel "${channel}": ${err.message}`);
+    }
+
+    const listener = (chan: string, msg: string) => {
+      if (chan === channel) {
+        callback(msg);
+      }
+    };
+    this.subClient.on('message', listener);
+
+    let reconnectListener: (() => void) | undefined;
+    if (onReconnect) {
+      reconnectListener = () => {
+        this.logger.log(`Redis subscriber reconnected on channel "${channel}"`);
+        onReconnect();
+      };
+      this.subClient.on('ready', reconnectListener);
+    }
+
+    return async () => {
+      if (this.subClient) {
+        this.subClient.off('message', listener);
+        if (reconnectListener) {
+          this.subClient.off('ready', reconnectListener);
+        }
+        await this.subClient.unsubscribe(channel).catch(() => {});
+      }
+    };
   }
 }

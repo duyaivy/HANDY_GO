@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { searchCatalogPage } from '../common/catalog-search.js';
 import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RedisService } from '@app/redis';
@@ -81,15 +82,13 @@ export class ServicesService {
   }
 
   async findAll(query: QueryServiceDto) {
-    const cacheKey = `catalog:services:list:${
-      [
-        `cid:${query.categoryId ?? 'all'}`,
-        `ia:${query.isActive ?? 'all'}`,
-        `s:${query.search ?? ''}`,
-        `p:${query.page ?? 1}`,
-        `l:${query.limit ?? 20}`,
-      ].join(',')
-    }`;
+    const cacheKey = `catalog:services:list:v2:${JSON.stringify([
+      query.isActive ?? null,
+      query.search ?? '',
+      query.categoryId ?? null,
+      query.page ?? 1,
+      query.limit ?? 20,
+    ])}`;
 
     const cached = await this.redis.get<unknown>(cacheKey);
     if (cached) return cached;
@@ -104,31 +103,45 @@ export class ServicesService {
       where.isActive = query.isActive;
     }
 
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
-    }
-
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const skip = (page - 1) * limit;
 
-    const [total, items] = await Promise.all([
-      this.prisma.service.count({ where }),
-      this.prisma.service.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: [{ name: 'asc' }],
-        include: {
-          category: {
-            select: { id: true, name: true, imageUrl: true },
+    const load = async (db: Prisma.TransactionClient) => {
+      const matched = query.search
+        ? await searchCatalogPage(db, 'services', {
+            ...query, search: query.search, page, limit,
+          })
+        : undefined;
+      const [total, hydrated] = await Promise.all([
+        matched ? Promise.resolve(matched.total) : db.service.count({ where }),
+        db.service.findMany({
+          where: matched ? { id: { in: matched.ids } } : where,
+          ...(matched ? {} : { skip, take: limit }),
+          orderBy: [{ name: 'asc' }],
+          include: {
+            category: {
+              select: { id: true, name: true, imageUrl: true },
+            },
           },
-        },
-      }),
-    ]);
+        }),
+      ]);
+
+      const byId = new Map(hydrated.map((item) => [item.id, item]));
+      const items = matched
+        ? matched.ids.flatMap((id) => {
+            const item = byId.get(id);
+            return item ? [item] : [];
+          })
+        : hydrated;
+      return { total, items };
+    };
+    // Search selection and relation hydration must see the same row versions.
+    const { total, items } = query.search
+      ? await this.prisma.$transaction(load, {
+          isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        })
+      : await load(this.prisma);
 
     const result = {
       data: items,

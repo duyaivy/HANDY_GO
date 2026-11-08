@@ -163,7 +163,7 @@ docker run --rm alpine:3.22 ping -c 3 10.77.0.3
 
 Phép thử từ container xác nhận đường Docker → WireGuard trước khi deploy; cho phép ICMP nội bộ giữa peer khi thử. Chưa có application container ở lần đầu nên chưa thể gọi `/health` trên cổng service. Sau reboot kiểm tra lại `wg0`, Docker và hai peer; nếu NAT/FORWARD bị chặn thì sửa firewall theo topology trước khi deploy.
 
-Provider firewall: cả ba host chỉ mở SSH từ nguồn quản trị/CI tin cậy và UDP 51820 từ hai peer. VPS1 thêm TCP 80/443. Không public 3000–3010. Compose không publish port ứng dụng trên VPS1; VPS2/3 chỉ bind WireGuard IP. Kiểm tra IPv6 và Docker forwarding/DOCKER-USER; **không chỉ dựa vào UFW** để chặn Docker published ports. GitHub-hosted runner có IP thay đổi; ưu tiên egress cố định/bastion. Nếu mở SSH rộng thì bắt buộc key-only và theo dõi brute force.
+Provider firewall: cả ba host chỉ mở SSH từ nguồn quản trị/CI tin cậy và UDP 51820 từ hai peer. VPS1 thêm TCP 80/443. User Trust port 3002 chỉ bind vào WireGuard IP VPS1 để Matching/Bidding/Wallet trên các VPS khác gọi API nội bộ; firewall chỉ cho phép peer WireGuard. Các port ứng dụng còn lại không public; VPS2/3 chỉ bind WireGuard IP. Kiểm tra IPv6 và Docker forwarding/DOCKER-USER; **không chỉ dựa vào UFW** để chặn Docker published ports. GitHub-hosted runner có IP thay đổi; ưu tiên egress cố định/bastion. Nếu mở SSH rộng thì bắt buộc key-only và theo dõi brute force.
 
 Không chạy PostgreSQL, Redis hoặc RabbitMQ container trên các VPS. Cloud dùng TLS, IP allowlist cả ba VPS, credentials tối thiểu, backup/PITR và quota phù hợp. Database adapter hiện chưa có biến cấu hình pool max riêng; không tự thêm `DB_POOL_SIZE` rồi coi như đã có tác dụng.
 
@@ -179,10 +179,10 @@ Các biến được liệt kê đầy đủ không đồng nghĩa source đã s
 | --- | --- |
 | PORT_* | Thông tin tham chiếu; cổng thực tế là PORT do Compose đặt. Đổi cổng cần cập nhật Compose, services.json và upstream URL. |
 | RABBITMQ_QUEUE_* | Thông tin tham chiếu; queue hiện được truyền trong code, source chưa đọc các biến này. Muốn cấu hình queue qua ENV cần bổ sung code đọc biến. |
-| DATABASE_URL_CATALOG | Tùy chọn, chỉ để tham chiếu; runtime và migration Catalog hiện đọc DATABASE_URL ở PHẦN 1. Đổi DATABASE_URL_CATALOG riêng chưa đổi database thực tế. |
-| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Tùy chọn; bỏ qua hoặc để rỗng để runtime, migration và deployment probe dùng DATABASE_URL chung. Có giá trị thì ưu tiên URL riêng. |
+| DATABASE_URL_CATALOG | Tùy chọn; runtime và SQL probe ưu tiên DATABASE_URL_CATALOG, fallback DATABASE_URL. Migration ưu tiên DIRECT_URL_CATALOG rồi DATABASE_URL_CATALOG rồi DATABASE_URL. |
+| DATABASE_URL_AUTH / DATABASE_URL_USER_TRUST | Tùy chọn cho runtime/probe; fallback DATABASE_URL. Migration ưu tiên DIRECT_URL_AUTH / DIRECT_URL_USER_TRUST, fallback runtime URL tương ứng. |
 
-DATABASE_URL_AUTH, DATABASE_URL_USER_TRUST và DATABASE_URL_CATALOG có thể bỏ qua hoặc để rỗng trong bản production. DATABASE_URL chung vẫn bắt buộc và phải dùng URL database thật; các key khác không được để rỗng. Khi dùng chung, DATABASE_URL nên không có tham số schema để Auth và User Trust tự chọn schema mặc định auth_service và user_trust_service.
+DATABASE_URL_AUTH, DATABASE_URL_USER_TRUST và DATABASE_URL_CATALOG có thể bỏ qua hoặc để rỗng trong bản production. DATABASE_URL chung vẫn bắt buộc và phải dùng URL database thật; các biến optional khác cũng được bỏ qua, để rỗng hoặc chỉ whitespace; biến bắt buộc vẫn phải có giá trị hợp lệ. Xem [chính sách ENV](OPTIONAL-ENVIRONMENT.md). Khi dùng chung, DATABASE_URL nên không có tham số schema để Auth và User Trust tự chọn schema mặc định auth_service và user_trust_service.
 
 Khi thêm ENV cho service, thêm vào đúng mục ở cả hai template, triển khai code đọc/validate biến đó, rồi cập nhật secret BACKEND_PRODUCTION_ENV trước khi deploy. Nếu thêm service hoặc đổi vị trí/cổng, cập nhật thêm services.json, Compose và URL upstream trong mục Gateway cho đồng bộ. Sửa file example không tự thay đổi cấu hình đang chạy trên VPS.
 
@@ -197,7 +197,7 @@ Khi chuyển từ mapping Notification trên VPS3 sang VPS1, cập nhật **NOTI
 
 Ba bản sao ENV dùng cùng SHA-256 trong manifest. Mỗi release giữ một **snapshot của cùng ENV chung**, `releases/<id>/shared.env`, mode 600; không có auth.env/order.env/migration.env. Snapshot cũ là cần thiết để rollback đúng cấu hình. Đây là versioning của một cấu hình ứng dụng, không phải tách ENV theo service.
 
-Tên DB: Catalog dùng DATABASE_URL; Auth ưu tiên DATABASE_URL_AUTH; User Trust ưu tiên DATABASE_URL_USER_TRUST. DATABASE_URL_CATALOG trong template hiện chỉ là biến tham chiếu, source chưa sử dụng. Dùng cùng cloud database với schema hiện có hoặc endpoint riêng qua những tên đã được source hỗ trợ. Migration dùng đúng các URL đó: chọn direct/session endpoint hỗ trợ DDL. Với transaction pooler không hỗ trợ migration, **chưa chạy run_migrations**; cần cấu hình endpoint phù hợp hoặc quy trình migration ngoài đã review.
+Runtime mỗi dịch vụ ưu tiên `DATABASE_URL_<SERVICE>` rồi `DATABASE_URL`; schema riêng không đồng nghĩa pool riêng. Prisma v7 dùng `pg` nên phải đặt `DB_POOL_MAX` hoặc override theo service, không dùng URL `connection_limit`. Bundle production kiểm tra tổng budget theo endpoint/group và replica cao điểm. Migration ưu tiên `DIRECT_URL_<SERVICE>` → `DATABASE_URL_<SERVICE>` → `DATABASE_URL`, dùng schema canonical và vẫn yêu cầu `DB_DDL_VERIFIED_<SERVICE>=true` khi thực sự chạy migration. Endpoint được chọn phải hỗ trợ session/DDL; Supabase Session Pooler được chấp nhận, Transaction Pooler không dùng cho Prisma Migrate. Xem [báo cáo và cấu hình incident](DATABASE-INCIDENT-20261104.md).
 
 JWT dùng cặp RSA production thật. Trên máy quản trị an toàn:
 
@@ -387,7 +387,7 @@ Trước khi bấm Run workflow, hoàn tất checklist:
 4. Thêm secrets/variable ở mục 9; xác minh database migrations là expand/contract và backup/PITR có thể phục hồi.
 5. Actions → Backend production → Run workflow → branch release → **run_migrations=true**; rollback_release để trống.
 6. Workflow build/push; tạo `prod-YYYYMMDD-<run_id>-a<attempt>`; stage cùng bundle/ENV trên ba host; snapshot stable trước khi đổi ứng dụng; pull trước rollout.
-7. Khi migration chạy, nhóm container trên host sở hữu DB được dừng để CLI có RAM. VPS3 migrate Catalog rồi Wallet; VPS1 migrate User Trust rồi Auth. Có maintenance window. Không tự rollback database.
+7. Khi migration chạy, nhóm container trên host sở hữu DB được dừng để CLI có RAM. VPS3 migrate Catalog rồi Wallet; VPS2 migrate Order, Bidding, Matching, Tracking; VPS1 migrate User Trust, Auth, Notification. Có maintenance window. Không tự rollback database.
 8. Workflow kiểm tra status/digest/health, SQL, User Trust consumer, Auth→User Trust RPC, Gateway→các host, public HTTPS và Catalog DB API; lặp lại sau 20 giây trước commit stable.
 9. Xem job Summary và download artifact backend-release-<run>-<attempt>: manifest.json, execution.json, summary.md, deploy.log; không chứa file ENV.
 10. Tự kiểm thử business acceptance register/OTP/login/profile/refresh/logout và Catalog CRUD bằng tài khoản chuyên dụng trước khi đưa người dùng thật vào. Script không giả lập các nghiệp vụ chưa có.
@@ -482,7 +482,7 @@ Giữ image/bundle của stable hiện tại và ít nhất hai stable trước 
 
 ## 15. Monitoring, kiểm thử và troubleshooting
 
-Dùng monitoring ngoài VPS hoặc agent nhẹ; không đặt nguyên Prometheus/Grafana stack lên 1 GB. Alert RAM/OOM/restarts, CPU, disk, 5xx/p95 latency, TLS expiry, DB connections, broker backlog/redelivery và SMTP delivery. Restart policy không tự restart process chỉ vì unhealthy. Release verification hiện từ chối container có RestartCount > 0; operator phải điều tra và recreate có kiểm soát trước khi nghiệm thu.
+Dùng monitoring ngoài VPS hoặc agent nhẹ; không đặt nguyên Prometheus/Grafana stack lên 1 GB. Alert RAM/OOM/restarts, CPU, disk, 5xx/p95 latency, TLS expiry, DB connections, broker backlog/redelivery và SMTP delivery. Restart policy không tự restart process chỉ vì unhealthy. Release verification hiện từ chối container có RestartCount > 0; operator phải điều tra timestamp, exit/OOM và log trước khi quyết định recovery. Không recreate để xóa bằng chứng restart hoặc ép verifier qua.
 
 ```bash
 docker stats --no-stream
@@ -540,3 +540,25 @@ Registry phân biệt state và scope khỏi deploy=true. Chủ dự án hiện 
 Nếu service chưa build/chạy an toàn: deploy=false trong registry và profile disabled trong Compose; validator kiểm tra đồng bộ. NOT_READY + deploy=true bị chặn. Build Dockerfile đọc registry, không cố build service đã tắt. Profiles không có ý nghĩa AND; script chỉ truyền danh sách service đã allowlist và --no-deps. Không chạy `--profile '*'` hoặc `compose up SERVICE` thủ công để vượt allowlist.
 
 **Nợ kiến trúc source hiện hữu chưa được refactor trong đợt hạ tầng:** downstream AuthModule vẫn xác minh JWT, chưa chuyển đầy đủ sang trusted-header guard; Gateway chưa có coarse role policy; health endpoints còn tĩnh; upload buffering/cache invalidation cần benchmark. Mạng private/firewall giảm exposure nhưng không thay thế các kiểm tra ứng dụng. Không công bố hệ thống đáp ứng hoàn toàn security contract AGENTS.md hoặc đầy đủ nghiệp vụ chỉ vì rollout thành công. Xử lý các mục này trước khi mở rộng giao dịch thực tế.
+# Cross-service HTTP configuration
+
+`services.json` records each HTTP target's `url_env` and `http_callers`. New
+releases and ENV refresh validate shared ENV against the actual host/port map;
+application startup validates the caller's dependencies too. Shared URLs used
+across VPSs must use WireGuard IPs. Auth and Notification currently have only
+VPS1 callers, so their Docker names remain valid. Register new HTTP callers
+before adding a service integration; CI discovers URL usages in application code.
+
+| Target | Shared production URL |
+| --- | --- |
+| Auth | `http://auth-service:3001` (VPS1 callers only) |
+| User Trust | `http://10.77.0.1:3002` |
+| Notification | `http://notification-service:3008` (VPS1 callers only) |
+| Order / Bidding / Matching / Tracking | `http://10.77.0.2:3004` / `:3005` / `:3006` / `:3010` |
+| Catalog / Payment / Wallet | `http://10.77.0.3:3003` / `:3007` / `:3009` |
+| AI (Azure) | `AI_SERVICE_URL`: actual external HTTPS origin, no localhost/container fallback |
+
+Use origin-only URLs without `/api/v1`, credentials, query or fragment; clients
+append their own paths. The AI example is a placeholder and must be replaced
+with the deployed Azure FQDN or its configured HTTPS custom domain. RabbitMQ
+RPC uses the shared `amqps://` broker, not peer container addresses.

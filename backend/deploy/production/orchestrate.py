@@ -149,11 +149,13 @@ sys.stdin.read()
 
     def executor(self, role, action, target=None, wait_lock=True):
         # Execute reviewed runner code, never host.py from an old release/artifact.
-        sources = {name: (HERE / name).read_text() for name in ('host.py', 'release_log.py')}
+        sources = {name: (HERE / name).read_text() for name in ('host.py', 'release_log.py', 'services.json')}
         loader = ('import base64,json,sys,types; '
                   's=json.loads(base64.b64decode(sys.argv[1])); '
                   'm=types.ModuleType("release_log"); exec(s["release_log.py"],m.__dict__); '
-                  'sys.modules["release_log"]=m; sys.argv=sys.argv[1:]; '
+                  'sys.modules["release_log"]=m; '
+                  'd=types.ModuleType("deployment_services"); d.REGISTRY=json.loads(s["services.json"])["services"]; '
+                  'sys.modules["deployment_services"]=d; sys.argv=sys.argv[1:]; '
                   'exec(compile(s["host.py"],"trusted-host.py","exec"),{"__name__":"__main__"})')
         payload = base64.b64encode(json.dumps(sources).encode()).decode()
         command = ['python3', '-u', '-c', loader, payload, action, role,
@@ -239,19 +241,24 @@ sys.stdin.read()
         for image in (self.args.app_image, self.args.migration_image, self.args.nginx_image):
             if not re.fullmatch(module.DIGEST, image or ''):
                 raise ValueError('Only digest image references are accepted')
-        module.validate_env(Path(self.args.env_file))
+        values = module.validate_env(Path(self.args.env_file))
+        module.validate_service_endpoints(values, registry)
+        from database_plan import validate_database_plan, validate_migration_owners
+        validate_migration_owners(HERE.parents[1], registry, module.MIGRATIONS)
+        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations)
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
         # A newly enabled migration owner must require review even when SQL is unchanged.
         migration_bytes += b'\0owners\0' + json.dumps(module.MIGRATIONS, sort_keys=True).encode()
         manifest = {
-            'schema_version': 1, 'release_id': self.target, 'commit_sha': self.args.commit, 'domain': domain,
+            'schema_version': 1, 'container_verification_version': 1, 'release_id': self.target, 'commit_sha': self.args.commit, 'domain': domain,
             'tree_sha': self.args.tree, 'run_id': self.args.run_id, 'run_attempt': self.args.attempt,
             'created_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
             'ci_evidence': evidence,
             'app_image': self.args.app_image, 'migration_image': self.args.migration_image,
             'nginx_image': self.args.nginx_image, 'platform': 'linux/amd64',
             'config_sha256': digest(shared_env), 'migration_hash': digest(migration_bytes),
+            'database_budget': database_budget,
             'run_migrations': self.args.run_migrations,
             'rollback_compatible': True,
             'hosts': hosts, 'services': selected,

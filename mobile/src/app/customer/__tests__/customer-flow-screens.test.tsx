@@ -283,9 +283,9 @@ describe('customer Skeleton & Route Flow', () => {
       const orderDetailsBtn = screen.getByTestId('radar-order-details-btn');
       fireEvent.press(orderDetailsBtn);
 
-      expect(screen.getByText('Service order details')).toBeOnTheScreen();
-      expect(screen.getByText('Estimated cost')).toBeOnTheScreen();
-      expect(screen.getByText('Cancel order')).toBeOnTheScreen();
+      expect(screen.getByText('Chi tiết đơn đặt việc')).toBeOnTheScreen();
+      expect(screen.getAllByText('Chi phí ước tính').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Hủy tìm thợ')).toBeOnTheScreen();
 
       fireEvent.press(screen.getByTestId('close-order-modal-btn'));
     });

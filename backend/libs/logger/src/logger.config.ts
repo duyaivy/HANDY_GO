@@ -1,3 +1,4 @@
+import { optionalValue } from '../../config/src/optional-env.js';
 import type { Params } from 'nestjs-pino';
 import { randomUUID } from 'node:crypto';
 
@@ -5,7 +6,7 @@ export const createLoggerConfig = (
   serviceName = 'unknown-service',
 ): Params => ({
   pinoHttp: {
-    level: process.env.LOG_LEVEL ?? 'info',
+    level: optionalValue(process.env.LOG_LEVEL) ?? 'info',
     name: serviceName,
     genReqId(request, response) {
       const incomingId = request.headers['x-request-id'];

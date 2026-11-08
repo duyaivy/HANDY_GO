@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MatchingServiceModule } from '../src/matching-service.module.js';
 import { MatchingOrchestratorService } from '../src/orchestrator/matching-orchestrator.service.js';
 import { MatchRunRepository } from '../src/persistence/match-run.repository.js';
 import { CustomerMatchingController } from '../src/controllers/customer-matching.controller.js';
@@ -41,6 +40,9 @@ describe.skipIf(!isDatabaseAvailable)('Manual Supabase Cloud Matching Flow Verif
   const airconServiceId = 'a26e3c78-f202-4ec0-a2f9-2462371d05a4';
 
   beforeAll(async () => {
+    // Skipped suites must not load application configuration or infrastructure.
+    const { MatchingServiceModule } = await import('../src/matching-service.module.js');
+
     // Connect to Supabase Cloud directly
     matchingPrisma = new MatchingPrismaService();
     userTrustPrisma = new UserTrustPrismaService();

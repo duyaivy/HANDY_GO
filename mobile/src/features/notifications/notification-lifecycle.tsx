@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { useRootNavigationState, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { setNotificationLogoutHook } from '@/services/notifications/logout-hook';
 import { NotificationApi } from '@/services/notifications/notification-api';
@@ -164,8 +165,10 @@ export function NotificationLifecycle() {
       };
       subscriptions.push(Notifications.addNotificationReceivedListener(() => {
         const id = sessionUser();
-        if (id)
+        if (id) {
           void refreshNotifications(id);
+          void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+        }
       }));
       subscriptions.push(Notifications.addNotificationResponseReceivedListener(handleResponse));
       subscriptions.push(Notifications.addPushTokenListener((token) => {
