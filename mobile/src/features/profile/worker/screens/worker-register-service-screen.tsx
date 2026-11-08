@@ -661,44 +661,6 @@ export function WorkerRegisterServiceScreen() {
           />
         </View>
 
-        {/* Step Navigation Pills */}
-        <View className="flex-row items-center justify-between border-b border-neutral-200 bg-white px-4 py-2.5 dark:border-neutral-800 dark:bg-neutral-900">
-          {[
-            { step: 1, label: '1. Danh mục' },
-            { step: 2, label: '2. Dịch vụ' },
-            { step: 3, label: '3. Thông tin' },
-            { step: 4, label: '4. Bằng chứng' },
-          ].map(s => (
-            <Pressable
-              key={s.step}
-              onPress={() => {
-                // Cho phép quay lại các bước trước đó
-                if (s.step < currentStep) {
-                  setCurrentStep(s.step as Step);
-                }
-              }}
-              disabled={s.step > currentStep}
-              className={`rounded-lg px-2.5 py-1 ${currentStep === s.step
-                ? 'bg-blue-600'
-                : s.step < currentStep
-                  ? 'bg-blue-50 dark:bg-blue-950/60'
-                  : 'opacity-40'
-              }`}
-            >
-              <Text
-                className={`text-[11px] font-bold ${currentStep === s.step
-                  ? 'text-white'
-                  : s.step < currentStep
-                    ? 'text-blue-600 dark:text-blue-400'
-                    : 'text-neutral-500'
-                }`}
-              >
-                {s.label}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
         {/* ============================================================ */}
         {/* BƯỚC 1: CHỌN DANH MỤC NGHỀ NGHIỆP                           */}
         {/* ============================================================ */}
@@ -1292,15 +1254,17 @@ export function WorkerRegisterServiceScreen() {
                     placeholder="https://..."
                     value={manualEvidenceUrl}
                     onChangeText={setManualEvidenceUrl}
-                    className="flex-1 rounded-xl border border-neutral-200 bg-neutral-50 p-2.5 text-xs text-neutral-900 dark:border-neutral-800 dark:bg-neutral-800 dark:text-white"
+                    className="h-11 flex-1 rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-xs text-neutral-900 dark:border-neutral-800 dark:bg-neutral-800 dark:text-white"
                   />
-                  <Button
+                  <Pressable
                     testID="add-evidence-url-btn"
-                    label="Thêm link"
-                    size="sm"
-                    variant="outline"
+                    accessibilityRole="button"
+                    accessibilityLabel="Thêm liên kết"
                     onPress={handleAddManualUrl}
-                  />
+                    className="size-11 items-center justify-center rounded-xl bg-blue-600 active:bg-blue-700 dark:bg-blue-600"
+                  >
+                    <PlusIcon size={20} color="#FFFFFF" />
+                  </Pressable>
                 </View>
               </View>
 

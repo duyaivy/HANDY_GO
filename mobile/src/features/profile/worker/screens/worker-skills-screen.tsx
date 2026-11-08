@@ -33,6 +33,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
+import { OrdersApi } from '@/features/orders';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 function formatCurrency(val?: number | null): string {
@@ -160,18 +161,39 @@ export function WorkerSkillsScreen() {
     staleTime: 30 * 1000,
   });
 
+  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
+  const ordersQuery = useQuery({
+    queryKey: ['worker-skills-orders', userId],
+    queryFn: async () => {
+      try {
+        const res = await OrdersApi.getMyOrders({ limit: 100 });
+        const raw = res.data;
+        if (Array.isArray(raw)) {
+          return raw;
+        }
+        return (raw as any)?.items ?? [];
+      }
+      catch {
+        return [];
+      }
+    },
+    enabled: Boolean(userId),
+    staleTime: 30 * 1000,
+  });
+
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
       await Promise.all([
         profileQuery.refetch(),
         registrationsQuery.refetch(),
+        ordersQuery.refetch(),
       ]);
     }
     finally {
       setRefreshing(false);
     }
-  }, [profileQuery, registrationsQuery]);
+  }, [profileQuery, registrationsQuery, ordersQuery]);
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
 
@@ -213,6 +235,30 @@ export function WorkerSkillsScreen() {
     );
   }, [registrationsQuery.data]);
 
+  // Thống kê số đơn và doanh thu tổng hợp từ Order Service theo từng serviceId
+  const ordersStatsByService = React.useMemo(() => {
+    const rawOrders = ordersQuery.data ?? [];
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const map: Record<string, { count: number; revenue: number }> = {};
+    for (const order of list) {
+      const sId = order.serviceId;
+      if (!sId) {
+        continue;
+      }
+      if (!map[sId]) {
+        map[sId] = { count: 0, revenue: 0 };
+      }
+      map[sId].count += 1;
+      const statusLower = String(order.status || '').toLowerCase();
+      const paymentLower = String(order.paymentState || '').toLowerCase();
+      if (statusLower === 'completed' || paymentLower === 'paid') {
+        const price = Number(order.agreedPrice) || 0;
+        map[sId].revenue += price;
+      }
+    }
+    return map;
+  }, [ordersQuery.data]);
+
   // Row 1 Statistics
   const totalApproved = approvedServices.length;
   const activeCount = approvedServices.filter((s) => {
@@ -223,8 +269,27 @@ export function WorkerSkillsScreen() {
     ?? profile?.workerProfile?.orderCountTotal
     ?? 0;
 
-  // Total revenue calculated or default to 0
-  const totalRevenue = approvedServices.reduce((sum, s) => sum + (s.revenue ?? 0), 0);
+  // Tổng doanh thu tính từ Order Service (hoặc fallback theo dịch vụ)
+  const totalRevenue = React.useMemo(() => {
+    let revFromOrders = 0;
+    const rawOrders = ordersQuery.data ?? [];
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    for (const o of list) {
+      const statusLower = String(o.status || '').toLowerCase();
+      const paymentLower = String(o.paymentState || '').toLowerCase();
+      if (statusLower === 'completed' || paymentLower === 'paid') {
+        revFromOrders += Number(o.agreedPrice) || 0;
+      }
+    }
+    if (revFromOrders > 0) {
+      return revFromOrders;
+    }
+    return approvedServices.reduce((sum, s) => {
+      const stats = ordersStatsByService[s.serviceId] || ordersStatsByService[s.id];
+      const r = s.revenue ?? stats?.revenue ?? 0;
+      return sum + r;
+    }, 0);
+  }, [ordersQuery.data, approvedServices, ordersStatsByService]);
 
   return (
     <Screen
@@ -262,12 +327,12 @@ export function WorkerSkillsScreen() {
           <View className="size-10" />
         </View>
 
-        <View className="p-4">
+        <View className="px-3.5 py-4">
           {/* ROW 1: 3 Thống kê trên cùng 1 hàng: Nghiệp vụ hoạt động x/y, Tổng đơn đã nhận, Doanh thu */}
-          <View testID="worker-skills-stats-row" className="flex-row items-center gap-2.5">
+          <View testID="worker-skills-stats-row" className="flex-row items-center gap-2">
             {/* Stat 1: Số nghiệp vụ đang hoạt động x/y */}
-            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-              <View className="mb-2 size-7 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60">
+            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white px-2 py-2.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+              <View className="mb-1.5 size-7 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60">
                 <WrenchIcon color="#2563EB" size={15} />
               </View>
               <Text
@@ -278,14 +343,19 @@ export function WorkerSkillsScreen() {
                 /
                 {totalApproved}
               </Text>
-              <Text className="mt-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
+              <Text
+                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
                 Nghiệp vụ hoạt động
               </Text>
             </View>
 
             {/* Stat 2: Tổng đơn dịch vụ đã nhận */}
-            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-              <View className="mb-2 size-7 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60">
+            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white px-2 py-2.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+              <View className="mb-1.5 size-7 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60">
                 <OrdersIcon color="#059669" size={15} />
               </View>
               <Text
@@ -294,24 +364,36 @@ export function WorkerSkillsScreen() {
               >
                 {totalOrders}
               </Text>
-              <Text className="mt-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
+              <Text
+                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
                 Tổng đơn đã nhận
               </Text>
             </View>
 
             {/* Stat 3: Doanh thu */}
-            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-              <View className="mb-2 size-7 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/60">
+            <View className="flex-1 rounded-2xl border border-neutral-200 bg-white px-2 py-2.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+              <View className="mb-1.5 size-7 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/60">
                 <WalletIcon color="#D97706" size={15} />
               </View>
               <Text
                 testID="worker-total-service-revenue"
                 className="text-base font-bold text-amber-700 dark:text-amber-400"
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
               >
                 {formatCurrency(totalRevenue)}
               </Text>
-              <Text className="mt-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
+              <Text
+                className="mt-0.5 text-[10.5px] font-medium leading-tight text-neutral-500 dark:text-neutral-400"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
                 Doanh thu
               </Text>
             </View>
@@ -346,19 +428,20 @@ export function WorkerSkillsScreen() {
             </View>
           </Pressable>
 
-          {/* ROW 3: Cụm 2 Tabs "Nghiệp vụ của bạn" và "Chờ phê duyệt dịch vụ" */}
+          {/* ROW 3: Cụm 2 Tabs "Nghiệp vụ của bạn" và "Chờ phê duyệt" */}
           <View className="mt-5">
             <View className="flex-row border-b border-neutral-200 bg-white px-2 pt-1 dark:border-neutral-800 dark:bg-neutral-900">
               <Pressable
                 testID="tab-my-services"
                 onPress={() => setActiveTab('my_services')}
-                className={`mr-6 border-b-2 pb-3 ${
+                className={`mr-5 border-b-2 pb-3 ${
                   activeTab === 'my_services'
                     ? 'border-blue-600'
                     : 'border-transparent'
                 }`}
               >
                 <Text
+                  numberOfLines={1}
                   className={`text-sm font-bold ${
                     activeTab === 'my_services'
                       ? 'text-blue-600 dark:text-blue-400'
@@ -381,13 +464,14 @@ export function WorkerSkillsScreen() {
                 }`}
               >
                 <Text
+                  numberOfLines={1}
                   className={`text-sm font-bold ${
                     activeTab === 'registrations'
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-neutral-500 dark:text-neutral-400'
                   }`}
                 >
-                  Chờ phê duyệt dịch vụ (
+                  Chờ phê duyệt (
                   {registrations.length}
                   )
                 </Text>
@@ -437,8 +521,9 @@ export function WorkerSkillsScreen() {
                           ? servicesActiveState[service.id]
                           : service.isActive;
 
-                      const serviceOrders = service.orderCount ?? 0;
-                      const serviceRevenue = service.revenue ?? 0;
+                      const sStats = ordersStatsByService[service.serviceId] || ordersStatsByService[service.id];
+                      const serviceOrders = service.orderCount ?? sStats?.count ?? 0;
+                      const serviceRevenue = service.revenue ?? sStats?.revenue ?? 0;
 
                       return (
                         <View
@@ -530,10 +615,10 @@ export function WorkerSkillsScreen() {
                             </Text>
                           )}
 
-                          {/* Bottom Row: Số đơn đã đặt & Doanh thu đã đạt ở dịch vụ này */}
-                          <View className="mt-3 flex-row items-center justify-between border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
+                          {/* Bottom Row: Số đơn đã đặt & Doanh thu đã đạt ở dịch vụ này (căn giữa cân đối theo chiều ngang) */}
+                          <View className="mt-3 flex-row items-center border-t border-neutral-100 pt-2.5 dark:border-neutral-800">
                             {/* Số đơn đã đặt ở dịch vụ này */}
-                            <View className="flex-row items-center gap-1.5">
+                            <View className="flex-1 flex-row items-center justify-center gap-1.5">
                               <OrdersIcon size={14} color="#6B7280" />
                               <Text className="text-xs text-neutral-500 dark:text-neutral-400">
                                 Số đơn:
@@ -546,8 +631,11 @@ export function WorkerSkillsScreen() {
                               </Text>
                             </View>
 
+                            {/* Đường phân cách giữa 2 cột */}
+                            <View className="h-3.5 w-px bg-neutral-200 dark:bg-neutral-700" />
+
                             {/* Doanh thu đã đạt ở dịch vụ này */}
-                            <View className="flex-row items-center gap-1.5">
+                            <View className="flex-1 flex-row items-center justify-center gap-1.5">
                               <WalletIcon size={14} color="#D97706" />
                               <Text className="text-xs text-neutral-500 dark:text-neutral-400">
                                 Doanh thu:

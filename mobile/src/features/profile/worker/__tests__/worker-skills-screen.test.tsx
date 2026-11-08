@@ -4,6 +4,7 @@ import { RouteNames } from '@/constants/route-names';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { WorkersApi } from '@/services/workers/workers-api';
+import { OrdersApi } from '@/features/orders';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerSkillsScreen } from '../screens/worker-skills-screen';
 
@@ -19,6 +20,14 @@ jest.mock('expo-router', () => ({
     canGoBack: () => true,
   }),
 }));
+
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+    statusCode: 200,
+    message: 'OK',
+    data: [],
+  });
+});
 
 afterEach(() => {
   cleanup();
@@ -466,6 +475,123 @@ describe('workerSkillsScreen', () => {
       expect(screen.getByText('Đã duyệt')).toBeOnTheScreen();
       expect(screen.queryByTestId('edit-registration-btn-reg-approved-uuid')).toBeNull();
       expect(screen.queryByTestId('cancel-registration-btn-reg-approved-uuid')).toBeNull();
+    });
+  });
+
+  it('aggregates service order count and revenue from OrdersApi.getMyOrders when offering fields are missing', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-101',
+          userId: 'worker-101',
+          status: 'verified',
+          averageRating: 5.0,
+          ratingCount: 2,
+          completedOrderCount: 2,
+          orderCountTotal: 2,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        verifiedAt: new Date().toISOString(),
+        approvedAt: new Date().toISOString(),
+        memberSince: new Date().toISOString(),
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 2,
+          completedOrderCount: 2,
+          orderCountTotal: 2,
+          ratingDistribution: { 5: 2, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-test',
+            serviceId: 'svc-uuid-ac-clean',
+            title: 'Vệ sinh điều hòa inverter',
+            description: 'Vệ sinh chuyên sâu bằng máy áp lực',
+            experienceYears: 5,
+            isActive: true,
+            // orderCount & revenue omitted to test aggregation from OrdersApi
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [
+        {
+          id: 'order-1',
+          orderCode: 'ORD-001',
+          customerUserId: 'customer-1',
+          workerUserId: 'worker-101',
+          serviceId: 'svc-uuid-ac-clean',
+          agreedPrice: 350000,
+          status: 'completed' as any,
+          paymentState: 'paid' as any,
+          createdAt: new Date().toISOString(),
+        } as any,
+        {
+          id: 'order-2',
+          orderCode: 'ORD-002',
+          customerUserId: 'customer-2',
+          workerUserId: 'worker-101',
+          serviceId: 'svc-uuid-ac-clean',
+          agreedPrice: 150000,
+          status: 'cancelled' as any,
+          paymentState: 'unpaid' as any,
+          createdAt: new Date().toISOString(),
+        } as any,
+      ],
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Vệ sinh điều hòa inverter')).toBeOnTheScreen();
+      // Total orders for this service = 2 (completed + cancelled)
+      expect(screen.getByText('2 đơn')).toBeOnTheScreen();
+      // Revenue is rendered in both top summary card and this service card = 350.000 đ
+      expect(screen.getAllByText('350.000 đ')).toHaveLength(2);
     });
   });
 });
