@@ -333,6 +333,41 @@ export class LoginFlowService {
       );
     }
 
+    // Kiểm tra cooldown gửi lại OTP phía server
+    const recentChallenge = await this.db.otpChallenge.findFirst({
+      where: {
+        accountId: account.id,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+        isUsed: false,
+        resendAvailableAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (recentChallenge) {
+      const waitSeconds = Math.max(
+        1,
+        Math.ceil(
+          (recentChallenge.resendAvailableAt.getTime() - Date.now()) / 1000,
+        ),
+      );
+      throw new AppException(
+        HttpStatus.TOO_MANY_REQUESTS,
+        ERROR_CODES.RATE_LIMITED,
+        `Vui lòng đợi ${waitSeconds} giây trước khi yêu cầu mã OTP mới`,
+      );
+    }
+
+    // Vô hiệu hóa các mã OTP cũ chưa sử dụng cho email này
+    await this.db.otpChallenge.updateMany({
+      where: {
+        accountId: account.id,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+        isUsed: false,
+      },
+      data: { isUsed: true },
+    });
+
     const otp = this.otpService.generateOtp();
 
     await this.db.otpChallenge.create({
@@ -348,12 +383,18 @@ export class LoginFlowService {
 
     await this.otpService.sendChangeEmailOtp(normalizedNewEmail, otp.code);
 
+    const cooldownSeconds = Math.max(
+      0,
+      Math.ceil((otp.resendAvailableAt.getTime() - Date.now()) / 1000),
+    );
+
     return {
       statusCode: HttpStatus.OK,
       message: 'Mã xác thực OTP đã được gửi đến email mới của bạn',
       data: {
         newEmail: normalizedNewEmail,
         resendAvailableAt: otp.resendAvailableAt,
+        cooldownSeconds,
       },
     };
   }
@@ -429,6 +470,33 @@ export class LoginFlowService {
     }
 
     await this.db.$transaction(async (tx) => {
+      // 1. Kiểm tra lại tính duy nhất của email trong transaction để chống race condition
+      const emailConflict = await tx.account.findUnique({
+        where: { email: normalizedNewEmail },
+      });
+      if (emailConflict && emailConflict.id !== account.id) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ERROR_CODES.EMAIL_ALREADY_EXISTS,
+          'Email này đã được sử dụng bởi một tài khoản khác trong thời gian chờ OTP',
+        );
+      }
+
+      // 2. Tiêu thụ challenge nguyên tử (atomic consume)
+      const consumed = await tx.otpChallenge.updateMany({
+        where: { id: challenge.id, isUsed: false },
+        data: { isUsed: true },
+      });
+
+      if (consumed.count === 0) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ERROR_CODES.OTP_INVALID,
+          'Mã OTP này đã được sử dụng hoặc không còn hiệu lực',
+        );
+      }
+
+      // 3. Cập nhật email tài khoản
       await tx.account.update({
         where: { id: account.id },
         data: {
@@ -438,8 +506,13 @@ export class LoginFlowService {
         },
       });
 
-      await tx.otpChallenge.update({
-        where: { id: challenge.id },
+      // 4. Vô hiệu hóa các mã OTP đổi email còn lại của tài khoản này
+      await tx.otpChallenge.updateMany({
+        where: {
+          accountId: account.id,
+          deliveryStatus: { startsWith: 'change_email:' },
+          isUsed: false,
+        },
         data: { isUsed: true },
       });
     });
