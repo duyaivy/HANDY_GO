@@ -980,12 +980,13 @@ describe('UserTrustServiceService', () => {
         { id: 'reg-2', status: 'approved', rejectionReason: null },
         { id: 'reg-3', status: 'rejected', rejectionReason: 'Ảnh mờ không rõ thiết bị' },
         { id: 'reg-4', status: 'rejected', rejectionReason: '[Thợ chủ động hủy yêu cầu]' },
+        { id: 'reg-5', status: 'rejected', rejectionReason: 'Admin từ chối do dịch vụ bị hủy từ phía quản trị' },
       ]);
 
       const res = await service.getMyServiceRegistrations(workerUserId);
       expect(res.statusCode).toBe(200);
-      expect(res.data).toHaveLength(3);
-      expect(res.data.map((r: any) => r.id)).toEqual(['reg-1', 'reg-2', 'reg-3']);
+      expect(res.data).toHaveLength(4);
+      expect(res.data.map((r: any) => r.id)).toEqual(['reg-1', 'reg-2', 'reg-3', 'reg-5']);
       expect(res.data.find((r: any) => r.id === 'reg-4')).toBeUndefined();
     });
 

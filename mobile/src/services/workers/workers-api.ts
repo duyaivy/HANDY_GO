@@ -1,6 +1,8 @@
 import type { ApiResponse } from '@/services/auth/auth-api';
 import { ApiClient } from '@/services/api/api-client';
 
+export const WORKER_CANCELLED_REGISTRATION_SENTINEL = '[Thợ chủ động hủy yêu cầu]';
+
 export type WorkerReviewCustomer = {
   id: string;
   fullName: string;

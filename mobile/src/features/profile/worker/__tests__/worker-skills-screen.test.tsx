@@ -355,6 +355,23 @@ describe('workerSkillsScreen', () => {
           ],
           evidenceFiles: [],
         },
+        {
+          id: 'reg-rejected-with-word-huy',
+          workerProfileId: 'wp-101',
+          status: 'rejected',
+          rejectionReason: 'Hồ sơ bị hủy bỏ theo yêu cầu của phòng an toàn',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 'svc-khoa',
+              serviceName: 'Sửa khóa cửa',
+              title: 'Sửa khóa vân tay',
+              experienceYears: 3,
+            },
+          ],
+          evidenceFiles: [],
+        },
       ],
     });
 
@@ -366,12 +383,16 @@ describe('workerSkillsScreen', () => {
     await waitFor(() => {
       // 1. Đơn bị Admin từ chối phải hiển thị
       expect(screen.getByText('Lắp đặt điều hòa treo tường')).toBeOnTheScreen();
-      expect(screen.getByText('Bị từ chối')).toBeOnTheScreen();
+      expect(screen.getAllByText('Bị từ chối')).toHaveLength(2);
       expect(screen.getByText(/Hình ảnh đồ nghề bị mờ/)).toBeOnTheScreen();
 
       // 2. Đơn do thợ chủ động hủy PHẢI BỊ ẨN HOÀN TOÀN
       expect(screen.queryByText('Sửa ống nước rò rỉ')).toBeNull();
       expect(screen.queryByText('Đã hủy')).toBeNull();
+
+      // 3. Đơn bị Admin từ chối có chữ "hủy" trong lý do vẫn PHẢI HIỂN THỊ
+      expect(screen.getByText('Sửa khóa vân tay')).toBeOnTheScreen();
+      expect(screen.getByText(/Hồ sơ bị hủy bỏ theo yêu cầu/)).toBeOnTheScreen();
 
       // 3. Đơn bị từ chối được phép hiển thị nút Chỉnh sửa
       expect(screen.getByTestId('edit-registration-btn-reg-rejected-admin')).toBeOnTheScreen();

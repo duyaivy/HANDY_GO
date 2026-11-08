@@ -32,7 +32,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
-import { WorkersApi } from '@/services/workers/workers-api';
+import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 function formatCurrency(val?: number | null): string {
@@ -209,7 +209,7 @@ export function WorkerSkillsScreen() {
   // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
   const registrations: WorkerServiceRegistrationItem[] = React.useMemo(() => {
     return (registrationsQuery.data ?? []).filter(
-      reg => !reg.rejectionReason?.includes('hủy'),
+      reg => reg.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
     );
   }, [registrationsQuery.data]);
 
@@ -595,7 +595,7 @@ export function WorkerSkillsScreen() {
                       const isPending = reg.status === 'pending';
                       const isCancelled
                         = reg.status === 'rejected'
-                          && Boolean(reg.rejectionReason?.includes('hủy'));
+                          && reg.rejectionReason === WORKER_CANCELLED_REGISTRATION_SENTINEL;
                       const canEdit = isPending || (reg.status === 'rejected' && !isCancelled);
 
                       const badgeClass = isApproved

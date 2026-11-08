@@ -27,6 +27,9 @@ import { CatalogClient } from './clients/catalog.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
+export const WORKER_CANCELLED_REGISTRATION_SENTINEL =
+  '[Thợ chủ động hủy yêu cầu]';
+
 function maskIdNumber(idStr?: string | null): string {
   if (!idStr) return '';
   const clean = idStr.trim();
@@ -2226,7 +2229,7 @@ export class UserTrustServiceService {
 
     // Ẩn các đơn thợ đã chủ động hủy khỏi danh sách hiển thị của thợ
     const visibleRegistrations = registrations.filter(
-      (r) => !r.rejectionReason?.includes('hủy'),
+      (r) => r.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
     );
 
     return {
@@ -2269,7 +2272,7 @@ export class UserTrustServiceService {
       },
       data: {
         status: 'rejected',
-        rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+        rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
         updatedAt: new Date(),
       },
     });
