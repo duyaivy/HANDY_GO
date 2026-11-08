@@ -1267,11 +1267,44 @@ describe('UserTrustServiceService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('geocodeAddress returns coordinates for address', async () => {
-      const res = await service.geocodeAddress('Quận Cẩm Lệ, Đà Nẵng');
-      expect(res.statusCode).toBe(200);
-      expect(res.data.latitude).toBeDefined();
-      expect(res.data.longitude).toBeDefined();
+    describe('geocodeAddress', () => {
+      it('throws BadRequestException if address is empty', async () => {
+        await expect(service.geocodeAddress('')).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+
+      it('returns coordinates when geocoding succeeds', async () => {
+        const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            {
+              lat: '16.0544',
+              lon: '108.2022',
+              display_name: 'Quận Cẩm Lệ, Đà Nẵng, Việt Nam',
+            },
+          ],
+        } as any);
+
+        const res = await service.geocodeAddress('Quận Cẩm Lệ, Đà Nẵng');
+        expect(res.statusCode).toBe(200);
+        expect(res.data.latitude).toBe(16.0544);
+        expect(res.data.longitude).toBe(108.2022);
+        expect(res.data.displayName).toBe('Quận Cẩm Lệ, Đà Nẵng, Việt Nam');
+        fetchSpy.mockRestore();
+      });
+
+      it('throws NotFoundException when geocoding fails or returns empty array', async () => {
+        const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce({
+          ok: true,
+          json: async () => [],
+        } as any);
+
+        await expect(
+          service.geocodeAddress('Địa chỉ không tồn tại 123456789xyz'),
+        ).rejects.toThrow(NotFoundException);
+        fetchSpy.mockRestore();
+      });
     });
 
     describe('updateWorkerServiceRegistration', () => {

@@ -2713,31 +2713,9 @@ export class UserTrustServiceService {
       this.logger.warn(`Nominatim geocoding error: ${(err as Error).message}`);
     }
 
-    const lower = cleanAddress.toLowerCase();
-    let defaultLat = 16.0544; // Danang
-    let defaultLon = 108.2022;
-    if (lower.includes('hà nội') || lower.includes('ha noi')) {
-      defaultLat = 21.0285;
-      defaultLon = 105.8542;
-    } else if (
-      lower.includes('hồ chí minh') ||
-      lower.includes('ho chi minh') ||
-      lower.includes('sài gòn') ||
-      lower.includes('sai gon')
-    ) {
-      defaultLat = 10.7769;
-      defaultLon = 106.7009;
-    }
-
-    return {
-      statusCode: HttpStatus.OK,
-      data: {
-        address: cleanAddress,
-        latitude: defaultLat,
-        longitude: defaultLon,
-        displayName: cleanAddress,
-      },
-    };
+    throw new NotFoundException(
+      'Không tìm thấy tọa độ cho địa chỉ được cung cấp. Vui lòng kiểm tra lại địa chỉ hoặc nhập chi tiết hơn.',
+    );
   }
 
   /**
