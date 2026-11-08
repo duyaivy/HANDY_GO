@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
@@ -42,6 +42,7 @@ interface OrderDetailModalProps {
   error: string | null;
   isSubmitting: boolean;
   onRetry: () => void;
+  hasNestedModalOpen?: boolean;
   onClose: () => void;
   onViewUser: (id: string, role: "customer" | "worker") => void;
   onCancelOrder: (orderId: string, reason: string) => Promise<void>;
@@ -71,6 +72,7 @@ export default function OrderDetailModal({
   error,
   isSubmitting,
   onRetry,
+  hasNestedModalOpen = false,
   onClose,
   onCancelOrder,
   onViewUser,
@@ -88,6 +90,11 @@ export default function OrderDetailModal({
   const [actionError, setActionError] = useState("");
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
+  const orderDialogRef = useRef<HTMLDivElement>(null);
+  const confirmDialogRef = useRef<HTMLDivElement>(null);
+  const previewDialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
   const evidenceCount = evidences.length;
 
   useEffect(() => {
@@ -101,11 +108,104 @@ export default function OrderDetailModal({
     };
   }, [order]);
 
+  // Lưu vị trí focus trước khi mở, khôi phục khi đóng modal đơn hàng.
+  useEffect(() => {
+    if (!order) return;
+
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      orderDialogRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      const previousFocus = previousFocusRef.current;
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+    // Modal được mount theo key của đơn hàng; chỉ khởi tạo khi mở.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id]);
+
+  // Giữ Tab / Shift+Tab trong hộp thoại đang ở trên cùng.
+  useEffect(() => {
+    if (!order || hasNestedModalOpen) return;
+
+    const activeDialog =
+      previewIndex !== null
+        ? previewDialogRef.current
+        : confirming
+          ? confirmDialogRef.current
+          : orderDialogRef.current;
+
+    if (!activeDialog) return;
+
+    const frame = window.requestAnimationFrame(() => activeDialog.focus());
+    const handleFocusKey = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        activeDialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter(
+        (element) =>
+          element.getClientRects().length > 0 &&
+          element.getAttribute("aria-hidden") !== "true",
+      );
+
+      if (!focusable.length) {
+        event.preventDefault();
+        activeDialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const current = document.activeElement;
+
+      if (!activeDialog.contains(current)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (
+        event.shiftKey &&
+        (current === first || current === activeDialog)
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && current === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    // focusin ngăn focus bị đưa ra ngoài bằng chuột hoặc code khi modal mở.
+    const handleFocusIn = (event: FocusEvent) => {
+      if (
+        event.target instanceof Node &&
+        !activeDialog.contains(event.target)
+      ) {
+        activeDialog.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleFocusKey, true);
+    document.addEventListener("focusin", handleFocusIn);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", handleFocusKey, true);
+      document.removeEventListener("focusin", handleFocusIn);
+    };
+  }, [order?.id, hasNestedModalOpen, confirming, previewIndex]);
+
   useEffect(() => {
     if (!order) return;
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || hasNestedModalOpen) return;
 
       if (previewIndex !== null) {
         setPreviewIndex(null);
@@ -125,7 +225,14 @@ export default function OrderDetailModal({
     return () => {
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [order, onClose, previewIndex, confirming, isSubmitting]);
+  }, [
+    order,
+    onClose,
+    previewIndex,
+    confirming,
+    isSubmitting,
+    hasNestedModalOpen,
+  ]);
 
   if (!order) return null;
 
@@ -267,6 +374,8 @@ export default function OrderDetailModal({
     >
       {/* MAIN MODAL */}
       <div
+        ref={orderDialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="order-detail-title"
@@ -431,6 +540,7 @@ export default function OrderDetailModal({
                   <OrderOverviewTab
                     order={order}
                     detail={detail}
+                    onViewUser={onViewUser}
                     paymentState={paymentState}
                   />
                 )}
@@ -566,6 +676,8 @@ export default function OrderDetailModal({
           }}
         >
           <div
+            ref={confirmDialogRef}
+            tabIndex={-1}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="order-confirm-title"
@@ -623,6 +735,8 @@ export default function OrderDetailModal({
       {/* LIGHTBOX */}
       {previewIndex !== null && (
         <div
+          ref={previewDialogRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-label={`Xem bằng chứng ${previewIndex + 1}`}

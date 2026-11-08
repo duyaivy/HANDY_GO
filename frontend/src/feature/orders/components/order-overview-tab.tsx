@@ -1,3 +1,4 @@
+
 import type { ReactNode } from "react";
 import { MapPin } from "lucide-react";
 
@@ -20,12 +21,14 @@ interface Props {
   order: Order;
   detail: OrderDetail | null;
   paymentState: Order["paymentState"];
+  onViewUser: (id: string, role: "customer" | "worker") => void;
 }
 
 export default function OrderOverviewTab({
   order,
   detail,
   paymentState,
+  onViewUser,
 }: Props) {
   const field = (label: string, value: ReactNode, full = false) => (
     <div
@@ -46,6 +49,26 @@ export default function OrderOverviewTab({
     </span>
   );
 
+  const renderUser = (
+    id: string,
+    name: string | undefined,
+    isLoading: boolean | undefined,
+    role: "customer" | "worker",
+  ) => {
+    if (!id) return "Chưa cập nhật";
+
+    return (
+      <button
+        type="button"
+        onClick={() => onViewUser(id, role)}
+        className="max-w-full break-words text-left font-medium text-[#FF5E14] hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]"
+        title={id}
+      >
+        {name || (isLoading ? "Đang tải..." : id)}
+      </button>
+    );
+  };
+
   return (
     <div className="min-w-0">
       <div>
@@ -57,8 +80,26 @@ export default function OrderOverviewTab({
       </div>
 
       <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-4 sm:mt-7 sm:grid-cols-2 sm:gap-x-8 sm:gap-y-5">
-        {field("Khách hàng", mono(order.customer))}
-        {field("Thợ thực hiện", mono(order.worker))}
+        {field(
+          "Khách hàng",
+          renderUser(
+            detail?.customerUserId ?? order.customer,
+            order.customerName,
+            order.customerNameLoading,
+            "customer",
+          ),
+        )}
+
+        {field(
+          "Thợ thực hiện",
+          renderUser(
+            detail?.workerUserId ?? order.worker,
+            order.workerName,
+            order.workerNameLoading,
+            "worker",
+          ),
+        )}
+
         {field("Thanh toán", PAYMENT_LABELS[paymentState])}
         {field("Ngày tạo", formatDateTime(order.createdAt))}
 

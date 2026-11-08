@@ -17,8 +17,6 @@ import OrdersTable from "./order-table";
 import {
   useCancelOrderMutation,
   useOrderDetailQuery,
-  useOrderEvidenceQuery,
-  useOrderHistoryQuery,
   useOrderListQuery,
   useResolveOrderDisputeMutation,
 } from "../hooks/use-orders";
@@ -235,13 +233,22 @@ export default function OrderManagement() {
 
   // DETAIL DATA
   const selectedOrder =
-    orders.find((item) => item.id === selectedOrderId) ?? selectedSnapshot;
+    orders.find((item) => item.id === selectedOrderId) ??
+    (selectedSnapshot
+      ? {
+          ...selectedSnapshot,
+          customerName:
+            userMap.get(selectedSnapshot.customer)?.data?.fullName ??
+            selectedSnapshot.customerName,
+          workerName:
+            userMap.get(selectedSnapshot.worker)?.data?.fullName ??
+            selectedSnapshot.workerName,
+        }
+      : null);
 
   const detailQuery = useOrderDetailQuery(selectedOrderId ?? undefined);
-
-  const historyQuery = useOrderHistoryQuery(selectedOrderId ?? undefined);
-
-  const evidenceQuery = useOrderEvidenceQuery(selectedOrderId ?? undefined);
+  const history = detailQuery.data?.statusHistory ?? [];
+  const evidences = detailQuery.data?.evidences ?? [];
 
   // MUTATIONS
   const cancelMutation = useCancelOrderMutation();
@@ -359,8 +366,8 @@ export default function OrderManagement() {
           )}
 
         {/* DANH SÁCH ĐƠN HÀNG */}
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          {/* TIÊU ĐỀ + BỘ LỌC */}
+        {/* DANH SÁCH ĐƠN HÀNG */}
+        <div className="relative overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="space-y-4 p-4 sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -426,7 +433,12 @@ export default function OrderManagement() {
               </div>
 
               {/* TRẠNG THÁI ĐƠN HÀNG: CHỌN NHIỀU */}
-              <div ref={statusDropdownRef} className="relative min-w-0">
+              <div
+                ref={statusDropdownRef}
+                className={`relative min-w-0 ${
+                  statusDropdownOpen ? "z-50" : ""
+                }`}
+              >
                 <button
                   type="button"
                   aria-label="Lọc theo trạng thái đơn hàng"
@@ -683,23 +695,12 @@ export default function OrderManagement() {
         key={selectedOrder?.id ?? "closed"}
         order={selectedOrder}
         detail={detailQuery.data ?? null}
-        history={historyQuery.data ?? []}
-        evidences={evidenceQuery.data ?? []}
-        isLoading={
-          detailQuery.isPending ||
-          historyQuery.isPending ||
-          evidenceQuery.isPending
-        }
-        error={
-          detailQuery.error?.message ??
-          historyQuery.error?.message ??
-          evidenceQuery.error?.message ??
-          null
-        }
+        history={history}
+        evidences={evidences}
+        isLoading={Boolean(selectedOrderId) && detailQuery.isPending}
+        error={detailQuery.error?.message ?? null}
         onRetry={() => {
           void detailQuery.refetch();
-          void historyQuery.refetch();
-          void evidenceQuery.refetch();
         }}
         isSubmitting={cancelMutation.isPending || resolveMutation.isPending}
         onClose={() => {

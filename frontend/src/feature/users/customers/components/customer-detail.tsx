@@ -67,6 +67,7 @@ export default function CustomerDetailModal({ userId, onClose }: Props) {
       }}
     >
       <DialogContent
+        overlayClassName="z-[120]"
         className="
           z-[130]
           flex max-h-[85dvh] w-[94vw] max-w-[640px]
