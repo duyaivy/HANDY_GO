@@ -938,6 +938,35 @@ describe('UserTrustServiceService', () => {
       ).rejects.toThrow(ServiceUnavailableException);
     });
 
+    it('submitWorkerServiceRegistration throws ConflictException if worker already has a pending registration', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+        status: 'draft',
+      });
+
+      catalogClientMock.getServices.mockResolvedValue([
+        {
+          id: serviceId,
+          name: 'Vệ sinh máy lạnh',
+          categoryId,
+          categoryName: 'Điện lạnh',
+          categoryIsActive: true,
+          isActive: true,
+        },
+      ]);
+
+      dbMock.workerServiceRegistration.findFirst.mockResolvedValue({
+        id: 'reg-already-pending',
+        workerProfileId,
+        status: 'pending',
+      });
+
+      await expect(
+        service.submitWorkerServiceRegistration(workerUserId, validDto),
+      ).rejects.toThrow(ConflictException);
+    });
+
     it('getMyServiceRegistrations returns list of registrations and filters out cancelled ones', async () => {
       dbMock.workerProfile.findUnique.mockResolvedValue({
         id: workerProfileId,

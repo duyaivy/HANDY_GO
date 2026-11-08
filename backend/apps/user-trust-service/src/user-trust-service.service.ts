@@ -1970,23 +1970,9 @@ export class UserTrustServiceService {
     });
 
     if (existingPending) {
-      const updated = await this.db.workerServiceRegistration.update({
-        where: { id: existingPending.id },
-        data: {
-          categoryIds: dto.categoryIds,
-          services: enrichedServices,
-          serviceArea: dto.serviceArea as any,
-          evidenceFiles: dto.evidenceFiles as any,
-          idempotencyKey: resolvedKey || existingPending.idempotencyKey,
-          updatedAt: new Date(),
-        },
-      });
-
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Cập nhật đơn đăng ký dịch vụ thành công, đang chờ Admin duyệt',
-        data: updated,
-      };
+      throw new ConflictException(
+        'Bạn đã có một đơn đăng ký dịch vụ đang chờ duyệt. Vui lòng sử dụng chức năng cập nhật (PUT) hoặc chờ Admin xử lý.',
+      );
     }
 
     try {
@@ -2042,6 +2028,11 @@ export class UserTrustServiceService {
             },
           });
         if (pendingRecord) {
+          if (!isRegistrationPayloadMatch(pendingRecord, dto)) {
+            throw new ConflictException(
+              'Bạn đã có một đơn đăng ký dịch vụ đang chờ duyệt với nội dung khác.',
+            );
+          }
           return {
             statusCode: HttpStatus.OK,
             message:
@@ -2197,6 +2188,11 @@ export class UserTrustServiceService {
             },
           });
         if (pendingRecord) {
+          if (!isRegistrationPayloadMatch(pendingRecord, dto)) {
+            throw new ConflictException(
+              'Bạn đã có một đơn đăng ký dịch vụ đang chờ duyệt với nội dung khác.',
+            );
+          }
           return {
             statusCode: HttpStatus.OK,
             message:
