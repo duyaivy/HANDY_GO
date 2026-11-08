@@ -50,78 +50,6 @@ type Step = 1 | 2 | 3 | 4;
 
 const RADIUS_OPTIONS = [5, 10, 15, 20] as const;
 
-const FALLBACK_CATEGORIES: CategoryItem[] = [
-  {
-    id: 'cat-dien-lanh',
-    name: 'Điện Lạnh',
-    description: 'Sửa chữa và bảo dưỡng máy lạnh, tủ lạnh, máy giặt, điều hòa trung tâm',
-    imageUrl: 'https://images.unsplash.com/photo-1621905251189-08b45d6a269e?w=400&q=80',
-  },
-  {
-    id: 'cat-dien-nuoc',
-    name: 'Điện Nước',
-    description: 'Xử lý chập điện, lắp thiết bị chiếu sáng, rò rỉ đường ống nước, máy bơm',
-    imageUrl: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=400&q=80',
-  },
-  {
-    id: 'cat-co-khi',
-    name: 'Cơ Khí & Nhôm Kính',
-    description: 'Hàn sửa cửa sắt, lan can, hàng rào, vách nhôm kính, thay khóa cửa',
-    imageUrl: 'https://images.unsplash.com/photo-1504917599217-d4dc5ebe6122?w=400&q=80',
-  },
-  {
-    id: 'cat-xay-dung',
-    name: 'Xây Dựng & Sơn Sửa',
-    description: 'Sơn nhà, bả matit, dặm vá tường cũ, chống thấm trần sàn, ốp lát gạch',
-    imageUrl: 'https://images.unsplash.com/photo-1589939705384-5185137a7f0f?w=400&q=80',
-  },
-  {
-    id: 'cat-do-go',
-    name: 'Đồ Gỗ & Nội Thất',
-    description: 'Sửa chữa đồ gỗ, thay bản lề, đóng mới kệ tủ bàn ghế gia đình & văn phòng',
-    imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=400&q=80',
-  },
-  {
-    id: 'cat-thiet-bi-nha-bep',
-    name: 'Thiết Bị Nhà Bếp',
-    description: 'Sửa chữa bếp từ, bếp hồng ngoại, máy hút mùi, lò vi sóng, máy rửa bát',
-    imageUrl: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?w=400&q=80',
-  },
-];
-
-const FALLBACK_SERVICES_MAP: Record<string, ServiceItem[]> = {
-  'cat-dien-lanh': [
-    { id: 'svc-vesinh-maylanh', categoryId: 'cat-dien-lanh', name: 'Vệ sinh & bảo dưỡng máy lạnh', description: 'Vệ sinh lưới lọc, xịt rửa dàn nóng dàn lạnh, kiểm tra gas' },
-    { id: 'svc-sua-maylanh', categoryId: 'cat-dien-lanh', name: 'Sửa chữa máy lạnh không lạnh / rò ga', description: 'Khắc phục xì ga, thay tụ đề, sửa quạt dàn lạnh' },
-    { id: 'svc-sua-maygiat', categoryId: 'cat-dien-lanh', name: 'Sửa máy giặt không vắt / lỗi bo mạch', description: 'Xử lý lỗi cấp nước, van xả, rung lắc mạnh khi vắt' },
-    { id: 'svc-sua-tulanh', categoryId: 'cat-dien-lanh', name: 'Sửa tủ lạnh không đông đá / kêu to', description: 'Xử lý đóng tuyết, thay rơ-le nhiệt, nạp gas tủ lạnh' },
-  ],
-  'cat-dien-nuoc': [
-    { id: 'svc-sua-duongdien', categoryId: 'cat-dien-nuoc', name: 'Sửa chập điện & nhảy CB', description: 'Dò tìm điểm chập cháy âm tường, thay thế aptomat an toàn' },
-    { id: 'svc-lap-thietbi-dien', categoryId: 'cat-dien-nuoc', name: 'Lắp đặt đèn quạt & thiết bị điện', description: 'Lắp quạt trần, đèn led trang trí, ổ cắm công tắc' },
-    { id: 'svc-sua-ongnuoc', categoryId: 'cat-dien-nuoc', name: 'Sửa rò rỉ đường ống nước & van khóa', description: 'Thay thế van nước gãy, hàn nối ống nhiệt PPR' },
-    { id: 'svc-thong-tac', categoryId: 'cat-dien-nuoc', name: 'Thông tắc bồn cầu & cống nghẹt', description: 'Thông tắc bằng máy lò xo chuyên dụng không đục phá' },
-  ],
-  'cat-co-khi': [
-    { id: 'svc-han-sat', categoryId: 'cat-co-khi', name: 'Hàn sửa cửa sắt & hàng rào', description: 'Hàn gia cố bản lề rỉ sét, sửa ray cửa kéo cửa cuốn' },
-    { id: 'svc-lap-cuanhom', categoryId: 'cat-co-khi', name: 'Lắp đặt & sửa chữa cửa nhôm kính', description: 'Thay kính vỡ, thay bánh xe cửa lùa, gioăng cách âm' },
-    { id: 'svc-sua-maiton', categoryId: 'cat-co-khi', name: 'Sửa mái tôn chống dột', description: 'Bắn vít silicone chống dột, thay máng xối nước mưa' },
-  ],
-  'cat-xay-dung': [
-    { id: 'svc-son-nha', categoryId: 'cat-xay-dung', name: 'Sơn nhà & dặm vá tường cũ', description: 'Xử lý tường ẩm mốc, sơn lót kháng kiềm, sơn phủ hoàn thiện' },
-    { id: 'svc-chong-tham', categoryId: 'cat-xay-dung', name: 'Xử lý chống thấm tường & sàn ban công', description: 'Quét màng chống thấm polyurethane, xử lý vết nứt kết cấu' },
-    { id: 'svc-op-lat', categoryId: 'cat-xay-dung', name: 'Ốp lát gạch nền & gạch tường', description: 'Cắt lát gạch granite, gạch men, dặm vá gạch phồng rộp' },
-  ],
-  'cat-do-go': [
-    { id: 'svc-sua-do-go', categoryId: 'cat-do-go', name: 'Sửa chữa đồ gỗ & bàn ghế', description: 'Gia cố bàn ghế lung lay, thay ray trượt ngăn kéo tủ' },
-    { id: 'svc-sua-khoa-cua', categoryId: 'cat-do-go', name: 'Sửa & thay khóa cửa gỗ / tay gạt', description: 'Lắp đặt ổ khóa mới, sửa khóa kẹt không mở được chìa' },
-  ],
-  'cat-thiet-bi-nha-bep': [
-    { id: 'svc-sua-bep-tu', categoryId: 'cat-thiet-bi-nha-bep', name: 'Sửa bếp từ & bếp hồng ngoại', description: 'Sửa lỗi không nhận nồi, lỗi bo công suất, nổ cầu chì' },
-    { id: 'svc-sua-may-hut-mui', categoryId: 'cat-thiet-bi-nha-bep', name: 'Sửa máy hút mùi nhà bếp', description: 'Vệ sinh dầu mỡ động cơ, thay than hoạt tính khử mùi' },
-  ],
-};
-
 export function WorkerRegisterServiceScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -351,28 +279,15 @@ export function WorkerRegisterServiceScreen() {
   const categoriesQuery = useQuery<CategoryItem[]>({
     queryKey: ['catalog-categories'],
     queryFn: async () => {
-      try {
-        const res = await WorkersApi.getCategories();
-        return extractDataArray<CategoryItem>(res.data ?? res);
-      }
-      catch (err) {
-        console.warn('[WORKER REGISTER] Lấy danh mục thất bại:', err);
-        return [];
-      }
+      const res = await WorkersApi.getCategories();
+      return extractDataArray<CategoryItem>(res.data ?? res);
     },
     staleTime: 60 * 1000,
   });
 
-  const apiCategories = React.useMemo(() => {
+  const categories: CategoryItem[] = React.useMemo(() => {
     return extractDataArray<CategoryItem>(categoriesQuery.data);
   }, [categoriesQuery.data]);
-
-  const categories: CategoryItem[] = React.useMemo(() => {
-    if (apiCategories.length > 0) {
-      return apiCategories;
-    }
-    return FALLBACK_CATEGORIES;
-  }, [apiCategories]);
 
   // Filter categories by search
   const filteredCategories = React.useMemo(() => {
@@ -396,41 +311,19 @@ export function WorkerRegisterServiceScreen() {
   const servicesQuery = useQuery<ServiceItem[]>({
     queryKey: ['catalog-services', effectiveCategoryId],
     queryFn: async () => {
-      try {
-        const res = await WorkersApi.getServices(effectiveCategoryId || undefined);
-        return extractDataArray<ServiceItem>(res.data ?? res);
-      }
-      catch (err) {
-        console.warn('[WORKER REGISTER] Lấy dịch vụ thất bại:', err);
+      if (!effectiveCategoryId) {
         return [];
       }
+      const res = await WorkersApi.getServices(effectiveCategoryId);
+      return extractDataArray<ServiceItem>(res.data ?? res);
     },
     enabled: Boolean(effectiveCategoryId),
     staleTime: 60 * 1000,
   });
 
-  const apiServices = React.useMemo(() => {
+  const services: ServiceItem[] = React.useMemo(() => {
     return extractDataArray<ServiceItem>(servicesQuery.data);
   }, [servicesQuery.data]);
-
-  const services: ServiceItem[] = React.useMemo(() => {
-    if (apiServices.length > 0) {
-      return apiServices;
-    }
-    const fallbackList = FALLBACK_SERVICES_MAP[effectiveCategoryId];
-    if (fallbackList && fallbackList.length > 0) {
-      return fallbackList;
-    }
-    const currentCatName = selectedCategoryObj?.name || 'chuyên môn';
-    return [
-      {
-        id: `svc-${effectiveCategoryId || 'general'}-1`,
-        categoryId: effectiveCategoryId || 'cat-general',
-        name: `Nghiệp vụ dịch vụ ${currentCatName}`,
-        description: `Dịch vụ chuyên môn trong ngành ${currentCatName}`,
-      },
-    ];
-  }, [apiServices, effectiveCategoryId, selectedCategoryObj]);
 
   // Filter services by search
   const filteredServices = React.useMemo(() => {
@@ -797,6 +690,23 @@ export function WorkerRegisterServiceScreen() {
               </View>
             )}
 
+            {/* Error state */}
+            {categoriesQuery.isError && (
+              <View testID="categories-error-state" className="mt-6 items-center justify-center rounded-2xl border border-red-200 bg-red-50/50 p-6 dark:border-red-900/40 dark:bg-red-950/20">
+                <Text className="text-center text-xs font-medium text-red-600 dark:text-red-400">
+                  Không thể tải danh mục dịch vụ từ máy chủ. Vui lòng thử lại.
+                </Text>
+                <Button
+                  testID="retry-categories-btn"
+                  label="Thử lại"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onPress={() => categoriesQuery.refetch()}
+                />
+              </View>
+            )}
+
             {/* Danh sách Danh mục (Tên + Hình ảnh + Mô tả) */}
             <View className="mt-4 space-y-3">
               {filteredCategories.map((cat) => {
@@ -938,6 +848,23 @@ export function WorkerRegisterServiceScreen() {
               <View className="mt-8 items-center justify-center py-6">
                 <ActivityIndicator size="small" color="#2563EB" />
                 <Text className="mt-2 text-xs text-neutral-400">Đang tải danh sách dịch vụ...</Text>
+              </View>
+            )}
+
+            {/* Error state */}
+            {servicesQuery.isError && (
+              <View testID="services-error-state" className="mt-6 items-center justify-center rounded-2xl border border-red-200 bg-red-50/50 p-6 dark:border-red-900/40 dark:bg-red-950/20">
+                <Text className="text-center text-xs font-medium text-red-600 dark:text-red-400">
+                  Không thể tải danh sách dịch vụ từ máy chủ. Vui lòng thử lại.
+                </Text>
+                <Button
+                  testID="retry-services-btn"
+                  label="Thử lại"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onPress={() => servicesQuery.refetch()}
+                />
               </View>
             )}
 
