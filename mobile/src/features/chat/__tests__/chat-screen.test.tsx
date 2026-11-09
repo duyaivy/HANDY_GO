@@ -152,3 +152,25 @@ it('sends typed text through an accessible icon button and clears the draft', as
   })));
   expect(screen.getByLabelText('Nội dung tin nhắn').props.value).toBe('');
 });
+
+it('shows preparation separately from uploading and lets the user cancel compression', async () => {
+  let uploadSignal: AbortSignal | undefined;
+  jest.mocked(uploadChatMedia).mockImplementationOnce((_asset, _progress, options) => {
+    uploadSignal = options?.signal;
+    options?.onPreparation?.({ phase: 'compressing', percent: 42 });
+    return new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+    });
+  });
+  render(<ChatScreen />);
+  fireEvent.press(screen.getByLabelText('Đính kèm ảnh hoặc video'));
+  const options = jest.mocked(Alert.alert).mock.calls.at(-1)?.[2];
+  options?.find(option => option.text === 'Chụp ảnh ngay')?.onPress?.();
+  await screen.findByLabelText('Xem trước ảnh đã chọn');
+  fireEvent.press(screen.getByLabelText('Gửi tin nhắn'));
+  expect(await screen.findByText(/Đang nén video 42%/)).toBeTruthy();
+  fireEvent.press(screen.getByLabelText('Hủy tải tệp'));
+  await waitFor(() => expect(screen.queryByText(/Đang nén video 42%/)).toBeNull());
+  expect(uploadSignal?.aborted).toBe(true);
+  expect(mockSend).not.toHaveBeenCalled();
+});

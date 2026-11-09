@@ -1,4 +1,5 @@
 import type { ImagePickerAsset } from 'expo-image-picker';
+import type { MediaPreparationProgress } from './chat-media-preparation';
 import type { ChatMessage, MessageSendInput } from './types';
 import { useIsFocused } from '@react-navigation/native';
 import * as Crypto from 'expo-crypto';
@@ -51,6 +52,7 @@ function ParticipantChatScreen() {
   const [outgoing, setOutgoing] = useState<Outgoing[]>([]);
   const [asset, setAsset] = useState<ImagePickerAsset | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [preparation, setPreparation] = useState<MediaPreparationProgress | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [olderBusy, setOlderBusy] = useState(false);
   const busy = useRef(false);
@@ -113,8 +115,19 @@ function ParticipantChatScreen() {
         setProgress(0);
         storageKey = await uploadChatMedia(
           asset,
-          setProgress,
-          upload.current.signal,
+          (percent) => {
+            if (mounted.current) {
+              setPreparation(null);
+              setProgress(percent);
+            }
+          },
+          {
+            signal: upload.current.signal,
+            onPreparation: (status) => {
+              if (mounted.current)
+                setPreparation(status);
+            },
+          },
         );
       }
       const input: MessageSendInput = {
@@ -144,7 +157,10 @@ function ParticipantChatScreen() {
       }
     }
     finally {
-      setProgress(null);
+      if (mounted.current) {
+        setProgress(null);
+        setPreparation(null);
+      }
       upload.current = null;
       busy.current = false;
     }
@@ -167,10 +183,10 @@ function ParticipantChatScreen() {
         }
       }
       const result = source === 'camera'
-        ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 1 })
         : await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images', 'videos'],
-            quality: 0.8,
+            quality: 1,
             allowsMultipleSelection: false,
             legacy: false,
           });
@@ -495,7 +511,7 @@ function ParticipantChatScreen() {
                 {' '}
                 ·
                 {' '}
-                {progress === null ? 'Sẵn sàng gửi' : `Đang tải ${progress}%`}
+                {preparation ? preparation.phase === 'compressing' ? `Đang nén video ${preparation.percent ?? 0}%` : 'Đang tối ưu ảnh/video…' : progress === null ? 'Sẵn sàng gửi' : `Đang tải ${progress}%`}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
                 <View style={{ width: 96, height: 96 }}>
