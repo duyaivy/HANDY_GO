@@ -21,6 +21,8 @@ describe('AI identity proxy route', () => {
       (r) => r.upstreamName === 'user-trust-service',
     );
     expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/kyc-cases');
+    expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/worker-registrations');
+    expect(userTrustRoute?.prefixes).toContain('/api/v1/workers');
   });
 
   it('correctly isolates bidding subroutes and general request CRUD routes', () => {

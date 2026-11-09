@@ -173,7 +173,7 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
       expect(mockPush).toHaveBeenCalledWith('/customer/profile-detail');
     });
 
-    it('renders Profile skeleton and navigates back to Tài khoản / Cá nhân on Back press', () => {
+    it('renders Profile screen and navigates back to Tài khoản / Cá nhân on Back press', () => {
       useAuthStore.setState({
         isAuthenticated: true,
         user: {
@@ -187,9 +187,8 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
 
       render(<CustomerProfileDetailScreen />);
 
-      expect(screen.getByText('Profile')).toBeOnTheScreen();
+      expect(screen.getByText('Thông tin hồ sơ')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-profile-detail-screen')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);

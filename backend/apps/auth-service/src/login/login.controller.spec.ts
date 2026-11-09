@@ -16,6 +16,8 @@ describe('LoginController', () => {
       logout: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Đăng xuất thành công', data: null }),
       getMe: vi.fn().mockResolvedValue({ statusCode: 200 }),
       changePassword: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Đổi mật khẩu thành công', data: null }),
+      requestChangeEmail: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Gửi OTP thành công' }),
+      confirmChangeEmail: vi.fn().mockResolvedValue({ statusCode: 200, message: 'Cập nhật email thành công' }),
     };
 
     configMock = {
@@ -31,7 +33,7 @@ describe('LoginController', () => {
     }).compile();
 
     controller = module.get<LoginController>(LoginController);
-  });
+  }, 30000);
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
@@ -68,5 +70,19 @@ describe('LoginController', () => {
     const dto = { oldPassword: 'OldP@ssword123', newPassword: 'NewP@ssword123' };
     await controller.changePassword(user as any, dto as any);
     expect(loginFlowMock.changePassword).toHaveBeenCalledWith('acc-123', dto);
+  });
+
+  it('should call requestChangeEmail on flow service', async () => {
+    const user = { accountId: 'acc-123' };
+    const dto = { newEmail: 'new@example.com' };
+    await controller.requestChangeEmail(user as any, dto as any);
+    expect(loginFlowMock.requestChangeEmail).toHaveBeenCalledWith('acc-123', dto);
+  });
+
+  it('should call confirmChangeEmail on flow service', async () => {
+    const user = { accountId: 'acc-123' };
+    const dto = { newEmail: 'new@example.com', otp: '123456' };
+    await controller.confirmChangeEmail(user as any, dto as any);
+    expect(loginFlowMock.confirmChangeEmail).toHaveBeenCalledWith('acc-123', dto);
   });
 });

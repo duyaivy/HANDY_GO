@@ -187,6 +187,8 @@ export class KycService {
       query.status,
       query.page,
       query.limit,
+      query.search,
+      query.sortBy,
     );
 
     return {

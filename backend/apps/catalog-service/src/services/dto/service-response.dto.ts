@@ -13,6 +13,9 @@ export class ServiceCategorySummaryDto {
     nullable: true,
   })
   imageUrl!: string | null;
+
+  @ApiPropertyOptional({ example: true })
+  isActive?: boolean;
 }
 
 export class ServiceResponseDto {

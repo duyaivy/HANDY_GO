@@ -53,11 +53,15 @@ export function WorkerProfileDetailScreen() {
         <ProfileDetailHeaderCard
           fullName={profile?.fullName}
           avatarUrl={profile?.avatarUrl}
+          bio={profile?.customerProfile?.bio}
           phone={user?.phone}
           email={user?.email}
           accountStatus={profile?.status}
           workerStatus={profile?.workerProfile?.status}
+          workerProfile={profile?.workerProfile}
+          createdAt={profile?.createdAt}
           onStartVerification={handleStartVerification}
+          onProfileUpdated={() => void refetch()}
         />
 
         {isLoading && (
