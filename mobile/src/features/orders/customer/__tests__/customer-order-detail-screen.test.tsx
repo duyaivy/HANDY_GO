@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Alert, Linking } from 'react-native';
+import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
@@ -562,6 +563,163 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText('Lê Hoàng Đề Xuất')).toBeOnTheScreen();
       expect(screen.getByText('4.8')).toBeOnTheScreen();
       expect(screen.getByText(/77 đơn thành công/)).toBeOnTheScreen();
+    });
+  });
+
+  describe('service Name Resolution (PR62-02-P2 / ORD-11)', () => {
+    it('P2-01: resolves service name from serviceId when Order API does not return serviceName or service', async () => {
+      const orderWithoutServiceName = {
+        ...baseOrder,
+        service: undefined,
+        serviceName: undefined,
+        serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4', // Vệ sinh máy lạnh
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithoutServiceName,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Vệ sinh máy lạnh')).toBeOnTheScreen();
+        expect(screen.queryByText('Dịch vụ tiện ích')).toBeNull();
+      });
+    });
+
+    it('P2-02: prioritizes valid service name returned from server over serviceId dictionary lookup', async () => {
+      const orderWithServerName = {
+        ...baseOrder,
+        service: {
+          name: 'Vệ sinh máy lạnh Panasonic Inverter',
+        },
+        serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithServerName,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Vệ sinh máy lạnh Panasonic Inverter')).toBeOnTheScreen();
+        expect(screen.queryByText('Vệ sinh máy lạnh')).toBeNull();
+      });
+    });
+
+    it('P2-03: fetches service name from CatalogApi when serviceId is not in fixed dictionary', async () => {
+      const orderWithUnknownServiceId = {
+        ...baseOrder,
+        service: undefined,
+        serviceName: undefined,
+        serviceId: 'custom-catalog-uuid-777',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithUnknownServiceId,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      jest.spyOn(CatalogApi, 'getServiceById').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          id: 'custom-catalog-uuid-777',
+          name: 'Dịch vụ diệt côn trùng tận gốc',
+          categoryId: 'cat-1',
+          description: null,
+          iconUrl: null,
+          isActive: true,
+          createdAt: '2026-11-05T00:00:00Z',
+          updatedAt: '2026-11-05T00:00:00Z',
+          category: { id: 'cat-1', name: 'Vệ sinh', imageUrl: null },
+        },
+      });
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dịch vụ diệt côn trùng tận gốc')).toBeOnTheScreen();
+        expect(screen.queryByText('Dịch vụ tiện ích')).toBeNull();
+      });
+    });
+
+    it('P2-04: safely falls back to default when serviceId is unknown and CatalogApi fails', async () => {
+      const orderWithUnknownServiceId = {
+        ...baseOrder,
+        service: undefined,
+        serviceName: undefined,
+        serviceId: 'unknown-uuid-404',
+        agreedScope: undefined,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithUnknownServiceId,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      jest.spyOn(CatalogApi, 'getServiceById').mockRejectedValue(new Error('Service not found'));
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Dịch vụ tiện ích')).toBeOnTheScreen();
+      });
+    });
+
+    it('P2-05: ignores empty string or generic label from server and resolves specific name via serviceId', async () => {
+      const orderWithGenericServerName = {
+        ...baseOrder,
+        service: undefined,
+        serviceName: 'Dịch vụ tiện ích',
+        serviceId: '34ec7df5-20db-401e-804a-6feee5b48184', // Sửa máy lạnh
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithGenericServerName,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Sửa máy lạnh')).toBeOnTheScreen();
+      });
+    });
+
+    it('P2-06: respects propServiceName when it belongs to current order and server has no specific name', async () => {
+      const orderWithoutSpecificName = {
+        ...baseOrder,
+        service: undefined,
+        serviceName: undefined,
+        serviceId: undefined,
+        agreedScope: undefined,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithoutSpecificName,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(
+        <CustomerOrderDetailScreen
+          orderId="ord-test-001"
+          serviceName="Chăm sóc cây cảnh ban công"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Chăm sóc cây cảnh ban công')).toBeOnTheScreen();
+      });
     });
   });
 });

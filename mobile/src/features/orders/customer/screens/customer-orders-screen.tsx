@@ -14,7 +14,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
-import { KNOWN_SERVICES_BY_ID } from '@/constants/services';
+import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { useCustomerOrders } from '../../hooks/use-customer-orders';
 
 export const ACTIVITY_FILTER_TABS = [
@@ -162,6 +162,15 @@ function getRequestServiceTitle(req: ServiceRequest): string {
 }
 
 function getOrderServiceTitle(ord: Order): string {
+  if (ord.serviceId && KNOWN_SERVICES_BY_ID[ord.serviceId]) {
+    return KNOWN_SERVICES_BY_ID[ord.serviceId];
+  }
+
+  const fromServiceId = ord.serviceId ? resolveServiceName(ord.serviceId) : undefined;
+  if (isSpecificServiceName(fromServiceId)) {
+    return fromServiceId!;
+  }
+
   const scope = (ord.agreedScope || '').trim();
   if (!scope || scope.toLowerCase().startsWith('khách hàng chọn thợ')) {
     return 'Dịch vụ tiện ích';

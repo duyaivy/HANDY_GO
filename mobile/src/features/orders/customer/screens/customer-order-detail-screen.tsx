@@ -14,6 +14,8 @@ import { ClockIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
+import { useServiceDetail } from '@/features/catalog';
 import {
   OrderEvidenceGallery,
   OrderPaymentCard,
@@ -82,8 +84,9 @@ export function CustomerOrderDetailScreen({
   onBack,
 }: CustomerOrderDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ id?: string }>();
+  const searchParams = useLocalSearchParams<{ id?: string; serviceName?: string }>();
   const orderId = propOrderId || searchParams?.id || 'demo-001';
+  const effectivePropServiceName = propServiceName || searchParams?.serviceName;
 
   const isPlumberOrder = orderId === '224466' || orderId.toLowerCase().includes('plumber');
 
@@ -102,6 +105,8 @@ export function CustomerOrderDetailScreen({
     statusHistory,
     worker,
   } = useCustomerOrderDetail(orderId);
+
+  const { data: catalogService } = useServiceDetail(order?.serviceId);
 
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
   const handleManualRefresh = async () => {
@@ -140,11 +145,53 @@ export function CustomerOrderDetailScreen({
       ? 'Thợ đối tác chuyên nghiệp HandyGo'
       : (isPlumberOrder ? 'Chuyên điện nước dân dụng & xử lý rò rỉ' : 'Đối tác chuyên nghiệp HandyGo'));
 
-  // Service Info Resolution
-  const resolvedServiceName = propServiceName
-    || (order as any)?.service?.name
-    || (order as any)?.serviceName
-    || (isPlumberOrder ? 'Sửa chữa điện nước' : 'Dịch vụ tiện ích');
+  // Service Info Resolution (P2-ORD-11 / PR62-02)
+  const resolvedServiceName = React.useMemo(() => {
+    // 1. Ưu tiên tên hợp lệ từ Order API (nếu server trả về)
+    const apiServerName = (order as any)?.service?.name || (order as any)?.serviceName;
+    if (isSpecificServiceName(apiServerName)) {
+      return apiServerName.trim();
+    }
+
+    // 2. Tra cứu order.serviceId qua KNOWN_SERVICES_BY_ID / resolveServiceName
+    if (order?.serviceId) {
+      if (KNOWN_SERVICES_BY_ID[order.serviceId]) {
+        return KNOWN_SERVICES_BY_ID[order.serviceId];
+      }
+      const fromResolver = resolveServiceName(order.serviceId);
+      if (isSpecificServiceName(fromResolver)) {
+        return fromResolver;
+      }
+    }
+
+    // 3. Tra cứu từ Catalog theo serviceId nếu có trong catalog service
+    if (catalogService?.name && isSpecificServiceName(catalogService.name)) {
+      return catalogService.name.trim();
+    }
+
+    // 4. Chỉ dùng propServiceName khi nó thuộc đúng đơn đang mở
+    const isMatchingOrder = !order || !order.id || order.id === orderId;
+    if (isMatchingOrder && effectivePropServiceName && isSpecificServiceName(effectivePropServiceName)) {
+      return effectivePropServiceName.trim();
+    }
+
+    // 5. Thử trích xuất từ nội dung công việc (agreedScope)
+    if (order?.agreedScope) {
+      const fromScope = resolveServiceName(undefined, undefined, order.agreedScope);
+      if (isSpecificServiceName(fromScope)) {
+        return fromScope;
+      }
+    }
+
+    // 6. Fallback an toàn mặc định
+    return isPlumberOrder ? 'Sửa chữa điện nước' : 'Dịch vụ tiện ích';
+  }, [
+    catalogService?.name,
+    effectivePropServiceName,
+    isPlumberOrder,
+    order,
+    orderId,
+  ]);
   const resolvedAddress = order?.addressText
     || (isPlumberOrder ? 'Khu Đô thị FPT City, Phường Hòa Hải, Ngũ Hành Sơn, Đà Nẵng' : 'Địa chỉ theo thỏa thuận');
   const resolvedScope = order?.agreedScope

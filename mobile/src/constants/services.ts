@@ -65,6 +65,21 @@ export const KNOWN_SERVICES_BY_ID: Record<string, string> = {
 };
 
 /**
+ * Checks whether a service name string is specific and not empty or a generic fallback.
+ */
+export function isSpecificServiceName(name?: string | null): name is string {
+  if (!name || typeof name !== 'string') {
+    return false;
+  }
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return false;
+  }
+  const lower = trimmed.toLowerCase();
+  return lower !== 'dịch vụ tiện ích' && lower !== 'dịch vụ sửa chữa tại nhà';
+}
+
+/**
  * Resolves service title from serviceId, fallback name, or description.
  * Prevents unintentional drift to default generic 'Dịch vụ tiện ích'.
  */
