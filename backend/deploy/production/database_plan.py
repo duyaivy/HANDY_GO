@@ -48,13 +48,17 @@ def endpoint(raw, label):
         raise ValueError(f'{label}: valid PostgreSQL endpoint required') from None
 
 
+def migration_schema(service):
+    return 'message' if service == 'message' else service.replace('-', '_') + '_service'
+
+
 def migration_endpoint(values, service, migrating=False):
     suffix = service.upper().replace('-', '_')
     direct = values.get('DIRECT_URL_' + suffix, '').strip()
     raw = direct or values.get('DATABASE_URL_' + suffix, '').strip() or values.get('DATABASE_URL', '').strip()
     url, _ = endpoint(raw, 'DIRECT_URL_' + suffix if direct else service)
-    schema = parse_qs(url.query).get('schema', [service.replace('-', '_') + '_service'])
-    if direct and schema != [service.replace('-', '_') + '_service']:
+    schema = parse_qs(url.query).get('schema', [migration_schema(service)])
+    if direct and schema != [migration_schema(service)]:
         raise ValueError(f'DIRECT_URL_{suffix}: wrong migration schema')
     if migrating:
         # Supavisor transaction mode cannot preserve Prisma Migrate advisory locks.
@@ -188,7 +192,7 @@ def migration_inventory(root, registry):
             raise ValueError(f'Migration SQL missing: {key}')
         if set(path.resolve() for path in sql_files) != set(path.resolve() for path in migrations.glob('*/migration.sql')):
             raise ValueError(f'Migration SQL outside configured execution path: {key}')
-        expected_schema = 'message' if key == 'message' else key.replace('-', '_') + '_service'
+        expected_schema = migration_schema(key)
         if database_match[1] != key or database_match[2] != expected_schema:
             raise ValueError(f'Migration database/schema contract mismatch: {key}')
         if type(entry.get('migration_order')) is not int or entry['migration_order'] < 0:

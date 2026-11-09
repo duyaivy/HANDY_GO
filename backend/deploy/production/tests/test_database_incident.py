@@ -12,6 +12,14 @@ from database_plan import SERVICES, migration_endpoint, validate_database_plan, 
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_message_direct_migration_url_uses_the_declared_message_schema(self):
+        values = {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message',
+                  'DB_DDL_VERIFIED_MESSAGE': 'true'}
+        self.assertEqual(migration_endpoint(values, 'message', migrating=True).query, 'schema=message')
+        with self.assertRaisesRegex(ValueError, 'wrong migration schema'):
+            migration_endpoint(values | {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message_service'},
+                               'message', migrating=True)
+
     def setUp(self):
         self.registry = json.loads((PROD / 'services.json').read_text())['services']
         self.values = {'DATABASE_URL': 'postgresql://tenant:secret@pool.example/postgres',
