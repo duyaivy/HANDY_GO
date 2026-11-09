@@ -119,6 +119,28 @@ describe('BookingProposalsService', () => {
       expect(result).toEqual(mockCreated);
     });
 
+    it('should reject proposal creation when agreedPrice is 0, negative, or invalid (PR62-05-P2)', async () => {
+      const baseDto = {
+        serviceRequestId: mockRequestId,
+        workerUserId: mockWorkerId,
+        selectionSource: WorkerSelectionSource.bid,
+        sourceBidId: 'bid-uuid-1',
+        agreedScope: 'Sửa điện',
+      };
+
+      await expect(
+        service.create(mockCustomerId, { ...baseDto, agreedPrice: 0 }),
+      ).rejects.toThrow('agreedPrice must be a positive number greater than 0');
+
+      await expect(
+        service.create(mockCustomerId, { ...baseDto, agreedPrice: -50000 }),
+      ).rejects.toThrow('agreedPrice must be a positive number greater than 0');
+
+      await expect(
+        service.create(mockCustomerId, { ...baseDto, agreedPrice: Number.NaN }),
+      ).rejects.toThrow('agreedPrice must be a positive number greater than 0');
+    });
+
     it('should create revision 1 proposal from recommendation source', async () => {
       prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
       prismaMock.bookingProposal.findFirst.mockResolvedValue(null);

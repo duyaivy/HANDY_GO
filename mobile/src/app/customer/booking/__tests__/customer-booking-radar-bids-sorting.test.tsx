@@ -229,8 +229,9 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
     expect(screen.getByText('Thợ Hợp Lệ 200k')).toBeOnTheScreen();
     expect(screen.getByText('200.000đ')).toBeOnTheScreen();
 
-    // Thợ giá không hợp lệ phải xếp cuối cùng và hiển thị 'Báo giá thỏa thuận'
+    // Thợ giá không hợp lệ phải xếp cuối cùng và hiển thị 'Không có giá hợp lệ' (PR62-05-P2)
     expect(screen.getByText('Thợ Giá Không Hợp Lệ')).toBeOnTheScreen();
-    expect(screen.getByText('Báo giá thỏa thuận')).toBeOnTheScreen();
+    expect(screen.getByText('Không có giá hợp lệ')).toBeOnTheScreen();
+    expect(screen.getByText('Không thể chọn')).toBeOnTheScreen();
   });
 });

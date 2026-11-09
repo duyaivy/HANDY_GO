@@ -35,6 +35,7 @@ import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
+import { isValidBidPrice } from '@/features/orders/utils/bid-price';
 import { getCancelErrorMessage } from '@/features/orders/utils/cancel-error-message';
 import { isValidCoordinate } from '@/services/location/coordinates';
 import { DeviceLocationService } from '@/services/location/device-location';
@@ -58,6 +59,7 @@ type DisplayWorkerCandidate = {
   message?: string;
   matchingScore?: number;
   rank?: number;
+  isPriceValid?: boolean;
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
@@ -82,6 +84,7 @@ const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   avatarUrl: DEFAULT_AVATAR,
   selectionSource: 'bid',
   sourceBidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
+  isPriceValid: true,
 };
 
 async function fetchLatestActiveRequestId(): Promise<string | null> {
@@ -711,31 +714,34 @@ export default function CustomerBookingRadarRoute() {
     return [...bids]
       .filter((b: BidCandidate) => !b.status || b.status === 'active')
       .sort((a, b) => {
-        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount);
-        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount);
-        const isValidA = typeof numA === 'number' && !Number.isNaN(numA) && numA > 0;
-        const isValidB = typeof numB === 'number' && !Number.isNaN(numB) && numB > 0;
+        const isValidA = isValidBidPrice(a.amount);
+        const isValidB = isValidBidPrice(b.amount);
 
-        // P2-06: Đặt giá không hợp lệ/thiếu giá ở cuối danh sách thay vì quy về 0
+        // P2-06 & PR62-05-P2: Đặt giá không hợp lệ/thiếu giá ở cuối danh sách thay vì quy về 0
         if (isValidA && !isValidB)
           return -1;
         if (!isValidA && isValidB)
           return 1;
         if (!isValidA && !isValidB)
           return 0;
+        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount);
+        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount);
         return numA - numB;
       })
       .map((b: BidCandidate) => {
-        const rawAmount = typeof b.amount === 'number' ? b.amount : Number(b.amount);
-        const isValidPrice = typeof rawAmount === 'number' && !Number.isNaN(rawAmount) && rawAmount > 0;
+        const isValidPrice = isValidBidPrice(b.amount);
+        const validPrice = isValidPrice
+          ? (typeof b.amount === 'number' ? b.amount : Number(b.amount))
+          : 0;
         return {
           id: b.workerUserId,
           name: b.workerProfile?.fullName || 'Thợ đối tác',
           rating: typeof b.workerProfile?.averageRating === 'number' ? b.workerProfile.averageRating : 0,
           totalOrders: b.workerProfile?.completedOrderCount ?? 0,
           completionRate: 98,
-          price: isValidPrice ? rawAmount : 0,
-          priceText: isValidPrice ? `${rawAmount.toLocaleString('vi-VN')}đ` : 'Báo giá thỏa thuận',
+          price: validPrice,
+          priceText: isValidPrice ? `${validPrice.toLocaleString('vi-VN')}đ` : 'Không có giá hợp lệ',
+          isPriceValid: isValidPrice,
           distance: typeof b.workerProfile?.distanceKm === 'number'
             ? `${b.workerProfile.distanceKm.toFixed(1)}km`
             : 'Gần bạn',
@@ -758,6 +764,7 @@ export default function CustomerBookingRadarRoute() {
       completionRate: 95,
       price: defaultRecPrice,
       priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
+      isPriceValid: true,
       distance: typeof r.workerProfile?.distanceKm === 'number'
         ? `${r.workerProfile.distanceKm.toFixed(1)}km`
         : 'Gần bạn',
@@ -777,6 +784,16 @@ export default function CustomerBookingRadarRoute() {
 
   // Candidate selection -> Booking Proposal creation (Contract Section 7 & 17)
   const handleSelectWorkerAndSendProposal = async (worker: DisplayWorkerCandidate) => {
+    // PR62-05-P2: Báo giá không hợp lệ (null, 0, NaN, âm) không được phép tạo proposal
+    if (worker.selectionSource === 'bid' && (!isValidBidPrice(worker.price) || worker.isPriceValid === false)) {
+      Alert.alert(
+        'Báo giá không hợp lệ',
+        'Báo giá từ thợ không có giá hợp lệ (giá phải lớn hơn 0). Không thể tạo đề xuất từ báo giá này.',
+        [{ text: 'Đóng', style: 'cancel' }],
+      );
+      return;
+    }
+
     if (!begin(worker.id))
       return;
     setIsSubmitting(true);
@@ -1341,10 +1358,18 @@ export default function CustomerBookingRadarRoute() {
                                 <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
                                   <View className="min-w-0 flex-1">
                                     <View className="flex-row items-center gap-1.5">
-                                      <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
+                                      <Text
+                                        className={`text-lg font-bold ${
+                                          worker.isPriceValid === false
+                                            ? 'text-rose-600 dark:text-rose-400'
+                                            : 'text-secondary-700 dark:text-blue-400'
+                                        }`}
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                      >
                                         {worker.priceText}
                                       </Text>
-                                      {idx === 0 && mappedBids.length > 1 && typeof worker.price === 'number' && worker.price > 0 && (
+                                      {idx === 0 && mappedBids.length > 1 && worker.isPriceValid !== false && typeof worker.price === 'number' && worker.price > 0 && (
                                         <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-950/50">
                                           <Text className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
                                             Giá tốt nhất
@@ -1353,31 +1378,35 @@ export default function CustomerBookingRadarRoute() {
                                       )}
                                     </View>
                                     <Text className="mt-0.5 text-xs text-neutral-400">
-                                      {worker.distance}
+                                      {worker.isPriceValid === false ? 'Báo giá không hợp lệ' : worker.distance}
                                     </Text>
                                   </View>
                                   <Pressable
                                     testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
                                     onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                    disabled={isSubmitting || isWorkerProposed(worker.id)}
+                                    disabled={isSubmitting || isWorkerProposed(worker.id) || worker.isPriceValid === false}
                                     className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
-                                      isWorkerProposed(worker.id)
-                                        ? 'bg-neutral-200 dark:bg-neutral-800'
-                                        : 'bg-[#F5A524] active:opacity-80'
+                                      worker.isPriceValid === false
+                                        ? 'bg-neutral-200 opacity-60 dark:bg-neutral-800'
+                                        : isWorkerProposed(worker.id)
+                                          ? 'bg-neutral-200 dark:bg-neutral-800'
+                                          : 'bg-[#F5A524] active:opacity-80'
                                     }`}
                                   >
                                     <Text
                                       className={`text-sm font-bold ${
-                                        isWorkerProposed(worker.id)
+                                        worker.isPriceValid === false || isWorkerProposed(worker.id)
                                           ? 'text-neutral-500 dark:text-neutral-400'
                                           : 'text-white'
                                       }`}
                                     >
-                                      {isWorkerProposed(worker.id)
-                                        ? 'Đang chờ thợ...'
-                                        : isSubmitting
-                                          ? 'Đang gửi...'
-                                          : 'Chọn thợ'}
+                                      {worker.isPriceValid === false
+                                        ? 'Không thể chọn'
+                                        : isWorkerProposed(worker.id)
+                                          ? 'Đang chờ thợ...'
+                                          : isSubmitting
+                                            ? 'Đang gửi...'
+                                            : 'Chọn thợ'}
                                     </Text>
                                   </Pressable>
                                 </View>
