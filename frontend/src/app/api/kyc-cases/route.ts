@@ -30,10 +30,14 @@ export async function GET(request: Request) {
     const status = searchParams.get("status");
     const page = searchParams.get("page");
     const limit = searchParams.get("limit");
+    const search = searchParams.get("search");
+    const sortBy = searchParams.get("sortBy");
 
     if (status) queryParams.set("status", status);
     if (page) queryParams.set("page", page);
     if (limit) queryParams.set("limit", limit);
+    if (search) queryParams.set("search", search);
+    if (sortBy) queryParams.set("sortBy", sortBy);
 
     const queryString = queryParams.toString();
 

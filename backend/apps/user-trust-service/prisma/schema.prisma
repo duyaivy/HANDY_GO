@@ -68,6 +68,14 @@ enum ComplaintCategory {
   @@map("complaint_category")
 }
 
+enum RegistrationStatus {
+  pending
+  approved
+  rejected
+
+  @@map("registration_status")
+}
+
 model User {
   id                 String              @id @db.Uuid
   fullName           String              @map("full_name") @db.VarChar(150)
@@ -85,7 +93,8 @@ model User {
   complaintsFiled    Complaint[]         @relation("ComplaintComplainant")
   complaintsReceived Complaint[]         @relation("ComplaintReported")
   complaintsAssigned Complaint[]         @relation("ComplaintAdmin")
-  evidenceUploaded   ComplaintEvidence[]
+  evidenceUploaded             ComplaintEvidence[]
+  serviceRegistrationsReviewed WorkerServiceRegistration[] @relation("RegistrationReviewer")
 
   @@map("users")
 }
@@ -117,6 +126,7 @@ model WorkerProfile {
   serviceOfferings    WorkerServiceOffering[]
   kycCases            KycCase[]
   serviceAreas        WorkerServiceArea[]
+  serviceRegistrations WorkerServiceRegistration[]
 
   @@map("worker_profiles")
 }
@@ -320,6 +330,7 @@ model OutboxEvent {
 model WorkerServiceArea {
   id              String        @id @default(uuid()) @db.Uuid
   workerProfileId String        @map("worker_profile_id") @db.Uuid
+  address         String?       @db.VarChar(255)
   latitude        Decimal       @db.Decimal(9, 6)
   longitude       Decimal       @db.Decimal(9, 6)
   radiusKm        Decimal       @map("radius_km") @db.Decimal(6, 2)
@@ -332,4 +343,28 @@ model WorkerServiceArea {
   @@index([latitude, longitude])
   @@map("worker_service_areas")
 }
+
+model WorkerServiceRegistration {
+  id               String             @id @default(uuid()) @db.Uuid
+  workerProfileId  String             @map("worker_profile_id") @db.Uuid
+  categoryIds      Json               @map("category_ids")
+  services         Json
+  serviceArea      Json               @map("service_area")
+  evidenceFiles    Json               @map("evidence_files")
+  idempotencyKey   String?            @unique @map("idempotency_key") @db.VarChar(128)
+  status           RegistrationStatus @default(pending)
+  rejectionReason  String?            @map("rejection_reason") @db.Text
+  reviewedByUserId String?            @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime?          @map("reviewed_at") @db.Timestamptz(6)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  workerProfile    WorkerProfile      @relation(fields: [workerProfileId], references: [id], onDelete: Cascade)
+  reviewer         User?              @relation("RegistrationReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([workerProfileId, status])
+  @@index([status, createdAt])
+  @@map("worker_service_registrations")
+}
+
 

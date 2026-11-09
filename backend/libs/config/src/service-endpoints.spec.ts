@@ -3,8 +3,12 @@ import { validateProductionServiceEndpoints } from './service-endpoints.js';
 
 describe('production service topology', () => {
   const ai = 'https://ai-fixture.region.azurecontainerapps.io';
-  const config = { NODE_ENV: 'production', AI_SERVICE_URL: ai,
-    USER_TRUST_SERVICE_URL: 'http://10.77.0.1:3002' };
+  const config = {
+    NODE_ENV: 'production',
+    AI_SERVICE_URL: ai,
+    USER_TRUST_SERVICE_URL: 'http://10.77.0.1:3002',
+    CATALOG_SERVICE_URL: 'http://10.77.0.3:3003',
+  };
 
   it('requires WireGuard routing for every User Trust caller, including the gateway', () => {
     for (const caller of ['api-gateway', 'matching-service', 'bidding-service', 'wallet-service']) {

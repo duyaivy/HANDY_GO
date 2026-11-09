@@ -123,6 +123,16 @@ export class OtpService {
     });
   }
 
+  async sendChangeEmailOtp(email: string, otpCode: string): Promise<void> {
+    await this.sendOtpEmail({
+      email,
+      subject: '[HANDY GO] Mã xác thực thay đổi Email',
+      text: `Chào bạn, bạn vừa yêu cầu thay đổi email liên kết với tài khoản HANDY GO. Mã xác thực OTP của bạn là: ${otpCode}. Mã có hiệu lực trong ${this.expirationMinutes} phút. Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.`,
+      html: buildOtpEmailHtml(otpCode, this.expirationMinutes),
+      logLabel: 'Change Email OTP',
+    });
+  }
+
   async sendPasswordResetOtp(email: string, otpCode: string): Promise<void> {
     await this.sendOtpEmail({
       email,
