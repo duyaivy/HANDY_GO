@@ -15,6 +15,22 @@ describe('UserTrustServiceController', () => {
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      listUsers: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
+      uploadAvatar: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      getBankAccounts: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      addBankAccount: vi.fn().mockResolvedValue({ statusCode: 201 }),
+      deleteBankAccount: vi.fn().mockResolvedValue({ statusCode: 200 }),
+      getWorkerPublicProfile: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'w1' } }),
+      getWorkerOrderSummary: vi.fn().mockResolvedValue({ statusCode: 200, data: { workerUserId: 'w1' } }),
+      getWorkerReviews: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
+      submitWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 201, data: { id: 'reg-1' } }),
+      updateWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
+      getMyServiceRegistrations: vi.fn().mockResolvedValue({ statusCode: 200, data: [] }),
+      listAdminServiceRegistrations: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
+      getAdminServiceRegistrationDetail: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
+      reviewServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { status: 'approved' } }),
+      geocodeAddress: vi.fn().mockResolvedValue({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } }),
+      updateServiceOffering: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'offering-1', isActive: true } }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -74,6 +90,74 @@ describe('UserTrustServiceController', () => {
     );
   });
 
+  it('should update profile and handle avatar upload via updateMyProfile', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:update'],
+    };
+
+    const result = await controller.updateMyProfile(user, { fullName: 'Updated Name' });
+    expect(result).toEqual({ statusCode: 200 });
+    expect(serviceMock.updateProfile).toHaveBeenCalledWith(
+      'user-1',
+      'user-1',
+      { fullName: 'Updated Name' },
+      ['profile:update'],
+    );
+  });
+
+  it('should upload avatar via uploadMyAvatar', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:update'],
+    };
+
+    const fakeFile = { buffer: Buffer.from('img') } as any;
+    const result = await controller.uploadMyAvatar(user, { file: [fakeFile] });
+    expect(result).toEqual({ statusCode: 200 });
+    expect(serviceMock.uploadAvatar).toHaveBeenCalledWith('user-1', fakeFile);
+  });
+
+  it('should delegate bank account requests to service', async () => {
+    const user = {
+      accountId: 'acc-1',
+      userId: 'user-1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:read', 'profile:update'],
+    };
+
+    await controller.getMyBankAccounts(user);
+    expect(serviceMock.getBankAccounts).toHaveBeenCalledWith('user-1');
+
+    await controller.addMyBankAccount(user, {
+      bankCode: 'VCB',
+      bankName: 'Vietcombank',
+      accountNumber: '123',
+      accountHolderName: 'NGUYEN A',
+    });
+    expect(serviceMock.addBankAccount).toHaveBeenCalledWith('user-1', expect.objectContaining({ bankCode: 'VCB' }));
+
+    await controller.deleteMyBankAccount(user, 'bank-1');
+    expect(serviceMock.deleteBankAccount).toHaveBeenCalledWith('user-1', 'bank-1');
+  });
+
+  it('should call service.listUsers for admin list users', async () => {
+    const query = { page: 1, limit: 10, search: 'test', role: 'customer' as const };
+    const result = await controller.listUsers(query);
+    expect(result).toEqual({ statusCode: 200, data: [], pagination: {} });
+    expect(serviceMock.listUsers).toHaveBeenCalledWith(query);
+
+    const adminResult = await controller.listAdminUsers(query);
+    expect(adminResult).toEqual({ statusCode: 200, data: [], pagination: {} });
+  });
+
   describe('verifyBankAccount (internal)', () => {
     const body = { userId: 'u1', bankAccountId: 'b1' };
 
@@ -113,23 +197,136 @@ describe('UserTrustServiceController', () => {
     expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
   });
 
-  it('should delegate getWorkerPublicProfile to service', async () => {
-    serviceMock.getWorkerPublicProfile = vi.fn().mockResolvedValue({
-      statusCode: 200,
-      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
+  it('should serve the order worker summary through both user routes', async () => {
+    const expected = { statusCode: 200, data: { workerUserId: 'worker-1' } };
+    serviceMock.getWorkerOrderSummary.mockResolvedValue(expected);
+
+    expect(await controller.getWorkerPublicProfile('worker-1')).toEqual(expected);
+    expect(await controller.getWorkerPublicProfileAlias('worker-1')).toEqual(expected);
+    expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledTimes(2);
+    expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledWith('worker-1');
+  });
+
+  it('should call service.getWorkerPublicProfile for getWorkerProfile and alias', async () => {
+    const res1 = await controller.getWorkerProfile('worker-1');
+    expect(res1).toEqual({ statusCode: 200, data: { id: 'w1' } });
+    expect(serviceMock.getWorkerPublicProfile).toHaveBeenCalledWith('worker-1');
+
+    const res2 = await controller.getWorkerProfileAlias('worker-1');
+    expect(res2).toEqual({ statusCode: 200, data: { id: 'w1' } });
+  });
+
+  it('should call service.getWorkerReviews for getWorkerReviews', async () => {
+    const query = { page: 1, limit: 10, rating: 5 };
+    const res = await controller.getWorkerReviews('worker-1', query);
+    expect(res).toEqual({ statusCode: 200, data: [], pagination: {} });
+    expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('worker-1', query);
+  });
+
+  describe('Worker Service Registration Controller Tests', () => {
+    const mockUser = {
+      accountId: 'acc-1',
+      userId: 'user-w1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.WORKER],
+      permissions: ['profile:update', 'profile:read'],
+    };
+
+    it('submitMyServiceRegistration delegates to service with idempotency key', async () => {
+      const dto: any = {
+        categoryIds: ['0986472e-1728-4731-82b2-ff77a7251326'],
+        services: [{ serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4' }],
+        serviceArea: { address: 'Đà Nẵng', latitude: 16.0544, longitude: 108.2022, radiusKm: 15 },
+        evidenceFiles: [{ url: 'https://example.com/proof.jpg', fileType: 'image' }],
+      };
+
+      const res = await controller.submitMyServiceRegistration(mockUser, dto, 'idem-key-1');
+      expect(res).toEqual({ statusCode: 201, data: { id: 'reg-1' } });
+      expect(serviceMock.submitWorkerServiceRegistration).toHaveBeenCalledWith('user-w1', dto, 'idem-key-1');
     });
 
-    const result = await controller.getWorkerPublicProfile('w-1');
-    expect(result).toEqual({
-      statusCode: 200,
-      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
-    });
-    expect(serviceMock.getWorkerPublicProfile).toHaveBeenCalledWith('w-1');
+    it('updateMyServiceRegistration delegates to service with idempotency key', async () => {
+      const dto: any = {
+        categoryIds: ['0986472e-1728-4731-82b2-ff77a7251326'],
+        services: [{ serviceId: 'a26e3c78-f202-4ec0-a2f9-2462371d05a4' }],
+        serviceArea: { address: 'Đà Nẵng', latitude: 16.0544, longitude: 108.2022, radiusKm: 15 },
+        evidenceFiles: [{ url: 'https://example.com/proof.jpg', fileType: 'image' }],
+      };
 
-    const aliasResult = await controller.getWorkerPublicProfileAlias('w-1');
-    expect(aliasResult).toEqual({
-      statusCode: 200,
-      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
+      const res = await controller.updateMyServiceRegistration(mockUser, 'reg-1', dto, undefined, 'x-idem-key-2');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'reg-1' } });
+      expect(serviceMock.updateWorkerServiceRegistration).toHaveBeenCalledWith('user-w1', 'reg-1', dto, 'x-idem-key-2');
+    });
+
+    it('getMyServiceRegistrations delegates to service', async () => {
+      const res = await controller.getMyServiceRegistrations(mockUser);
+      expect(res).toEqual({ statusCode: 200, data: [] });
+      expect(serviceMock.getMyServiceRegistrations).toHaveBeenCalledWith('user-w1');
+    });
+
+    it('geocodeAddress delegates to service', async () => {
+      const res = await controller.geocodeAddress('Đà Nẵng');
+      expect(res).toEqual({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } });
+      expect(serviceMock.geocodeAddress).toHaveBeenCalledWith('Đà Nẵng');
+    });
+
+    it('listAdminServiceRegistrations delegates to service', async () => {
+      const query = { page: 1, limit: 10, status: 'pending' as const };
+      const res = await controller.listAdminServiceRegistrations(query);
+      expect(res).toEqual({ statusCode: 200, data: [], pagination: {} });
+      expect(serviceMock.listAdminServiceRegistrations).toHaveBeenCalledWith(query);
+    });
+
+    it('getAdminServiceRegistrationDetail delegates to service', async () => {
+      const res = await controller.getAdminServiceRegistrationDetail('reg-1');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'reg-1' } });
+      expect(serviceMock.getAdminServiceRegistrationDetail).toHaveBeenCalledWith('reg-1');
+    });
+
+    it('reviewServiceRegistration delegates to service', async () => {
+      const adminUser = {
+        accountId: 'acc-admin',
+        userId: 'admin-1',
+        sessionId: 'sess-admin',
+        roles: ['admin'],
+        permissions: ['user:manage'],
+      };
+      const dto = { decision: 'approved' as const };
+      const res = await controller.reviewServiceRegistration(adminUser, 'reg-1', dto);
+      expect(res).toEqual({ statusCode: 200, data: { status: 'approved' } });
+      expect(serviceMock.reviewServiceRegistration).toHaveBeenCalledWith('admin-1', 'reg-1', dto);
+    });
+
+    it('updateServiceOffering delegates to service', async () => {
+      const workerUser = {
+        accountId: 'acc-w1',
+        userId: 'user-w1',
+        sessionId: 'sess-w1',
+        roles: ['worker'],
+        permissions: ['profile:update'],
+      };
+      const dto = { isActive: false };
+      const res = await controller.updateServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001', dto);
+      expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
+        'user-w1',
+        '00000000-0000-0000-0000-000000000001',
+        false,
+      );
+    });
+
+    it('toggleServiceOffering delegates to service without boolean', async () => {
+      const workerUser = {
+        accountId: 'acc-w1',
+        userId: 'user-w1',
+        sessionId: 'sess-w1',
+        roles: ['worker'],
+        permissions: ['profile:update'],
+      };
+      const res = await controller.toggleServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001');
+      expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
+        'user-w1',
+        '00000000-0000-0000-0000-000000000001',
+      );
     });
   });
 });

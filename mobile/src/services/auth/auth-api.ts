@@ -131,6 +131,31 @@ export type UserProfileResponse = {
   updatedAt: string;
 };
 
+export type UpdateProfilePayload = {
+  fullName?: string;
+  avatarUrl?: string;
+  bio?: string;
+};
+
+export type ChangeEmailRequestPayload = {
+  newEmail: string;
+};
+
+export type ChangeEmailRequestResult = {
+  newEmail: string;
+  cooldownSeconds: number;
+};
+
+export type ChangeEmailConfirmPayload = {
+  newEmail: string;
+  otp: string;
+};
+
+export type ChangeEmailConfirmResult = {
+  email: string;
+  verifiedAt: string;
+};
+
 export const AuthApi = {
   register: async (payload: RegisterPayload): Promise<ApiResponse<RegisterResult>> => {
     return ApiClient.post<ApiResponse<RegisterResult>>('/auth/register', payload);
@@ -178,5 +203,25 @@ export const AuthApi = {
 
   getMyProfile: async (): Promise<ApiResponse<UserProfileResponse>> => {
     return ApiClient.get<ApiResponse<UserProfileResponse>>('/users/me');
+  },
+
+  updateProfile: async (payload: UpdateProfilePayload): Promise<ApiResponse<UserProfileResponse>> => {
+    return ApiClient.patch<ApiResponse<UserProfileResponse>>('/users/me', payload);
+  },
+
+  uploadAvatar: async (formData: FormData): Promise<ApiResponse<{ avatarUrl: string }>> => {
+    return ApiClient.post<ApiResponse<{ avatarUrl: string }>>('/users/me/avatar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+
+  requestChangeEmail: async (payload: ChangeEmailRequestPayload): Promise<ApiResponse<ChangeEmailRequestResult>> => {
+    return ApiClient.post<ApiResponse<ChangeEmailRequestResult>>('/auth/change-email/request', payload);
+  },
+
+  confirmChangeEmail: async (payload: ChangeEmailConfirmPayload): Promise<ApiResponse<ChangeEmailConfirmResult>> => {
+    return ApiClient.post<ApiResponse<ChangeEmailConfirmResult>>('/auth/change-email/confirm', payload);
   },
 };

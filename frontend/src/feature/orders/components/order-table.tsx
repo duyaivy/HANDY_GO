@@ -1,514 +1,407 @@
+"use client";
 
-'use client';
+import { ChevronRight, Inbox } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
-import React, { useState } from 'react';
-import {
-  Search,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  MoreVertical,
-  Eye,
-} from 'lucide-react';
+import type { Order } from "../types";
+import { formatCurrency, STATUS_COLORS, STATUS_LABELS } from "@/lib/order-utils";
 
-import { BookingOrderItem } from '../types';
-import { BookingDetailModal } from './booking-detail';
-
-const DEFAULT_BOOKINGS: BookingOrderItem[] = [
-  {
-    id: '1',
-    code: 'BK001',
-    customer: 'Nguyễn A',
-    craftsman: 'Trần B',
-    service: 'Sửa điện',
-    serviceColorClass: 'bg-amber-50 text-amber-700 border-amber-200/80',
-    price: 350000,
-    status: 'Hoàn thành',
-    statusType: 'completed',
-    paymentState: 'paid',
-    createdAt: '2026-10-14T09:00:00',
-  },
-  {
-    id: '2',
-    code: 'BK002',
-    customer: 'Trần C',
-    craftsman: 'Lê D',
-    service: 'Vệ sinh',
-    serviceColorClass: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
-    price: 200000,
-    status: 'Đã xác nhận',
-    statusType: 'confirmed',
-    paymentState: 'pending',
-    createdAt: '2026-10-12T10:30:00',
-  },
-  {
-    id: '3',
-    code: 'BK003',
-    customer: 'Lê D',
-    craftsman: 'Nguyễn E',
-    service: 'Sửa nước',
-    serviceColorClass: 'bg-cyan-50 text-cyan-700 border-cyan-200/80',
-    price: 450000,
-    status: 'Chờ thanh toán',
-    statusType: 'awaiting_payment',
-    paymentState: 'unpaid',
-    createdAt: '2026-10-07T14:00:00',
-  },
-  {
-    id: '4',
-    code: 'BK004',
-    customer: 'Phạm F',
-    craftsman: '—',
-    service: 'Điện lạnh',
-    serviceColorClass: 'bg-sky-50 text-sky-700 border-sky-200/80',
-    price: 500000,
-    status: 'Đã hủy',
-    statusType: 'cancelled',
-    paymentState: 'refunded',
-    createdAt: '2026-09-20T08:30:00',
-  },
-  {
-    id: '5',
-    code: 'BK005',
-    customer: 'Hoàng G',
-    craftsman: 'Đặng H',
-    service: 'Sửa máy',
-    serviceColorClass: 'bg-purple-50 text-purple-700 border-purple-200/80',
-    price: 300000,
-    status: 'Hoàn thành',
-    statusType: 'completed',
-    paymentState: 'paid',
-    createdAt: '2026-10-13T16:00:00',
-  },
-];
-
-export interface OrderTableProps {
-  bookings?: BookingOrderItem[];
+interface OrdersTableProps {
+  orders: Order[];
+  onViewDetail: (id: string) => void;
+  onViewUser: (id: string, type: "customer" | "worker") => void;
+  isLoading?: boolean;
 }
 
-const STATUS_LABELS: Record<BookingOrderItem['statusType'], string> = {
-  created: 'Mới tạo',
-  awaiting_payment: 'Chờ thanh toán',
-  confirmed: 'Đã xác nhận',
-  completed: 'Hoàn thành',
-  cancelled: 'Đã hủy',
-  disputed: 'Đang tranh chấp',
-};
+const SKELETON_ROWS = 5;
 
-const PAYMENT_LABELS: Record<BookingOrderItem['paymentState'], string> = {
-  unpaid: 'Chưa thanh toán',
-  pending: 'Đang xử lý',
-  paid: 'Đã thanh toán',
-  refunded: 'Đã hoàn tiền',
-  failed: 'Thanh toán thất bại',
-};
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]";
 
-const STATUS_STYLES: Record<BookingOrderItem['statusType'], string> = {
-  created: 'bg-slate-50 text-slate-700 border-slate-200',
-  awaiting_payment: 'bg-amber-50 text-amber-700 border-amber-200',
-  confirmed: 'bg-sky-50 text-sky-700 border-sky-200',
-  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  cancelled: 'bg-rose-50 text-rose-700 border-rose-200',
-  disputed: 'bg-purple-50 text-purple-700 border-purple-200',
-};
-
-const SERVICE_FILTERS: Record<string, string> = {
-  dien: 'Sửa điện',
-  vesinh: 'Vệ sinh',
-  nuoc: 'Sửa nước',
-  lanh: 'Điện lạnh',
-  suamay: 'Sửa máy',
-};
-
-const PAGE_SIZE = 5;
-
-const formatPrice = (price: number) =>
-  `${price.toLocaleString('vi-VN')}đ`;
-
-const isSameDay = (date: Date, target: Date) =>
-  date.getFullYear() === target.getFullYear() &&
-  date.getMonth() === target.getMonth() &&
-  date.getDate() === target.getDate();
-
-const isThisWeek = (date: Date, now: Date) => {
-  const startOfWeek = new Date(now);
-  const day = (now.getDay() + 6) % 7;
-
-  startOfWeek.setDate(now.getDate() - day);
-  startOfWeek.setHours(0, 0, 0, 0);
-
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 7);
-
-  return date >= startOfWeek && date < endOfWeek;
-};
-
-const isThisMonth = (date: Date, now: Date) =>
-  date.getFullYear() === now.getFullYear() &&
-  date.getMonth() === now.getMonth();
-
-export const OrderTable: React.FC<OrderTableProps> = ({
-  bookings = DEFAULT_BOOKINGS,
-}) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [paymentFilter, setPaymentFilter] = useState('all');
-  const [serviceFilter, setServiceFilter] = useState('all');
-  const [timeFilter, setTimeFilter] = useState('all');
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-
-  const [selectedBooking, setSelectedBooking] =
-    useState<BookingOrderItem | null>(null);
-
-  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-
-  const resetPage = () => setCurrentPage(1);
-
-  const handleOpenDetail = (bookingItem: BookingOrderItem) => {
-    setSelectedBooking(bookingItem);
-    setIsDetailModalOpen(true);
-    setOpenMenuId(null);
-  };
-
-  const toggleMenu = (id: string) => {
-    setOpenMenuId((prev) => (prev === id ? null : id));
-  };
-
-  const now = new Date();
-
-  const filteredBookings = bookings.filter((item) => {
-    const keyword = searchTerm.trim().toLowerCase();
-
-    const matchesSearch =
-      item.code.toLowerCase().includes(keyword) ||
-      item.customer.toLowerCase().includes(keyword) ||
-      item.craftsman.toLowerCase().includes(keyword) ||
-      item.service.toLowerCase().includes(keyword);
-
-    const matchesStatus =
-      statusFilter === 'all' || item.statusType === statusFilter;
-
-    const matchesPayment =
-      paymentFilter === 'all' || item.paymentState === paymentFilter;
-
-    const matchesService =
-      serviceFilter === 'all' ||
-      item.service === SERVICE_FILTERS[serviceFilter];
-
-    const createdDate = new Date(item.createdAt);
-
-    let matchesTime = true;
-
-    if (timeFilter === 'today') {
-      matchesTime = isSameDay(createdDate, now);
-    } else if (timeFilter === 'week') {
-      matchesTime = isThisWeek(createdDate, now);
-    } else if (timeFilter === 'month') {
-      matchesTime = isThisMonth(createdDate, now);
+export default function OrdersTable({
+  orders,
+  onViewDetail,
+  onViewUser,
+  isLoading = false,
+}: OrdersTableProps) {
+  const renderUserName = (
+    id: string,
+    name: string | undefined,
+    isLoading: boolean | undefined,
+    type: "customer" | "worker",
+  ) => {
+    if (isLoading && !name) {
+      return <Skeleton className="h-4 w-24 max-w-full rounded-md" />;
     }
 
-    return (
-      matchesSearch &&
-      matchesStatus &&
-      matchesPayment &&
-      matchesService &&
-      matchesTime
-    );
-  });
+    if (!id) return <span className="text-xs text-slate-500">Chưa cập nhật</span>;
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredBookings.length / PAGE_SIZE)
+    return (
+      <button
+        type="button"
+        title={name || id}
+        onClick={(event) => {
+          event.stopPropagation();
+          onViewUser(id, type);
+        }}
+        className={`block max-w-full truncate text-left text-[13px] font-medium text-slate-700 transition-colors hover:text-[#FF5E14] hover:underline ${FOCUS_RING}`}
+      >
+        {name || `${id.slice(0, 8)}…`}
+      </button>
+    );
+  };
+
+  const renderStatus = (order: Order) => (
+    <span
+      className={`
+        inline-flex max-w-full items-center
+        whitespace-nowrap rounded-full px-2.5 py-1
+        text-[11px] font-medium sm:text-[12px]
+        ${STATUS_COLORS[order.status]}
+      `}
+    >
+      {STATUS_LABELS[order.status] ?? order.status}
+    </span>
   );
 
-  const safePage = Math.min(currentPage, totalPages);
+  const renderAction = (order: Order, fullWidthOnMobile = false) => {
+    const isDisputed = order.status === "disputed";
 
-  const paginatedBookings = filteredBookings.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE
+    return (
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onViewDetail(order.id);
+        }}
+        aria-label={`${
+          isDisputed ? "Xem tranh chấp" : "Xem chi tiết"
+        } đơn hàng ${order.orderCode}`}
+        className={`
+          inline-flex items-center justify-center
+          whitespace-nowrap border font-semibold
+          border-slate-200 bg-white text-slate-700
+          transition-colors duration-200
+          hover:border-orange-200 hover:bg-orange-50
+          hover:text-[#FF5E14]
+          ${
+            fullWidthOnMobile
+              ? "h-9 gap-1 rounded-lg px-3.5 text-[13px]"
+              : "h-7 gap-0.5 rounded-md px-2 text-[11px] lg:px-2.5 lg:text-[12px]"
+          }
+          ${FOCUS_RING}
+        `}
+      >
+        <span>{isDisputed ? "Tranh chấp" : "Chi tiết"}</span>
+        <ChevronRight
+          className={`shrink-0 ${
+            fullWidthOnMobile ? "h-3.5 w-3.5" : "h-3 w-3"
+          }`}
+          strokeWidth={2}
+        />
+      </button>
+    );
+  };
+
+  const emptyState = (
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <Inbox size={30} strokeWidth={1.5} className="text-slate-400" />
+      <p className="text-[14px] text-slate-400">Không tìm thấy đơn hàng nào</p>
+    </div>
   );
 
   return (
-    <div className="space-y-6">
-      {/* Tiêu đề */}
-      <div>
-        <h1 className="text-2xl sm:text-[26px] font-extrabold text-slate-900 tracking-tight">
-          Booking Management
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Theo dõi và quản lý các đơn dịch vụ trên hệ thống
-        </p>
-      </div>
+    <div
+      className="
+        w-full min-w-0 font-['Inter',sans-serif]
+        leading-[1.6] text-[#0F172A] antialiased
+      "
+      aria-busy={isLoading}
+    >
+      {/* ===================== MOBILE (< md): DẠNG THẺ ===================== */}
+      <div className="md:hidden">
+        {isLoading ? (
+          <ul className="space-y-3" aria-hidden="true">
+            {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+              <li
+                key={`order-card-skeleton-${index}`}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-5 w-3/4 rounded-md" />
+                    <Skeleton className="h-3.5 w-1/2 rounded-md" />
+                  </div>
+                  <Skeleton className="h-6 w-20 shrink-0 rounded-full" />
+                </div>
 
-      {/* Thanh tìm kiếm và bộ lọc */}
-      <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
-        <div className="relative min-w-[220px] max-w-xs flex-1">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-            <Search className="w-4 h-4" />
+                <Skeleton className="mt-4 h-6 w-32 rounded-md" />
+
+                <div className="mt-4 space-y-3 rounded-xl bg-slate-50 p-3">
+                  <Skeleton className="h-4 w-full rounded-md" />
+                  <Skeleton className="h-4 w-full rounded-md" />
+                </div>
+
+                <Skeleton className="mt-4 h-11 w-full rounded-xl" />
+              </li>
+            ))}
+          </ul>
+        ) : orders.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            {emptyState}
           </div>
+        ) : (
+          <ul className="space-y-3">
+            {orders.map((order) => (
+              <li
+                key={order.id}
+                tabIndex={0}
+                onClick={() => onViewDetail(order.id)}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return;
 
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              resetPage();
-            }}
-            placeholder="Tìm mã booking, khách hàng hoặc thợ..."
-            className="w-full pl-10 pr-3.5 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:ring-3 focus:ring-orange-500/15 transition-all shadow-2xs font-normal"
-          />
-        </div>
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onViewDetail(order.id);
+                  }
+                }}
+                aria-label={`Xem đơn hàng ${order.orderCode}`}
+                className={`
+                  cursor-pointer rounded-2xl border border-slate-200
+                  bg-white p-4 shadow-sm transition-colors
+                  active:bg-slate-50
+                  ${FOCUS_RING}
+                `}
+              >
+                {/* 1. Tên dịch vụ + trạng thái */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className="line-clamp-2 break-words text-[15px] font-semibold leading-snug text-[#0F172A]"
+                      title={order.service}
+                    >
+                      {order.service}
+                    </p>
+                    <p
+                      className="mt-0.5 truncate text-[13px] text-[#64748B]"
+                      title={order.orderCode}
+                    >
+                      Mã đơn: {order.orderCode}
+                    </p>
+                  </div>
 
-        {/* Lọc trạng thái đơn */}
-        <div className="relative">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              resetPage();
-            }}
-            className="appearance-none pl-3.5 pr-8 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
-          >
-            <option value="all">Trạng thái</option>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
+                  <div className="shrink-0">{renderStatus(order)}</div>
+                </div>
+
+                {/* 2. Tổng tiền: thông tin quan trọng nhất */}
+                <p className="mt-4 text-[20px] font-semibold leading-none text-[#0F172A]">
+                  {formatCurrency(order.price)}
+                </p>
+
+                {/* 3. Người liên quan: mỗi dòng một thông tin */}
+                <dl className="mt-4 divide-y divide-slate-200/70 rounded-xl bg-slate-50 px-3">
+                  <div className="flex items-center justify-between gap-3 py-2.5">
+                    <dt className="shrink-0 text-[13px] text-[#64748B]">
+                      Khách hàng
+                    </dt>
+                    <dd className="min-w-0">
+                      {renderUserName(order.customer, order.customerName, order.customerNameLoading, "customer")}
+                    </dd>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 py-2.5">
+                    <dt className="shrink-0 text-[13px] text-[#64748B]">
+                      Thợ thực hiện
+                    </dt>
+                    <dd className="min-w-0">
+                      {renderUserName(order.worker, order.workerName, order.workerNameLoading, "worker")}
+                    </dd>
+                  </div>
+                </dl>
+
+                {/* 4. Nút thao tác full-width, dễ bấm bằng ngón cái */}
+                <div className="mt-4 flex justify-end">
+                  {renderAction(order, true)}
+                </div>
+              </li>
             ))}
-          </select>
-
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        {/* Lọc thanh toán */}
-        <div className="relative">
-          <select
-            value={paymentFilter}
-            onChange={(e) => {
-              setPaymentFilter(e.target.value);
-              resetPage();
-            }}
-            className="appearance-none pl-3.5 pr-8 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
-          >
-            <option value="all">Thanh toán</option>
-            {Object.entries(PAYMENT_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        {/* Lọc dịch vụ */}
-        <div className="relative">
-          <select
-            value={serviceFilter}
-            onChange={(e) => {
-              setServiceFilter(e.target.value);
-              resetPage();
-            }}
-            className="appearance-none pl-3.5 pr-8 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
-          >
-            <option value="all">Dịch vụ</option>
-            {Object.entries(SERVICE_FILTERS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        {/* Lọc thời gian theo created_at */}
-        <div className="relative">
-          <select
-            value={timeFilter}
-            onChange={(e) => {
-              setTimeFilter(e.target.value);
-              resetPage();
-            }}
-            className="appearance-none pl-3.5 pr-8 py-2.5 bg-white border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 cursor-pointer shadow-2xs"
-          >
-            <option value="all">Thời gian</option>
-            <option value="today">Hôm nay</option>
-            <option value="week">Tuần này</option>
-            <option value="month">Tháng này</option>
-          </select>
-
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
+          </ul>
+        )}
       </div>
 
-      {/* Bảng booking */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto min-h-[360px]">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">
-                <th className="py-4 px-6">MÃ ĐƠN</th>
-                <th className="py-4 px-6">KHÁCH HÀNG</th>
-                <th className="py-4 px-6">THỢ</th>
-                <th className="py-4 px-6">DỊCH VỤ</th>
-                <th className="py-4 px-6">GIÁ</th>
-                <th className="py-4 px-6">TRẠNG THÁI</th>
-                <th className="py-4 px-6 text-right" />
-              </tr>
-            </thead>
+      {/* ===================== TABLET / DESKTOP (>= md): DẠNG BẢNG ===================== */}
+      <div
+        className="
+          hidden w-full min-w-0 overflow-x-auto
+          overscroll-x-contain md:block
+          [scrollbar-width:thin]
+          [scrollbar-color:#CBD5E1_transparent]
+        "
+      >
+        <table
+          className="
+            w-full min-w-[720px]
+            table-fixed border-collapse text-left
+            xl:min-w-0
+          "
+        >
+          <colgroup>
+            <col className="w-[24%]" />
+            <col className="w-[15%]" />
+            <col className="w-[15%]" />
+            <col className="w-[15%]" />
+            <col className="w-[17%]" />
+            <col className="w-[14%]" />
+          </colgroup>
 
-            <tbody className="divide-y divide-slate-100 text-sm font-medium">
-              {paginatedBookings.map((item) => {
-                const isMenuOpen = openMenuId === item.id;
+          <thead>
+            <tr
+              className="
+                border-b border-slate-100
+                bg-slate-50/70
+                text-[12px] font-semibold text-[#0F172A]
+                lg:text-[13px]
+              "
+            >
+              <th
+                scope="col"
+                className="whitespace-nowrap px-4 py-3.5 lg:px-5 xl:px-6"
+              >
+                Đơn hàng
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Khách hàng
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Thợ thực hiện
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Tổng tiền
+              </th>
+              <th scope="col" className="whitespace-nowrap px-3 py-3.5 xl:px-4">
+                Trạng thái
+              </th>
+              <th
+                scope="col"
+                className="whitespace-nowrap px-3 py-3.5 text-center"
+              >
+                Thao tác
+              </th>
+            </tr>
+          </thead>
 
-                return (
-                  <tr
-                    key={item.id}
-                    className="hover:bg-slate-50/70 transition-colors"
-                  >
-                    <td
-                      onClick={() => handleOpenDetail(item)}
-                      className="py-4.5 px-6 font-bold text-[#FF5E14] cursor-pointer hover:underline"
-                    >
-                      {item.code}
-                    </td>
+          <tbody className="divide-y divide-slate-100 text-[13px] lg:text-[14px]">
+            {isLoading ? (
+              Array.from({ length: SKELETON_ROWS }, (_, index) => (
+                <tr key={`order-skeleton-${index}`} aria-hidden="true">
+                  <td className="px-4 py-4 lg:px-5 xl:px-6">
+                    <div className="min-w-0 space-y-2">
+                      <Skeleton className="h-4 w-36 max-w-full rounded-md" />
+                      <Skeleton className="h-3 w-28 max-w-full rounded-md" />
+                    </div>
+                  </td>
 
-                    <td
-                      onClick={() => handleOpenDetail(item)}
-                      className="py-4.5 px-6 font-semibold text-slate-800 cursor-pointer hover:text-orange-600 transition-colors"
-                    >
-                      {item.customer}
-                    </td>
+                  <td className="px-3 py-4 xl:px-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full rounded-md" />
+                      <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
+                    </div>
+                  </td>
 
-                    <td className="py-4.5 px-6 text-slate-700">
-                      {item.craftsman}
-                    </td>
+                  <td className="px-3 py-4 xl:px-4">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Skeleton className="h-4 w-20 max-w-full rounded-md" />
+                      <Skeleton className="h-3.5 w-3.5 shrink-0 rounded" />
+                    </div>
+                  </td>
 
-                    <td className="py-4.5 px-6">
-                      <span
-                        className={`inline-block px-3 py-1 rounded-lg text-xs font-semibold border ${item.serviceColorClass}`}
-                      >
-                        {item.service}
-                      </span>
-                    </td>
+                  <td className="px-3 py-4 xl:px-4">
+                    <Skeleton className="h-4 w-24 max-w-full rounded-md" />
+                  </td>
 
-                    <td className="py-4.5 px-6 font-extrabold text-slate-900">
-                      {formatPrice(item.price)}
-                    </td>
+                  <td className="px-3 py-4 xl:px-4">
+                    <Skeleton className="h-7 w-24 max-w-full rounded-full" />
+                  </td>
 
-                    <td className="py-4.5 px-6">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_STYLES[item.statusType]}`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        {STATUS_LABELS[item.statusType]}
-                      </span>
-                    </td>
-
-                    <td className="py-4.5 px-6 text-right relative">
-                      <button
-                        type="button"
-                        onClick={() => toggleMenu(item.id)}
-                        aria-label={`Thao tác với đơn ${item.code}`}
-                        className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      {isMenuOpen && (
-                        <div className="absolute right-6 top-10 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-40 text-left animate-in fade-in duration-150">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenDetail(item)}
-                            className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Chi tiết đơn</span>
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {paginatedBookings.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="py-12 text-center text-sm text-slate-500"
-                  >
-                    Không tìm thấy đơn booking phù hợp.
+                  <td className="px-3 py-4">
+                    <div className="flex justify-center">
+                      <Skeleton className="h-8 w-20 max-w-full rounded-lg" />
+                    </div>
                   </td>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            ) : orders.length === 0 ? (
+              <tr>
+                <td colSpan={6}>{emptyState}</td>
+              </tr>
+            ) : (
+              orders.map((order) => (
+                <tr
+                  key={order.id}
+                  tabIndex={0}
+                  onClick={() => onViewDetail(order.id)}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
 
-        <div className="flex items-center justify-between gap-3 px-6 py-3 border-t border-slate-100 text-xs text-slate-500">
-          <span>
-            Hiển thị {filteredBookings.length === 0
-              ? 0
-              : (safePage - 1) * PAGE_SIZE + 1}
-            {' – '}
-            {Math.min(safePage * PAGE_SIZE, filteredBookings.length)}
-            {' / '}
-            {filteredBookings.length} đơn
-          </span>
-        </div>
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onViewDetail(order.id);
+                    }
+                  }}
+                  aria-label={`Xem đơn hàng ${order.orderCode}`}
+                  className="
+                    group cursor-pointer transition-colors
+                    hover:bg-slate-50/60
+                    focus-visible:bg-slate-50/60
+                    focus-visible:outline-2
+                    focus-visible:outline-offset-[-2px]
+                    focus-visible:outline-[#FF5E14]
+                  "
+                >
+                  <td className="px-4 py-4 lg:px-5 xl:px-6">
+                    <div className="min-w-0">
+                      <p
+                        className="truncate text-[13px] font-medium leading-tight text-[#0F172A] lg:text-[14px]"
+                        title={order.service}
+                      >
+                        {order.service}
+                      </p>
+                      <p
+                        className="mt-1 truncate text-[12px] font-normal text-[#64748B]"
+                        title={order.orderCode}
+                      >
+                        {order.orderCode}
+                      </p>
+                    </div>
+                  </td>
+
+                  <td className="px-3 py-4 xl:px-4">
+                    {renderUserName(order.customer, order.customerName, order.customerNameLoading, "customer")}
+                  </td>
+
+                  <td className="px-3 py-4 xl:px-4">
+                    {renderUserName(order.worker, order.workerName, order.workerNameLoading, "worker")}
+                  </td>
+
+                  <td className="whitespace-nowrap px-3 py-4 text-left xl:px-4">
+                    <span className="text-[13px] font-medium text-[#0F172A] lg:text-[14px]">
+                      {formatCurrency(order.price)}
+                    </span>
+                  </td>
+
+                  <td className="px-3 py-4 xl:px-4">{renderStatus(order)}</td>
+
+                  <td className="whitespace-nowrap px-3 py-4">
+                    <div className="flex items-center justify-center">
+                      {renderAction(order)}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
-
-      {/* Phân trang */}
-      <div className="flex items-center justify-center gap-2 py-2 select-none">
-        <button
-          type="button"
-          disabled={safePage <= 1}
-          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        {Array.from({ length: totalPages }, (_, index) => index + 1).map(
-          (page) => (
-            <button
-              key={page}
-              type="button"
-              onClick={() => setCurrentPage(page)}
-              className={`w-8 h-8 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer ${
-                safePage === page
-                  ? 'bg-[#FF5E14] text-white shadow-xs'
-                  : 'text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              {page}
-            </button>
-          )
-        )}
-
-        <button
-          type="button"
-          disabled={safePage >= totalPages}
-          onClick={() =>
-            setCurrentPage((page) => Math.min(totalPages, page + 1))
-          }
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Popup chi tiết booking */}
-      <BookingDetailModal
-        isOpen={isDetailModalOpen}
-        onClose={() => setIsDetailModalOpen(false)}
-        booking={selectedBooking}
-      />
     </div>
   );
-};
-
-export default OrderTable;
+}
