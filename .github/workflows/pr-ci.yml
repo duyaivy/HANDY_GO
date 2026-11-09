@@ -103,6 +103,10 @@ jobs:
         run: pnpm run keys:generate
 
       - name: Generate Prisma clients
+        # Config parsing only; client generation does not connect to a database.
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/prisma_generate
+          DATABASE_URL_MESSAGE: postgresql://ci:ci@127.0.0.1:5432/prisma_generate?schema=message
         run: pnpm run prisma:generate
 
       - name: Verify wallet migrations on disposable PostgreSQL
