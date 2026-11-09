@@ -1321,6 +1321,19 @@ describe('UserTrustServiceService', () => {
           status: 'pending',
         });
 
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: 'reg-pending',
+            workerProfileId,
+            status: 'pending',
+            updatedAt: new Date(),
+          })
+          .mockResolvedValueOnce({
+            id: 'reg-pending',
+            workerProfileId,
+            status: 'pending',
+          });
+
         catalogClientMock.getServices.mockResolvedValue([
           {
             id: serviceId,
@@ -1332,10 +1345,7 @@ describe('UserTrustServiceService', () => {
           },
         ]);
 
-        dbMock.workerServiceRegistration.update.mockResolvedValue({
-          id: 'reg-pending',
-          status: 'pending',
-        });
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
 
         const res = await service.updateWorkerServiceRegistration(
           workerUserId,
@@ -1344,7 +1354,113 @@ describe('UserTrustServiceService', () => {
         );
 
         expect(res.statusCode).toBe(200);
-        expect(dbMock.workerServiceRegistration.update).toHaveBeenCalled();
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalled();
+      });
+
+      it('throws ConflictException if concurrent update or admin review occurs during worker PUT (updateMany count 0) (P1-02)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-pending',
+          workerProfileId,
+          status: 'pending',
+          updatedAt: new Date(),
+        });
+
+        catalogClientMock.getServices.mockResolvedValue([
+          {
+            id: serviceId,
+            name: 'Vệ sinh máy lạnh',
+            categoryId,
+            categoryName: 'Điện lạnh',
+            categoryIsActive: true,
+            isActive: true,
+          },
+        ]);
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.updateWorkerServiceRegistration(
+            workerUserId,
+            'reg-pending',
+            validDto,
+          ),
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('throws ConflictException if idempotencyKey belongs to a different registration (P1-03)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        // Đơn đăng ký mục tiêu là reg-B
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: 'reg-B',
+            workerProfileId,
+            status: 'pending',
+          })
+          // Khi tìm key của đơn A, trả về đơn reg-A
+          .mockResolvedValueOnce({
+            id: 'reg-A',
+            workerProfileId,
+            status: 'pending',
+            idempotencyKey: 'key-from-reg-A',
+            categoryIds: [categoryId],
+            services: [
+              {
+                serviceId,
+                title: 'Vệ sinh máy lạnh',
+                description: 'Hơn 5 năm kinh nghiệm',
+                experienceYears: 5,
+              },
+            ],
+            serviceArea: {
+              address: 'Quận Cẩm Lệ, Đà Nẵng',
+              latitude: 16.0544,
+              longitude: 108.2022,
+              radiusKm: 15,
+            },
+            evidenceFiles: [
+              {
+                url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+                fileType: 'image',
+              },
+            ],
+          });
+
+        await expect(
+          service.updateWorkerServiceRegistration(
+            workerUserId,
+            'reg-B',
+            validDto,
+            'key-from-reg-A',
+          ),
+        ).rejects.toThrow('Idempotency-Key đã được liên kết với một đơn đăng ký khác');
+      });
+
+      it('throws NotFoundException if registrationId does not exist even when idempotencyKey matches another record (P1-03)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        // Không tìm thấy đơn đăng ký reg-nonexistent
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValueOnce(null);
+
+        await expect(
+          service.updateWorkerServiceRegistration(
+            workerUserId,
+            'reg-nonexistent',
+            validDto,
+            'some-key',
+          ),
+        ).rejects.toThrow(NotFoundException);
       });
 
       it('creates a new registration if existing registration was rejected (Huong A)', async () => {
@@ -1415,18 +1531,35 @@ describe('UserTrustServiceService', () => {
           userId: workerUserId,
         });
 
-        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
-          id: 'reg-existing-idempotent',
+        const matchingRecord = {
+          id: 'reg-pending',
           workerProfileId,
           status: 'pending',
           idempotencyKey: 'idem-update-key-123',
           categoryIds: [categoryId],
-          services: [{ serviceId }],
-          serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
-          evidenceFiles: [
-            { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' },
+          services: [
+            {
+              serviceId,
+              title: 'Vệ sinh máy lạnh',
+              description: 'Hơn 5 năm kinh nghiệm',
+              experienceYears: 5,
+            },
           ],
-        });
+          serviceArea: {
+            address: 'Quận Cẩm Lệ, Đà Nẵng',
+            latitude: 16.0544,
+            longitude: 108.2022,
+            radiusKm: 15,
+          },
+          evidenceFiles: [
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'image',
+            },
+          ],
+        };
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue(matchingRecord);
 
         const res = await service.updateWorkerServiceRegistration(
           workerUserId,
@@ -1437,8 +1570,8 @@ describe('UserTrustServiceService', () => {
 
         expect(res.statusCode).toBe(200);
         expect(res.message).toContain('Idempotent');
-        expect(res.data.id).toBe('reg-existing-idempotent');
-        expect(dbMock.workerServiceRegistration.update).not.toHaveBeenCalled();
+        expect(res.data.id).toBe('reg-pending');
+        expect(dbMock.workerServiceRegistration.updateMany).not.toHaveBeenCalled();
       });
     });
 
@@ -1456,10 +1589,25 @@ describe('UserTrustServiceService', () => {
           status: 'pending',
           idempotencyKey: 'idem-submit-key-123',
           categoryIds: [categoryId],
-          services: [{ serviceId }],
-          serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+          services: [
+            {
+              serviceId,
+              title: 'Vệ sinh máy lạnh',
+              description: 'Hơn 5 năm kinh nghiệm',
+              experienceYears: 5,
+            },
+          ],
+          serviceArea: {
+            address: 'Quận Cẩm Lệ, Đà Nẵng',
+            latitude: 16.0544,
+            longitude: 108.2022,
+            radiusKm: 15,
+          },
           evidenceFiles: [
-            { url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg' },
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'image',
+            },
           ],
         });
 
@@ -1531,6 +1679,170 @@ describe('UserTrustServiceService', () => {
         ).rejects.toThrow(ConflictException);
       });
 
+      it('throws ConflictException if radiusKm differs with same idempotencyKey (P1-01)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        // Existing registration has radiusKm: 10
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-radius-10',
+          workerProfileId,
+          status: 'pending',
+          idempotencyKey: 'idem-radius-key',
+          categoryIds: [categoryId],
+          services: [
+            {
+              serviceId,
+              title: 'Vệ sinh máy lạnh',
+              description: 'Hơn 5 năm kinh nghiệm',
+              experienceYears: 5,
+            },
+          ],
+          serviceArea: {
+            address: 'Quận Cẩm Lệ, Đà Nẵng',
+            latitude: 16.0544,
+            longitude: 108.2022,
+            radiusKm: 10,
+          },
+          evidenceFiles: [
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'image',
+            },
+          ],
+        });
+
+        // Retry with radiusKm: 30
+        const retryDto = {
+          ...validDto,
+          serviceArea: {
+            ...validDto.serviceArea,
+            radiusKm: 30,
+          },
+        };
+
+        await expect(
+          service.submitWorkerServiceRegistration(
+            workerUserId,
+            retryDto,
+            'idem-radius-key',
+          ),
+        ).rejects.toThrow('Payload conflict');
+      });
+
+      it('throws ConflictException if title, description or experienceYears differs with same idempotencyKey (P1-01)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-exp-5',
+          workerProfileId,
+          status: 'pending',
+          idempotencyKey: 'idem-exp-key',
+          categoryIds: [categoryId],
+          services: [
+            {
+              serviceId,
+              title: 'Vệ sinh máy lạnh',
+              description: 'Hơn 5 năm kinh nghiệm',
+              experienceYears: 5,
+            },
+          ],
+          serviceArea: {
+            address: 'Quận Cẩm Lệ, Đà Nẵng',
+            latitude: 16.0544,
+            longitude: 108.2022,
+            radiusKm: 15,
+          },
+          evidenceFiles: [
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'image',
+            },
+          ],
+        });
+
+        // Retry with experienceYears: 8
+        const retryDto = {
+          ...validDto,
+          services: [
+            {
+              ...validDto.services[0],
+              experienceYears: 8,
+            },
+          ],
+        };
+
+        await expect(
+          service.submitWorkerServiceRegistration(
+            workerUserId,
+            retryDto,
+            'idem-exp-key',
+          ),
+        ).rejects.toThrow('Payload conflict');
+      });
+
+      it('throws ConflictException if evidence fileType differs with same idempotencyKey (P1-01)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+          status: 'draft',
+        });
+
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: 'reg-filetype-img',
+          workerProfileId,
+          status: 'pending',
+          idempotencyKey: 'idem-filetype-key',
+          categoryIds: [categoryId],
+          services: [
+            {
+              serviceId,
+              title: 'Vệ sinh máy lạnh',
+              description: 'Hơn 5 năm kinh nghiệm',
+              experienceYears: 5,
+            },
+          ],
+          serviceArea: {
+            address: 'Quận Cẩm Lệ, Đà Nẵng',
+            latitude: 16.0544,
+            longitude: 108.2022,
+            radiusKm: 15,
+          },
+          evidenceFiles: [
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'image',
+            },
+          ],
+        });
+
+        // Retry with fileType: 'video'
+        const retryDto = {
+          ...validDto,
+          evidenceFiles: [
+            {
+              url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+              fileType: 'video',
+            },
+          ],
+        };
+
+        await expect(
+          service.submitWorkerServiceRegistration(
+            workerUserId,
+            retryDto,
+            'idem-filetype-key',
+          ),
+        ).rejects.toThrow('Payload conflict');
+      });
+
       it('handles P2002 race condition on concurrent duplicate submit', async () => {
         dbMock.workerProfile.findUnique.mockResolvedValue({
           id: workerProfileId,
@@ -1558,11 +1870,24 @@ describe('UserTrustServiceService', () => {
             status: 'pending',
             idempotencyKey: 'idem-race-key',
             categoryIds: [categoryId],
-            services: [{ serviceId }],
-            serviceArea: { address: 'Quận Cẩm Lệ, Đà Nẵng' },
+            services: [
+              {
+                serviceId,
+                title: 'Vệ sinh máy lạnh',
+                description: 'Hơn 5 năm kinh nghiệm',
+                experienceYears: 5,
+              },
+            ],
+            serviceArea: {
+              address: 'Quận Cẩm Lệ, Đà Nẵng',
+              latitude: 16.0544,
+              longitude: 108.2022,
+              radiusKm: 15,
+            },
             evidenceFiles: [
               {
                 url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+                fileType: 'image',
               },
             ],
           }); // check after P2002

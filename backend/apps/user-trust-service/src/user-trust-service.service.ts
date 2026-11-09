@@ -46,6 +46,7 @@ function isRegistrationPayloadMatch(
 ): boolean {
   if (!existing || !dto) return false;
   try {
+    // 1. Categories
     const existingCatIds = Array.isArray(existing.categoryIds)
       ? [...existing.categoryIds].map(String).sort()
       : [];
@@ -56,32 +57,113 @@ function isRegistrationPayloadMatch(
       return false;
     }
 
-    const existingServiceIds = Array.isArray(existing.services)
-      ? existing.services.map((s: any) => String(s?.serviceId || '')).sort()
+    // 2. Services: đối chiếu serviceId, title, description, experienceYears
+    const existingServices = Array.isArray(existing.services)
+      ? [...existing.services].sort((a: any, b: any) =>
+          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+        )
       : [];
-    const dtoServiceIds = Array.isArray(dto.services)
-      ? dto.services.map((s: any) => String(s?.serviceId || '')).sort()
+    const dtoServices = Array.isArray(dto.services)
+      ? [...dto.services].sort((a: any, b: any) =>
+          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+        )
       : [];
-    if (JSON.stringify(existingServiceIds) !== JSON.stringify(dtoServiceIds)) {
+
+    if (existingServices.length !== dtoServices.length) {
       return false;
     }
 
-    const existingAddr = (existing.serviceArea?.address || '')
-      .trim()
-      .toLowerCase();
+    for (let i = 0; i < existingServices.length; i++) {
+      const e = existingServices[i];
+      const d = dtoServices[i];
+
+      if (String(e?.serviceId || '').trim() !== String(d?.serviceId || '').trim()) {
+        return false;
+      }
+
+      // Title
+      const dTitle = (d?.title || '').trim();
+      const eTitle = (e?.title || '').trim();
+      const eServiceName = (e?.serviceName || '').trim();
+      if (dTitle) {
+        if (dTitle !== eTitle) return false;
+      } else {
+        if (eTitle && eTitle !== eServiceName) return false;
+      }
+
+      // Description
+      const dDesc = (d?.description || '').trim();
+      const eDesc = (e?.description || '').trim();
+      if (dDesc !== eDesc) {
+        return false;
+      }
+
+      // ExperienceYears
+      const dExp = Number(d?.experienceYears) || 0;
+      const eExp = Number(e?.experienceYears) || 0;
+      if (dExp !== eExp) {
+        return false;
+      }
+    }
+
+    // 3. Service Area: address, latitude, longitude, radiusKm
+    const existingAddr = (existing.serviceArea?.address || '').trim().toLowerCase();
     const dtoAddr = (dto.serviceArea?.address || '').trim().toLowerCase();
     if (existingAddr !== dtoAddr) {
       return false;
     }
 
+    const eLat = Number(existing.serviceArea?.latitude);
+    const dLat = Number(dto.serviceArea?.latitude);
+    if (!Number.isNaN(eLat) && !Number.isNaN(dLat)) {
+      if (Math.abs(eLat - dLat) > 0.0001) return false;
+    } else if (Number.isNaN(eLat) !== Number.isNaN(dLat)) {
+      return false;
+    }
+
+    const eLng = Number(existing.serviceArea?.longitude);
+    const dLng = Number(dto.serviceArea?.longitude);
+    if (!Number.isNaN(eLng) && !Number.isNaN(dLng)) {
+      if (Math.abs(eLng - dLng) > 0.0001) return false;
+    } else if (Number.isNaN(eLng) !== Number.isNaN(dLng)) {
+      return false;
+    }
+
+    const eRadius = Number(existing.serviceArea?.radiusKm);
+    const dRadius = Number(dto.serviceArea?.radiusKm);
+    if (!Number.isNaN(eRadius) && !Number.isNaN(dRadius)) {
+      if (Math.abs(eRadius - dRadius) > 0.01) return false;
+    } else if (Number.isNaN(eRadius) !== Number.isNaN(dRadius)) {
+      return false;
+    }
+
+    // 4. Evidence Files: url và fileType
     const existingEvidence = Array.isArray(existing.evidenceFiles)
-      ? existing.evidenceFiles.map((e: any) => String(e?.url || '')).sort()
+      ? [...existing.evidenceFiles].sort((a: any, b: any) =>
+          String(a?.url || '').localeCompare(String(b?.url || '')),
+        )
       : [];
     const dtoEvidence = Array.isArray(dto.evidenceFiles)
-      ? dto.evidenceFiles.map((e: any) => String(e?.url || '')).sort()
+      ? [...dto.evidenceFiles].sort((a: any, b: any) =>
+          String(a?.url || '').localeCompare(String(b?.url || '')),
+        )
       : [];
-    if (JSON.stringify(existingEvidence) !== JSON.stringify(dtoEvidence)) {
+
+    if (existingEvidence.length !== dtoEvidence.length) {
       return false;
+    }
+
+    for (let i = 0; i < existingEvidence.length; i++) {
+      const e = existingEvidence[i];
+      const d = dtoEvidence[i];
+      if (String(e?.url || '').trim() !== String(d?.url || '').trim()) {
+        return false;
+      }
+      const eType = String(e?.fileType || '').trim().toLowerCase();
+      const dType = String(d?.fileType || '').trim().toLowerCase();
+      if (eType && dType && eType !== dType) {
+        return false;
+      }
     }
 
     return true;
@@ -2066,6 +2148,16 @@ export class UserTrustServiceService {
       throw new NotFoundException('Không tìm thấy hồ sơ thợ của bạn');
     }
 
+    // 1. Kiểm tra sự tồn tại và quyền sở hữu registration TRƯỚC TIÊN (P1-03)
+    const registration = await this.db.workerServiceRegistration.findUnique({
+      where: { id: registrationId },
+    });
+
+    if (!registration || registration.workerProfileId !== workerProfile.id) {
+      throw new NotFoundException('Không tìm thấy đơn đăng ký dịch vụ của bạn');
+    }
+
+    // 2. Kiểm tra Idempotency-Key và ràng buộc với chính registrationId này (P1-03)
     if (resolvedKey) {
       const existing = await this.db.workerServiceRegistration.findUnique({
         where: { idempotencyKey: resolvedKey },
@@ -2074,6 +2166,11 @@ export class UserTrustServiceService {
         if (existing.workerProfileId !== workerProfile.id) {
           throw new ConflictException(
             'Idempotency-Key đã được sử dụng bởi một tài khoản khác',
+          );
+        }
+        if (existing.id !== registration.id) {
+          throw new ConflictException(
+            'Idempotency-Key đã được liên kết với một đơn đăng ký khác',
           );
         }
         if (!isRegistrationPayloadMatch(existing, dto)) {
@@ -2088,14 +2185,6 @@ export class UserTrustServiceService {
           data: existing,
         };
       }
-    }
-
-    const registration = await this.db.workerServiceRegistration.findUnique({
-      where: { id: registrationId },
-    });
-
-    if (!registration || registration.workerProfileId !== workerProfile.id) {
-      throw new NotFoundException('Không tìm thấy đơn đăng ký dịch vụ của bạn');
     }
 
     if (registration.status === 'approved') {
@@ -2117,16 +2206,33 @@ export class UserTrustServiceService {
 
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
-      const updated = await this.db.workerServiceRegistration.update({
-        where: { id: registration.id },
+      const now = new Date();
+      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      const updateResult = await this.db.workerServiceRegistration.updateMany({
+        where: {
+          id: registration.id,
+          workerProfileId: workerProfile.id,
+          status: 'pending',
+          updatedAt: registration.updatedAt,
+        },
         data: {
           categoryIds: dto.categoryIds,
           services: enrichedServices,
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
-          updatedAt: new Date(),
+          updatedAt: now,
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          'Đơn đăng ký không còn ở trạng thái chờ duyệt hoặc đã được cập nhật bởi Admin/phiên khác. Vui lòng tải lại trang.',
+        );
+      }
+
+      const updated = await this.db.workerServiceRegistration.findUnique({
+        where: { id: registration.id },
       });
 
       return {
@@ -2269,6 +2375,7 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
+        updatedAt: registration.updatedAt,
       },
       data: {
         status: 'rejected',
@@ -2552,9 +2659,13 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
-          where: { id: registrationId, status: 'pending' },
+          where: {
+            id: registrationId,
+            status: 'pending',
+            updatedAt: registration.updatedAt,
+          },
           data: {
             status: 'approved',
             rejectionReason: null,
@@ -2566,13 +2677,22 @@ export class UserTrustServiceService {
 
         if (updateResult.count === 0) {
           throw new ConflictException(
-            'Đơn đăng ký đã được xử lý hoặc đã bị hủy bởi thợ',
+            'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
           );
         }
 
+        // Đọc lại bản ghi mới nhất trong transaction để kích hoạt chính xác dịch vụ và khu vực
+        const currentReg = await tx.workerServiceRegistration.findUnique({
+          where: { id: registrationId },
+        });
+
+        if (!currentReg) {
+          throw new NotFoundException('Không tìm thấy đơn đăng ký');
+        }
+
         // 2. Kích hoạt/upsert các dịch vụ vào worker_service_offerings
-        const services = Array.isArray(registration.services)
-          ? (registration.services as any[])
+        const services = Array.isArray(currentReg.services)
+          ? (currentReg.services as any[])
           : [];
 
         for (const svc of services) {
@@ -2580,13 +2700,13 @@ export class UserTrustServiceService {
           await tx.workerServiceOffering.upsert({
             where: {
               workerProfileId_serviceId: {
-                workerProfileId: registration.workerProfileId,
+                workerProfileId: currentReg.workerProfileId,
                 serviceId: svc.serviceId,
               },
             },
             create: {
               id: crypto.randomUUID(),
-              workerProfileId: registration.workerProfileId,
+              workerProfileId: currentReg.workerProfileId,
               serviceId: svc.serviceId,
               title: svc.title || svc.serviceName || null,
               description: svc.description || null,
@@ -2610,7 +2730,7 @@ export class UserTrustServiceService {
         }
 
         // 3. Kích hoạt khu vực làm việc vào worker_service_areas
-        const area = registration.serviceArea as any;
+        const area = currentReg.serviceArea as any;
         if (
           area &&
           area.latitude !== undefined &&
@@ -2618,7 +2738,7 @@ export class UserTrustServiceService {
         ) {
           await tx.workerServiceArea.updateMany({
             where: {
-              workerProfileId: registration.workerProfileId,
+              workerProfileId: currentReg.workerProfileId,
               isActive: true,
             },
             data: { isActive: false },
@@ -2627,7 +2747,7 @@ export class UserTrustServiceService {
           await tx.workerServiceArea.create({
             data: {
               id: crypto.randomUUID(),
-              workerProfileId: registration.workerProfileId,
+              workerProfileId: currentReg.workerProfileId,
               address: area.address || null,
               latitude: new Prisma.Decimal(area.latitude),
               longitude: new Prisma.Decimal(area.longitude),
@@ -2653,7 +2773,11 @@ export class UserTrustServiceService {
 
     // Từ chối (rejected)
     const updateResult = await this.db.workerServiceRegistration.updateMany({
-      where: { id: registrationId, status: 'pending' },
+      where: {
+        id: registrationId,
+        status: 'pending',
+        updatedAt: registration.updatedAt,
+      },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
@@ -2665,7 +2789,7 @@ export class UserTrustServiceService {
 
     if (updateResult.count === 0) {
       throw new ConflictException(
-        'Đơn đăng ký đã được xử lý hoặc đã bị hủy bởi thợ',
+        'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
       );
     }
 
