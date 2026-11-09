@@ -212,6 +212,13 @@ export class UserTrustServiceService {
     private readonly catalogClient?: CatalogClient,
   ) {}
 
+  async getDisplayNames(ids: string[]) {
+    return this.db.user.findMany({
+      where: { id: { in: [...new Set(ids)] } },
+      select: { id: true, fullName: true, avatarUrl: true },
+    });
+  }
+
   /**
    * `active` chỉ nghĩa là user đang active; KHÔNG chứng minh tài khoản ngân hàng đã được ngân hàng xác minh.
    * Việc xác minh thật với ngân hàng/provider sẽ bổ sung sau.

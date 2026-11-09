@@ -1,5 +1,6 @@
 import { Server, type Socket } from 'socket.io';
 import type { Server as HttpServer } from 'node:http';
+import { Logger } from '@nestjs/common';
 import type { JwtPayload } from '../../../libs/auth/src/auth.types.js';
 import { IdentityService } from './identity.js';
 import { MessageService } from './message.service.js';
@@ -29,6 +30,7 @@ interface Activity {
 }
 export class MessageRealtime {
   readonly io: Server;
+  private readonly logger = new Logger(MessageRealtime.name);
   private readonly sessions = new Map<string, Session>();
   private readonly typing = new Map<string, Activity>();
   private readonly timer: NodeJS.Timeout;
@@ -148,9 +150,27 @@ export class MessageRealtime {
         return input;
       },
     );
-    handle('message.send', async (input: MessageSendInput, u) =>
-      this.messages.send(u.userId, input),
-    );
+    handle('message.send', async (input: MessageSendInput, u) => {
+      const ackStart = performance.now();
+      const result = await this.messages.send(u.userId, input);
+      const totalAckMs =
+        Math.round((performance.now() - ackStart) * 100) / 100;
+      this.logger.log({
+        event: 'message.send.latency',
+        conversationId: input.conversationId,
+        senderId: u.userId,
+        clientMessageId: input.clientMessageId,
+        duplicate: result.duplicate,
+        membershipCheckMs: result.timings?.membershipCheckMs ?? 0,
+        duplicateCheckMs: result.timings?.duplicateCheckMs ?? 0,
+        biddingAuthorizationMs: result.timings?.biddingAuthorizationMs ?? 0,
+        orderAuthorizationMs: result.timings?.orderAuthorizationMs ?? 0,
+        dbTransactionMs: result.timings?.dbTransactionMs ?? 0,
+        outboxProcessingMs: result.timings?.outboxProcessingMs ?? 0,
+        totalAckMs,
+      });
+      return { message: result.message, duplicate: result.duplicate };
+    });
     handle('message.read', async (input: MessageReadInput, u) =>
       this.messages.read(
         u.userId,
@@ -193,8 +213,11 @@ export class MessageRealtime {
           try {
             await this.identity.authenticate(session.token);
             ids.push(session.socket.id);
-          } catch {
-            session.socket.disconnect(true);
+          } catch (error) {
+            const e = publicError(error);
+            if (e.code === 'UNAUTHORIZED') {
+              session.socket.disconnect(true);
+            }
           }
         }),
     );
@@ -223,9 +246,18 @@ export class MessageRealtime {
         session.user.userId !== userId &&
         session.socket.rooms.has(`conversation:${conversationId}`)
       )
-        void this.identity.authenticate(session.token).then(()=>{
-          if(session.socket.connected)session.socket.volatile.emit('typing.update',update);
-        }).catch(()=>session.socket.disconnect(true));
+        void this.identity
+          .authenticate(session.token)
+          .then(() => {
+            if (session.socket.connected)
+              session.socket.volatile.emit('typing.update', update);
+          })
+          .catch((error) => {
+            const e = publicError(error);
+            if (e.code === 'UNAUTHORIZED') {
+              session.socket.disconnect(true);
+            }
+          });
   }
   private stopSocket(socketId: string, conversationId?: string) {
     for (const [key, a] of this.typing)

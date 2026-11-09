@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import type {
+import {
   Prisma,
-  Conversation,
-  Message,
-  MessageAttachment,
-  ConversationReadState,
+  type Conversation,
+  type Message,
+  type MessageAttachment,
+  type ConversationReadState,
 } from '@prisma/message-client';
 import type {
   ChatConversation,
@@ -33,9 +33,35 @@ const readWire = (r: ConversationReadState): ChatReadState => ({
   lastReadSequence: r.lastReadSequence.toString(),
   updatedAt: r.updatedAt.toISOString(),
 });
+
+export interface MessageSendTimings {
+  membershipCheckMs: number;
+  duplicateCheckMs: number;
+  biddingAuthorizationMs: number;
+  orderAuthorizationMs: number;
+  dbTransactionMs: number;
+  outboxProcessingMs: number;
+  totalAckMs: number;
+}
+
+export interface SendResult {
+  message: ChatMessage;
+  duplicate: boolean;
+  timings?: MessageSendTimings;
+}
+
 export class MessageService {
   /** Incremented before event transactions: an authority read cannot reopen across invalidation. */
   private generation = 0;
+  private readonly memberCache = new Map<
+    string,
+    { conversation: Conversation; expiresAt: number }
+  >();
+  private readonly recentMessages = new Map<
+    string,
+    { message: ChatMessage; raw: Message; expiresAt: number }
+  >();
+
   onRead: (state: ChatReadState, conversation: Conversation) => Promise<void> =
     async () => {};
   onMessage: (
@@ -54,14 +80,45 @@ export class MessageService {
     tx: Prisma.TransactionClient | MessagePrisma = this.db,
   ): Promise<Conversation> {
     validateInput('conversation.join', { conversationId: id });
+    if (tx === this.db) {
+      const cached = this.memberCache.get(id);
+      if (cached && cached.expiresAt > Date.now()) {
+        const c = cached.conversation;
+        if (![c.customerId, c.workerId].includes(userId))
+          throw new ChatError('CONVERSATION_NOT_FOUND');
+        return c;
+      }
+    }
     const c = await tx.conversation.findUnique({ where: { id } });
     if (!c || ![c.customerId, c.workerId].includes(userId))
       throw new ChatError('CONVERSATION_NOT_FOUND');
+    if (tx === this.db) {
+      if (this.memberCache.size > 500) {
+        const now = Date.now();
+        for (const [k, v] of this.memberCache) {
+          if (v.expiresAt <= now) this.memberCache.delete(k);
+        }
+      }
+      this.memberCache.set(id, {
+        conversation: c,
+        expiresAt: Date.now() + 15_000,
+      });
+    }
     return c;
   }
   async permission(userId: string, c: Conversation, required = false) {
+    if (required && c.status === 'READ_ONLY') {
+      throw new ChatError('CHAT_READ_ONLY');
+    }
     try {
-      const result = await this.authority.permission(userId, c, true);
+      const result = await this.authority.permission(
+        userId,
+        c,
+        true,
+        undefined,
+        undefined,
+        this.generation,
+      );
       if (required && !result.permissions.send)
         throw new ChatError('CHAT_READ_ONLY');
       return result;
@@ -71,6 +128,8 @@ export class MessageService {
         permissions: { read: true, send: false, create: false },
         orderId: c.orderId,
         bid: undefined,
+        serviceId: undefined,
+        timings: { biddingAuthorizationMs: 0, orderAuthorizationMs: 0 },
       };
     }
   }
@@ -78,9 +137,29 @@ export class MessageService {
     userId: string,
     c: Conversation,
     states: ConversationReadState[],
+    labels?: {
+      names?: Promise<Record<string, string>>;
+      profiles?: Promise<Record<string, { fullName: string; avatarUrl: string | null }>>;
+      services: Map<string, Promise<string | undefined>>;
+    },
   ): Promise<ChatConversation> {
     const p = await this.permission(userId, c);
+    const services =
+      labels?.services ?? new Map<string, Promise<string | undefined>>();
+    if (p.serviceId && !services.has(p.serviceId))
+      services.set(p.serviceId, this.authority.serviceName(p.serviceId));
+    const [names, profiles, serviceName] = await Promise.all([
+      labels?.names ?? this.authority.displayNames([c.customerId, c.workerId]),
+      labels?.profiles ??
+        this.authority.displayProfiles([c.customerId, c.workerId]),
+      p.serviceId ? services.get(p.serviceId) : undefined,
+    ]);
     return {
+      customerName: names[c.customerId] ?? profiles[c.customerId]?.fullName,
+      workerName: names[c.workerId] ?? profiles[c.workerId]?.fullName,
+      customerAvatarUrl: profiles[c.customerId]?.avatarUrl ?? null,
+      workerAvatarUrl: profiles[c.workerId]?.avatarUrl ?? null,
+      serviceName,
       id: c.id,
       requestId: c.requestId,
       orderId: p.orderId ?? c.orderId,
@@ -171,6 +250,15 @@ export class MessageService {
       where: { conversationId: { in: rows.map((c) => c.id) } },
     });
     // Bound upstream concurrency: list never starts 200 dependency calls together.
+    const labels = {
+      names: this.authority.displayNames(
+        rows.flatMap((c) => [c.customerId, c.workerId]),
+      ),
+      profiles: this.authority.displayProfiles(
+        rows.flatMap((c) => [c.customerId, c.workerId]),
+      ),
+      services: new Map<string, Promise<string | undefined>>(),
+    };
     const items: ChatConversation[] = [];
     for (let i = 0; i < rows.length; i += 5)
       items.push(
@@ -180,6 +268,7 @@ export class MessageService {
               userId,
               c,
               states.filter((s) => s.conversationId === c.id),
+              labels,
             ),
           ),
         )),
@@ -248,40 +337,372 @@ export class MessageService {
         JSON.stringify((input.attachments ?? []).map((a) => a.storageKey))
     );
   }
-  async send(userId: string, input: MessageSendInput) {
-    validateInput('message.send', input);
-    const c = await this.member(userId, input.conversationId);
-    const existing = await this.db.message.findUnique({
-      where: {
-        senderId_clientMessageId: {
+  private isUniqueViolation(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const code = (error as { code?: string }).code;
+    return code === 'P2002' || code === '23505';
+  }
+
+  private isForeignKeyViolation(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const code = (error as { code?: string }).code;
+    return code === 'P2003' || code === '23503';
+  }
+
+  private cacheRecentMessage(
+    userId: string,
+    clientMessageId: string,
+    raw: HydratedMessage,
+    message: ChatMessage,
+  ) {
+    if (this.recentMessages.size > 500) {
+      const now = Date.now();
+      for (const [k, v] of this.recentMessages) {
+        if (v.expiresAt <= now) this.recentMessages.delete(k);
+      }
+    }
+    this.recentMessages.set(`${userId}:${clientMessageId}`, {
+      message,
+      raw,
+      expiresAt: Date.now() + 60_000,
+    });
+  }
+
+  private async persistAtomicText(params: {
+    c: Conversation;
+    userId: string;
+    input: MessageSendInput;
+    proof: any;
+    generation: number;
+    admissionDeadline: number;
+  }): Promise<{ row: HydratedMessage; duplicate: boolean }> {
+    if (
+      params.generation !== this.generation ||
+      Date.now() > params.admissionDeadline
+    )
+      throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+    if (
+      !params.proof.orderId &&
+      params.proof.bid?.validUntil &&
+      Date.parse(params.proof.bid.validUntil) <= Date.now()
+    )
+      throw new ChatError('CHAT_READ_ONLY');
+
+    const messageId = randomUUID();
+    const eventId = randomUUID();
+    const event: MessageCreatedEvent = {
+      eventId,
+      eventType: 'message.created',
+      eventVersion: 1,
+      producer: 'message-service',
+      occurredAt: new Date().toISOString(),
+      correlationId: eventId,
+      data: {
+        messageId,
+        conversationId: params.c.id,
+        requestId: params.c.requestId,
+        orderId: params.proof.orderId ?? params.c.orderId,
+        senderId: params.userId,
+        recipientId:
+          params.userId === params.c.customerId
+            ? params.c.workerId
+            : params.c.customerId,
+        sequence: '0',
+        messageType: 'TEXT',
+      },
+    };
+
+    const payloadJson = JSON.stringify(event);
+    const replyToId = params.input.replyToId ?? null;
+    const orderIdToSet =
+      params.proof.orderId && !params.c.orderId ? params.proof.orderId : null;
+
+    const rows = await this.db.$queryRaw<
+      Array<{
+        id: string;
+        conversation_id: string;
+        sender_id: string;
+        client_message_id: string;
+        message_type: 'TEXT';
+        content: string | null;
+        reply_to_id: string | null;
+        sequence: bigint;
+        created_at: Date;
+        reply_id: string | null;
+        reply_conversation_id: string | null;
+        reply_sender_id: string | null;
+        reply_client_message_id: string | null;
+        reply_message_type: 'TEXT' | 'IMAGE' | 'VIDEO' | null;
+        reply_content: string | null;
+        reply_reply_to_id: string | null;
+        reply_sequence: bigint | null;
+        reply_created_at: Date | null;
+      }>
+    >`
+      WITH
+      ${
+        orderIdToSet
+          ? Prisma.sql`
+        upd_conv AS (
+          UPDATE message.conversations
+          SET order_id = ${orderIdToSet}::uuid
+          WHERE id = ${params.c.id}::uuid AND order_id IS NULL
+        ),`
+          : Prisma.empty
+      }
+      new_msg AS (
+        INSERT INTO message.messages (
+          id, conversation_id, sender_id, client_message_id, message_type, content, reply_to_id
+        ) VALUES (
+          ${messageId}::uuid,
+          ${params.c.id}::uuid,
+          ${params.userId}::uuid,
+          ${params.input.clientMessageId}::uuid,
+          'TEXT'::message.message_type,
+          ${params.input.content ?? null},
+          ${replyToId ? Prisma.sql`${replyToId}::uuid` : Prisma.sql`NULL`}
+        )
+        RETURNING *
+      ),
+      new_outbox AS (
+        INSERT INTO message.outbox_events (
+          id, aggregate_type, aggregate_id, event_type, event_version, payload, status
+        )
+        SELECT
+          ${eventId}::uuid,
+          'message',
+          new_msg.id,
+          'message.created',
+          1,
+          ${payloadJson}::jsonb,
+          'pending'
+        FROM new_msg
+      )
+      SELECT
+        new_msg.id,
+        new_msg.conversation_id,
+        new_msg.sender_id,
+        new_msg.client_message_id,
+        new_msg.message_type,
+        new_msg.content,
+        new_msg.reply_to_id,
+        new_msg.sequence,
+        new_msg.created_at,
+        target_reply.id AS reply_id,
+        target_reply.conversation_id AS reply_conversation_id,
+        target_reply.sender_id AS reply_sender_id,
+        target_reply.client_message_id AS reply_client_message_id,
+        target_reply.message_type AS reply_message_type,
+        target_reply.content AS reply_content,
+        target_reply.reply_to_id AS reply_reply_to_id,
+        target_reply.sequence AS reply_sequence,
+        target_reply.created_at AS reply_created_at
+      FROM new_msg
+      LEFT JOIN message.messages target_reply
+        ON target_reply.id = new_msg.reply_to_id AND target_reply.conversation_id = new_msg.conversation_id;
+    `;
+
+    if (!rows || rows.length === 0) {
+      throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+    }
+
+    const r = rows[0];
+    const replyTo: Message | null = r.reply_id
+      ? {
+          id: r.reply_id,
+          conversationId: r.reply_conversation_id!,
+          senderId: r.reply_sender_id!,
+          clientMessageId: r.reply_client_message_id!,
+          messageType: r.reply_message_type!,
+          content: r.reply_content,
+          replyToId: r.reply_reply_to_id,
+          sequence: BigInt(r.reply_sequence!),
+          createdAt: new Date(r.reply_created_at!),
+        }
+      : null;
+
+    const row: HydratedMessage = {
+      id: r.id,
+      conversationId: r.conversation_id,
+      senderId: r.sender_id,
+      clientMessageId: r.client_message_id,
+      messageType: r.message_type,
+      content: r.content,
+      replyToId: r.reply_to_id,
+      sequence: BigInt(r.sequence),
+      createdAt: new Date(r.created_at),
+      attachments: [],
+      replyTo,
+    };
+
+    return { row, duplicate: false };
+  }
+
+  private async persistMedia(params: {
+    c: Conversation;
+    userId: string;
+    input: MessageSendInput;
+    assets: MediaReceipt[];
+    proof: any;
+    generation: number;
+    admissionDeadline: number;
+  }): Promise<{ row: HydratedMessage; duplicate: boolean }> {
+    const { c, userId, input, assets, proof, generation, admissionDeadline } =
+      params;
+    return this.db.$transaction(async (tx) => {
+      if (generation !== this.generation || Date.now() > admissionDeadline)
+        throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+      if (
+        !proof.orderId &&
+        proof.bid?.validUntil &&
+        Date.parse(proof.bid.validUntil) <= Date.now()
+      )
+        throw new ChatError('CHAT_READ_ONLY');
+
+      if (proof.orderId && !c.orderId) {
+        await tx.conversation.update({
+          where: { id: c.id },
+          data: { orderId: proof.orderId },
+        });
+      }
+
+      const row = await tx.message.create({
+        data: {
+          conversationId: c.id,
           senderId: userId,
           clientMessageId: input.clientMessageId,
+          messageType: input.messageType,
+          content: input.content,
+          replyToId: input.replyToId,
+          attachments: {
+            create: assets.map((a, position) => ({
+              storageKey: a.storageKey,
+              mediaType: a.mediaType,
+              mimeType: a.mimeType,
+              sizeBytes: BigInt(a.sizeBytes),
+              position,
+              width: a.width,
+              height: a.height,
+              durationMs: a.durationMs,
+            })),
+          },
         },
-      },
-      include,
+        include,
+      });
+
+      const eventId = randomUUID();
+      const event: MessageCreatedEvent = {
+        eventId,
+        eventType: 'message.created',
+        eventVersion: 1,
+        producer: 'message-service',
+        occurredAt: row.createdAt.toISOString(),
+        correlationId: eventId,
+        data: {
+          messageId: row.id,
+          conversationId: c.id,
+          requestId: c.requestId,
+          orderId: proof.orderId ?? c.orderId,
+          senderId: userId,
+          recipientId: userId === c.customerId ? c.workerId : c.customerId,
+          sequence: row.sequence.toString(),
+          messageType: row.messageType,
+        },
+      };
+
+      await tx.outboxEvent.create({
+        data: {
+          id: eventId,
+          aggregateId: row.id,
+          eventType: 'message.created',
+          payload: event as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      if (generation !== this.generation)
+        throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+
+      return { row, duplicate: false };
     });
-    if (existing) {
-      await this.permission(userId, c, true);
-      if (!this.equal(existing, input))
+  }
+
+  async send(userId: string, input: MessageSendInput): Promise<SendResult> {
+    const totalStart = performance.now();
+    validateInput('message.send', input);
+
+    // 1. Rapid retry in-memory check (<1ms)
+    const tDup0 = performance.now();
+    const cachedWinner = this.recentMessages.get(
+      `${userId}:${input.clientMessageId}`,
+    );
+    if (cachedWinner) {
+      if (!this.equal(cachedWinner.raw as HydratedMessage, input))
         throw new ChatError('IDEMPOTENCY_CONFLICT');
-      return { message: await this.wireMessage(existing), duplicate: true };
+      const duplicateCheckMs =
+        Math.round((performance.now() - tDup0) * 100) / 100;
+      return {
+        message: cachedWinner.message,
+        duplicate: true,
+        timings: {
+          membershipCheckMs: 0,
+          duplicateCheckMs,
+          biddingAuthorizationMs: 0,
+          orderAuthorizationMs: 0,
+          dbTransactionMs: 0,
+          outboxProcessingMs: 0,
+          totalAckMs: Math.round((performance.now() - totalStart) * 100) / 100,
+        },
+      };
     }
-    const assets = await this.authority.attachments(input, userId),
-      generation = this.generation;
+
+    // 2. Member check (cached or DB)
+    const tMember0 = performance.now();
+    const c = await this.member(userId, input.conversationId);
+    const membershipCheckMs =
+      Math.round((performance.now() - tMember0) * 100) / 100;
+
+    if (c.status === 'READ_ONLY') {
+      throw new ChatError('CHAT_READ_ONLY');
+    }
+
+    // 3. Attachments verification (only if media)
+    const assets = await this.authority.attachments(input, userId);
+    const generation = this.generation;
     const admissionDeadline = Date.now() + 2000;
+
+    // 4. Permission check with generation invalidation & timing instrumentation
     const proof = await this.permission(userId, c, true);
-    const persist = async () =>
-      this.db.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM message.conversations WHERE id=${c.id}::uuid FOR UPDATE`;
-        if (generation !== this.generation || Date.now() > admissionDeadline)
-          throw new ChatError('ELIGIBILITY_UNAVAILABLE');
-        if (
-          !proof.orderId &&
-          proof.bid?.validUntil &&
-          Date.parse(proof.bid.validUntil) <= Date.now()
-        )
-          throw new ChatError('CHAT_READ_ONLY');
-        const prior = await tx.message.findUnique({
+    const biddingAuthorizationMs = proof.timings?.biddingAuthorizationMs ?? 0;
+    const orderAuthorizationMs = proof.timings?.orderAuthorizationMs ?? 0;
+
+    // 5. Atomic persistence
+    const tDb0 = performance.now();
+    let saved: { row: HydratedMessage; duplicate: boolean };
+
+    try {
+      if (input.messageType === 'TEXT' && (!assets || assets.length === 0)) {
+        saved = await this.persistAtomicText({
+          c,
+          userId,
+          input,
+          proof,
+          generation,
+          admissionDeadline,
+        });
+      } else {
+        saved = await this.persistMedia({
+          c,
+          userId,
+          input,
+          assets,
+          proof,
+          generation,
+          admissionDeadline,
+        });
+      }
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        const winner = await this.db.message.findUnique({
           where: {
             senderId_clientMessageId: {
               senderId: userId,
@@ -290,101 +711,41 @@ export class MessageService {
           },
           include,
         });
-        if (prior) {
-          if (!this.equal(prior, input))
-            throw new ChatError('IDEMPOTENCY_CONFLICT');
-          return { row: prior, duplicate: true };
-        }
-        if (
-          input.replyToId &&
-          !(await tx.message.findFirst({
-            where: { id: input.replyToId, conversationId: c.id },
-            select: { id: true },
-          }))
-        )
-          throw new ChatError('REPLY_NOT_FOUND');
-        await tx.conversation.update({
-          where: { id: c.id },
-          data: {
-            status: 'OPEN',
-            ...(proof.orderId ? { orderId: proof.orderId } : {}),
-          },
-        });
-        const row = await tx.message.create({
-          data: {
-            conversationId: c.id,
-            senderId: userId,
-            clientMessageId: input.clientMessageId,
-            messageType: input.messageType,
-            content: input.content,
-            replyToId: input.replyToId,
-            attachments: {
-              create: assets.map((a, position) => ({
-                storageKey: a.storageKey,
-                mediaType: a.mediaType,
-                mimeType: a.mimeType,
-                sizeBytes: BigInt(a.sizeBytes),
-                position,
-                width: a.width,
-                height: a.height,
-                durationMs: a.durationMs,
-              })),
-            },
-          },
-          include,
-        });
-        const eventId = randomUUID();
-        const event: MessageCreatedEvent = {
-          eventId,
-          eventType: 'message.created',
-          eventVersion: 1,
-          producer: 'message-service',
-          occurredAt: row.createdAt.toISOString(),
-          correlationId: eventId,
-          data: {
-            messageId: row.id,
-            conversationId: c.id,
-            requestId: c.requestId,
-            orderId: proof.orderId ?? c.orderId,
-            senderId: userId,
-            recipientId: userId === c.customerId ? c.workerId : c.customerId,
-            sequence: row.sequence.toString(),
-            messageType: row.messageType,
-          },
-        };
-        await tx.outboxEvent.create({
-          data: {
-            id: eventId,
-            aggregateId: row.id,
-            eventType: 'message.created',
-            payload: event as unknown as Prisma.InputJsonValue,
-          },
-        });
-        if (generation !== this.generation)
-          throw new ChatError('ELIGIBILITY_UNAVAILABLE');
-        return { row, duplicate: false };
-      });
-    let saved: Awaited<ReturnType<typeof persist>>;
-    try {
-      saved = await persist();
-    } catch (error) {
-      if ((error as { code?: string }).code !== 'P2002') throw error;
-      const winner = await this.db.message.findUnique({
-        where: {
-          senderId_clientMessageId: {
-            senderId: userId,
-            clientMessageId: input.clientMessageId,
-          },
-        },
-        include,
-      });
-      if (!winner || !this.equal(winner, input))
-        throw new ChatError('IDEMPOTENCY_CONFLICT');
-      saved = { row: winner, duplicate: true };
+        if (!winner || !this.equal(winner, input))
+          throw new ChatError('IDEMPOTENCY_CONFLICT');
+        saved = { row: winner, duplicate: true };
+      } else if (this.isForeignKeyViolation(error)) {
+        throw new ChatError('REPLY_NOT_FOUND');
+      } else {
+        throw error;
+      }
     }
+
+    const dbTransactionMs = Math.round((performance.now() - tDb0) * 100) / 100;
+    const outboxProcessingMs = dbTransactionMs;
+    const duplicateCheckMs = Math.round((performance.now() - tDup0) * 100) / 100;
+
+    // 6. Format message for ACK response
     const message = await this.wireMessage(saved.row, assets);
+    this.cacheRecentMessage(userId, input.clientMessageId, saved.row, message);
+
     if (!saved.duplicate) void this.onMessage(message, c).catch(() => {});
-    return { message, duplicate: saved.duplicate };
+
+    const totalAckMs = Math.round((performance.now() - totalStart) * 100) / 100;
+
+    return {
+      message,
+      duplicate: saved.duplicate,
+      timings: {
+        membershipCheckMs,
+        duplicateCheckMs,
+        biddingAuthorizationMs,
+        orderAuthorizationMs,
+        dbTransactionMs,
+        outboxProcessingMs,
+        totalAckMs,
+      },
+    };
   }
   async read(userId: string, id: string, lastReadSequence: string) {
     validateInput('message.read', { conversationId: id, lastReadSequence });
@@ -493,6 +854,11 @@ export class MessageService {
     this.generation++;
     const requestId = data.requestId ?? data.serviceRequestId,
       orderId = data.orderId;
+    this.memberCache.clear();
+    this.recentMessages.clear();
+    this.authority.clearPermissionCache(
+      typeof requestId === 'string' ? requestId : undefined,
+    );
     let recoveredIds: string[] = [];
     if (typeof requestId !== 'string' && typeof orderId === 'string') {
       const customerId = data.customerId ?? data.customerUserId,

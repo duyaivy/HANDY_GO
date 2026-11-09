@@ -7,6 +7,7 @@ describe('chat authority snapshots', () => {
     const record = {
       id,
       customerUserId: id,
+      serviceId: id,
       status: 'converted_to_order',
       version: 7,
       order: {
@@ -23,6 +24,7 @@ describe('chat authority snapshots', () => {
     db.$transaction = (fn: any) => fn(db);
     const result = await new InternalOrderService(db).getChatState(id);
     expect(result.version).toBe(7);
+    expect(result.serviceId).toBe(id);
     expect(result.order).toEqual({
       orderId: id,
       workerId: id,

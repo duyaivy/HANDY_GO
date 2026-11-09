@@ -68,6 +68,11 @@ export interface ChatReadState extends MessageReadInput {
   updatedAt: string;
 }
 export interface ChatConversation {
+  customerName?: string;
+  workerName?: string;
+  customerAvatarUrl?: string | null;
+  workerAvatarUrl?: string | null;
+  serviceName?: string;
   id: string;
   requestId: string;
   orderId: string | null;
@@ -227,6 +232,7 @@ export interface ChatBidAuthority {
   verifiedAt: string;
 }
 export interface ChatRequestAuthority {
+  serviceId?: string;
   requestId: string;
   customerId: string;
   status: string;

@@ -16,6 +16,8 @@ export interface AuthorityOptions {
   order: string;
   auth: string;
   media: string;
+  userTrust?: string;
+  catalog?: string;
 }
 export type MediaReceipt = VerifiedChatMedia &
   Pick<
@@ -73,7 +75,40 @@ function assertRequest(value: ChatRequestAuthority) {
   )
     throw new ChatError('ELIGIBILITY_UNAVAILABLE');
 }
+export interface UserDisplayProfile {
+  fullName: string;
+  avatarUrl: string | null;
+}
+
 export class AuthorityClient {
+  private readonly profileCache = new Map<
+    string,
+    { profile: UserDisplayProfile; expiresAt: number }
+  >();
+  private readonly activeCache = new Map<
+    string,
+    { active: boolean; expiresAt: number }
+  >();
+  private readonly permissionCache = new Map<
+    string,
+    {
+      proof: {
+        permissions: ReturnType<typeof chatPermissions>;
+        customerId: string;
+        serviceId?: string;
+        workerId: string;
+        requestId: string;
+        orderId: string | null;
+        bid: ChatBidAuthority;
+        timings?: {
+          biddingAuthorizationMs: number;
+          orderAuthorizationMs: number;
+        };
+      };
+      expiresAt: number;
+    }
+  >();
+
   constructor(
     private readonly options: AuthorityOptions,
     private readonly request: typeof fetch = fetch,
@@ -130,19 +165,58 @@ export class AuthorityClient {
     assertBid(value);
     return value;
   }
+  clearPermissionCache(requestId?: string) {
+    if (requestId) {
+      for (const [k] of this.permissionCache) {
+        if (k.startsWith(`${requestId}:`)) {
+          this.permissionCache.delete(k);
+        }
+      }
+    } else {
+      this.permissionCache.clear();
+    }
+  }
   async active(accountId: string, userId: string, sid: string) {
+    const key = `${accountId}:${userId}:${sid}`;
+    const cached = this.activeCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.active;
+    }
     try {
-      return (
+      const active =
         (
           await this.call<{ active: boolean }>(
             this.options.auth,
             '/internal/auth/chat-session',
             { accountId, userId, sid },
+            Date.now() + 4000,
           )
-        ).active === true
-      );
-    } catch {
-      throw new ChatError('UNAUTHORIZED');
+        ).active === true;
+      if (this.activeCache.size > 500) {
+        const now = Date.now();
+        for (const [k, v] of this.activeCache) {
+          if (v.expiresAt <= now) this.activeCache.delete(k);
+        }
+      }
+      this.activeCache.set(key, { active, expiresAt: Date.now() + 60_000 });
+      return active;
+    } catch (error) {
+      if (
+        cached?.active &&
+        error instanceof ChatError &&
+        error.code === 'ELIGIBILITY_UNAVAILABLE'
+      ) {
+        this.activeCache.set(key, {
+          active: true,
+          expiresAt: Date.now() + 30_000,
+        });
+        return true;
+      }
+      this.activeCache.delete(key);
+      if (error instanceof ChatError && error.code === 'CHAT_INELIGIBLE') {
+        return false;
+      }
+      throw error;
     }
   }
   async permission(
@@ -151,18 +225,54 @@ export class AuthorityClient {
     exists: boolean,
     bid?: ChatBidAuthority,
     deadline = Date.now() + 2000,
-  ) {
-    const [b, r] = await Promise.all([
-      bid
-        ? Promise.resolve(bid)
-        : this.lookup(pair.requestId, pair.workerId, deadline),
-      this.call<ChatRequestAuthority>(
-        this.options.order,
-        `/internal/service-requests/${encodeURIComponent(pair.requestId)}/chat-state`,
-        undefined,
-        deadline,
-      ),
-    ]);
+    generation?: number,
+  ): Promise<{
+    permissions: ReturnType<typeof chatPermissions>;
+    customerId: string;
+    serviceId?: string;
+    workerId: string;
+    requestId: string;
+    orderId: string | null;
+    bid: ChatBidAuthority;
+    timings?: {
+      biddingAuthorizationMs: number;
+      orderAuthorizationMs: number;
+    };
+  }> {
+    const cacheKey = `${pair.requestId}:${pair.workerId}:${pair.customerId ?? ''}:${userId}:${exists}:${generation ?? 0}`;
+    if (!bid) {
+      const cached = this.permissionCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return {
+          ...cached.proof,
+          timings: { biddingAuthorizationMs: 0, orderAuthorizationMs: 0 },
+        };
+      }
+    }
+    const tBid0 = performance.now();
+    let biddingAuthorizationMs = 0;
+    const bidPromise = bid
+      ? Promise.resolve(bid)
+      : this.lookup(pair.requestId, pair.workerId, deadline).then((res) => {
+          biddingAuthorizationMs =
+            Math.round((performance.now() - tBid0) * 100) / 100;
+          return res;
+        });
+
+    const tOrder0 = performance.now();
+    let orderAuthorizationMs = 0;
+    const orderPromise = this.call<ChatRequestAuthority>(
+      this.options.order,
+      `/internal/service-requests/${encodeURIComponent(pair.requestId)}/chat-state`,
+      undefined,
+      deadline,
+    ).then((res) => {
+      orderAuthorizationMs =
+        Math.round((performance.now() - tOrder0) * 100) / 100;
+      return res;
+    });
+
+    const [b, r] = await Promise.all([bidPromise, orderPromise]);
     assertBid(b);
     assertRequest(r);
     if (
@@ -192,14 +302,113 @@ export class AuthorityClient {
       },
       userId,
     );
-    return {
+    const proof = {
       permissions,
       customerId: r.customerId,
+      serviceId: r.serviceId,
       workerId: b.workerId,
       requestId: r.requestId,
       orderId: r.order?.workerId === b.workerId ? r.order.orderId : null,
       bid: b,
+      timings: {
+        biddingAuthorizationMs,
+        orderAuthorizationMs,
+      },
     };
+    if (this.permissionCache.size > 200) {
+      for (const [k, v] of this.permissionCache) {
+        if (v.expiresAt <= Date.now()) this.permissionCache.delete(k);
+      }
+    }
+    this.permissionCache.set(cacheKey, {
+      proof,
+      expiresAt: Date.now() + 5_000,
+    });
+    return proof;
+  }
+  async displayProfiles(
+    ids: string[],
+  ): Promise<Record<string, UserDisplayProfile>> {
+    if (!this.options.userTrust || ids.length === 0) return {};
+    const unique = [...new Set(ids)];
+    const profiles: Record<string, UserDisplayProfile> = {};
+    const missing: string[] = [];
+    const now = Date.now();
+    for (const id of unique) {
+      const cached = this.profileCache.get(id);
+      if (cached && cached.expiresAt > now) {
+        profiles[id] = cached.profile;
+      } else {
+        missing.push(id);
+      }
+    }
+    if (missing.length === 0) return profiles;
+    for (let i = 0; i < missing.length; i += 100) {
+      const batch = missing.slice(i, i + 100);
+      try {
+        const rows = await this.call<
+          { id: string; fullName: unknown; avatarUrl?: unknown }[]
+        >(
+          this.options.userTrust,
+          `/internal/users/display-names?ids=${batch.map(encodeURIComponent).join(',')}`,
+          undefined,
+          Date.now() + 1000,
+        );
+        if (!Array.isArray(rows)) continue;
+        for (const row of rows) {
+          if (
+            row &&
+            batch.includes(row.id) &&
+            typeof row.fullName === 'string' &&
+            row.fullName.trim()
+          ) {
+            const profile = {
+              fullName: row.fullName.trim(),
+              avatarUrl:
+                typeof row.avatarUrl === 'string' && row.avatarUrl.trim()
+                  ? row.avatarUrl.trim()
+                  : null,
+            };
+            profiles[row.id] = profile;
+            this.profileCache.set(row.id, {
+              profile,
+              expiresAt: Date.now() + 60_000,
+            });
+          }
+        }
+      } catch {
+        /* Labels do not affect chat availability. */
+      }
+    }
+    return profiles;
+  }
+  async displayNames(ids: string[]): Promise<Record<string, string>> {
+    const profiles = await this.displayProfiles(ids);
+    const names: Record<string, string> = {};
+    for (const [id, profile] of Object.entries(profiles)) {
+      names[id] = profile.fullName;
+    }
+    return names;
+  }
+  async serviceName(serviceId?: string): Promise<string | undefined> {
+    if (!this.options.catalog || !serviceId) return undefined;
+    try {
+      const service = await this.call<{ id: string; name: unknown }>(
+        this.options.catalog,
+        `/services/${encodeURIComponent(serviceId)}`,
+        undefined,
+        Date.now() + 1000,
+      );
+      if (
+        service.id === serviceId &&
+        typeof service.name === 'string' &&
+        service.name.trim()
+      )
+        return service.name.trim();
+    } catch {
+      /* Labels do not affect chat availability. */
+    }
+    return undefined;
   }
   async media(
     storageKey: string,

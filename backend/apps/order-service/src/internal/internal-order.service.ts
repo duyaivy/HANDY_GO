@@ -23,6 +23,7 @@ export class InternalOrderService {
         return {
           requestId: request.id,
           customerId: request.customerUserId,
+          serviceId: request.serviceId ?? undefined,
           status: request.status,
           version: request.version,
           order: request.order

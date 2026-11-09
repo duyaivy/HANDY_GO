@@ -21,6 +21,8 @@ async function main() {
     order: required('ORDER_SERVICE_URL'),
     auth: required('AUTH_SERVICE_URL'),
     media: required('MEDIA_SERVICE_URL'),
+    userTrust: process.env.USER_TRUST_SERVICE_URL?.trim() || undefined,
+    catalog: process.env.CATALOG_SERVICE_URL?.trim() || undefined,
   });
   const cursorSecret = required('MESSAGE_CURSOR_SECRET'),
     brokerUrl = required('RABBITMQ_URL');
