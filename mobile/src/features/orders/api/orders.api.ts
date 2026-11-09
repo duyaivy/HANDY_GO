@@ -205,6 +205,12 @@ export const OrdersApi = {
     );
   },
 
+  deleteEvidence: async (id: string, evidenceId: string) => {
+    return ApiClient.delete<{ statusCode: number; message: string; data: null }>(
+      `/orders/${id}/evidence/${evidenceId}`,
+    );
+  },
+
   finishOrder: async (id: string) => {
     return ApiClient.post<{ statusCode: number; message: string; data: Order }>(
       `/orders/${id}/finish`,

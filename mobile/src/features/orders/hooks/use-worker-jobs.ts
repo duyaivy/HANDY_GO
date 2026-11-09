@@ -226,6 +226,20 @@ export function useWorkerJobDetail(jobId?: string) {
     },
   });
 
+  const deleteEvidenceMutation = useMutation({
+    mutationFn: async (evidenceId: string) => {
+      if (!jobId) {
+        throw new Error('Job ID is required');
+      }
+      const res = await OrdersApi.deleteEvidence(jobId, evidenceId);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+    },
+  });
+
   const finishOrderMutation = useMutation({
     mutationFn: async () => {
       if (!jobId) {
@@ -254,6 +268,8 @@ export function useWorkerJobDetail(jobId?: string) {
     isUploadingEvidence: uploadEvidenceMutation.isPending,
     uploadMultipleEvidences: uploadMultipleEvidencesMutation.mutateAsync,
     isUploadingMultipleEvidences: uploadMultipleEvidencesMutation.isPending,
+    deleteEvidence: deleteEvidenceMutation.mutateAsync,
+    isDeletingEvidence: deleteEvidenceMutation.isPending,
     finishOrder: finishOrderMutation.mutateAsync,
     isFinishingOrder: finishOrderMutation.isPending,
   };

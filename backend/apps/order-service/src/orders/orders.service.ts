@@ -953,27 +953,104 @@ export class OrdersService {
         });
       }
 
-      const evidence = await tx.orderEvidence.create({
-        data: {
+      // 1. Idempotency Guard: Check if evidence with this clientEvidenceId already exists
+      if (dto.clientEvidenceId) {
+        const existingByClient = await tx.orderEvidence.findFirst({
+          where: {
+            orderId,
+            clientEvidenceId: dto.clientEvidenceId,
+          },
+        });
+
+        if (existingByClient) {
+          this.logger.log(
+            `Evidence ${existingByClient.id} already exists for order ${orderId} with clientEvidenceId ${dto.clientEvidenceId}. Returning existing record.`,
+          );
+          return {
+            id: existingByClient.id,
+            orderId: existingByClient.orderId,
+            clientEvidenceId: existingByClient.clientEvidenceId,
+            mediaType: existingByClient.mediaType,
+            mediaUrl: existingByClient.mediaUrl,
+            description: existingByClient.description,
+            createdAt: existingByClient.createdAt,
+          };
+        }
+      }
+
+      // 2. Dedup Guard: Check if identical mediaUrl was already attached to this order
+      const existingByUrl = await tx.orderEvidence.findFirst({
+        where: {
           orderId,
-          mediaType: dto.mediaType,
           mediaUrl: dto.mediaUrl,
-          description: dto.description,
         },
       });
 
-      this.logger.log(
-        `Evidence ${evidence.id} (${evidence.mediaType}) attached to order ${orderId} by worker ${workerUserId}`,
-      );
+      if (existingByUrl) {
+        this.logger.log(
+          `Evidence ${existingByUrl.id} already exists for order ${orderId} with mediaUrl ${dto.mediaUrl}. Returning existing record.`,
+        );
+        return {
+          id: existingByUrl.id,
+          orderId: existingByUrl.orderId,
+          clientEvidenceId: existingByUrl.clientEvidenceId,
+          mediaType: existingByUrl.mediaType,
+          mediaUrl: existingByUrl.mediaUrl,
+          description: existingByUrl.description,
+          createdAt: existingByUrl.createdAt,
+        };
+      }
 
-      return {
-        id: evidence.id,
-        orderId: evidence.orderId,
-        mediaType: evidence.mediaType,
-        mediaUrl: evidence.mediaUrl,
-        description: evidence.description,
-        createdAt: evidence.createdAt,
-      };
+      try {
+        const evidence = await tx.orderEvidence.create({
+          data: {
+            orderId,
+            clientEvidenceId: dto.clientEvidenceId,
+            mediaType: dto.mediaType,
+            mediaUrl: dto.mediaUrl,
+            description: dto.description,
+          },
+        });
+
+        this.logger.log(
+          `Evidence ${evidence.id} (${evidence.mediaType}) attached to order ${orderId} by worker ${workerUserId}`,
+        );
+
+        return {
+          id: evidence.id,
+          orderId: evidence.orderId,
+          clientEvidenceId: evidence.clientEvidenceId,
+          mediaType: evidence.mediaType,
+          mediaUrl: evidence.mediaUrl,
+          description: evidence.description,
+          createdAt: evidence.createdAt,
+        };
+      } catch (error: any) {
+        // Race-condition fallback: If a concurrent request inserted the same (orderId, clientEvidenceId)
+        if (error?.code === 'P2002' && dto.clientEvidenceId) {
+          const duplicate = await tx.orderEvidence.findFirst({
+            where: {
+              orderId,
+              clientEvidenceId: dto.clientEvidenceId,
+            },
+          });
+          if (duplicate) {
+            this.logger.log(
+              `Concurrent duplicate detected for order ${orderId} and clientEvidenceId ${dto.clientEvidenceId}. Returning existing record.`,
+            );
+            return {
+              id: duplicate.id,
+              orderId: duplicate.orderId,
+              clientEvidenceId: duplicate.clientEvidenceId,
+              mediaType: duplicate.mediaType,
+              mediaUrl: duplicate.mediaUrl,
+              description: duplicate.description,
+              createdAt: duplicate.createdAt,
+            };
+          }
+        }
+        throw error;
+      }
     });
   }
 
@@ -995,6 +1072,7 @@ export class OrdersService {
     return evidences.map((e) => ({
       id: e.id,
       orderId: e.orderId,
+      clientEvidenceId: e.clientEvidenceId,
       mediaType: e.mediaType,
       mediaUrl: e.mediaUrl,
       description: e.description,
@@ -1590,6 +1668,7 @@ export class OrdersService {
       evidences: order.evidences?.map((e: any) => ({
         id: e.id,
         orderId: e.orderId,
+        clientEvidenceId: e.clientEvidenceId,
         mediaType: e.mediaType,
         mediaUrl: e.mediaUrl,
         description: e.description,

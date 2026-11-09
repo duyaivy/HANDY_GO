@@ -52,11 +52,37 @@ export function WorkerJobCompleteScreen({
           remoteUrl: SAMPLE_EVIDENCE_URLS[0],
           status: 'completed',
           progress: 100,
+          persisted: false,
         },
       ];
     }
     return [];
   });
+
+  // Đồng bộ lại bằng chứng đã được Order Service lưu khi mở lại màn hình (ORD-10)
+  React.useEffect(() => {
+    if (order?.evidences && order.evidences.length > 0) {
+      // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
+      setEvidenceItems((prev) => {
+        const existingIds = new Set(prev.map(i => i.evidenceId || i.id));
+        const newFromBackend: EvidenceImageItem[] = order.evidences!
+          .filter(e => !existingIds.has(e.id) && (!e.clientEvidenceId || !existingIds.has(e.clientEvidenceId)))
+          .map(e => ({
+            id: e.clientEvidenceId || e.id,
+            localUri: e.mediaUrl,
+            remoteUrl: e.mediaUrl,
+            status: 'completed',
+            progress: 100,
+            persisted: true,
+            evidenceId: e.id,
+          }));
+        if (newFromBackend.length === 0) {
+          return prev;
+        }
+        return [...prev, ...newFromBackend];
+      });
+    }
+  }, [order?.evidences]);
 
   const [description, setDescription] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -130,6 +156,7 @@ export function WorkerJobCompleteScreen({
         localUri: uri,
         status: 'pending',
         progress: 0,
+        persisted: false,
       }));
 
       setEvidenceItems(prev => [...prev, ...newItems]);
@@ -238,6 +265,7 @@ export function WorkerJobCompleteScreen({
         remoteUrl: nextSample,
         status: 'completed',
         progress: 100,
+        persisted: false,
       };
       setEvidenceItems(prev => [...prev, sampleItem]);
       return;
@@ -263,8 +291,17 @@ export function WorkerJobCompleteScreen({
     );
   };
 
-  const handleRemoveEvidence = (itemId: string) => {
+  const handleRemoveEvidence = async (itemId: string) => {
+    const target = evidenceItems.find(item => item.id === itemId);
     setEvidenceItems(prev => prev.filter(item => item.id !== itemId));
+    if (target?.persisted && target.evidenceId && jobId && jobId !== 'JOB-1020') {
+      try {
+        await OrdersApi.deleteEvidence(jobId, target.evidenceId);
+      }
+      catch (err) {
+        console.warn('[WORKER_COMPLETE] Lỗi khi xóa bằng chứng trên máy chủ:', err);
+      }
+    }
   };
 
   const handleRetryUpload = (itemId: string) => {
@@ -309,11 +346,11 @@ export function WorkerJobCompleteScreen({
       return;
     }
 
-    // 3. Kiểm tra ảnh đã hoàn tất upload lên Cloud Storage
-    const completedItems = evidenceItems.filter(
-      i => i.status === 'completed' && i.remoteUrl,
+    // 3. Kiểm tra ảnh đã hoàn tất upload lên Cloud Storage hoặc đã persisted (ORD-10)
+    const validItems = evidenceItems.filter(
+      i => i.persisted || (i.status === 'completed' && i.remoteUrl),
     );
-    if (completedItems.length === 0) {
+    if (validItems.length === 0) {
       Alert.alert(
         'Chưa có ảnh hợp lệ',
         'Tất cả ảnh đính kèm đều bị lỗi tải lên. Vui lòng bấm Thử lại trên ảnh hoặc chọn ảnh khác.',
@@ -324,13 +361,32 @@ export function WorkerJobCompleteScreen({
     setIsSubmitting(true);
     try {
       if (jobId && jobId !== 'JOB-1020') {
-        // Giai đoạn 2: Nộp từng biên bản bằng chứng vào bảng order_evidences
-        for (const item of completedItems) {
-          await uploadEvidence({
-            mediaUrl: item.remoteUrl!,
+        // Giai đoạn 2: Nộp từng biên bản bằng chứng vào bảng order_evidences (chỉ nộp những ảnh CHƯA persisted)
+        for (const item of evidenceItems) {
+          if (item.persisted) {
+            continue;
+          }
+          if (item.status !== 'completed' || !item.remoteUrl) {
+            continue;
+          }
+
+          const saved = await uploadEvidence({
+            clientEvidenceId: item.id,
+            mediaUrl: item.remoteUrl,
             mediaType: 'image',
             description: description.trim() || 'Minh chứng hoàn thành công việc',
           });
+
+          const savedId = (saved as any)?.id || (saved as any)?.data?.id;
+          item.persisted = true;
+          item.evidenceId = savedId;
+          setEvidenceItems(prev =>
+            prev.map(i =>
+              i.id === item.id
+                ? { ...i, persisted: true, evidenceId: savedId }
+                : i,
+            ),
+          );
         }
 
         // Giai đoạn 3: Báo hoàn thành chuyển trạng thái sang awaiting_customer_confirmation
@@ -477,7 +533,7 @@ export function WorkerJobCompleteScreen({
                       )}
 
                       {/* Trạng thái Hoàn tất */}
-                      {item.status === 'completed' && (
+                      {(item.status === 'completed' || item.persisted) && (
                         <View className="absolute top-1 left-1 size-5 items-center justify-center rounded-full bg-emerald-500 shadow-xs">
                           <Text className="text-[10px] font-bold text-white">✓</Text>
                         </View>

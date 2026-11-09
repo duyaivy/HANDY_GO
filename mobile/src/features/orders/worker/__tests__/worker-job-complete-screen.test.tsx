@@ -216,6 +216,7 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
 
     await waitFor(() => {
       expect(uploadEvidenceSpy).toHaveBeenCalledWith('ORD-TEST-999', {
+        clientEvidenceId: expect.any(String),
         mediaUrl: 'https://res.cloudinary.com/demo/image/upload/clean-evidence.jpg',
         mediaType: 'image',
         description: expect.any(String),
@@ -265,8 +266,7 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     );
   });
 
-  it('P2-05: disables submit button and prevents completion when order status is not in_progress (confirmed, cancelled, completed)', async () => {
-    // 1. Test status = confirmed
+  it('P2-05: disables submit button and prevents completion when order status is confirmed', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       data: {
         id: 'ORD-TEST-999',
@@ -277,7 +277,7 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     } as any);
 
     const finishSpy = jest.spyOn(OrdersApi, 'finishOrder');
-    const { unmount } = render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
 
     await waitFor(() => {
       expect(screen.getByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeOnTheScreen();
@@ -288,9 +288,9 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
 
     fireEvent.press(finishBtn);
     expect(finishSpy).not.toHaveBeenCalled();
-    unmount();
+  });
 
-    // 2. Test status = cancelled
+  it('P2-05: disables submit button and prevents completion when order status is cancelled', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       data: {
         id: 'ORD-TEST-999',
@@ -300,7 +300,7 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
       message: 'OK',
     } as any);
 
-    const { unmount: unmount2 } = render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
 
     await waitFor(() => {
       expect(screen.getByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeOnTheScreen();
@@ -309,9 +309,9 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     const finishBtnCancelled = screen.getByTestId('worker-finish-order-btn');
     expect(finishBtnCancelled.props.accessibilityState?.disabled).toBe(true);
     expect(screen.getByText('Không thể nộp (Trạng thái: cancelled)')).toBeOnTheScreen();
-    unmount2();
+  });
 
-    // 3. Test status = completed
+  it('P2-05: disables submit button and prevents completion when order status is completed', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       data: {
         id: 'ORD-TEST-999',
@@ -330,5 +330,292 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     const finishBtnCompleted = screen.getByTestId('worker-finish-order-btn');
     expect(finishBtnCompleted.props.accessibilityState?.disabled).toBe(true);
     expect(screen.getByText('Không thể nộp (Trạng thái: completed)')).toBeOnTheScreen();
+  });
+
+  it('ORD-10: Lỗi ở ảnh thứ ba rồi gửi lại: chỉ ảnh thứ ba được gửi lại, ảnh 1 và 2 không bị gửi trùng', async () => {
+    let uploadEvidenceCallCount = 0;
+    const uploadedPayloads: any[] = [];
+
+    jest.spyOn(OrdersApi, 'uploadImage').mockImplementation(async (uri) => {
+      return `https://res.cloudinary.com/demo/image/upload/${uri.replace('file:///', '')}`;
+    });
+
+    jest.spyOn(OrdersApi, 'uploadEvidence').mockImplementation(async (_jobId, payload) => {
+      uploadEvidenceCallCount++;
+      uploadedPayloads.push(payload);
+      if (uploadEvidenceCallCount === 3) {
+        // Thất bại ở ảnh thứ ba lần đầu
+        throw new Error('Lỗi mạng khi tải ảnh 3');
+      }
+      return {
+        data: {
+          id: `evi-${uploadEvidenceCallCount}`,
+          orderId: 'ORD-TEST-999',
+          clientEvidenceId: payload.clientEvidenceId,
+          mediaUrl: payload.mediaUrl,
+          mediaType: payload.mediaType,
+        },
+      } as any;
+    });
+
+    const finishOrderSpy = jest.spyOn(OrdersApi, 'finishOrder').mockResolvedValue({
+      data: { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation' } as any,
+    } as any);
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await triggerPickFromLibrary([
+      { uri: 'file:///photo-1.jpg' },
+      { uri: 'file:///photo-2.jpg' },
+      { uri: 'file:///photo-3.jpg' },
+    ]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ảnh minh chứng (3/5)')).toBeOnTheScreen();
+    });
+
+    // Lần 1: Bấm nộp hoàn thành -> Sẽ fail ở ảnh 3
+    const finishBtn = screen.getByTestId('worker-finish-order-btn');
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Không thể hoàn tất đơn việc',
+        expect.stringContaining('Lỗi mạng khi tải ảnh 3'),
+      );
+    });
+
+    // Ảnh 1, 2 thành công, ảnh 3 fail -> Tổng cộng 3 lần gọi
+    expect(uploadEvidenceCallCount).toBe(3);
+    expect(finishOrderSpy).not.toHaveBeenCalled();
+
+    // Lần 2: Người dùng bấm Nộp lại -> Chỉ có ảnh 3 được nộp, ảnh 1 và 2 KHÔNG được nộp lại!
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(finishOrderSpy).toHaveBeenCalledWith('ORD-TEST-999');
+    });
+
+    // Tổng số lần gọi uploadEvidence là 4 (lần 1: ảnh 1, 2, 3; lần 2: chỉ ảnh 3)
+    expect(uploadEvidenceCallCount).toBe(4);
+    // Kiểm tra ảnh 1 và ảnh 2 chỉ xuất hiện đúng 1 lần trong uploadedPayloads
+    const photo1Uploads = uploadedPayloads.filter(p => p.mediaUrl.includes('photo-1.jpg'));
+    const photo2Uploads = uploadedPayloads.filter(p => p.mediaUrl.includes('photo-2.jpg'));
+    const photo3Uploads = uploadedPayloads.filter(p => p.mediaUrl.includes('photo-3.jpg'));
+    expect(photo1Uploads).toHaveLength(1);
+    expect(photo2Uploads).toHaveLength(1);
+    expect(photo3Uploads).toHaveLength(2);
+  });
+
+  it('ORD-10: finishOrder() lỗi rồi gửi lại: không tạo thêm evidence; gọi trực tiếp finishOrder()', async () => {
+    let uploadEvidenceCalls = 0;
+    let finishOrderCalls = 0;
+
+    jest.spyOn(OrdersApi, 'uploadImage').mockResolvedValue(
+      'https://res.cloudinary.com/demo/image/upload/clean.jpg',
+    );
+    jest.spyOn(OrdersApi, 'uploadEvidence').mockImplementation(async () => {
+      uploadEvidenceCalls++;
+      return {
+        data: { id: 'evi-x', orderId: 'ORD-TEST-999' },
+      } as any;
+    });
+
+    jest.spyOn(OrdersApi, 'finishOrder').mockImplementation(async () => {
+      finishOrderCalls++;
+      if (finishOrderCalls === 1) {
+        throw new Error('Lỗi máy chủ khi chuyển trạng thái đơn (500)');
+      }
+      return {
+        data: { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation' },
+      } as any;
+    });
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await triggerPickFromLibrary([{ uri: 'file:///clean.jpg' }]);
+
+    await waitFor(() => {
+      expect(screen.getByText('✓')).toBeOnTheScreen();
+    });
+
+    const finishBtn = screen.getByTestId('worker-finish-order-btn');
+
+    // Lần 1: uploadEvidence thành công, finishOrder lỗi
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Không thể hoàn tất đơn việc',
+        expect.stringContaining('Lỗi máy chủ khi chuyển trạng thái đơn'),
+      );
+    });
+
+    expect(uploadEvidenceCalls).toBe(1);
+    expect(finishOrderCalls).toBe(1);
+
+    // Lần 2: Bấm lại -> KHÔNG uploadEvidence lại, gọi thẳng finishOrder
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Hoàn thành xuất sắc!',
+        expect.stringContaining('Khách hàng đã nhận được thông báo'),
+        expect.any(Array),
+      );
+    });
+
+    // uploadEvidence vẫn là 1 (không tạo thêm evidence), finishOrder được gọi lần 2 và thành công
+    expect(uploadEvidenceCalls).toBe(1);
+    expect(finishOrderCalls).toBe(2);
+  });
+
+  it('ORD-10: Ảnh mới được thêm sau lần gửi lỗi vẫn được lưu bình thường', async () => {
+    const uploadedMediaUrls: string[] = [];
+
+    jest.spyOn(OrdersApi, 'uploadImage').mockImplementation(async (uri) => {
+      return `https://res.cloudinary.com/demo/image/upload/${uri.replace('file:///', '')}`;
+    });
+
+    jest.spyOn(OrdersApi, 'uploadEvidence').mockImplementation(async (_jobId, payload) => {
+      uploadedMediaUrls.push(payload.mediaUrl);
+      return {
+        data: { id: `evi-${uploadedMediaUrls.length}`, orderId: 'ORD-TEST-999' },
+      } as any;
+    });
+
+    let finishOrderAttempts = 0;
+    jest.spyOn(OrdersApi, 'finishOrder').mockImplementation(async () => {
+      finishOrderAttempts++;
+      if (finishOrderAttempts === 1) {
+        throw new Error('Network timeout');
+      }
+      return {
+        data: { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation' },
+      } as any;
+    });
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await triggerPickFromLibrary([{ uri: 'file:///first-photo.jpg' }]);
+
+    await waitFor(() => {
+      expect(screen.getByText('✓')).toBeOnTheScreen();
+    });
+
+    const finishBtn = screen.getByTestId('worker-finish-order-btn');
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Không thể hoàn tất đơn việc', expect.any(String));
+    });
+
+    expect(uploadedMediaUrls).toEqual([
+      'https://res.cloudinary.com/demo/image/upload/first-photo.jpg',
+    ]);
+
+    // Thêm ảnh thứ 2
+    await triggerPickFromLibrary([{ uri: 'file:///second-photo.jpg' }]);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ảnh minh chứng (2/5)')).toBeOnTheScreen();
+    });
+
+    // Bấm hoàn thành lần nữa -> Chỉ ảnh 2 được nộp, ảnh 1 không bị lặp lại
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Hoàn thành xuất sắc!', expect.any(String), expect.any(Array));
+    });
+
+    expect(uploadedMediaUrls).toEqual([
+      'https://res.cloudinary.com/demo/image/upload/first-photo.jpg',
+      'https://res.cloudinary.com/demo/image/upload/second-photo.jpg',
+    ]);
+  });
+
+  it('ORD-10: Đồng bộ ảnh đã được Order Service lưu từ trước và không upload lại khi finish', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'in_progress',
+        evidences: [
+          {
+            id: 'backend-evi-1',
+            orderId: 'ORD-TEST-999',
+            clientEvidenceId: 'client-key-1',
+            mediaUrl: 'https://res.cloudinary.com/demo/image/upload/synced-1.jpg',
+            mediaType: 'image',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const uploadEvidenceSpy = jest.spyOn(OrdersApi, 'uploadEvidence');
+    const finishOrderSpy = jest.spyOn(OrdersApi, 'finishOrder').mockResolvedValue({
+      data: { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation' } as any,
+    } as any);
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    // Kiểm tra ảnh từ backend được tải lên và hiển thị là completed (1/5)
+    await waitFor(() => {
+      expect(screen.getByText('Ảnh minh chứng (1/5)')).toBeOnTheScreen();
+      expect(screen.getByText('✓')).toBeOnTheScreen();
+    });
+
+    // Bấm nộp hoàn thành -> Không uploadEvidence mà gọi thẳng finishOrder
+    const finishBtn = screen.getByTestId('worker-finish-order-btn');
+    fireEvent.press(finishBtn);
+
+    await waitFor(() => {
+      expect(uploadEvidenceSpy).not.toHaveBeenCalled();
+      expect(finishOrderSpy).toHaveBeenCalledWith('ORD-TEST-999');
+    });
+  });
+
+  it('ORD-10: Xóa ảnh đã persisted sẽ gọi OrdersApi.deleteEvidence', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'in_progress',
+        evidences: [
+          {
+            id: 'backend-evi-del-1',
+            orderId: 'ORD-TEST-999',
+            clientEvidenceId: 'client-key-del',
+            mediaUrl: 'https://res.cloudinary.com/demo/image/upload/synced-del.jpg',
+            mediaType: 'image',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    const deleteEvidenceSpy = jest.spyOn(OrdersApi, 'deleteEvidence').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: null,
+    } as any);
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ảnh minh chứng (1/5)')).toBeOnTheScreen();
+    });
+
+    // Bấm nút xóa ảnh
+    const removeBtn = screen.getByTestId('remove-evidence-btn-0');
+    fireEvent.press(removeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Ảnh minh chứng (0/5)')).toBeOnTheScreen();
+      expect(deleteEvidenceSpy).toHaveBeenCalledWith('ORD-TEST-999', 'backend-evi-del-1');
+    });
   });
 });
