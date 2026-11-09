@@ -46,7 +46,8 @@
         "api-gateway",
         "matching-service",
         "bidding-service",
-        "wallet-service"
+        "wallet-service",
+        "message-service"
       ],
       "wireguard_http": true
     },
@@ -171,7 +172,8 @@
       "url_env": "CATALOG_SERVICE_URL",
       "http_callers": [
         "api-gateway",
-        "user-trust-service"
+        "user-trust-service",
+        "message-service"
       ],
       "wireguard_http": true
     },

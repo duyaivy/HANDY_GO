@@ -132,6 +132,7 @@ services:
       NEST_PROJECT: user-trust-service
       PORT: '3002'
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
+      CATALOG_SERVICE_URL: http://catalog-service:3003
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
     extra_hosts:
@@ -276,11 +277,14 @@ services:
       <<: *development-environment
       NEST_PROJECT: message-service
       PORT: '3009'
+      MESSAGE_CURSOR_SECRET: ${MESSAGE_CURSOR_SECRET:-handy-go-message-cursor-secret-development-only-32-chars}
       DATABASE_URL_MESSAGE: ${DATABASE_URL_MESSAGE:-${DATABASE_URL}}
       DIRECT_URL_MESSAGE: ${DIRECT_URL_MESSAGE:-${DATABASE_URL}}
       BIDDING_SERVICE_URL: http://bidding-service:3005
       ORDER_SERVICE_URL: http://order-service:3004
       AUTH_SERVICE_URL: http://auth-service:3001
       MEDIA_SERVICE_URL: http://api-gateway:3000
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      CATALOG_SERVICE_URL: http://catalog-service:3003
     ports:
       - '3011:3009'
