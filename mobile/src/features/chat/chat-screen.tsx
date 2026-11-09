@@ -536,11 +536,16 @@ function ParticipantChatScreen() {
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={progress !== null ? 'Hủy tải tệp' : 'Bỏ tệp đã chọn'}
+                    accessibilityLabel={progress !== null || preparation !== null ? 'Hủy tải tệp' : 'Bỏ tệp đã chọn'}
                     onPress={() => {
-                      if (progress !== null)
+                      if (progress !== null || preparation !== null) {
                         upload.current?.abort();
-                      else setAsset(null);
+                        setProgress(null);
+                        setPreparation(null);
+                      }
+                      else {
+                        setAsset(null);
+                      }
                     }}
                     hitSlop={8}
                     style={{ position: 'absolute', top: -8, right: -8, width: 32, height: 32, borderRadius: 16, backgroundColor: '#334155', alignItems: 'center', justifyContent: 'center' }}
