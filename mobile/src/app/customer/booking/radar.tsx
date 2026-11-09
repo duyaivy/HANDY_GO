@@ -879,9 +879,16 @@ export default function CustomerBookingRadarRoute() {
       );
     }
     catch (err: unknown) {
-      const errorObj = err as { code?: string; message?: string; response?: { status?: number; data?: { code?: string; message?: string } } };
+      const errorObj = err as {
+        code?: string;
+        message?: string;
+        details?: { originalError?: { response?: { status?: number; data?: { code?: string; message?: string } } } };
+        response?: { status?: number; data?: { code?: string; message?: string } };
+      };
+      const backendMessage = errorObj?.details?.originalError?.response?.data?.message
+        || (typeof errorObj?.details?.originalError?.response?.data === 'string' ? errorObj?.details?.originalError?.response?.data : undefined);
       const errorCode = errorObj?.response?.data?.code || errorObj?.code;
-      const errorMsg = String(errorObj?.response?.data?.message || errorObj?.message || '');
+      const errorMsg = String(errorObj?.response?.data?.message || backendMessage || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
 
