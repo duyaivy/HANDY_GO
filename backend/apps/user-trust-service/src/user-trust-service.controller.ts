@@ -221,6 +221,34 @@ export class UserTrustServiceController {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
   }
 
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('users/:id/worker-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy thông tin hồ sơ công khai của thợ theo workerUserId' })
+  @ApiResponse({ status: 200, description: 'Lấy hồ sơ thợ thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
+  async getWorkerPublicProfile(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerPublicProfile(workerUserId);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('users/workers/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy thông tin hồ sơ công khai của thợ theo workerUserId (alias)' })
+  @ApiResponse({ status: 200, description: 'Lấy hồ sơ thợ thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
+  async getWorkerPublicProfileAlias(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerPublicProfile(workerUserId);
+  }
+
   /**
    * RabbitMQ Event Consumer for 'kyc.pending' (when verification is queued).
    */

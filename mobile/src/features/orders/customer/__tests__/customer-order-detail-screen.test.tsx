@@ -722,4 +722,203 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       });
     });
   });
+
+  describe('worker Profile Resolution (PR62-03-P2 / ORD-12)', () => {
+    it('P2-WP-01: resolves worker profile directly via getWorkerProfile when order is from Matching with empty selectedBidId and empty recommendations', async () => {
+      const orderFromMatching = {
+        ...baseOrder,
+        worker: undefined,
+        workerName: undefined,
+        selectedBidId: undefined,
+        workerUserId: 'worker-match-uuid-999',
+        serviceRequestId: 'req-converted-123',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderFromMatching,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      // getCandidates returns converted_to_order with empty recommendations & bidding
+      jest.spyOn(OrdersApi, 'getCandidates').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          requestId: 'req-converted-123',
+          requestStatus: 'converted_to_order',
+          bidding: { items: [], total: 0, status: 'closed' },
+          matching: { recommendations: [], status: 'converted_to_order' },
+        },
+      } as any);
+
+      const getWorkerProfileSpy = jest.spyOn(OrdersApi, 'getWorkerProfile').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          workerUserId: 'worker-match-uuid-999',
+          fullName: 'Trần Văn Matching',
+          avatarUrl: 'https://cdn.example.com/worker-match.jpg',
+          averageRating: 4.95,
+          completedOrderCount: 42,
+          headline: 'Chuyên gia điện lạnh dân dụng',
+        },
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(getWorkerProfileSpy).toHaveBeenCalledWith('worker-match-uuid-999');
+        expect(screen.getByText('Trần Văn Matching')).toBeOnTheScreen();
+        expect(screen.getByText('5.0')).toBeOnTheScreen();
+        expect(screen.getByText(/42 đơn thành công/)).toBeOnTheScreen();
+      });
+    });
+
+    it('P2-WP-02: resolves worker profile and merges phone number from selectedBidId on bid path', async () => {
+      const orderFromBid = {
+        ...baseOrder,
+        worker: undefined,
+        workerName: undefined,
+        selectedBidId: 'bid-uuid-456',
+        workerUserId: 'worker-bid-uuid-456',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderFromBid,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      jest.spyOn(OrdersApi, 'getWorkerProfile').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          workerUserId: 'worker-bid-uuid-456',
+          fullName: 'Lê Hoàng Thợ Thầu',
+          avatarUrl: 'https://cdn.example.com/bid-worker.jpg',
+          averageRating: 4.88,
+          completedOrderCount: 50,
+          phoneNumber: undefined,
+        },
+      } as any);
+
+      jest.spyOn(OrdersApi, 'getBidDetail').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          id: 'bid-uuid-456',
+          workerProfile: {
+            fullName: 'Lê Hoàng Thợ Thầu',
+            avatarUrl: 'https://cdn.example.com/bid-worker.jpg',
+            averageRating: 4.88,
+            completedOrderCount: 50,
+            phoneNumber: '0988776655',
+          },
+        },
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Lê Hoàng Thợ Thầu')).toBeOnTheScreen();
+      });
+    });
+
+    it('P2-WP-03: falls back safely to default when getWorkerProfile fails and no candidates/bids exist', async () => {
+      const orderWithoutWorkerData = {
+        ...baseOrder,
+        worker: undefined,
+        workerName: undefined,
+        selectedBidId: undefined,
+        workerUserId: 'worker-fail-uuid',
+        serviceRequestId: undefined,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithoutWorkerData,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      jest.spyOn(OrdersApi, 'getWorkerProfile').mockRejectedValue(new Error('Network error'));
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Thợ phụ trách')).toBeOnTheScreen();
+        // Rating should not display fake 5.0
+        expect(screen.queryByText('5.0')).toBeNull();
+      });
+    });
+
+    it('P2-WP-04: safely renders worker profile with missing optional fields without fake data', async () => {
+      const orderWithPartialWorker = {
+        ...baseOrder,
+        worker: undefined,
+        workerName: undefined,
+        selectedBidId: undefined,
+        workerUserId: 'worker-new-uuid',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithPartialWorker,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      jest.spyOn(OrdersApi, 'getWorkerProfile').mockResolvedValue({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          workerUserId: 'worker-new-uuid',
+          fullName: 'Bùi Đức Mới Vào Nghề',
+          avatarUrl: null,
+          averageRating: null,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          phoneNumber: null,
+        },
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Bùi Đức Mới Vào Nghề')).toBeOnTheScreen();
+        expect(screen.queryByText('5.0')).toBeNull();
+        expect(screen.getByText('Chưa có đánh giá')).toBeOnTheScreen();
+        expect(screen.getByText('Chưa có dữ liệu đơn')).toBeOnTheScreen();
+      });
+    });
+
+    it('P2-WP-05: prioritizes reliable order.worker snapshot when present', async () => {
+      const orderWithSnapshot = {
+        ...baseOrder,
+        worker: {
+          fullName: 'Vũ Snapshot Worker',
+          rating: 4.75,
+          completedJobsCount: 88,
+          headline: 'Thợ sửa điện gia dụng',
+        },
+        workerUserId: 'worker-snapshot-uuid',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: orderWithSnapshot,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      const getWorkerProfileSpy = jest.spyOn(OrdersApi, 'getWorkerProfile');
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Vũ Snapshot Worker')).toBeOnTheScreen();
+        expect(screen.getByText('4.8')).toBeOnTheScreen();
+        expect(screen.getByText(/88 đơn thành công/)).toBeOnTheScreen();
+        expect(getWorkerProfileSpy).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

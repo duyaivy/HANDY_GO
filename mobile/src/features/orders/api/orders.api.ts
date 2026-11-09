@@ -244,6 +244,25 @@ export const OrdersApi = {
     );
   },
 
+  // --- Worker Profile ---
+  getWorkerProfile: async (workerUserId: string) => {
+    return ApiClient.get<{
+      statusCode: number;
+      message: string;
+      data: {
+        workerUserId: string;
+        fullName: string;
+        avatarUrl?: string | null;
+        averageRating?: number | null;
+        ratingCount?: number;
+        completedOrderCount?: number;
+        headline?: string | null;
+        phoneNumber?: string | null;
+        phone?: string | null;
+      };
+    }>(`/users/${workerUserId}/worker-profile`);
+  },
+
   // --- Media Upload Helper ---
   uploadImage: async (
     uri: string,

@@ -112,4 +112,24 @@ describe('UserTrustServiceController', () => {
     expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
     expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
   });
+
+  it('should delegate getWorkerPublicProfile to service', async () => {
+    serviceMock.getWorkerPublicProfile = vi.fn().mockResolvedValue({
+      statusCode: 200,
+      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
+    });
+
+    const result = await controller.getWorkerPublicProfile('w-1');
+    expect(result).toEqual({
+      statusCode: 200,
+      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
+    });
+    expect(serviceMock.getWorkerPublicProfile).toHaveBeenCalledWith('w-1');
+
+    const aliasResult = await controller.getWorkerPublicProfileAlias('w-1');
+    expect(aliasResult).toEqual({
+      statusCode: 200,
+      data: { workerUserId: 'w-1', fullName: 'Thợ A' },
+    });
+  });
 });
