@@ -14,7 +14,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --store-dir=/pnpm/store
 COPY . .
 # Placeholder is for Prisma config parsing only. No database is contacted during build.
-RUN DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm run prisma:generate
+RUN DATABASE_URL=postgresql://build:build@localhost:5432/build \
+    DATABASE_URL_MESSAGE=postgresql://build:build@localhost:5432/build \
+    pnpm run prisma:generate
 # Build the approved registry, including explicitly approved health-only scaffolds.
 # Copy each artifact before the next build can clear dist.
 RUN node --input-type=module <<'JS'

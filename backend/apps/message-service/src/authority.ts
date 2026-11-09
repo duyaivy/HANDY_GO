@@ -201,17 +201,6 @@ export class AuthorityClient {
       this.activeCache.set(key, { active, expiresAt: Date.now() + 60_000 });
       return active;
     } catch (error) {
-      if (
-        cached?.active &&
-        error instanceof ChatError &&
-        error.code === 'ELIGIBILITY_UNAVAILABLE'
-      ) {
-        this.activeCache.set(key, {
-          active: true,
-          expiresAt: Date.now() + 30_000,
-        });
-        return true;
-      }
       this.activeCache.delete(key);
       if (error instanceof ChatError && error.code === 'CHAT_INELIGIBLE') {
         return false;

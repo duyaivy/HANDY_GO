@@ -139,7 +139,9 @@ export class MessageService {
     states: ConversationReadState[],
     labels?: {
       names?: Promise<Record<string, string>>;
-      profiles?: Promise<Record<string, { fullName: string; avatarUrl: string | null }>>;
+      profiles?: Promise<
+        Record<string, { fullName: string; avatarUrl: string | null }>
+      >;
       services: Map<string, Promise<string | undefined>>;
     },
   ): Promise<ChatConversation> {
@@ -337,16 +339,50 @@ export class MessageService {
         JSON.stringify((input.attachments ?? []).map((a) => a.storageKey))
     );
   }
-  private isUniqueViolation(error: unknown): boolean {
+  private constraintViolation(
+    error: unknown,
+    kind: 'unique' | 'reply',
+  ): boolean {
     if (!error || typeof error !== 'object') return false;
-    const code = (error as { code?: string }).code;
-    return code === 'P2002' || code === '23505';
-  }
-
-  private isForeignKeyViolation(error: unknown): boolean {
-    if (!error || typeof error !== 'object') return false;
-    const code = (error as { code?: string }).code;
-    return code === 'P2003' || code === '23503';
+    const e = error as {
+      code?: string;
+      constraint?: string;
+      meta?: {
+        code?: string;
+        message?: string;
+        target?: string[] | string;
+        field_name?: string;
+        driverAdapterError?: {
+          cause?: {
+            originalCode?: string;
+            constraint?: { index?: string; fields?: string[] };
+          };
+        };
+      };
+    };
+    const meta = e.meta;
+    const cause = meta?.driverAdapterError?.cause;
+    const code =
+      e.code === 'P2010' ? (cause?.originalCode ?? meta?.code) : e.code;
+    const codes = kind === 'unique' ? ['P2002', '23505'] : ['P2003', '23503'];
+    if (!code || !codes.includes(code)) return false;
+    const constraint =
+      kind === 'unique'
+        ? 'messages_sender_id_client_message_id_key'
+        : 'messages_conversation_id_reply_to_id_fkey';
+    const name = e.constraint ?? cause?.constraint?.index ?? meta?.field_name;
+    if (name === constraint || name?.startsWith(`${constraint} `)) return true;
+    const fields = cause?.constraint?.fields ?? meta?.target;
+    if (fields === constraint) return true;
+    if (
+      kind === 'unique' &&
+      Array.isArray(fields) &&
+      fields.length === 2 &&
+      fields.includes('sender_id') &&
+      fields.includes('client_message_id')
+    )
+      return true;
+    return meta?.message?.includes(`"${constraint}"`) === true;
   }
 
   private cacheRecentMessage(
@@ -474,7 +510,10 @@ export class MessageService {
           new_msg.id,
           'message.created',
           1,
-          ${payloadJson}::jsonb,
+          jsonb_set(
+            jsonb_set(${payloadJson}::jsonb, '{data,sequence}', to_jsonb(new_msg.sequence::text)),
+            '{occurredAt}', to_jsonb(to_char(new_msg.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+          ),
           'pending'
         FROM new_msg
       )
@@ -636,12 +675,32 @@ export class MessageService {
       `${userId}:${input.clientMessageId}`,
     );
     if (cachedWinner) {
+      const cacheFresh =
+        cachedWinner.expiresAt > Date.now() &&
+        cachedWinner.message.attachments.every(
+          (a) => Date.parse(a.urlExpiresAt) > Date.now(),
+        );
       if (!this.equal(cachedWinner.raw as HydratedMessage, input))
         throw new ChatError('IDEMPOTENCY_CONFLICT');
+      let message = cachedWinner.message;
+      if (!cacheFresh) {
+        this.recentMessages.delete(`${userId}:${input.clientMessageId}`);
+        const conversation = await this.member(userId, input.conversationId);
+        const proof = await this.permission(userId, conversation);
+        if (!proof.permissions.read)
+          throw new ChatError('CONVERSATION_NOT_FOUND');
+        message = await this.wireMessage(cachedWinner.raw as HydratedMessage);
+        this.cacheRecentMessage(
+          userId,
+          input.clientMessageId,
+          cachedWinner.raw as HydratedMessage,
+          message,
+        );
+      }
       const duplicateCheckMs =
         Math.round((performance.now() - tDup0) * 100) / 100;
       return {
-        message: cachedWinner.message,
+        message,
         duplicate: true,
         timings: {
           membershipCheckMs: 0,
@@ -701,7 +760,7 @@ export class MessageService {
         });
       }
     } catch (error) {
-      if (this.isUniqueViolation(error)) {
+      if (this.constraintViolation(error, 'unique')) {
         const winner = await this.db.message.findUnique({
           where: {
             senderId_clientMessageId: {
@@ -714,7 +773,7 @@ export class MessageService {
         if (!winner || !this.equal(winner, input))
           throw new ChatError('IDEMPOTENCY_CONFLICT');
         saved = { row: winner, duplicate: true };
-      } else if (this.isForeignKeyViolation(error)) {
+      } else if (this.constraintViolation(error, 'reply')) {
         throw new ChatError('REPLY_NOT_FOUND');
       } else {
         throw error;
@@ -723,7 +782,8 @@ export class MessageService {
 
     const dbTransactionMs = Math.round((performance.now() - tDb0) * 100) / 100;
     const outboxProcessingMs = dbTransactionMs;
-    const duplicateCheckMs = Math.round((performance.now() - tDup0) * 100) / 100;
+    const duplicateCheckMs =
+      Math.round((performance.now() - tDup0) * 100) / 100;
 
     // 6. Format message for ACK response
     const message = await this.wireMessage(saved.row, assets);

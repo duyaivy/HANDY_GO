@@ -13,6 +13,17 @@ export function ChatLifecycle() {
       chatSocket.clear();
       return;
     }
+    const invalidateInbox = () => {
+      void queryClient.invalidateQueries({ queryKey: ['chat', userId, 'list'] });
+    };
+    const unsubscribeMessage = chatSocket.subscribe('message.new', invalidateInbox);
+    const unsubscribeRead = chatSocket.subscribe('message.read.updated', invalidateInbox);
+    const unsubscribeConnection = chatSocket.onConnection(() => {
+      if (chatSocket.connected())
+        invalidateInbox();
+    });
+    if (chatSocket.connected())
+      invalidateInbox();
     if (AppState.currentState === 'active')
       chatSocket.start();
     const subscription = AppState.addEventListener('change', (state) => {
@@ -21,6 +32,9 @@ export function ChatLifecycle() {
       else chatSocket.stop();
     });
     return () => {
+      unsubscribeMessage();
+      unsubscribeRead();
+      unsubscribeConnection();
       subscription.remove();
       chatSocket.clear();
       void queryClient.cancelQueries({ queryKey: ['chat', userId] });

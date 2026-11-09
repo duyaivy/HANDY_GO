@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { refreshTokens } from '@/services/api/api-client';
 import { chatSocket } from '../chat-socket';
 
 const mockListeners = new Map<string, (...args: unknown[]) => unknown>();
@@ -81,4 +82,88 @@ it('disconnects and drops transport listeners when session ends', () => {
   chatSocket.clear();
   expect(mockSocket.disconnect).toHaveBeenCalled();
   expect(mockSocket.removeAllListeners).toHaveBeenCalled();
+});
+
+it('retries transient refresh failures after a server disconnect', async () => {
+  jest.useFakeTimers();
+  (refreshTokens as jest.Mock).mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce('new');
+  chatSocket.start();
+  mockSocket.connect.mockClear();
+  mockListeners.get('disconnect')!('io server disconnect');
+  await jest.advanceTimersByTimeAsync(31000);
+  expect(refreshTokens).toHaveBeenCalledTimes(2);
+  expect(mockSocket.connect).toHaveBeenCalledTimes(1);
+  chatSocket.clear();
+  jest.useRealTimers();
+});
+it('cancels a pending refresh retry on logout', async () => {
+  jest.useFakeTimers();
+  (refreshTokens as jest.Mock).mockRejectedValue(new Error('offline'));
+  chatSocket.start();
+  mockListeners.get('disconnect')!('io server disconnect');
+  await jest.advanceTimersByTimeAsync(0);
+  chatSocket.clear();
+  const attempts = (refreshTokens as jest.Mock).mock.calls.length;
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(refreshTokens).toHaveBeenCalledTimes(attempts);
+  jest.useRealTimers();
+});
+it('does not retry a rejected refresh token', async () => {
+  jest.useFakeTimers();
+  (refreshTokens as jest.Mock).mockRejectedValue({ statusCode: 401, kind: 'AUTH_ERROR' });
+  chatSocket.start();
+  mockListeners.get('disconnect')!('io server disconnect');
+  await jest.advanceTimersByTimeAsync(60000);
+  expect(refreshTokens).toHaveBeenCalledTimes(1);
+  chatSocket.clear();
+  jest.useRealTimers();
+});
+it('ignores a refresh completion from a previous account lifecycle', async () => {
+  jest.useFakeTimers();
+  let complete!: (value: string) => void;
+  (refreshTokens as jest.Mock).mockImplementationOnce(() => new Promise<string>((resolve) => {
+    complete = resolve;
+  }));
+  chatSocket.start();
+  mockListeners.get('disconnect')!('io server disconnect');
+  await jest.advanceTimersByTimeAsync(1000);
+  chatSocket.clear();
+  chatSocket.start();
+  mockSocket.connect.mockClear();
+  complete('old-account-token');
+  await Promise.resolve();
+  expect(mockSocket.connect).not.toHaveBeenCalled();
+  chatSocket.clear();
+  jest.useRealTimers();
+});
+
+it('backs off repeated unauthorized handshakes even when REST refresh succeeds', async () => {
+  jest.useFakeTimers();
+  (refreshTokens as jest.Mock).mockResolvedValue('new-token');
+  chatSocket.start();
+  const rejected = () => mockListeners.get('connect_error')!({ data: { code: 'UNAUTHORIZED' } });
+  rejected();
+  await jest.advanceTimersByTimeAsync(999);
+  expect(refreshTokens).not.toHaveBeenCalled();
+  await jest.advanceTimersByTimeAsync(1);
+  expect(refreshTokens).toHaveBeenCalledTimes(1);
+  rejected();
+  rejected();
+  await jest.advanceTimersByTimeAsync(1999);
+  expect(refreshTokens).toHaveBeenCalledTimes(1);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(refreshTokens).toHaveBeenCalledTimes(2);
+  rejected();
+  await jest.advanceTimersByTimeAsync(3999);
+  expect(refreshTokens).toHaveBeenCalledTimes(2);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(refreshTokens).toHaveBeenCalledTimes(3);
+  mockListeners.get('connect')!();
+  rejected();
+  await jest.advanceTimersByTimeAsync(999);
+  expect(refreshTokens).toHaveBeenCalledTimes(3);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(refreshTokens).toHaveBeenCalledTimes(4);
+  chatSocket.clear();
+  jest.useRealTimers();
 });

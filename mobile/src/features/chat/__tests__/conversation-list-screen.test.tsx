@@ -49,12 +49,12 @@ it('shows the worker name and service and opens an eligible conversation', async
   expect(mockPush).toHaveBeenCalledWith('/chat/conversation?name=Minh%20Tr%E1%BA%A7n');
   close();
 });
-it('keeps ineligible conversations visible and disables navigation', async () => {
+it('opens read-only history when sending is disabled', async () => {
   const close = setup([{ ...conversation, permissions: { read: true, send: false } }]);
   const row = await screen.findByRole('button', { name: 'Minh Trần, Sửa máy lạnh' });
-  expect(row).toBeDisabled();
+  expect(row).not.toBeDisabled();
   fireEvent.press(row);
-  expect(mockPush).not.toHaveBeenCalled();
+  expect(mockPush).toHaveBeenCalled();
   close();
 });
 it('shows customer names for workers and uses readable fallbacks without UUIDs', async () => {

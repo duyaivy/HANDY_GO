@@ -18,7 +18,10 @@ class ChatSocketManager {
 
   private active = false;
   private listeners = new Set<Listener>();
-  private lastRefresh = 0;
+  private generation = 0;
+  private refreshingGeneration: number | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryDelay = 1000;
   connected = () => Boolean(this.socket?.connected);
   onConnection(listener: Listener) {
     this.listeners.add(listener);
@@ -43,11 +46,18 @@ class ChatSocketManager {
         randomizationFactor: 0.5,
         timeout: 10000,
       });
-      this.socket.on('connect', this.notify);
+      this.socket.on('connect', () => {
+        this.retryDelay = 1000;
+        if (this.retryTimer) {
+          clearTimeout(this.retryTimer);
+          this.retryTimer = null;
+        }
+        this.notify();
+      });
       this.socket.on('disconnect', (reason) => {
         this.notify();
         if (reason === 'io server disconnect')
-          void this.refresh();
+          this.scheduleRefresh();
       });
       this.socket.on('connect_error', (error) => {
         this.notify();
@@ -55,7 +65,7 @@ class ChatSocketManager {
           (error as Error & { data?: { code?: string } }).data?.code
           === 'UNAUTHORIZED'
         ) {
-          void this.refresh();
+          this.scheduleRefresh();
         }
       });
     }
@@ -66,25 +76,59 @@ class ChatSocketManager {
     if (!getToken()?.access)
       return;
     this.initialize();
-    this.socket?.connect();
+    if (!this.retryTimer && this.refreshingGeneration !== this.generation)
+      this.socket?.connect();
+  }
+
+  private scheduleRefresh() {
+    if (!this.active || this.retryTimer)
+      return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.refresh();
+    }, this.retryDelay);
+    this.retryDelay = Math.min(this.retryDelay * 2, 30000);
   }
 
   private async refresh() {
-    if (!this.active || Date.now() - this.lastRefresh < 30000)
+    if (!this.active || this.refreshingGeneration === this.generation)
       return;
-    this.lastRefresh = Date.now();
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    const generation = this.generation;
+    this.refreshingGeneration = generation;
     try {
       await refreshTokens();
-      if (this.active && getToken()?.access)
+      if (this.active && generation === this.generation && getToken()?.access) {
         this.socket?.connect();
+      }
     }
-    catch {
-      this.stop();
+    catch (error) {
+      if (!this.active || generation !== this.generation)
+        return;
+      const failure = error as { statusCode?: number; kind?: string };
+      if (failure.kind === 'AUTH_ERROR' || [400, 401, 403, 422].includes(failure.statusCode ?? 0)) {
+        this.stop();
+        return;
+      }
+      this.scheduleRefresh();
+    }
+    finally {
+      if (this.refreshingGeneration === generation)
+        this.refreshingGeneration = null;
     }
   }
 
   stop() {
     this.active = false;
+    this.generation++;
+    this.retryDelay = 1000;
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     this.socket?.disconnect();
     this.notify();
   }

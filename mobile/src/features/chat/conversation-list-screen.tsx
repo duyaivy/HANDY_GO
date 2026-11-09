@@ -137,7 +137,7 @@ export function ConversationListScreen() {
                     || (isCustomer ? 'Thợ dịch vụ' : 'Khách hàng');
                   const avatarUrl = isCustomer ? item.workerAvatarUrl : item.customerAvatarUrl;
                   const service = item.serviceName?.trim() || 'Yêu cầu dịch vụ';
-                  const disabled = !item.permissions.send;
+                  const disabled = !item.permissions.read;
                   const unreadDiff = BigInt(item.lastSequence || '0') - BigInt(read);
                   const unreadCount = unreadDiff > 0n ? Number(unreadDiff) : 0;
                   const hasUnread = unreadCount > 0;

@@ -51,6 +51,7 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
       base: string,
       conversation: string,
       firstMessage: string;
+    let authority: AuthorityClient;
     const sockets: Socket[] = [];
     const jwt = new JwtService();
     const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -131,7 +132,7 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
         .toString();
       db = new MessagePrisma(process.env.MESSAGE_TEST_DATABASE_URL!);
       await db.$connect();
-      const authority = new AuthorityClient(
+      authority = new AuthorityClient(
         {
           secret: 'test',
           bidding: 'http://bid',
@@ -272,6 +273,10 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
       expect((await received).id).toBe(firstMessage);
       expect(await db.message.count()).toBe(1);
       expect(await db.outboxEvent.count()).toBe(1);
+      const event = (await db.outboxEvent.findFirstOrThrow()).payload as any;
+      expect(event.data.sequence).toBe(results[0].data.message.sequence);
+      expect(BigInt(event.data.sequence)).toBeGreaterThan(0n);
+      expect(event.occurredAt).toBe(results[0].data.message.createdAt);
       expect(
         (await ack(a, 'message.send', { ...payload, content: 'different' }))
           .error.code,
@@ -643,6 +648,13 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
     }, 10000);
     it('rejects revoked sessions on existing socket', async () => {
       active = false;
+      // Expire the 60-second session cache without changing Socket.IO transport clocks.
+      const cache = (
+        authority as unknown as {
+          activeCache: Map<string, { expiresAt: number }>;
+        }
+      ).activeCache;
+      for (const entry of cache.values()) entry.expiresAt = 0;
       const disconnected = nextEvent(sockets[0]!, 'disconnect');
       expect(
         (

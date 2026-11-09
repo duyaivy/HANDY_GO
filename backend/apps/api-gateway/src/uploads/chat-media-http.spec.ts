@@ -29,7 +29,10 @@ const pass = {
   controllers: [ChatMediaController],
   providers: [
     { provide: CloudinaryService, useValue: media },
-    { provide: ConfigService, useValue: { internalServiceSecret: 'unit-secret' } },
+    {
+      provide: ConfigService,
+      useValue: { internalServiceSecret: 'unit-secret' },
+    },
   ],
 })
 class ImportedMediaModule {}
@@ -53,7 +56,7 @@ class ImportedMediaModule {}
     { provide: TokenVerifierService, useValue: verifier },
     { provide: CloudinaryService, useValue: media },
     { provide: ProxyMiddleware, useValue: pass },
-    { provide: RateLimitMiddleware, useValue: pass },
+    RateLimitMiddleware,
   ],
 })
 class GatewayMediaTestModule implements NestModule {
@@ -84,6 +87,19 @@ describe('actual Gateway middleware registration for internal chat media', () =>
     expect(response.status).toBe(200);
     expect(response.body.data.verified).toBe(true);
     expect(verifier.verifyAccessToken).not.toHaveBeenCalled();
+  });
+  it('serves a 120-attachment history without exhausting the user IP budget', async () => {
+    for (let i = 0; i < 120; i++) {
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/internal/media/chat/verify')
+        .set('x-internal-secret', 'unit-secret')
+        .send({
+          storageKey: 'chat/a',
+          ownerId: '11111111-1111-4111-8111-111111111111',
+          mediaType: 'IMAGE',
+        });
+      expect(response.status).toBe(200);
+    }
   });
   it('rejects the service route without its credential', async () => {
     const response = await request(app.getHttpServer())

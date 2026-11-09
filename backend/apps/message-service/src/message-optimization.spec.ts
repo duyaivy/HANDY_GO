@@ -76,6 +76,7 @@ describe('Message Service Latency & Idempotency Optimizations', () => {
           if (dbMessages.has(key)) {
             const err = new Error('Unique constraint failed') as any;
             err.code = 'P2002';
+            err.meta = { target: ['sender_id', 'client_message_id'] };
             throw err;
           }
           const row = {
@@ -149,12 +150,14 @@ describe('Message Service Latency & Idempotency Optimizations', () => {
             'duplicate key value violates unique constraint',
           ) as any;
           err.code = '23505';
+          err.constraint = 'messages_sender_id_client_message_id_key';
           throw err;
         }
 
         if (replyToId && replyToId !== 'valid-reply-id') {
           const err = new Error('foreign key constraint violated') as any;
           err.code = '23503';
+          err.constraint = 'messages_conversation_id_reply_to_id_fkey';
           throw err;
         }
 
@@ -348,6 +351,112 @@ describe('Message Service Latency & Idempotency Optimizations', () => {
     const res2 = await service.send(customerId, input);
     expect(res2.duplicate).toBe(true);
     expect(res2.message.id).toBe(res1.message.id);
+  });
+
+  it('recovers an idempotent ACK from Prisma P2010 driver metadata', async () => {
+    const input: MessageSendInput = {
+      conversationId,
+      clientMessageId: randomUUID(),
+      messageType: 'TEXT',
+      content: 'Retry',
+    };
+    const first = await service.send(customerId, input);
+    (service as any).recentMessages.clear();
+    db.$queryRaw.mockRejectedValueOnce({
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: '23505',
+            kind: 'UniqueConstraintViolation',
+            constraint: { index: 'messages_sender_id_client_message_id_key' },
+          },
+        },
+      },
+    });
+    expect((await service.send(customerId, input)).message.id).toBe(
+      first.message.id,
+    );
+  });
+
+  it('does not recover unrelated raw unique constraints as idempotent success', async () => {
+    const input: MessageSendInput = {
+      conversationId,
+      clientMessageId: randomUUID(),
+      messageType: 'TEXT',
+      content: 'Retry',
+    };
+    await service.send(customerId, input);
+    (service as any).recentMessages.clear();
+    const error = {
+      code: 'P2010',
+      meta: {
+        code: '23505',
+        message: 'constraint "messages_conversation_id_sequence_key"',
+      },
+    };
+    db.$queryRaw.mockRejectedValueOnce(error);
+    await expect(service.send(customerId, input)).rejects.toEqual(error);
+  });
+
+  it('refreshes expired media ACKs with read permission even after sending closes', async () => {
+    const input: MessageSendInput = {
+      conversationId,
+      clientMessageId: randomUUID(),
+      messageType: 'IMAGE',
+      attachments: [{ storageKey: 'chat/image' }],
+    };
+    const raw = {
+      id: randomUUID(),
+      conversationId,
+      senderId: customerId,
+      clientMessageId: input.clientMessageId,
+      messageType: 'IMAGE',
+      content: null,
+      replyToId: null,
+      sequence: 10n,
+      createdAt: new Date(),
+      replyTo: null,
+      attachments: [
+        {
+          id: randomUUID(),
+          storageKey: 'chat/image',
+          mediaType: 'IMAGE',
+          mimeType: 'image/jpeg',
+          sizeBytes: 100n,
+          position: 0,
+          width: 10,
+          height: 10,
+          durationMs: null,
+        },
+      ],
+    };
+    const stale = {
+      ...raw,
+      sequence: '10',
+      createdAt: raw.createdAt.toISOString(),
+      attachments: [
+        {
+          ...raw.attachments[0],
+          sizeBytes: 100,
+          url: 'expired',
+          urlExpiresAt: new Date(Date.now() - 1).toISOString(),
+        },
+      ],
+    };
+    (service as any).recentMessages.set(
+      `${customerId}:${input.clientMessageId}`,
+      { raw, message: stale, expiresAt: Date.now() - 1 },
+    );
+    conv.status = 'READ_ONLY';
+    vi.spyOn(authority, 'media').mockResolvedValue({
+      url: 'fresh',
+      urlExpiresAt: new Date(Date.now() + 300000).toISOString(),
+    } as any);
+    const result = await service.send(customerId, input);
+    expect(result.duplicate).toBe(true);
+    expect(result.message.attachments[0].url).toBe('fresh');
+    expect(db.$queryRaw).not.toHaveBeenCalled();
   });
 
   it('Scenario 5: Conflict error thrown when same clientMessageId has different payload', async () => {

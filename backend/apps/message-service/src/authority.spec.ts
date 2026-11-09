@@ -130,7 +130,7 @@ describe('session active verification resilience', () => {
     auth: 'http://auth',
     media: 'http://media',
   };
-  it('caches active session and gracefully preserves connectivity on transient upstream timeout', async () => {
+  it('uses fresh session cache but rejects repeated upstream failures after expiration', async () => {
     let callCount = 0;
     const request = vi.fn(async () => {
       callCount++;
@@ -161,10 +161,14 @@ describe('session active verification resilience', () => {
     const entry = client.activeCache.get(`${accountId}:${userId}:${sid}`);
     if (entry) entry.expiresAt = Date.now() - 1;
 
-    // 4. Cache expired, network call fails with timeout -> gracefully falls back to true!
-    const third = await client.active(accountId, userId, sid);
-    expect(third).toBe(true);
-    expect(callCount).toBe(2);
+    // Expired evidence must never be extended by an unavailable upstream.
+    await expect(client.active(accountId, userId, sid)).rejects.toThrow(
+      'ELIGIBILITY_UNAVAILABLE',
+    );
+    await expect(client.active(accountId, userId, sid)).rejects.toThrow(
+      'ELIGIBILITY_UNAVAILABLE',
+    );
+    expect(callCount).toBe(3);
   });
 
   it('immediately returns false when auth service explicitly indicates revoked session', async () => {
