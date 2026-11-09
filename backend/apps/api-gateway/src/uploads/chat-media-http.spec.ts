@@ -15,6 +15,7 @@ import { GatewayAuthMiddleware } from '../auth/gateway-auth.middleware.js';
 import { ProxyMiddleware } from '../proxy/index.js';
 import { RateLimitMiddleware } from '../rate-limit/index.js';
 import { ChatMediaController } from './chat-media.controller.js';
+import { FallbackController } from '../fallback/index.js';
 const verifier = {
   verifyAccessToken: vi.fn().mockRejectedValue(new Error('no JWT')),
 };
@@ -26,6 +27,18 @@ const pass = {
 };
 @Module({
   controllers: [ChatMediaController],
+  providers: [
+    { provide: CloudinaryService, useValue: media },
+    { provide: ConfigService, useValue: { internalServiceSecret: 'unit-secret' } },
+  ],
+})
+class ImportedMediaModule {}
+@Module({
+  imports: [ImportedMediaModule],
+  controllers: Reflect.getMetadata('controllers', ApiGatewayModule).filter(
+    (controller: unknown) =>
+      controller === ChatMediaController || controller === FallbackController,
+  ),
   providers: [
     GatewayAuthMiddleware,
     {
