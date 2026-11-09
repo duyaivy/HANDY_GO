@@ -33,12 +33,20 @@ export type WorkerBidModalProps = {
 const MAX_REVISIONS = 5;
 const COOLDOWN_MS = 120000; // 2 minutes cooldown per Contract Section 4.2
 
-export function WorkerBidModal({
+export function WorkerBidModal(props: WorkerBidModalProps) {
+  const bidQuery = useMyBidForRequest(props.request?.id || '', props.visible);
+  const bid = bidQuery.data;
+  const formKey = JSON.stringify([props.request?.id, props.visible, bid?.id, bid?.status, bid?.amount, bid?.message]);
+  return <WorkerBidModalForm key={formKey} {...props} bidQuery={bidQuery} />;
+}
+
+function WorkerBidModalForm({
   onClose,
   onSuccess,
   request,
   visible,
-}: WorkerBidModalProps) {
+  bidQuery,
+}: WorkerBidModalProps & { bidQuery: ReturnType<typeof useMyBidForRequest> }) {
   const requestId = request?.id || '';
 
   const { data: roundStatus, isLoading: isLoadingStatus, isError: isStatusError } = useRoundStatus(
@@ -50,31 +58,14 @@ export function WorkerBidModal({
   const reviseBidMutation = useReviseBid(requestId);
   const withdrawBidMutation = useWithdrawBid(requestId);
 
-  const [amountStr, setAmountStr] = React.useState('');
-  const [message, setMessage] = React.useState('');
-  const [withdrawReason, setWithdrawReason] = React.useState('');
-
-  const bidQuery = useMyBidForRequest(requestId, visible);
   const effectiveBid = bidQuery.data;
+  const [amountStr, setAmountStr] = React.useState(() => effectiveBid?.status === 'active' ? String(effectiveBid.amount) : '');
+  const [message, setMessage] = React.useState(() => effectiveBid?.status === 'active' ? effectiveBid.message || '' : '');
+
   const deadline = roundStatus?.closesAt ?? request?.biddingClosesAt;
   const { now } = useDeadlineClock(visible ? [deadline] : []);
   const bidUnavailable = bidQuery.isPending || bidQuery.isError;
   const terminalBid = Boolean(effectiveBid && effectiveBid.status !== 'active');
-
-  // Initialize or reset form fields when modal opens or effectiveBid changes
-  React.useEffect(() => {
-    if (visible) {
-      if (effectiveBid && effectiveBid.status === 'active') {
-        setAmountStr(String(effectiveBid.amount));
-        setMessage(effectiveBid.message || '');
-      }
-      else {
-        setAmountStr('');
-        setMessage('');
-      }
-      setWithdrawReason('');
-    }
-  }, [visible, effectiveBid]);
 
   const isRoundOpen = roundStatus?.status === 'open' && !roundStatus?.isExpired && !isStatusError && isBeforeDeadline(deadline, now);
   const canEdit = isRoundOpen && !bidUnavailable && !terminalBid;
@@ -92,29 +83,18 @@ export function WorkerBidModal({
     return effectiveBid.submittedAt ? new Date(effectiveBid.submittedAt).getTime() : null;
   }, [effectiveBid]);
 
-  const [cooldownRemainingSec, setCooldownRemainingSec] = React.useState(0);
+  const [cooldownNow, setCooldownNow] = React.useState(() => Date.now());
+  const cooldownEnabled = visible && lastUpdateTimestamp !== null && process.env.NODE_ENV !== 'test';
+  const cooldownRemainingSec = cooldownEnabled
+    ? Math.max(0, Math.ceil((lastUpdateTimestamp + COOLDOWN_MS - cooldownNow) / 1000))
+    : 0;
 
   React.useEffect(() => {
-    if (!visible || !lastUpdateTimestamp || process.env.NODE_ENV === 'test') {
-      setCooldownRemainingSec(0);
+    if (!cooldownEnabled)
       return;
-    }
-
-    const checkCooldown = () => {
-      const elapsed = Date.now() - lastUpdateTimestamp;
-      const remainingMs = COOLDOWN_MS - elapsed;
-      if (remainingMs > 0) {
-        setCooldownRemainingSec(Math.ceil(remainingMs / 1000));
-      }
-      else {
-        setCooldownRemainingSec(0);
-      }
-    };
-
-    checkCooldown();
-    const interval = setInterval(checkCooldown, 1000);
+    const interval = setInterval(() => setCooldownNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [visible, lastUpdateTimestamp]);
+  }, [cooldownEnabled]);
 
   const isCooldownActive = cooldownRemainingSec > 0;
   const canRevise = Boolean(effectiveBid && effectiveBid.status === 'active' && revisionsLeft > 0 && !isCooldownActive);
@@ -212,7 +192,6 @@ export function WorkerBidModal({
                 bidId: effectiveBid.id,
                 payload: {
                   version: effectiveBid.version,
-                  reason: withdrawReason.trim() || undefined,
                 },
               });
               Alert.alert('Thành công', 'Báo giá đã được rút thành công');

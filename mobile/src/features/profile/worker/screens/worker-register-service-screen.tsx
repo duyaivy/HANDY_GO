@@ -50,48 +50,59 @@ type Step = 1 | 2 | 3 | 4;
 
 const RADIUS_OPTIONS = [5, 10, 15, 20] as const;
 
+type RegistrationRouteParams = { editRegistrationId?: string; registrationData?: string };
+
 export function WorkerRegisterServiceScreen() {
+  const params = useLocalSearchParams<RegistrationRouteParams>();
+  const initial = React.useMemo(() => {
+    if (!params.registrationData)
+      return undefined;
+    try {
+      return JSON.parse(params.registrationData) as WorkerServiceRegistrationItem;
+    }
+    catch (error) {
+      console.warn('[WORKER REGISTER] Lỗi parse registrationData:', error);
+      return undefined;
+    }
+  }, [params.registrationData]);
+  return <WorkerRegistrationForm key={`${params.editRegistrationId || ''}:${params.registrationData || ''}`} params={params} initial={initial} />;
+}
+
+function WorkerRegistrationForm({ params, initial }: { params: RegistrationRouteParams; initial?: WorkerServiceRegistrationItem }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const params = useLocalSearchParams<{
-    editRegistrationId?: string;
-    registrationData?: string;
-  }>();
-
+  const service = initial?.services?.[0];
+  const initialCoords = initial?.serviceArea?.latitude != null && initial.serviceArea.longitude != null
+    ? { latitude: initial.serviceArea.latitude, longitude: initial.serviceArea.longitude }
+    : { latitude: DEFAULT_DEVICE_COORDINATES.latitude, longitude: DEFAULT_DEVICE_COORDINATES.longitude };
   const isEditing = Boolean(params.editRegistrationId);
 
   // Wizard Step State (1 -> 2 -> 3 -> 4)
-  const [currentStep, setCurrentStep] = React.useState<Step>(1);
+  const [currentStep, setCurrentStep] = React.useState<Step>(initial ? 3 : 1);
 
   // Search queries
   const [categorySearchQuery, setCategorySearchQuery] = React.useState('');
   const [serviceSearchQuery, setServiceSearchQuery] = React.useState('');
 
   // Selected Category & Service
-  const [selectedCategoryId, setSelectedCategoryId] = React.useState<string>('');
-  const [selectedServiceId, setSelectedServiceId] = React.useState<string>('');
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState<string>(initial?.categoryIds?.[0] || '');
+  const [selectedServiceId, setSelectedServiceId] = React.useState<string>(service?.serviceId || '');
 
   // Service Details (Step 3)
-  const [serviceTitle, setServiceTitle] = React.useState('');
-  const [experienceYears, setExperienceYears] = React.useState('3');
-  const [description, setDescription] = React.useState('');
+  const [serviceTitle, setServiceTitle] = React.useState(service?.title || '');
+  const [experienceYears, setExperienceYears] = React.useState(String(service?.experienceYears ?? 3));
+  const [description, setDescription] = React.useState(service?.description || '');
 
   // Service Area & GPS Coordinates (Step 3)
-  const [workAddress, setWorkAddress] = React.useState(DEFAULT_DEVICE_COORDINATES.addressText);
-  const [workCoords, setWorkCoords] = React.useState<{ latitude: number; longitude: number }>({
-    latitude: DEFAULT_DEVICE_COORDINATES.latitude,
-    longitude: DEFAULT_DEVICE_COORDINATES.longitude,
-  });
-  const [radiusKm, setRadiusKm] = React.useState<number>(10);
+  const [workAddress, setWorkAddress] = React.useState(initial?.serviceArea?.address || DEFAULT_DEVICE_COORDINATES.addressText);
+  const [workCoords, setWorkCoords] = React.useState<{ latitude: number; longitude: number }>(initialCoords);
+  const [radiusKm, setRadiusKm] = React.useState<number>(initial?.serviceArea?.radiusKm || 10);
   const [isLocating, setIsLocating] = React.useState(false);
 
   // Map Picker Modal State
   const [isMapModalVisible, setIsMapModalVisible] = React.useState(false);
-  const [mapCoords, setMapCoords] = React.useState<HandyCoordinates>({
-    latitude: DEFAULT_DEVICE_COORDINATES.latitude,
-    longitude: DEFAULT_DEVICE_COORDINATES.longitude,
-  });
-  const [mapAddress, setMapAddress] = React.useState(DEFAULT_DEVICE_COORDINATES.addressText);
+  const [mapCoords, setMapCoords] = React.useState<HandyCoordinates>(initialCoords);
+  const [mapAddress, setMapAddress] = React.useState(initial?.serviceArea?.address || DEFAULT_DEVICE_COORDINATES.addressText);
   const [isReverseGeocoding, setIsReverseGeocoding] = React.useState(false);
   const mapDebounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasAutoFetchedLocationRef = React.useRef(false);
@@ -188,66 +199,10 @@ export function WorkerRegisterServiceScreen() {
   };
 
   // Evidence Files & URLs (Step 4)
-  const [evidenceList, setEvidenceList] = React.useState<UploadedEvidenceItem[]>([]);
+  const [evidenceList, setEvidenceList] = React.useState<UploadedEvidenceItem[]>(() => initial?.evidenceFiles?.map((evidence, index) => ({ ...evidence, id: `ev-${index}` })) || []);
   const [manualEvidenceUrl, setManualEvidenceUrl] = React.useState('');
   const [isUploadingFile, setIsUploadingFile] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-
-  // Pre-fill form when editing an existing registration
-  React.useEffect(() => {
-    if (params.registrationData) {
-      try {
-        const data = JSON.parse(params.registrationData) as WorkerServiceRegistrationItem;
-        if (data.categoryIds?.[0]) {
-          setSelectedCategoryId(data.categoryIds[0]);
-        }
-        const svc = data.services?.[0];
-        if (svc) {
-          if (svc.serviceId) {
-            setSelectedServiceId(svc.serviceId);
-          }
-          if (svc.title) {
-            setServiceTitle(svc.title);
-          }
-          if (svc.experienceYears !== undefined) {
-            setExperienceYears(String(svc.experienceYears));
-          }
-          if (svc.description) {
-            setDescription(svc.description);
-          }
-        }
-        if (data.serviceArea?.address) {
-          setWorkAddress(data.serviceArea.address);
-        }
-        if (data.serviceArea?.latitude && data.serviceArea?.longitude) {
-          const nextCoords = {
-            latitude: data.serviceArea.latitude,
-            longitude: data.serviceArea.longitude,
-          };
-          setWorkCoords(nextCoords);
-          setMapCoords(nextCoords);
-        }
-        if (data.serviceArea?.radiusKm) {
-          setRadiusKm(data.serviceArea.radiusKm);
-        }
-        if (data.evidenceFiles && data.evidenceFiles.length > 0) {
-          setEvidenceList(
-            data.evidenceFiles.map((ev, idx) => ({
-              id: `ev-${idx}-${Date.now()}`,
-              url: ev.url,
-              fileType: ev.fileType,
-              name: ev.name,
-            })),
-          );
-        }
-        // Khi chỉnh sửa, đưa người thợ thẳng đến Bước 3 để tiện xem lại và chỉnh sửa
-        setCurrentStep(3);
-      }
-      catch (e) {
-        console.warn('[WORKER REGISTER] Lỗi parse registrationData:', e);
-      }
-    }
-  }, [params.registrationData]);
 
   // Back handling across steps
   const handleBack = React.useCallback(() => {

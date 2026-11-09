@@ -85,8 +85,8 @@ export function WorkerHomeScreen() {
     }, [isAuthenticated, user, refetch, refetchMyBids, refreshClock]),
   );
 
-  // Auto-open bidding modal when navigated with ?requestId=... (e.g. from matching notification)
-  React.useEffect(() => {
+  // Handle notification navigation while this screen is focused.
+  useFocusEffect(React.useCallback(() => {
     if (!requestId || !isAuthenticated || !user) {
       return;
     }
@@ -130,7 +130,7 @@ export function WorkerHomeScreen() {
     return () => {
       isCancelled = true;
     };
-  }, [requestId, isAuthenticated, user, jobs]);
+  }, [requestId, isAuthenticated, user, jobs]));
 
   if (!isAuthenticated || !user) {
     return <WorkerGuestOverview />;

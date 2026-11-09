@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ChatMediaCard } from '../chat-media-card';
 
 const attachment = { id: 'image', mediaType: 'IMAGE' as const, url: 'https://example.com/expired.jpg', width: 1200, height: 800 };
@@ -21,4 +21,19 @@ it('shows an explicit retry action when the private image cannot be resolved', a
   fireEvent.press(await screen.findByLabelText('Tải lại ảnh'));
   await waitFor(() => expect(screen.getByTestId('chat-media-image-image').props.source).toEqual(expect.arrayContaining([expect.objectContaining({ uri: 'https://example.com/retry.jpg' })])));
   expect(refresh).toHaveBeenCalledTimes(2);
+});
+
+it('does not let an old URL refresh replace a newly selected attachment', async () => {
+  let resolveRefresh!: (url: string) => void;
+  const refresh = jest.fn(() => new Promise<string>((resolve) => {
+    resolveRefresh = resolve;
+  }));
+  const view = render(<ChatMediaCard attachment={attachment} onOpen={jest.fn()} onRefresh={refresh} />);
+  fireEvent(screen.getByTestId('chat-media-image-image'), 'error', { nativeEvent: { error: '403' } });
+  const nextAttachment = { ...attachment, id: 'next-image', url: 'https://example.com/next.jpg' };
+  view.rerender(<ChatMediaCard attachment={nextAttachment} onOpen={jest.fn()} onRefresh={refresh} />);
+  await act(async () => {
+    resolveRefresh('https://example.com/old-refreshed.jpg');
+  });
+  expect(screen.getByTestId('chat-media-image-next-image').props.source).toEqual(expect.arrayContaining([expect.objectContaining({ uri: nextAttachment.url })]));
 });

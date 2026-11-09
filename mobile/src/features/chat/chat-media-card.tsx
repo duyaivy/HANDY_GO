@@ -5,12 +5,18 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { PlayIcon, RetryIcon } from '@/components/ui/icons/handy-icons';
 
-export function ChatMediaCard({ attachment, onOpen, onRefresh, footer }: {
+type ChatMediaCardProps = {
   attachment: Pick<ChatAttachment, 'id' | 'mediaType' | 'url' | 'width' | 'height'>;
   onOpen: () => void;
   onRefresh?: () => Promise<string>;
   footer?: ReactNode;
-}) {
+};
+
+export function ChatMediaCard(props: ChatMediaCardProps) {
+  return <ChatMediaCardContent key={`${props.attachment.id}:${props.attachment.url}`} {...props} />;
+}
+
+function ChatMediaCardContent({ attachment, onOpen, onRefresh, footer }: ChatMediaCardProps) {
   const { width } = useWindowDimensions();
   const [url, setUrl] = useState(attachment.url);
   const [failed, setFailed] = useState(false);
@@ -24,12 +30,6 @@ export function ChatMediaCard({ attachment, onOpen, onRefresh, footer }: {
       mounted.current = false;
     };
   }, []);
-  useEffect(() => {
-    setUrl(attachment.url);
-    setFailed(false);
-    setLoading(true);
-    attempted.current = false;
-  }, [attachment.url]);
   const refresh = async () => {
     if (!onRefresh || refreshing.current)
       return;

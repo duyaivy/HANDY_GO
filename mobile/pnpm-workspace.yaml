@@ -1,11 +1,10 @@
+shellEmulator: true
+
+trustPolicy: no-downgrade
+patchedDependencies:
+  react-native-compressor@1.19.4: patches/react-native-compressor@1.19.4.patch
+
 ignoredBuiltDependencies:
   - '@parcel/watcher'
   - esbuild
   - unrs-resolver
-
-patchedDependencies:
-  react-native-compressor@1.19.4: patches/react-native-compressor@1.19.4.patch
-
-shellEmulator: true
-
-trustPolicy: no-downgrade

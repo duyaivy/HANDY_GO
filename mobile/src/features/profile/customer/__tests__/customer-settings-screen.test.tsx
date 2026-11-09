@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';

@@ -11,7 +11,6 @@ Keep the existing atomic PostgreSQL persistence, session cache TTL and account-s
 - [x] Mobile: navigate by read permission; retry transient refresh failures with bounded backoff and cancel on logout/account switch; globally invalidate the active account's inbox on message/read events and reconnect.
 - [x] Run backend/mobile regression suites, type checks and relevant builds; inspect the final diff and record any verification limits.
 
-
 Verification:
 - Disposable PostgreSQL REST/Socket.IO: 13/13 passed (previously 3 failures).
 - Full backend suite: 1,575 passed, 135 skipped by existing integration configuration.

@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import IndexScreen from '@/app/index';
 import { cleanup, render, screen } from '@/lib/test-utils';
