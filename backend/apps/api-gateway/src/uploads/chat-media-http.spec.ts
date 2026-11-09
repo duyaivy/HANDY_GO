@@ -1,4 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+  process.env.AUTH_SERVICE_URL ??= 'http://localhost:3001';
+  process.env.USER_TRUST_SERVICE_URL ??= 'http://localhost:3002';
+  process.env.AI_SERVICE_URL ??= 'http://localhost:8000';
+  process.env.CATALOG_SERVICE_URL ??= 'http://localhost:3003';
+  process.env.ORDER_SERVICE_URL ??= 'http://localhost:3004';
+  process.env.BIDDING_SERVICE_URL ??= 'http://localhost:3005';
+  process.env.MATCHING_SERVICE_URL ??= 'http://localhost:3006';
+  process.env.PAYMENT_SERVICE_URL ??= 'http://localhost:3007';
+  process.env.WALLET_SERVICE_URL ??= 'http://localhost:3008';
+  process.env.TRACKING_SERVICE_URL ??= 'http://localhost:3009';
+  process.env.NOTIFICATION_SERVICE_URL ??= 'http://localhost:3010';
+  process.env.CLOUDINARY_CLOUD_NAME ??= 'mock_cloud';
+  process.env.CLOUDINARY_API_KEY ??= 'mock_key';
+  process.env.CLOUDINARY_API_SECRET ??= 'mock_secret';
+});
+
 import { Test } from '@nestjs/testing';
 import {
   Module,
