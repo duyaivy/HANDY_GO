@@ -343,7 +343,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
     const accountRolesWithPermissions = [
       {
         role: {
-          name: 'Customer',
+          code: 'CUSTOMER', name: 'Customer',
           permissionRoles: [
             { permission: { code: 'auth:me' } },
             { permission: { code: 'profile:read' } },
@@ -353,7 +353,7 @@ describe('Unified Account Full Lifecycle Flow (Customer & Worker in Single Accou
       },
       {
         role: {
-          name: 'Worker',
+          code: 'WORKER', name: 'Worker',
           permissionRoles: [
             { permission: { code: 'auth:me' } },
             { permission: { code: 'profile:read' } },

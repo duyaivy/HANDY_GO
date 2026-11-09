@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/auth-client';
 import { AuthPrismaService } from '@app/database';
 import {
   REFRESH_TOKEN_EXPIRATION_DAYS,
+  Role,
   TokenSignerService,
   TokenVerifierService,
 } from '@app/auth';
@@ -101,7 +102,9 @@ export class SessionService {
     roleNames: string[];
     permissions: string[];
   } {
-    const roleNames = account.roles.map((r) => r.role.name);
+    const roleNames = [...new Set(account.roles.map(({ role }) =>
+      Object.values(Role).find((name) => name.toUpperCase() === role.code.toUpperCase()) ?? role.code,
+    ))];
     const permissions = Array.from(
       new Set(
         account.roles.flatMap((r) =>
@@ -315,7 +318,7 @@ export class SessionService {
     // Verify user status in User & Trust
     await this.userTrustClient.confirmUserStatus(
       account.userId,
-      account.roles.map(({ role }) => role.name),
+      this.extractRolesAndPermissions(account).roleNames,
     );
 
     // Rotate refresh token: prepare new credentials
