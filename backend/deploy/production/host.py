@@ -343,22 +343,89 @@ class Host:
                 'classification': classification, 'accepted_at': self._now()}
 
     def _transaction_evidence(self):
+        def invalid():
+            raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
+
+        def section(record, key):
+            evidence = record.get('container_evidence')
+            if evidence is None:
+                evidence = {}
+            if (not isinstance(evidence, dict) or type(evidence.get('version', 1)) is not int
+                    or evidence.get('version', 1) != 1):
+                invalid()
+            selected = evidence.get(key)
+            if selected is None or selected == {}:
+                reason = 'MISSING_RESTORED_EVIDENCE' if key == 'restored' else 'MISSING_ACCEPTED_EVIDENCE'
+                raise RuntimeError(f'VERIFY_FAILED: reason: {reason}')
+            if not isinstance(selected, dict):
+                invalid()
+            return selected
+
         pending = read(ROOT / 'pending.json')
-        if isinstance(pending, dict):
+        if (ROOT / 'pending.json').exists():
+            if (not isinstance(pending, dict)
+                    or any(not isinstance(pending.get(key), str) or not re.fullmatch(RELEASE_ID, pending[key])
+                           for key in ('transaction', 'target'))
+                    or type(pending.get('touched')) is not bool):
+                invalid()
+            phase = pending.get('phase', 'APPLYING' if pending['touched'] else 'SNAPSHOT')
+            if (phase not in ('SNAPSHOT', 'APPLYING', 'VERIFIED', 'COMMITTED', 'RESTORED', 'BOOTSTRAP_FAILED')
+                    or (phase == 'SNAPSHOT') != (not pending['touched'])):
+                invalid()
             evidence = pending.get('container_evidence')
-            if pending.get('target') == self.release_id and evidence:
-                return evidence.get('accepted', {})
-            previous = pending.get('previous') or {}
-            if previous.get('release_id') == self.release_id and evidence:
-                return evidence.get('restored', {})
+            if 'container_evidence' in pending and (not isinstance(evidence, dict)
+                    or type(evidence.get('version', 1)) is not int or evidence.get('version', 1) != 1):
+                invalid()
+            previous = pending.get('previous')
+            if ('previous' not in pending or previous is not None and (
+                    not isinstance(previous, dict) or not isinstance(previous.get('release_id'), str)
+                    or not re.fullmatch(RELEASE_ID, previous['release_id']))):
+                invalid()
+            previous = previous or {}
+            if pending['target'] == self.release_id:
+                if phase not in ('APPLYING', 'VERIFIED', 'COMMITTED') or pending.get('recovery_decision') == 'RESTORE_PREVIOUS':
+                    invalid()
+                return section(pending, 'accepted')
+            if previous.get('release_id') == self.release_id:
+                if phase == 'RESTORED':
+                    if pending.get('recovery_decision', 'RESTORE_PREVIOUS') != 'RESTORE_PREVIOUS':
+                        invalid()
+                    return section(pending, 'restored')
+                # Only a pristine snapshot may consult the stable release receipt.
+                # In-progress/failed restores must never reuse pre-restore acceptance.
+                if (phase != 'SNAPSHOT' or pending.get('recovery_decision') == 'RESTORE_PREVIOUS'
+                        or pending.get('recovery_attempt')
+                        or pending.get('recovery_from_phase')
+                        or any((evidence or {}).get(key) for key in
+                               ('accepted', 'restored', 'transitions', 'stop_requested_at'))):
+                    invalid()
         receipt = read(ROOT / 'transactions' / (self.release_id + '.json'))
-        if isinstance(receipt, dict):
-            evidence = receipt.get('container_evidence') or {}
-            return evidence.get('accepted', {})
-        raise RuntimeError('Container verification baseline missing; preserve transaction and reconcile')
+        if receipt is None and not (ROOT / 'transactions' / (self.release_id + '.json')).exists():
+            raise RuntimeError('VERIFY_FAILED: reason: MISSING_ACCEPTED_EVIDENCE')
+        if (not isinstance(receipt, dict) or receipt.get('target') != self.release_id
+                or receipt.get('transaction', self.release_id) != self.release_id
+                or receipt.get('phase', 'COMMITTED') != 'COMMITTED'):
+            invalid()
+        return section(receipt, 'accepted')
 
     def _verify_bound_container(self, name, container, expected_id):
-        accepted = self._transaction_evidence().get(name)
+        def fail(reason):
+            raise RuntimeError(f'Container changed, restarted or became unhealthy after rollout: {name}; '
+                               f'VERIFY_FAILED: {name}; reason: {reason}')
+
+        try:
+            accepted = self._transaction_evidence().get(name)
+        except RuntimeError as error:
+            raise RuntimeError(f'VERIFY_FAILED: {name}; {error}') from None
+        if (not isinstance(accepted, dict)
+                or not isinstance(accepted.get('id'), str) or not accepted['id']
+                or not isinstance(accepted.get('image'), str) or not accepted['image']
+                or type(accepted.get('restart_count')) is not int
+                or accepted['restart_count'] < 0
+                or accepted.get('running') is not True or accepted.get('oom_killed') is not False
+                or accepted.get('health') != 'healthy'
+                or not self._created_after(accepted.get('started_at'), accepted.get('started_at'))):
+            fail('INVALID_LIFECYCLE_EVIDENCE')
         current = self._container_snapshot(name)
         classification = accepted.get('classification') if accepted else None
         lifecycle_matches = bool(accepted and (
@@ -368,14 +435,19 @@ class Host:
             and accepted.get('baseline_started_at') == accepted.get('started_at')
             or classification in ('unchanged', 'created_by_release')
             and accepted.get('restart_count') == 0))
-        if (not lifecycle_matches or not current or not current['id'].startswith(container)
-                or current['id'] != accepted.get('id') or current['image'] != expected_id
-                or current['image'] != accepted.get('image')
-                or current['restart_count'] != accepted.get('restart_count')
-                or current['started_at'] != accepted.get('started_at')
-                or not current.get('running') or current.get('oom_killed')
-                or current.get('health') != 'healthy'):
-            raise RuntimeError(f'Container changed, restarted or became unhealthy after rollout: {name}')
+        if not lifecycle_matches:
+            fail('INVALID_LIFECYCLE_EVIDENCE')
+        if (not current or not isinstance(current.get('id'), str)
+                or not current['id'].startswith(container) or current['id'] != accepted['id']):
+            fail('CONTAINER_ID_MISMATCH')
+        if current.get('image') != expected_id or current['image'] != accepted['image']:
+            fail('IMAGE_MISMATCH')
+        if type(current.get('restart_count')) is not int or current['restart_count'] != accepted['restart_count']:
+            fail('RESTART_COUNT_MISMATCH')
+        if current.get('started_at') != accepted['started_at']:
+            fail('STARTED_AT_MISMATCH')
+        if not current.get('running') or current.get('oom_killed') or current.get('health') != 'healthy':
+            fail('UNHEALTHY')
 
     def begin(self, transaction):
         if (ROOT / 'pending.json').exists():
@@ -597,12 +669,12 @@ class Host:
                 raise RuntimeError(f'Missing or duplicate container: {name}')
             data = json.loads(run(['docker', 'inspect', '--format', '{{json .State}}', container]))
             if not data.get('Running') or data.get('OOMKilled') or data.get('Health', {}).get('Status') != 'healthy':
-                raise RuntimeError(f'Container not healthy: {name}')
+                raise RuntimeError(f'Container not healthy: {name}; VERIFY_FAILED: {name}; reason: UNHEALTHY')
             expected_image = self.manifest['nginx_image' if name == 'nginx' else 'app_image']
             expected_id = run(['docker', 'image', 'inspect', '--format', '{{.Id}}', expected_image])
             actual_id = run(['docker', 'inspect', '--format', '{{.Image}}', container])
             if actual_id != expected_id:
-                raise RuntimeError(f'Image mismatch: {name}')
+                raise RuntimeError(f'Image mismatch: {name}; VERIFY_FAILED: {name}; reason: IMAGE_MISMATCH')
             restarts = int(run(['docker', 'inspect', '--format', '{{.RestartCount}}', container]))
             if self.manifest.get('container_verification_version') == 1:
                 self._verify_bound_container(name, container, expected_id)
