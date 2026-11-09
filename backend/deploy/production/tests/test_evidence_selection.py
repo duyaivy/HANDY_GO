@@ -43,7 +43,8 @@ class EvidenceSelectionTests(unittest.TestCase):
                             'baseline': {'catalog-service': copy.deepcopy(self.accepted)}}}
         (self.root / 'transactions').mkdir()
         self.receipt = self.root / 'transactions' / (STABLE + '.json')
-        host.write(self.receipt, {'transaction': STABLE, 'target': STABLE,
+        host.write(self.receipt, {'schema_version': 2, 'transaction': STABLE, 'target': STABLE,
+                                'previous': None, 'verification': 'CLUSTER_VERIFIED',
                                 'phase': 'COMMITTED', 'touched': True,
                                 'container_evidence': self.evidence, 'unlock': 'VERIFIED_FINISH'})
         self.save_pending()
@@ -165,8 +166,9 @@ class EvidenceSelectionTests(unittest.TestCase):
                         {'running': False}, {'oom_killed': True}):
             with self.subTest(changes=changes):
                 record = {**self.accepted, **changes}
-                host.write(self.receipt, {'target': STABLE, 'container_evidence': {
-                    'version': 1, 'accepted': {'catalog-service': record}}})
+                receipt = host.read(self.receipt)
+                receipt['container_evidence'] = {'version': 1, 'accepted': {'catalog-service': record}}
+                host.write(self.receipt, receipt)
                 before = self.receipt.read_bytes()
                 with self.assertRaisesRegex(RuntimeError, 'INVALID_LIFECYCLE_EVIDENCE'):
                     self.verify()

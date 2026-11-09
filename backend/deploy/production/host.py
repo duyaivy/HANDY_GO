@@ -87,7 +87,7 @@ def write(path, data):
 
 
 def state_token():
-    state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending', 'fence')}
+    state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending', 'fence', 'container-evidence')}
     return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -342,6 +342,103 @@ class Host:
                 'baseline_started_at': before.get('started_at') if before else None,
                 'classification': classification, 'accepted_at': self._now()}
 
+    @staticmethod
+    def _valid_lifecycle_record(accepted):
+        if (not isinstance(accepted, dict)
+                or not isinstance(accepted.get('id'), str) or not re.fullmatch(r'[a-f0-9]{64}', accepted['id'])
+                or not isinstance(accepted.get('image'), str) or not accepted['image']
+                or type(accepted.get('restart_count')) is not int or accepted['restart_count'] < 0
+                or accepted.get('running') is not True or accepted.get('oom_killed') is not False
+                or accepted.get('health') != 'healthy'
+                or not Host._created_after(accepted.get('started_at'), accepted.get('started_at'))):
+            return False
+        return (accepted.get('classification') in ('unchanged', 'created_by_release')
+                and accepted['restart_count'] == 0 or
+                accepted.get('classification') == 'historical_restart'
+                and accepted['restart_count'] > 0
+                and type(accepted.get('baseline_restart_count')) is int
+                and accepted['baseline_restart_count'] == accepted['restart_count']
+                and accepted.get('baseline_started_at') == accepted['started_at'])
+
+    def _receipt_evidence(self, receipt, transaction, section):
+        """Only complete, authorized finishes can supply durable acceptance."""
+        def invalid():
+            raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
+
+        if (not isinstance(receipt, dict)
+                or ('schema_version' in receipt and (type(receipt['schema_version']) is not int
+                                                     or receipt['schema_version'] not in (2, 3)))
+                or receipt.get('transaction') != transaction
+                or not isinstance(receipt.get('target'), str) or not re.fullmatch(RELEASE_ID, receipt['target'])
+                or receipt.get('touched') is not True or receipt.get('verification') != 'CLUSTER_VERIFIED'
+                or receipt.get('unlock') != 'VERIFIED_FINISH'
+                or receipt.get('release_accepted') is False):
+            invalid()
+        previous = receipt.get('previous')
+        if ('previous' not in receipt or previous is not None and (
+                not isinstance(previous, dict) or not isinstance(previous.get('release_id'), str)
+                or not re.fullmatch(RELEASE_ID, previous['release_id']))):
+            invalid()
+        if receipt.get('schema_version') == 3 and receipt.get('evidence_role') != self.role:
+            invalid()
+        if section == 'accepted':
+            if (receipt['target'] != self.release_id or receipt.get('phase') != 'COMMITTED'
+                    or receipt.get('recovery_decision') == 'RESTORE_PREVIOUS'):
+                invalid()
+        elif section == 'restored':
+            if (receipt.get('phase') != 'RESTORED' or receipt.get('previous') != {'release_id': self.release_id}
+                    or receipt.get('recovery_decision') != 'RESTORE_PREVIOUS'
+                    or type(receipt.get('recovery_attempt')) is not int or receipt['recovery_attempt'] < 1
+                    or receipt.get('recovery_from_phase') not in ('APPLYING', 'VERIFIED', 'COMMITTED', 'RESTORED')):
+                invalid()
+        else:
+            invalid()
+        evidence = receipt.get('container_evidence')
+        if (not isinstance(evidence, dict) or type(evidence.get('version')) is not int
+                or evidence['version'] != 1 or not isinstance(evidence.get(section), dict)
+                or ('transitions' in evidence and (not isinstance(evidence['transitions'], dict)
+                                                  or evidence['transitions']))
+                or section == 'accepted' and evidence.get('restored')):
+            invalid()
+        selected = evidence[section]
+        if (not self.names or set(selected) != set(self.names)
+                or any(not self._valid_lifecycle_record(selected.get(name)) for name in self.names)):
+            invalid()
+        return selected
+
+    def _durable_evidence(self):
+        pointer_path = ROOT / 'container-evidence.json'
+        pointer = read(pointer_path)
+        transaction, section, expected_hash = self.release_id, 'accepted', None
+        if pointer_path.exists():
+            if (not isinstance(pointer, dict) or type(pointer.get('version')) is not int or pointer['version'] != 1
+                    or pointer.get('role') != self.role
+                    or any(not isinstance(pointer.get(key), str) or not re.fullmatch(RELEASE_ID, pointer[key])
+                           for key in ('release_id', 'transaction'))
+                    or pointer.get('section') not in ('accepted', 'restored')
+                    or not isinstance(pointer.get('receipt_sha256'), str)
+                    or not re.fullmatch(r'[a-f0-9]{64}', pointer['receipt_sha256'])):
+                raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
+            if pointer['release_id'] == self.release_id:
+                transaction, section, expected_hash = pointer['transaction'], pointer['section'], pointer['receipt_sha256']
+            elif read(ROOT / 'stable.json') == {'release_id': self.release_id}:
+                raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
+        path = ROOT / 'transactions' / (transaction + '.json')
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            raise RuntimeError('VERIFY_FAILED: reason: MISSING_ACCEPTED_EVIDENCE') from None
+        if expected_hash and hashlib.sha256(raw).hexdigest() != expected_hash:
+            raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
+        try:
+            receipt = json.loads(raw)
+        except (ValueError, UnicodeError):
+            raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE') from None
+        # New receipts require their published pointer; deleting it cannot revive old acceptance.
+        if isinstance(receipt, dict) and receipt.get('schema_version') == 3 and expected_hash is None:
+            raise RuntimeError('VERIFY_FAILED: reason: MISSING_ACCEPTED_EVIDENCE')
+        return self._receipt_evidence(receipt, transaction, section)
+
     def _transaction_evidence(self):
         def invalid():
             raise RuntimeError('VERIFY_FAILED: reason: INVALID_LIFECYCLE_EVIDENCE')
@@ -350,8 +447,8 @@ class Host:
             evidence = record.get('container_evidence')
             if evidence is None:
                 evidence = {}
-            if (not isinstance(evidence, dict) or type(evidence.get('version', 1)) is not int
-                    or evidence.get('version', 1) != 1):
+            if (not isinstance(evidence, dict) or type(evidence.get('version')) is not int
+                    or evidence['version'] != 1):
                 invalid()
             selected = evidence.get(key)
             if selected is None or selected == {}:
@@ -388,7 +485,7 @@ class Host:
                 return section(pending, 'accepted')
             if previous.get('release_id') == self.release_id:
                 if phase == 'RESTORED':
-                    if pending.get('recovery_decision', 'RESTORE_PREVIOUS') != 'RESTORE_PREVIOUS':
+                    if pending.get('recovery_decision') != 'RESTORE_PREVIOUS':
                         invalid()
                     return section(pending, 'restored')
                 # Only a pristine snapshot may consult the stable release receipt.
@@ -399,14 +496,7 @@ class Host:
                         or any((evidence or {}).get(key) for key in
                                ('accepted', 'restored', 'transitions', 'stop_requested_at'))):
                     invalid()
-        receipt = read(ROOT / 'transactions' / (self.release_id + '.json'))
-        if receipt is None and not (ROOT / 'transactions' / (self.release_id + '.json')).exists():
-            raise RuntimeError('VERIFY_FAILED: reason: MISSING_ACCEPTED_EVIDENCE')
-        if (not isinstance(receipt, dict) or receipt.get('target') != self.release_id
-                or receipt.get('transaction', self.release_id) != self.release_id
-                or receipt.get('phase', 'COMMITTED') != 'COMMITTED'):
-            invalid()
-        return section(receipt, 'accepted')
+        return self._durable_evidence()
 
     def _verify_bound_container(self, name, container, expected_id):
         def fail(reason):
@@ -417,26 +507,9 @@ class Host:
             accepted = self._transaction_evidence().get(name)
         except RuntimeError as error:
             raise RuntimeError(f'VERIFY_FAILED: {name}; {error}') from None
-        if (not isinstance(accepted, dict)
-                or not isinstance(accepted.get('id'), str) or not accepted['id']
-                or not isinstance(accepted.get('image'), str) or not accepted['image']
-                or type(accepted.get('restart_count')) is not int
-                or accepted['restart_count'] < 0
-                or accepted.get('running') is not True or accepted.get('oom_killed') is not False
-                or accepted.get('health') != 'healthy'
-                or not self._created_after(accepted.get('started_at'), accepted.get('started_at'))):
+        if not self._valid_lifecycle_record(accepted):
             fail('INVALID_LIFECYCLE_EVIDENCE')
         current = self._container_snapshot(name)
-        classification = accepted.get('classification') if accepted else None
-        lifecycle_matches = bool(accepted and (
-            classification == 'historical_restart'
-            and accepted.get('restart_count', 0) > 0
-            and accepted.get('baseline_restart_count') == accepted.get('restart_count')
-            and accepted.get('baseline_started_at') == accepted.get('started_at')
-            or classification in ('unchanged', 'created_by_release')
-            and accepted.get('restart_count') == 0))
-        if not lifecycle_matches:
-            fail('INVALID_LIFECYCLE_EVIDENCE')
         if (not current or not isinstance(current.get('id'), str)
                 or not current['id'].startswith(container) or current['id'] != accepted['id']):
             fail('CONTAINER_ID_MISMATCH')
@@ -888,7 +961,26 @@ class Host:
             Host(self.role, state['previous']['release_id']).validate_bundle()
         history = ROOT / 'transactions'
         history.mkdir(mode=0o700, exist_ok=True)
-        write(history / (transaction + '.json'), {**state, 'unlock': 'VERIFIED_FINISH'})
+        record = {**state, 'unlock': 'VERIFIED_FINISH'}
+        accepted_host = Host(self.role, expected['release_id']) if expected else None
+        publish = (state['phase'] in ('COMMITTED', 'RESTORED') and accepted_host
+                   and accepted_host.manifest.get('container_verification_version') == 1)
+        if publish:
+            record.update(schema_version=3, evidence_role=self.role)
+            section = 'restored' if state['phase'] == 'RESTORED' else 'accepted'
+            accepted_host._receipt_evidence(record, transaction, section)
+        receipt = history / (transaction + '.json')
+        if receipt.exists():
+            if read(receipt) != record:
+                raise RuntimeError('Existing transaction receipt conflicts with finish; preserve immutable history')
+        else:
+            write(receipt, record)
+        if publish:
+            # Receipt -> pointer -> unlink. A crash always leaves recoverable pending state.
+            write(ROOT / 'container-evidence.json', {
+                'version': 1, 'role': self.role, 'release_id': expected['release_id'],
+                'transaction': transaction, 'section': section,
+                'receipt_sha256': hashlib.sha256(receipt.read_bytes()).hexdigest()})
         (ROOT / 'pending.json').unlink()
         sync_directory(ROOT)
         return {'unlocked': True}
