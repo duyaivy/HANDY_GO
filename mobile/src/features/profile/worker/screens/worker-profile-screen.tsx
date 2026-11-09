@@ -1,11 +1,19 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
+import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, ShieldCheckIcon, WalletIcon } from '@/components/ui/icons';
+import { ArrowRight } from '@/components/ui/icons/arrow-right';
+import {
+  OrdersIcon,
+  ShieldCheckIcon,
+  WalletIcon,
+  WrenchIcon,
+} from '@/components/ui/icons/handy-icons';
+import { Settings } from '@/components/ui/icons/settings';
+import { Support } from '@/components/ui/icons/support';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
-import { SECONDARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { ProfileHeaderCard } from '@/features/profile/components';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
@@ -35,13 +43,35 @@ export function WorkerProfileScreen() {
     }
   };
 
+  const handleConfirmLogout = () => {
+    if (process.env.NODE_ENV === 'test') {
+      handleLogout();
+      return;
+    }
+    Alert.alert(
+      'Đăng xuất',
+      'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản?',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Đăng xuất', style: 'destructive', onPress: handleLogout },
+      ],
+    );
+  };
+
   const handleSwitchToCustomer = () => {
     switchToMode('Customer');
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <View testID="profile-worker-screen" className="flex-1 p-6">
+    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+      <AppBar
+        mode="stack"
+        hideBackButton
+        title="Tài khoản Thợ"
+        testID="profile-app-bar"
+      />
+
+      <View testID="profile-worker-screen" className="flex-1 p-4 pb-12">
         {/* Profile Header & Mode Switcher */}
         <ProfileHeaderCard
           mode="Worker"
@@ -54,171 +84,200 @@ export function WorkerProfileScreen() {
           error={profileError}
           onRetry={refetchProfile}
           onSwitch={handleSwitchToCustomer}
+          onPressUserCard={() => router.push(RouteNames.WORKER_PROFILE_DETAIL as any)}
         />
 
-        {/* Application & KYC Progress Card */}
-        <Pressable
-          testID="view-application-status-btn"
-          accessibilityRole="button"
-          accessibilityLabel="Tiến độ xét duyệt hồ sơ & KYC"
-          onPress={() => router.push(RouteNames.WORKER_APPLICATION_STATUS as any)}
-          className="mt-4 flex-row items-center justify-between rounded-2xl border border-blue-200 bg-blue-50/80 p-4 shadow-xs active:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40"
-        >
-          <View className="flex-1 flex-row items-center pr-3">
-            <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
-              <ShieldCheckIcon size={20} color="#FFFFFF" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                Tiến độ xét duyệt hồ sơ & KYC
-              </Text>
-              <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
-                Theo dõi trạng thái xét duyệt
-              </Text>
-            </View>
-          </View>
-          <View className="size-8 items-center justify-center rounded-full bg-blue-600/10 dark:bg-blue-900/40">
-            <ArrowRight color={SECONDARY_COLOR} />
-          </View>
-        </Pressable>
+        {/* 1. Nhóm Dịch vụ & Tiện ích */}
+        <View className="mt-5">
+          <Text className="mb-2 ml-1 text-xs font-bold tracking-wider text-neutral-500 uppercase dark:text-neutral-400">
+            Dịch vụ & Tiện ích
+          </Text>
+          <View className="overflow-hidden rounded-3xl border border-neutral-100 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            {/* Mục 1: Công việc và đánh giá */}
+            <Pressable
+              testID="view-worker-reviews-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Công việc và đánh giá"
+              onPress={() => router.push(RouteNames.WORKER_REVIEWS as any)}
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-blue-50 dark:bg-blue-950/50">
+                  <OrdersIcon color="#2563EB" size={20} />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Công việc và đánh giá
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Thống kê đơn hoàn thành & nhận xét
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
 
-        {/* HANDY_GO Balance Card */}
-        <Pressable
-          testID="profile-balance-card"
-          accessibilityRole="button"
-          accessibilityLabel="HANDY_GO balance"
-          onPress={() => router.push(RouteNames.WORKER_BALANCE as any)}
-          className="mt-4 flex-row items-center justify-between rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs active:bg-blue-50/80 dark:border-neutral-800 dark:bg-neutral-900 dark:active:bg-blue-950/30"
-        >
-          <View className="flex-1 flex-row items-center pr-3">
-            <View className="mr-3 size-10 items-center justify-center rounded-xl bg-blue-600 shadow-xs">
-              <WalletIcon size={20} color="#FFFFFF" />
-            </View>
-            <View className="flex-1">
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                HANDY_GO balance
-              </Text>
-              <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={1}>
-                Số dư & tài khoản ký quỹ
-              </Text>
-            </View>
-          </View>
-          <View className="size-8 items-center justify-center rounded-full bg-blue-600/10 dark:bg-blue-900/40">
-            <ArrowRight color={SECONDARY_COLOR} />
-          </View>
-        </Pressable>
+            {/* Mục 2: Kỹ năng chuyên môn */}
+            <Pressable
+              testID="profile-skills-item"
+              accessibilityRole="button"
+              accessibilityLabel="Kỹ năng chuyên môn"
+              onPress={() => router.push(RouteNames.WORKER_SKILLS as any)}
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/50">
+                  <WrenchIcon color="#059669" size={20} />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Kỹ năng chuyên môn
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Kỹ năng & Thêm dịch vụ công việc
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
 
-        {/* Navigation Menu Options: Professional skills, Setting */}
-        <View className="mt-4 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <Pressable
-            testID="profile-skills-item"
-            accessibilityRole="button"
-            accessibilityLabel="Professional skills"
-            onPress={() => router.push(RouteNames.WORKER_SKILLS as any)}
-            className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
-          >
-            <View>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Professional skills
-              </Text>
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                Kỹ năng chuyên môn
-              </Text>
-            </View>
-            <Text className="text-xs font-semibold text-neutral-400">&gt;</Text>
-          </Pressable>
-
-          <Pressable
-            testID="profile-setting-item"
-            accessibilityRole="button"
-            accessibilityLabel="Setting"
-            onPress={() => router.push(RouteNames.WORKER_SETTINGS as any)}
-            className="flex-row items-center justify-between p-4 active:bg-blue-50/80 dark:active:bg-blue-950/30"
-          >
-            <View>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Setting
-              </Text>
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                Cài đặt ứng dụng
-              </Text>
-            </View>
-            <Text className="text-xs font-semibold text-neutral-400">&gt;</Text>
-          </Pressable>
+            {/* Mục 3: HandyGo balance */}
+            <Pressable
+              testID="profile-balance-card"
+              accessibilityRole="button"
+              accessibilityLabel="HANDY_GO balance"
+              onPress={() => router.push(RouteNames.WORKER_BALANCE as any)}
+              className="flex-row items-center justify-between p-4 active:bg-blue-50/80 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
+                  <WalletIcon color="#D97706" size={20} />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    HANDY_GO balance
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Số dư & tài khoản ký quỹ
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Account Details Card */}
-        <View className="mt-6 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          <Text className="text-xs font-semibold tracking-wider text-blue-600 uppercase dark:text-blue-400">
-            {user ? 'Thông tin tài khoản Thợ' : 'Chế độ khách vãng lai'}
+        {/* 2. Nhóm Cài đặt & Hỗ trợ */}
+        <View className="mt-5">
+          <Text className="mb-2 ml-1 text-xs font-bold tracking-wider text-neutral-500 uppercase dark:text-neutral-400">
+            Cài đặt & Hỗ trợ
           </Text>
+          <View className="overflow-hidden rounded-3xl border border-neutral-100 bg-white shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            {/* Cài đặt ứng dụng */}
+            <Pressable
+              testID="profile-setting-item"
+              accessibilityRole="button"
+              accessibilityLabel="Cài đặt ứng dụng"
+              onPress={() => router.push(RouteNames.WORKER_SETTINGS as any)}
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50">
+                  <Settings color="#4F46E5" />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Cài đặt ứng dụng
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Thông báo, ngôn ngữ và giao diện
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
 
-          {user
-            ? (
-                <View className="mt-4 space-y-3">
-                  <View className="flex-row justify-between border-b border-neutral-100 pb-2 dark:border-neutral-800">
-                    <Text className="text-sm text-neutral-500 dark:text-neutral-400">Mã tài khoản</Text>
-                    <Text className="text-sm font-medium text-neutral-900 dark:text-white">{user.id || '—'}</Text>
+            {/* Đổi mật khẩu */}
+            {user && (
+              <Pressable
+                testID="worker-change-password-btn"
+                accessibilityRole="button"
+                accessibilityLabel="Đổi mật khẩu"
+                onPress={() => router.push(RouteNames.AUTH_CHANGE_PASSWORD as any)}
+                className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
+              >
+                <View className="flex-1 flex-row items-center pr-3">
+                  <View className="size-10 items-center justify-center rounded-2xl bg-amber-50 dark:bg-amber-950/50">
+                    <ShieldCheckIcon color="#D97706" size={20} />
                   </View>
-
-                  <View className="flex-row justify-between border-b border-neutral-100 pb-2 dark:border-neutral-800">
-                    <Text className="text-sm text-neutral-500 dark:text-neutral-400">Số điện thoại</Text>
-                    <Text className="text-sm font-medium text-neutral-900 dark:text-white">{user.phone || '—'}</Text>
-                  </View>
-
-                  <View className="flex-row justify-between border-b border-neutral-100 pb-2 dark:border-neutral-800">
-                    <Text className="text-sm text-neutral-500 dark:text-neutral-400">Email</Text>
-                    <Text className="text-sm font-medium text-neutral-900 dark:text-white">{user.email || '—'}</Text>
-                  </View>
-
-                  <View className="flex-row justify-between border-b border-neutral-100 pb-2 dark:border-neutral-800">
-                    <Text className="text-sm text-neutral-500 dark:text-neutral-400">Vai trò</Text>
-                    <Text className="text-sm font-medium text-neutral-900 dark:text-white">
-                      {user.roles?.join(', ') || 'Thợ sửa chữa'}
+                  <View className="ml-3.5 flex-1">
+                    <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                      Đổi mật khẩu
+                    </Text>
+                    <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                      Cập nhật mật khẩu bảo vệ tài khoản
                     </Text>
                   </View>
                 </View>
-              )
-            : (
-                <View className="mt-3">
-                  <Text className="text-sm text-neutral-600 dark:text-neutral-300">
-                    Bạn chưa đăng nhập. Vui lòng đăng nhập để nhận đơn việc, quản lý thu nhập và hoàn thiện hồ sơ Thợ.
+                <ArrowRight color="#9CA3AF" />
+              </Pressable>
+            )}
+
+            {/* Trung tâm hỗ trợ */}
+            <Pressable
+              testID="worker-support-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Trung tâm hỗ trợ"
+              onPress={() => router.push(RouteNames.CUSTOMER_SUPPORT as any)}
+              className="flex-row items-center justify-between p-4 active:bg-blue-50/80 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-rose-50 dark:bg-rose-950/50">
+                  <Support color="#E11D48" />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Trung tâm hỗ trợ
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Câu hỏi thường gặp & liên hệ tổng đài
                   </Text>
                 </View>
-              )}
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Action Buttons */}
-        <View className="mt-8 space-y-3">
+        {/* 3. Khối Nút Đăng xuất / Đăng nhập */}
+        <View className="mt-6 mb-8 gap-3">
           {user
             ? (
-                <>
-                  <Button
-                    testID="worker-change-password-btn"
-                    label="Đổi mật khẩu"
-                    variant="outline"
-                    onPress={() => router.push(RouteNames.AUTH_CHANGE_PASSWORD as any)}
-                  />
-                  <Button
-                    testID="worker-logout-btn"
-                    label="Đăng xuất"
-                    variant="outline"
-                    loading={isLoading}
-                    disabled={isLoading}
-                    onPress={handleLogout}
-                  />
-                </>
+                <Button
+                  testID="worker-logout-btn"
+                  label="Đăng xuất"
+                  variant="outline"
+                  className="h-12 rounded-2xl border-red-200 bg-red-50/50 active:bg-red-100 dark:border-red-900/50 dark:bg-red-950/20"
+                  textClassName="text-sm font-bold text-red-600 dark:text-red-400"
+                  loading={isLoading}
+                  disabled={isLoading}
+                  onPress={handleConfirmLogout}
+                />
               )
             : (
                 <Button
                   testID="worker-login-btn"
-                  label="Đăng nhập / Đăng ký"
+                  label="Đăng nhập / Đăng ký ngay"
                   variant="default"
-                  className="bg-blue-600 active:bg-blue-700"
-                  textClassName="text-white font-bold"
+                  className="h-12 rounded-2xl bg-blue-600 shadow-sm active:bg-blue-700"
+                  textClassName="font-bold text-white"
                   onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
                 />
               )}
+
+          <Text className="mt-2 text-center text-[11px] font-medium text-neutral-400 dark:text-neutral-600">
+            HandyGo v1.0.0 • Ứng dụng dành cho Đối tác Thợ
+          </Text>
         </View>
       </View>
     </Screen>

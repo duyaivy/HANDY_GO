@@ -168,7 +168,7 @@ export class ServicesService {
       where: { id },
       include: {
         category: {
-          select: { id: true, name: true, imageUrl: true, parentId: true },
+          select: { id: true, name: true, imageUrl: true, parentId: true, isActive: true },
         },
       },
     });
