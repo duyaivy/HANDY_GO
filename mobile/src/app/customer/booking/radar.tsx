@@ -36,6 +36,7 @@ import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { getCancelErrorMessage } from '@/features/orders/utils/cancel-error-message';
+import { isValidCoordinate } from '@/services/location/coordinates';
 import { DeviceLocationService } from '@/services/location/device-location';
 import { MapboxService } from '@/services/map/mapbox-service';
 import { useBiddingEvents } from '@/services/sse/use-bidding-events';
@@ -124,7 +125,25 @@ export default function CustomerBookingRadarRoute() {
   const [resolvedRequestId, setResolvedRequestId] = React.useState<string | null>(
     searchParams?.requestId || createdRequestId || null,
   );
-  const [serverRequest, setServerRequest] = React.useState<any>(null);
+
+  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
+  const activeRequestIdRef = React.useRef(activeRequestId);
+  activeRequestIdRef.current = activeRequestId;
+
+  // PR62-04-P2: Ràng buộc serverRequestState theo requestId để tránh race condition
+  const [serverRequestState, setServerRequestState] = React.useState<{ requestId: string; data: any } | null>(null);
+  const serverRequest = (serverRequestState && serverRequestState.requestId === activeRequestId)
+    ? serverRequestState.data
+    : null;
+
+  // Tọa độ GPS phiên hiện tại do người dùng chủ động nhấn nút định vị
+  const [sessionGpsCoords, setSessionGpsCoords] = React.useState<{
+    requestId: string | null;
+    coords: { latitude: number; longitude: number; addressText?: string };
+  } | null>(null);
+  const activeGpsCoords = (sessionGpsCoords && sessionGpsCoords.requestId === activeRequestId)
+    ? sessionGpsCoords.coords
+    : null;
 
   // Phân giải tên dịch vụ hiển thị chuẩn xác (serverRequest -> searchParams -> bảng tra cứu -> draft store)
   const displayServiceName = React.useMemo(() => {
@@ -144,41 +163,75 @@ export default function CustomerBookingRadarRoute() {
         return resolved;
       }
     }
-    const effectiveDesc = serverRequest?.description || description;
+    const effectiveDesc = serverRequest?.description || (createdRequestId === activeRequestId ? description : undefined);
     if (effectiveDesc) {
       const resolvedFromDesc = resolveServiceName(undefined, undefined, effectiveDesc);
       if (resolvedFromDesc && resolvedFromDesc !== 'Dịch vụ tiện ích') {
         return resolvedFromDesc;
       }
     }
-    if (serviceName && serviceName.trim() && serviceName.trim() !== 'Dịch vụ tiện ích') {
+    if (createdRequestId === activeRequestId && serviceName && serviceName.trim() && serviceName.trim() !== 'Dịch vụ tiện ích') {
       return serviceName.trim();
     }
-    return (serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
-  }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName]);
+    return (createdRequestId === activeRequestId && serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
+  }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName, createdRequestId, activeRequestId]);
 
   const paramLat = searchParams?.latitude ? Number(searchParams.latitude) : null;
   const paramLng = searchParams?.longitude ? Number(searchParams.longitude) : null;
-  const hasParamCoords = paramLat !== null && paramLng !== null && !Number.isNaN(paramLat) && !Number.isNaN(paramLng) && (paramLat !== 0 || paramLng !== 0);
+  const isParamCoordsValid = isValidCoordinate(paramLat, paramLng);
+  // Route params chỉ thuộc về request hiện tại nếu không mang requestId của request khác
+  const routeParamsBelongToCurrentRequest = !searchParams?.requestId || searchParams.requestId === activeRequestId;
+  const hasParamCoords = isParamCoordsValid && routeParamsBelongToCurrentRequest;
 
-  const isLocationValid = Boolean(
-    typeof latitude === 'number'
-    && !Number.isNaN(latitude)
-    && typeof longitude === 'number'
-    && !Number.isNaN(longitude)
-    && (latitude !== 0 || longitude !== 0),
-  );
+  const hasServerResponse = Boolean(serverRequestState && serverRequestState.requestId === activeRequestId);
+  const isServerCoordsValid = isValidCoordinate(serverRequest?.latitude, serverRequest?.longitude);
+  const isDraftBelongToCurrentRequest = Boolean(createdRequestId && createdRequestId === activeRequestId);
+  const isDraftLocationValid = isValidCoordinate(latitude, longitude);
 
-  // P2-01: Tách tọa độ hợp lệ đã được xác minh khỏi tọa độ mặc định để render map
+  // PR62-04-P2: Phân giải tọa độ đã xác thực theo đúng hợp đồng:
+  // 1. Tọa độ GPS do người dùng chủ động định vị trong phiên của request này
+  // 2. Tọa độ hợp lệ từ serverRequest của activeRequestId
+  // (Nếu server đã phản hồi nhưng không có tọa độ hợp lệ -> coi như chưa xác thực, verifiedCoords là null)
+  // 3. Trước khi server phản hồi: route params nếu thuộc chính request này
+  // 4. Trước khi server phản hồi: draft store nếu thuộc chính request này (createdRequestId === activeRequestId)
   const verifiedCoords = React.useMemo(() => {
-    if (hasParamCoords) {
-      return { latitude: paramLat!, longitude: paramLng! };
+    if (activeGpsCoords && isValidCoordinate(activeGpsCoords.latitude, activeGpsCoords.longitude)) {
+      return { latitude: activeGpsCoords.latitude, longitude: activeGpsCoords.longitude };
     }
-    if (isLocationValid) {
+
+    if (hasServerResponse) {
+      if (isServerCoordsValid) {
+        return {
+          latitude: Number(serverRequest.latitude),
+          longitude: Number(serverRequest.longitude),
+        };
+      }
+      // Server đã trả lời và không có tọa độ hợp lệ -> không xem tọa độ dự phòng là đã xác thực
+      return null;
+    }
+
+    if (hasParamCoords && paramLat !== null && paramLng !== null) {
+      return { latitude: paramLat, longitude: paramLng };
+    }
+
+    if (isDraftBelongToCurrentRequest && isDraftLocationValid) {
       return { latitude, longitude };
     }
+
     return null;
-  }, [hasParamCoords, paramLat, paramLng, isLocationValid, latitude, longitude]);
+  }, [
+    activeGpsCoords,
+    hasServerResponse,
+    isServerCoordsValid,
+    serverRequest,
+    hasParamCoords,
+    paramLat,
+    paramLng,
+    isDraftBelongToCurrentRequest,
+    isDraftLocationValid,
+    latitude,
+    longitude,
+  ]);
 
   const radarCoords = React.useMemo(() => {
     return verifiedCoords || DEFAULT_RADAR_CENTER;
@@ -196,71 +249,79 @@ export default function CustomerBookingRadarRoute() {
     });
   }, [searchParams?.requestId, createdRequestId]);
 
-  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
-
   // Đồng bộ tọa độ và thông tin chính xác từ yêu cầu thật trên máy chủ nếu có
   React.useEffect(() => {
     let isMounted = true;
-    if (activeRequestId && !activeRequestId.startsWith('req-mock')) {
-      OrdersApi.getRequestDetail(activeRequestId)
-        .then((res) => {
-          if (!isMounted) {
-            return;
-          }
-          const req = res?.data;
-          if (req) {
-            setServerRequest(req);
-            const parsedLat = typeof req.latitude === 'number' ? req.latitude : Number(req.latitude);
-            const parsedLng = typeof req.longitude === 'number' ? req.longitude : Number(req.longitude);
-            const hasValidCoords = !Number.isNaN(parsedLat) && !Number.isNaN(parsedLng) && (parsedLat !== 0 || parsedLng !== 0);
+    if (!activeRequestId || activeRequestId.startsWith('req-mock')) {
+      return;
+    }
 
+    const targetRequestId = activeRequestId;
+
+    OrdersApi.getRequestDetail(targetRequestId)
+      .then((res) => {
+        if (!isMounted || activeRequestIdRef.current !== targetRequestId) {
+          // Bỏ qua response đến muộn của request trước (PR62-04-P2)
+          return;
+        }
+        const req = res?.data;
+        if (req) {
+          setServerRequestState({ requestId: targetRequestId, data: req });
+
+          const hasValidCoords = isValidCoordinate(req.latitude, req.longitude);
+          const parsedLat = hasValidCoords ? Number(req.latitude) : null;
+          const parsedLng = hasValidCoords ? Number(req.longitude) : null;
+
+          // PR62-04-P2: Không ghi tọa độ mặc định Đà Nẵng vào draft store nếu backend thiếu tọa độ
+          if (hasValidCoords && parsedLat !== null && parsedLng !== null) {
             useBookingDraftStore.getState().setAddress(
               req.addressText || addressText,
-              hasValidCoords ? parsedLat : (latitude || 16.0748),
-              hasValidCoords ? parsedLng : (longitude || 108.1499),
+              parsedLat,
+              parsedLng,
             );
-
-            if (hasValidCoords) {
-              mapRef.current?.flyTo({ latitude: parsedLat, longitude: parsedLng }, RADAR_ZOOM_LEVEL);
-            }
-
-            if (req.description) {
-              useBookingDraftStore.getState().setDescription(req.description);
-            }
-            if (req.scheduledAt) {
-              useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
-            }
-            const detectedServiceName = (
-              (req as any)?.service?.name
-              || (req as any)?.serviceName
-              || (searchParams?.serviceName && searchParams.serviceName !== 'Dịch vụ tiện ích' ? searchParams.serviceName : undefined)
-              || (req.serviceId ? resolveServiceName(req.serviceId, undefined, req.description) : undefined)
-              || (req.description ? resolveServiceName(undefined, undefined, req.description) : undefined)
-            );
-            if (
-              detectedServiceName
-              && typeof detectedServiceName === 'string'
-              && detectedServiceName.trim()
-              && detectedServiceName.trim() !== 'Dịch vụ tiện ích'
-            ) {
-              useBookingDraftStore.getState().setService(req.serviceId || '', detectedServiceName.trim());
-            }
-            const minP = Number(req.aiRefPriceMin);
-            const maxP = Number(req.aiRefPriceMax);
-            if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
-              useBookingDraftStore.setState({
-                aiRefPriceMin: minP,
-                aiRefPriceMax: maxP,
-              });
-            }
+            mapRef.current?.flyTo({ latitude: parsedLat, longitude: parsedLng }, RADAR_ZOOM_LEVEL);
           }
-        })
-        .catch(() => {});
-    }
+          else if (req.addressText) {
+            useBookingDraftStore.setState({ addressText: req.addressText });
+          }
+
+          if (req.description) {
+            useBookingDraftStore.getState().setDescription(req.description);
+          }
+          if (req.scheduledAt) {
+            useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
+          }
+          const detectedServiceName = (
+            (req as any)?.service?.name
+            || (req as any)?.serviceName
+            || (searchParams?.serviceName && searchParams.serviceName !== 'Dịch vụ tiện ích' ? searchParams.serviceName : undefined)
+            || (req.serviceId ? resolveServiceName(req.serviceId, undefined, req.description) : undefined)
+            || (req.description ? resolveServiceName(undefined, undefined, req.description) : undefined)
+          );
+          if (
+            detectedServiceName
+            && typeof detectedServiceName === 'string'
+            && detectedServiceName.trim()
+            && detectedServiceName.trim() !== 'Dịch vụ tiện ích'
+          ) {
+            useBookingDraftStore.getState().setService(req.serviceId || '', detectedServiceName.trim());
+          }
+          const minP = Number(req.aiRefPriceMin);
+          const maxP = Number(req.aiRefPriceMax);
+          if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
+            useBookingDraftStore.setState({
+              aiRefPriceMin: minP,
+              aiRefPriceMax: maxP,
+            });
+          }
+        }
+      })
+      .catch(() => {});
+
     return () => {
       isMounted = false;
     };
-  }, [activeRequestId, addressText, latitude, longitude, searchParams?.serviceName]);
+  }, [activeRequestId, addressText, searchParams?.serviceName]);
   const orderCode = serverRequest?.requestCode || (activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---');
 
   const [isCancelling, setIsCancelling] = React.useState(false);
@@ -585,6 +646,14 @@ export default function CustomerBookingRadarRoute() {
         // P2-01: Chưa có tọa độ xác thực -> chủ động truy xuất GPS thiết bị
         const result = await DeviceLocationService.getDeviceLocationResult();
         if (result.status === 'gps_success' && result.coordinates) {
+          setSessionGpsCoords({
+            requestId: activeRequestId,
+            coords: {
+              latitude: result.coordinates.latitude,
+              longitude: result.coordinates.longitude,
+              addressText: result.coordinates.addressText,
+            },
+          });
           useBookingDraftStore.getState().setAddress(
             result.coordinates.addressText || addressText,
             result.coordinates.latitude,
@@ -626,7 +695,7 @@ export default function CustomerBookingRadarRoute() {
         setIsLocating(false);
       }, 400);
     }
-  }, [verifiedCoords, addressText]);
+  }, [verifiedCoords, addressText, activeRequestId]);
 
   const handleBack = () => {
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
@@ -932,6 +1001,19 @@ export default function CustomerBookingRadarRoute() {
                 </Text>
               </View>
             )}
+
+        {/* Thông báo trạng thái vị trí chưa xác thực (PR62-04-P2) */}
+        {!verifiedCoords && (
+          <View
+            testID="unverified-location-notice"
+            className="absolute top-4 z-20 flex-row items-center rounded-full border border-amber-200 bg-amber-50/95 px-3 py-1.5 shadow-sm backdrop-blur-sm dark:border-amber-800 dark:bg-amber-950/90"
+          >
+            <View className="mr-1.5 size-2 rounded-full bg-amber-500" />
+            <Text className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+              Chưa có vị trí chính xác • Nhấn nút GPS để định vị
+            </Text>
+          </View>
+        )}
 
         {/* Lớp phủ radial gradient radar mờ nhẹ trên bản đồ tạo hiệu ứng thấu kính Radar (như Vua Thợ) */}
         <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
@@ -1657,7 +1739,7 @@ export default function CustomerBookingRadarRoute() {
                       Địa điểm
                     </Text>
                     <Text className="mt-0.5 text-xs font-bold text-neutral-900 dark:text-white" numberOfLines={2}>
-                      {serverRequest?.addressText || addressText || 'Đà Nẵng'}
+                      {serverRequest?.addressText || (createdRequestId === activeRequestId ? addressText : undefined) || 'Chưa cập nhật địa chỉ'}
                     </Text>
                   </View>
                 </View>
