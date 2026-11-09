@@ -31,19 +31,19 @@ function setup(bidId?: string) {
   };
 }
 beforeEach(() => jest.clearAllMocks());
-it('does not offer chat or create a conversation before persisted bid exists', () => {
+it('keeps chat disabled without creating a conversation before a persisted bid exists', () => {
   const view = setup();
-  expect(screen.queryByText('Nhắn tin')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeDisabled();
   expect(ChatApi.create).not.toHaveBeenCalled();
   view.close();
 });
-it('requires backend send permission before showing entry and rechecks on open', async () => {
+it('requires backend send permission before enabling entry and rechecks on open', async () => {
   (ChatApi.create as jest.Mock).mockResolvedValue({
     id: 'conversation',
     permissions: { read: true, send: true },
   });
   const view = setup('persisted-bid');
-  expect(await screen.findByText('Nhắn tin')).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
   fireEvent.press(screen.getByText('Nhắn tin'));
   await waitFor(() =>
     expect(mockPush).toHaveBeenCalledWith('/chat/conversation'),
@@ -52,10 +52,22 @@ it('requires backend send permission before showing entry and rechecks on open',
   expect(ChatApi.create).toHaveBeenNthCalledWith(2, 'persisted-bid');
   view.close();
 });
-it('hides entry when server denies bid access', async () => {
+it('keeps entry visible and disabled when server denies bid access', async () => {
   (ChatApi.create as jest.Mock).mockRejectedValue(new Error('CHAT_INELIGIBLE'));
   const view = setup('withdrawn-bid');
   await waitFor(() => expect(ChatApi.create).toHaveBeenCalled());
-  expect(screen.queryByText('Nhắn tin')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeDisabled();
+  view.close();
+});
+
+it('does not navigate if send permission is revoked before opening', async () => {
+  (ChatApi.create as jest.Mock)
+    .mockResolvedValueOnce({ id: 'conversation', permissions: { read: true, send: true } })
+    .mockResolvedValueOnce({ id: 'conversation', permissions: { read: true, send: false } });
+  const view = setup('persisted-bid');
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
+  fireEvent.press(screen.getByText('Nhắn tin'));
+  await waitFor(() => expect(ChatApi.create).toHaveBeenCalledTimes(2));
+  expect(mockPush).not.toHaveBeenCalled();
   view.close();
 });

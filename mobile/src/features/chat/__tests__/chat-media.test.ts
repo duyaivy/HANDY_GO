@@ -39,3 +39,79 @@ it('rejects public-only response and unsupported or oversized files', async () =
     uploadChatMedia({ ...asset, fileSize: 11 * 1024 * 1024 }, () => {}),
   ).rejects.toThrow();
 });
+
+describe('native signed video upload', () => {
+  const video: ImagePickerAsset = {
+    ...asset,
+    uri: 'file:///gallery/video.mp4',
+    type: 'video',
+    mimeType: 'video/mp4',
+    fileName: 'video.mp4',
+  };
+  const receipt = {
+    public_id: 'handy-go/chat/videos/private',
+    resource_type: 'video',
+    type: 'authenticated',
+  };
+  const originalFetch = global.fetch;
+  const originalFormData = global.FormData;
+  let uploadedForm: FormData;
+  beforeEach(() => {
+    global.FormData = jest.requireActual('react-native/Libraries/Network/FormData').default;
+    (ApiClient.post as jest.Mock).mockResolvedValue({
+      data: {
+        uploadId: 'upload-id',
+        apiKey: 'key',
+        timestamp: 123,
+        signature: 'signed',
+        publicId: receipt.public_id,
+        folder: '',
+        uploadUrl: 'https://api.cloudinary.com/v1_1/cloud/video/upload',
+        chunkSize: 20 * 1024 * 1024,
+        type: 'authenticated',
+        context: 'chat_owner=owner|chat_intent=chat|chat_proof=proof',
+        overwrite: false,
+      },
+    });
+    global.fetch = jest.fn(async (url, options) => {
+      if (url === video.uri)
+        return { blob: async () => new Blob(['x'.repeat(1000)]) } as Response;
+      uploadedForm = options!.body as FormData;
+      // Native multipart networking only accepts binary parts backed by a URI.
+      const file = uploadedForm.getAll('file')[0] as unknown as { uri?: string };
+      if (typeof file.uri !== 'string')
+        throw new Error('Unrecognized FormData part.');
+      return { ok: true, json: async () => receipt } as Response;
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+    global.FormData = originalFormData;
+  });
+
+  it('uploads the gallery URI as native multipart with signed private parameters', async () => {
+    const progress = jest.fn();
+    await expect(uploadChatMedia(video, progress)).resolves.toBe(receipt.public_id);
+    expect(uploadedForm.getAll('file')[0]).toEqual({
+      uri: video.uri,
+      name: 'video.mp4',
+      type: 'video/mp4',
+    });
+    expect(uploadedForm.getAll('signature')[0]).toBe('signed');
+    expect(uploadedForm.getAll('context')[0]).toContain('chat_proof=proof');
+    expect(uploadedForm.getAll('overwrite')[0]).toBe('false');
+    expect(progress).toHaveBeenLastCalledWith(100);
+  });
+
+  it.each([
+    { ...receipt, public_id: 'other/video' },
+    { ...receipt, resource_type: 'image' },
+    { ...receipt, type: 'upload' },
+  ])('rejects an upload receipt for the wrong asset or delivery type', async (result) => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => result,
+    } as Response)) as typeof fetch;
+    await expect(uploadChatMedia(video, () => {})).rejects.toThrow();
+  });
+});

@@ -427,7 +427,7 @@ export function WorkerBidModal({
                 {bidQuery.isError && <Button label="Thử lại" onPress={() => { void bidQuery.refetch(); }} />}
               </View>
             )}
-            {effectiveBid && ['active', 'selected'].includes(effectiveBid.status) && <ChatEntry enabled={visible} bidId={effectiveBid.id} name="Khách hàng" onOpen={onClose} />}
+            <ChatEntry enabled={visible} bidId={effectiveBid?.id} name="Khách hàng" onOpen={onClose} />
             {/* Action Buttons */}
             <View className="gap-2.5 pb-4">
               <Button

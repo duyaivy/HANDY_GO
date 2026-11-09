@@ -30,19 +30,25 @@ export function ChatEntry({
     staleTime: 5000,
     retry: false,
   });
-  if (!bidId || !enabled || !eligibility.data?.permissions.send)
+  if (!enabled)
     return null;
+  const disabled = pending || !bidId || !eligibility.data?.permissions.send;
   return (
     <Button
       label="Nhắn tin"
       variant="outline"
       loading={pending}
-      disabled={pending}
+      accessibilityRole="button"
+      accessibilityLabel="Nhắn tin"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={async () => {
+        if (disabled || !bidId)
+          return;
         setPending(true);
         try {
           const conversation = await ChatApi.create(bidId);
-          if (!conversation.permissions.read)
+          if (!conversation.permissions.read || !conversation.permissions.send)
             throw new Error('Denied');
           onOpen?.();
           router.push(

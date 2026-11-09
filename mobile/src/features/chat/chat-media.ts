@@ -76,51 +76,40 @@ export async function uploadChatMedia(
   ) {
     throw new Error('Không thể xác minh phiên tải video riêng tư.');
   }
-  const file = await (await fetch(asset.uri, { signal })).blob();
-  if (file.size > cap || file.size !== asset.fileSize)
-    throw new Error('Kích thước tệp không hợp lệ.');
-  const chunkSize = Math.min(
-    20 * 1024 * 1024,
-    Math.max(5 * 1024 * 1024, init.chunkSize),
-  );
-  for (let offset = 0; offset < file.size; offset += chunkSize) {
-    const end = Math.min(offset + chunkSize, file.size);
-    const form = new FormData();
-    form.append(
-      'file',
-      file.slice(offset, end, asset.mimeType),
-      asset.fileName || 'chat.mp4',
-    );
-    for (const [key, value] of Object.entries({
-      api_key: init.apiKey,
-      timestamp: init.timestamp,
-      signature: init.signature,
-      public_id: init.publicId,
-      ...(init.folder ? { folder: init.folder } : {}),
-      type: init.type,
-      context: init.context,
-      overwrite: init.overwrite,
-    }))
-      form.append(key, String(value));
-    const response = await fetch(init.uploadUrl, {
-      method: 'POST',
-      body: form,
-      signal,
-      headers: {
-        'X-Unique-Upload-Id': init.uploadId,
-        'Content-Range': `bytes ${offset}-${end - 1}/${file.size}`,
-      },
-    });
-    if (!response.ok)
-      throw new Error('Tải video thất bại. Vui lòng thử lại.');
-    const result = await response.json();
-    if (
-      end === file.size
-      && (!result.done || result.public_id !== init.publicId)
-    ) {
-      throw new Error('Video chưa hoàn tất tải lên.');
-    }
-    onProgress(Math.round((end / file.size) * 100));
+  // Chat videos are capped at 100 MB, so Cloudinary's regular upload is
+  // sufficient. Native multipart requires a URI-backed file, not a Blob slice.
+  const form = new FormData();
+  form.append('file', {
+    uri: asset.uri,
+    name: asset.fileName || 'chat.mp4',
+    type: asset.mimeType,
+  } as unknown as Blob);
+  for (const [key, value] of Object.entries({
+    api_key: init.apiKey,
+    timestamp: init.timestamp,
+    signature: init.signature,
+    public_id: init.publicId,
+    ...(init.folder ? { folder: init.folder } : {}),
+    type: init.type,
+    context: init.context,
+    overwrite: init.overwrite,
+  }))
+    form.append(key, String(value));
+  const response = await fetch(init.uploadUrl, {
+    method: 'POST',
+    body: form,
+    signal,
+  });
+  if (!response.ok)
+    throw new Error('Tải video thất bại. Vui lòng thử lại.');
+  const result = await response.json();
+  if (
+    result.public_id !== init.publicId
+    || result.resource_type !== 'video'
+    || result.type !== 'authenticated'
+  ) {
+    throw new Error('Video chưa hoàn tất tải lên.');
   }
+  onProgress(100);
   return init.publicId;
 }
