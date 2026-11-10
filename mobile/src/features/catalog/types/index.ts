@@ -69,6 +69,12 @@ export type ServiceListApiResponse = {
   data: PaginatedServiceDataDto;
 };
 
+export type ServiceDetailApiResponse = {
+  statusCode: number;
+  message: string;
+  data: ServiceResponseDto;
+};
+
 // ─── Query Parameter Types ────────────────────────────────────────────────────
 
 export type GetCategoriesParams = {

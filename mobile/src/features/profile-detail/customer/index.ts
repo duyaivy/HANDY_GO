@@ -1,1 +1,4 @@
-export { CustomerProfileDetailScreen } from './screens/customer-profile-detail-screen';
+export {
+  CustomerProfileDetailScreen,
+  type CustomerProfileDetailScreenProps,
+} from './screens/customer-profile-detail-screen';

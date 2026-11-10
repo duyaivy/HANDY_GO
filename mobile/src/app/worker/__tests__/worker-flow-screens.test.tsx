@@ -181,20 +181,19 @@ describe('worker Skeleton & Route Flow', () => {
   });
 
   describe('workerSkillsScreen (skills)', () => {
-    it('renders skills placeholder, navigates back and pushes to profession analysis', () => {
+    it('renders skills screen, navigates back and navigates to register service screen', () => {
       render(<WorkerSkillsScreen />);
 
-      expect(screen.getByText('Professional skills')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Dịch vụ & Kỹ năng')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-skills-screen')).toBeOnTheScreen();
 
       // Test Add professional skills button
       const addBtn = screen.getByTestId('add-professional-skills-btn');
       expect(addBtn).toBeOnTheScreen();
       fireEvent.press(addBtn);
-      expect(mockPush).toHaveBeenCalledWith('/worker/application/analysis');
+      expect(mockPush).toHaveBeenCalledWith('/worker/skills/register');
 
-      // Test Back button
+      // Test Back button navigates back
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);
       expect(mockBack).toHaveBeenCalled();

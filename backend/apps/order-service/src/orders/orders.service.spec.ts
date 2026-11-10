@@ -824,6 +824,161 @@ describe('OrdersService', () => {
       expect(result.id).toBe(mockEvidenceId);
     });
 
+    it('should add evidence with clientEvidenceId when provided', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      const clientEvidenceId = 'client-id-12345';
+      const evidence = {
+        id: mockEvidenceId,
+        orderId: mockOrderId,
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-new.jpg',
+        description: 'Ảnh mới',
+        createdAt: new Date(),
+      };
+      prismaMock.orderEvidence.findFirst.mockResolvedValue(null);
+      prismaMock.orderEvidence.create.mockResolvedValue(evidence);
+
+      const dto = {
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-new.jpg',
+        description: 'Ảnh mới',
+      };
+      const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
+
+      expect(prismaMock.orderEvidence.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: mockOrderId,
+          clientEvidenceId,
+          mediaType: 'image',
+          mediaUrl: 'https://example.com/img-new.jpg',
+        }),
+      });
+      expect(result.clientEvidenceId).toBe(clientEvidenceId);
+    });
+
+    it('should return existing evidence when clientEvidenceId already exists (idempotency ORD-10)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      const clientEvidenceId = 'client-id-idempotent';
+      const existingEvidence = {
+        id: mockEvidenceId,
+        orderId: mockOrderId,
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-existing.jpg',
+        description: 'Ảnh đã lưu từ trước',
+        createdAt: new Date(),
+      };
+      // findFirst returns the existing record for clientEvidenceId
+      prismaMock.orderEvidence.findFirst.mockResolvedValue(existingEvidence);
+
+      const dto = {
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-existing.jpg',
+        description: 'Ảnh thử lại',
+      };
+      const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
+
+      expect(prismaMock.orderEvidence.create).not.toHaveBeenCalled();
+      expect(result.id).toBe(mockEvidenceId);
+      expect(result.clientEvidenceId).toBe(clientEvidenceId);
+      expect(result.mediaUrl).toBe('https://example.com/img-existing.jpg');
+    });
+
+    it('should return existing evidence when mediaUrl already exists for order (idempotency ORD-10)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      const existingEvidence = {
+        id: mockEvidenceId,
+        orderId: mockOrderId,
+        clientEvidenceId: 'key-old',
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-same-url.jpg',
+        description: 'Ảnh đã lưu',
+        createdAt: new Date(),
+      };
+      // First call for clientEvidenceId returns null, second call for mediaUrl returns existingEvidence
+      prismaMock.orderEvidence.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(existingEvidence);
+
+      const dto = {
+        clientEvidenceId: 'key-new-attempt',
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/img-same-url.jpg',
+      };
+      const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
+
+      expect(prismaMock.orderEvidence.create).not.toHaveBeenCalled();
+      expect(result.id).toBe(mockEvidenceId);
+      expect(result.mediaUrl).toBe('https://example.com/img-same-url.jpg');
+    });
+
+    it('should catch P2002 race condition error and return existing duplicate evidence', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      const clientEvidenceId = 'race-condition-id';
+      const existingEvidence = {
+        id: mockEvidenceId,
+        orderId: mockOrderId,
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/race.jpg',
+        description: 'Ảnh race',
+        createdAt: new Date(),
+      };
+
+      let transactionActive = false;
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        transactionActive = true;
+        try {
+          return await callback(txMock);
+        } finally {
+          transactionActive = false;
+        }
+      });
+
+      // PostgreSQL rejects further queries in the transaction after a unique violation.
+      prismaMock.orderEvidence.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockImplementationOnce(async () => {
+          if (transactionActive) {
+            throw new Error('current transaction is aborted (25P02)');
+          }
+          return existingEvidence;
+        });
+
+      const p2002Error = new Error('Unique constraint failed on the fields: (order_id, client_evidence_id)');
+      (p2002Error as any).code = 'P2002';
+      prismaMock.orderEvidence.create.mockRejectedValue(p2002Error);
+
+      const dto = {
+        clientEvidenceId,
+        mediaType: 'image',
+        mediaUrl: 'https://example.com/race.jpg',
+      };
+      const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
+
+      expect(result.id).toBe(mockEvidenceId);
+      expect(result.clientEvidenceId).toBe(clientEvidenceId);
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenNthCalledWith(3, {
+        where: { orderId: mockOrderId, clientEvidenceId },
+      });
+    });
+
     it('should throw ConflictException if adding evidence when order is not in_progress', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,

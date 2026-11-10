@@ -24,10 +24,13 @@ export class WorkerProfilesClient {
         signal: AbortSignal.timeout(3000),
       });
       if (!response.ok) throw new Error('Upstream unavailable');
-      const body = (await response.json()) as { data?: unknown };
-      if (!Array.isArray(body.data))
+      const body = (await response.json()) as any;
+      const dataList = Array.isArray(body)
+        ? body
+        : (body && typeof body === 'object' && Array.isArray(body.data) ? body.data : null);
+      if (!dataList)
         throw new Error('Invalid summary response');
-      for (const row of body.data) {
+      for (const row of dataList) {
         if (
           !ids.includes(row.workerId) ||
           typeof row.fullName !== 'string' ||

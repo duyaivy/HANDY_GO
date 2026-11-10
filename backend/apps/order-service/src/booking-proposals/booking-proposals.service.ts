@@ -142,6 +142,15 @@ export class BookingProposalsService {
       );
     }
 
+    // PR62-05-P2: Đảm bảo agreedPrice phải là số dương hợp lệ (> 0)
+    if (typeof dto.agreedPrice !== 'number' || Number.isNaN(dto.agreedPrice) || dto.agreedPrice <= 0) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        'agreedPrice must be a positive number greater than 0',
+      );
+    }
+
     // Verify source authenticity with external verifier (fail-closed)
     await this.proposalSourceVerifier.verifyProposalSource({
       selectionSource: dto.selectionSource,

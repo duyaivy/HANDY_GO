@@ -376,6 +376,11 @@ export function WorkerJobDetailScreen({
                   🕒 Nút bắt đầu thi công sẽ tự động mở trước giờ hẹn 30 phút.
                 </Text>
               )}
+              {!isTooEarly && (
+                <Text className="mt-1.5 text-center text-[11px] text-neutral-500 dark:text-neutral-400">
+                  Sau khi bắt đầu thi công, bạn sẽ có thể chụp và gửi ảnh nghiệm thu kết quả.
+                </Text>
+              )}
             </View>
           )}
 

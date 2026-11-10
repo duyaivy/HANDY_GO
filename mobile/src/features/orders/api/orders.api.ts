@@ -153,6 +153,19 @@ export const OrdersApi = {
     );
   },
 
+  // --- Bids ---
+  getBidDetail: async (bidId: string) => {
+    return ApiClient.get<{ statusCode: number; message: string; data: any }>(
+      `/bids/${bidId}`,
+    );
+  },
+
+  getRequestBids: async (requestId: string) => {
+    return ApiClient.get<{ statusCode: number; message: string; data: { items?: any[] } | any[] }>(
+      `/requests/${requestId}/bids`,
+    );
+  },
+
   // --- Orders ---
   getMyOrders: async (params?: Record<string, unknown>) => {
     return ApiClient.get<{ statusCode: number; message: string; data: PaginatedList<Order> | Order[] }>(
@@ -192,6 +205,12 @@ export const OrdersApi = {
     );
   },
 
+  deleteEvidence: async (id: string, evidenceId: string) => {
+    return ApiClient.delete<{ statusCode: number; message: string; data: null }>(
+      `/orders/${id}/evidence/${evidenceId}`,
+    );
+  },
+
   finishOrder: async (id: string) => {
     return ApiClient.post<{ statusCode: number; message: string; data: Order }>(
       `/orders/${id}/finish`,
@@ -223,6 +242,25 @@ export const OrdersApi = {
       `/orders/${id}/dispute`,
       { reason },
     );
+  },
+
+  // --- Worker Profile ---
+  getWorkerProfile: async (workerUserId: string) => {
+    return ApiClient.get<{
+      statusCode: number;
+      message: string;
+      data: {
+        workerUserId: string;
+        fullName: string;
+        avatarUrl?: string | null;
+        averageRating?: number | null;
+        ratingCount?: number;
+        completedOrderCount?: number;
+        headline?: string | null;
+        phoneNumber?: string | null;
+        phone?: string | null;
+      };
+    }>(`/users/${workerUserId}/worker-profile`);
   },
 
   // --- Media Upload Helper ---

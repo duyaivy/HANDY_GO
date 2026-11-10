@@ -6,6 +6,10 @@ import { LoginDto } from './dto/login.dto.js';
 import { RefreshTokenDto } from './dto/refresh-token.dto.js';
 import { LogoutDto } from './dto/logout.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import {
+  RequestChangeEmailDto,
+  ConfirmChangeEmailDto,
+} from './dto/change-email.dto.js';
 import type {
   AuthSuccessResponse,
   ChangePasswordResponse,
@@ -281,6 +285,245 @@ export class LoginFlowService {
     });
 
     return AuthResponseBuilder.buildChangePasswordResponse();
+  }
+
+  async requestChangeEmail(
+    accountId: string,
+    dto: RequestChangeEmailDto,
+  ): Promise<{ statusCode: number; message: string; data?: any }> {
+    const account = await this.db.account.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!account) {
+      throw new AppException(
+        HttpStatus.UNAUTHORIZED,
+        ERROR_CODES.UNAUTHORIZED,
+        'Tài khoản không tồn tại',
+      );
+    }
+
+    if (['suspended', 'locked', 'deleted'].includes(account.status)) {
+      throw new AppException(
+        HttpStatus.FORBIDDEN,
+        ERROR_CODES.ACCOUNT_BLOCKED,
+        'Tài khoản đang bị khóa hoặc vô hiệu hóa',
+      );
+    }
+
+    const normalizedNewEmail = dto.newEmail.trim().toLowerCase();
+
+    if (account.email && account.email.toLowerCase() === normalizedNewEmail) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ERROR_CODES.VALIDATION_ERROR,
+        'Email mới không được trùng với email hiện tại',
+      );
+    }
+
+    const existingAccount = await this.db.account.findUnique({
+      where: { email: normalizedNewEmail },
+    });
+
+    if (existingAccount && existingAccount.id !== account.id) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ERROR_CODES.EMAIL_ALREADY_EXISTS,
+        'Email này đã được sử dụng bởi một tài khoản khác',
+      );
+    }
+
+    // Kiểm tra cooldown gửi lại OTP phía server
+    const recentChallenge = await this.db.otpChallenge.findFirst({
+      where: {
+        accountId: account.id,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+        isUsed: false,
+        resendAvailableAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (recentChallenge) {
+      const waitSeconds = Math.max(
+        1,
+        Math.ceil(
+          (recentChallenge.resendAvailableAt.getTime() - Date.now()) / 1000,
+        ),
+      );
+      throw new AppException(
+        HttpStatus.TOO_MANY_REQUESTS,
+        ERROR_CODES.RATE_LIMITED,
+        `Vui lòng đợi ${waitSeconds} giây trước khi yêu cầu mã OTP mới`,
+      );
+    }
+
+    // Vô hiệu hóa các mã OTP cũ chưa sử dụng cho email này
+    await this.db.otpChallenge.updateMany({
+      where: {
+        accountId: account.id,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+        isUsed: false,
+      },
+      data: { isUsed: true },
+    });
+
+    const otp = this.otpService.generateOtp();
+
+    await this.db.otpChallenge.create({
+      data: {
+        accountId: account.id,
+        type: 'verify_email',
+        otpHash: otp.hash,
+        expiresAt: otp.expiresAt,
+        resendAvailableAt: otp.resendAvailableAt,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+      },
+    });
+
+    await this.otpService.sendChangeEmailOtp(normalizedNewEmail, otp.code);
+
+    const cooldownSeconds = Math.max(
+      0,
+      Math.ceil((otp.resendAvailableAt.getTime() - Date.now()) / 1000),
+    );
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Mã xác thực OTP đã được gửi đến email mới của bạn',
+      data: {
+        newEmail: normalizedNewEmail,
+        resendAvailableAt: otp.resendAvailableAt,
+        cooldownSeconds,
+      },
+    };
+  }
+
+  async confirmChangeEmail(
+    accountId: string,
+    dto: ConfirmChangeEmailDto,
+  ): Promise<{ statusCode: number; message: string; data?: any }> {
+    const account = await this.db.account.findUnique({
+      where: { id: accountId },
+    });
+
+    if (!account) {
+      throw new AppException(
+        HttpStatus.UNAUTHORIZED,
+        ERROR_CODES.UNAUTHORIZED,
+        'Tài khoản không tồn tại',
+      );
+    }
+
+    if (['suspended', 'locked', 'deleted'].includes(account.status)) {
+      throw new AppException(
+        HttpStatus.FORBIDDEN,
+        ERROR_CODES.ACCOUNT_BLOCKED,
+        'Tài khoản đang bị khóa hoặc vô hiệu hóa',
+      );
+    }
+
+    const normalizedNewEmail = dto.newEmail.trim().toLowerCase();
+
+    const challenge = await this.db.otpChallenge.findFirst({
+      where: {
+        accountId: account.id,
+        deliveryStatus: `change_email:${normalizedNewEmail}`,
+        isUsed: false,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const now = new Date();
+
+    if (!challenge || challenge.expiresAt < now) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ERROR_CODES.OTP_INVALID,
+        'Mã OTP không hợp lệ hoặc đã hết hạn',
+      );
+    }
+
+    if (challenge.attempts >= 5) {
+      throw new AppException(
+        HttpStatus.TOO_MANY_REQUESTS,
+        ERROR_CODES.OTP_ATTEMPTS_EXCEEDED,
+        'Bạn đã nhập sai OTP quá 5 lần. Vui lòng yêu cầu mã mới.',
+      );
+    }
+
+    const isMatch = this.otpService.verifyOtpHash(
+      dto.otp.trim(),
+      challenge.otpHash,
+    );
+
+    if (!isMatch) {
+      await this.db.otpChallenge.update({
+        where: { id: challenge.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        ERROR_CODES.OTP_INVALID,
+        'Mã OTP không chính xác. Vui lòng kiểm tra lại.',
+      );
+    }
+
+    await this.db.$transaction(async (tx) => {
+      // 1. Kiểm tra lại tính duy nhất của email trong transaction để chống race condition
+      const emailConflict = await tx.account.findUnique({
+        where: { email: normalizedNewEmail },
+      });
+      if (emailConflict && emailConflict.id !== account.id) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ERROR_CODES.EMAIL_ALREADY_EXISTS,
+          'Email này đã được sử dụng bởi một tài khoản khác trong thời gian chờ OTP',
+        );
+      }
+
+      // 2. Tiêu thụ challenge nguyên tử (atomic consume)
+      const consumed = await tx.otpChallenge.updateMany({
+        where: { id: challenge.id, isUsed: false },
+        data: { isUsed: true },
+      });
+
+      if (consumed.count === 0) {
+        throw new AppException(
+          HttpStatus.BAD_REQUEST,
+          ERROR_CODES.OTP_INVALID,
+          'Mã OTP này đã được sử dụng hoặc không còn hiệu lực',
+        );
+      }
+
+      // 3. Cập nhật email tài khoản
+      await tx.account.update({
+        where: { id: account.id },
+        data: {
+          email: normalizedNewEmail,
+          emailVerifiedAt: now,
+          updatedAt: now,
+        },
+      });
+
+      // 4. Vô hiệu hóa các mã OTP đổi email còn lại của tài khoản này
+      await tx.otpChallenge.updateMany({
+        where: {
+          accountId: account.id,
+          deliveryStatus: { startsWith: 'change_email:' },
+          isUsed: false,
+        },
+        data: { isUsed: true },
+      });
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Cập nhật email thành công',
+      data: {
+        email: normalizedNewEmail,
+      },
+    };
   }
 }
 

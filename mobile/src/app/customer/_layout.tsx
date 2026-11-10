@@ -12,7 +12,7 @@ export default function CustomerLayout() {
         <Stack.Screen
           name="orders/[id]"
           options={{
-            title: 'Báo giá thợ',
+            title: 'Chi tiết đơn hàng',
             headerShown: false,
           }}
         />

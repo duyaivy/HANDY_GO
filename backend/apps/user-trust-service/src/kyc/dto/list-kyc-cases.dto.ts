@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -13,6 +13,26 @@ export class ListKycCasesDto {
     message: 'Trạng thái KYC không hợp lệ',
   })
   status?: string;
+
+  @ApiPropertyOptional({
+    description: 'Từ khóa tìm kiếm theo tên thợ hoặc mã hồ sơ KYC',
+    example: 'Nguyễn Văn A',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sắp xếp theo thời gian nộp hoặc tạo hồ sơ (mới nhất hoặc cũ nhất)',
+    enum: ['newest', 'oldest'],
+    default: 'newest',
+    example: 'newest',
+  })
+  @IsOptional()
+  @IsIn(['newest', 'oldest'], {
+    message: 'Thứ tự sắp xếp phải là newest hoặc oldest',
+  })
+  sortBy?: 'newest' | 'oldest' = 'newest';
 
   @ApiPropertyOptional({
     description: 'Số thứ tự trang phân trang (bắt đầu từ 1)',

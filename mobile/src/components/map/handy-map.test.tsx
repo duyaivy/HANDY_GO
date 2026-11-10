@@ -140,4 +140,102 @@ describe('handyMap component', () => {
       refHolder.current?.zoomOut();
     });
   });
+
+  it('triggers onDidFinishLoadingMap callback when map finishes loading', () => {
+    const onDidFinishSpy = jest.fn();
+    render(<HandyMap onDidFinishLoadingMap={onDidFinishSpy} />);
+
+    const mapView = screen.getByTestId('mapbox-map-view');
+    expect(mapView.props.onDidFinishLoadingMap).toBeDefined();
+
+    act(() => {
+      mapView.props.onDidFinishLoadingMap();
+    });
+
+    expect(onDidFinishSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('configures Mapbox.Camera with centerCoordinate and zoomLevel when panEnabled is false', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        center={{ latitude: 16.0748, longitude: 108.1499 }}
+        zoomLevel={14.5}
+      />,
+    );
+
+    const camera = screen.getByTestId('mapbox-camera');
+    expect(camera).toBeTruthy();
+    expect(camera.props.centerCoordinate).toEqual([108.1499, 16.0748]);
+    expect(camera.props.zoomLevel).toBe(14.5);
+  });
+
+  it('passes minZoomLevel and maxZoomLevel to Mapbox.Camera', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        center={{ latitude: 16.0748, longitude: 108.1499 }}
+        zoomLevel={12.0}
+        minZoomLevel={10.5}
+        maxZoomLevel={15.0}
+      />,
+    );
+
+    const camera = screen.getByTestId('mapbox-camera');
+    expect(camera).toBeTruthy();
+    expect(camera.props.minZoomLevel).toBe(10.5);
+    expect(camera.props.maxZoomLevel).toBe(15.0);
+    expect(camera.props.zoomLevel).toBe(12.0);
+  });
+
+  it('forces pinchPanEnabled to false when panEnabled is false', () => {
+    render(
+      <HandyMap
+        panEnabled={false}
+        pinchPanEnabled={true}
+        zoomEnabled={true}
+      />,
+    );
+
+    const mapView = screen.getByTestId('mapbox-map-view');
+    expect(mapView.props.gestureSettings.pinchPanEnabled).toBe(false);
+    expect(mapView.props.gestureSettings.panEnabled).toBe(false);
+    expect(mapView.props.gestureSettings.pinchZoomEnabled).toBe(true);
+  });
+
+  it('triggers onZoomDidChange callback on zoomIn, zoomOut, and flyTo', () => {
+    const onZoomDidChangeSpy = jest.fn();
+    const refHolder: { current: HandyMapRef | null } = { current: null };
+    function TestWrapper() {
+      const ref = React.useRef<HandyMapRef>(null);
+      React.useEffect(() => {
+        refHolder.current = ref.current;
+      }, []);
+      return (
+        <HandyMap
+          ref={ref}
+          zoomLevel={12.0}
+          minZoomLevel={10.0}
+          maxZoomLevel={16.0}
+          onZoomDidChange={onZoomDidChangeSpy}
+        />
+      );
+    }
+    render(<TestWrapper />);
+
+    act(() => {
+      refHolder.current?.zoomIn();
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(13.0, false);
+
+    act(() => {
+      refHolder.current?.zoomOut();
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(12.0, false);
+
+    act(() => {
+      refHolder.current?.flyTo({ latitude: 10.762622, longitude: 106.660172 }, 14.0);
+    });
+    expect(onZoomDidChangeSpy).toHaveBeenCalledWith(14.0, false);
+  });
 });

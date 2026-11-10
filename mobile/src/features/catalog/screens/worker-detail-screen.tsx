@@ -19,7 +19,7 @@ export function WorkerDetailScreen({
   onBack,
 }: WorkerDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ id?: string }>();
+  const searchParams = useLocalSearchParams<{ id?: string; name?: string }>();
   const workerId = propWorkerId || searchParams?.id || 'th-01';
 
   const isCanhVan = workerId === 'a-canh-van' || workerId === 'canh-van';
@@ -29,7 +29,7 @@ export function WorkerDetailScreen({
       ? 'A CẢNH VĂN'
       : isThanhLong
         ? 'Võ Thành Long (Thợ Kỹ Thuật Đa Năng)'
-        : undefined);
+        : (searchParams?.name || undefined));
   const pageTitle = propTitle || (isCanhVan ? 'Hồ sơ thợ / Worker profile (A CẢNH VĂN)' : 'Hồ sơ thợ');
   const pageSubtitle = isCanhVan ? 'Worker profile' : `Mã thợ: #${workerId}`;
 

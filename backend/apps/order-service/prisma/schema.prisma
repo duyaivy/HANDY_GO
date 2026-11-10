@@ -184,15 +184,17 @@ model Order {
 }
 
 model OrderEvidence {
-  id          String   @id @default(uuid()) @db.Uuid
-  orderId     String   @map("order_id") @db.Uuid
-  mediaType   String   @map("media_type") @db.VarChar(30)
-  mediaUrl    String   @map("media_url") @db.Text
-  description String?  @db.Text
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  orderId          String   @map("order_id") @db.Uuid
+  clientEvidenceId String?  @map("client_evidence_id") @db.VarChar(100)
+  mediaType        String   @map("media_type") @db.VarChar(30)
+  mediaUrl         String   @map("media_url") @db.Text
+  description      String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
+  @@unique([orderId, clientEvidenceId])
   @@index([orderId])
   @@map("order_evidences")
   @@schema("order_service")
