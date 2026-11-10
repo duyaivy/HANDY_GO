@@ -19,6 +19,7 @@ export class TrackingEventsService {
   private readonly logger = new Logger(TrackingEventsService.name);
 
   static readonly MAX_PENDING_AGE_ALERT_MS = 60_000;
+  static readonly MAX_REJECTED_ENVELOPE_BYTES = 65_536;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -139,10 +140,25 @@ export class TrackingEventsService {
     }
 
     if (!serviceRequestId) {
+      const envelope = this.quarantineEnvelope(data, eventType, String(rawEventId));
+      try {
+        await this.prisma.rejectedTrackingEvent.upsert({
+          where: { eventId: String(rawEventId) },
+          create: {
+            eventId: String(rawEventId),
+            eventType: eventType.slice(0, 100),
+            envelope: JSON.parse(JSON.stringify(envelope)),
+            reason: 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW',
+          },
+          update: {},
+        });
+      } catch (error) {
+        throw new Error('QUARANTINE_PERSIST_FAILED', { cause: error });
+      }
       this.logger.warn(
-        `Event ${rawEventId} (${eventType}) dropped as invalid payload: neither serviceRequestId nor recognized orderId could be resolved.`,
+        `Event ${rawEventId} (${eventType}) quarantined: neither serviceRequestId nor orderId could be resolved.`,
       );
-      return { recorded: false, reason: 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW' };
+      return { recorded: false, reason: 'QUARANTINED_UNRESOLVABLE_FLOW' };
     }
 
     // 3. Resolve Entity Type, Entity ID and Source Service
@@ -267,6 +283,10 @@ export class TrackingEventsService {
         await tx.pendingTrackingEvent.deleteMany({
           where: { eventId: String(rawEventId) },
         });
+        await tx.rejectedTrackingEvent.updateMany({
+          where: { eventId: String(rawEventId), resolvedAt: null },
+          data: { resolvedAt: new Date() },
+        });
       });
 
       this.logger.log(
@@ -324,6 +344,77 @@ export class TrackingEventsService {
       );
       throw error;
     }
+  }
+
+  async replayRejectedEvent(
+    eventId: string,
+    serviceRequestId?: string,
+  ): Promise<{ recorded: boolean; reason?: string }> {
+    const rejected = await this.prisma.rejectedTrackingEvent.findUnique({
+      where: { eventId },
+    });
+    if (!rejected) throw new Error('REJECTED_EVENT_NOT_FOUND');
+    if (rejected.resolvedAt) return { recorded: false, reason: 'ALREADY_RESOLVED' };
+    const original = rejected.envelope as unknown as EventEnvelope;
+    if (original.truncated) throw new Error('REJECTED_ENVELOPE_TRUNCATED: republish from producer');
+    const result = await this.recordDomainEvent(
+      { ...original, eventId, ...(serviceRequestId ? { serviceRequestId } : {}) },
+      rejected.eventType,
+    );
+    if (
+      result.recorded ||
+      result.reason === 'ALREADY_CONSUMED' ||
+      result.reason === 'IDEMPOTENT_DUPLICATE'
+    ) {
+      await this.prisma.rejectedTrackingEvent.updateMany({
+        where: { eventId, resolvedAt: null },
+        data: { resolvedAt: new Date() },
+      });
+    }
+    return result;
+  }
+
+  async countUnresolvedRejectedEvents(): Promise<number> {
+    return this.prisma.rejectedTrackingEvent.count({ where: { resolvedAt: null } });
+  }
+
+  private quarantineEnvelope(
+    data: EventEnvelope,
+    eventType: string,
+    eventId: string,
+  ): Record<string, unknown> {
+    let truncated = false;
+    const scrub = (value: unknown, depth: number): unknown => {
+      if (depth > 8) {
+        truncated = true;
+        return '[truncated]';
+      }
+      if (typeof value === 'string') {
+        if (value.length > 2048) truncated = true;
+        return value.slice(0, 2048);
+      }
+      if (value instanceof Date) return value.toISOString();
+      if (Array.isArray(value)) {
+        if (value.length > 100) truncated = true;
+        return value.slice(0, 100).map((item) => scrub(item, depth + 1));
+      }
+      if (value && typeof value === 'object') {
+        if (Object.keys(value).length > 100) truncated = true;
+        return Object.fromEntries(
+          Object.entries(value)
+            .slice(0, 100)
+            .filter(([key]) => !/(token|secret|password|authorization|credential|api.?key|cookie)/i.test(key))
+            .map(([key, item]) => [key, scrub(item, depth + 1)]),
+        );
+      }
+      return value ?? null;
+    };
+    const envelope = scrub(data, 0) as Record<string, unknown>;
+    if (truncated) envelope.truncated = true;
+    if (Buffer.byteLength(JSON.stringify(envelope), 'utf8') <= TrackingEventsService.MAX_REJECTED_ENVELOPE_BYTES) {
+      return envelope;
+    }
+    return { eventId, eventType: eventType.slice(0, 100), truncated: true };
   }
 
   async flushPendingOrderEvents(

@@ -35,6 +35,12 @@ describe('TrackingEventsService', () => {
         updateMany: vi.fn(),
         findMany: vi.fn().mockResolvedValue([]),
       },
+      rejectedTrackingEvent: {
+        upsert: vi.fn(),
+        findUnique: vi.fn(),
+        updateMany: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
+      },
       consumedEvent: {
         findUnique: vi.fn(),
         create: vi.fn(),
@@ -55,6 +61,88 @@ describe('TrackingEventsService', () => {
   });
 
   describe('Idempotency & Deduplication', () => {
+    it('quarantines an unresolvable event once with bounded redacted data', async () => {
+      const eventId = randomUUID();
+      const event = {
+        eventId,
+        eventType: 'order.status.changed',
+        payload: { status: 'confirmed', accessToken: 'private', detail: 'x'.repeat(100_000) },
+      };
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      expect(await service.recordDomainEvent(event)).toEqual({
+        recorded: false,
+        reason: 'QUARANTINED_UNRESOLVABLE_FLOW',
+      });
+      expect(await service.recordDomainEvent(event)).toEqual({
+        recorded: false,
+        reason: 'QUARANTINED_UNRESOLVABLE_FLOW',
+      });
+      expect(prismaMock.rejectedTrackingEvent.upsert).toHaveBeenCalledTimes(2);
+      const create = prismaMock.rejectedTrackingEvent.upsert.mock.calls[0][0].create;
+      expect(create.eventId).toBe(eventId);
+      expect(create.envelope.payload.accessToken).toBeUndefined();
+      expect(create.envelope.payload.detail.length).toBeLessThanOrEqual(2048);
+      expect(Buffer.byteLength(JSON.stringify(create.envelope))).toBeLessThanOrEqual(65_536);
+      expect(prismaMock.trackingEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('surfaces quarantine persistence failure for RabbitMQ requeue', async () => {
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.rejectedTrackingEvent.upsert.mockRejectedValue(new Error('database down'));
+      await expect(service.recordDomainEvent({ eventId: randomUUID() })).rejects.toThrow('QUARANTINE_PERSIST_FAILED');
+    });
+
+    it('keeps an oversized rejection bounded and prevents replay of partial data', async () => {
+      const eventId = randomUUID();
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      await service.recordDomainEvent({
+        eventId,
+        eventType: 'order.status.changed',
+        payload: Object.fromEntries(Array.from({ length: 90 }, (_, index) => [`field${index}`, 'x'.repeat(1000)])),
+      });
+      const envelope = prismaMock.rejectedTrackingEvent.upsert.mock.calls[0][0].create.envelope;
+      expect(envelope).toEqual({ eventId, eventType: 'order.status.changed', truncated: true });
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope,
+        resolvedAt: null,
+      });
+      await expect(service.replayRejectedEvent(eventId, randomUUID())).rejects.toThrow('REJECTED_ENVELOPE_TRUNCATED');
+    });
+
+    it('replays by event ID and marks the rejection resolved after recording', async () => {
+      const eventId = randomUUID();
+      const serviceRequestId = randomUUID();
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope: { eventId, payload: { nextStatus: 'confirmed' } },
+        resolvedAt: null,
+      });
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID(), serviceRequestId });
+      const result = await service.replayRejectedEvent(eventId, serviceRequestId);
+      expect(result).toEqual({ recorded: true });
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledOnce();
+      expect(prismaMock.rejectedTrackingEvent.updateMany).toHaveBeenCalledWith({
+        where: { eventId, resolvedAt: null },
+        data: { resolvedAt: expect.any(Date) },
+      });
+    });
+
+    it('leaves a rejection unresolved when replay still cannot map a flow', async () => {
+      const eventId = randomUUID();
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope: { eventId, payload: { nextStatus: 'confirmed' } },
+        resolvedAt: null,
+      });
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      expect((await service.replayRejectedEvent(eventId)).reason).toBe('QUARANTINED_UNRESOLVABLE_FLOW');
+      expect(prismaMock.rejectedTrackingEvent.updateMany).not.toHaveBeenCalled();
+    });
     it('records bidding closure once and retains the business closure time', async () => {
       const eventId = randomUUID();
       const serviceRequestId = randomUUID();
@@ -248,7 +336,7 @@ describe('TrackingEventsService', () => {
       );
     });
 
-    it('should drop truly invalid payload without serviceRequestId or orderId as INVALID_PAYLOAD_UNRESOLVABLE_FLOW', async () => {
+    it('quarantines a payload without serviceRequestId or orderId', async () => {
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
 
       const result = await service.recordDomainEvent({
@@ -260,7 +348,8 @@ describe('TrackingEventsService', () => {
       });
 
       expect(result.recorded).toBe(false);
-      expect(result.reason).toBe('INVALID_PAYLOAD_UNRESOLVABLE_FLOW');
+      expect(result.reason).toBe('QUARANTINED_UNRESOLVABLE_FLOW');
+      expect(prismaMock.rejectedTrackingEvent.upsert).toHaveBeenCalledOnce();
     });
 
     it.each([

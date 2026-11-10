@@ -349,9 +349,9 @@ export class TrackingEventsConsumer {
         data,
         fallbackPattern,
       );
-      if (result.reason === 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW') {
+      if (result.reason === 'QUARANTINED_UNRESOLVABLE_FLOW') {
         this.logger.warn(
-          `Message ${eventId} (${fallbackPattern}) acknowledged without recording: invalid payload missing serviceRequestId and orderId.`,
+          `Message ${eventId} (${fallbackPattern}) acknowledged after quarantine.`,
         );
         this.ackMessage(context);
         return;
@@ -371,6 +371,7 @@ export class TrackingEventsConsumer {
 
   private isTransientError(error: any): boolean {
     if (
+      error?.message === 'QUARANTINE_PERSIST_FAILED' ||
       ['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(
         error?.code,
       )

@@ -46,6 +46,24 @@ describe('TrackingEventsConsumer', () => {
     expect(channelMock.ack).toHaveBeenCalledTimes(1);
   });
 
+  it('ACKs an unresolvable event only after durable quarantine', async () => {
+    let persist!: (value: any) => void;
+    eventsServiceMock.recordDomainEvent.mockReturnValue(new Promise(resolve => { persist = resolve; }));
+    const delivery = consumer.handleOrderStatusChanged({ eventId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    persist({ recorded: false, reason: 'QUARANTINED_UNRESOLVABLE_FLOW' });
+    await delivery;
+    expect(channelMock.ack).toHaveBeenCalledOnce();
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('requeues when PostgreSQL cannot persist the quarantine record', async () => {
+    eventsServiceMock.recordDomainEvent.mockRejectedValue(new Error('QUARANTINE_PERSIST_FAILED'));
+    await consumer.handleOrderStatusChanged({ eventId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+  });
+
   it('should acknowledge message upon successful event recording', async () => {
     eventsServiceMock.recordDomainEvent.mockResolvedValue({ recorded: true });
 
