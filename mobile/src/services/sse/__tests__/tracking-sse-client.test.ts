@@ -67,7 +67,7 @@ describe('TrackingSseClient & Tracking Module Tests', () => {
         eventId: 'orig-1',
         entityType: 'order',
         entityId: 'ord-123',
-        eventType: 'order.started',
+        eventType: 'order.status.changed',
         sourceService: 'order-service',
         fromStatus: 'confirmed',
         toStatus: 'in_progress',

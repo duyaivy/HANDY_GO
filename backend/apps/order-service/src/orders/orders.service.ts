@@ -405,23 +405,6 @@ export class OrdersService {
         },
       });
 
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_CONFIRMED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            confirmedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
-
       await this.emitOrderStatusChangedEvent(
         tx,
         order,
@@ -528,23 +511,6 @@ export class OrdersService {
         },
       });
 
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_STARTED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            startedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
-
       await this.emitOrderStatusChangedEvent(
         tx,
         order,
@@ -635,23 +601,6 @@ export class OrdersService {
             'Worker completed work and submitted evidence for confirmation',
         },
       });
-
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_FINISHED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            finishedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
 
       await this.emitOrderStatusChangedEvent(
         tx,

@@ -573,10 +573,12 @@ describe('SummaryService', () => {
             toStatus: 'created',
           },
           {
-            eventType: 'order.started',
+            eventType: 'order.status.changed',
             entityType: TrackingEntityType.order,
             entityId: orderId,
             occurredAt: new Date(),
+            fromStatus: 'confirmed',
+            toStatus: 'in_progress',
           },
         ],
       });
@@ -661,6 +663,58 @@ describe('SummaryService', () => {
       expect(nextStatusSummary.order?.status).toBe('in_progress');
     });
 
+    it('derives the awaiting-confirmation milestone from one status change', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const finishedAt = new Date('2026-11-10T10:00:00.000Z');
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date('2026-11-10T09:00:00.000Z'),
+        updatedAt: finishedAt,
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date('2026-11-10T09:00:00.000Z'),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: finishedAt,
+            fromStatus: 'in_progress',
+            toStatus: 'awaiting_customer_confirmation',
+            metadata: {
+              previousStatus: 'in_progress',
+              nextStatus: 'awaiting_customer_confirmation',
+              finishedAt: finishedAt.toISOString(),
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('AWAITING_CONFIRMATION');
+      expect(summary.order).toMatchObject({
+        status: 'awaiting_customer_confirmation',
+        finishedAt,
+      });
+    });
+
     it('should transition to ORDER_IN_PROGRESS and record reworkReason when rework is requested', async () => {
       const customerId = randomUUID();
       const serviceRequestId = randomUUID();
@@ -689,10 +743,11 @@ describe('SummaryService', () => {
             toStatus: 'created',
           },
           {
-            eventType: 'order.finished',
+            eventType: 'order.status.changed',
             entityType: TrackingEntityType.order,
             entityId: orderId,
             occurredAt: new Date(Date.now() - 20000),
+            fromStatus: 'in_progress',
             toStatus: 'awaiting_customer_confirmation',
           },
           {

@@ -142,6 +142,30 @@ describe('OrdersService', () => {
     statusHistory: [],
   };
 
+  const expectSingleStatusTransition = (
+    previousStatus: string,
+    nextStatus: string,
+    timestampField: 'confirmedAt' | 'startedAt' | 'finishedAt',
+  ) => {
+    expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(1);
+    expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+        aggregateId: mockOrderId,
+        eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+        payload: expect.objectContaining({
+          orderId: mockOrderId,
+          customerId: mockCustomerId,
+          workerId: mockWorkerId,
+          previousStatus,
+          nextStatus,
+          [timestampField]: expect.any(String),
+        }),
+      }),
+      txMock,
+    );
+  };
+
   beforeEach(() => {
     let lastOrderUpdatedData: any = null;
 
@@ -443,7 +467,7 @@ describe('OrdersService', () => {
   });
 
   describe('confirmReadiness', () => {
-    it('should confirm readiness (created -> confirmed) and emit order.confirmed', async () => {
+    it('should confirm readiness (created -> confirmed) with one status event', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'created',
@@ -466,12 +490,7 @@ describe('OrdersService', () => {
           data: expect.objectContaining({ status: 'confirmed' }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_CONFIRMED,
-        }),
-        txMock,
-      );
+      expectSingleStatusTransition('created', 'confirmed', 'confirmedAt');
       expect(result.status).toBe('confirmed');
     });
 
@@ -496,7 +515,7 @@ describe('OrdersService', () => {
   });
 
   describe('start', () => {
-    it('should start work (confirmed -> in_progress) and emit order.started', async () => {
+    it('should start work (confirmed -> in_progress) with one status event', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'confirmed',
@@ -519,12 +538,7 @@ describe('OrdersService', () => {
           data: expect.objectContaining({ status: 'in_progress' }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_STARTED,
-        }),
-        txMock,
-      );
+      expectSingleStatusTransition('confirmed', 'in_progress', 'startedAt');
       expect(result.status).toBe('in_progress');
     });
 
@@ -595,11 +609,10 @@ describe('OrdersService', () => {
           }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_FINISHED,
-        }),
-        txMock,
+      expectSingleStatusTransition(
+        'in_progress',
+        'awaiting_customer_confirmation',
+        'finishedAt',
       );
       expect(result.status).toBe('awaiting_customer_confirmation');
     });

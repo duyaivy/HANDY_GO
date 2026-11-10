@@ -29,8 +29,8 @@ Thực hiện kịch bản 8 bước với 2 thiết bị độc lập:
 | **2** | Thợ (Máy B) | Báo giá dịch vụ | Thấy số lượng thợ báo giá cập nhật. | Trạng thái báo giá: "Đã gửi báo giá". |
 | **3** | Khách (Máy A) | Chấp nhận báo giá $\to$ Tạo đề xuất | Trạng thái: "Đang chờ thợ xác nhận". | Nhận được đề xuất đặt việc từ Khách. |
 | **4** | Thợ (Máy B) | Bấm "Chấp nhận đề xuất" | Màn hình Khách **tự động nhảy sang Đơn hàng mới** mà không cần vuốt. Cột mốc "Đã tạo đơn" sáng xanh. | Chuyển sang màn hình Chi tiết Công việc. Nút "Bắt đầu làm" sẵn sàng. |
-| **5** | Thợ (Máy B) | Bấm "Bắt đầu làm việc" (`order.started`) | Mốc **"Thợ đang làm việc" sáng xanh trong vòng < 1 giây** qua SSE. | Nút chuyển sang "Báo hoàn tất công việc". |
-| **6** | Thợ (Máy B) | Chụp ảnh minh chứng $\to$ Báo xong việc (`order.finished`) | Màn hình hiện thông báo: "Thợ đã làm xong! Vui lòng nghiệm thu". | Màn hình hiển thị: "Đang chờ khách nghiệm thu". |
+| **5** | Thợ (Máy B) | Bấm "Bắt đầu làm việc" (`order.status.changed`: `confirmed` → `in_progress`) | Mốc **"Thợ đang làm việc" sáng xanh trong vòng < 1 giây** qua SSE. | Nút chuyển sang "Báo hoàn tất công việc". |
+| **6** | Thợ (Máy B) | Chụp ảnh minh chứng $\to$ Báo xong việc (`order.status.changed`: `in_progress` → `awaiting_customer_confirmation`) | Màn hình hiện thông báo: "Thợ đã làm xong! Vui lòng nghiệm thu". | Màn hình hiển thị: "Đang chờ khách nghiệm thu". |
 | **7** | Khách (Máy A) | Bấm "Yêu cầu làm lại" (`request-rework`) | Cột mốc quay lại màu xanh dương kèm lý do yêu cầu sửa. | **Máy B lập tức bật Alert thông báo lý do sửa**, nút hoàn tất được mở lại. |
 | **8** | Khách (Máy A) | Thợ làm lại xong $\to$ Khách bấm "Nghiệm thu hoàn tất" (`order.completed`) | Cột mốc "Hoàn tất" sáng xanh. | **Máy B bật thông báo chúc mừng**, công việc hoàn thành 100%. |
 

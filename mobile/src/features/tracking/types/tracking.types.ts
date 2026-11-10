@@ -6,6 +6,7 @@ export type TrackingPhase
     | 'ORDER_CONFIRMED'
     | 'ORDER_IN_PROGRESS'
     | 'ORDER_FINISHED'
+    | 'AWAITING_CONFIRMATION'
     | 'COMPLETED'
     | 'CANCELLED'
     | 'EXPIRED'
@@ -84,6 +85,7 @@ export type OrderMilestoneData = {
   workerUserId?: string;
   totalAmount?: number;
   createdAt?: string;
+  finishedAt?: string;
   completedAt?: string;
   cancelledAt?: string;
   reworkReason?: string;
@@ -217,7 +219,7 @@ export function computeMilestonesFromSummary(
 
   // 4. Order Execution Milestone
   const orderStatus = order?.status;
-  const isOrderCompleted = orderStatus === 'completed' || phase === 'COMPLETED' || phase === 'ORDER_FINISHED';
+  const isOrderCompleted = orderStatus === 'completed' || orderStatus === 'awaiting_customer_confirmation' || phase === 'COMPLETED' || phase === 'AWAITING_CONFIRMATION' || phase === 'ORDER_FINISHED';
   const isOrderDisputed = orderStatus === 'disputed' || phase === 'DISPUTED';
   const isOrderActive = hasOrder && (orderStatus === 'in_progress' || orderStatus === 'confirmed' || phase === 'ORDER_IN_PROGRESS' || phase === 'ORDER_CONFIRMED');
 
@@ -232,12 +234,12 @@ export function computeMilestonesFromSummary(
           ? (order?.reworkReason ? `Đang làm lại: ${order.reworkReason}` : 'Thợ đang tiến hành thực hiện')
           : 'Chờ thợ bắt đầu công việc',
     status: isOrderCompleted ? 'completed' : (isOrderActive || isOrderDisputed) ? 'in_progress' : 'pending',
-    reachedAt: order?.completedAt || order?.createdAt || null,
+    reachedAt: isOrderCompleted ? order?.completedAt || order?.finishedAt || order?.createdAt || null : order?.createdAt || null,
   });
 
   // 5. Payment & Finalization Milestone
   const isPaymentCompleted = payment?.status === 'succeeded' || phase === 'COMPLETED';
-  const isPaymentPending = phase === 'ORDER_FINISHED' || payment?.status === 'pending';
+  const isPaymentPending = orderStatus === 'awaiting_customer_confirmation' || phase === 'AWAITING_CONFIRMATION' || phase === 'ORDER_FINISHED' || payment?.status === 'pending';
 
   milestones.push({
     key: 'payment_completion',

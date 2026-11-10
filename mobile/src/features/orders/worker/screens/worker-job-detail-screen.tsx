@@ -152,7 +152,7 @@ export function WorkerJobDetailScreen({
     if (trackingSummary?.currentPhase === 'ORDER_IN_PROGRESS') {
       return 'in_progress';
     }
-    if (trackingSummary?.currentPhase === 'ORDER_FINISHED') {
+    if (trackingSummary?.currentPhase === 'AWAITING_CONFIRMATION' || trackingSummary?.currentPhase === 'ORDER_FINISHED') {
       return 'awaiting_customer_confirmation';
     }
     if (trackingSummary?.currentPhase === 'COMPLETED') {

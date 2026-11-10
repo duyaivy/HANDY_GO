@@ -94,6 +94,9 @@ export class OrderMilestoneDto {
   createdAt?: Date;
 
   @ApiPropertyOptional()
+  finishedAt?: Date;
+
+  @ApiPropertyOptional()
   completedAt?: Date;
 
   @ApiPropertyOptional()

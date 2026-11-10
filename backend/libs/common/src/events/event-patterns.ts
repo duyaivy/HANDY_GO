@@ -13,7 +13,6 @@ export const EVENT_PATTERNS = {
 
   ORDER_CREATED: 'order.created',
   ORDER_ACCEPTED: 'order.accepted',
-  ORDER_STARTED: 'order.started',
   ORDER_STATUS_CHANGED: 'order.status.changed',
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',

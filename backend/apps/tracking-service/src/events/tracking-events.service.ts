@@ -553,6 +553,8 @@ export class TrackingEventsService {
       'disputedAt',
       'resolvedAt',
       'finishedAt',
+      'confirmedAt',
+      'startedAt',
       'notificationKind',
       'previousStatus',
       'nextStatus',

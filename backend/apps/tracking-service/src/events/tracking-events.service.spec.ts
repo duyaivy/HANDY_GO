@@ -263,56 +263,67 @@ describe('TrackingEventsService', () => {
       expect(result.reason).toBe('INVALID_PAYLOAD_UNRESOLVABLE_FLOW');
     });
 
-    it('should map nextStatus to toStatus and previousStatus to fromStatus using exact Order Service payload contract', async () => {
-      const orderId = randomUUID();
-      const customerUserId = randomUUID();
-      const workerUserId = randomUUID();
-      const serviceRequestId = randomUUID();
-      const flowId = randomUUID();
+    it.each([
+      ['created', 'confirmed', 'confirmedAt'],
+      ['confirmed', 'in_progress', 'startedAt'],
+      ['in_progress', 'awaiting_customer_confirmation', 'finishedAt'],
+    ] as const)(
+      'maps the %s -> %s Order status contract into one timeline event',
+      async (previousStatus, nextStatus, timestampField) => {
+        const orderId = randomUUID();
+        const customerUserId = randomUUID();
+        const workerUserId = randomUUID();
+        const serviceRequestId = randomUUID();
+        const flowId = randomUUID();
 
-      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-      prismaMock.trackingFlow.findUnique.mockResolvedValue({
-        id: flowId,
-        serviceRequestId,
-        orderId,
-      });
-      prismaMock.trackingFlow.upsert.mockResolvedValue({
-        id: flowId,
-        serviceRequestId,
-        orderId,
-      });
+        prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+        prismaMock.trackingFlow.findUnique.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          orderId,
+        });
+        prismaMock.trackingFlow.upsert.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          orderId,
+        });
 
-      const orderServicePayload = {
-        orderId,
-        customerId: customerUserId,
-        customerUserId,
-        workerId: workerUserId,
-        workerUserId,
-        previousStatus: 'confirmed',
-        nextStatus: 'in_progress',
-        notificationKind: 'status_update',
-      };
+        const orderServicePayload = {
+          orderId,
+          customerId: customerUserId,
+          customerUserId,
+          workerId: workerUserId,
+          workerUserId,
+          previousStatus,
+          nextStatus,
+          notificationKind: 'status_update',
+          [timestampField]: '2026-11-10T10:00:00.000Z',
+        };
 
-      const result = await service.recordDomainEvent({
-        eventId: randomUUID(),
-        eventType: 'order.status.changed',
-        payload: orderServicePayload,
-      });
+        const result = await service.recordDomainEvent({
+          eventId: randomUUID(),
+          eventType: 'order.status.changed',
+          payload: orderServicePayload,
+        });
 
-      expect(result.recorded).toBe(true);
-      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            entityType: TrackingEntityType.order,
-            entityId: orderId,
-            eventType: 'order.status.changed',
-            fromStatus: 'confirmed',
-            toStatus: 'in_progress',
-            actorUserId: workerUserId,
+        expect(result.recorded).toBe(true);
+        expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              entityType: TrackingEntityType.order,
+              entityId: orderId,
+              eventType: 'order.status.changed',
+              fromStatus: previousStatus,
+              toStatus: nextStatus,
+              actorUserId: workerUserId,
+              metadata: expect.objectContaining({
+                [timestampField]: '2026-11-10T10:00:00.000Z',
+              }),
+            }),
           }),
-        }),
-      );
-    });
+        );
+      },
+    );
   });
 
   describe('PostgreSQL pending inbox', () => {

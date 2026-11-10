@@ -191,9 +191,9 @@ Mục tiêu: Đảm bảo độ tin cậy tuyệt đối trước khi đóng tic
     1. Thiết bị A (Khách): Tạo yêu cầu đặt việc $\to$ Xuất bản yêu cầu.
     2. Thiết bị B (Thợ): Báo giá $\to$ Khách tạo Proposal $\to$ Thợ chấp nhận $\to$ Đơn hàng tạo thành công (`order.created`).
     3. Cả 2 máy mở màn hình chi tiết đơn: Cột mốc "Đã tạo đơn" sáng xanh.
-    4. Thiết bị B: Bấm "Bắt đầu làm việc" (`order.started`).
+    4. Thiết bị B: Bấm "Bắt đầu làm việc" (`order.status.changed`: `confirmed` → `in_progress`).
     5. Thiết bị A: Quan sát màn hình khách hàng tự động cập nhật mốc "Đang thực hiện" trong vòng **< 1 giây** qua SSE.
-    6. Thiết bị B: Báo hoàn tất (`order.finished`).
+    6. Thiết bị B: Báo hoàn tất (`order.status.changed`: `in_progress` → `awaiting_customer_confirmation`).
     7. Thiết bị A: Tự động hiện thông báo "Thợ đã làm xong, vui lòng nghiệm thu". Khách bấm "Nghiệm thu" (`order.completed`).
     8. Cả 2 máy chuyển sang mốc "Hoàn tất".
   - **Tiêu chí chấp thuận:** Luồng chạy mượt mà, không phát sinh lỗi console, không cần pull-to-refresh thủ công. Đã tự động hóa toàn diện trong [`tracking-e2e-resilience.test.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx). *(Đã hoàn thành - Commit `7ae0b85`)*

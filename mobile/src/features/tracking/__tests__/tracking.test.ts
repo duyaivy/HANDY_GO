@@ -13,6 +13,32 @@ describe('Tracking API & Hooks Unit Tests', () => {
   });
 
   describe('TrackingApi', () => {
+    it('shows work finished and payment pending while awaiting customer confirmation', async () => {
+      const finishedAt = '2026-11-10T10:00:00.000Z';
+      (request as jest.Mock).mockResolvedValue({
+        serviceRequestId: 'req-finished',
+        orderId: 'order-finished',
+        currentPhase: 'AWAITING_CONFIRMATION',
+        order: {
+          orderId: 'order-finished',
+          status: 'awaiting_customer_confirmation',
+          createdAt: '2026-11-10T09:00:00.000Z',
+          finishedAt,
+        },
+      });
+
+      const result = await TrackingApi.getSummary('req-finished');
+      expect(result.milestones.find(item => item.key === 'order_execution')).toMatchObject({
+        status: 'completed',
+        reachedAt: finishedAt,
+        description: 'Thợ đã hoàn thành công việc',
+      });
+      expect(result.milestones.find(item => item.key === 'payment_completion')).toMatchObject({
+        status: 'in_progress',
+        description: 'Chờ khách hàng nghiệm thu và thanh toán',
+      });
+    });
+
     it('shows bidding closure without implying a worker was selected', async () => {
       const biddingClosedAt = '2026-11-10T10:00:00.000Z';
       (request as jest.Mock).mockResolvedValue({

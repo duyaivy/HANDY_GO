@@ -269,6 +269,15 @@ export class SummaryService {
       const orderCompleted = [...events]
         .reverse()
         .find((e) => e.eventType === 'order.completed');
+      const orderFinished = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.status.changed' &&
+            (e.toStatus === 'awaiting_customer_confirmation' ||
+              (e.metadata as any)?.nextStatus ===
+                'awaiting_customer_confirmation'),
+        );
 
       let orderStatus = 'created';
       if (latestOrderEvent) {
@@ -302,8 +311,6 @@ export class SummaryService {
           orderStatus = 'in_progress';
         } else if (targetStatus) {
           orderStatus = targetStatus;
-        } else if (latestOrderEvent.eventType === 'order.started') {
-          orderStatus = 'in_progress';
         } else if (latestOrderEvent.eventType === 'order.accepted') {
           orderStatus = 'confirmed';
         } else {
@@ -352,6 +359,7 @@ export class SummaryService {
         orderId: flow.orderId || orderCreatedEvent?.entityId,
         status: orderStatus,
         createdAt: orderCreatedEvent?.occurredAt || flow.updatedAt,
+        finishedAt: orderFinished?.occurredAt,
         completedAt: orderCompleted?.occurredAt,
         cancelledAt: orderCancelled?.occurredAt,
         ...(reworkReason ? { reworkReason } : {}),
