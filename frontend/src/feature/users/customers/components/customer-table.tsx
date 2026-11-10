@@ -12,6 +12,7 @@ import {
   RefreshCw,
   AlertCircle,
   Inbox,
+  Copy,
   CalendarDays,
 } from "lucide-react";
 
@@ -158,6 +159,36 @@ function SummaryCard({
         <Icon size={21} strokeWidth={1.8} />
       </div>
     </div>
+  );
+}
+
+function CopyUserId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Sao chép User ID: ${id}`}
+      aria-label={`Sao chép User ID ${id}`}
+      className={`inline-flex max-w-full items-center gap-1.5 text-left text-[12px] text-[#64748B] transition-colors hover:text-[#FF5E14] ${FOCUS_RING}`}
+    >
+      <span className="truncate">User ID: {id.slice(0, 8)}…</span>
+      <Copy className="h-3.5 w-3.5 shrink-0" />
+      {copied && <span className="shrink-0 text-emerald-600">Đã sao chép</span>}
+    </button>
   );
 }
 
@@ -381,7 +412,7 @@ export function CustomerTable() {
                   setSearchTerm(event.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Tìm theo tên hoặc ID khách hàng..."
+                placeholder="Tìm theo tên hoặc User ID đầy đủ..."
                 className={`h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white pr-3 pl-10 text-[13px] text-[#0F172A] placeholder:text-slate-400 outline-none transition-colors focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14] ${FOCUS_RING}`}
               />
             </div>
@@ -397,7 +428,6 @@ export function CustomerTable() {
               >
                 <option value="all">Tất cả trạng thái</option>
                 <option value="active">Đang hoạt động</option>
-                <option value="inactive">Ngừng hoạt động</option>
                 <option value="suspended">Tạm khóa</option>
                 <option value="deleted">Đã xóa</option>
               </select>
@@ -495,12 +525,9 @@ export function CustomerTable() {
                             {customer.fullName || "Chưa cập nhật tên"}
                           </p>
 
-                          <p
-                            title={customer.id}
-                            className="mt-1 truncate text-[12px] text-[#64748B]"
-                          >
-                            ID: {customer.id}
-                          </p>
+                          <div className="mt-1 min-w-0">
+                            <CopyUserId id={customer.id} />
+                          </div>
                         </div>
 
                         <CustomerStatusBadge status={customer.status} />
@@ -612,12 +639,9 @@ export function CustomerTable() {
                                 {customer.fullName || "Chưa cập nhật tên"}
                               </p>
 
-                              <p
-                                title={customer.id}
-                                className="mt-1 truncate text-[12px] text-[#64748B]"
-                              >
-                                ID: {customer.id}
-                              </p>
+                              <div className="mt-1 min-w-0">
+                                <CopyUserId id={customer.id} />
+                              </div>
                             </div>
                           </div>
                         </td>

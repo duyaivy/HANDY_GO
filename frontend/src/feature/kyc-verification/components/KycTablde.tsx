@@ -334,7 +334,7 @@ export const KycTable: React.FC = () => {
               <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
                 <th className="py-3.5 px-6">Thợ</th>
                 <th className="py-3.5 px-4">Mã hồ sơ</th>
-                <th className="py-3.5 px-4">Ngày nộp</th>
+                <th className="py-3.5 px-4">Ngày tạo</th>
                 <th className="py-3.5 px-4">Trạng thái</th>
                 <th className="py-3.5 px-3 text-center">Thao tác</th>
               </tr>
@@ -448,7 +448,7 @@ export const KycTable: React.FC = () => {
                       </td>
 
                       <td className="py-4 px-4 whitespace-nowrap">
-                        {renderDateTime(record.submittedAt)}
+                        {renderDateTime(record.createdAt)}
                       </td>
 
                       <td className="py-4 px-4 whitespace-nowrap">
@@ -565,8 +565,8 @@ export const KycTable: React.FC = () => {
                       </button>
                     </div>
                     <div>
-                      <p className="mb-1 text-xs text-slate-500">Ngày nộp</p>
-                      {renderDateTime(record.submittedAt)}
+                      <p className="mb-1 text-xs text-slate-500">Ngày tạo</p>
+                      {renderDateTime(record.createdAt)}
                     </div>
                   </div>
                   <button

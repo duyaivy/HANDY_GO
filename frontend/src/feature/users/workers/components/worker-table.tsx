@@ -13,6 +13,7 @@ import {
   RefreshCw,
   AlertCircle,
   Inbox,
+  Copy,
 } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -199,6 +200,36 @@ function SummaryCard({
         <Icon size={21} strokeWidth={1.8} />
       </div>
     </div>
+  );
+}
+
+function CopyUserId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Sao chép User ID: ${id}`}
+      aria-label={`Sao chép User ID ${id}`}
+      className={`inline-flex max-w-full items-center gap-1.5 text-left text-[12px] text-[#64748B] transition-colors hover:text-[#FF5E14] ${FOCUS_RING}`}
+    >
+      <span className="truncate">ID: {id.slice(0, 8)}...</span>
+      <Copy className="h-3.5 w-3.5 shrink-0" />
+      {copied && <span className="shrink-0 text-emerald-600">Đã sao chép</span>}
+    </button>
   );
 }
 
@@ -425,13 +456,14 @@ export function WorkerTable() {
                   setSearchTerm(event.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Tìm theo tên hoặc ID thợ..."
+                placeholder="Tìm theo tên hoặc User ID đầy đủ..."
                 className={`h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white pr-3 pl-10 text-[13px] text-[#0F172A] placeholder:text-slate-400 outline-none transition-colors focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14] ${FOCUS_RING}`}
               />
             </div>
 
             <div className="relative min-w-0">
               <select
+                aria-label="Lọc theo trạng thái tài khoản"
                 value={statusFilter}
                 onChange={(event) => {
                   setStatusFilter(event.target.value);
@@ -441,7 +473,6 @@ export function WorkerTable() {
               >
                 <option value="all">Tất cả tài khoản</option>
                 <option value="active">Đang hoạt động</option>
-                <option value="inactive">Ngừng hoạt động</option>
                 <option value="suspended">Tạm khóa</option>
                 <option value="deleted">Đã xóa</option>
               </select>
@@ -543,15 +574,17 @@ export function WorkerTable() {
                               {worker.fullName || "Chưa cập nhật tên"}
                             </p>
 
-                            <p
-                              title={profile?.id ?? worker.id}
-                              className="mt-1 truncate text-[12px] text-[#64748B]"
-                            >
-                              ID: {profile?.id ?? worker.id}
-                            </p>
+                            <div className="mt-1 min-w-0">
+                              <CopyUserId id={worker.id} />
+                            </div>
                           </div>
 
-                          <WorkerStatusBadge status={profile?.status} />
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <span className="text-[11px] text-slate-500">
+                              Hồ sơ thợ
+                            </span>
+                            <WorkerStatusBadge status={profile?.status} />
+                          </div>
                         </div>
 
                         <dl className="mt-4 divide-y divide-slate-200/70 rounded-xl bg-slate-50 px-3">
@@ -632,7 +665,7 @@ export function WorkerTable() {
 
                     <th className="px-3 py-3.5">Đơn hoàn thành</th>
 
-                    <th className="px-3 py-3.5">Trạng thái</th>
+                    <th className="px-3 py-3.5">Trạng thái hồ sơ thợ</th>
 
                     <th className="px-3 py-3.5 text-center">Thao tác</th>
                   </tr>
@@ -704,12 +737,9 @@ export function WorkerTable() {
                                   {worker.fullName || "Chưa cập nhật tên"}
                                 </p>
 
-                                <p
-                                  title={profile?.id ?? worker.id}
-                                  className="mt-1 truncate text-[12px] text-[#64748B]"
-                                >
-                                  ID: {profile?.id ?? worker.id}
-                                </p>
+                                <div className="mt-1 min-w-0">
+                                  <CopyUserId id={worker.id} />
+                                </div>
                               </div>
                             </div>
                           </td>
