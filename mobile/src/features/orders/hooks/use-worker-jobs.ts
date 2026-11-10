@@ -234,7 +234,13 @@ export function useWorkerJobDetail(jobId?: string) {
       const res = await OrdersApi.deleteEvidence(jobId, evidenceId);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (_result, evidenceId) => {
+      queryClient.setQueryData<Order>(
+        ordersQueryKeys.orderDetail(jobId!),
+        current => current
+          ? { ...current, evidences: current.evidences?.filter(evidence => evidence.id !== evidenceId) }
+          : current,
+      );
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
     },

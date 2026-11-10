@@ -906,12 +906,26 @@ describe('OrdersService', () => {
         createdAt: new Date(),
       };
 
-      // Both initial findFirst checks return null
+      let transactionActive = false;
+      prismaMock.$transaction.mockImplementation(async (callback) => {
+        transactionActive = true;
+        try {
+          return await callback(txMock);
+        } finally {
+          transactionActive = false;
+        }
+      });
+
+      // PostgreSQL rejects further queries in the transaction after a unique violation.
       prismaMock.orderEvidence.findFirst
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(null)
-        // Race condition fallback lookup returns existing
-        .mockResolvedValueOnce(existingEvidence);
+        .mockImplementationOnce(async () => {
+          if (transactionActive) {
+            throw new Error('current transaction is aborted (25P02)');
+          }
+          return existingEvidence;
+        });
 
       const p2002Error = new Error('Unique constraint failed on the fields: (order_id, client_evidence_id)');
       (p2002Error as any).code = 'P2002';
@@ -926,6 +940,9 @@ describe('OrdersService', () => {
 
       expect(result.id).toBe(mockEvidenceId);
       expect(result.clientEvidenceId).toBe(clientEvidenceId);
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenNthCalledWith(3, {
+        where: { orderId: mockOrderId, clientEvidenceId },
+      });
     });
 
     it('should throw ConflictException if adding evidence when order is not in_progress', async () => {

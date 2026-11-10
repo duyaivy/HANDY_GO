@@ -39,7 +39,7 @@ export function WorkerJobCompleteScreen({
   const searchParams = useLocalSearchParams<{ id?: string }>();
   const jobId = propJobId || searchParams?.id || 'JOB-1020';
 
-  const { finishOrder, order, uploadEvidence } = useWorkerJobDetail(jobId);
+  const { deleteEvidence, finishOrder, isDeletingEvidence, order, uploadEvidence } = useWorkerJobDetail(jobId);
 
   // Khởi tạo danh sách bằng chứng
   const [evidenceItems, setEvidenceItems] = React.useState<EvidenceImageItem[]>(() => {
@@ -58,6 +58,7 @@ export function WorkerJobCompleteScreen({
     }
     return [];
   });
+  const removedEvidenceIds = React.useRef(new Set<string>());
 
   // Đồng bộ lại bằng chứng đã được Order Service lưu khi mở lại màn hình (ORD-10)
   React.useEffect(() => {
@@ -66,7 +67,7 @@ export function WorkerJobCompleteScreen({
       setEvidenceItems((prev) => {
         const existingIds = new Set(prev.map(i => i.evidenceId || i.id));
         const newFromBackend: EvidenceImageItem[] = order.evidences!
-          .filter(e => !existingIds.has(e.id) && (!e.clientEvidenceId || !existingIds.has(e.clientEvidenceId)))
+          .filter(e => !removedEvidenceIds.current.has(e.id) && !existingIds.has(e.id) && (!e.clientEvidenceId || !existingIds.has(e.clientEvidenceId)))
           .map(e => ({
             id: e.clientEvidenceId || e.id,
             localUri: e.mediaUrl,
@@ -293,15 +294,26 @@ export function WorkerJobCompleteScreen({
 
   const handleRemoveEvidence = async (itemId: string) => {
     const target = evidenceItems.find(item => item.id === itemId);
-    setEvidenceItems(prev => prev.filter(item => item.id !== itemId));
+    if (!target || isDeletingEvidence || (target.evidenceId && removedEvidenceIds.current.has(target.evidenceId))) {
+      return;
+    }
+    if (target.persisted && !target.evidenceId && jobId !== 'JOB-1020') {
+      Alert.alert('Không thể xóa ảnh', 'Không tìm thấy mã ảnh trên máy chủ. Vui lòng tải lại đơn việc và thử lại.');
+      return;
+    }
     if (target?.persisted && target.evidenceId && jobId && jobId !== 'JOB-1020') {
+      removedEvidenceIds.current.add(target.evidenceId);
       try {
-        await OrdersApi.deleteEvidence(jobId, target.evidenceId);
+        await deleteEvidence(target.evidenceId);
       }
       catch (err) {
+        removedEvidenceIds.current.delete(target.evidenceId);
         console.warn('[WORKER_COMPLETE] Lỗi khi xóa bằng chứng trên máy chủ:', err);
+        Alert.alert('Không thể xóa ảnh', 'Ảnh vẫn còn trên máy chủ. Vui lòng thử lại.');
+        return;
       }
     }
+    setEvidenceItems(prev => prev.filter(item => item.id !== itemId));
   };
 
   const handleRetryUpload = (itemId: string) => {
@@ -358,6 +370,14 @@ export function WorkerJobCompleteScreen({
       return;
     }
 
+    if (validItems.length !== evidenceItems.length) {
+      Alert.alert(
+        'Có ảnh chưa tải lên',
+        'Một số ảnh minh chứng chưa tải lên thành công. Vui lòng bấm Thử lại hoặc xóa ảnh lỗi trước khi báo hoàn thành.',
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       if (jobId && jobId !== 'JOB-1020') {
@@ -367,7 +387,7 @@ export function WorkerJobCompleteScreen({
             continue;
           }
           if (item.status !== 'completed' || !item.remoteUrl) {
-            continue;
+            throw new Error('Có ảnh minh chứng chưa tải lên thành công. Vui lòng thử lại trước khi báo hoàn thành.');
           }
 
           const saved = await uploadEvidence({
@@ -598,7 +618,7 @@ export function WorkerJobCompleteScreen({
                   : 'Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)'
           }
           variant="default"
-          disabled={isSubmitting || isUploadingAny || isInvalidStatus}
+          disabled={isSubmitting || isDeletingEvidence || isUploadingAny || isInvalidStatus}
           className={`h-12 w-full rounded-2xl ${
             isInvalidStatus
               ? 'bg-neutral-300 opacity-60 dark:bg-neutral-800'

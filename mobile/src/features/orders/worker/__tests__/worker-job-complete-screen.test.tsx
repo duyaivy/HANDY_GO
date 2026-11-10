@@ -618,4 +618,65 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
       expect(deleteEvidenceSpy).toHaveBeenCalledWith('ORD-TEST-999', 'backend-evi-del-1');
     });
   });
+
+  it('ORD-10: Không hoàn tất đơn khi 1 ảnh tải thành công và 2 ảnh tải lỗi', async () => {
+    jest.spyOn(OrdersApi, 'uploadImage').mockImplementation(async (uri) => {
+      if (uri.includes('good')) {
+        return 'https://example.com/good.jpg';
+      }
+      throw new Error('CDN unavailable');
+    });
+    const uploadEvidenceSpy = jest.spyOn(OrdersApi, 'uploadEvidence');
+    const finishOrderSpy = jest.spyOn(OrdersApi, 'finishOrder');
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    await triggerPickFromLibrary([
+      { uri: 'file:///good.jpg' },
+      { uri: 'file:///failed-1.jpg' },
+      { uri: 'file:///failed-2.jpg' },
+    ]);
+    await waitFor(() => expect(screen.getAllByText('Lỗi tải')).toHaveLength(2));
+
+    fireEvent.press(screen.getByTestId('worker-finish-order-btn'));
+
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Có ảnh chưa tải lên',
+      expect.stringContaining('Thử lại hoặc xóa ảnh lỗi'),
+    );
+    expect(uploadEvidenceSpy).not.toHaveBeenCalled();
+    expect(finishOrderSpy).not.toHaveBeenCalled();
+  });
+
+  it('ORD-10: Giữ ảnh và báo lỗi khi xóa evidence trên server thất bại', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      data: {
+        id: 'ORD-TEST-999',
+        status: 'in_progress',
+        evidences: [{
+          id: 'backend-evi-failed-delete',
+          orderId: 'ORD-TEST-999',
+          clientEvidenceId: 'client-key-failed-delete',
+          mediaUrl: 'https://example.com/evidence.jpg',
+          mediaType: 'image',
+          createdAt: new Date().toISOString(),
+        }],
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+    const deleteEvidenceSpy = jest.spyOn(OrdersApi, 'deleteEvidence').mockRejectedValue(new Error('Network error'));
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    expect(await screen.findByText('Ảnh minh chứng (1/5)')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('remove-evidence-btn-0'));
+
+    await waitFor(() => {
+      expect(deleteEvidenceSpy).toHaveBeenCalledWith('ORD-TEST-999', 'backend-evi-failed-delete');
+      expect(alertSpy).toHaveBeenCalledWith('Không thể xóa ảnh', expect.stringContaining('Ảnh vẫn còn trên máy chủ'));
+    });
+    expect(screen.getByText('Ảnh minh chứng (1/5)')).toBeOnTheScreen();
+    expect(screen.getByTestId('evidence-item-0')).toBeOnTheScreen();
+  });
 });
