@@ -49,7 +49,8 @@ export class CloudinaryService {
     if (
       !ALLOWED_IMAGE_MIME_TYPES.includes(
         file.mimetype as (typeof ALLOWED_IMAGE_MIME_TYPES)[number],
-      )
+      ) ||
+      !this.matchesImageSignature(file.buffer, file.mimetype)
     ) {
       throw new AppException(
         400,
@@ -60,7 +61,11 @@ export class CloudinaryService {
 
     const maxSizeBytes =
       this.configService.cloudinaryImageMaxSizeMb * 1024 * 1024;
-    if (file.size > maxSizeBytes) {
+    if (
+      !Number.isFinite(maxSizeBytes) ||
+      maxSizeBytes <= 0 ||
+      Math.max(file.size, file.buffer.length) > maxSizeBytes
+    ) {
       throw new AppException(
         400,
         ERROR_CODES.VALIDATION_ERROR,
@@ -124,6 +129,23 @@ export class CloudinaryService {
 
       Readable.from(file.buffer).pipe(uploadStream);
     });
+  }
+
+  /** Reject spoofed MIME metadata locally; Cloudinary still decodes the image. */
+  private matchesImageSignature(buffer: Buffer, mimeType: string): boolean {
+    if (mimeType === 'image/jpeg')
+      return buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+    if (mimeType === 'image/png')
+      return buffer
+        .subarray(0, 8)
+        .equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+    if (mimeType === 'image/webp')
+      return (
+        buffer.length >= 12 &&
+        buffer.toString('ascii', 0, 4) === 'RIFF' &&
+        buffer.toString('ascii', 8, 12) === 'WEBP'
+      );
+    return false;
   }
 
   /**

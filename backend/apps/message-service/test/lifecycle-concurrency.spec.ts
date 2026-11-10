@@ -46,6 +46,70 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
       return { promise, resolve };
     }
 
+    it('serializes reversed read updates across instances without decreasing either participant cursor', async () => {
+      const c = await seed();
+      for (let i = 0; i < 5; i++)
+        await db.message.create({
+          data: {
+            conversationId: c.id,
+            senderId: c.customerId,
+            clientMessageId: randomUUID(),
+            messageType: 'TEXT',
+            content: `Message ${i}`,
+          },
+        });
+      const a = makeService(),
+        b = makeService();
+      const update = async (userId: string) => {
+        await a.read(userId, c.id, '5');
+        const results = await Promise.all(
+          ['4', '2', '5', '1', '0', '3'].map((sequence, i) =>
+            (i % 2 ? a : b).read(userId, c.id, sequence),
+          ),
+        );
+        expect(results.every((state) => state.lastReadSequence === '5')).toBe(
+          true,
+        );
+      };
+      await Promise.all([update(c.customerId), update(c.workerId)]);
+      const states = await db.conversationReadState.findMany({
+        where: { conversationId: c.id },
+      });
+      expect(states).toHaveLength(2);
+      expect(states.every((state) => state.lastReadSequence === 5n)).toBe(true);
+      // Remove only this fixture's read states to exercise concurrent first inserts too.
+      await db.conversationReadState.deleteMany({
+        where: { conversationId: c.id },
+      });
+      await Promise.all(
+        ['1', '4', '2', '5', '3'].map((sequence, i) =>
+          (i % 2 ? a : b).read(c.customerId, c.id, sequence),
+        ),
+      );
+      expect(
+        (
+          await db.conversationReadState.findUniqueOrThrow({
+            where: {
+              conversationId_userId: {
+                conversationId: c.id,
+                userId: c.customerId,
+              },
+            },
+          })
+        ).lastReadSequence,
+      ).toBe(5n);
+      for (const sequence of ['-1', '1.5', 'no', '9223372036854775808'])
+        await expect(a.read(c.customerId, c.id, sequence)).rejects.toThrow(
+          'VALIDATION_ERROR',
+        );
+      await expect(a.read(c.customerId, c.id, '6')).rejects.toThrow(
+        'VALIDATION_ERROR',
+      );
+      await expect(a.read(randomUUID(), c.id, '1')).rejects.toThrow(
+        'CONVERSATION_NOT_FOUND',
+      );
+    });
+
     it('keeps legitimate chats OPEN and admits a database write after an unrelated bid', async () => {
       const c = await seed();
       await makeService().invalidate(randomUUID(), 'bid.submitted', {

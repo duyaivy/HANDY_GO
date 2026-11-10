@@ -11,7 +11,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { ImageUploadInterceptor } from './image-upload.interceptor.js';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -38,7 +38,7 @@ export class UploadsController {
 
   @Post('image')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(ImageUploadInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
     summary:

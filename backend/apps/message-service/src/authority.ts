@@ -177,6 +177,7 @@ export class AuthorityClient {
     }
   }
   async active(accountId: string, userId: string, sid: string) {
+    const startedAt = Date.now();
     const key = `${accountId}:${userId}:${sid}`;
     const cached = this.activeCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
@@ -198,7 +199,8 @@ export class AuthorityClient {
           if (v.expiresAt <= now) this.activeCache.delete(k);
         }
       }
-      this.activeCache.set(key, { active, expiresAt: Date.now() + 60_000 });
+      // Bound stale authorization from request start, not the end of a slow call.
+      this.activeCache.set(key, { active, expiresAt: startedAt + 5_000 });
       return active;
     } catch (error) {
       this.activeCache.delete(key);
@@ -313,7 +315,10 @@ export class AuthorityClient {
     if (useCache)
       this.permissionCache.set(cacheKey, {
         proof,
-        expiresAt: Date.now() + 5_000,
+        expiresAt: Math.min(
+          Date.now() + 5_000,
+          b.validUntil === null ? Infinity : Date.parse(b.validUntil),
+        ),
       });
     return proof;
   }

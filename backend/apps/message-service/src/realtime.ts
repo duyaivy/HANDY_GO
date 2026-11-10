@@ -32,6 +32,8 @@ export class MessageRealtime {
   readonly io: Server;
   private readonly logger = new Logger(MessageRealtime.name);
   private readonly sessions = new Map<string, Session>();
+  // Includes authenticated handshakes that have not reached `connection` yet.
+  private readonly slots = new Map<string, Set<string>>();
   private readonly typing = new Map<string, Activity>();
   private readonly timer: NodeJS.Timeout;
   constructor(
@@ -53,12 +55,20 @@ export class MessageRealtime {
       try {
         const token = socket.handshake.auth.token,
           user = await identity.authenticate(token);
-        if (
-          [...this.sessions.values()].filter(
-            (s) => s.user.userId === user.userId,
-          ).length >= 10
-        )
-          throw new ChatError('RATE_LIMITED');
+        if (socket.conn.readyState !== 'open')
+          throw new ChatError('UNAUTHORIZED');
+        const slots = this.slots.get(user.userId) ?? new Set<string>();
+        if (slots.size >= 10) throw new ChatError('RATE_LIMITED');
+        // No await between checking and reserving: concurrent admissions see this slot.
+        slots.add(socket.id);
+        this.slots.set(user.userId, slots);
+        const release = () => {
+          slots.delete(socket.id);
+          if (!slots.size && this.slots.get(user.userId) === slots)
+            this.slots.delete(user.userId);
+        };
+        socket.conn.once('close', release);
+        socket.once('disconnect', release);
         socket.data.token = token;
         socket.data.user = user;
         next();
@@ -106,12 +116,26 @@ export class MessageRealtime {
         const respond = ack as (value: ChatAck<unknown>) => void;
         try {
           validateInput(event, input);
-          const current = await this.identity.authenticate(token);
-          if (event === 'message.send') {
+          if (event.startsWith('typing.')) {
+            const { conversationId } = input as { conversationId: string };
+            this.limits.take(`typing-user:${user.userId}`, 120, 60000);
+            this.limits.take(`typing-socket:${socket.id}`, 40, 10000);
+            this.limits.take(
+              `typing-conversation:${socket.id}:${conversationId}`,
+              4,
+              1000,
+            );
+            if (event === 'typing.start')
+              this.limits.take(
+                `typing:${socket.id}:${conversationId}`,
+                1,
+                1000,
+              );
+          } else if (event === 'message.send') {
             this.limits.take(`send-short:${user.userId}`, 20, 10000);
             this.limits.take(`send-long:${user.userId}`, 60, 60000);
-          } else if (!event.startsWith('typing.'))
-            this.limits.take(`events:${user.userId}`, 120, 60000);
+          } else this.limits.take(`events:${user.userId}`, 120, 60000);
+          const current = await this.identity.authenticate(token);
           const data = await operation(input, current);
           respond({ ok: true, data });
         } catch (error) {
@@ -153,8 +177,7 @@ export class MessageRealtime {
     handle('message.send', async (input: MessageSendInput, u) => {
       const ackStart = performance.now();
       const result = await this.messages.send(u.userId, input);
-      const totalAckMs =
-        Math.round((performance.now() - ackStart) * 100) / 100;
+      const totalAckMs = Math.round((performance.now() - ackStart) * 100) / 100;
       this.logger.log({
         event: 'message.send.latency',
         conversationId: input.conversationId,
@@ -187,7 +210,6 @@ export class MessageRealtime {
           throw new ChatError('CONVERSATION_NOT_FOUND');
         await this.messages.permission(u.userId, c, true);
         if (event === 'typing.start') {
-          this.limits.take(`typing:${socket.id}:${c.id}`, 1, 1000);
           this.typing.set(`${socket.id}:${c.id}`, {
             conversationId: c.id,
             userId: u.userId,
@@ -287,5 +309,6 @@ export class MessageRealtime {
     for (const s of this.sessions.values()) clearTimeout(s.timer);
     this.typing.clear();
     await new Promise<void>((resolve) => this.io.close(() => resolve()));
+    this.slots.clear();
   }
 }

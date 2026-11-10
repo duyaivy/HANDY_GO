@@ -130,6 +130,77 @@ describe('session active verification resilience', () => {
     auth: 'http://auth',
     media: 'http://media',
   };
+  it('observes revocation within five seconds of starting verification, including slow responses', async () => {
+    let now = Date.now(),
+      active = true;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const request = vi.fn(async () => {
+      now += 2000;
+      return new Response(JSON.stringify({ data: { active } }));
+    }) as typeof fetch;
+    try {
+      const client = new AuthorityClient(options, request);
+      const started = now;
+      expect(await client.active(c, w, c)).toBe(true);
+      active = false;
+      now = started + 4999;
+      expect(await client.active(c, w, c)).toBe(true);
+      now = started + 5000;
+      expect(await client.active(c, w, c)).toBe(false);
+      expect(request).toHaveBeenCalledTimes(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('never reuses permission proof past the bid expiration time', async () => {
+    let now = Date.now();
+    const validUntil = new Date(now + 1000).toISOString();
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const request = vi.fn(
+      async (url) =>
+        new Response(
+          JSON.stringify({
+            data: String(url).includes('/bids/')
+              ? {
+                  bidId: c,
+                  requestId: c,
+                  workerId: w,
+                  status: 'active',
+                  eligible: true,
+                  roundStatus: 'open',
+                  version: 1,
+                  validUntil,
+                  submittedAt: new Date(now).toISOString(),
+                  verifiedAt: new Date(now).toISOString(),
+                }
+              : {
+                  requestId: c,
+                  customerId: c,
+                  status: 'open_for_bidding',
+                  order: null,
+                  version: 1,
+                  verifiedAt: new Date(now).toISOString(),
+                },
+          }),
+        ),
+    ) as typeof fetch;
+    try {
+      const client = new AuthorityClient(options, request);
+      expect(
+        (await client.permission(c, { requestId: c, workerId: w }, true))
+          .permissions.send,
+      ).toBe(true);
+      now += 1000;
+      expect(
+        (await client.permission(c, { requestId: c, workerId: w }, true))
+          .permissions.send,
+      ).toBe(false);
+      expect(request).toHaveBeenCalledTimes(4);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it('uses fresh session cache but rejects repeated upstream failures after expiration', async () => {
     let callCount = 0;
     const request = vi.fn(async () => {

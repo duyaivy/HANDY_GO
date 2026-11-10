@@ -26,6 +26,28 @@ All client inputs pass portable validators then server-owned authorization. Reje
 
 Initial per-user send limit20/10sec and60/min; REST create20/min, history/list120/min; socket join/read120/min; typing at most1 start/sec/conversation/socket; max10 sockets/user. Local in-memory counters for one instance must bound memory/expire entries; future multi-instance shared counters accompany adapter scaling. Return RATE_LIMITED with retry delay; production tuning is Phase 2. Do not create Redis as initial persistence dependency.
 
+PR #68 hardening: both typing start and stop consume user (120/min), socket
+(40/10sec), and socket/conversation (4/sec) budgets before session verification,
+database access or permission checks. The existing 1 start/sec budget also applies
+before that work. Pending authenticated handshakes count toward the ten-socket
+limit; disconnect and transport close release their reservations.
+
+Session introspection evidence expires five seconds after verification starts;
+expired evidence is never extended on Auth failure. Revocation can therefore
+remain unseen within that cache window; this is bounded caching, not immediate
+revocation. Permission evidence also expires no later than its bid's `validUntil`.
+Deployment remains limited to one Message Service process until shared admission
+counters and cross-instance socket event delivery are implemented and tested.
+
+Image intake uses the configured `CLOUDINARY_IMAGE_MAX_SIZE_MB` limit (10 MiB
+default) in Multer before the handler, with one file and bounded form fields.
+JPEG/PNG/WebP MIME and matching signatures are checked before provider upload;
+Cloudinary remains responsible for decoding the complete image. Chat retains its
+10 MiB image and 100 MiB video business caps; actual provider bytes/type/owner
+are verified before attachment acceptance. Keep Nginx's 12 MiB body ceiling large
+enough for the 10 MiB image plus multipart overhead; changing the generic image
+cap requires checking the edge limit too.
+
 Use existing `@app/logger` Pino request correlation and redaction. Audit IDs, operation, eventId/correlationId, result code and timing, with no message content/draft, rejected text, access/refresh tokens, service secrets, upload signatures, signed URLs, full provider error or DB connection strings. Retry logs use existing safeOutboxError pattern. Operational metrics count rejects, authority timeouts, sequence conflicts and outbox age. Least-privilege database runtime role gets schema usage/table rights and needed sequences only; migration role owns only `message`; no cross-service SELECT or REFERENCES. See DATABASE-DESIGN for actual provisioning and migration checks.
 
 ## Durability and residual risks

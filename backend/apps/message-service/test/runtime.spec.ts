@@ -648,7 +648,7 @@ describe.runIf(process.env.MESSAGE_TEST_DATABASE_URL)(
     }, 10000);
     it('rejects revoked sessions on existing socket', async () => {
       active = false;
-      // Expire the 60-second session cache without changing Socket.IO transport clocks.
+      // Expire the session cache without changing Socket.IO transport clocks.
       const cache = (
         authority as unknown as {
           activeCache: Map<string, { expiresAt: number }>;
