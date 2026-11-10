@@ -2,6 +2,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class CreateOrderEvidenceDto {
+  @ApiPropertyOptional({
+    description: 'Client-generated idempotency key or evidence ID to prevent duplicate uploads on retry',
+    example: '1731154800000-0-a1b2c',
+  })
+  @IsOptional()
+  @IsString()
+  clientEvidenceId?: string;
+
   @ApiProperty({
     description: 'Media type',
     enum: ['image', 'video'],

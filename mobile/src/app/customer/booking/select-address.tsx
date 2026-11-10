@@ -36,17 +36,59 @@ export default function CustomerBookingSelectAddressRoute() {
     'idle' | 'locating' | 'success' | 'failed' | 'permission_denied' | 'module_missing'
   >('idle');
 
+  const isInputFocusedRef = React.useRef(false);
+  const isProgrammaticMovingRef = React.useRef(false);
+  const currentAddressRef = React.useRef(currentAddress);
+  currentAddressRef.current = currentAddress;
+  const currentCoordsRef = React.useRef(currentCoords);
+  currentCoordsRef.current = currentCoords;
+
+  const reverseGeocodeSeqRef = React.useRef(0);
+  const forwardGeocodeSeqRef = React.useRef(0);
+
+  const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const forwardGeocodeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const programmaticMovingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerProgrammaticMove = React.useCallback((coords: HandyCoordinates, zoom = 16) => {
+    isProgrammaticMovingRef.current = true;
+    if (programmaticMovingTimerRef.current) {
+      clearTimeout(programmaticMovingTimerRef.current);
+    }
+    mapRef.current?.flyTo(coords, zoom);
+    programmaticMovingTimerRef.current = setTimeout(() => {
+      isProgrammaticMovingRef.current = false;
+    }, 1000);
+  }, []);
+
   const fetchDeviceGpsLocation = React.useCallback(async (showFeedback = false) => {
-    Keyboard.dismiss();
+    if (showFeedback) {
+      Keyboard.dismiss();
+      isInputFocusedRef.current = false;
+    }
     setIsLocating(true);
     setGpsStatus('locating');
     try {
       const result = await DeviceLocationService.getDeviceLocationResult();
       if (result.status === 'gps_success' && result.coordinates) {
-        setCurrentAddress(result.coordinates.addressText);
-        setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
-        setGpsStatus('success');
-        mapRef.current?.flyTo({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude }, 16);
+        // P1-03: Chỉ tự cập nhật vị trí GPS khi chưa có địa chỉ xác nhận trước đó,
+        // hoặc khi người dùng chủ động bấm nút "Dùng vị trí hiện tại" (showFeedback = true).
+        // Đảm bảo địa chỉ và tọa độ luôn nhất quán, không bị đổi coords B với address A.
+        const hasExistingAddress = Boolean(currentAddressRef.current.trim());
+        const shouldApplyGps = showFeedback || (!isInputFocusedRef.current && !hasExistingAddress);
+
+        if (shouldApplyGps) {
+          reverseGeocodeSeqRef.current += 1;
+          forwardGeocodeSeqRef.current += 1;
+
+          setCurrentAddress(result.coordinates.addressText);
+          setCurrentCoords({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude });
+          setGpsStatus('success');
+          triggerProgrammaticMove({ latitude: result.coordinates.latitude, longitude: result.coordinates.longitude }, 16);
+        }
+        else {
+          setGpsStatus('success');
+        }
       }
       else if (result.status === 'permission_denied') {
         setGpsStatus('permission_denied');
@@ -82,24 +124,39 @@ export default function CustomerBookingSelectAddressRoute() {
     finally {
       setIsLocating(false);
     }
-  }, []);
-
-  const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const forwardGeocodeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  }, [triggerProgrammaticMove]);
 
   const handleRegionChange = React.useCallback(
     (coords: HandyCoordinates) => {
       setCurrentCoords(coords);
-      Keyboard.dismiss();
 
+      // 1. Chỉ ẩn bàn phím nếu người dùng thực sự dùng ngón tay vuốt bản đồ,
+      // TUYỆT ĐỐI không ẩn bàn phím nếu do input đang focus hoặc do map programmatic move
+      if (!isInputFocusedRef.current && !isProgrammaticMovingRef.current) {
+        Keyboard.dismiss();
+      }
+
+      // 2. Không reverse geocode đè lên input nếu người dùng đang chủ động gõ / focus hoặc map đang tự di chuyển
+      if (isInputFocusedRef.current || isProgrammaticMovingRef.current) {
+        return;
+      }
+
+      // 3. Chỉ thực hiện reverse geocode khi người dùng chủ động kéo thả bản đồ bằng tay
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
 
+      const seq = ++reverseGeocodeSeqRef.current;
       debounceTimerRef.current = setTimeout(async () => {
         try {
           const streetAddress = await MapboxService.reverseGeocode(coords.latitude, coords.longitude);
-          if (streetAddress) {
+          // P2-03: Kiểm tra seq ID để đảm bảo request về muộn không ghi đè lựa chọn mới hơn
+          if (
+            seq === reverseGeocodeSeqRef.current
+            && streetAddress
+            && !isInputFocusedRef.current
+            && !isProgrammaticMovingRef.current
+          ) {
             setCurrentAddress(streetAddress);
             setAddress(streetAddress, coords.latitude, coords.longitude);
           }
@@ -124,13 +181,15 @@ export default function CustomerBookingSelectAddressRoute() {
         return;
       }
 
+      const seq = ++forwardGeocodeSeqRef.current;
       forwardGeocodeTimerRef.current = setTimeout(async () => {
         try {
-          const result = await MapboxService.forwardGeocode(text, currentCoords);
-          if (result) {
+          const result = await MapboxService.forwardGeocode(text, currentCoordsRef.current);
+          // P2-03: Kiểm tra seq ID để đảm bảo response về muộn không ghi đè lựa chọn mới hơn
+          if (seq === forwardGeocodeSeqRef.current && result) {
             setCurrentCoords({ latitude: result.latitude, longitude: result.longitude });
             setAddress(text, result.latitude, result.longitude);
-            mapRef.current?.flyTo({ latitude: result.latitude, longitude: result.longitude }, 16);
+            triggerProgrammaticMove({ latitude: result.latitude, longitude: result.longitude }, 16);
           }
         }
         catch {
@@ -138,28 +197,40 @@ export default function CustomerBookingSelectAddressRoute() {
         }
       }, 700);
     },
-    [currentCoords, setAddress],
+    [setAddress, triggerProgrammaticMove],
   );
 
   const handleAddressSubmitEditing = React.useCallback(async () => {
     Keyboard.dismiss();
+    isInputFocusedRef.current = false;
     if (forwardGeocodeTimerRef.current) {
       clearTimeout(forwardGeocodeTimerRef.current);
     }
-    if (currentAddress.trim().length >= 3) {
+    const trimmed = currentAddress.trim();
+    if (trimmed.length >= 3) {
+      const seq = ++forwardGeocodeSeqRef.current;
       try {
-        const result = await MapboxService.forwardGeocode(currentAddress, currentCoords);
-        if (result) {
+        const result = await MapboxService.forwardGeocode(trimmed, currentCoordsRef.current);
+        if (seq === forwardGeocodeSeqRef.current && result) {
           setCurrentCoords({ latitude: result.latitude, longitude: result.longitude });
-          setAddress(currentAddress, result.latitude, result.longitude);
-          mapRef.current?.flyTo({ latitude: result.latitude, longitude: result.longitude }, 16);
+          setAddress(trimmed, result.latitude, result.longitude);
+          triggerProgrammaticMove({ latitude: result.latitude, longitude: result.longitude }, 16);
         }
       }
       catch {
         // Safe fallback
       }
     }
-  }, [currentAddress, currentCoords, setAddress]);
+  }, [currentAddress, setAddress, triggerProgrammaticMove]);
+
+  const handleClearAddress = React.useCallback(() => {
+    if (forwardGeocodeTimerRef.current) {
+      clearTimeout(forwardGeocodeTimerRef.current);
+    }
+    reverseGeocodeSeqRef.current += 1;
+    forwardGeocodeSeqRef.current += 1;
+    setCurrentAddress('');
+  }, []);
 
   React.useEffect(() => {
     return () => {
@@ -169,17 +240,21 @@ export default function CustomerBookingSelectAddressRoute() {
       if (forwardGeocodeTimerRef.current) {
         clearTimeout(forwardGeocodeTimerRef.current);
       }
+      if (programmaticMovingTimerRef.current) {
+        clearTimeout(programmaticMovingTimerRef.current);
+      }
     };
   }, []);
 
   React.useEffect(() => {
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env.NODE_ENV !== 'test' || (globalThis as any).__TEST_COLD_START_GPS__) {
       void fetchDeviceGpsLocation(false);
     }
   }, [fetchDeviceGpsLocation]);
 
   const handleBottomConfirm = () => {
     Keyboard.dismiss();
+    isInputFocusedRef.current = false;
     const finalAddress = currentAddress.trim();
     if (!finalAddress) {
       Alert.alert(
@@ -208,6 +283,9 @@ export default function CustomerBookingSelectAddressRoute() {
     if (forwardGeocodeTimerRef.current) {
       clearTimeout(forwardGeocodeTimerRef.current);
     }
+    if (programmaticMovingTimerRef.current) {
+      clearTimeout(programmaticMovingTimerRef.current);
+    }
 
     setAddress(finalAddress, currentCoords.latitude, currentCoords.longitude);
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_TIME as any);
@@ -215,6 +293,13 @@ export default function CustomerBookingSelectAddressRoute() {
 
   const handleBack = () => {
     Keyboard.dismiss();
+    isInputFocusedRef.current = false;
+    if (debounceTimerRef.current)
+      clearTimeout(debounceTimerRef.current);
+    if (forwardGeocodeTimerRef.current)
+      clearTimeout(forwardGeocodeTimerRef.current);
+    if (programmaticMovingTimerRef.current)
+      clearTimeout(programmaticMovingTimerRef.current);
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
       router.replace(RouteNames.CUSTOMER_BOOKING as any);
     }
@@ -225,6 +310,13 @@ export default function CustomerBookingSelectAddressRoute() {
 
   const handleSearchAnother = () => {
     Keyboard.dismiss();
+    isInputFocusedRef.current = false;
+    if (debounceTimerRef.current)
+      clearTimeout(debounceTimerRef.current);
+    if (forwardGeocodeTimerRef.current)
+      clearTimeout(forwardGeocodeTimerRef.current);
+    if (programmaticMovingTimerRef.current)
+      clearTimeout(programmaticMovingTimerRef.current);
     router.push(RouteNames.CUSTOMER_SEARCH_ADDRESS as any);
   };
 
@@ -269,6 +361,12 @@ export default function CustomerBookingSelectAddressRoute() {
         {/* Bản đồ tương tác thời gian thực */}
         <View
           testID="booking-select-address-screen"
+          onTouchStart={() => {
+            if (isInputFocusedRef.current) {
+              isInputFocusedRef.current = false;
+              Keyboard.dismiss();
+            }
+          }}
           className="relative flex-1 bg-[#F8FAFC] dark:bg-neutral-950"
         >
           {/* Bản đồ tương tác Mapbox thực tế với ghim tâm định vị */}
@@ -388,6 +486,14 @@ export default function CustomerBookingSelectAddressRoute() {
               numberOfLines={3}
               value={currentAddress}
               onChangeText={handleAddressInputChange}
+              onFocus={() => {
+                isInputFocusedRef.current = true;
+              }}
+              onBlur={() => {
+                isInputFocusedRef.current = false;
+              }}
+              autoCapitalize="sentences"
+              autoCorrect={false}
               placeholder="Nhập địa chỉ nhà, tên đường, phường/xã..."
               placeholderTextColor="#9CA3AF"
               className="min-h-[75px] rounded-2xl bg-neutral-100 p-3.5 pr-9 text-sm font-semibold text-neutral-900 dark:bg-neutral-800 dark:text-white"
@@ -398,8 +504,10 @@ export default function CustomerBookingSelectAddressRoute() {
             />
             {currentAddress.length > 0 && (
               <Pressable
-                onPress={() => setCurrentAddress('')}
-                className="absolute top-3 right-3 size-6 items-center justify-center rounded-full bg-neutral-300 dark:bg-neutral-700"
+                testID="address-input-clear-btn"
+                onPress={handleClearAddress}
+                hitSlop={8}
+                className="absolute top-3 right-3 size-6 items-center justify-center rounded-full bg-neutral-300 active:opacity-70 dark:bg-neutral-700"
               >
                 <Text className="text-xs font-bold text-neutral-700 dark:text-white">✕</Text>
               </Pressable>

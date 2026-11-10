@@ -69,7 +69,7 @@ describe('customer Skeleton & Route Flow', () => {
     it('renders placeholder frame with order id and development notice', () => {
       render(<CustomerOrderQuoteSheetScreen />);
 
-      expect(screen.getByText('Báo giá thợ')).toBeOnTheScreen();
+      expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
       expect(screen.getByText('Mã đơn: #demo-001')).toBeOnTheScreen();
       expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
       expect(screen.getByTestId('orders-customer-detail-screen')).toBeOnTheScreen();
@@ -139,7 +139,7 @@ describe('customer Skeleton & Route Flow', () => {
       fireEvent.press(bookNowBtn);
       expect(mockPush).toHaveBeenCalledWith({
         pathname: '/customer/booking',
-        params: { serviceId: 'srv-01' },
+        params: { serviceId: 'srv-01', serviceName: 'Sửa ống nước' },
       });
     });
   });
@@ -247,7 +247,7 @@ describe('customer Skeleton & Route Flow', () => {
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith({
           pathname: '/customer/booking/radar',
-          params: { requestId: 'req-001' },
+          params: { requestId: 'req-001', serviceName: 'Dịch vụ tiện ích' },
         });
       });
     });

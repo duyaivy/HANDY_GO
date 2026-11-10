@@ -76,7 +76,7 @@ export class CreateBookingProposalDto {
     example: 250000,
   })
   @IsNumber()
-  @Min(0)
+  @Min(1, { message: 'agreedPrice must be a positive number greater than 0' })
   agreedPrice: number;
 
   @ApiProperty({
