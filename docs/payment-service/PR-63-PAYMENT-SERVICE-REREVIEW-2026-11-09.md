@@ -149,7 +149,7 @@ Acceptance scope: sandbox per `PO-DECISIONS.md`. The historical review above rem
 | 1 | Persist malformed/unknown delivery before ACK; independent quarantine key; storage failure NACK with backoff | Implemented and unit tested |
 | 2 | Verify Wallet contract; unknown HTTP results retain the same operation/attempt | Implemented and unit tested |
 | 3 | Block new production Cash refunds pending Finance funding policy | Implemented and unit tested |
-| 4 | Tests, typecheck, lint, build; PostgreSQL/RabbitMQ migrations and integration | Full backend: 1,507 passed / 118 skipped; targeted: 155 passed; Payment/Wallet typecheck, backend lint and Payment build pass. Local Docker daemon unavailable; remote CI verification follows push |
+| 4 | Tests, typecheck, lint, build; PostgreSQL/RabbitMQ migrations and integration | Full backend after rebasing onto PR HEAD: 1,584 passed / 118 skipped; targeted: 155 passed; Payment/Wallet typecheck, backend lint and Payment build pass. Local Docker daemon unavailable; remote CI verification follows push |
 | 5 | Push current branch, update PR scope, comment execution evidence, verify final HEAD CI | See PR #63 execution comment |
 
 ### Technical decisions and limits
