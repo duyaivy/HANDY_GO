@@ -246,3 +246,22 @@ export function BackspaceIcon({ color = '#6B7280', size = 24, ...props }: SvgPro
     </Svg>
   );
 }
+
+export function GpsIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Circle cx="12" cy="12" r="3" />
+      <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      <Circle cx="12" cy="12" r="8" />
+    </Svg>
+  );
+}
+
+export function MapIcon({ color = '#2563EB', size = 20, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M1 6v15l7-4 8 4 7-4V2l-7 4-8-4-7 4z" />
+      <Path d="M8 2v15M16 6v15" />
+    </Svg>
+  );
+}
