@@ -107,6 +107,7 @@ export class InternalOrderService {
       serviceId: order.serviceId,
       agreedPrice,
       currency: 'VND',
+      completedAt: order.completedAt ?? null,
       isEligibleForSettlement,
       reason,
     };

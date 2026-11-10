@@ -6,6 +6,7 @@ import { interpretWalletResult, type DebitOutcome } from '../common/clients/wall
 import { WalletClient } from '../common/clients/wallet.client.js';
 import { PaymentPrismaService } from '../common/database/payment-prisma.service.js';
 import { assertPaymentTransition } from '../common/domain/payment-state.js';
+import { markOrderCompleted } from '../common/domain/order-completion.js';
 import { paymentFailedEvent, paymentSucceededEvent, type PaymentTx } from '../common/outbox/payment-events.js';
 import { PaymentOutboxService } from '../common/outbox/payment-outbox.service.js';
 import { PaymentQueryService } from '../payment-query/payment-query.service.js';
@@ -67,10 +68,12 @@ export class PaymentOrdersService {
       }
       if (!eligibility.isEligibleForSettlement) throw conflict('Order is not eligible for payment');
       if (!OPEN_STATUSES.includes(payment.status)) throw conflict(`Payment is ${payment.status} and cannot change method`);
-      if (payment.method !== dto.method || !payment.orderCompletedAt) {
+      if (!payment.orderCompletedAt && !eligibility.completedAt) throw conflict('Order completion timestamp is not available yet');
+      await markOrderCompleted(tx, payment, eligibility.completedAt ?? payment.orderCompletedAt!, this.outbox);
+      if (payment.method !== dto.method) {
         await tx.payment.update({
           where: { id: payment.id },
-          data: { method: dto.method, orderCompletedAt: payment.orderCompletedAt ?? new Date() },
+          data: { method: dto.method },
         });
       }
       return payment.id;
@@ -251,26 +254,42 @@ export class PaymentOrdersService {
 
   // Reconciliation: re-drive attempts whose Wallet outcome was never resolved.
   async resumeStaleAttempts(olderThanMs: number, limit = 20): Promise<number> {
+    const now = new Date();
     const attempts = await this.database.client.paymentAttempt.findMany({
-      where: { method: 'point', status: 'processing', attemptedAt: { lt: new Date(Date.now() - olderThanMs) } },
-      orderBy: { attemptedAt: 'asc' },
+      where: { method: 'point', status: 'processing', nextRetryAt: { lte: now }, attemptedAt: { lt: new Date(Date.now() - olderThanMs) } },
+      orderBy: [{ nextRetryAt: 'asc' }, { id: 'asc' }],
       take: limit,
     });
     for (const attempt of attempts) {
-      const payment = await this.database.client.payment.findUnique({ where: { id: attempt.paymentId } });
-      if (payment?.status === 'processing') await this.executeDebit(payment, attempt);
+      const claimed = await this.database.client.paymentAttempt.updateMany({
+        where: { id: attempt.id, status: 'processing', nextRetryAt: { lte: now } },
+        data: { nextRetryAt: new Date(now.getTime() + 30_000) },
+      });
+      if (!claimed.count) continue;
+      try {
+        const payment = await this.database.client.payment.findUnique({ where: { id: attempt.paymentId } });
+        if (payment?.status === 'processing') await this.executeDebit(payment, attempt);
+      } catch { this.logger.warn(`Point reconciliation deferred for ${attempt.id}`); }
     }
     return attempts.length;
   }
 
   async collectDueCommissions(limit = 20): Promise<number> {
+    const now = new Date();
     const due = await this.database.client.commissionReceivable.findMany({
-      where: { status: { in: ['due', 'partially_collected'] } },
-      orderBy: { createdAt: 'asc' },
+      where: { status: { in: ['due', 'partially_collected'] }, nextRetryAt: { lte: now } },
+      orderBy: [{ nextRetryAt: 'asc' }, { id: 'asc' }],
       take: limit,
       select: { paymentId: true },
     });
-    for (const { paymentId } of due) await this.collectCommission(paymentId);
+    for (const { paymentId } of due) {
+      const claimed = await this.database.client.commissionReceivable.updateMany({
+        where: { paymentId, status: { in: ['due', 'partially_collected'] }, nextRetryAt: { lte: now } },
+        data: { nextRetryAt: new Date(now.getTime() + 30_000) },
+      });
+      if (!claimed.count) continue;
+      try { await this.collectCommission(paymentId); } catch { this.logger.warn(`Commission reconciliation deferred for ${paymentId}`); }
+    }
     return due.length;
   }
 }

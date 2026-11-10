@@ -13,6 +13,7 @@ export interface OrderPaymentEligibility {
   amount: bigint;
   currency: 'VND';
   isEligibleForSettlement: boolean;
+  completedAt?: Date | null;
 }
 
 @Injectable()
@@ -107,6 +108,7 @@ export class OrderEligibilityClient {
       amount,
       currency: 'VND',
       isEligibleForSettlement: fields.isEligibleForSettlement,
+      completedAt: typeof fields.completedAt === 'string' && !Number.isNaN(Date.parse(fields.completedAt)) ? new Date(fields.completedAt) : null,
     };
   }
 

@@ -67,11 +67,20 @@ export class PayoutsService implements OnModuleInit {
   }
 
   async processBatch(limit = 10): Promise<number> {
-    const pending = await this.database.client.payout.findMany({ where: { status: 'pending' }, orderBy: { createdAt: 'asc' }, take: limit });
-    for (const payout of pending) await this.advance(payout);
-
-    const processing = await this.database.client.payout.findMany({ where: { status: 'processing' }, orderBy: { createdAt: 'asc' }, take: limit });
-    for (const payout of processing) await this.resumeProcessing(payout);
+    const now = new Date();
+    const pending = await this.database.client.payout.findMany({ where: { status: 'pending', nextRetryAt: { lte: now } }, orderBy: [{ nextRetryAt: 'asc' }, { id: 'asc' }], take: limit });
+    const processing = await this.database.client.payout.findMany({ where: { status: 'processing', nextRetryAt: { lte: now } }, orderBy: [{ nextRetryAt: 'asc' }, { id: 'asc' }], take: limit });
+    for (const payout of [...pending, ...processing]) {
+      const claimed = await this.database.client.payout.updateMany({
+        where: { id: payout.id, status: payout.status, nextRetryAt: { lte: now } },
+        data: { nextRetryAt: new Date(now.getTime() + 30_000) },
+      });
+      if (!claimed.count) continue;
+      try {
+        if (payout.status === 'pending') await this.advance(payout);
+        else await this.resumeProcessing(payout);
+      } catch { this.logger.warn(`Payout reconciliation deferred for ${payout.id}`); }
+    }
     return pending.length + processing.length;
   }
 

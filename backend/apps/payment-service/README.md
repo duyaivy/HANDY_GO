@@ -116,3 +116,13 @@ Các phần còn mở và ranh giới nghiệm thu nằm tại [PO-DECISIONS.md]
 Malformed envelopes and unknown handlers are persisted as `quarantined` before ACK. Only delivery digest, size and reason are retained; Admin listing includes these records, but replay requires producer investigation and corrected publication because arbitrary bodies are not retained. Storage failure delays NACK/requeue by five seconds. Existing valid dead-event replay is unchanged.
 
 HTTP 4xx from Wallet is inconclusive: retain processing and reconcile the same operation ID. The current ledger maps insufficient balance to 500; only a persisted failed operation permits another payment attempt. New Cash refunds are blocked in production pending Finance policy; committed operation replay remains available.
+
+## Reconciliation fairness and completion event
+
+Deploy the `20261110160000_fair_reconciliation` migration before the new Payment code. It adds indexed `next_retry_at` fields to payment attempts, commission receivables and payouts; existing records are immediately due. Generate the Payment Prisma client after updating the schema.
+
+Sweeps select due records in retry-time/ID order and reserve a 30-second retry window with a conditional update before calling dependencies. Unresolved records retain their operation IDs, statuses and holds. A dependency exception defers that record without stopping the rest of the batch. The delay is fixed and bounded; it does not introduce a maximum retry count or mark uncertain transfers as failed.
+
+Deploy Order's additive `completedAt` eligibility field before Payment. HTTP open and order.completed now use the same completion helper under a Payment row lock, with the pending event in the same transaction. If eligibility has no usable timestamp and Payment has not received completion yet, open returns 409; callers can retry after the Order event arrives. Historical missing events are not automatically replayed.
+
+Regression checks: `pnpm exec vitest run apps/payment-service/src/payment-reconciliation-regression.spec.ts`. PostgreSQL concurrency/rollback checks: `apps/payment-service/test/integration/payment-reconciliation-regression.int-spec.ts`, included in `pnpm run test:payment:docker`.

@@ -1,8 +1,9 @@
+import { markOrderCompleted } from '../common/domain/order-completion.js';
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { PaymentInboxService } from '../common/inbound/payment-inbox.service.js';
 import { PermanentInboundError, RetryableInboundError, requireUuid } from '../common/inbound/inbound-event.js';
 import { parseOrderAmount } from '../common/money/payment-money.js';
-import { paymentCancelledEvent, paymentPendingEvent, type PaymentTx } from '../common/outbox/payment-events.js';
+import { paymentCancelledEvent, type PaymentTx } from '../common/outbox/payment-events.js';
 import { PaymentOutboxService } from '../common/outbox/payment-outbox.service.js';
 import { CommissionRuleService } from '../commission-rules/commission-rule.service.js';
 
@@ -91,17 +92,14 @@ export class OrderEventsService implements OnModuleInit {
   // order.completed only opens the payment (stamps completion); the customer still has to pay.
   async onCompleted(data: Record<string, unknown>, tx: PaymentTx): Promise<void> {
     const order = parseOrderEvent(data, 'completedAt');
+    await tx.$queryRaw`SELECT id FROM payment_service.payments WHERE order_id = ${order.orderId}::uuid FOR UPDATE`;
     const payment = await tx.payment.findUnique({ where: { orderId: order.orderId } });
     if (!payment) throw new RetryableInboundError('Payment for the completed order is not created yet');
     if (payment.customerUserId !== order.customerUserId || payment.workerUserId !== order.workerUserId || payment.amount !== order.amount) {
       throw new PermanentInboundError('order.completed contradicts the payment snapshot');
     }
-    if (payment.orderCompletedAt || !['pending', 'failed'].includes(payment.status)) return;
-    const updated = await tx.payment.update({
-      where: { id: payment.id },
-      data: { orderCompletedAt: order.occurredAt ?? new Date() },
-    });
-    await this.outbox.enqueue(tx, paymentPendingEvent(updated));
+    if (!order.occurredAt) throw new PermanentInboundError('completedAt is required for order.completed');
+    await markOrderCompleted(tx, payment, order.occurredAt, this.outbox);
   }
 
   async onCancelled(data: Record<string, unknown>, tx: PaymentTx): Promise<void> {

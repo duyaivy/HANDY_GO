@@ -11,6 +11,7 @@ const created = { orderId, customerUserId, workerUserId, agreedPrice: '350000.00
 
 function setup(payment: Record<string, unknown> | null = null) {
   const tx = {
+    $queryRaw: vi.fn(),
     payment: {
       findUnique: vi.fn().mockResolvedValue(payment),
       create: vi.fn().mockResolvedValue({}),
@@ -81,7 +82,7 @@ describe('OrderEventsService', () => {
     expect(outbox.enqueue).toHaveBeenCalledWith(tx, expect.objectContaining({ eventType: 'payment.pending' }));
 
     const again = setup(stored('pending', { orderCompletedAt: new Date() }));
-    await again.service.onCompleted(created, again.tx);
+    await again.service.onCompleted({ ...created, completedAt: new Date().toISOString() }, again.tx);
     expect(again.outbox.enqueue).not.toHaveBeenCalled();
   });
 

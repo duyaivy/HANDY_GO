@@ -142,8 +142,11 @@ model PaymentAttempt {
   completedAt       DateTime?     @map("completed_at") @db.Timestamptz(6)
   payment           Payment       @relation(fields: [paymentId], references: [id])
 
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
   @@unique([paymentId, attemptNo])
   @@map("payment_attempts")
+  @@index([status, nextRetryAt, id])
 }
 
 model PaymentSettlement {
@@ -177,8 +180,11 @@ model CommissionReceivable {
   updatedAt              DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
   payment                Payment                    @relation(fields: [paymentId], references: [id])
 
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
   @@index([workerUserId, status, createdAt])
   @@map("commission_receivables")
+  @@index([status, nextRetryAt, id])
 }
 
 model TopupRequest {
@@ -261,8 +267,11 @@ model Payout {
   updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
   attempts            PayoutAttempt[]
 
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
   @@index([userId, status, createdAt])
   @@map("payouts")
+  @@index([status, nextRetryAt, id])
 }
 
 model PayoutAttempt {

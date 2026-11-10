@@ -11,6 +11,7 @@ const valid = {
   customerUserId,
   workerUserId,
   status: 'completed',
+  completedAt: '2026-11-01T00:00:00.000Z',
   paymentState: 'unpaid',
   agreedPrice: '350000.00',
   currency: 'VND',
@@ -35,7 +36,7 @@ describe('OrderEligibilityClient', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: valid }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(client().getEligibility(orderId)).resolves.toMatchObject({
-      orderId, customerUserId, workerUserId, amount: 350000n, isEligibleForSettlement: true,
+      orderId, customerUserId, workerUserId, amount: 350000n, isEligibleForSettlement: true, completedAt: new Date(valid.completedAt),
     });
     expect(fetchMock).toHaveBeenCalledWith(
       new URL(`http://order-service:3004/api/v1/internal/orders/${orderId}/payment-eligibility`),

@@ -39,7 +39,7 @@ function build(initial: Partial<Record<string, unknown>> = {}) {
     client: {
       $transaction: (cb: (t: typeof tx) => unknown) => cb(tx),
       commissionReceivable: { findUnique: vi.fn(), findMany: vi.fn() },
-      paymentAttempt: { findMany: vi.fn() },
+      paymentAttempt: { findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       payment: { findUnique: vi.fn() },
     },
   };
@@ -53,7 +53,7 @@ function build(initial: Partial<Record<string, unknown>> = {}) {
 
 const eligible = (overrides = {}) => ({
   orderId, customerUserId: customerId, workerUserId: workerId, status: 'completed', paymentState: 'unpaid',
-  amount: 100000n, currency: 'VND', isEligibleForSettlement: true, ...overrides,
+  amount: 100000n, currency: 'VND', isEligibleForSettlement: true, completedAt: new Date('2026-01-01T00:00:00Z'), ...overrides,
 });
 
 describe('PaymentOrdersService.open', () => {
