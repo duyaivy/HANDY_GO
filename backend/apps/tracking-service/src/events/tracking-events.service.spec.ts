@@ -55,6 +55,33 @@ describe('TrackingEventsService', () => {
   });
 
   describe('Idempotency & Deduplication', () => {
+    it('records bidding closure once and retains the business closure time', async () => {
+      const eventId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const biddingClosedAt = '2026-11-10T10:00:00.000Z';
+      prismaMock.consumedEvent.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ eventId });
+      prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID(), serviceRequestId });
+      const event = {
+        eventId, eventType: 'service_request.bidding_closed', serviceRequestId,
+        payload: { serviceRequestId, biddingClosedAt },
+      };
+
+      expect(await service.recordDomainEvent(event)).toEqual({ recorded: true });
+      expect(await service.recordDomainEvent(event)).toEqual({ recorded: false, reason: 'ALREADY_CONSUMED' });
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledOnce();
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'service_request.bidding_closed',
+          entityType: TrackingEntityType.service_request,
+          entityId: serviceRequestId,
+          metadata: expect.objectContaining({ biddingClosedAt }),
+        }),
+      }));
+    });
+
     it('should skip processing if eventId was already consumed in consumed_events', async () => {
       const eventId = randomUUID();
       prismaMock.consumedEvent.findUnique.mockResolvedValue({

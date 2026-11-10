@@ -11,6 +11,9 @@ export class ServiceRequestMilestoneDto {
   publishedAt?: Date;
 
   @ApiPropertyOptional()
+  biddingClosedAt?: Date;
+
+  @ApiPropertyOptional()
   cancelledAt?: Date;
 
   @ApiPropertyOptional()

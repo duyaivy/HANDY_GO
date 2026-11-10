@@ -106,6 +106,16 @@ export class SummaryService {
       } else if (evt.eventType === 'service_request.published') {
         reqMilestone.publishedAt = evt.occurredAt;
         reqMilestone.status = 'open_for_bidding';
+      } else if (evt.eventType === 'service_request.bidding_closed') {
+        const closedAt = (evt.metadata as Record<string, unknown> | null)
+          ?.biddingClosedAt;
+        const parsedClosedAt =
+          typeof closedAt === 'string' ? new Date(closedAt) : null;
+        reqMilestone.biddingClosedAt =
+          parsedClosedAt && !Number.isNaN(parsedClosedAt.getTime())
+            ? parsedClosedAt
+            : evt.occurredAt;
+        reqMilestone.status = 'bidding_closed';
       } else if (evt.eventType === 'service_request.cancelled') {
         reqMilestone.cancelledAt = evt.occurredAt;
         reqMilestone.status = 'cancelled';
@@ -476,6 +486,9 @@ export class SummaryService {
     }
     if (bidding.status === 'finalized') {
       return 'BIDDING_FINALIZED';
+    }
+    if (req.status === 'bidding_closed') {
+      return 'BIDDING_CLOSED';
     }
     if (bidding.status === 'closed') {
       return 'BIDDING_CLOSED';

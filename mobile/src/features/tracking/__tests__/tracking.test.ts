@@ -13,6 +13,23 @@ describe('Tracking API & Hooks Unit Tests', () => {
   });
 
   describe('TrackingApi', () => {
+    it('shows bidding closure without implying a worker was selected', async () => {
+      const biddingClosedAt = '2026-11-10T10:00:00.000Z';
+      (request as jest.Mock).mockResolvedValue({
+        serviceRequestId: 'req-closed', currentPhase: 'BIDDING_CLOSED',
+        serviceRequest: { status: 'bidding_closed', createdAt: '2026-11-10T09:00:00.000Z', biddingClosedAt },
+        bidding: { status: 'open', bidCount: 2 },
+      });
+
+      const result = await TrackingApi.getSummary('req-closed');
+      const bidding = result.milestones.find(item => item.key === 'bidding');
+      expect(result.serviceRequest?.biddingClosedAt).toBe(biddingClosedAt);
+      expect(bidding).toMatchObject({
+        status: 'completed', reachedAt: biddingClosedAt,
+        description: 'Đã hết thời hạn nhận báo giá (2 báo giá)',
+      });
+    });
+
     it('getSummary should call request with correct endpoint and enrich milestones', async () => {
       const mockRawResponse = {
         flowId: 'flow-123',

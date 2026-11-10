@@ -38,6 +38,18 @@ export class TrackingEventsConsumer {
     );
   }
 
+  @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED)
+  async handleServiceRequestBiddingClosed(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED,
+    );
+  }
+
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED)
   async handleServiceRequestCancelled(
     @Payload() data: EventEnvelope,

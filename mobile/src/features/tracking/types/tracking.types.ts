@@ -1,6 +1,7 @@
 export type TrackingPhase
   = | 'DRAFT'
     | 'SEEKING_WORKERS'
+    | 'BIDDING_CLOSED'
     | 'BOOKING_PROPOSAL'
     | 'ORDER_CONFIRMED'
     | 'ORDER_IN_PROGRESS'
@@ -42,6 +43,7 @@ export type ServiceRequestMilestoneData = {
   status: string;
   createdAt: string;
   publishedAt?: string;
+  biddingClosedAt?: string;
   cancelledAt?: string;
   expiredAt?: string;
   convertedAt?: string;
@@ -180,18 +182,21 @@ export function computeMilestonesFromSummary(
   const hasProposal = Boolean(proposal?.proposalId || proposal?.finalizedAt);
   const hasOrder = Boolean(order?.orderId || order?.id || summary.orderId);
   const isBiddingActive = bid?.status === 'open' || match?.status === 'started' || phase === 'SEEKING_WORKERS';
-  const isBiddingDone = hasProposal || hasOrder || bid?.status === 'closed' || bid?.status === 'finalized' || match?.status === 'completed';
+  const isRequestBiddingClosed = sr?.status === 'bidding_closed' || phase === 'BIDDING_CLOSED';
+  const isBiddingDone = isRequestBiddingClosed || hasProposal || hasOrder || bid?.status === 'closed' || bid?.status === 'finalized' || match?.status === 'completed';
 
   milestones.push({
     key: 'bidding',
     title: 'Tìm thợ & Báo giá',
-    description: isBiddingDone
-      ? `Đã nhận ${bid?.bidCount ?? 0} báo giá và chốt thợ`
-      : isBiddingActive
-        ? `Đang tìm thợ (${bid?.bidCount ?? 0} báo giá)`
-        : 'Chờ nhận báo giá từ thợ',
+    description: isRequestBiddingClosed && !hasProposal && !hasOrder
+      ? `Đã hết thời hạn nhận báo giá (${bid?.bidCount ?? 0} báo giá)`
+      : isBiddingDone
+        ? `Đã nhận ${bid?.bidCount ?? 0} báo giá và chốt thợ`
+        : isBiddingActive
+          ? `Đang tìm thợ (${bid?.bidCount ?? 0} báo giá)`
+          : 'Chờ nhận báo giá từ thợ',
     status: isBiddingDone ? 'completed' : isBiddingActive ? 'in_progress' : 'pending',
-    reachedAt: bid?.finalizedAt || bid?.closedAt || bid?.openedAt || match?.completedAt || null,
+    reachedAt: bid?.finalizedAt || sr?.biddingClosedAt || bid?.closedAt || bid?.openedAt || match?.completedAt || null,
   });
 
   // 3. Booking Proposal Milestone

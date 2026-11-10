@@ -20,6 +20,34 @@ describe('SummaryService', () => {
     service = new SummaryService(prismaMock as unknown as PrismaService);
   });
 
+  it('marks request bidding closed without a bidding.round.closed event', async () => {
+    const serviceRequestId = randomUUID();
+    const customerId = randomUUID();
+    const publishedAt = new Date('2026-11-10T09:00:00.000Z');
+    const biddingClosedAt = new Date('2026-11-10T10:00:00.000Z');
+    const recordedAt = new Date('2026-11-10T10:00:01.000Z');
+    const user: GatewayUser = {
+      userId: customerId, roles: ['Customer'], isAdmin: false,
+      isCustomer: true, isWorker: false,
+    };
+    prismaMock.trackingFlow.findUnique.mockResolvedValue({
+      id: randomUUID(), serviceRequestId, customerId, orderId: null,
+      eventSequence: 3, createdAt: publishedAt, updatedAt: biddingClosedAt,
+      events: [
+        { eventType: 'service_request.published', entityType: TrackingEntityType.service_request, occurredAt: publishedAt, metadata: {} },
+        { eventType: 'bidding.round.opened', entityType: TrackingEntityType.bidding_round, occurredAt: new Date('2026-11-10T09:30:00.000Z'), metadata: {} },
+        { eventType: 'service_request.bidding_closed', entityType: TrackingEntityType.service_request, occurredAt: recordedAt, metadata: { biddingClosedAt: biddingClosedAt.toISOString() } },
+      ],
+    });
+
+    const result = await service.getRequestSummary(serviceRequestId, user);
+
+    expect(result.serviceRequest.status).toBe('bidding_closed');
+    expect(result.serviceRequest.biddingClosedAt).toEqual(biddingClosedAt);
+    expect(result.bidding.status).toBe('open');
+    expect(result.currentPhase).toBe('BIDDING_CLOSED');
+  });
+
   it('should generate accurate summary and COMPLETED phase for a full lifecycle flow', async () => {
     const customerId = randomUUID();
     const serviceRequestId = randomUUID();

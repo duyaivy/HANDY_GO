@@ -536,6 +536,7 @@ export class TrackingEventsService {
       'durationHours',
       'opensAt',
       'closesAt',
+      'biddingClosedAt',
       'validUntil',
       'matchCount',
       'title',

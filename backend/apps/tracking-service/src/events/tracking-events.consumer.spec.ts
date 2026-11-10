@@ -64,6 +64,24 @@ describe('TrackingEventsConsumer', () => {
     expect(channelMock.nack).not.toHaveBeenCalled();
   });
 
+  it('routes bidding-close events to tracking and ACKs duplicate delivery', async () => {
+    const payload = { eventId: randomUUID(), serviceRequestId: randomUUID() };
+    eventsServiceMock.recordDomainEvent
+      .mockResolvedValueOnce({ recorded: true })
+      .mockResolvedValueOnce({ recorded: false, reason: 'ALREADY_CONSUMED' });
+
+    await consumer.handleServiceRequestBiddingClosed(payload, contextMock);
+    await consumer.handleServiceRequestBiddingClosed(payload, contextMock);
+
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenCalledTimes(2);
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenCalledWith(
+      payload,
+      'service_request.bidding_closed',
+    );
+    expect(channelMock.ack).toHaveBeenCalledTimes(2);
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
   it('should acknowledge message when event is deduplicated (already consumed)', async () => {
     eventsServiceMock.recordDomainEvent.mockResolvedValue({
       recorded: false,
