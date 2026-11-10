@@ -51,12 +51,20 @@ try {
     ],
     { env, stdio: 'inherit' },
   );
-  const result = spawnSync(
-    './node_modules/.bin/vitest',
-    ['run', 'apps/message-service/test/runtime.spec.ts'],
-    { env, stdio: 'inherit' },
-  );
-  process.exitCode = result.status ?? 1;
+  // Runtime assertions count all rows; run concurrency fixtures afterwards.
+  for (const spec of [
+    'apps/message-service/test/runtime.spec.ts',
+    'apps/message-service/test/lifecycle-concurrency.spec.ts',
+  ]) {
+    const result = spawnSync('./node_modules/.bin/vitest', ['run', spec], {
+      env,
+      stdio: 'inherit',
+    });
+    if (result.status !== 0) {
+      process.exitCode = result.status ?? 1;
+      break;
+    }
+  }
 } finally {
   await pool?.end();
   try {

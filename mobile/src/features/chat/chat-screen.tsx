@@ -215,9 +215,9 @@ function ParticipantChatScreen() {
       .find(item => item.id === message.id)
       ?.attachments
       .find(item => item.id === attachmentId);
-    if (!attachment)
+    if (!attachment || attachment.unavailable || !attachment.url)
       throw new Error('Unavailable');
-    return attachment;
+    return { ...attachment, url: attachment.url };
   };
   const openMedia = async (message: ChatMessage, attachmentId: string) => {
     try {

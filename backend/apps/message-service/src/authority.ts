@@ -20,10 +20,10 @@ export interface AuthorityOptions {
   catalog?: string;
 }
 export type MediaReceipt = VerifiedChatMedia &
-  Pick<
-    ChatAttachment,
-    'width' | 'height' | 'durationMs' | 'url' | 'urlExpiresAt'
-  >;
+  Pick<ChatAttachment, 'width' | 'height' | 'durationMs'> & {
+    url: string;
+    urlExpiresAt: string;
+  };
 const uuid =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const fresh = (value: unknown) =>
@@ -215,6 +215,7 @@ export class AuthorityClient {
     bid?: ChatBidAuthority,
     deadline = Date.now() + 2000,
     generation?: number,
+    useCache = true,
   ): Promise<{
     permissions: ReturnType<typeof chatPermissions>;
     customerId: string;
@@ -229,7 +230,7 @@ export class AuthorityClient {
     };
   }> {
     const cacheKey = `${pair.requestId}:${pair.workerId}:${pair.customerId ?? ''}:${userId}:${exists}:${generation ?? 0}`;
-    if (!bid) {
+    if (!bid && useCache) {
       const cached = this.permissionCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         return {
@@ -309,10 +310,11 @@ export class AuthorityClient {
         if (v.expiresAt <= Date.now()) this.permissionCache.delete(k);
       }
     }
-    this.permissionCache.set(cacheKey, {
-      proof,
-      expiresAt: Date.now() + 5_000,
-    });
+    if (useCache)
+      this.permissionCache.set(cacheKey, {
+        proof,
+        expiresAt: Date.now() + 5_000,
+      });
     return proof;
   }
   async displayProfiles(

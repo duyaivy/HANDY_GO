@@ -40,8 +40,10 @@ export interface ChatAttachment {
   width: number | null;
   height: number | null;
   durationMs: number | null;
-  url: string;
-  urlExpiresAt: string;
+  /** Unavailable assets retain metadata but never expose a stale URL. */
+  unavailable?: boolean;
+  url: string | null;
+  urlExpiresAt: string | null;
 }
 export interface ReplyPreview {
   id: string;

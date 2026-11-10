@@ -1,7 +1,6 @@
 import type { Href } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -20,19 +19,13 @@ export function ChatEntry({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const opening = useRef(false);
   const userId = useAuthStore(state =>
     state.isAuthenticated ? state.user?.id : null,
   );
-  const eligibility = useQuery({
-    queryKey: ['chat', userId, 'bid', bidId],
-    queryFn: () => ChatApi.create(bidId!),
-    enabled: Boolean(enabled && bidId && userId),
-    staleTime: 5000,
-    retry: false,
-  });
   if (!enabled)
     return null;
-  const disabled = pending || !bidId || !eligibility.data?.permissions.send;
+  const disabled = pending || !bidId || !userId;
   return (
     <Button
       label="Nhắn tin"
@@ -43,8 +36,9 @@ export function ChatEntry({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={async () => {
-        if (disabled || !bidId)
+        if (disabled || !bidId || opening.current)
           return;
+        opening.current = true;
         setPending(true);
         try {
           const conversation = await ChatApi.create(bidId);
@@ -59,6 +53,7 @@ export function ChatEntry({
           Alert.alert('Chưa thể nhắn tin', chatErrorMessage(error));
         }
         finally {
+          opening.current = false;
           setPending(false);
         }
       }}

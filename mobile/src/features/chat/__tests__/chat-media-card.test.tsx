@@ -37,3 +37,18 @@ it('does not let an old URL refresh replace a newly selected attachment', async 
   });
   expect(screen.getByTestId('chat-media-image-next-image').props.source).toEqual(expect.arrayContaining([expect.objectContaining({ uri: nextAttachment.url })]));
 });
+
+it.each(['IMAGE', 'VIDEO'] as const)('handles unavailable %s without opening a missing URL and supports retry', async (mediaType) => {
+  const open = jest.fn();
+  const refresh = jest.fn().mockResolvedValue('https://example.com/recovered.jpg');
+  render(<ChatMediaCard attachment={{ ...attachment, mediaType, unavailable: true, url: null }} onOpen={open} onRefresh={refresh} />);
+  expect(screen.getByText('Tệp không khả dụng')).toBeTruthy();
+  expect(screen.queryByTestId('chat-media-image-image')).toBeNull();
+  expect(refresh).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByLabelText(mediaType === 'VIDEO' ? 'Xem video' : 'Xem ảnh'));
+  expect(open).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByLabelText('Tải lại tệp'));
+  await waitFor(() => expect(screen.queryByText('Tệp không khả dụng')).toBeNull());
+  fireEvent.press(screen.getByLabelText(mediaType === 'VIDEO' ? 'Xem video' : 'Xem ảnh'));
+  expect(open).toHaveBeenCalledTimes(1);
+});

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { ChatApi } from '../chat-api';
 import { ChatEntry } from '../chat-entry';
 
@@ -37,37 +37,51 @@ it('keeps chat disabled without creating a conversation before a persisted bid e
   expect(ChatApi.create).not.toHaveBeenCalled();
   view.close();
 });
-it('requires backend send permission before enabling entry and rechecks on open', async () => {
-  (ChatApi.create as jest.Mock).mockResolvedValue({
-    id: 'conversation',
-    permissions: { read: true, send: true },
-  });
-  const view = setup('persisted-bid');
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
-  fireEvent.press(screen.getByText('Nhắn tin'));
-  await waitFor(() =>
-    expect(mockPush).toHaveBeenCalledWith('/chat/conversation'),
+it('mounts multiple bids without POST and creates only the pressed conversation', async () => {
+  (ChatApi.create as jest.Mock).mockResolvedValue({ id: 'conversation', permissions: { read: true, send: true } });
+  render(
+    <>
+      <ChatEntry bidId="first-bid" />
+      <ChatEntry bidId="second-bid" />
+    </>,
   );
-  expect(ChatApi.create).toHaveBeenNthCalledWith(1, 'persisted-bid');
-  expect(ChatApi.create).toHaveBeenNthCalledWith(2, 'persisted-bid');
-  view.close();
+  await waitFor(() => expect(screen.getAllByRole('button', { name: 'Nhắn tin' })).toHaveLength(2));
+  expect(ChatApi.create).not.toHaveBeenCalled();
+  fireEvent.press(screen.getAllByRole('button', { name: 'Nhắn tin' })[1]);
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/chat/conversation'));
+  expect(ChatApi.create).toHaveBeenCalledTimes(1);
+  expect(ChatApi.create).toHaveBeenCalledWith('second-bid');
 });
-it('keeps entry visible and disabled when server denies bid access', async () => {
+it('handles denied access after a press without navigation', async () => {
   (ChatApi.create as jest.Mock).mockRejectedValue(new Error('CHAT_INELIGIBLE'));
   const view = setup('withdrawn-bid');
-  await waitFor(() => expect(ChatApi.create).toHaveBeenCalled());
-  expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeDisabled();
+  expect(ChatApi.create).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByText('Nhắn tin'));
+  await waitFor(() => expect(ChatApi.create).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
+  expect(mockPush).not.toHaveBeenCalled();
   view.close();
 });
-
-it('does not navigate if send permission is revoked before opening', async () => {
-  (ChatApi.create as jest.Mock)
-    .mockResolvedValueOnce({ id: 'conversation', permissions: { read: true, send: true } })
-    .mockResolvedValueOnce({ id: 'conversation', permissions: { read: true, send: false } });
+it('does not navigate when the server denies send permission', async () => {
+  (ChatApi.create as jest.Mock).mockResolvedValue({ id: 'conversation', permissions: { read: true, send: false } });
   const view = setup('persisted-bid');
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
   fireEvent.press(screen.getByText('Nhắn tin'));
-  await waitFor(() => expect(ChatApi.create).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(ChatApi.create).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Nhắn tin' })).toBeEnabled());
   expect(mockPush).not.toHaveBeenCalled();
+  view.close();
+});
+it('does not create twice while a press is pending', async () => {
+  let resolve!: (value: unknown) => void;
+  (ChatApi.create as jest.Mock).mockImplementation(() => new Promise((r) => {
+    resolve = r;
+  }));
+  const view = setup('persisted-bid');
+  const button = screen.getByRole('button', { name: 'Nhắn tin' });
+  fireEvent.press(button);
+  fireEvent.press(button);
+  expect(ChatApi.create).toHaveBeenCalledTimes(1);
+  await act(async () => resolve({ id: 'conversation', permissions: { read: true, send: true } }));
+  expect(mockPush).toHaveBeenCalledTimes(1);
   view.close();
 });

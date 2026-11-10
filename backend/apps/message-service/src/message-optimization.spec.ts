@@ -100,6 +100,7 @@ describe('Message Service Latency & Idempotency Optimizations', () => {
       consumedEvent: {
         findUnique: vi.fn(async () => null),
         create: vi.fn(async ({ data }) => data),
+        createMany: vi.fn(async () => ({ count: 1 })),
       },
       $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: any[]) => {
         queryRawCalls.push({ strings, values });
@@ -632,6 +633,8 @@ describe('Message Service Latency & Idempotency Optimizations', () => {
 
     // Invalidation event arrives (e.g. order.cancelled or bid.withdrawn)
     const eventId = randomUUID();
+    // Authority already reflects the lifecycle change when its event arrives.
+    authorityFetch.mockRejectedValue(new Error('Order authority unavailable'));
     await service.invalidate(eventId, 'order.cancelled', { requestId });
 
     // Ensure permission cache was cleared

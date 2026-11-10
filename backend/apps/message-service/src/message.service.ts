@@ -678,7 +678,8 @@ export class MessageService {
       const cacheFresh =
         cachedWinner.expiresAt > Date.now() &&
         cachedWinner.message.attachments.every(
-          (a) => Date.parse(a.urlExpiresAt) > Date.now(),
+          (a) =>
+            a.urlExpiresAt !== null && Date.parse(a.urlExpiresAt) > Date.now(),
         );
       if (!this.equal(cachedWinner.raw as HydratedMessage, input))
         throw new ChatError('IDEMPOTENCY_CONFLICT');
@@ -855,9 +856,15 @@ export class MessageService {
   ): Promise<ChatMessage> {
     const attachments = await Promise.all(
       m.attachments.map(async (a) => {
-        const media =
-          verified?.find((asset) => asset.storageKey === a.storageKey) ??
-          (await this.authority.media(a.storageKey, m.senderId, a.mediaType));
+        let media: MediaReceipt | undefined;
+        try {
+          media =
+            verified?.find((asset) => asset.storageKey === a.storageKey) ??
+            (await this.authority.media(a.storageKey, m.senderId, a.mediaType));
+        } catch {
+          // Stored metadata remains useful when the private asset is unavailable.
+          // New uploads are still verified strictly before persistence.
+        }
         return {
           id: a.id,
           storageKey: a.storageKey,
@@ -868,8 +875,9 @@ export class MessageService {
           width: a.width,
           height: a.height,
           durationMs: a.durationMs,
-          url: media.url,
-          urlExpiresAt: media.urlExpiresAt,
+          unavailable: !media,
+          url: media?.url ?? null,
+          urlExpiresAt: media?.urlExpiresAt ?? null,
         };
       }),
     );
@@ -911,80 +919,133 @@ export class MessageService {
     eventType: string,
     data: Record<string, unknown>,
   ) {
-    this.generation++;
-    const requestId = data.requestId ?? data.serviceRequestId,
-      orderId = data.orderId;
+    const generation = ++this.generation;
+    const requestId = data.requestId ?? data.serviceRequestId;
+    const orderId = data.orderId;
+    const customerId = data.customerId ?? data.customerUserId;
+    const workerId = data.workerId ?? data.workerUserId;
+    const where: Prisma.ConversationWhereInput =
+      typeof requestId === 'string'
+        ? { requestId }
+        : typeof orderId === 'string'
+          ? {
+              OR: [
+                { orderId },
+                ...(typeof customerId === 'string' &&
+                typeof workerId === 'string'
+                  ? [{ customerId, workerId, orderId: null }]
+                  : []),
+              ],
+            }
+          : {};
+    if (!Object.keys(where).length) throw new ChatError('VALIDATION_ERROR');
     this.memberCache.clear();
     this.recentMessages.clear();
     this.authority.clearPermissionCache(
       typeof requestId === 'string' ? requestId : undefined,
     );
-    let recoveredIds: string[] = [];
-    if (typeof requestId !== 'string' && typeof orderId === 'string') {
-      const customerId = data.customerId ?? data.customerUserId,
-        workerId = data.workerId ?? data.workerUserId;
-      if (typeof customerId !== 'string' || typeof workerId !== 'string')
-        throw new ChatError('VALIDATION_ERROR');
-      const candidates = await this.db.conversation.findMany({
-        where: { customerId, workerId, orderId: null },
-        take: 100,
-      });
-      for (const c of candidates) {
-        const proof = await this.authority.permission(c.customerId, c, true);
-        if (proof.orderId === orderId) {
-          recoveredIds.push(c.id);
-          await this.db.conversation.update({
+    const ids = await this.db.$transaction(
+      async (tx) => {
+        // ON CONFLICT waits for a concurrent delivery, then skips it atomically.
+        const claimed = await tx.consumedEvent.createMany({
+          data: { eventId, eventType },
+          skipDuplicates: true,
+        });
+        if (!claimed.count) return [];
+        const rows = await tx.conversation.findMany({
+          where,
+          orderBy: { id: 'asc' },
+        });
+        const ids: string[] = [];
+        for (const row of rows) {
+          // Read authority only AFTER taking the lock shared with sends and
+          // reconciliation. A proof obtained before waiting could reopen a chat.
+          await tx.$queryRaw`SELECT id FROM message.conversations WHERE id=${row.id}::uuid FOR UPDATE`;
+          const c = await tx.conversation.findUnique({ where: { id: row.id } });
+          if (!c) continue;
+          let proof:
+            Awaited<ReturnType<AuthorityClient['permission']>> | undefined;
+          try {
+            proof = await this.authority.permission(
+              c.customerId,
+              c,
+              true,
+              undefined,
+              undefined,
+              generation,
+              false,
+            );
+          } catch {
+            // Keep history readable, but never allow writes without authority.
+          }
+          if (generation !== this.generation)
+            throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+          // A pair can have multiple requests. Only associate the proven order.
+          if (
+            typeof requestId !== 'string' &&
+            c.orderId !== orderId &&
+            proof &&
+            proof.orderId !== orderId
+          )
+            continue;
+          await tx.conversation.update({
             where: { id: c.id },
-            data: { orderId },
+            data: {
+              status: proof?.permissions.send ? 'OPEN' : 'READ_ONLY',
+              ...(proof?.orderId ? { orderId: proof.orderId } : {}),
+            },
           });
+          ids.push(c.id);
         }
-      }
-    }
-    const rows = await this.db.$transaction(async (tx) => {
-      if (await tx.consumedEvent.findUnique({ where: { eventId } })) return [];
-      const where: Prisma.ConversationWhereInput =
-        typeof requestId === 'string'
-          ? { requestId }
-          : typeof orderId === 'string'
-            ? {
-                OR: [
-                  { orderId },
-                  ...(recoveredIds.length
-                    ? [{ id: { in: recoveredIds } }]
-                    : []),
-                ],
-              }
-            : {};
-      if (!Object.keys(where).length) throw new ChatError('VALIDATION_ERROR');
-      const rows = await tx.conversation.findMany({ where });
-      await tx.conversation.updateMany({
-        where,
-        data: { status: 'READ_ONLY' },
-      });
-      await tx.consumedEvent.create({ data: { eventId, eventType } });
-      return rows;
-    });
-    this.onInvalidation(rows.map((c) => c.id));
+        return ids;
+      },
+      { timeout: 60_000 },
+    );
+    // Reads may have populated these caches while the transaction was running.
+    this.memberCache.clear();
+    this.recentMessages.clear();
+    if (ids.length) this.onInvalidation(ids);
   }
+
   async reconcile() {
     const rows = await this.db.conversation.findMany({
       take: 100,
       orderBy: { updatedAt: 'asc' },
     });
-    for (const c of rows) {
+    for (const row of rows) {
       const generation = this.generation;
       try {
-        const proof = await this.authority.permission(c.customerId, c, true);
-        if (generation !== this.generation) continue;
-        await this.db.conversation.update({
-          where: { id: c.id },
-          data: {
-            status: proof.permissions.send ? 'OPEN' : 'READ_ONLY',
-            ...(proof.orderId ? { orderId: proof.orderId } : {}),
-          },
+        await this.db.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM message.conversations WHERE id=${row.id}::uuid FOR UPDATE`;
+          const c = await tx.conversation.findUnique({ where: { id: row.id } });
+          if (!c) return;
+          let proof:
+            Awaited<ReturnType<AuthorityClient['permission']>> | undefined;
+          try {
+            proof = await this.authority.permission(
+              c.customerId,
+              c,
+              true,
+              undefined,
+              undefined,
+              generation,
+              false,
+            );
+          } catch {
+            // A failed refresh must not leave an unverified conversation open.
+          }
+          if (generation !== this.generation) return;
+          await tx.conversation.update({
+            where: { id: c.id },
+            data: {
+              status: proof?.permissions.send ? 'OPEN' : 'READ_ONLY',
+              ...(proof?.orderId ? { orderId: proof.orderId } : {}),
+            },
+          });
         });
+        this.memberCache.delete(row.id);
       } catch {
-        /* fail closed for writes; no destructive history operation */
+        /* Retry transient database failures on the next reconciliation. */
       }
     }
   }
