@@ -12,6 +12,7 @@ export const catalogQueryKeys = {
   services: () => [...catalogQueryKeys.all, 'services'] as const,
   servicesList: (params: { page?: number; limit?: number; search?: string; isActive?: boolean; categoryId?: string }) =>
     [...catalogQueryKeys.services(), params] as const,
+  serviceDetail: (id: string) => [...catalogQueryKeys.services(), id] as const,
 };
 
 // ─── useCategories ────────────────────────────────────────────────────────────

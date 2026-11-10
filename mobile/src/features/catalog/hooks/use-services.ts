@@ -1,6 +1,7 @@
 import type { GetServicesParams } from '../types';
 import { useQuery } from '@tanstack/react-query';
 import * as React from 'react';
+import { KNOWN_SERVICES_BY_ID } from '@/constants/services';
 import { CatalogApi } from '../api/catalog.api';
 import { catalogQueryKeys } from './use-categories';
 
@@ -52,4 +53,22 @@ export function useServicesByCategory(categoryId: string | null | undefined, par
   }), [categoryId, isActive, limit, page, search]);
 
   return useServices(queryParams);
+}
+
+// ─── useServiceDetail ─────────────────────────────────────────────────────────
+/**
+ * Fetches details for a single service by ID.
+ * Automatically skips remote fetch if serviceId is already recognized in KNOWN_SERVICES_BY_ID.
+ */
+export function useServiceDetail(id?: string | null, options: { enabled?: boolean } = {}) {
+  const isKnown = id ? Boolean(KNOWN_SERVICES_BY_ID[id]) : false;
+  const isEnabled = options.enabled !== undefined ? options.enabled : Boolean(id && !isKnown);
+
+  return useQuery({
+    queryKey: catalogQueryKeys.serviceDetail(id ?? ''),
+    queryFn: () => CatalogApi.getServiceById(id!),
+    enabled: Boolean(id) && isEnabled,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    select: data => data.data,
+  });
 }

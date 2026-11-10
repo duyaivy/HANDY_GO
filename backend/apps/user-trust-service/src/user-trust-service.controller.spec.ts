@@ -21,6 +21,7 @@ describe('UserTrustServiceController', () => {
       addBankAccount: vi.fn().mockResolvedValue({ statusCode: 201 }),
       deleteBankAccount: vi.fn().mockResolvedValue({ statusCode: 200 }),
       getWorkerPublicProfile: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'w1' } }),
+      getWorkerOrderSummary: vi.fn().mockResolvedValue({ statusCode: 200, data: { workerUserId: 'w1' } }),
       getWorkerReviews: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
       submitWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 201, data: { id: 'reg-1' } }),
       updateWorkerServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'reg-1' } }),
@@ -194,6 +195,16 @@ describe('UserTrustServiceController', () => {
     );
     expect(result).toEqual({ userIds: ['user-1', 'user-2'] });
     expect(serviceMock.getAllActiveUserIds).toHaveBeenCalledWith('ALL');
+  });
+
+  it('should serve the order worker summary through both user routes', async () => {
+    const expected = { statusCode: 200, data: { workerUserId: 'worker-1' } };
+    serviceMock.getWorkerOrderSummary.mockResolvedValue(expected);
+
+    expect(await controller.getWorkerPublicProfile('worker-1')).toEqual(expected);
+    expect(await controller.getWorkerPublicProfileAlias('worker-1')).toEqual(expected);
+    expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledTimes(2);
+    expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledWith('worker-1');
   });
 
   it('should call service.getWorkerPublicProfile for getWorkerProfile and alias', async () => {

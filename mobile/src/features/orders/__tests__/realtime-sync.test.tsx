@@ -132,6 +132,8 @@ describe('Realtime Sync Configuration Tests', () => {
       expect(intervalFn({ state: { data: { status: 'in_progress' } } })).toBe(3000);
       // When status is 'awaiting_customer_confirmation' -> 3000
       expect(intervalFn({ state: { data: { status: 'awaiting_customer_confirmation' } } })).toBe(3000);
+      // When status is 'disputed' -> 8000 (P2-02 slow polling for admin resolution)
+      expect(intervalFn({ state: { data: { status: 'disputed' } } })).toBe(8000);
       // When status is 'completed' -> false
       expect(intervalFn({ state: { data: { status: 'completed' } } })).toBe(false);
       // When status is 'cancelled' -> false

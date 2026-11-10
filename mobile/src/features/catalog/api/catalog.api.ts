@@ -3,6 +3,7 @@ import type {
   CategoryListApiResponse,
   GetCategoriesParams,
   GetServicesParams,
+  ServiceDetailApiResponse,
   ServiceListApiResponse,
 } from '../types';
 import { ApiClient } from '@/services/api/api-client';
@@ -60,5 +61,13 @@ export const CatalogApi = {
       queryParams.categoryId = params.categoryId;
 
     return ApiClient.get<ServiceListApiResponse>(SERVICES_BASE, { params: queryParams });
+  },
+
+  /**
+   * GET /api/v1/services/:id
+   * Fetches a single service with details.
+   */
+  getServiceById: (id: string): Promise<ServiceDetailApiResponse> => {
+    return ApiClient.get<ServiceDetailApiResponse>(`${SERVICES_BASE}/${id}`);
   },
 };

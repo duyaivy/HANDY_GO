@@ -44,8 +44,9 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
 export function useCustomerOrders(activeTab = 'Searching') {
   const isSearchingTab = activeTab === 'Searching';
   const isCancelledTab = activeTab === 'Cancelled';
-  const isFinishedTab = activeTab === 'Finished' || activeTab === 'Reorder';
+  const isFinishedTab = activeTab === 'Finished';
   const isInProcessTab = activeTab === 'In process';
+  const isDisputedTab = activeTab === 'Disputed';
 
   // Server status filter per tab
   const requestsStatusFilter = isSearchingTab
@@ -58,9 +59,11 @@ export function useCustomerOrders(activeTab = 'Searching') {
     ? 'created,confirmed,in_progress,awaiting_customer_confirmation'
     : isFinishedTab
       ? 'completed'
-      : isCancelledTab
-        ? 'cancelled,disputed'
-        : '';
+      : isDisputedTab
+        ? 'disputed'
+        : isCancelledTab
+          ? 'cancelled'
+          : '';
 
   const shouldFetchRequests = isSearchingTab || isCancelledTab || activeTab === 'All';
   const shouldFetchOrders = !isSearchingTab;
@@ -161,6 +164,7 @@ export function useCustomerOrders(activeTab = 'Searching') {
     activeTab,
     isSearchingTab,
     isCancelledTab,
+    isDisputedTab,
     requests,
     orders,
 
@@ -212,7 +216,9 @@ export function useCustomerOrderDetail(orderId?: string) {
       if (!data) {
         return 3000;
       }
-      // Tự động kiểm tra cập nhật mỗi 3s chừng nào đơn chưa ở trạng thái kết thúc (completed/cancelled/expired)
+      if (data.status === 'disputed') {
+        return 8000;
+      }
       if (!['completed', 'cancelled', 'expired'].includes(data.status)) {
         return 3000;
       }
@@ -233,12 +239,170 @@ export function useCustomerOrderDetail(orderId?: string) {
     enabled: !!orderId && orderId !== '224466' && orderId !== 'demo-001',
     refetchInterval: () => {
       const order = orderQuery.data;
+      if (order?.status === 'disputed') {
+        return 8000;
+      }
       if (order && !['completed', 'cancelled', 'expired'].includes(order.status)) {
         return 3000;
       }
       return false;
     },
     refetchIntervalInBackground: false,
+  });
+
+  const workerProfileQuery = useQuery({
+    queryKey: ['order-worker-profile', orderQuery.data?.workerUserId, (orderQuery.data as any)?.selectedBidId, orderQuery.data?.serviceRequestId],
+    queryFn: async () => {
+      const order = orderQuery.data;
+      if (!order) {
+        return null;
+      }
+
+      // 1. Snapshot worker từ Order API nếu có dữ liệu hợp lệ
+      const workerSnapshot = (order as any)?.worker;
+      if (workerSnapshot?.fullName && typeof workerSnapshot.fullName === 'string' && workerSnapshot.fullName.trim()) {
+        return {
+          fullName: workerSnapshot.fullName.trim(),
+          avatarUrl: workerSnapshot.avatarUrl || undefined,
+          rating: typeof workerSnapshot.rating === 'number'
+            ? workerSnapshot.rating
+            : (typeof workerSnapshot.averageRating === 'number' ? workerSnapshot.averageRating : undefined),
+          completedJobsCount: typeof workerSnapshot.completedJobsCount === 'number'
+            ? workerSnapshot.completedJobsCount
+            : (typeof workerSnapshot.completedOrderCount === 'number' ? workerSnapshot.completedOrderCount : undefined),
+          phone: workerSnapshot.phone || workerSnapshot.phoneNumber || undefined,
+          headline: workerSnapshot.headline || undefined,
+        };
+      }
+
+      let profileData: {
+        fullName?: string;
+        avatarUrl?: string;
+        rating?: number;
+        completedJobsCount?: number;
+        phone?: string;
+        headline?: string;
+      } | null = null;
+
+      // 2. Lấy hồ sơ trực tiếp theo order.workerUserId qua OrdersApi.getWorkerProfile
+      if (order.workerUserId) {
+        try {
+          const profileRes = await OrdersApi.getWorkerProfile(order.workerUserId);
+          const rawProfile = profileRes?.data;
+          if (rawProfile?.fullName) {
+            profileData = {
+              fullName: rawProfile.fullName,
+              avatarUrl: rawProfile.avatarUrl || undefined,
+              rating: typeof rawProfile.averageRating === 'number'
+                ? rawProfile.averageRating
+                : (typeof (rawProfile as any).rating === 'number' ? (rawProfile as any).rating : undefined),
+              completedJobsCount: typeof rawProfile.completedOrderCount === 'number'
+                ? rawProfile.completedOrderCount
+                : (typeof (rawProfile as any).completedJobsCount === 'number' ? (rawProfile as any).completedJobsCount : undefined),
+              phone: rawProfile.phoneNumber || rawProfile.phone || undefined,
+              headline: rawProfile.headline || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore và chuyển sang các fallback tiếp theo
+        }
+      }
+
+      // 3. Fallback / Merge: Lấy chi tiết từ selectedBidId nếu có
+      const selectedBidId = (order as any)?.selectedBidId;
+      if (selectedBidId) {
+        try {
+          const res = await OrdersApi.getBidDetail(selectedBidId);
+          if (res?.data?.workerProfile) {
+            const bidWorker = res.data.workerProfile;
+            return {
+              fullName: profileData?.fullName || bidWorker.fullName,
+              avatarUrl: profileData?.avatarUrl || bidWorker.avatarUrl || undefined,
+              rating: typeof profileData?.rating === 'number'
+                ? profileData.rating
+                : (typeof bidWorker.averageRating === 'number' ? bidWorker.averageRating : undefined),
+              completedJobsCount: typeof profileData?.completedJobsCount === 'number'
+                ? profileData.completedJobsCount
+                : (typeof bidWorker.completedOrderCount === 'number' ? bidWorker.completedOrderCount : undefined),
+              phone: profileData?.phone || (bidWorker as any)?.phoneNumber || (bidWorker as any)?.phone || undefined,
+              headline: profileData?.headline || (bidWorker as any)?.headline || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore
+        }
+      }
+
+      // Nếu đã lấy được profile trực tiếp thành công, trả về ngay
+      if (profileData?.fullName) {
+        return profileData;
+      }
+
+      // 4. Fallback: Tìm trong candidates (bidding / recommendations) của serviceRequestId
+      if (order.serviceRequestId) {
+        try {
+          const candRes = await OrdersApi.getCandidates(order.serviceRequestId);
+          const biddingItems = candRes?.data?.bidding?.items || [];
+          const matchedBid = biddingItems.find(
+            (b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId,
+          );
+          if (matchedBid?.workerProfile) {
+            return {
+              fullName: matchedBid.workerProfile.fullName,
+              avatarUrl: matchedBid.workerProfile.avatarUrl || undefined,
+              rating: typeof matchedBid.workerProfile.averageRating === 'number' ? matchedBid.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedBid.workerProfile.completedOrderCount === 'number' ? matchedBid.workerProfile.completedOrderCount : undefined,
+              phone: (matchedBid.workerProfile as any)?.phoneNumber || (matchedBid.workerProfile as any)?.phone || undefined,
+              headline: (matchedBid.workerProfile as any)?.headline || undefined,
+            };
+          }
+
+          const recItems = candRes?.data?.matching?.recommendations || [];
+          const matchedRec = recItems.find(
+            (r: any) => r.workerId === order.workerUserId || r.workerUserId === order.workerUserId,
+          );
+          if (matchedRec?.workerProfile) {
+            return {
+              fullName: matchedRec.workerProfile.fullName,
+              avatarUrl: matchedRec.workerProfile.avatarUrl || undefined,
+              rating: typeof matchedRec.workerProfile.averageRating === 'number' ? matchedRec.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matchedRec.workerProfile.completedOrderCount === 'number' ? matchedRec.workerProfile.completedOrderCount : undefined,
+              phone: (matchedRec.workerProfile as any)?.phoneNumber || (matchedRec.workerProfile as any)?.phone || undefined,
+              headline: (matchedRec.workerProfile as any)?.headline || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore and fall back to request bids
+        }
+
+        try {
+          const res = await OrdersApi.getRequestBids(order.serviceRequestId);
+          const rawItems = (res?.data as any)?.items || res?.data || [];
+          const items = Array.isArray(rawItems) ? rawItems : [];
+          const matched = items.find((b: any) => b.workerId === order.workerUserId || b.workerUserId === order.workerUserId);
+          if (matched?.workerProfile) {
+            return {
+              fullName: matched.workerProfile.fullName,
+              avatarUrl: matched.workerProfile.avatarUrl || undefined,
+              rating: typeof matched.workerProfile.averageRating === 'number' ? matched.workerProfile.averageRating : undefined,
+              completedJobsCount: typeof matched.workerProfile.completedOrderCount === 'number' ? matched.workerProfile.completedOrderCount : undefined,
+              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || undefined,
+              headline: (matched.workerProfile as any)?.headline || undefined,
+            };
+          }
+        }
+        catch {
+          // ignore
+        }
+      }
+
+      return null;
+    },
+    enabled: Boolean(orderQuery.data && orderId && orderId !== '224466' && orderId !== 'demo-001'),
+    staleTime: 60000,
   });
 
   const confirmCompletionMutation = useMutation({
@@ -299,11 +463,12 @@ export function useCustomerOrderDetail(orderId?: string) {
 
   return {
     order: orderQuery.data,
+    worker: workerProfileQuery.data || (orderQuery.data as any)?.worker || null,
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
     refetch: async () => {
-      await Promise.all([orderQuery.refetch(), historyQuery.refetch()]);
+      await Promise.all([orderQuery.refetch(), historyQuery.refetch(), workerProfileQuery.refetch()]);
     },
     confirmCompletion: confirmCompletionMutation.mutateAsync,
     isConfirming: confirmCompletionMutation.isPending,
