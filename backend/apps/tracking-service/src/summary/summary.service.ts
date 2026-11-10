@@ -38,16 +38,6 @@ export class SummaryService {
     serviceRequestId: string,
     user: GatewayUser,
   ): Promise<TrackingSummaryResponseDto> {
-    const cacheKey = this.buildSummaryCacheKey(serviceRequestId, user);
-
-    if (this.redis) {
-      const cached = await this.redis.get<TrackingSummaryResponseDto>(cacheKey);
-      if (cached) {
-        this.logger.debug(`Cache hit for summary: ${cacheKey}`);
-        return cached;
-      }
-    }
-
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
       include: {
@@ -86,6 +76,19 @@ export class SummaryService {
         throw new ForbiddenException(
           'Bạn không có quyền xem thông tin tổng hợp của yêu cầu này',
         );
+      }
+    }
+
+    const cacheKey = this.buildSummaryCacheKey(
+      serviceRequestId,
+      user,
+      flow.eventSequence ?? 0,
+    );
+    if (this.redis) {
+      const cached = await this.redis.get<TrackingSummaryResponseDto>(cacheKey);
+      if (cached) {
+        this.logger.debug(`Cache hit for summary: ${cacheKey}`);
+        return cached;
       }
     }
 
@@ -409,6 +412,7 @@ export class SummaryService {
   private buildSummaryCacheKey(
     serviceRequestId: string,
     user: GatewayUser,
+    version: number,
   ): string {
     let userScope = 'admin';
     if (user.isCustomer) {
@@ -416,7 +420,7 @@ export class SummaryService {
     } else if (user.isWorker) {
       userScope = `wrk:${user.userId}`;
     }
-    return `tracking:summary:${serviceRequestId}:${userScope}`;
+    return `tracking:summary:${serviceRequestId}:${userScope}:v${version}`;
   }
 
   private computeCurrentPhase(

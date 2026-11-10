@@ -358,6 +358,48 @@ describe('SummaryService', () => {
   });
 
   describe('Redis Caching', () => {
+    it('uses a new cache version after payment is recorded even when old cache survives', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const orderId = randomUUID();
+      const now = new Date();
+      const user: GatewayUser = { userId: customerId, roles: ['Customer'], isAdmin: false, isCustomer: true, isWorker: false };
+      const events: any[] = [
+        { eventType: 'order.created', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, metadata: {} },
+        { eventType: 'order.completed', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, metadata: {} },
+      ];
+      let eventSequence = 2;
+      prismaMock.trackingFlow.findUnique.mockImplementation(async () => ({
+        id: randomUUID(), serviceRequestId, customerId, orderId, eventSequence,
+        createdAt: now, updatedAt: now, events: [...events],
+      }));
+      const cache = new Map<string, any>();
+      const redisMock: any = {
+        get: vi.fn(async (key: string) => cache.get(key) ?? null),
+        set: vi.fn(async (key: string, value: any) => { cache.set(key, value); }),
+        delByPattern: vi.fn(async () => { /* Redis outage leaves old key behind. */ }),
+      };
+      const cachedService = new SummaryService(prismaMock, redisMock);
+      const before = await cachedService.getRequestSummary(serviceRequestId, user);
+      expect(before.payment).toBeUndefined();
+      events.push({ eventType: 'payment.succeeded', entityType: TrackingEntityType.payment, entityId: randomUUID(), occurredAt: new Date(now.getTime() + 1), metadata: {} });
+      eventSequence = 3;
+      await redisMock.delByPattern(`tracking:*:${serviceRequestId}:*`);
+      const after = await cachedService.getRequestSummary(serviceRequestId, user);
+      expect(after.payment?.status).toBe('succeeded');
+      expect(cache.has(`tracking:summary:${serviceRequestId}:cust:${customerId}:v2`)).toBe(true);
+      expect(redisMock.get).toHaveBeenLastCalledWith(`tracking:summary:${serviceRequestId}:cust:${customerId}:v3`);
+    });
+
+    it('checks ownership before returning a cached summary', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = { userId: randomUUID(), roles: ['Customer'], isAdmin: false, isCustomer: true, isWorker: false };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({ id: randomUUID(), serviceRequestId, customerId: randomUUID(), eventSequence: 2, events: [] });
+      const redisMock: any = { get: vi.fn().mockResolvedValue({ currentPhase: 'COMPLETED' }) };
+      await expect(new SummaryService(prismaMock, redisMock).getRequestSummary(serviceRequestId, user)).rejects.toThrow(ForbiddenException);
+      expect(redisMock.get).not.toHaveBeenCalled();
+    });
+
     it('should return cached summary immediately if present in Redis', async () => {
       const serviceRequestId = randomUUID();
       const user: GatewayUser = {
@@ -378,6 +420,9 @@ describe('SummaryService', () => {
         get: vi.fn().mockResolvedValue(cachedData),
         set: vi.fn(),
       };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: cachedData.flowId, serviceRequestId, eventSequence: 3, events: [],
+      });
 
       const cachedService = new SummaryService(prismaMock, redisMock);
       const result = await cachedService.getRequestSummary(
@@ -387,10 +432,9 @@ describe('SummaryService', () => {
 
       expect(result).toBe(cachedData);
       expect(redisMock.get).toHaveBeenCalledWith(
-        `tracking:summary:${serviceRequestId}:admin`,
+        `tracking:summary:${serviceRequestId}:admin:v3`,
       );
-      // DB should not be called on cache hit
-      expect(prismaMock.trackingFlow.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.trackingFlow.findUnique).toHaveBeenCalledOnce();
     });
 
     it('should cache summary in Redis with TTL when currentPhase is COMPLETED', async () => {
@@ -444,7 +488,7 @@ describe('SummaryService', () => {
       );
 
       expect(redisMock.set).toHaveBeenCalledWith(
-        `tracking:summary:${serviceRequestId}:cust:${customerId}`,
+        `tracking:summary:${serviceRequestId}:cust:${customerId}:v0`,
         expect.objectContaining({ currentPhase: 'COMPLETED' }),
         7 * 24 * 3600,
       );
