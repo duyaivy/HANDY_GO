@@ -1,645 +1,826 @@
-
 "use client";
 
-import React, { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Users,
-  Gauge,
-  Lock,
-  Unlock,
+  BadgeCheck,
+  Clock3,
   Search,
-  Star,
-  MoreVertical,
   ChevronDown,
-  Eye,
+  ChevronLeft,
+  ChevronRight,
+  Star,
+  RefreshCw,
+  AlertCircle,
+  Inbox,
 } from "lucide-react";
 
-import { WorkerItem, WorkerStatus } from "../types";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { UserResponse } from "../../types";
+import WorkerDetailModal from "./worker-detail";
+import { useUsersQuery } from "../../hooks/use-users";
 
-const AVATAR_COLORS = [
-  "bg-slate-200/90 text-slate-600",
-  "bg-[#FFEDD5] text-[#C2410C]",
-  "bg-[#F3E8FF] text-[#7E22CE]",
-  "bg-[#D1FAE5] text-[#047857]",
-  "bg-[#FFE4E6] text-[#BE123C]",
-];
+const PAGE_SIZE = 10;
+const SKELETON_ROWS = 5;
 
-const CATEGORY_COLORS: Record<string, string> = {
-  "Sửa điện":
-    "bg-[#FFFBEB] text-[#D97706] border-[#FDE68A]",
-  "Vệ sinh":
-    "bg-[#EFF6FF] text-[#2563EB] border-[#BFDBFE]",
-  "Điện lạnh":
-    "bg-[#ECFEFF] text-[#0284C7] border-[#BAE6FD]",
-  "Sửa máy":
-    "bg-[#EEF2FF] text-[#4F46E5] border-[#C7D2FE]",
-};
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]";
 
-const DEFAULT_CATEGORY_COLOR =
-  "bg-slate-50 text-slate-600 border-slate-200";
-
-const WORKER_STATUS_LABELS: Record<WorkerStatus, string> = {
+const WORKER_STATUS_LABELS: Record<string, string> = {
   draft: "Bản nháp",
+  pending: "Chờ duyệt",
   pending_kyc: "Chờ xác minh KYC",
+  reviewing: "Đang xét duyệt",
   under_review: "Đang xét duyệt",
   verified: "Đã xác minh",
+  approved: "Đã duyệt",
   rejected: "Bị từ chối",
   suspended: "Tạm ngừng",
 };
 
-const WORKER_STATUS_COLORS: Record<WorkerStatus, string> = {
-  draft: "bg-slate-50 text-slate-600 border-slate-200",
-  pending_kyc: "bg-amber-50 text-amber-700 border-amber-200",
-  under_review: "bg-blue-50 text-blue-700 border-blue-200",
-  verified: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  rejected: "bg-rose-50 text-rose-700 border-rose-200",
-  suspended: "bg-red-50 text-red-700 border-red-200",
+const WORKER_STATUS_COLORS: Record<string, string> = {
+  draft: "bg-slate-100 text-slate-600",
+  pending: "bg-amber-50 text-amber-700",
+  pending_kyc: "bg-amber-50 text-amber-700",
+  reviewing: "bg-blue-50 text-blue-700",
+  under_review: "bg-blue-50 text-blue-700",
+  verified: "bg-emerald-50 text-emerald-700",
+  approved: "bg-emerald-50 text-emerald-700",
+  rejected: "bg-rose-50 text-rose-700",
+  suspended: "bg-red-50 text-red-700",
 };
 
+const ACCOUNT_STATUS_LABELS: Record<string, string> = {
+  active: "Đang hoạt động",
+  inactive: "Ngừng hoạt động",
+  suspended: "Tạm khóa",
+  deleted: "Đã xóa",
+};
 
-const DEFAULT_WORKERS: WorkerItem[] = [
-  {
-    id: "worker-001",
-    userId: "user-001",
-    name: "Nguyễn Văn A",
-    userStatus: "active",
-    status: "verified",
-    rating: 4.8,
-    ratingCount: 52,
-    completedOrders: 118,
-    totalOrders: 125,
-    createdAt: "2026-01-10",
-    serviceCategories: ["Sửa điện"],
-    kycStatus: "approved",
-  },
-  {
-    id: "worker-002",
-    userId: "user-002",
-    name: "Trần Thị B",
-    userStatus: "active",
-    status: "verified",
-    rating: 4.6,
-    ratingCount: 34,
-    completedOrders: 82,
-    totalOrders: 90,
-    createdAt: "2026-02-12",
-    serviceCategories: ["Vệ sinh"],
-    kycStatus: "approved",
-  },
-  {
-    id: "worker-003",
-    userId: "user-003",
-    name: "Lê Văn C",
-    userStatus: "active",
-    status: "under_review",
-    rating: 4.1,
-    ratingCount: 15,
-    completedOrders: 39,
-    totalOrders: 45,
-    createdAt: "2026-03-05",
-    serviceCategories: ["Điện lạnh"],
-    kycStatus: "reviewing",
-  },
-  {
-    id: "worker-004",
-    userId: "user-004",
-    name: "Phạm Minh D",
-    userStatus: "active",
-    status: "pending_kyc",
-    rating: 4.5,
-    ratingCount: 20,
-    completedOrders: 145,
-    totalOrders: 150,
-    createdAt: "2026-04-08",
-    serviceCategories: ["Sửa máy", "Sửa điện"],
-    kycStatus: "submitted",
-  },
-  {
-    id: "worker-005",
-    userId: "user-005",
-    name: "Vũ Thị F",
-    userStatus: "suspended",
-    status: "suspended",
-    rating: 4.9,
-    ratingCount: 61,
-    completedOrders: 68,
-    totalOrders: 70,
-    createdAt: "2026-05-15",
-    serviceCategories: ["Vệ sinh"],
-    kycStatus: "approved",
-  },
-];
+function WorkerAvatar({ worker }: { worker: UserResponse }) {
+  const [imageError, setImageError] = useState(false);
+  const name = worker.fullName || "Thợ";
 
+  return (
+    <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-orange-50 text-sm font-semibold text-[#FF5E14]">
+      {worker.avatarUrl && !imageError ? (
+        <img
+          src={worker.avatarUrl}
+          alt={name}
+          onError={() => setImageError(true)}
+          className="size-full object-cover"
+        />
+      ) : (
+        name.charAt(0).toUpperCase()
+      )}
+    </div>
+  );
+}
 
+function WorkerStatusBadge({ status }: { status?: string | null }) {
+  const value = status ?? "";
 
-const getInitials = (name: string) => {
-  const words = name.trim().split(/\s+/);
+  return (
+    <span
+      className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium sm:text-[12px] ${
+        WORKER_STATUS_COLORS[value] ?? "bg-slate-100 text-slate-600"
+      }`}
+    >
+      {WORKER_STATUS_LABELS[value] ?? (value || "Chưa có hồ sơ")}
+    </span>
+  );
+}
 
-  if (words.length === 1) {
-    return words[0].slice(0, 2).toUpperCase();
+function RatingDisplay({
+  rating,
+  count,
+}: {
+  rating?: string | null;
+  count?: number;
+}) {
+  if (!count) {
+    return <span className="text-[12px] text-slate-400">Chưa có đánh giá</span>;
+  }
+
+  const value = Number(rating ?? 0);
+
+  if (!Number.isFinite(value)) {
+    return <span className="text-[12px] text-slate-400">—</span>;
   }
 
   return (
-    words[0][0] + words[words.length - 1][0]
-  ).toUpperCase();
-};
+    <div className="flex items-center gap-1.5">
+      <Star size={15} className="fill-amber-400 text-amber-400" />
 
-const getAvatarColor = (id: string) => {
-  const hash = Array.from(id).reduce(
-    (total, character) => total + character.charCodeAt(0),
-    0,
+      <span className="text-[13px] font-semibold text-slate-800">
+        {value.toFixed(1)}
+      </span>
+
+      <span className="text-[12px] text-slate-400">({count})</span>
+    </div>
   );
-
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-};
-
-const getCategoryColor = (category: string) =>
-  CATEGORY_COLORS[category] ?? DEFAULT_CATEGORY_COLOR;
-
-
-export interface WorkerTableProps {
-  workers?: WorkerItem[];
 }
 
-export const WorkerTable: React.FC<WorkerTableProps> = ({
-  workers: initialWorkers = DEFAULT_WORKERS,
-}) => {
-  const [workersList, setWorkersList] =
-    useState<WorkerItem[]>(initialWorkers);
+function DetailButton({
+  onClick,
+  mobile = false,
+}: {
+  onClick: () => void;
+  mobile?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      className={`inline-flex items-center justify-center border border-slate-200 bg-white font-semibold text-slate-700 transition-colors duration-200 hover:border-orange-200 hover:bg-orange-50 hover:text-[#FF5E14] ${FOCUS_RING} ${
+        mobile
+          ? "h-9 gap-1 rounded-lg px-3.5 text-[13px]"
+          : "h-7 gap-0.5 rounded-md px-2 text-[11px] lg:px-2.5 lg:text-[12px]"
+      }`}
+    >
+      <span>Chi tiết</span>
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [areaFilter, setAreaFilter] = useState("all");
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+      <ChevronRight
+        className={mobile ? "size-3.5" : "size-3"}
+        strokeWidth={2}
+      />
+    </button>
+  );
+}
 
-  const toggleMenu = (id: string) => {
-    setOpenMenuId((previous) => (previous === id ? null : id));
-  };
-
-  // Demo thao tác tại giao diện.
-  // Khi kết nối API, cần gọi API cập nhật trạng thái thay vì chỉ sửa state.
-  const handleToggleStatus = (worker: WorkerItem) => {
-    const nextStatus: WorkerStatus =
-      worker.status === "suspended" ? "verified" : "suspended";
-
-    setWorkersList((previous) =>
-      previous.map((item) =>
-        item.id === worker.id
-          ? {
-              ...item,
-              status: nextStatus,
-              userStatus:
-                nextStatus === "suspended" ? "suspended" : "active",
-            }
-          : item,
-      ),
-    );
-
-    setOpenMenuId(null);
-  };
-
-  const totalCount = workersList.length;
-
-  const verifiedCount = workersList.filter(
-    (worker) => worker.status === "verified",
-  ).length;
-
-  const pendingCount = workersList.filter(
-    (worker) =>
-      worker.status === "pending_kyc" ||
-      worker.status === "under_review",
-  ).length;
-
-  const filteredWorkers = workersList.filter((worker) => {
-    const keyword = searchTerm.trim().toLowerCase();
-
-    const matchesSearch =
-      worker.name.toLowerCase().includes(keyword) ||
-      worker.id.toLowerCase().includes(keyword) ||
-      (worker.code?.toLowerCase().includes(keyword) ?? false) ||
-      (worker.phone?.includes(keyword) ?? false);
-
-    const matchesStatus =
-      statusFilter === "all" || worker.status === statusFilter;
-
-    const matchesCategory =
-      categoryFilter === "all" ||
-      worker.serviceCategories.includes(categoryFilter);
-
-    const matchesArea =
-      areaFilter === "all" || worker.area === areaFilter;
-
-    return (
-      matchesSearch &&
-      matchesStatus &&
-      matchesCategory &&
-      matchesArea
-    );
-  });
+function SummaryCard({
+  title,
+  value,
+  description,
+  icon: Icon,
+  tone,
+}: {
+  title: string;
+  value: number | string;
+  description: string;
+  icon: typeof Users;
+  tone: "orange" | "green" | "rose";
+}) {
+  const colors = {
+    orange: {
+      value: "text-slate-900",
+      icon: "bg-orange-50 text-[#FF5E14]",
+    },
+    green: {
+      value: "text-emerald-600",
+      icon: "bg-emerald-50 text-emerald-600",
+    },
+    rose: {
+      value: "text-rose-600",
+      icon: "bg-rose-50 text-rose-600",
+    },
+  }[tone];
 
   return (
-    <div className="space-y-6">
-      {/* HEADER */}
-      <div>
-        <h1 className="text-2xl sm:text-[26px] font-black text-slate-900 tracking-tight">
-          Quản lý thợ
-        </h1>
+    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="min-w-0">
+        <p className="text-[13px] font-medium text-slate-500">{title}</p>
 
-        <p className="text-sm text-slate-500 mt-1">
-          Quản lý danh sách, hồ sơ xác minh và trạng thái thợ đối tác
-          trong hệ thống
+        <p
+          className={`mt-2 text-[26px] font-semibold tabular-nums ${colors.value}`}
+        >
+          {value}
         </p>
+
+        <p className="mt-1 text-[12px] text-slate-400">{description}</p>
       </div>
 
-      {/* 3 THẺ THỐNG KÊ */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5">
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase block">
-              TỔNG SỐ THỢ
-            </span>
-
-            <span className="text-3xl font-black text-slate-900 tracking-tight mt-1.5 block">
-              {totalCount}
-            </span>
-
-            <span className="text-xs text-slate-400 font-medium mt-1 block">
-              Hồ sơ thợ trong danh sách
-            </span>
-          </div>
-
-          <div className="w-12 h-12 rounded-2xl bg-[#FFF7ED] border border-[#FFEDD5] text-[#EA580C] flex items-center justify-center shrink-0 shadow-2xs">
-            <Users className="w-5.5 h-5.5 stroke-[2.2]" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase block">
-              ĐÃ XÁC MINH
-            </span>
-
-            <span className="text-3xl font-black text-emerald-500 tracking-tight mt-1.5 block">
-              {verifiedCount}
-            </span>
-
-            <span className="text-xs text-slate-400 font-medium mt-1 block">
-              Hồ sơ đã được xác minh
-            </span>
-          </div>
-
-          <div className="w-12 h-12 rounded-2xl bg-[#ECFDF5] border border-[#D1FAE5] text-[#10B981] flex items-center justify-center shrink-0 shadow-2xs">
-            <Gauge className="w-5.5 h-5.5 stroke-[2.2]" />
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase block">
-              CHỜ XỬ LÝ
-            </span>
-
-            <span className="text-3xl font-black text-[#F43F5E] tracking-tight mt-1.5 block">
-              {pendingCount}
-            </span>
-
-            <span className="text-xs text-slate-400 font-medium mt-1 block">
-              Chờ KYC hoặc đang xét duyệt
-            </span>
-          </div>
-
-          <div className="w-12 h-12 rounded-2xl bg-[#FFF1F2] border border-[#FFE4E6] text-[#F43F5E] flex items-center justify-center shrink-0 shadow-2xs">
-            <Lock className="w-5.5 h-5.5 stroke-[2.2]" />
-          </div>
-        </div>
-      </div>
-
-      {/* TÌM KIẾM VÀ BỘ LỌC */}
-      <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-60">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-            <Search className="w-4 h-4" />
-          </div>
-
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(event) => {
-              setSearchTerm(event.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder="Tìm tên hoặc ID thợ..."
-            className="w-full pl-10 pr-4 py-2 bg-slate-50/60 border border-slate-200/90 rounded-xl text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 focus:bg-white focus:ring-3 focus:ring-orange-500/15 transition-all font-normal"
-          />
-        </div>
-
-        <div className="relative min-w-45">
-          <select
-            value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(event.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-full appearance-none pl-3.5 pr-8 py-2 bg-slate-50/60 border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 focus:bg-white cursor-pointer transition-all"
-          >
-            <option value="all">Trạng thái: Tất cả</option>
-            <option value="draft">Bản nháp</option>
-            <option value="pending_kyc">Chờ xác minh KYC</option>
-            <option value="under_review">Đang xét duyệt</option>
-            <option value="verified">Đã xác minh</option>
-            <option value="rejected">Bị từ chối</option>
-            <option value="suspended">Tạm ngừng</option>
-          </select>
-
-          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        <div className="relative min-w-40">
-          <select
-            value={categoryFilter}
-            onChange={(event) => {
-              setCategoryFilter(event.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-full appearance-none pl-3.5 pr-8 py-2 bg-slate-50/60 border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 focus:bg-white cursor-pointer transition-all"
-          >
-            <option value="all">Ngành nghề: Tất cả</option>
-            <option value="Sửa điện">Sửa điện</option>
-            <option value="Vệ sinh">Vệ sinh</option>
-            <option value="Điện lạnh">Điện lạnh</option>
-            <option value="Sửa máy">Sửa máy</option>
-          </select>
-
-          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-
-        <div className="relative min-w-37.5">
-          <select
-            value={areaFilter}
-            onChange={(event) => {
-              setAreaFilter(event.target.value);
-              setCurrentPage(1);
-            }}
-            className="w-full appearance-none pl-3.5 pr-8 py-2 bg-slate-50/60 border border-slate-200/90 rounded-xl text-xs sm:text-sm text-slate-700 font-medium focus:outline-none focus:border-orange-500 focus:bg-white cursor-pointer transition-all"
-          >
-            <option value="all">Khu vực: Tất cả</option>
-            <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
-            <option value="Hà Nội">Hà Nội</option>
-            <option value="Đà Nẵng">Đà Nẵng</option>
-          </select>
-
-          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-      </div>
-
-      {/* BẢNG DANH SÁCH THỢ */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden">
-        <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900 tracking-tight">
-              Danh sách thợ
-            </h2>
-
-            <span className="text-xs font-normal text-slate-400">
-              ({filteredWorkers.length} thợ)
-            </span>
-          </div>
-
-          <span className="text-xs text-slate-400">
-            Dữ liệu mẫu
-          </span>
-        </div>
-
-        <div className="overflow-x-auto min-h-90">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">
-                <th className="py-4 px-6">THỢ</th>
-                <th className="py-4 px-6">DỊCH VỤ</th>
-                <th className="py-4 px-6">ĐÁNH GIÁ</th>
-                <th className="py-4 px-6">ĐƠN HOÀN THÀNH</th>
-                <th className="py-4 px-6">TRẠNG THÁI</th>
-                <th className="py-4 px-6 text-right"></th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100 text-sm font-medium">
-              {filteredWorkers.map((worker) => {
-                const isMenuOpen = openMenuId === worker.id;
-
-                return (
-                  <tr
-                    key={worker.id}
-                    className="hover:bg-slate-50/70 transition-colors group"
-                  >
-                    {/* CỘT THỢ */}
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        {worker.avatarUrl ? (
-                          <img
-                            src={worker.avatarUrl}
-                            alt={worker.name}
-                            className="w-9 h-9 rounded-full object-cover shrink-0"
-                          />
-                        ) : (
-                          <div
-                            className={`w-9 h-9 rounded-full ${getAvatarColor(worker.id)} font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs`}
-                          >
-                            {getInitials(worker.name)}
-                          </div>
-                        )}
-
-                        <div>
-                          <div className="font-bold text-slate-900 group-hover:text-orange-600 transition-colors">
-                            {worker.name}
-                          </div>
-
-                          <div className="text-xs text-slate-400 font-normal mt-0.5">
-                            ID: {worker.id}
-                            {" • "}
-                            {worker.ratingCount} đánh giá
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* CỘT DỊCH VỤ */}
-                    <td className="py-4 px-6">
-                      <div className="flex flex-wrap gap-1.5">
-                        {worker.serviceCategories.length > 0 ? (
-                          worker.serviceCategories.map((category) => (
-                            <span
-                              key={category}
-                              className={`inline-block px-2.5 py-1 rounded-lg text-xs font-semibold border ${getCategoryColor(category)}`}
-                            >
-                              {category}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-slate-400">
-                            Chưa có dịch vụ
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* CỘT ĐÁNH GIÁ */}
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-1.5 font-bold text-slate-800 text-sm">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>{worker.rating.toFixed(1)}</span>
-                      </div>
-                    </td>
-
-                    {/* CỘT ĐƠN HOÀN THÀNH */}
-                    <td className="py-4 px-6 font-bold text-slate-800">
-                      {worker.completedOrders}
-                    </td>
-
-                    {/* CỘT TRẠNG THÁI */}
-                    <td className="py-4 px-6">
-                      <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${WORKER_STATUS_COLORS[worker.status]}`}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                        <span>{WORKER_STATUS_LABELS[worker.status]}</span>
-                      </span>
-                    </td>
-
-                    {/* MENU THAO TÁC */}
-                    <td className="py-4 px-6 text-right relative">
-                      <button
-                        type="button"
-                        onClick={() => toggleMenu(worker.id)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-
-                      {isMenuOpen && (
-                        <div className="absolute right-6 top-10 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-40 text-left">
-                          <button
-                            type="button"
-                            onClick={() => setOpenMenuId(null)}
-                            className="w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-400" />
-                            <span>Xem hồ sơ thợ</span>
-                          </button>
-
-                          {worker.status === "verified" ||
-                          worker.status === "suspended" ? (
-                            <>
-                              <div className="border-t border-slate-100 my-1" />
-
-                              <button
-                                type="button"
-                                onClick={() => handleToggleStatus(worker)}
-                                className={`w-full flex items-center gap-2.5 px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-                                  worker.status === "verified"
-                                    ? "text-rose-600 hover:bg-rose-50"
-                                    : "text-emerald-600 hover:bg-emerald-50"
-                                }`}
-                              >
-                                {worker.status === "verified" ? (
-                                  <>
-                                    <Lock className="w-3.5 h-3.5" />
-                                    <span>Tạm ngừng thợ</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Unlock className="w-3.5 h-3.5" />
-                                    <span>Kích hoạt lại thợ</span>
-                                  </>
-                                )}
-                              </button>
-                            </>
-                          ) : null}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {filteredWorkers.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="py-12 text-center text-sm text-slate-400"
-                  >
-                    Không tìm thấy thợ phù hợp.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* PHÂN TRANG - GIAO DIỆN */}
-        <div className="px-6 py-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-          <div>
-            Hiển thị{" "}
-            <span className="font-semibold text-slate-800">
-              {filteredWorkers.length > 0 ? 1 : 0}
-            </span>{" "}
-            đến{" "}
-            <span className="font-semibold text-slate-800">
-              {filteredWorkers.length}
-            </span>{" "}
-            trong tổng số{" "}
-            <span className="font-semibold text-slate-800">
-              {totalCount}
-            </span>{" "}
-            thợ
-          </div>
-
-          <div className="flex items-center gap-1.5 select-none">
-            <button
-              type="button"
-              disabled={currentPage <= 1}
-              onClick={() =>
-                setCurrentPage((page) => Math.max(1, page - 1))
-              }
-              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none shadow-2xs"
-            >
-              ← Trước
-            </button>
-
-            {[1, 2, 3, 4, 5].map((page) => (
-              <button
-                key={page}
-                type="button"
-                onClick={() => setCurrentPage(page)}
-                className={`w-8 h-8 rounded-lg font-bold text-xs transition-all cursor-pointer ${
-                  currentPage === page
-                    ? "bg-[#FF5E14] text-white shadow-xs"
-                    : "border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs"
-                }`}
-              >
-                {page}
-              </button>
-            ))}
-
-            <span className="px-1 text-slate-400">...</span>
-
-            <button
-              type="button"
-              disabled={currentPage >= 5}
-              onClick={() =>
-                setCurrentPage((page) => Math.min(5, page + 1))
-              }
-              className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-medium transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none shadow-2xs"
-            >
-              Sau →
-            </button>
-          </div>
-        </div>
+      <div
+        className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${colors.icon}`}
+      >
+        <Icon size={21} strokeWidth={1.8} />
       </div>
     </div>
   );
-};
+}
+
+export function WorkerTable() {
+  // FILTER STATES
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  // PAGINATION STATE
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // DETAIL MODAL STATE
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+
+  // SEARCH DEBOUNCE
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // QUERY PARAMS
+  const query = {
+    role: "worker" as const,
+    page: currentPage,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    status: statusFilter === "all" ? undefined : statusFilter,
+  };
+
+  // API
+  const {
+    data: response,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useUsersQuery(query);
+
+  // HTTP WRAPPER: { status, payload }
+  const workers: UserResponse[] = response?.payload.data ?? [];
+
+  const pagination = response?.payload.pagination;
+
+  const total = pagination?.total ?? 0;
+
+  const totalPages = Math.max(1, pagination?.totalPages ?? 1);
+
+  // THỐNG KÊ TRONG TRANG HIỆN TẠI
+  const verifiedCount = workers.filter(
+    (worker) =>
+      worker.workerProfile?.status === "verified" ||
+      worker.workerProfile?.status === "approved",
+  ).length;
+
+  const pendingCount = workers.filter((worker) =>
+    ["pending", "pending_kyc", "reviewing", "under_review"].includes(
+      worker.workerProfile?.status ?? "",
+    ),
+  ).length;
+
+  // PAGINATION - GIỐNG ORDER
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const visiblePages: (number | "ellipsis-left" | "ellipsis-right")[] = [];
+
+  const windowSize = 5;
+
+  const start = Math.max(
+    1,
+    Math.min(
+      safeCurrentPage - Math.floor(windowSize / 2),
+      totalPages - windowSize + 1,
+    ),
+  );
+
+  const end = Math.min(totalPages, start + windowSize - 1);
+
+  const pageNumbers = new Set<number>([1, totalPages]);
+
+  for (let pageNumber = start; pageNumber <= end; pageNumber++) {
+    pageNumbers.add(pageNumber);
+  }
+
+  const sortedPages = [...pageNumbers].sort((a, b) => a - b);
+
+  for (let index = 0; index < sortedPages.length; index++) {
+    const pageNumber = sortedPages[index];
+    const previous = sortedPages[index - 1];
+
+    if (previous !== undefined && pageNumber - previous === 2) {
+      visiblePages.push(previous + 1);
+    } else if (previous !== undefined && pageNumber - previous > 2) {
+      visiblePages.push(previous === 1 ? "ellipsis-left" : "ellipsis-right");
+    }
+
+    visiblePages.push(pageNumber);
+  }
+
+  // HANDLERS
+  const openDetail = (id: string) => {
+    setSelectedWorkerId(id);
+  };
+
+  const closeDetail = () => {
+    setSelectedWorkerId(null);
+  };
+
+  const changePage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(totalPages, page)));
+  };
+
+  const handleRowKeyDown = (
+    event: React.KeyboardEvent<HTMLTableRowElement>,
+    id: string,
+  ) => {
+    if (event.target !== event.currentTarget) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openDetail(id);
+    }
+  };
+
+  const handleCardKeyDown = (
+    event: React.KeyboardEvent<HTMLLIElement>,
+    id: string,
+  ) => {
+    if (event.target !== event.currentTarget) return;
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openDetail(id);
+    }
+  };
+
+  return (
+    <div className="w-full min-w-0 space-y-4 font-['Inter',sans-serif] leading-[1.6] text-[#0F172A] antialiased">
+      {/* HEADER */}
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight text-[#0F172A] sm:text-[24px]">
+          Quản lý thợ
+        </h1>
+
+        <p className="mt-1 text-[14px] text-[#64748B]">
+          Theo dõi hồ sơ, hoạt động và trạng thái thợ đối tác trong hệ thống
+          HandyGo
+        </p>
+      </div>
+
+      {/* SUMMARY */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <SummaryCard
+          title="Tổng số thợ"
+          value={isLoading || isError ? "—" : total}
+          description="Theo bộ lọc hiện tại"
+          icon={Users}
+          tone="orange"
+        />
+
+        <SummaryCard
+          title="Đã xác minh"
+          value={isLoading || isError ? "—" : verifiedCount}
+          description="Trong trang hiện tại"
+          icon={BadgeCheck}
+          tone="green"
+        />
+
+        <SummaryCard
+          title="Chờ xử lý"
+          value={isLoading || isError ? "—" : pendingCount}
+          description="Trong trang hiện tại"
+          icon={Clock3}
+          tone="rose"
+        />
+      </div>
+
+      {/* CONTENT */}
+      <div className="relative overflow-visible rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="space-y-4 p-4 sm:p-5">
+          {/* TITLE + RESET */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-[16px] font-semibold text-[#0F172A]">
+                Danh sách thợ
+              </h2>
+
+              <p className="mt-1 text-[12px] text-[#64748B]">
+                {total} thợ phù hợp
+              </p>
+            </div>
+
+            <button
+              type="button"
+              disabled={isFetching}
+              onClick={() => {
+                setSearchTerm("");
+                setDebouncedSearch("");
+                setStatusFilter("all");
+                setCurrentPage(1);
+              }}
+              className="text-[13px] font-medium text-slate-500 transition-colors hover:text-[#FF5E14] disabled:opacity-50"
+            >
+              Xóa lọc
+            </button>
+          </div>
+
+          {/* FILTERS */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_200px_40px]">
+            <div className="relative min-w-0">
+              <Search
+                size={16}
+                className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-slate-400"
+              />
+
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Tìm theo tên hoặc ID thợ..."
+                className={`h-10 w-full min-w-0 rounded-xl border border-slate-200 bg-white pr-3 pl-10 text-[13px] text-[#0F172A] placeholder:text-slate-400 outline-none transition-colors focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14] ${FOCUS_RING}`}
+              />
+            </div>
+
+            <div className="relative min-w-0">
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value);
+                  setCurrentPage(1);
+                }}
+                className={`h-10 w-full cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white pr-8 pl-3 text-[13px] text-[#0F172A] outline-none transition-colors focus:border-[#FF5E14] focus:ring-1 focus:ring-[#FF5E14] ${FOCUS_RING}`}
+              >
+                <option value="all">Tất cả tài khoản</option>
+                <option value="active">Đang hoạt động</option>
+                <option value="inactive">Ngừng hoạt động</option>
+                <option value="suspended">Tạm khóa</option>
+                <option value="deleted">Đã xóa</option>
+              </select>
+
+              <ChevronDown
+                size={16}
+                className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-slate-400"
+              />
+            </div>
+
+            <button
+              type="button"
+              title="Làm mới danh sách"
+              aria-label="Làm mới danh sách"
+              disabled={isFetching}
+              onClick={() => void refetch()}
+              className={`flex size-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:text-[#FF5E14] disabled:opacity-50 ${FOCUS_RING}`}
+            >
+              <RefreshCw
+                size={16}
+                className={isFetching ? "animate-spin" : ""}
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* ERROR */}
+        {isError ? (
+          <div className="flex flex-col items-center gap-3 px-5 py-12 text-center">
+            <AlertCircle size={30} className="text-rose-500" />
+
+            <p className="text-[14px] text-red-600">
+              {error instanceof Error
+                ? error.message
+                : "Không thể tải danh sách thợ"}
+            </p>
+
+            <button
+              type="button"
+              onClick={() => void refetch()}
+              className="text-[13px] font-semibold text-[#FF5E14] hover:text-orange-700"
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* MOBILE: CARD */}
+            <div className="px-3 pb-4 md:hidden">
+              {isLoading ? (
+                <ul className="space-y-3">
+                  {Array.from({ length: SKELETON_ROWS }, (_, index) => (
+                    <li
+                      key={index}
+                      className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="size-10 rounded-full" />
+
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-2/3" />
+                          <Skeleton className="h-3 w-1/2" />
+                        </div>
+                      </div>
+
+                      <Skeleton className="h-20 w-full rounded-xl" />
+                      <Skeleton className="ml-auto h-9 w-24" />
+                    </li>
+                  ))}
+                </ul>
+              ) : workers.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center text-slate-400">
+                  <Inbox size={30} strokeWidth={1.5} />
+
+                  <p className="text-[14px]">Không tìm thấy thợ nào</p>
+                </div>
+              ) : (
+                <ul className="space-y-3">
+                  {workers.map((worker) => {
+                    const profile = worker.workerProfile;
+
+                    return (
+                      <li
+                        key={worker.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Xem chi tiết thợ ${worker.fullName}`}
+                        onClick={() => openDetail(worker.id)}
+                        onKeyDown={(event) =>
+                          handleCardKeyDown(event, worker.id)
+                        }
+                        className={`cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-slate-50/60 active:bg-slate-50 ${FOCUS_RING}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <WorkerAvatar worker={worker} />
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[15px] font-semibold text-[#0F172A]">
+                              {worker.fullName || "Chưa cập nhật tên"}
+                            </p>
+
+                            <p
+                              title={profile?.id ?? worker.id}
+                              className="mt-1 truncate text-[12px] text-[#64748B]"
+                            >
+                              ID: {profile?.id ?? worker.id}
+                            </p>
+                          </div>
+
+                          <WorkerStatusBadge status={profile?.status} />
+                        </div>
+
+                        <dl className="mt-4 divide-y divide-slate-200/70 rounded-xl bg-slate-50 px-3">
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="text-[13px] text-[#64748B]">
+                              Đánh giá
+                            </dt>
+
+                            <dd>
+                              <RatingDisplay
+                                rating={profile?.averageRating}
+                                count={profile?.ratingCount}
+                              />
+                            </dd>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="text-[13px] text-[#64748B]">
+                              Đơn hoàn thành
+                            </dt>
+
+                            <dd className="text-[13px] font-semibold text-[#0F172A]">
+                              {profile?.completedOrderCount ?? 0}
+                            </dd>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="text-[13px] text-[#64748B]">
+                              Tổng đơn hàng
+                            </dt>
+
+                            <dd className="text-[13px] font-semibold text-[#0F172A]">
+                              {profile?.orderCountTotal ?? 0}
+                            </dd>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-3 py-2.5">
+                            <dt className="text-[13px] text-[#64748B]">
+                              Tài khoản
+                            </dt>
+
+                            <dd className="text-[13px] font-medium text-[#0F172A]">
+                              {ACCOUNT_STATUS_LABELS[worker.status] ??
+                                worker.status}
+                            </dd>
+                          </div>
+                        </dl>
+
+                        <div className="mt-4 flex justify-end">
+                          <DetailButton
+                            mobile
+                            onClick={() => openDetail(worker.id)}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {/* DESKTOP: TABLE */}
+            <div className="hidden min-w-0 overflow-x-auto overscroll-x-contain md:block">
+              <table className="w-full min-w-[720px] table-fixed border-collapse text-left">
+                <colgroup>
+                  <col className="w-[34%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[19%]" />
+                  <col className="w-[14%]" />
+                </colgroup>
+
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/70 text-[12px] font-semibold text-[#0F172A] lg:text-[13px]">
+                    <th className="px-5 py-3.5">Thợ</th>
+
+                    <th className="px-3 py-3.5">Đánh giá</th>
+
+                    <th className="px-3 py-3.5">Đơn hoàn thành</th>
+
+                    <th className="px-3 py-3.5">Trạng thái</th>
+
+                    <th className="px-3 py-3.5 text-center">Thao tác</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100 text-[13px] lg:text-[14px]">
+                  {isLoading ? (
+                    Array.from({ length: SKELETON_ROWS }, (_, index) => (
+                      <tr key={index}>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <Skeleton className="size-10 rounded-full" />
+
+                            <div className="space-y-2">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="h-3 w-24" />
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-4">
+                          <Skeleton className="h-4 w-16" />
+                        </td>
+
+                        <td className="px-3 py-4">
+                          <Skeleton className="h-4 w-12" />
+                        </td>
+
+                        <td className="px-3 py-4">
+                          <Skeleton className="h-6 w-24 rounded-full" />
+                        </td>
+
+                        <td className="px-3 py-4">
+                          <Skeleton className="mx-auto h-7 w-20" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : workers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5}>
+                        <div className="flex flex-col items-center gap-3 py-12 text-center text-slate-400">
+                          <Inbox size={30} strokeWidth={1.5} />
+
+                          <p className="text-[14px]">Không tìm thấy thợ nào</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    workers.map((worker) => {
+                      const profile = worker.workerProfile;
+
+                      return (
+                        <tr
+                          key={worker.id}
+                          tabIndex={0}
+                          aria-label={`Xem chi tiết thợ ${worker.fullName}`}
+                          onClick={() => openDetail(worker.id)}
+                          onKeyDown={(event) =>
+                            handleRowKeyDown(event, worker.id)
+                          }
+                          className="group cursor-pointer transition-colors hover:bg-slate-50/60 focus-visible:bg-slate-50/60 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#FF5E14]"
+                        >
+                          <td className="px-5 py-4">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <WorkerAvatar worker={worker} />
+
+                              <div className="min-w-0">
+                                <p className="truncate text-[13px] font-medium text-[#0F172A] lg:text-[14px]">
+                                  {worker.fullName || "Chưa cập nhật tên"}
+                                </p>
+
+                                <p
+                                  title={profile?.id ?? worker.id}
+                                  className="mt-1 truncate text-[12px] text-[#64748B]"
+                                >
+                                  ID: {profile?.id ?? worker.id}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="px-3 py-4">
+                            <RatingDisplay
+                              rating={profile?.averageRating}
+                              count={profile?.ratingCount}
+                            />
+                          </td>
+
+                          <td className="px-3 py-4 font-medium text-[#0F172A]">
+                            {profile?.completedOrderCount ?? 0}
+                          </td>
+
+                          <td className="px-3 py-4">
+                            <WorkerStatusBadge status={profile?.status} />
+                          </td>
+
+                          <td className="px-3 py-4 text-center">
+                            <DetailButton
+                              onClick={() => openDetail(worker.id)}
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* PAGINATION: SAME AS ORDER */}
+            <div className="border-t border-slate-100 px-3 py-4 sm:px-6">
+              <div className="flex flex-col items-center justify-between gap-3 text-[13px] text-[#64748B] xl:flex-row">
+                <div className="flex items-center gap-2">
+                  <span>· Tổng {total} thợ</span>
+
+                  {isFetching && !isLoading && <span>· Đang cập nhật...</span>}
+                </div>
+
+                <nav
+                  aria-label="Phân trang thợ"
+                  className="flex max-w-full flex-wrap items-center justify-center gap-1 sm:gap-2"
+                >
+                  {/* PREVIOUS */}
+                  <button
+                    type="button"
+                    disabled={safeCurrentPage <= 1 || isLoading || isFetching}
+                    onClick={() => changePage(safeCurrentPage - 1)}
+                    className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+
+                    <span className="hidden sm:inline">Previous</span>
+                  </button>
+
+                  {/* PAGE NUMBERS */}
+                  {visiblePages.map((pageNumber) =>
+                    typeof pageNumber === "number" ? (
+                      <button
+                        key={pageNumber}
+                        type="button"
+                        disabled={isLoading || isFetching}
+                        onClick={() => changePage(pageNumber)}
+                        aria-current={
+                          safeCurrentPage === pageNumber ? "page" : undefined
+                        }
+                        className={`h-10 min-w-10 rounded-xl px-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          safeCurrentPage === pageNumber
+                            ? "bg-[#FF5E14] text-white shadow-sm"
+                            : "bg-white text-slate-900 hover:bg-slate-100"
+                        }`}
+                      >
+                        {pageNumber}
+                      </button>
+                    ) : (
+                      <span
+                        key={pageNumber}
+                        aria-hidden="true"
+                        className="flex h-9 min-w-5 items-center justify-center text-sm font-semibold text-slate-900 sm:h-10 sm:min-w-8"
+                      >
+                        ...
+                      </span>
+                    ),
+                  )}
+
+                  {/* NEXT */}
+                  <button
+                    type="button"
+                    disabled={
+                      safeCurrentPage >= totalPages || isLoading || isFetching
+                    }
+                    onClick={() => changePage(safeCurrentPage + 1)}
+                    className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
+                  >
+                    <span className="hidden sm:inline">Next</span>
+
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </nav>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* EXISTING DETAIL MODAL */}
+      <WorkerDetailModal userId={selectedWorkerId} onClose={closeDetail} />
+    </div>
+  );
+}
 
 export default WorkerTable;
