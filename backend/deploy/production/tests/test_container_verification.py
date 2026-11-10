@@ -66,6 +66,7 @@ class ContainerVerificationTests(unittest.TestCase):
             'id': 'a' * 64, 'image': 'image-id', 'created': '2026-11-03T01:00:00Z', 'restart_count': 2,
             'started_at': '2026-11-03T01:02:00Z', 'baseline_restart_count': 2,
             'baseline_started_at': '2026-11-03T01:02:00Z',
+            'running': True, 'health': 'healthy', 'oom_killed': False,
             'classification': 'historical_restart' if restart else 'unchanged'}})
         return obj, run, state, full
 

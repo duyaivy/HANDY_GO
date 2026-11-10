@@ -89,6 +89,7 @@ export type BookingProposal = {
 export type OrderEvidence = {
   id: string;
   orderId: string;
+  clientEvidenceId?: string | null;
   mediaType: string;
   mediaUrl: string;
   description?: string | null;
@@ -164,9 +165,21 @@ export type CreateBookingProposalPayload = {
 };
 
 export type UploadEvidencePayload = {
+  clientEvidenceId?: string;
   mediaUrl: string;
   mediaType: string;
   description?: string;
+};
+
+export type EvidenceImageItem = {
+  id: string;
+  localUri: string;
+  remoteUrl?: string;
+  status: 'pending' | 'uploading' | 'completed' | 'error';
+  progress: number;
+  errorMessage?: string;
+  persisted?: boolean;
+  evidenceId?: string;
 };
 
 export type PaginatedList<T> = {

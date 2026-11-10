@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { resolveServiceName } from '@/constants/services';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
@@ -84,8 +85,18 @@ export function CustomerBookingScreen({
 
   const targetServiceName = React.useMemo(() => {
     const raw = searchParams?.serviceName;
-    return Array.isArray(raw) ? raw[0] : raw;
-  }, [searchParams?.serviceName]);
+    const name = Array.isArray(raw) ? raw[0] : raw;
+    if (name && name.trim()) {
+      return name.trim();
+    }
+    if (targetServiceId) {
+      const resolved = resolveServiceName(targetServiceId);
+      if (resolved !== 'Dịch vụ tiện ích') {
+        return resolved;
+      }
+    }
+    return undefined;
+  }, [searchParams?.serviceName, targetServiceId]);
 
   const serviceId = targetServiceId;
 
@@ -189,8 +200,11 @@ export function CustomerBookingScreen({
         store.setService(targetServiceId, targetServiceName);
       }
     }
-    else if (targetServiceId && (!store.serviceId || targetServiceId !== store.serviceId)) {
+    else if (targetServiceId && (!store.serviceId || targetServiceId !== store.serviceId || (targetServiceName && store.serviceName !== targetServiceName))) {
       store.setService(targetServiceId, targetServiceName);
+    }
+    else if (targetServiceName && store.serviceName !== targetServiceName) {
+      store.setService(store.serviceId || targetServiceId || '', targetServiceName);
     }
   }, [targetServiceId, targetServiceName]);
 
@@ -383,6 +397,8 @@ export function CustomerBookingScreen({
     [addMediaUrl],
   );
 
+  const prevChipTextRef = React.useRef('');
+
   // Re-generate formatted description when selecting suggestions
   const handleSelectChip = (
     type: 'issue' | 'location' | 'severity',
@@ -413,12 +429,33 @@ export function CustomerBookingScreen({
     if (sev && sev !== 'Chưa rõ')
       parts.push(`Mức độ: ${sev}`);
 
-    const newText = parts.length > 0
+    const newChipText = parts.length > 0
       ? `${parts.join(' - ')}. Cần thợ kiểm tra và xử lý sớm.`
       : '';
-    if (newText) {
-      setDescription(newText);
+
+    // Extract user custom text by stripping previous chip suggestions
+    const currentDesc = useBookingDraftStore.getState().description || '';
+    let baseText = currentDesc;
+    if (prevChipTextRef.current && baseText.includes(prevChipTextRef.current)) {
+      baseText = baseText.replace(prevChipTextRef.current, '');
     }
+    // Also remove any existing chip pattern if present
+    baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|$)/gi, '');
+    baseText = baseText.trim().replace(/\s*\.\s*$/, '').trim();
+
+    let combined = '';
+    if (baseText && newChipText) {
+      combined = `${baseText}. ${newChipText}`;
+    }
+    else if (baseText) {
+      combined = baseText;
+    }
+    else {
+      combined = newChipText;
+    }
+
+    prevChipTextRef.current = newChipText;
+    setDescription(combined);
   };
 
   const handleQuickFill = () => {
@@ -684,6 +721,31 @@ export function CustomerBookingScreen({
           <Text>Đặt lịch thợ</Text>
           {serviceId ? <Text>{`Mã dịch vụ: ${serviceId}`}</Text> : null}
           <Text>Chức năng đang được phát triển</Text>
+        </View>
+
+        {/* Thẻ hiển thị dịch vụ đã chọn */}
+        <View
+          testID="booking-service-badge"
+          className="mb-4 rounded-3xl border border-primary-200/70 bg-primary-50/50 p-4 shadow-xs dark:border-amber-900/40 dark:bg-amber-950/20"
+        >
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center">
+              <View className="mr-3 size-10 items-center justify-center rounded-2xl bg-primary-100 dark:bg-amber-900/40">
+                <Text className="text-xl">🛠️</Text>
+              </View>
+              <View>
+                <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                  Dịch vụ đã chọn
+                </Text>
+                <Text
+                  testID="booking-service-title"
+                  className="mt-0.5 text-base font-bold text-neutral-900 dark:text-white"
+                >
+                  {serviceName || 'Dịch vụ tiện ích'}
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
 
         {/* 3. Thẻ gợi ý: Gợi ý cho dịch vụ này (Thu gọn / Mở rộng) */}

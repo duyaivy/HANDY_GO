@@ -253,6 +253,16 @@ describe('d4 — Mobile P2 và Nghiệm thu toàn luồng (MOB-01 & MOB-02)', ()
       expect(OrdersApi.getMyOrders).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'completed' }),
       );
+
+      // Switch to Disputed tab
+      rerender({ tab: 'Disputed' });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(result.current.orders).toHaveLength(1);
+      expect(result.current.requests).toHaveLength(0);
+      expect(result.current.isDisputedTab).toBe(true);
+      expect(OrdersApi.getMyOrders).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'disputed' }),
+      );
     });
 
     it('loads requests and orders independently on Cancelled tab (both succeed)', async () => {

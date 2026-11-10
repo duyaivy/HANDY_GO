@@ -210,6 +210,42 @@ export function useWorkerJobDetail(jobId?: string) {
     },
   });
 
+  const uploadMultipleEvidencesMutation = useMutation({
+    mutationFn: async (payloads: UploadEvidencePayload[]) => {
+      if (!jobId) {
+        throw new Error('Job ID is required');
+      }
+      const results = await Promise.all(
+        payloads.map(payload => OrdersApi.uploadEvidence(jobId, payload)),
+      );
+      return results.map(r => r.data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+    },
+  });
+
+  const deleteEvidenceMutation = useMutation({
+    mutationFn: async (evidenceId: string) => {
+      if (!jobId) {
+        throw new Error('Job ID is required');
+      }
+      const res = await OrdersApi.deleteEvidence(jobId, evidenceId);
+      return res.data;
+    },
+    onSuccess: (_result, evidenceId) => {
+      queryClient.setQueryData<Order>(
+        ordersQueryKeys.orderDetail(jobId!),
+        current => current
+          ? { ...current, evidences: current.evidences?.filter(evidence => evidence.id !== evidenceId) }
+          : current,
+      );
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
+      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+    },
+  });
+
   const finishOrderMutation = useMutation({
     mutationFn: async () => {
       if (!jobId) {
@@ -236,6 +272,10 @@ export function useWorkerJobDetail(jobId?: string) {
     isStartingOrder: startOrderMutation.isPending,
     uploadEvidence: uploadEvidenceMutation.mutateAsync,
     isUploadingEvidence: uploadEvidenceMutation.isPending,
+    uploadMultipleEvidences: uploadMultipleEvidencesMutation.mutateAsync,
+    isUploadingMultipleEvidences: uploadMultipleEvidencesMutation.isPending,
+    deleteEvidence: deleteEvidenceMutation.mutateAsync,
+    isDeletingEvidence: deleteEvidenceMutation.isPending,
     finishOrder: finishOrderMutation.mutateAsync,
     isFinishingOrder: finishOrderMutation.isPending,
   };

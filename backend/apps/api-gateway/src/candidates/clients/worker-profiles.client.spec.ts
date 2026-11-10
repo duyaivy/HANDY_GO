@@ -29,6 +29,17 @@ describe('WorkerProfilesClient', () => {
       'x-internal-secret': 'test-secret',
     });
   });
+  it('retrieves real names when upstream returns a raw array instead of an object with data', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { workerId: 'w2', fullName: 'Trần Thanh Huy', averageRating: 4.8 },
+      ],
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const profiles = await client.getSummaries(['w2']);
+    expect(profiles.get('w2')?.fullName).toBe('Trần Thanh Huy');
+  });
   it('keeps recommendations usable when profile lookup fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Unavailable')));
     expect((await client.getSummaries(['w1'])).size).toBe(0);
