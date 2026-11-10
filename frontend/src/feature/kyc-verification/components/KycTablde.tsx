@@ -20,6 +20,7 @@ export const KycTable: React.FC = () => {
   const [filterStatus, setFilterStatus] =
     useState<KycFilterStatus>("reviewing");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "oldest">("newest");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -31,13 +32,13 @@ export const KycTable: React.FC = () => {
     type: "success" | "error";
   } | null>(null);
 
-  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
-
+  // Tìm kiếm trên toàn bộ dữ liệu ở Backend, tránh gọi API khi gõ từng ký tự.
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setDebouncedSearch(searchQuery.trim());
-    }, 350);
-    return () => clearTimeout(timer);
+    }, 400);
+
+    return () => window.clearTimeout(timer);
   }, [searchQuery]);
 
   const { data, isPending, isFetching, isError, error, refetch } =
@@ -93,12 +94,10 @@ export const KycTable: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  // Backend đã tìm kiếm, sắp xếp trên toàn bộ danh sách trước khi phân trang.
+  // Không lọc/sắp xếp lại ở FE để tránh sai thứ tự và sai tổng kết quả.
   const totalPages = Math.max(1, data?.pagination.totalPages ?? 1);
-
-  // FE-01: Sau khi duyệt/từ chối thành công, trở về trang 1.
-  // Không cập nhật state đồng bộ trong effect (react-hooks/set-state-in-effect).
-
-  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
   const paginatedRecords = records;
 
   // Hiển thị tối đa 5 trang liên tiếp, kèm trang đầu/cuối và dấu ...
@@ -335,7 +334,7 @@ export const KycTable: React.FC = () => {
               <tr className="border-b border-slate-100 bg-slate-50/70 text-[13px] font-semibold text-[#0F172A]">
                 <th className="py-3.5 px-6">Thợ</th>
                 <th className="py-3.5 px-4">Mã hồ sơ</th>
-                <th className="py-3.5 px-4">Ngày nộp</th>
+                <th className="py-3.5 px-4">Ngày tạo</th>
                 <th className="py-3.5 px-4">Trạng thái</th>
                 <th className="py-3.5 px-3 text-center">Thao tác</th>
               </tr>
@@ -449,7 +448,7 @@ export const KycTable: React.FC = () => {
                       </td>
 
                       <td className="py-4 px-4 whitespace-nowrap">
-                        {renderDateTime(record.submittedAt)}
+                        {renderDateTime(record.createdAt)}
                       </td>
 
                       <td className="py-4 px-4 whitespace-nowrap">
@@ -566,8 +565,8 @@ export const KycTable: React.FC = () => {
                       </button>
                     </div>
                     <div>
-                      <p className="mb-1 text-xs text-slate-500">Ngày nộp</p>
-                      {renderDateTime(record.submittedAt)}
+                      <p className="mb-1 text-xs text-slate-500">Ngày tạo</p>
+                      {renderDateTime(record.createdAt)}
                     </div>
                   </div>
                   <button
