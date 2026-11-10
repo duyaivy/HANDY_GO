@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import type { RmqContext } from '@nestjs/microservices';
 import { RabbitMQContextService } from '@app/rabbitmq';
@@ -78,6 +79,8 @@ export class PaymentInboxService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       // Could not even persist the failure: let the broker redeliver.
       this.logger.error(`Inbound ${eventType} could not be processed or recorded: ${safeError(error)}`);
+      // Back off while storage is unavailable instead of a hot redelivery loop.
+      await new Promise((resolve) => setTimeout(resolve, BASE_DELAY_MS));
       this.rabbit.nack(context, true);
     }
   }
@@ -86,14 +89,12 @@ export class PaymentInboxService implements OnModuleInit, OnModuleDestroy {
     let event: InboundEvent;
     try {
       event = unwrapInboundEvent(raw);
-    } catch (error) {
-      this.logger.warn(`Dropping ${eventType} without a usable envelope: ${safeError(error)}`);
-      return 'dead';
+    } catch {
+      return this.quarantine(eventType, raw, 'invalid_envelope');
     }
     const handler = this.handlers.get(eventType);
     if (!handler) {
-      this.logger.warn(`No inbound handler registered for ${eventType}`);
-      return 'dead';
+      return this.quarantine(eventType, raw, 'unknown_handler');
     }
 
     try {
@@ -110,6 +111,25 @@ export class PaymentInboxService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       return this.recordFailure(event, eventType, raw, error);
     }
+  }
+
+  private async quarantine(eventType: string, raw: unknown, reason: string): Promise<InboundOutcome> {
+    // The hash identifies the delivery, never a business event. Do not retain arbitrary
+    // payload fields: they can contain credentials or personal/bank data.
+    const serialized = JSON.stringify(raw) ?? 'undefined';
+    const digest = createHash('sha256').update(eventType).update('\0').update(serialized).digest('hex');
+    const quarantineKey = `quarantine:${digest}`;
+    await this.database.client.failedInboundEvent.upsert({
+      where: { eventId: quarantineKey },
+      create: {
+        eventId: quarantineKey, eventType: eventType.slice(0, 120),
+        status: 'quarantined', attempts: 1,
+        payload: { quarantineKey, reason, sha256: digest, byteLength: Buffer.byteLength(serialized), payloadRetained: false },
+        lastError: reason,
+      },
+      update: { attempts: { increment: 1 } },
+    });
+    return 'dead';
   }
 
   async retryDue(limit = 20, now = new Date()): Promise<number> {

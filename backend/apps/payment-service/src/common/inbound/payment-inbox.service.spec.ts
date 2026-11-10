@@ -86,8 +86,44 @@ describe('PaymentInboxService', () => {
     const broken = setup();
     broken.failed.upsert.mockRejectedValue(new Error('db down'));
     broken.service.register('order.created', vi.fn().mockRejectedValue(new RetryableInboundError('x')));
-    await broken.service.consume('order.created', envelope, {} as never);
+    vi.useFakeTimers();
+    const pending = broken.service.consume('order.created', envelope, {} as never);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+    vi.useRealTimers();
     expect(broken.rabbit.nack).toHaveBeenCalledWith({}, true);
+  });
+
+  it.each([null, '{bad json', [], { data: {} }, { eventId: '', payload: 1 }, { eventId: 'evt-1', data: 'bad' }, { eventId: 'evt-1', payload: [] }])('quarantines malformed payload %j before ACK', async (raw) => {
+    const { service, failed, rabbit } = setup();
+    await service.consume('order.created', raw, {} as never);
+    expect(failed.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ status: 'quarantined', eventId: expect.stringMatching(/^quarantine:/) }),
+    }));
+    expect(failed.upsert.mock.invocationCallOrder[0]).toBeLessThan(rabbit.ack.mock.invocationCallOrder[0]);
+  });
+
+  it('deduplicates unknown deliveries without storing secrets or inventing a business ID', async () => {
+    const { service, failed } = setup();
+    const raw = { ...envelope, token: 'secret-value' };
+    await service.handle('unknown', raw);
+    await service.handle('unknown', raw);
+    expect(failed.upsert.mock.calls[0][0].where).toEqual(failed.upsert.mock.calls[1][0].where);
+    expect(failed.upsert.mock.calls[0][0].where.eventId).not.toBe(envelope.eventId);
+    expect(JSON.stringify(failed.upsert.mock.calls)).not.toContain('secret-value');
+  });
+
+  it('backs off and NACKs malformed deliveries if quarantine cannot commit', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, failed, rabbit } = setup();
+      failed.upsert.mockRejectedValue(new Error('db down'));
+      const pending = service.consume('unknown', null, {} as never);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await pending;
+      expect(rabbit.ack).not.toHaveBeenCalled();
+      expect(rabbit.nack).toHaveBeenCalledWith({}, true);
+    } finally { vi.useRealTimers(); }
   });
 
   it('caps the retry delay with exponential backoff', () => {

@@ -1,6 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RefundAdjustmentService } from './refund-adjustment.service.js';
 describe('RefundAdjustmentService', () => {
+  it('keeps new Cash refunds in review in production without posting a transfer', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    try {
+      const tx = { $queryRaw: vi.fn(), walletTransfer: { findUnique: vi.fn().mockResolvedValue(null) } };
+      const prisma = {
+        $transaction: vi.fn(async (arg: unknown) => typeof arg === 'function' ? arg(tx) : Promise.all(arg as unknown[])),
+        outboxEvent: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({}) },
+        walletAuditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      const posting = vi.fn();
+      const service = new RefundAdjustmentService({ prisma, createBalancedTransferInTx: posting } as never);
+      await expect(service.refund('u1', { paymentId: 'p1', refundId: 'r1', amount: '10', method: 'cash', grossAmount: '10' })).rejects.toMatchObject({ status: 409 });
+      expect(posting).not.toHaveBeenCalled();
+      expect(prisma.walletAuditLog.create).toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it('rejects a refund with no original payment', async () => {
     const tx = {
       $queryRaw: vi.fn(),

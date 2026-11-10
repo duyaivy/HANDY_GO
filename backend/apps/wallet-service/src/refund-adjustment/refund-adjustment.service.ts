@@ -49,6 +49,8 @@ export class RefundAdjustmentService {
       }
 
       if (dto.method === 'cash') {
+        if (process.env.NODE_ENV === 'production')
+          throw new RefundNeedsReviewException('Cash refund funding is sandbox-only pending Finance approval');
         if (!dto.grossAmount) throw new RefundNeedsReviewException('Cash refund requires an authorized gross amount');
         const previous = await tx.walletTransfer.findMany({ where: { kind: 'refund', operationId: { startsWith: `${dto.paymentId}:refund:` } } });
         for (const row of previous) {

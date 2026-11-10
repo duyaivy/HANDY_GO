@@ -28,6 +28,10 @@ export function unwrapInboundEvent(raw: unknown): InboundEvent {
     throw new PermanentInboundError('Event payload is not an object');
   }
   const envelope = raw as Record<string, unknown>;
+  for (const key of ['data', 'payload']) {
+    if (key in envelope && (!envelope[key] || typeof envelope[key] !== 'object' || Array.isArray(envelope[key])))
+      throw new PermanentInboundError('Event envelope body is not an object');
+  }
   const nested = [envelope.data, envelope.payload].find(
     (value): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value),
   );

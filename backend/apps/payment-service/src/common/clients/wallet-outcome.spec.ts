@@ -9,12 +9,8 @@ describe('interpretWalletResult', () => {
     expect(interpretWalletResult({ outcome: 'ok', status: 200, data: { status: 'failed' } })).toMatchObject({ kind: 'failed' });
   });
 
-  it('only treats definite 4xx refusals as failure', () => {
-    expect(interpretWalletResult({ outcome: 'rejected', status: 409, message: 'Insufficient available balance' })).toEqual({
-      kind: 'failed',
-      reason: 'Insufficient available balance',
-    });
-    for (const status of [401, 403, 408, 429]) {
+  it('keeps every unproven HTTP refusal unresolved, including conflict and lookup 404', () => {
+    for (const status of [400, 401, 403, 404, 408, 409, 422, 429]) {
       expect(interpretWalletResult({ outcome: 'rejected', status, message: 'x' })).toEqual({ kind: 'unknown' });
     }
   });

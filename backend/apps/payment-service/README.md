@@ -109,3 +109,10 @@ Docker test dùng PostgreSQL 16 (port 55433, DB handygo_hg51_payment_test, schem
 ## Questions to carry into the PR
 
 Các phần còn mở và ranh giới nghiệm thu nằm tại [PO-DECISIONS.md](../../../docs/payment-service/PO-DECISIONS.md) và evidence 08/11. Không có deployment hoặc giao dịch ngân hàng thật trong đợt này.
+
+
+## Review follow-up 2026-11-10
+
+Malformed envelopes and unknown handlers are persisted as `quarantined` before ACK. Only delivery digest, size and reason are retained; Admin listing includes these records, but replay requires producer investigation and corrected publication because arbitrary bodies are not retained. Storage failure delays NACK/requeue by five seconds. Existing valid dead-event replay is unchanged.
+
+HTTP 4xx from Wallet is inconclusive: retain processing and reconcile the same operation ID. The current ledger maps insufficient balance to 500; only a persisted failed operation permits another payment attempt. New Cash refunds are blocked in production pending Finance policy; committed operation replay remains available.

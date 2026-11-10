@@ -15,7 +15,7 @@ export class PaymentOperationsService {
   ) {}
 
   async deadLetters(query: PaymentPaginationDto) {
-    const where = { status: 'dead' };
+    const where = { status: { in: ['dead', 'quarantined'] } };
     const [items, total] = await this.database.client.$transaction([
       this.database.client.failedInboundEvent.findMany({
         where,
@@ -96,7 +96,7 @@ export class PaymentOperationsService {
         tx.payout.count({
           where: { status: { in: ['processing', 'needs_review'] } },
         }),
-        tx.failedInboundEvent.count({ where: { status: 'dead' } }),
+        tx.failedInboundEvent.count({ where: { status: { in: ['dead', 'quarantined'] } } }),
       ]);
       const summary = {
         scope: 'payment_local_unresolved_snapshot',

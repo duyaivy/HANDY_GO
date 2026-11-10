@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@app/config';
 
-// `rejected` = Wallet definitively refused (4xx) – safe to treat as failed.
+// `rejected` = HTTP 4xx; this does not prove the operation failed.
 // `unknown`  = timeout/5xx/network – outcome must be looked up, never assumed.
 export type WalletCallResult<T = Record<string, unknown>> =
   | { outcome: 'ok'; data: T; status: number }

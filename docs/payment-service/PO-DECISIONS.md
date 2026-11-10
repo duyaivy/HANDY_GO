@@ -35,3 +35,7 @@ Internal `refund-credit` nhận `paymentId`, `refundId`, `amount`, `method` (`po
 Xem [evidence 08/11](evidence/HG-51-review-update-2026-11-08.md). Test dùng Postgres/RabbitMQ Docker local, controller/client nghiệp vụ thật, JWT RS256 test và fixture bank ownership sandbox. Không có bằng chứng VNPAY merchant thật; yêu cầu mới không cần bước đó.
 
 Migration inventory, migrate/status scripts và DB pool budget đã gồm Payment. CI được bổ sung integration thực. Chưa push, tạo commit, deploy hoặc cấp quyền trên môi trường thật. Báo cáo reconcile vẫn không phải đối soát độc lập provider/ledger: `walletLedgerCompared=false` được giữ nguyên.
+
+## Execution update - 2026-11-10
+
+New Cash refunds are blocked in Wallet when NODE_ENV=production and follow the existing needs_review/audit path. Replays of committed operations still return their original result. This is a sandbox restriction, not Finance approval; no production funding enablement flag is introduced.

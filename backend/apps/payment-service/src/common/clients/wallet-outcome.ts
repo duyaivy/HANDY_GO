@@ -5,8 +5,8 @@ export type DebitOutcome =
   | { kind: 'failed'; reason: string }
   | { kind: 'unknown' };
 
-// HTTP statuses that say nothing about whether the debit itself was refused.
-const INCONCLUSIVE_REJECTIONS = new Set([401, 403, 408, 429]);
+// Wallet currently has no error code guaranteeing that this operation never committed.
+// Validation, missing wallets and conflicts can also be observed on a replay.
 
 export function interpretWalletStatus(status: unknown): DebitOutcome {
   if (status === 'completed') return { kind: 'success' };
@@ -20,8 +20,7 @@ export function interpretWalletResult(result: WalletCallResult<unknown> | { outc
     case 'ok':
       return interpretWalletStatus((result.data as { status?: unknown } | null)?.status);
     case 'rejected':
-      if (INCONCLUSIVE_REJECTIONS.has(result.status)) return { kind: 'unknown' };
-      return { kind: 'failed', reason: result.message.slice(0, 200) };
+      return { kind: 'unknown' };
     default:
       return { kind: 'unknown' };
   }

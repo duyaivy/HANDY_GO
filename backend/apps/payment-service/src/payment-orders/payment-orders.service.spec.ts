@@ -154,9 +154,9 @@ describe('PaymentOrdersService.payWithPoints', () => {
     expect(outbox.enqueue).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: 'payment.succeeded' }));
   });
 
-  it('marks the payment failed on a definite Wallet refusal and allows a later new attempt', async () => {
+  it('marks the payment failed on a persisted Wallet failed operation and allows a later new attempt', async () => {
     const { service, state, wallet, outbox } = build();
-    wallet.debitPayment.mockResolvedValue({ outcome: 'rejected', status: 409, message: 'Insufficient available balance' });
+    wallet.debitPayment.mockResolvedValue({ outcome: 'ok', status: 200, data: { status: 'failed' } });
     await service.payWithPoints(customerId, state.payment.id);
     expect(state.payment.status).toBe('failed');
     expect(outbox.enqueue).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ eventType: 'payment.failed' }));
@@ -165,6 +165,18 @@ describe('PaymentOrdersService.payWithPoints', () => {
     await service.payWithPoints(customerId, state.payment.id);
     expect(state.attempts).toHaveLength(2);
     expect(state.payment.status).toBe('succeeded');
+  });
+
+  it.each([400, 404, 409, 422])('keeps HTTP %s processing and reuses the attempt after lookup misses', async (status) => {
+    const { service, state, wallet } = build();
+    wallet.debitPayment.mockResolvedValue({ outcome: 'rejected', status, message: 'unproven refusal' });
+    wallet.getOperation.mockResolvedValue({ outcome: 'missing' });
+    await service.payWithPoints(customerId, state.payment.id);
+    const attemptId = state.attempts[0].id;
+    await service.payWithPoints(customerId, state.payment.id);
+    expect(state.payment.status).toBe('processing');
+    expect(state.attempts).toHaveLength(1);
+    expect(wallet.debitPayment).toHaveBeenLastCalledWith(customerId, expect.objectContaining({ attemptId }));
   });
 
   it('never creates a new attempt or fails the payment when the outcome is unknown', async () => {

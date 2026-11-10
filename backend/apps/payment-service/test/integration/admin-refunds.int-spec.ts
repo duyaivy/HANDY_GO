@@ -1,3 +1,4 @@
+import { PaymentInboxService } from '../../src/common/inbound/payment-inbox.service.js';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -512,5 +513,32 @@ describe('Admin HTTP authorization, validation and operations', () => {
         where: { actorUserId: admin, action: 'reconciliation.finished' },
       }),
     ).toBe(1);
+  });
+});
+
+
+describe('Inbound quarantine persistence (PostgreSQL)', () => {
+  it('persists one safe record before ACK and rejects Admin replay of the missing body', async () => {
+    const eventType = `test.unknown.${randomUUID()}`;
+    const rabbit = { ack: vi.fn(), nack: vi.fn() };
+    const inbox = new PaymentInboxService(database, rabbit as never);
+    try {
+      const raw = { eventId: randomUUID(), token: 'must-not-be-stored' };
+      await inbox.consume(eventType, raw, {} as never);
+      await inbox.consume(eventType, raw, {} as never);
+      const rows = await database.client.failedInboundEvent.findMany({ where: { eventType } });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].status).toBe('quarantined');
+      expect(rows[0].attempts).toBe(2);
+      expect(rows[0].eventId).toMatch(/^quarantine:/);
+      expect(JSON.stringify(rows)).not.toContain('must-not-be-stored');
+      expect(rabbit.ack).toHaveBeenCalledTimes(2);
+      expect(rabbit.nack).not.toHaveBeenCalled();
+      await expect(operations.replay(admin, rows[0].eventId, 'Cannot replay redacted body')).rejects.toMatchObject({ status: 409 });
+      const listing = await operations.deadLetters({ page: 1, limit: 100 } as never);
+      expect(listing.items.some((row) => row.eventId === rows[0].eventId)).toBe(true);
+    } finally {
+      await database.client.failedInboundEvent.deleteMany({ where: { eventType } });
+    }
   });
 });
