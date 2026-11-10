@@ -154,10 +154,12 @@ Acceptance scope: sandbox per `PO-DECISIONS.md`. The historical review above rem
 
 ### Technical decisions and limits
 
-- Reuse `failed_inbound_events` with status `quarantined` and key `quarantine:<sha256(type + payload)>`. This identifies a delivery, never a business event. No new migration. Identical redelivery updates the same record.
+- Reuse `failed_inbound_events` with status `quarantined` and key `quarantine:<sha256(type + payload)>`. This identifies a delivery, never a business event. Migration `20261110143000_allow_inbound_quarantine` extends the existing status CHECK constraint without changing stored rows. Identical redelivery updates the same record.
 - Retain only reason, digest and byte length for quarantine, avoiding arbitrary credentials and personal/bank data. Admin listing includes quarantine metadata; replay is rejected because the body is not retained. Recovery requires producer investigation and a corrected envelope with the original business ID. JSON key order can change the digest without affecting business inbox deduplication.
 - On storage failure, keep delivery unacknowledged for five seconds before NACK/requeue. Prolonged database outages continue retrying at a reduced rate; no arbitrary discard without a guaranteed broker DLQ. Production monitoring, retention and recovery procedures remain required.
 - Actual Wallet contract: `PaymentDebitService` can return 400/VALIDATION_ERROR or 404/NOT_FOUND before entering ledger; duplicate matching fingerprints return the existing operation. Ledger currently throws plain Error for insufficient balance, inactive wallets and mismatched idempotency, mapped to HTTP 500 by the shared filter. No error code guarantees an operation never committed on a previous request. All HTTP 4xx/5xx, timeout and missing lookup therefore stay unknown; only persisted operation `failed` is definitive failure and `completed` is success. Limitation: insufficient funds without a terminal operation stays processing until a future Wallet terminal-failure contract improves this behavior.
 - New Cash refunds are blocked under `NODE_ENV=production` through the existing needs_review/audit path. Existing committed refunds remain readable on replay. Sandbox still requires available PLATFORM_FEES funds, never unbacked Point creation. Finance policy, real VNPAY merchant verification and real bank payout remain external dependencies.
 
 Final push and CI evidence is recorded in the PR execution comment, separately from historical test reports.
+
+Remote CI initially exposed the existing status CHECK constraint rejecting quarantined rows. Added an additive constraint migration; the PostgreSQL regression remains enabled and must pass on the final HEAD.
