@@ -328,6 +328,7 @@ describe('Auth feature flows', () => {
         roles: [
           {
             role: {
+              code: 'CUSTOMER',
               name: 'Customer',
               permissionRoles: [
                 { permission: { code: 'profile:read' } },
@@ -528,6 +529,7 @@ describe('Auth feature flows', () => {
         roles: [
           {
             role: {
+              code: 'CUSTOMER',
               name: 'Customer',
               permissionRoles: [{ permission: { code: 'profile:read' } }],
             },
@@ -556,7 +558,7 @@ describe('Auth feature flows', () => {
         passwordHash: await bcrypt.hash('Password123', 10),
         emailVerifiedAt: new Date(),
         status: 'active',
-        roles: [{ role: { name: 'Worker', permissionRoles: [] } }],
+        roles: [{ role: { code: 'WORKER', name: 'Worker', permissionRoles: [] } }],
         otpChallenges: [],
       });
 
@@ -691,6 +693,7 @@ describe('Auth feature flows', () => {
         roles: [
           {
             role: {
+              code: 'CUSTOMER',
               name: 'Customer',
               permissionRoles: [{ permission: { code: 'profile:read' } }],
             },

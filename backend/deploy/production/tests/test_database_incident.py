@@ -12,18 +12,26 @@ from database_plan import SERVICES, migration_endpoint, validate_database_plan, 
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_message_direct_migration_url_uses_the_declared_message_schema(self):
+        values = {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message',
+                  'DB_DDL_VERIFIED_MESSAGE': 'true'}
+        self.assertEqual(migration_endpoint(values, 'message', migrating=True).query, 'schema=message')
+        with self.assertRaisesRegex(ValueError, 'wrong migration schema'):
+            migration_endpoint(values | {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message_service'},
+                               'message', migrating=True)
+
     def setUp(self):
         self.registry = json.loads((PROD / 'services.json').read_text())['services']
         self.values = {'DATABASE_URL': 'postgresql://tenant:secret@pool.example/postgres',
-                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '15', 'DB_POOL_RESERVE_PRIMARY': '6'}
+                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '16', 'DB_POOL_RESERVE_PRIMARY': '6'}
         for service in SERVICES:
             suffix = service.upper().replace('-', '_')
             self.values.update({f'DB_POOL_GROUP_{suffix}': 'PRIMARY', f'DB_POOL_REPLICAS_{suffix}': '1',
                                 f'DIRECT_URL_{suffix}': 'postgresql://ddl:secret@direct.example/postgres',
                                 f'DB_DDL_VERIFIED_{suffix}': 'true'})
 
-    def test_nine_services_fit_explicit_budget(self):
-        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], 9)
+    def test_ten_services_fit_explicit_budget(self):
+        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], 10)
 
     def test_old_default_and_rollout_overlap_exceed_session_pool(self):
         for update in ({'DB_POOL_MAX': '10'}, {'DB_POOL_REPLICAS_ORDER': '2'}):
@@ -59,7 +67,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                         values[key] = blank
             values['DB_POOL_TIMEOUT_MS'] = values['DB_POOL_IDLE_MS'] = blank or ''
             with self.subTest(blank=blank):
-                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 9)
+                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 10)
                 for service in SERVICES:
                     self.assertEqual(migration_endpoint(values, service, migrating=True).hostname, 'pool.example')
 
@@ -150,18 +158,19 @@ class DatabaseIncidentTests(unittest.TestCase):
             shutil.copy2(root_source / 'package.json', root / 'package.json')
             (root / 'scripts').mkdir()
             shutil.copy2(root_source / 'scripts/migration-url.ts', root / 'scripts/migration-url.ts')
-            for app in (root_source / 'apps').iterdir():
-                if not app.is_dir(): continue
-                destination = root / 'apps' / app.name
-                for source in app.rglob('*'):
-                    if not source.is_file(): continue
-                    relative = source.relative_to(app)
-                    if source.name == 'schema.prisma' or source.name.startswith('prisma.config.') or source.name == 'migration.sql' or relative.parts[-2:] == ('prisma', 'prisma.config.ts'):
-                        target = destination / relative
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source, target)
+            for parent in [p for p in ('apps', 'foundations') if (root_source / p).is_dir()]:
+                for app in (root_source / parent).iterdir():
+                    if not app.is_dir(): continue
+                    destination = root / parent / app.name
+                    for source in app.rglob('*'):
+                        if not source.is_file(): continue
+                        relative = source.relative_to(app)
+                        if source.name == 'schema.prisma' or source.name.startswith('prisma.config.') or source.name == 'migration.sql' or relative.parts[-2:] == ('prisma', 'prisma.config.ts'):
+                            target = destination / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, target)
             registry = copy.deepcopy(self.registry)
-            self.assertEqual(len(migration_inventory(root, registry)), 9)
+            self.assertEqual(len(migration_inventory(root, registry)), 10)
             registry['api-gateway']['migration'] = 'api-gateway'
             with self.assertRaises(ValueError): migration_inventory(root, registry)
             duplicate = copy.deepcopy(self.registry)

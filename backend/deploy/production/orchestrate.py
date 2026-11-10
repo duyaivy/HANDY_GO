@@ -21,7 +21,7 @@ import urllib.request
 from release_log import emit, load_secrets, redact
 
 HERE = Path(__file__).resolve().parent
-ROLES = ('vps3', 'vps2', 'vps1')
+ROLES = ('vps4', 'vps3', 'vps2', 'vps1')
 ROOT = '/opt/handygo'
 ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 

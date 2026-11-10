@@ -143,7 +143,7 @@ export class LoginFlowService {
     // Verify user status in User & Trust Service
     await this.userTrustClient.confirmUserStatus(
       account.userId,
-      account.roles.map(({ role }) => role.name),
+      this.sessionService.extractRolesAndPermissions(account).roleNames,
     );
 
     // Create session (signs access token FIRST, then saves session)

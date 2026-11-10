@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { WorkerProfileScreen, WorkerSettingsScreen, WorkerSkillsScreen } from '@/features/profile/worker';
 import { WorkerBalanceScreen } from '@/features/wallet/worker';

@@ -163,7 +163,7 @@ describe('Auth Flows Concurrency, RPC Fail-Close & Security Isolation', () => {
         email: 'conc@example.com',
         emailVerifiedAt: null,
         status: 'pending',
-        roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+        roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
       };
 
       dbMock.account.findFirst.mockResolvedValue(mockAccount);

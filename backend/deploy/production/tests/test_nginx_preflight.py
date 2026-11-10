@@ -67,6 +67,15 @@ class NginxPreflightTests(unittest.TestCase):
                 self.assertEqual(path.read_text(), 'fixture')
         self.assertEqual(before, [(p.stat().st_mode, p.stat().st_uid, p.stat().st_gid) for p in untouched])
 
+    def test_nginx_message_service_routes(self):
+        conf = (PROD / 'nginx/handygo.conf').read_text()
+        self.assertIn('location ^~ /api/v1/conversations', conf)
+        self.assertIn('location ^~ /api/v1/chat/socket.io/', conf)
+        self.assertIn('proxy_pass $message_upstream;', conf)
+        self.assertIn('http://10.77.0.4:3009', conf)
+        self.assertIn('proxy_set_header Upgrade $http_upgrade;', conf)
+        self.assertIn('proxy_set_header Connection $handygo_connection;', conf)
+
     def test_missing_config_tls_or_acme_fails_before_docker(self):
         for path in (self.obj.bundle / 'nginx/nginx.conf', self.root / 'tls/privkey.pem', self.root / 'acme'):
             with self.subTest(path=path):
@@ -135,11 +144,11 @@ class NginxPreflightTests(unittest.TestCase):
         self.assertNotIn('up', actions)
         self.assertFalse((self.root / 'pending.json').exists())
 
-    def test_vps2_and_vps3_do_not_run_nginx_permission_or_container_checks(self):
+    def test_vps2_and_vps3_and_vps4_do_not_run_nginx_permission_or_container_checks(self):
         self.obj.owner, self.obj.validate_bundle = Mock(), Mock()
         self.obj.check_memory = Mock(return_value={})
         self.obj.prepare_nginx_files, self.obj.check_nginx = Mock(), Mock()
-        for role, ip in (('vps2', '10.77.0.2'), ('vps3', '10.77.0.3')):
+        for role, ip in (('vps2', '10.77.0.2'), ('vps3', '10.77.0.3'), ('vps4', '10.77.0.4')):
             self.obj.role, self.obj.metadata, self.obj.names = role, {'private_ip': ip}, ['fixture-service']
             with patch.object(host, 'run', side_effect=['2.30.0', f'inet {ip}/24', 'x86_64']), \
                     patch.object(host.shutil, 'disk_usage', return_value=Mock(free=3 * 1024 ** 3)):

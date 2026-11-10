@@ -393,6 +393,7 @@ export function CustomerOrderDetailScreen({
             Chức năng đang được phát triển
           </Text>
         </View>
+        {order?.serviceRequestId && <Button label="Lịch sử trò chuyện" onPress={() => router.push(`/customer/chat?requestId=${encodeURIComponent(order.serviceRequestId!)}` as any)} />}
       </ScrollView>
 
       {/* 8. Sticky Bottom Action Bar (Cố định ở đáy màn hình) */}

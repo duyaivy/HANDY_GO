@@ -10,6 +10,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useThemeConfig } from '@/components/ui/use-theme-config';
+import { ChatLifecycle } from '@/features/chat/chat-lifecycle';
 import { NotificationLifecycle } from '@/features/notifications/notification-lifecycle';
 import { AppModeSwitchOverlay } from '@/features/profile/components/app-mode-switch-overlay';
 import { APIProvider } from '@/lib/api';
@@ -90,6 +91,7 @@ function Providers({
         <ThemeProvider value={theme}>
           <APIProvider>
             <NotificationLifecycle />
+            <ChatLifecycle />
             <BottomSheetModalProvider>
               {children}
               <FlashMessage position="top" />

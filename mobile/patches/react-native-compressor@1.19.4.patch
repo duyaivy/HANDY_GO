@@ -1,0 +1,24 @@
+diff --git a/android/src/main/java/com/reactnativecompressor/Utils/Utils.kt b/android/src/main/java/com/reactnativecompressor/Utils/Utils.kt
+index 2c7c1fde2c108a2bc4edeb972c1ad330b2788ae8..e81b3e44fc000074e9839f4a7614c91e21578e6d 100644
+--- a/android/src/main/java/com/reactnativecompressor/Utils/Utils.kt
++++ b/android/src/main/java/com/reactnativecompressor/Utils/Utils.kt
+@@ -61,14 +61,18 @@ object Utils {
+ 
+             override fun onFailure(index: Int, failureMessage: String) {
+               Log.wtf("failureMessage", failureMessage)
++              // Rejected compression never returns this path to JS for cleanup.
++              runCatching { java.io.File(destinationPath).delete() }
++              compressorExports.remove(uuid)
+               promise.reject(Throwable(failureMessage))
+               currentVideoCompression[0] = 0
+             }
+ 
+             override fun onCancelled(index: Int) {
+               Log.wtf("TAG", "compression has been cancelled")
++              runCatching { java.io.File(destinationPath).delete() }
++              compressorExports.remove(uuid)
+               promise.reject(Throwable("compression has been cancelled"))
+-              // make UI changes, cleanup, etc
+               currentVideoCompression[0] = 0
+             }
+           },

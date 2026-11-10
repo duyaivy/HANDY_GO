@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { Pool } from 'pg';
 import {
   connect,
@@ -120,17 +120,19 @@ describe.skipIf(!databaseUrl || !rabbitUrl)(
         );
       admin = new Pool({ connectionString: dbUrl.toString() });
       await admin.query(`CREATE SCHEMA "${schema}"`);
-      const migration = readFileSync(
-        new URL(
-          '../prisma/migrations/20261020000000_notification_phase1/migration.sql',
-          import.meta.url,
-        ),
-        'utf8',
-      );
+      const migrationRoot = new URL('../prisma/migrations/', import.meta.url);
       const client = await admin.connect();
       try {
         await client.query(`SET search_path TO "${schema}"`);
-        await client.query(migration.replaceAll('"public".', `"${schema}".`));
+        for (const entry of readdirSync(migrationRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .sort((a, b) => a.name.localeCompare(b.name))) {
+          const migration = readFileSync(
+            new URL(`${entry.name}/migration.sql`, migrationRoot),
+            'utf8',
+          );
+          await client.query(migration.replaceAll('"public".', `"${schema}".`));
+        }
       } finally {
         client.release();
       }
@@ -247,7 +249,12 @@ describe.skipIf(!databaseUrl || !rabbitUrl)(
       await publish(optional, optional.eventType);
       await consumed(optional);
       expect(
-        await db.notification.count({ where: { recipientUserId: optedOut } }),
+        await db.notification.count({
+          where: {
+            recipientUserId: optedOut,
+            payload: { path: ['inAppVisible'], equals: true },
+          },
+        }),
       ).toBe(0);
       expect(
         await db.notification.count({
@@ -260,7 +267,12 @@ describe.skipIf(!databaseUrl || !rabbitUrl)(
       await publish(mandatory, mandatory.eventType);
       await consumed(mandatory);
       expect(
-        await db.notification.count({ where: { recipientUserId: optedOut } }),
+        await db.notification.count({
+          where: {
+            recipientUserId: optedOut,
+            payload: { path: ['inAppVisible'], equals: true },
+          },
+        }),
       ).toBe(1);
     });
 

@@ -131,7 +131,7 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'FAILED_ROLLBACK_SUCCESS'):
             obj.execute()
         self.assertEqual({r for r, a, _ in calls if a == 'restore'}, set(coordinator.ROLES))
-        self.assertEqual(sum(a == 'verify' and t == OLD for _, a, t in calls), 3)
+        self.assertEqual(sum(a == 'verify' and t == OLD for _, a, t in calls), len(coordinator.ROLES))
         self.assertFalse(any(a == 'commit' for _, a, _ in calls))
 
     def test_unreachable_host_never_reports_rollback_success_or_unlocks(self):
@@ -296,7 +296,7 @@ class ReleaseTests(unittest.TestCase):
         env = {'DEPLOY_USER': 'deploy', **{role.upper() + '_HOST': f'{role}.example.com' for role in coordinator.ROLES}}
         with patch.dict(coordinator.os.environ, env), patch.object(coordinator.Path, 'home', return_value=self.root), \
                 patch.object(coordinator.subprocess, 'run') as run:
-            with self.assertRaisesRegex(ValueError, 'VPS3_SSH_KEY'):
+            with self.assertRaisesRegex(ValueError, f'{coordinator.ROLES[0].upper()}_SSH_KEY'):
                 coordinator.Coordinator(args)
         run.assert_not_called()
 

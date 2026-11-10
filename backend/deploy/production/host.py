@@ -21,7 +21,7 @@ from release_log import emit, load_secrets, redact
 ROOT = Path('/opt/handygo')
 RELEASE_ID = r'prod-[0-9]{8}-[0-9]+-a[0-9]+'
 DIGEST = r'(?:ghcr\.io/[a-z0-9._/-]+|nginx)@sha256:[a-f0-9]{64}'
-ROLES = ('vps1', 'vps2', 'vps3')
+ROLES = ('vps1', 'vps2', 'vps3', 'vps4')
 # services.json is the single migration ownership/order source. Remote execution
 # receives this registry from the reviewed release coordinator.
 try:
@@ -96,7 +96,7 @@ def inspect_state(role):
     metadata = read(ROOT / 'host.json')
     if role not in ROLES or not isinstance(metadata, dict) or metadata.get('role') != role:
         raise RuntimeError('Host identity mismatch')
-    if metadata.get('private_ip') != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]:
+    if metadata.get('private_ip') != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]:
         raise RuntimeError('Unexpected WireGuard host identity')
     state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending')}
     references = set()
@@ -153,7 +153,7 @@ def run(argv, env=None, label=None):
 
 def validate_service_endpoints(values, registry):
     """New release/ENV preflight only; do not invalidate immutable recovery bundles."""
-    ips = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}
+    ips = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}
     for name, target in registry.items():
         key = target.get('url_env')
         if not key:
@@ -239,7 +239,7 @@ class Host:
         self.metadata = read(ROOT / 'host.json')
         if self.metadata['role'] != role:
             raise ValueError('Host identity mismatch')
-        if self.metadata['private_ip'] != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]:
+        if self.metadata['private_ip'] != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]:
             raise ValueError('Unexpected WireGuard IP; update the topology consistently before deployment')
         for key in ('app_image', 'migration_image', 'nginx_image'):
             if not re.fullmatch(DIGEST, self.manifest[key]):
