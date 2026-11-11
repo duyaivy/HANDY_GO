@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { resolveServiceName } from '@/constants/services';
 
 export type BookingDraftState = {
   serviceId: string;
@@ -49,8 +50,14 @@ export const useBookingDraftStore = create<BookingDraftState>(set => ({
   agreedPrice: 300000,
   createdRequestId: null,
 
-  setService: (serviceId, serviceName = 'Dịch vụ tiện ích') =>
-    set({ serviceId, serviceName }),
+  setService: (serviceId, serviceName) =>
+    set(state => ({
+      serviceId,
+      serviceName: resolveServiceName(
+        serviceId,
+        serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
+      ),
+    })),
 
   setDescription: description => set({ description }),
 

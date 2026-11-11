@@ -1,155 +1,111 @@
 import React from "react";
-
-interface StatusItem {
-  id: string;
-  label: string;
-  percent: number;
-  color: string;
-  badgeDotClass: string;
+import { Layers3, CheckCircle2, XCircle } from "lucide-react";
+export interface DashboardOrderStatuses {
+  completed: number;
+  processing: number;
+  cancelled: number;
 }
-
-const STATUS_ITEMS: StatusItem[] = [
-  {
-    id: "completed",
-    label: "Completed",
-    percent: 62,
-    color: "#FF5E14",
-    badgeDotClass: "bg-[#FF5E14]",
-  },
-  {
-    id: "processing",
-    label: "Processing",
-    percent: 18,
-    color: "#FB923C",
-    badgeDotClass: "bg-[#FB923C]",
-  },
-  {
-    id: "pending",
-    label: "Pending",
-    percent: 12,
-    color: "#FCD34D",
-    badgeDotClass: "bg-[#FCD34D]",
-  },
-  {
-    id: "cancelled",
-    label: "Cancelled",
-    percent: 8,
-    color: "#94A3B8",
-    badgeDotClass: "bg-[#94A3B8]",
-  },
-];
-
-export const DashboardOrderStatusDonut: React.FC = () => {
-  const total = 845;
-  const radius = 68;
-  const strokeWidth = 22;
-  const circumference = 2 * Math.PI * radius;
-
+const integer = (n: number) => new Intl.NumberFormat("vi-VN").format(n);
+export const DashboardOrderStatusDonut: React.FC<{
+  data: DashboardOrderStatuses;
+}> = ({ data }) => {
+  const total = data.completed + data.processing + data.cancelled;
+  const completion = total ? (data.completed / total) * 100 : 0;
+  const cancellation = total ? (data.cancelled / total) * 100 : 0;
+  const entries = [
+    { label: "Hoàn thành", value: data.completed, color: "#22C55E" },
+    { label: "Đang xử lý", value: data.processing, color: "#FACC15" },
+    { label: "Đã hủy", value: data.cancelled, color: "#EF4444" },
+  ];
+  let offset = 0;
+  const radius = 63,
+    circumference = 2 * Math.PI * radius;
   return (
-    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/80 shadow-2xs flex flex-col justify-between">
-      {/* HEADER CARD */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-            Trạng thái đơn
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5 font-medium">
-            Tỷ lệ hoàn thành và xử lý
-          </p>
-        </div>
-
-        <span className="px-3 py-1 rounded-full text-xs font-semibold text-orange-600 bg-orange-50 border border-orange-200">
-          Tháng hiện tại
-        </span>
-      </div>
-
-      {/* THÂN CARD: DONUT VÀ CHÚ THÍCH */}
-      <div className="mt-6 flex flex-col sm:flex-row items-center justify-around gap-6">
-        {/* VÒNG TRÒN DONUT SVG */}
-        <div className="relative w-44 h-44 flex items-center justify-center shrink-0">
+    <section className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+      <h2 className="flex items-center gap-2 text-base font-bold text-slate-900 sm:text-lg">
+        <Layers3 className="h-5 w-5 text-[#FF5E14]" />
+        Trạng thái đơn hàng
+      </h2>
+      <div className="mt-4 flex flex-col items-center justify-center gap-4 sm:flex-row">
+        <div className="relative h-44 w-44 shrink-0">
           <svg
-            className="w-full h-full -rotate-90 transform"
             viewBox="0 0 180 180"
+            className="h-full w-full -rotate-90"
+            role="img"
+            aria-label="Phân bố trạng thái đơn hàng"
           >
-            {/* Vòng nền xám mờ */}
             <circle
               cx="90"
               cy="90"
               r={radius}
+              fill="none"
               stroke="#F1F5F9"
-              strokeWidth={strokeWidth}
-              fill="transparent"
+              strokeWidth="20"
             />
-
-            {/* Các phân đoạn trạng thái */}
-            {STATUS_ITEMS.map((item, index) => {
-              const strokeDasharray = `${
-                (item.percent / 100) * circumference
-              } ${circumference}`;
-
-              // Tính tổng phần trăm của các phần tử đứng trước
-              const accumulatedPercent = STATUS_ITEMS.slice(0, index).reduce(
-                (sum, currentItem) => sum + currentItem.percent,
-                0,
-              );
-
-              const strokeDashoffset = -(
-                (accumulatedPercent / 100) *
-                circumference
-              );
-
+            {entries.map((item) => {
+              const length = total ? (item.value / total) * circumference : 0;
+              const dashOffset = -offset;
+              offset += length;
               return (
                 <circle
-                  key={item.id}
+                  key={item.label}
                   cx="90"
                   cy="90"
                   r={radius}
+                  fill="none"
                   stroke={item.color}
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={strokeDasharray}
-                  strokeDashoffset={strokeDashoffset}
-                  strokeLinecap="round"
-                  fill="transparent"
-                  className="transition-all duration-500"
+                  strokeWidth="20"
+                  strokeDasharray={`${length} ${circumference}`}
+                  strokeDashoffset={dashOffset}
                 />
               );
             })}
           </svg>
-
-          {/* SỐ LIỆU TỔNG Ở CHÍNH GIỮA */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center">
-            <span className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-none">
-              {total}
-            </span>
-
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mt-1">
-              TỔNG ĐƠN
-            </span>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <strong className="text-2xl font-extrabold text-slate-900">
+              {integer(total)}
+            </strong>
+            <span className="text-xs text-slate-600">Tổng đơn</span>
           </div>
         </div>
-
-        {/* DANH SÁCH CHÚ THÍCH BÊN PHẢI */}
-        <div className="flex-1 w-full max-w-[220px] space-y-3">
-          {STATUS_ITEMS.map((item) => (
+        <div className="w-full min-w-0 space-y-3">
+          {entries.map((item) => (
             <div
-              key={item.id}
-              className="flex items-center justify-between text-xs sm:text-sm"
+              key={item.label}
+              className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 text-sm"
             >
-              <div className="flex items-center gap-2.5">
+              <span className="flex items-center gap-2 text-slate-700">
                 <span
-                  className={`w-2.5 h-2.5 rounded-full ${item.badgeDotClass}`}
+                  className="h-3 w-3 shrink-0 rounded"
+                  style={{ backgroundColor: item.color }}
                 />
-
-                <span className="font-medium text-slate-600">{item.label}</span>
-              </div>
-
-              <span className="font-extrabold text-slate-900">
-                {item.percent}%
+                {item.label}
               </span>
+              <strong className="text-slate-900">{integer(item.value)}</strong>
             </div>
           ))}
         </div>
       </div>
-    </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-green-50 p-3">
+          <div className="flex items-center gap-2 text-xs text-slate-700">
+            <CheckCircle2 className="h-6 w-6 shrink-0 text-green-600" />
+            Tỷ lệ hoàn thành
+          </div>
+          <p className="mt-1 text-center text-xl font-extrabold text-green-600">
+            {completion.toFixed(1).replace(".", ",")}%
+          </p>
+        </div>
+        <div className="rounded-xl bg-red-50 p-3">
+          <div className="flex items-center gap-2 text-xs text-slate-700">
+            <XCircle className="h-6 w-6 shrink-0 text-red-500" />
+            Tỷ lệ hủy đơn
+          </div>
+          <p className="mt-1 text-center text-xl font-extrabold text-red-600">
+            {cancellation.toFixed(1).replace(".", ",")}%
+          </p>
+        </div>
+      </div>
+    </section>
   );
 };

@@ -49,7 +49,12 @@ import {
   StandardPermissions,
   type AuthenticatedUser,
 } from '@app/auth';
-import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
+import { UserDisplayNamesQueryDto } from './dto/user-display-names-query.dto.js';
+import {
+  buildSuccessResponse,
+  EVENT_PATTERNS,
+  type DomainEvent,
+} from '@app/common';
 import {
   UserTrustServiceService,
   type UserRegisteredData,
@@ -75,6 +80,16 @@ export class UserTrustServiceController {
     @Optional()
     private readonly cloudinaryService?: CloudinaryService,
   ) {}
+
+  @Public()
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/users/display-names')
+  async getDisplayNames(@Query() query: UserDisplayNamesQueryDto) {
+    return buildSuccessResponse(
+      await this.userTrustService.getDisplayNames(query.ids),
+      'Public display names',
+    );
+  }
 
   private readonly logger = new Logger(UserTrustServiceController.name);
 
@@ -376,6 +391,34 @@ export class UserTrustServiceController {
     @Param('id') id: string,
   ): Promise<unknown> {
     return this.userTrustService.getProfile(user.userId, id, user.permissions);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('users/:id/worker-profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy thông tin hồ sơ công khai của thợ theo workerUserId' })
+  @ApiResponse({ status: 200, description: 'Lấy hồ sơ thợ thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
+  async getWorkerPublicProfile(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerOrderSummary(workerUserId);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_READ)
+  @Get('users/workers/:id')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Lấy thông tin hồ sơ công khai của thợ theo workerUserId (alias)' })
+  @ApiResponse({ status: 200, description: 'Lấy hồ sơ thợ thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
+  async getWorkerPublicProfileAlias(
+    @Param('id') workerUserId: string,
+  ): Promise<unknown> {
+    return this.userTrustService.getWorkerOrderSummary(workerUserId);
   }
 
   // ==========================================

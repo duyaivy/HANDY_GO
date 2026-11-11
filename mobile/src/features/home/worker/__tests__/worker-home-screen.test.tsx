@@ -83,7 +83,8 @@ describe('workerHomeScreen', () => {
     expect(screen.getByTestId('home-worker-screen')).toBeOnTheScreen();
     expect(screen.getByText('Việc làm xung quanh bạn')).toBeOnTheScreen();
     expect(screen.getByText('Nhận việc')).toBeOnTheScreen();
-    expect(screen.getByText('App Khách ⇄')).toBeOnTheScreen();
+    expect(screen.queryByText('App Khách ⇄')).toBeNull();
+    expect(screen.queryByTestId('home-role-switch-chip')).toBeNull();
     expect(screen.queryByTestId('worker-online-toggle')).toBeNull();
   });
 
@@ -109,4 +110,15 @@ describe('workerHomeScreen', () => {
     expect(screen.getByText('Sửa đường ống nước bị vỡ')).toBeOnTheScreen();
     expect(screen.getByText('Địa chỉ: 123 Lê Duẩn, Đà Nẵng')).toBeOnTheScreen();
   });
+});
+
+it('opens the worker conversation list from the home header', () => {
+  jest.mocked(useLocalSearchParams).mockReturnValue({});
+  useAuthStore.setState({
+    isAuthenticated: true,
+    user: { id: 'u-1', phone: '0912345678', email: 'user@example.com', roles: ['Worker'], permissions: [] },
+  });
+  render(<WorkerHomeScreen />);
+  fireEvent.press(screen.getByRole('button', { name: 'Tin nhắn' }));
+  expect(mockPush).toHaveBeenCalledWith('/worker/chat');
 });

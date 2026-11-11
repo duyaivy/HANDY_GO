@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
@@ -46,7 +45,7 @@ describe('customerSettingsScreen - Interactive Styling & Behavior (TASK-08)', ()
     });
   });
 
-  it('renders settings screen with options and Amber active feedback on change password row', () => {
+  it('renders settings screen with options and no active background on change password row', () => {
     render(<CustomerSettingsScreen />);
 
     expect(screen.getByText('Cài đặt')).toBeOnTheScreen();
@@ -55,9 +54,8 @@ describe('customerSettingsScreen - Interactive Styling & Behavior (TASK-08)', ()
     const changePasswordBtn = screen.getByTestId('settings-change-password-btn');
     expect(changePasswordBtn).toBeOnTheScreen();
 
-    // Verify Amber interactive background styling for Light and Dark modes
-    expect(changePasswordBtn.props.className).toContain('active:bg-amber-50/80');
-    expect(changePasswordBtn.props.className).toContain('dark:active:bg-amber-950/30');
+    // Verify no active background color when pressed/held (TASK-03)
+    expect(changePasswordBtn.props.className).not.toContain('active:bg-');
 
     // Verify navigation on press
     fireEvent.press(changePasswordBtn);

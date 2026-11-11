@@ -13,6 +13,10 @@ on:
         description: 'Reviewed backward-compatible migrations; backup/PITR checked (required on first deploy)'
         type: boolean
         default: false
+      onboard_vps4:
+        description: 'Explicitly onboard a pristine VPS4 into the existing production cluster'
+        type: boolean
+        default: false
       bypass_pr_ci:
         description: 'Admin only: deploy without merged PR CI proof'
         type: boolean
@@ -46,10 +50,15 @@ jobs:
         env:
           ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
           RUN_MIGRATIONS: ${{ inputs.run_migrations || false }}
+          ONBOARD_VPS4: ${{ inputs.onboard_vps4 || false }}
         run: |
           if [[ -n "$ROLLBACK_RELEASE" ]]; then
             [[ "$ROLLBACK_RELEASE" =~ ^prod-[0-9]{8}-[0-9]+-a[0-9]+$ ]]
             test "$RUN_MIGRATIONS" = false
+          fi
+          if [[ "$ONBOARD_VPS4" == true && ( -n "$ROLLBACK_RELEASE" || "$RUN_MIGRATIONS" != true ) ]]; then
+            echo '::error::VPS4 onboarding requires a forward release and explicit migration approval'
+            exit 1
           fi
       - name: Verify source provenance
         id: proof
@@ -147,6 +156,7 @@ jobs:
       VPS1_HOST: ${{ secrets.VPS1_HOST }}
       VPS2_HOST: ${{ secrets.VPS2_HOST }}
       VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      VPS4_HOST: ${{ secrets.VPS4_HOST }}
       DEPLOY_USER: azureuser
       API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
     steps:
@@ -161,11 +171,12 @@ jobs:
           VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
           VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
           VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+          VPS4_SSH_KEY: ${{ secrets.VPS4_SSH_KEY }}
           BACKEND_PRODUCTION_ENV: ${{ secrets.BACKEND_PRODUCTION_ENV }}
         run: |
           umask 077
           install -d -m 700 ~/.ssh
-          for role in VPS1 VPS2 VPS3; do
+          for role in VPS1 VPS2 VPS3 VPS4; do
             key_name="${role}_SSH_KEY"
             if [[ -z "${!key_name}" ]]; then
               echo "::error::Missing production secret $key_name"
@@ -188,6 +199,7 @@ jobs:
           NGINX_IMAGE: ${{ needs.publish.outputs.nginx_image }}
           ROLLBACK_RELEASE: ${{ inputs.rollback_release }}
           RUN_MIGRATIONS: ${{ inputs.run_migrations || false }}
+          ONBOARD_VPS4: ${{ inputs.onboard_vps4 || false }}
         run: |
           set -euo pipefail
           args=(--run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT" --domain "$API_DOMAIN")
@@ -198,6 +210,7 @@ jobs:
               --migration-image "$MIGRATION_IMAGE" --nginx-image "$NGINX_IMAGE"
               --commit "$GITHUB_SHA" --tree "$(git rev-parse 'HEAD^{tree}')" --evidence ci-evidence.json)
             if [[ "$RUN_MIGRATIONS" == true ]]; then args+=(--run-migrations); fi
+            if [[ "$ONBOARD_VPS4" == true ]]; then args+=(--onboard-vps4); fi
           fi
           install -d -m 700 release-output
           bash deploy/production/deploy.sh "${args[@]}" 2>&1 | tee release-output/deploy.log
@@ -220,4 +233,4 @@ jobs:
           retention-days: 90
       - name: Remove runner secrets
         if: always()
-        run: rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"
+        run: rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_vps4 ~/.ssh/handygo_known_hosts "$RUNNER_TEMP/handygo-shared.env"

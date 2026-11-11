@@ -226,7 +226,7 @@ export class OtpFlowService {
     // Confirm user exists and is provisioned in User & Trust Service
     await this.userTrustClient.confirmUserStatus(
       account.userId,
-      account.roles.map(({ role }) => role.name),
+      this.sessionService.extractRolesAndPermissions(account).roleNames,
     );
 
     // Sign access token FIRST before modifying DB state

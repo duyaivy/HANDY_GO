@@ -437,6 +437,59 @@ describe('UserTrustServiceService', () => {
     });
   });
 
+  describe('getWorkerOrderSummary', () => {
+    it('returns a flat worker summary for an active worker', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        userId: 'worker-101',
+        averageRating: 4.85,
+        ratingCount: 15,
+        completedOrderCount: 42,
+        user: {
+          id: 'worker-101',
+          fullName: 'Trần Văn Thợ',
+          avatarUrl: 'https://cdn.example.com/worker.jpg',
+          status: 'active',
+        },
+        serviceOfferings: [{ title: 'Chuyên sửa điện nước' }],
+      });
+
+      const result: any = await service.getWorkerOrderSummary('worker-101');
+      expect(result.statusCode).toBe(200);
+      expect(result.data.workerUserId).toBe('worker-101');
+      expect(result.data.fullName).toBe('Trần Văn Thợ');
+      expect(result.data.avatarUrl).toBe('https://cdn.example.com/worker.jpg');
+      expect(result.data.averageRating).toBe(4.85);
+      expect(result.data.completedOrderCount).toBe(42);
+      expect(result.data.headline).toBe('Chuyên sửa điện nước');
+    });
+
+    it('falls back to the user record before a worker profile exists', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue(null);
+      dbMock.user.findUnique.mockResolvedValue({
+        id: 'worker-102',
+        fullName: 'Lê Văn Thợ Mới',
+        avatarUrl: null,
+        status: 'active',
+      });
+
+      const result: any = await service.getWorkerOrderSummary('worker-102');
+      expect(result.statusCode).toBe(200);
+      expect(result.data.workerUserId).toBe('worker-102');
+      expect(result.data.fullName).toBe('Lê Văn Thợ Mới');
+      expect(result.data.averageRating).toBeNull();
+      expect(result.data.completedOrderCount).toBe(0);
+    });
+
+    it('throws when no active worker or user exists', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue(null);
+      dbMock.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.getWorkerOrderSummary('non-existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('listUsers', () => {
     it('should return paginated list of users with default params', async () => {
       dbMock.user.count.mockResolvedValue(2);
@@ -1995,5 +2048,14 @@ describe('UserTrustServiceService', () => {
         }),
       );
     });
+  });
+});
+
+describe('minimal chat participant names', () => {
+  it('selects only public names for unique IDs', async () => {
+    const findMany = vi.fn().mockResolvedValue([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    const service = new UserTrustServiceService({user: {findMany}} as any);
+    expect(await service.getDisplayNames(['u', 'u'])).toEqual([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    expect(findMany).toHaveBeenCalledWith({where: {id: {in: ['u']}}, select: {id: true, fullName: true, avatarUrl: true}});
   });
 });

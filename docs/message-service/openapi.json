@@ -1,0 +1,1106 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HANDY_GO Message Service API",
+    "version": "1.0.0",
+    "description": "Production OpenAPI specification for HANDY_GO Message Service. REST operations provide conversation management, history, and read tracking. Real-time message exchange, typing indicators, and events are handled over Socket.IO as documented in SOCKET-IO-CONTRACTS.md."
+  },
+  "servers": [
+    {
+      "url": "https://handygo.duyaivy.id.vn"
+    }
+  ],
+  "paths": {
+    "/api/v1/conversations": {
+      "get": {
+        "operationId": "listConversations",
+        "summary": "List only authenticated participant conversations",
+        "tags": ["Conversations"],
+        "security": [
+          {
+            "JWT-Auth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationPageEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing or inaccessible conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authority unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,2048}$",
+              "maxLength": 2048
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createConversation",
+        "summary": "Create or retrieve pair derived from an eligible committed bid",
+        "tags": ["Conversations"],
+        "security": [
+          {
+            "JWT-Auth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing or inaccessible conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authority unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No eligible bid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Lifecycle read-only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Existing conversation returned idempotently",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationCreateInput"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}": {
+      "get": {
+        "operationId": "getConversation",
+        "summary": "Get authorized conversation and read states",
+        "tags": ["Conversations"],
+        "security": [
+          {
+            "JWT-Auth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatConversationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing or inaccessible conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authority unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/messages": {
+      "get": {
+        "operationId": "listMessages",
+        "summary": "Page authorized history by server sequence",
+        "tags": ["Conversations"],
+        "security": [
+          {
+            "JWT-Auth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageHistoryPageEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing or inaccessible conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authority unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30
+            }
+          },
+          {
+            "name": "beforeSequence",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Sequence"
+            },
+            "description": "Exclusive older boundary; mutually exclusive with afterSequence"
+          },
+          {
+            "name": "afterSequence",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/Sequence"
+            },
+            "description": "Exclusive newer boundary; mutually exclusive with beforeSequence"
+          }
+        ]
+      }
+    },
+    "/api/v1/conversations/{id}/read": {
+      "patch": {
+        "operationId": "advanceReadState",
+        "summary": "Advance own read cursor monotonically",
+        "tags": ["Conversations"],
+        "security": [
+          {
+            "JWT-Auth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatReadStateEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input or cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing or inaccessible conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authority unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadInput"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "JWT-Auth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "Sequence": {
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,18})$",
+        "maxLength": 19,
+        "description": "Canonical decimal PostgreSQL bigint 0..9223372036854775807. Never parse as JS Number."
+      },
+      "ConversationCreateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "bidId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": ["bidId"]
+      },
+      "ReadInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "lastReadSequence": {
+            "$ref": "#/components/schemas/Sequence"
+          }
+        },
+        "required": ["lastReadSequence"]
+      },
+      "AttachmentReference": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "storageKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_/-]{1,512}$",
+            "maxLength": 512
+          }
+        },
+        "required": ["storageKey"]
+      },
+      "MessageType": {
+        "type": "string",
+        "enum": ["TEXT", "IMAGE", "VIDEO"]
+      },
+      "ReplyPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "messageType": {
+            "type": "string",
+            "enum": ["TEXT", "IMAGE", "VIDEO"],
+            "nullable": true
+          },
+          "content": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 320,
+            "description": "First160 Unicode code points, at most320 UTF16 units."
+          },
+          "unavailable": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "senderId", "messageType", "content", "unavailable"]
+      },
+      "ChatAttachment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string",
+            "enum": ["IMAGE", "VIDEO"]
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 104857600
+          },
+          "position": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3
+          },
+          "width": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1
+          },
+          "height": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1
+          },
+          "durationMs": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "urlExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "storageKey",
+          "mediaType",
+          "mimeType",
+          "sizeBytes",
+          "position",
+          "width",
+          "height",
+          "durationMs",
+          "url",
+          "urlExpiresAt"
+        ]
+      },
+      "ChatMessage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientMessageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/Sequence"
+          },
+          "messageType": {
+            "$ref": "#/components/schemas/MessageType"
+          },
+          "content": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 4000
+          },
+          "replyToId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reply": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReplyPreview"
+              },
+              {
+                "type": "object",
+                "nullable": true,
+                "enum": [null]
+              }
+            ]
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatAttachment"
+            },
+            "maxItems": 4
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "conversationId",
+          "senderId",
+          "clientMessageId",
+          "sequence",
+          "messageType",
+          "content",
+          "replyToId",
+          "reply",
+          "attachments",
+          "createdAt"
+        ]
+      },
+      "ChatReadState": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastReadSequence": {
+            "$ref": "#/components/schemas/Sequence"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "conversationId",
+          "userId",
+          "lastReadSequence",
+          "updatedAt"
+        ]
+      },
+      "ChatConversation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orderId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["OPEN", "READ_ONLY"]
+          },
+          "lastSequence": {
+            "$ref": "#/components/schemas/Sequence"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "read": {
+                "type": "boolean"
+              },
+              "send": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": ["read", "send", "reason"]
+          },
+          "readStates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatReadState"
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "id",
+          "requestId",
+          "orderId",
+          "customerId",
+          "workerId",
+          "status",
+          "lastSequence",
+          "lastMessageAt",
+          "createdAt",
+          "updatedAt",
+          "permissions",
+          "readStates"
+        ]
+      },
+      "ConversationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatConversation"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": ["items", "nextCursor"]
+      },
+      "MessageHistoryPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatMessage"
+            }
+          },
+          "nextBeforeSequence": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "maxLength": 19,
+            "description": "Canonical decimal PostgreSQL bigint 0..9223372036854775807. Never parse as JS Number.",
+            "nullable": true
+          },
+          "nextAfterSequence": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "maxLength": 19,
+            "description": "Canonical decimal PostgreSQL bigint 0..9223372036854775807. Never parse as JS Number.",
+            "nullable": true
+          },
+          "highWaterSequence": {
+            "$ref": "#/components/schemas/Sequence"
+          }
+        },
+        "required": [
+          "items",
+          "nextBeforeSequence",
+          "nextAfterSequence",
+          "highWaterSequence"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "nullable": true,
+            "enum": [null]
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_ERROR",
+              "UNAUTHORIZED",
+              "CONVERSATION_NOT_FOUND",
+              "CHAT_INELIGIBLE",
+              "CHAT_READ_ONLY",
+              "ELIGIBILITY_UNAVAILABLE",
+              "IDEMPOTENCY_CONFLICT",
+              "REPLY_NOT_FOUND",
+              "MEDIA_UNVERIFIED",
+              "CONTACT_INFORMATION_BLOCKED",
+              "RATE_LIMITED",
+              "PAYLOAD_TOO_LARGE",
+              "INTERNAL_ERROR"
+            ]
+          }
+        },
+        "required": ["statusCode", "message", "data", "code"]
+      },
+      "ChatConversationEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ChatConversation"
+          }
+        },
+        "required": ["statusCode", "message", "data"]
+      },
+      "ConversationPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ConversationPage"
+          }
+        },
+        "required": ["statusCode", "message", "data"]
+      },
+      "MessageHistoryPageEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MessageHistoryPage"
+          }
+        },
+        "required": ["statusCode", "message", "data"]
+      },
+      "ChatReadStateEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "statusCode": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ChatReadState"
+          }
+        },
+        "required": ["statusCode", "message", "data"]
+      },
+      "MessageSendInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "conversationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientMessageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageType": {
+            "$ref": "#/components/schemas/MessageType"
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "replyToId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentReference"
+            },
+            "maxItems": 4
+          }
+        },
+        "required": ["conversationId", "clientMessageId", "messageType"],
+        "description": "Socket only. TEXT requires nonblank content and no attachments; IMAGE1..4 IMAGE assets; VIDEO exactly1. Runtime validators enforce cross-field rules, uniqueness of keys, contact policy and bigint upper bound.",
+        "oneOf": [
+          {
+            "properties": {
+              "messageType": {
+                "enum": ["TEXT"]
+              },
+              "attachments": {
+                "maxItems": 0
+              }
+            },
+            "required": ["content"]
+          },
+          {
+            "properties": {
+              "messageType": {
+                "enum": ["IMAGE"]
+              },
+              "attachments": {
+                "minItems": 1,
+                "maxItems": 4
+              }
+            },
+            "required": ["attachments"]
+          },
+          {
+            "properties": {
+              "messageType": {
+                "enum": ["VIDEO"]
+              },
+              "attachments": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            },
+            "required": ["attachments"]
+          }
+        ]
+      }
+    }
+  },
+  "x-socket-io": {
+    "path": "/api/v1/chat/socket.io/",
+    "namespace": "/",
+    "clientEvents": [
+      "conversation.join",
+      "conversation.leave",
+      "message.send",
+      "message.read",
+      "typing.start",
+      "typing.stop"
+    ],
+    "serverEvents": ["message.new", "message.read.updated", "typing.update"]
+  }
+}

@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
@@ -270,5 +269,28 @@ describe('customerProfileScreen', () => {
 
     fireEvent.press(screen.getByTestId('profile-change-password-btn'));
     expect(mockPush).toHaveBeenCalledWith('/(auth)/change-password');
+  });
+
+  it('does not have active background color on utility items when pressed (TASK-03)', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'cust-123',
+        phone: '0912345678',
+        email: 'customer@example.com',
+        roles: ['Customer'],
+        permissions: [],
+      },
+    });
+
+    render(<CustomerProfileScreen />);
+
+    const paymentItem = screen.getByTestId('profile-payment-item');
+    const settingItem = screen.getByTestId('profile-setting-item');
+    const changePasswordBtn = screen.getByTestId('profile-change-password-btn');
+
+    expect(paymentItem.props.className).not.toContain('active:bg-');
+    expect(settingItem.props.className).not.toContain('active:bg-');
+    expect(changePasswordBtn.props.className).not.toContain('active:bg-');
   });
 });

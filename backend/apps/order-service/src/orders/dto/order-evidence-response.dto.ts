@@ -7,6 +7,9 @@ export class OrderEvidenceResponseDto {
   @ApiProperty({ description: 'Associated Order UUID' })
   orderId: string;
 
+  @ApiPropertyOptional({ description: 'Client-generated idempotency key' })
+  clientEvidenceId?: string | null;
+
   @ApiProperty({ description: 'Media type', enum: ['image', 'video'] })
   mediaType: string;
 

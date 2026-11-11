@@ -1,4 +1,4 @@
-# HANDY GO — Production Backend trên 3 VPS
+# HANDY GO — Production Backend trên 4 VPS
 
 ## 1. Phạm vi và cấu trúc repository
 
@@ -24,10 +24,11 @@ Một Compose: `backend/deploy/production/compose.production.yml`. Một ENV ứ
 | 3 | 10.77.0.3 | payment-service | **Health-only** | 112 / 56 |
 | 3 | | wallet-service | **Health-only** | 112 / 56 |
 | 3 | | catalog-service | Category/service CRUD, cache, outbox | 224 / 128 |
+| 4 | 10.77.0.4 | message-service | Message REST, Socket.IO, outbox/inbox | 256 / 128 |
 
 Notification chạy trên **VPS1 theo quyết định của chủ dự án**, giữ limit 128 MiB và heap 64 MiB. Gateway gọi bằng Docker DNS nội bộ `http://notification-service:3008`; không publish cổng 3008 lên host. VPS3 giữ nhóm Payment/Wallet/Catalog và dự kiến bổ sung Chat/AI sau này; Chat/AI chưa tồn tại trong registry/Compose và chưa được cấp ngân sách RAM.
 
-11 ứng dụng đều PARTIAL trong registry `services.json`; Nginx là infrastructure. Tổng RAM cap container: **704 / 528 / 448 MiB**. Preflight đọc **MemTotal + SwapTotal** từ `/proc/meminfo`, yêu cầu tổng ít nhất cap + 280 MiB cho host: VPS1 **984 MiB**, VPS2 808 MiB, VPS3 728 MiB. Chỉ swap đã bật mới xuất hiện trong SwapTotal; file swap chưa `swapon` không được tính. Ví dụ VPS1 có 900 MiB RAM + 1024 MiB swap sẽ qua kiểm tra. Vẫn yêu cầu ít nhất 280 MiB RAM vật lý cho host; khi phải dựa vào swap, Docker phải báo `SwapLimit=true`. Log và kết quả prepare ghi riêng RAM, swap và ngân sách yêu cầu. Đây là kiểm tra dung lượng tổng, không phải số bộ nhớ đang rảnh hoặc bảo đảm hiệu năng.
+12 ứng dụng được đăng ký trong `services.json`; Nginx là infrastructure. Tổng RAM cap container: **704 / 528 / 448 / 256 MiB**. Preflight đọc **MemTotal + SwapTotal** từ `/proc/meminfo`, yêu cầu tổng ít nhất cap + 280 MiB cho host: VPS1 **984 MiB**, VPS2 808 MiB, VPS3 728 MiB, VPS4 536 MiB. Chỉ swap đã bật mới xuất hiện trong SwapTotal; file swap chưa `swapon` không được tính. Vẫn yêu cầu ít nhất 280 MiB RAM vật lý cho host; khi phải dựa vào swap, Docker phải báo `SwapLimit=true`. Log và kết quả prepare ghi riêng RAM, swap và ngân sách yêu cầu. Đây là kiểm tra dung lượng tổng, không phải số bộ nhớ đang rảnh hoặc bảo đảm hiệu năng.
 
 Compose giữ nguyên RAM cap/Node heap và đặt **memswap_limit = 2 × mem_limit** cho mỗi container: ví dụ Auth 208 MiB RAM + tối đa 208 MiB swap (416 MiB tổng). Migration dùng 384 MiB RAM + tối đa 384 MiB swap. Các giới hạn swap là trần, không đặt trước dung lượng; container cùng chia swap của host. Trước deploy, dùng `free -m`, `swapon --show` và `docker info --format '{{.SwapLimit}}'` để kiểm tra; bảo đảm swap được bật lại sau reboot. Swap trên đĩa chậm hơn RAM; cần theo dõi latency và OOM khi tăng tải.
 
@@ -54,7 +55,7 @@ flowchart LR
 
 Auth login/refresh dùng RPC `user.auth-status`; registration phát outbox event cho User Trust provisioning. Auth và Catalog poll outbox mỗi 3 giây. User Trust consumer prefetch 10. Các service khung chưa có business consumer. Redis Catalog hiện có fallback; mất cache làm tăng tải DB.
 
-Docker DNS chỉ áp dụng cùng VPS. URL trong ENV example dùng local service names cho VPS1 và WireGuard IP cho VPS2/3. Không dùng `depends_on` xuyên VPS. Coordinator triển khai VPS3 → VPS2 → VPS1; trong VPS1 User Trust trước Auth, Gateway và Nginx sau.
+Docker DNS chỉ áp dụng cùng VPS. URL trong ENV example dùng local service names cho VPS1 và WireGuard IP cho các caller xuyên host. Không dùng `depends_on` xuyên VPS. Coordinator triển khai VPS4 → VPS3 → VPS2 → VPS1; trong VPS1 User Trust trước Auth, Gateway và Nginx sau. Trong giao dịch onboarding, migration Message chạy trên VPS4 và migration enum chat của Notification chạy trên VPS1; các migration của Order, Bidding, Matching, Tracking, Wallet, Catalog và các service không liên quan không chạy.
 
 ## 4. Chuẩn bị Ubuntu và Docker
 
@@ -562,3 +563,74 @@ Use origin-only URLs without `/api/v1`, credentials, query or fragment; clients
 append their own paths. The AI example is a placeholder and must be replaced
 with the deployed Azure FQDN or its configured HTTPS custom domain. RabbitMQ
 RPC uses the shared `amqps://` broker, not peer container addresses.
+
+## First-time VPS4 onboarding
+
+The regular deployment path still requires matching stable release IDs on all
+participants. A new VPS4 is admitted only by the `onboard_vps4` workflow input,
+which is valid only for a forward deployment with `run_migrations=true`. The
+coordinator first inspects every host. VPS4 must have its expected `host.json`,
+no stable or pending journal, no Docker containers, no container evidence, and
+no unknown release or transaction history. Missing SSH or any existing/partial
+VPS4 state stops the operation before a release transaction starts. Historical
+three-VPS release bundles remain untouched; no VPS1 stable metadata or old
+VPS4 manifest is copied or fabricated.
+
+Before an owner-authorized release-branch run, complete these prerequisites:
+
+1. Provision VPS4, WireGuard, firewall, Docker Compose, `/opt/handygo/host.json`
+   (`role=vps4`, `private_ip=10.77.0.4`), and its SSH key access. Verify the
+   production full mesh and that TCP 3009 is reachable only over WireGuard.
+2. In GitHub Environment `production`, add `VPS4_HOST` and `VPS4_SSH_KEY`.
+   Preserve the existing `VPS1_HOST`–`VPS3_HOST` and SSH secrets.
+3. Update `BACKEND_PRODUCTION_ENV` with a dedicated `DATABASE_URL_MESSAGE`,
+   `MESSAGE_CURSOR_SECRET` (32+ characters), `INTERNAL_SERVICE_SECRET`,
+   `JWT_PUBLIC_KEY`, `RABBITMQ_URL`, `BIDDING_SERVICE_URL`,
+   `ORDER_SERVICE_URL`, `AUTH_SERVICE_URL`, and `MEDIA_SERVICE_URL`. Keep
+   `REDIS_URL` because it is part of the shared production dependency contract.
+   Do not use shared `DATABASE_URL` as the Message Service database fallback.
+4. Review database backup/PITR and DDL access. Set
+   `DB_DDL_VERIFIED_MESSAGE=true` and `DB_DDL_VERIFIED_NOTIFICATION=true` only
+   after confirming the effective migration endpoints and schema permissions.
+   The onboarding operation executes the additive Message schema migration on
+   VPS4 and the additive `chat` notification-category migration on VPS1. It does
+   not execute Order, Bidding, Matching, Tracking, Wallet, Catalog, or unrelated
+   Auth/User Trust migrations.
+5. Dispatch **Backend production** from `release`, choose a reviewed CI-proven
+   candidate, set `onboard_vps4=true` and `run_migrations=true`, and leave
+   `rollback_release` empty. This is a coordinated deployment, not a standalone
+   VPS4 service start.
+
+All four hosts receive the same immutable bundle and take transaction snapshots.
+VPS1–VPS3 retain their own previous stable release IDs and are checked for
+consistency with each other; VPS4's null previous snapshot is accepted only in
+this explicit, pristine onboarding transition. Verification and commit keep the
+existing coordinator ordering and rollback checks.
+
+If the transaction fails after VPS4 has begun but before cluster commit,
+recovery removes only the Message Service containers created by that release
+and leaves VPS4 without `stable.json`; it does not invent an application version
+to roll back to. VPS1–VPS3 restore their recorded stable version. The two schema
+migrations are additive and are not automatically reversed. If compensation
+fails, keep the pending journals intact and use the existing production
+recovery workflow with the exact original run ID, attempt, transaction and
+target. Once recovery completes, a retry must again be an explicitly authorized
+`onboard_vps4=true` operation. A successful onboarding gives VPS4 a stable
+version, after which ordinary deployments and ENV refreshes use the standard
+four-host consistency checks.
+
+The Message Service receives the full shared `env_file` through the Compose
+anchor. Compose sets only `PORT=3009` and its Node heap option for that service;
+the port mapping expands to `${PRIVATE_IP}:3009:3009`, with VPS4 metadata fixing
+that IP to `10.77.0.4`. `main.ts` prefers `PORT`, then `MESSAGE_PORT`; therefore
+`PORT_MESSAGE_SERVICE` is documentation/inventory only and Compose's `PORT`
+wins. The Socket.IO path is fixed in code at
+`/api/v1/chat/socket.io/`; `SOCKET_IO_PATH` is not read at runtime. Nginx routes
+REST `/api/v1/conversations` and that Socket.IO path to `10.77.0.4:3009`, with
+HTTP/1.1 Upgrade and Connection headers for WebSocket. The broker queue setting
+consumed by code is `MESSAGE_EVENT_QUEUE`; `RABBITMQ_QUEUE_MESSAGE` is unused.
+The API Gateway fetches the Message Service OpenAPI specification via
+`MESSAGE_SERVICE_URL` (`http://10.77.0.4:3009/docs-json`) over the WireGuard
+mesh to populate the unified Swagger UI documentation page at `/docs`. Gateway
+rewrites downstream servers to the public root `/` so interactive requests
+('Try it out') route through production Nginx.

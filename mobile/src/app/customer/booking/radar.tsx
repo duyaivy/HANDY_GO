@@ -29,12 +29,16 @@ import { HandyMap } from '@/components/map/handy-map';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
+import { ChatEntry } from '@/features/chat/chat-entry';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
+import { isValidBidPrice } from '@/features/orders/utils/bid-price';
 import { getCancelErrorMessage } from '@/features/orders/utils/cancel-error-message';
+import { isValidCoordinate } from '@/services/location/coordinates';
 import { DeviceLocationService } from '@/services/location/device-location';
 import { MapboxService } from '@/services/map/mapbox-service';
 import { useBiddingEvents } from '@/services/sse/use-bidding-events';
@@ -56,9 +60,18 @@ type DisplayWorkerCandidate = {
   message?: string;
   matchingScore?: number;
   rank?: number;
+  isPriceValid?: boolean;
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
+// Bán kính quét Radar mặc định: 7km.
+// Vòng tròn radar hiển thị đường kính 340px (bán kính r = 160px).
+// Tại vĩ độ 16° (Đà Nẵng/Việt Nam), zoom level 12.0 tương ứng chính xác với bán kính quét ~6.5 - 7km.
+const RADAR_DEFAULT_ZOOM = 12.0;
+const RADAR_MIN_ZOOM = 10.5; // Giới hạn zoom nhỏ (bán kính tối đa ~15km, tránh thu nhỏ ra toàn bộ Việt Nam)
+const RADAR_MAX_ZOOM = 15.0; // Giới hạn zoom to (bán kính tối thiểu ~800m)
+const RADAR_ZOOM_LEVEL = RADAR_DEFAULT_ZOOM;
+const DEFAULT_RADAR_CENTER = { latitude: 16.0748, longitude: 108.1499 };
 
 const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   id: 'a7d8c9e0-1122-4344-8566-778899aabbcc',
@@ -72,6 +85,7 @@ const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   avatarUrl: DEFAULT_AVATAR,
   selectionSource: 'bid',
   sourceBidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
+  isPriceValid: true,
 };
 
 async function fetchLatestActiveRequestId(): Promise<string | null> {
@@ -92,7 +106,13 @@ async function fetchLatestActiveRequestId(): Promise<string | null> {
 export default function CustomerBookingRadarRoute() {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ requestId?: string }>();
+  const searchParams = useLocalSearchParams<{
+    requestId?: string;
+    serviceName?: string;
+    serviceId?: string;
+    latitude?: string;
+    longitude?: string;
+  }>();
 
   const {
     addressText,
@@ -109,22 +129,117 @@ export default function CustomerBookingRadarRoute() {
   const [resolvedRequestId, setResolvedRequestId] = React.useState<string | null>(
     searchParams?.requestId || createdRequestId || null,
   );
-  const [serverRequest, setServerRequest] = React.useState<any>(null);
 
-  const isLocationValid = Boolean(
-    typeof latitude === 'number'
-    && !Number.isNaN(latitude)
-    && typeof longitude === 'number'
-    && !Number.isNaN(longitude)
-    && (latitude !== 0 || longitude !== 0),
-  );
+  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
+  const activeRequestIdRef = React.useRef(activeRequestId);
+  activeRequestIdRef.current = activeRequestId;
 
-  const radarCoords = React.useMemo(() => {
-    if (isLocationValid) {
+  // PR62-04-P2: Ràng buộc serverRequestState theo requestId để tránh race condition
+  const [serverRequestState, setServerRequestState] = React.useState<{ requestId: string; data: any } | null>(null);
+  const serverRequest = (serverRequestState && serverRequestState.requestId === activeRequestId)
+    ? serverRequestState.data
+    : null;
+
+  // Tọa độ GPS phiên hiện tại do người dùng chủ động nhấn nút định vị
+  const [sessionGpsCoords, setSessionGpsCoords] = React.useState<{
+    requestId: string | null;
+    coords: { latitude: number; longitude: number; addressText?: string };
+  } | null>(null);
+  const activeGpsCoords = (sessionGpsCoords && sessionGpsCoords.requestId === activeRequestId)
+    ? sessionGpsCoords.coords
+    : null;
+
+  // Phân giải tên dịch vụ hiển thị chuẩn xác (serverRequest -> searchParams -> bảng tra cứu -> draft store)
+  const displayServiceName = React.useMemo(() => {
+    if (serverRequest?.service?.name && typeof serverRequest.service.name === 'string' && serverRequest.service.name.trim()) {
+      return serverRequest.service.name.trim();
+    }
+    if (serverRequest?.serviceName && typeof serverRequest.serviceName === 'string' && serverRequest.serviceName.trim() && serverRequest.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serverRequest.serviceName.trim();
+    }
+    if (searchParams?.serviceName && typeof searchParams.serviceName === 'string' && searchParams.serviceName.trim() && searchParams.serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return searchParams.serviceName.trim();
+    }
+    const effectiveServiceId = serverRequest?.serviceId || searchParams?.serviceId;
+    if (effectiveServiceId) {
+      const resolved = resolveServiceName(effectiveServiceId, undefined, serverRequest?.description || description);
+      if (resolved && resolved !== 'Dịch vụ tiện ích') {
+        return resolved;
+      }
+    }
+    const effectiveDesc = serverRequest?.description || (createdRequestId === activeRequestId ? description : undefined);
+    if (effectiveDesc) {
+      const resolvedFromDesc = resolveServiceName(undefined, undefined, effectiveDesc);
+      if (resolvedFromDesc && resolvedFromDesc !== 'Dịch vụ tiện ích') {
+        return resolvedFromDesc;
+      }
+    }
+    if (createdRequestId === activeRequestId && serviceName && serviceName.trim() && serviceName.trim() !== 'Dịch vụ tiện ích') {
+      return serviceName.trim();
+    }
+    return (createdRequestId === activeRequestId && serviceName && serviceName.trim()) || 'Dịch vụ tiện ích';
+  }, [serverRequest, searchParams?.serviceName, searchParams?.serviceId, description, serviceName, createdRequestId, activeRequestId]);
+
+  const paramLat = searchParams?.latitude ? Number(searchParams.latitude) : null;
+  const paramLng = searchParams?.longitude ? Number(searchParams.longitude) : null;
+  const isParamCoordsValid = isValidCoordinate(paramLat, paramLng);
+  // Route params chỉ thuộc về request hiện tại nếu không mang requestId của request khác
+  const routeParamsBelongToCurrentRequest = !searchParams?.requestId || searchParams.requestId === activeRequestId;
+  const hasParamCoords = isParamCoordsValid && routeParamsBelongToCurrentRequest;
+
+  const hasServerResponse = Boolean(serverRequestState && serverRequestState.requestId === activeRequestId);
+  const isServerCoordsValid = isValidCoordinate(serverRequest?.latitude, serverRequest?.longitude);
+  const isDraftBelongToCurrentRequest = Boolean(createdRequestId && createdRequestId === activeRequestId);
+  const isDraftLocationValid = isValidCoordinate(latitude, longitude);
+
+  // PR62-04-P2: Phân giải tọa độ đã xác thực theo đúng hợp đồng:
+  // 1. Tọa độ GPS do người dùng chủ động định vị trong phiên của request này
+  // 2. Tọa độ hợp lệ từ serverRequest của activeRequestId
+  // (Nếu server đã phản hồi nhưng không có tọa độ hợp lệ -> coi như chưa xác thực, verifiedCoords là null)
+  // 3. Trước khi server phản hồi: route params nếu thuộc chính request này
+  // 4. Trước khi server phản hồi: draft store nếu thuộc chính request này (createdRequestId === activeRequestId)
+  const verifiedCoords = React.useMemo(() => {
+    if (activeGpsCoords && isValidCoordinate(activeGpsCoords.latitude, activeGpsCoords.longitude)) {
+      return { latitude: activeGpsCoords.latitude, longitude: activeGpsCoords.longitude };
+    }
+
+    if (hasServerResponse) {
+      if (isServerCoordsValid) {
+        return {
+          latitude: Number(serverRequest.latitude),
+          longitude: Number(serverRequest.longitude),
+        };
+      }
+      // Server đã trả lời và không có tọa độ hợp lệ -> không xem tọa độ dự phòng là đã xác thực
+      return null;
+    }
+
+    if (hasParamCoords && paramLat !== null && paramLng !== null) {
+      return { latitude: paramLat, longitude: paramLng };
+    }
+
+    if (isDraftBelongToCurrentRequest && isDraftLocationValid) {
       return { latitude, longitude };
     }
+
     return null;
-  }, [isLocationValid, latitude, longitude]);
+  }, [
+    activeGpsCoords,
+    hasServerResponse,
+    isServerCoordsValid,
+    serverRequest,
+    hasParamCoords,
+    paramLat,
+    paramLng,
+    isDraftBelongToCurrentRequest,
+    isDraftLocationValid,
+    latitude,
+    longitude,
+  ]);
+
+  const radarCoords = React.useMemo(() => {
+    return verifiedCoords || DEFAULT_RADAR_CENTER;
+  }, [verifiedCoords]);
 
   React.useEffect(() => {
     if (searchParams?.requestId || createdRequestId) {
@@ -138,52 +253,79 @@ export default function CustomerBookingRadarRoute() {
     });
   }, [searchParams?.requestId, createdRequestId]);
 
-  const activeRequestId = searchParams?.requestId || createdRequestId || resolvedRequestId || null;
-
   // Đồng bộ tọa độ và thông tin chính xác từ yêu cầu thật trên máy chủ nếu có
   React.useEffect(() => {
     let isMounted = true;
-    if (activeRequestId && !activeRequestId.startsWith('req-mock')) {
-      OrdersApi.getRequestDetail(activeRequestId)
-        .then((res) => {
-          if (!isMounted) {
-            return;
-          }
-          const req = res?.data;
-          if (req) {
-            setServerRequest(req);
-            const parsedLat = typeof req.latitude === 'number' ? req.latitude : Number(req.latitude);
-            const parsedLng = typeof req.longitude === 'number' ? req.longitude : Number(req.longitude);
-            const hasValidCoords = !Number.isNaN(parsedLat) && !Number.isNaN(parsedLng) && (parsedLat !== 0 || parsedLng !== 0);
+    if (!activeRequestId || activeRequestId.startsWith('req-mock')) {
+      return;
+    }
 
+    const targetRequestId = activeRequestId;
+
+    OrdersApi.getRequestDetail(targetRequestId)
+      .then((res) => {
+        if (!isMounted || activeRequestIdRef.current !== targetRequestId) {
+          // Bỏ qua response đến muộn của request trước (PR62-04-P2)
+          return;
+        }
+        const req = res?.data;
+        if (req) {
+          setServerRequestState({ requestId: targetRequestId, data: req });
+
+          const hasValidCoords = isValidCoordinate(req.latitude, req.longitude);
+          const parsedLat = hasValidCoords ? Number(req.latitude) : null;
+          const parsedLng = hasValidCoords ? Number(req.longitude) : null;
+
+          // PR62-04-P2: Không ghi tọa độ mặc định Đà Nẵng vào draft store nếu backend thiếu tọa độ
+          if (hasValidCoords && parsedLat !== null && parsedLng !== null) {
             useBookingDraftStore.getState().setAddress(
               req.addressText || addressText,
-              hasValidCoords ? parsedLat : (latitude || 16.0748),
-              hasValidCoords ? parsedLng : (longitude || 108.1499),
+              parsedLat,
+              parsedLng,
             );
-
-            if (req.description) {
-              useBookingDraftStore.getState().setDescription(req.description);
-            }
-            if (req.scheduledAt) {
-              useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
-            }
-            const minP = Number(req.aiRefPriceMin);
-            const maxP = Number(req.aiRefPriceMax);
-            if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
-              useBookingDraftStore.setState({
-                aiRefPriceMin: minP,
-                aiRefPriceMax: maxP,
-              });
-            }
+            mapRef.current?.flyTo({ latitude: parsedLat, longitude: parsedLng }, RADAR_ZOOM_LEVEL);
           }
-        })
-        .catch(() => {});
-    }
+          else if (req.addressText) {
+            useBookingDraftStore.setState({ addressText: req.addressText });
+          }
+
+          if (req.description) {
+            useBookingDraftStore.getState().setDescription(req.description);
+          }
+          if (req.scheduledAt) {
+            useBookingDraftStore.getState().setScheduledAt(req.scheduledAt);
+          }
+          const detectedServiceName = (
+            (req as any)?.service?.name
+            || (req as any)?.serviceName
+            || (searchParams?.serviceName && searchParams.serviceName !== 'Dịch vụ tiện ích' ? searchParams.serviceName : undefined)
+            || (req.serviceId ? resolveServiceName(req.serviceId, undefined, req.description) : undefined)
+            || (req.description ? resolveServiceName(undefined, undefined, req.description) : undefined)
+          );
+          if (
+            detectedServiceName
+            && typeof detectedServiceName === 'string'
+            && detectedServiceName.trim()
+            && detectedServiceName.trim() !== 'Dịch vụ tiện ích'
+          ) {
+            useBookingDraftStore.getState().setService(req.serviceId || '', detectedServiceName.trim());
+          }
+          const minP = Number(req.aiRefPriceMin);
+          const maxP = Number(req.aiRefPriceMax);
+          if (!Number.isNaN(minP) && !Number.isNaN(maxP) && minP > 0) {
+            useBookingDraftStore.setState({
+              aiRefPriceMin: minP,
+              aiRefPriceMax: maxP,
+            });
+          }
+        }
+      })
+      .catch(() => {});
+
     return () => {
       isMounted = false;
     };
-  }, [activeRequestId, addressText, latitude, longitude]);
+  }, [activeRequestId, addressText, searchParams?.serviceName]);
   const orderCode = serverRequest?.requestCode || (activeRequestId ? (activeRequestId.length > 8 ? activeRequestId.slice(0, 8) : activeRequestId) : '---');
 
   const [isCancelling, setIsCancelling] = React.useState(false);
@@ -418,18 +560,104 @@ export default function CustomerBookingRadarRoute() {
     outputRange: ['0deg', '360deg'],
   });
 
+  const radarScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const inverseScaleAnim = React.useRef(new Animated.Value(1)).current;
+  const currentZoomLevelRef = React.useRef(RADAR_DEFAULT_ZOOM);
+
+  const handleZoomChange = React.useCallback(
+    (zoom: number, isGesture = false) => {
+      if (typeof zoom !== 'number' || Number.isNaN(zoom)) {
+        return;
+      }
+      currentZoomLevelRef.current = zoom;
+      // Tính toán tỷ lệ co giãn tối ưu:
+      // - Khi thu nhỏ (zoom out < 12.0): mạng nhện radar thu nhỏ đồng bộ cùng bản đồ (xuống tối thiểu 0.35)
+      // - Khi phóng to (zoom in > 12.0): mạng nhện chỉ mở rộng nhẹ tối đa 1.22 để không bị phình to che khuất bản đồ
+      let targetScale: number;
+      if (zoom <= RADAR_DEFAULT_ZOOM) {
+        targetScale = Math.max(2 ** (zoom - RADAR_DEFAULT_ZOOM), 0.35);
+      }
+      else {
+        targetScale = Math.min(1.0 + (zoom - RADAR_DEFAULT_ZOOM) * 0.08, 1.22);
+      }
+
+      // Tỷ lệ đảo ngược để triệt tiêu việc scale làm phình to chấm thợ
+      const invScale = 1 / targetScale;
+
+      if (isGesture) {
+        radarScaleAnim.setValue(targetScale);
+        inverseScaleAnim.setValue(invScale);
+      }
+      else {
+        Animated.parallel([
+          Animated.timing(radarScaleAnim, {
+            toValue: targetScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(inverseScaleAnim, {
+            toValue: invScale,
+            duration: 250,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    },
+    [inverseScaleAnim, radarScaleAnim],
+  );
+
   const mapRef = React.useRef<HandyMapRef>(null);
   const [isLocating, setIsLocating] = React.useState(false);
+
+  // Tự động căn đúng tâm vị trí khách hàng với mức zoom radar tối ưu (14.5) khi màn hình mở ra
+  React.useEffect(() => {
+    if (!radarCoords) {
+      return;
+    }
+
+    mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+
+    const timer1 = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 150);
+
+    const timer2 = setTimeout(() => {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }, 600);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, [radarCoords]);
+
+  const handleMapLoaded = React.useCallback(() => {
+    if (radarCoords) {
+      mapRef.current?.flyTo(radarCoords, RADAR_ZOOM_LEVEL);
+    }
+  }, [radarCoords]);
 
   const handleRecenter = React.useCallback(async () => {
     setIsLocating(true);
     try {
-      if (radarCoords) {
-        mapRef.current?.flyTo(radarCoords, 11.5);
+      if (verifiedCoords) {
+        // Đã có tọa độ xác thực từ đơn/bản vẽ -> bay về tọa độ xác thực
+        mapRef.current?.flyTo(verifiedCoords, RADAR_ZOOM_LEVEL);
       }
       else {
+        // P2-01: Chưa có tọa độ xác thực -> chủ động truy xuất GPS thiết bị
         const result = await DeviceLocationService.getDeviceLocationResult();
-        if (result.coordinates) {
+        if (result.status === 'gps_success' && result.coordinates) {
+          setSessionGpsCoords({
+            requestId: activeRequestId,
+            coords: {
+              latitude: result.coordinates.latitude,
+              longitude: result.coordinates.longitude,
+              addressText: result.coordinates.addressText,
+            },
+          });
           useBookingDraftStore.getState().setAddress(
             result.coordinates.addressText || addressText,
             result.coordinates.latitude,
@@ -440,7 +668,25 @@ export default function CustomerBookingRadarRoute() {
               latitude: result.coordinates.latitude,
               longitude: result.coordinates.longitude,
             },
-            11.5,
+            RADAR_ZOOM_LEVEL,
+          );
+        }
+        else if (result.status === 'permission_denied') {
+          Alert.alert(
+            'Quyền truy cập bị từ chối',
+            'Vui lòng cấp quyền truy cập vị trí trong cài đặt thiết bị để tự động định vị vị trí của bạn.',
+          );
+        }
+        else if (result.status === 'module_missing') {
+          Alert.alert(
+            'Không hỗ trợ GPS',
+            'Thiết bị hoặc bản dựng hiện tại chưa tích hợp module GPS native.',
+          );
+        }
+        else {
+          Alert.alert(
+            'Không thể lấy vị trí',
+            'Không thể xác định vị trí GPS thiết bị. Vui lòng thử lại.',
           );
         }
       }
@@ -453,7 +699,7 @@ export default function CustomerBookingRadarRoute() {
         setIsLocating(false);
       }, 400);
     }
-  }, [radarCoords, addressText]);
+  }, [verifiedCoords, addressText, activeRequestId]);
 
   const handleBack = () => {
     if (typeof router.canGoBack === 'function' && !router.canGoBack()) {
@@ -464,26 +710,48 @@ export default function CustomerBookingRadarRoute() {
     }
   };
 
-  // Map Bid Candidates (Section A - only active bids)
+  // Map Bid Candidates (Section A - only active bids, sorted by price ascending)
   const mappedBids: DisplayWorkerCandidate[] = React.useMemo(() => {
-    return bids
+    return [...bids]
       .filter((b: BidCandidate) => !b.status || b.status === 'active')
-      .map((b: BidCandidate) => ({
-        id: b.workerUserId,
-        name: b.workerProfile?.fullName || 'Thợ đối tác',
-        rating: b.workerProfile?.averageRating ?? 5.0,
-        totalOrders: b.workerProfile?.completedOrderCount ?? 0,
-        completionRate: 98,
-        price: b.amount,
-        priceText: `${b.amount.toLocaleString('vi-VN')}đ`,
-        distance: typeof b.workerProfile?.distanceKm === 'number'
-          ? `${b.workerProfile.distanceKm.toFixed(1)}km`
-          : 'Gần bạn',
-        avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-        selectionSource: 'bid' as const,
-        sourceBidId: b.sourceBidId,
-        message: b.message || undefined,
-      }));
+      .sort((a, b) => {
+        const isValidA = isValidBidPrice(a.amount);
+        const isValidB = isValidBidPrice(b.amount);
+
+        // P2-06 & PR62-05-P2: Đặt giá không hợp lệ/thiếu giá ở cuối danh sách thay vì quy về 0
+        if (isValidA && !isValidB)
+          return -1;
+        if (!isValidA && isValidB)
+          return 1;
+        if (!isValidA && !isValidB)
+          return 0;
+        const numA = typeof a.amount === 'number' ? a.amount : Number(a.amount);
+        const numB = typeof b.amount === 'number' ? b.amount : Number(b.amount);
+        return numA - numB;
+      })
+      .map((b: BidCandidate) => {
+        const isValidPrice = isValidBidPrice(b.amount);
+        const validPrice = isValidPrice
+          ? (typeof b.amount === 'number' ? b.amount : Number(b.amount))
+          : 0;
+        return {
+          id: b.workerUserId,
+          name: b.workerProfile?.fullName || 'Thợ đối tác',
+          rating: typeof b.workerProfile?.averageRating === 'number' ? b.workerProfile.averageRating : 0,
+          totalOrders: b.workerProfile?.completedOrderCount ?? 0,
+          completionRate: 98,
+          price: validPrice,
+          priceText: isValidPrice ? `${validPrice.toLocaleString('vi-VN')}đ` : 'Không có giá hợp lệ',
+          isPriceValid: isValidPrice,
+          distance: typeof b.workerProfile?.distanceKm === 'number'
+            ? `${b.workerProfile.distanceKm.toFixed(1)}km`
+            : 'Gần bạn',
+          avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
+          selectionSource: 'bid' as const,
+          sourceBidId: b.sourceBidId,
+          message: b.message || undefined,
+        };
+      });
   }, [bids]);
 
   // Map AI Recommendations (Section B)
@@ -497,6 +765,7 @@ export default function CustomerBookingRadarRoute() {
       completionRate: 95,
       price: defaultRecPrice,
       priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
+      isPriceValid: true,
       distance: typeof r.workerProfile?.distanceKm === 'number'
         ? `${r.workerProfile.distanceKm.toFixed(1)}km`
         : 'Gần bạn',
@@ -516,6 +785,16 @@ export default function CustomerBookingRadarRoute() {
 
   // Candidate selection -> Booking Proposal creation (Contract Section 7 & 17)
   const handleSelectWorkerAndSendProposal = async (worker: DisplayWorkerCandidate) => {
+    // PR62-05-P2: Báo giá không hợp lệ (null, 0, NaN, âm) không được phép tạo proposal
+    if (worker.selectionSource === 'bid' && (!isValidBidPrice(worker.price) || worker.isPriceValid === false)) {
+      Alert.alert(
+        'Báo giá không hợp lệ',
+        'Báo giá từ thợ không có giá hợp lệ (giá phải lớn hơn 0). Không thể tạo đề xuất từ báo giá này.',
+        [{ text: 'Đóng', style: 'cancel' }],
+      );
+      return;
+    }
+
     if (!begin(worker.id))
       return;
     setIsSubmitting(true);
@@ -551,7 +830,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'bid',
           sourceBidId: worker.sourceBidId,
           agreedPrice: worker.price,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -566,7 +845,7 @@ export default function CustomerBookingRadarRoute() {
           selectionSource: 'recommendation',
           sourceMatchResultId: worker.sourceMatchResultId,
           agreedPrice,
-          agreedScope: serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
+          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
           scheduledAt: scheduledAt || undefined,
         };
       }
@@ -601,9 +880,16 @@ export default function CustomerBookingRadarRoute() {
       );
     }
     catch (err: unknown) {
-      const errorObj = err as { code?: string; message?: string; response?: { status?: number; data?: { code?: string; message?: string } } };
+      const errorObj = err as {
+        code?: string;
+        message?: string;
+        details?: { originalError?: { response?: { status?: number; data?: { code?: string; message?: string } } } };
+        response?: { status?: number; data?: { code?: string; message?: string } };
+      };
+      const backendMessage = errorObj?.details?.originalError?.response?.data?.message
+        || (typeof errorObj?.details?.originalError?.response?.data === 'string' ? errorObj?.details?.originalError?.response?.data : undefined);
       const errorCode = errorObj?.response?.data?.code || errorObj?.code;
-      const errorMsg = String(errorObj?.response?.data?.message || errorObj?.message || '');
+      const errorMsg = String(errorObj?.response?.data?.message || backendMessage || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
 
@@ -669,7 +955,7 @@ export default function CustomerBookingRadarRoute() {
         {/* Khối Tên dịch vụ & Mã đơn đặt */}
         <View className="mx-2.5 flex-1 rounded-2xl border border-neutral-100 bg-white/95 px-4 py-2 shadow-sm backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/90">
           <Text className="text-base font-extrabold text-neutral-900 dark:text-white" numberOfLines={1}>
-            {serviceName || 'Sửa ống nước'}
+            {displayServiceName}
           </Text>
           <Text className="mt-0.5 text-xs font-semibold text-neutral-400">
             #
@@ -717,7 +1003,9 @@ export default function CustomerBookingRadarRoute() {
                 ref={mapRef}
                 initialCenter={radarCoords}
                 center={radarCoords}
-                zoomLevel={11.5}
+                zoomLevel={RADAR_DEFAULT_ZOOM}
+                minZoomLevel={RADAR_MIN_ZOOM}
+                maxZoomLevel={RADAR_MAX_ZOOM}
                 interactive={true}
                 panEnabled={false}
                 pinchPanEnabled={false}
@@ -727,6 +1015,8 @@ export default function CustomerBookingRadarRoute() {
                 showCenterPin={false}
                 style={StyleSheet.absoluteFillObject}
                 mapStyle={MapboxService.styles.light}
+                onDidFinishLoadingMap={handleMapLoaded}
+                onZoomDidChange={handleZoomChange}
               />
             )
           : (
@@ -736,6 +1026,19 @@ export default function CustomerBookingRadarRoute() {
                 </Text>
               </View>
             )}
+
+        {/* Thông báo trạng thái vị trí chưa xác thực (PR62-04-P2) */}
+        {!verifiedCoords && (
+          <View
+            testID="unverified-location-notice"
+            className="absolute top-4 z-20 flex-row items-center rounded-full border border-amber-200 bg-amber-50/95 px-3 py-1.5 shadow-sm backdrop-blur-sm dark:border-amber-800 dark:bg-amber-950/90"
+          >
+            <View className="mr-1.5 size-2 rounded-full bg-amber-500" />
+            <Text className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+              Chưa có vị trí chính xác • Nhấn nút GPS để định vị
+            </Text>
+          </View>
+        )}
 
         {/* Lớp phủ radial gradient radar mờ nhẹ trên bản đồ tạo hiệu ứng thấu kính Radar (như Vua Thợ) */}
         <Svg pointerEvents="none" width="100%" height="100%" style={StyleSheet.absoluteFillObject}>
@@ -749,8 +1052,20 @@ export default function CustomerBookingRadarRoute() {
           <Rect width="100%" height="100%" fill="url(#radarVignette)" />
         </Svg>
 
-        {/* Các vòng tròn đồng tâm Radar */}
-        <View pointerEvents="none" className="pointer-events-none absolute size-[340px] items-center justify-center">
+        {/* Nhóm Mạng nhện Radar + Tia quét + Chấm thợ (co giãn đồng bộ 100% cùng bản đồ) */}
+        <Animated.View
+          testID="radar-spiderweb-group"
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            width: 340,
+            height: 340,
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: [{ scale: radarScaleAnim }],
+          }}
+        >
+          {/* Các vòng tròn đồng tâm Radar (Mạng nhện) */}
           <Svg width={340} height={340} viewBox="0 0 340 340">
             <Circle cx="170" cy="170" r="160" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.5} />
             <Circle cx="170" cy="170" r="130" stroke="#94A3B8" strokeWidth="1" strokeDasharray="3 3" fill="none" opacity={0.6} />
@@ -760,51 +1075,57 @@ export default function CustomerBookingRadarRoute() {
             <Path d="M 170 10 L 170 330 M 10 170 L 330 170" stroke="#94A3B8" strokeWidth="0.8" opacity={0.5} />
             <Path d="M 55 55 L 285 285 M 55 285 L 285 55" stroke="#94A3B8" strokeWidth="0.8" opacity={0.35} />
           </Svg>
-        </View>
 
-        {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            width: 320,
-            height: 320,
-            transform: [{ rotate: spinInterpolation }],
-          }}
-          className="items-center justify-center"
-        >
-          <Svg width={320} height={320} viewBox="0 0 320 320">
-            <Defs>
-              <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
-                <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
-              </LinearGradient>
-            </Defs>
-            <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
-            <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
-          </Svg>
+          {/* Tia quét Radar hoạt ảnh xoay 360 độ */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              width: 320,
+              height: 320,
+              transform: [{ rotate: spinInterpolation }],
+            }}
+            className="items-center justify-center"
+          >
+            <Svg width={320} height={320} viewBox="0 0 320 320">
+              <Defs>
+                <LinearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="1">
+                  <Stop offset="0%" stopColor="#F5A524" stopOpacity="0.35" />
+                  <Stop offset="100%" stopColor="#F5A524" stopOpacity="0.0" />
+                </LinearGradient>
+              </Defs>
+              <Path d="M 160 160 L 310 160 A 150 150 0 0 0 266 54 Z" fill="url(#radarBeam)" />
+              <Path d="M 160 160 L 310 160" stroke="#F5A524" strokeWidth="2" opacity={0.8} />
+            </Svg>
+          </Animated.View>
+
+          {/* Chấm các Thợ thật xuất hiện trên Radar (tự động counter-scale để luôn giữ kích thước chuẩn 14px) */}
+          {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
+            const radarPositions = [
+              { top: 185, right: 145 },
+              { top: 130, left: 140 },
+              { bottom: 175, right: 155 },
+              { bottom: 140, left: 160 },
+            ];
+            const pos = radarPositions[idx % radarPositions.length];
+            return (
+              <Animated.View
+                key={w.id}
+                pointerEvents="none"
+                style={[
+                  pos,
+                  {
+                    position: 'absolute',
+                    transform: [{ scale: inverseScaleAnim }],
+                  },
+                ]}
+                className="size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
+              >
+                <View className="size-1.5 rounded-full bg-white" />
+              </Animated.View>
+            );
+          })}
         </Animated.View>
-
-        {/* Chấm các Thợ thật xuất hiện trên Radar */}
-        {displayList.length > 0 && displayList.slice(0, 4).map((w, idx) => {
-          const radarPositions = [
-            { top: 185, right: 145 },
-            { top: 130, left: 140 },
-            { bottom: 175, right: 155 },
-            { bottom: 140, left: 160 },
-          ];
-          const pos = radarPositions[idx % radarPositions.length];
-          return (
-            <View
-              key={w.id}
-              pointerEvents="none"
-              style={pos}
-              className="absolute size-3.5 items-center justify-center rounded-full bg-blue-500 shadow-sm"
-            >
-              <View className="size-1.5 rounded-full bg-white" />
-            </View>
-          );
-        })}
 
         {/* Điểm định vị trung tâm của Khách (Bulls-eye Target chuẩn Vua Thợ) */}
         <Animated.View
@@ -1000,15 +1321,7 @@ export default function CustomerBookingRadarRoute() {
                                           : null}
                                       </Pressable>
 
-                                      <Pressable
-                                        onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                        className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                      >
-                                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                        </Svg>
-                                      </Pressable>
+                                      <ChatEntry bidId={worker.sourceBidId} name={worker.name} />
                                     </View>
 
                                     {/* Tags */}
@@ -1044,35 +1357,56 @@ export default function CustomerBookingRadarRoute() {
                                 {/* Price and action span the card width on compact screens. */}
                                 <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
                                   <View className="min-w-0 flex-1">
-                                    <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
-                                      {worker.priceText}
-                                    </Text>
+                                    <View className="flex-row items-center gap-1.5">
+                                      <Text
+                                        className={`text-lg font-bold ${
+                                          worker.isPriceValid === false
+                                            ? 'text-rose-600 dark:text-rose-400'
+                                            : 'text-secondary-700 dark:text-blue-400'
+                                        }`}
+                                        numberOfLines={1}
+                                        adjustsFontSizeToFit
+                                      >
+                                        {worker.priceText}
+                                      </Text>
+                                      {idx === 0 && mappedBids.length > 1 && worker.isPriceValid !== false && typeof worker.price === 'number' && worker.price > 0 && (
+                                        <View className="rounded-full bg-emerald-100 px-2 py-0.5 dark:bg-emerald-950/50">
+                                          <Text className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">
+                                            Giá tốt nhất
+                                          </Text>
+                                        </View>
+                                      )}
+                                    </View>
                                     <Text className="mt-0.5 text-xs text-neutral-400">
-                                      {worker.distance}
+                                      {worker.isPriceValid === false ? 'Báo giá không hợp lệ' : worker.distance}
                                     </Text>
                                   </View>
                                   <Pressable
                                     testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
                                     onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                    disabled={isSubmitting || isWorkerProposed(worker.id)}
+                                    disabled={isSubmitting || isWorkerProposed(worker.id) || worker.isPriceValid === false}
                                     className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
-                                      isWorkerProposed(worker.id)
-                                        ? 'bg-neutral-200 dark:bg-neutral-800'
-                                        : 'bg-[#F5A524] active:opacity-80'
+                                      worker.isPriceValid === false
+                                        ? 'bg-neutral-200 opacity-60 dark:bg-neutral-800'
+                                        : isWorkerProposed(worker.id)
+                                          ? 'bg-neutral-200 dark:bg-neutral-800'
+                                          : 'bg-[#F5A524] active:opacity-80'
                                     }`}
                                   >
                                     <Text
                                       className={`text-sm font-bold ${
-                                        isWorkerProposed(worker.id)
+                                        worker.isPriceValid === false || isWorkerProposed(worker.id)
                                           ? 'text-neutral-500 dark:text-neutral-400'
                                           : 'text-white'
                                       }`}
                                     >
-                                      {isWorkerProposed(worker.id)
-                                        ? 'Đang chờ thợ...'
-                                        : isSubmitting
-                                          ? 'Đang gửi...'
-                                          : 'Chọn thợ'}
+                                      {worker.isPriceValid === false
+                                        ? 'Không thể chọn'
+                                        : isWorkerProposed(worker.id)
+                                          ? 'Đang chờ thợ...'
+                                          : isSubmitting
+                                            ? 'Đang gửi...'
+                                            : 'Chọn thợ'}
                                     </Text>
                                   </Pressable>
                                 </View>
@@ -1153,15 +1487,6 @@ export default function CustomerBookingRadarRoute() {
                                             : null}
                                         </Pressable>
 
-                                        <Pressable
-                                          onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                          className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                        >
-                                          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                            <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                          </Svg>
-                                        </Pressable>
                                       </View>
 
                                       {/* Tags */}
@@ -1385,7 +1710,7 @@ export default function CustomerBookingRadarRoute() {
                 </View>
 
                 <Text className="mt-1 text-base font-bold text-neutral-900 dark:text-white">
-                  {serverRequest?.service?.name || serviceName || 'Sửa máy lạnh'}
+                  {displayServiceName}
                 </Text>
 
                 <View className="mt-2 flex-row items-start">
@@ -1395,7 +1720,7 @@ export default function CustomerBookingRadarRoute() {
                     </Svg>
                   </View>
                   <Text className="flex-1 text-xs text-neutral-600 dark:text-neutral-300">
-                    {serverRequest?.description || description || `Cần tìm thợ ${serviceName || 'sửa chữa'}`}
+                    {serverRequest?.description || description || `Cần tìm thợ ${displayServiceName}`}
                   </Text>
                 </View>
               </View>
@@ -1434,7 +1759,7 @@ export default function CustomerBookingRadarRoute() {
                       Địa điểm
                     </Text>
                     <Text className="mt-0.5 text-xs font-bold text-neutral-900 dark:text-white" numberOfLines={2}>
-                      {serverRequest?.addressText || addressText || 'Đà Nẵng'}
+                      {serverRequest?.addressText || (createdRequestId === activeRequestId ? addressText : undefined) || 'Chưa cập nhật địa chỉ'}
                     </Text>
                   </View>
                 </View>

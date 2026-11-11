@@ -1,3 +1,4 @@
+import type { ChatRequestAuthority } from '@app/common';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -10,6 +11,36 @@ import type { PaymentEligibilityResponseDto } from './dto/payment-eligibility-re
 @Injectable()
 export class InternalOrderService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async getChatState(requestId: string): Promise<ChatRequestAuthority> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const request = await tx.serviceRequest.findUnique({
+          where: { id: requestId },
+          include: { order: true },
+        });
+        if (!request) throw new NotFoundException('Service request not found');
+        return {
+          requestId: request.id,
+          customerId: request.customerUserId,
+          serviceId: request.serviceId ?? undefined,
+          status: request.status,
+          version: request.version,
+          order: request.order
+            ? {
+                orderId: request.order.id,
+                workerId: request.order.workerUserId,
+                status: request.order.status,
+                version: request.order.version,
+                completedAt: request.order.completedAt?.toISOString() ?? null,
+              }
+            : null,
+          verifiedAt: new Date().toISOString(),
+        };
+      },
+      { isolationLevel: 'RepeatableRead' },
+    );
+  }
 
   /**
    * Internal query for Bidding Service to verify if a Service Request is eligible for bids.
@@ -48,7 +79,8 @@ export class InternalOrderService {
       reason = 'Service request is missing a valid serviceId';
     } else if (workerId && request.customerUserId === workerId) {
       isEligible = false;
-      reason = 'Khách hàng không thể tự gửi báo giá cho yêu cầu dịch vụ của chính mình';
+      reason =
+        'Khách hàng không thể tự gửi báo giá cho yêu cầu dịch vụ của chính mình';
     }
 
     return {

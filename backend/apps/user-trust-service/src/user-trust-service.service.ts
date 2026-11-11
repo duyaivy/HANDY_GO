@@ -212,6 +212,13 @@ export class UserTrustServiceService {
     private readonly catalogClient?: CatalogClient,
   ) {}
 
+  async getDisplayNames(ids: string[]) {
+    return this.db.user.findMany({
+      where: { id: { in: [...new Set(ids)] } },
+      select: { id: true, fullName: true, avatarUrl: true },
+    });
+  }
+
   /**
    * `active` chỉ nghĩa là user đang active; KHÔNG chứng minh tài khoản ngân hàng đã được ngân hàng xác minh.
    * Việc xác minh thật với ngân hàng/provider sẽ bổ sung sau.
@@ -464,6 +471,73 @@ export class UserTrustServiceService {
         bankAccounts: user.bankAccounts,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
+      },
+    };
+  }
+
+  async getWorkerOrderSummary(workerUserId: string): Promise<unknown> {
+    const worker = await this.db.workerProfile.findUnique({
+      where: { userId: workerUserId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+            status: true,
+          },
+        },
+        serviceOfferings: {
+          where: { isActive: true },
+          select: {
+            title: true,
+          },
+          take: 1,
+        },
+      },
+    });
+
+    if (worker && worker.user?.status === 'active') {
+      return {
+        statusCode: 200,
+        message: 'Lấy thông tin hồ sơ thợ thành công',
+        data: {
+          workerUserId: worker.userId,
+          fullName: worker.user.fullName,
+          avatarUrl: worker.user.avatarUrl ?? null,
+          averageRating: worker.ratingCount > 0 ? Number(worker.averageRating) : null,
+          ratingCount: worker.ratingCount ?? 0,
+          completedOrderCount: worker.completedOrderCount ?? 0,
+          headline: worker.serviceOfferings[0]?.title ?? null,
+        },
+      };
+    }
+
+    const user = await this.db.user.findUnique({
+      where: { id: workerUserId },
+      select: {
+        id: true,
+        fullName: true,
+        avatarUrl: true,
+        status: true,
+      },
+    });
+
+    if (!user || user.status !== 'active') {
+      throw new NotFoundException('Không tìm thấy thông tin thợ');
+    }
+
+    return {
+      statusCode: 200,
+      message: 'Lấy thông tin hồ sơ thợ thành công',
+      data: {
+        workerUserId: user.id,
+        fullName: user.fullName,
+        avatarUrl: user.avatarUrl ?? null,
+        averageRating: null,
+        ratingCount: 0,
+        completedOrderCount: 0,
+        headline: null,
       },
     };
   }

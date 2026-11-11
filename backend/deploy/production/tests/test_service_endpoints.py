@@ -48,9 +48,9 @@ class ServiceEndpointTests(unittest.TestCase):
                       'http://secret@10.77.0.2:3004', 'http://10.77.0.2:3005', 'https://10.77.0.2:3004'):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate_service_endpoints(self.values | {'ORDER_SERVICE_URL': value}, self.registry)
-        # Auth has no host port binding; even the VPS1 host IP is not an HTTP route.
+        # Notification has no host port binding; even the VPS1 host IP is not an HTTP route.
         with self.assertRaises(ValueError):
-            validate_service_endpoints(self.values | {'AUTH_SERVICE_URL': 'http://10.77.0.1:3001'}, self.registry)
+            validate_service_endpoints(self.values | {'NOTIFICATION_SERVICE_URL': 'http://10.77.0.1:3008'}, self.registry)
 
     def test_ai_cannot_fall_back_to_a_vps_or_localhost(self):
         for value in ('', 'http://localhost:8000', 'http://ai-service:8000', 'https://10.77.0.1:8000'):

@@ -82,32 +82,25 @@ export function useBiddingEvents(
   const isAuthenticated = useAuthStore(state => state.isAuthenticated);
   const currentUserId = useAuthStore(state => state.user?.id);
 
-  // Screen focus handling (optional disconnect on screen blur)
-  const [isScreenFocused, setIsScreenFocused] = React.useState(true);
-
-  React.useEffect(() => {
-    if (!options?.disconnectOnBlur) {
-      setIsScreenFocused(true);
-      return;
-    }
-
-    try {
-      // Dynamically check if react-navigation is available in this component tree
-      const { useIsFocused } = require('@react-navigation/native');
-      if (typeof useIsFocused === 'function') {
-        // Handled via separate listener or state if supported
-      }
-    }
-    catch {}
-  }, [options?.disconnectOnBlur]);
-
   const enabled = (options?.enabled ?? true)
     && Boolean(requestId)
-    && Boolean(isAuthenticated && currentUserId)
-    && isScreenFocused;
+    && Boolean(isAuthenticated && currentUserId);
 
-  const [isConnected, setIsConnected] = React.useState(false);
   const clientInstanceRef = React.useRef<BiddingSseClient | null>(null);
+  const connectionListeners = React.useRef(new Set<() => void>());
+  const notifyConnection = React.useCallback(() => {
+    for (const listener of connectionListeners.current) listener();
+  }, []);
+  const isConnected = React.useSyncExternalStore(
+    React.useCallback((listener) => {
+      connectionListeners.current.add(listener);
+      return () => {
+        connectionListeners.current.delete(listener);
+      };
+    }, []),
+    React.useCallback(() => Boolean(enabled && clientInstanceRef.current?.getIsOpen()), [enabled]),
+    () => false,
+  );
 
   // Keep latest callbacks in ref to avoid re-connecting on function identity changes
   const callbacksRef = React.useRef(options);
@@ -127,7 +120,7 @@ export function useBiddingEvents(
           }
         }
         clientInstanceRef.current = null;
-        setIsConnected(false);
+        notifyConnection();
       }
       return;
     }
@@ -198,11 +191,11 @@ export function useBiddingEvents(
     }
 
     clientInstanceRef.current = client;
-    setIsConnected(client.getIsOpen());
+    notifyConnection();
 
     // 1. Connection Open / Ready
     const unsubOpen = client.on('open', () => {
-      setIsConnected(true);
+      notifyConnection();
     });
 
     const unsubReady = client.on('ready', (event) => {
@@ -262,7 +255,7 @@ export function useBiddingEvents(
     });
 
     const unsubClose = client.on('close', () => {
-      setIsConnected(false);
+      notifyConnection();
     });
 
     const unsubError = client.on('error', (err) => {
@@ -287,9 +280,9 @@ export function useBiddingEvents(
         }
       }
       clientInstanceRef.current = null;
-      setIsConnected(false);
+      notifyConnection();
     };
-  }, [enabled, requestId, queryClient, currentUserId]);
+  }, [enabled, requestId, queryClient, currentUserId, notifyConnection]);
 
   return {
     isConnected,
