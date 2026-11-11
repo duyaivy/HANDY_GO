@@ -12,7 +12,13 @@ def release(state):
     return (state or {}).get('release_id')
 
 
-def plan(states, expected=None):
+def plan(states, expected=None, onboarding=False):
+    onboarding = onboarding or any(
+        isinstance(s.get('pending'), dict) and s['pending'].get('onboarding') is True
+        for s in states.values())
+    if onboarding and 'vps4' in states and release(states['vps4'].get('stable')) is None:
+        if states['vps4'].get('pending') is not None or states['vps4'].get('manifests'):
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: onboarding VPS4 is not pristine')
     owned = {}
     for r, s in states.items():
         if s.get('pending'):
@@ -22,6 +28,16 @@ def plan(states, expected=None):
             owned[r] = p
     stable_ids = {release(s['stable']) for s in states.values()}
     if not owned:
+        if onboarding and 'vps4' in states and release(states['vps4']['stable']) is not None:
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: onboarding VPS4 is already initialized')
+        if onboarding and set(states) == set(ROLES) and stable_ids == {None, next(
+                (release(s['stable']) for r, s in states.items() if r != 'vps4'), None)}:
+            baseline = release(states['vps1']['stable'])
+            if (baseline is None or any(release(states[r]['stable']) != baseline for r in ('vps1', 'vps2', 'vps3'))
+                    or states['vps4'].get('pending') is not None or states['vps4'].get('manifests')):
+                raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: onboarding VPS4 is not pristine')
+            return {'decision': 'RECOVERY_NOT_NEEDED', 'owned': {}, 'onboarding': True,
+                    'previous': baseline}
         if len(stable_ids) != 1:
             raise RuntimeError('INCONSISTENT_STATE: stable releases differ')
         stable = next(iter(stable_ids))
@@ -47,9 +63,20 @@ def plan(states, expected=None):
         raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: mismatched transaction owner/target')
     transaction, target = next(iter(identities))
     previous_ids = {release(p['previous']) for p in owned.values()}
-    if len(previous_ids) != 1:
-        raise RuntimeError('INCONSISTENT_STATE: previous snapshots differ')
-    previous = next(iter(previous_ids))
+    onboarding_participants = [r for r, p in owned.items() if p.get('onboarding') is True]
+    if onboarding_participants:
+        if (onboarding_participants != ['vps4'] or release(owned['vps4']['previous']) is not None
+                or states['vps4']['manifests'].get(target, {}).get('onboard_vps4') is not True):
+            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: invalid VPS4 onboarding journal')
+        previous_values = {release(s['stable']) for r, s in states.items() if r != 'vps4'}
+        previous_values.update(release(p['previous']) for r, p in owned.items() if r != 'vps4')
+        if len(previous_values) != 1 or None in previous_values:
+            raise RuntimeError('INCONSISTENT_STATE: onboarding baseline releases differ')
+        previous = next(iter(previous_values))
+    else:
+        if len(previous_ids) != 1:
+            raise RuntimeError('INCONSISTENT_STATE: previous snapshots differ')
+        previous = next(iter(previous_ids))
     manifests = [states[r]['manifests'][target] for r in owned]
     if any(m != manifests[0] for m in manifests):
         raise RuntimeError('INCONSISTENT_STATE: target manifests differ')
@@ -64,25 +91,26 @@ def plan(states, expected=None):
         return dict(result, decision='VERIFY_COMMITTED', verify=target)
     if any(release(s['stable']) != previous for r, s in states.items() if r not in owned):
         raise RuntimeError('INCONSISTENT_STATE: unlocked host has unexpected stable release')
-    if any(release(states[r]['stable']) not in (previous, target) for r in owned):
+    if any(release(states[r]['stable']) not in ((previous, target, None) if onboarding and r == 'vps4'
+                                                else (previous, target)) for r in owned):
         raise RuntimeError('INCONSISTENT_STATE: participant stable is unrelated')
     untouched = all(p['phase'] == 'SNAPSHOT' and p['touched'] is False for p in owned.values())
-    if untouched and stable_ids != {previous}:
+    if untouched and stable_ids != ({previous, None} if onboarding_participants else {previous}):
         raise RuntimeError('INCONSISTENT_STATE: untouched snapshot changed stable')
     if previous is None:
         # A pristine bootstrap snapshot can be released; a touched bootstrap cannot.
         if untouched:
-            return dict(result, decision='FINISH_SNAPSHOT', verify=None)
+            return dict(result, decision='FINISH_SNAPSHOT', verify=None, onboarding=True)
         raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: bootstrap has no previous release')
-    old = [s['manifests'][previous] for s in states.values()]
+    old = [s['manifests'][previous] for r, s in states.items() if r != 'vps4' or not onboarding]
     if any(m != old[0] for m in old):
         raise RuntimeError('INCONSISTENT_STATE: previous manifests differ')
     if not untouched and (not target_manifest.get('rollback_compatible') or
                           not old[0].get('rollback_compatible') or
-                          target_manifest['migration_hash'] != old[0]['migration_hash']):
+                          (not onboarding and target_manifest['migration_hash'] != old[0]['migration_hash'])):
         raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: migration compatibility not proven; never undo DB automatically')
     return dict(result, decision='FINISH_SNAPSHOT' if untouched else 'RESTORE_PREVIOUS',
-                verify=previous, previous_manifest=old[0])
+                verify=previous, previous_manifest=old[0], onboarding=bool(onboarding_participants))
 
 
 def abort_untouched_snapshot(c, recovery, expected):
@@ -126,11 +154,12 @@ def abort_untouched_snapshot(c, recovery, expected):
     c.persist()
 
 
-def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, env_only=False, abort_untouched=False):
+def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, env_only=False, abort_untouched=False,
+              onboarding=False):
     c = coordinator
     try:
         states = c.inspect_cluster()
-        recovery = plan(states, expected)
+        recovery = plan(states, expected, onboarding=onboarding or bool(getattr(c.args, 'onboard_vps4', False)))
         c.journal['recovery'] = {k: v for k, v in recovery.items()
                                  if k not in ('manifest', 'previous_manifest', 'owned')}
         c.journal['recovery']['participants'] = list(recovery['owned'])
@@ -176,6 +205,8 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
         verify = recovery['verify']
         if verify:
             for role in ROLES:
+                if recovery.get('onboarding') and role == 'vps4' and verify == recovery['previous']:
+                    continue
                 c.remote(role, 'verify', verify, wait_lock=True)
             c.public_smoke(recovery['manifest'] if verify == c.target else recovery['previous_manifest'])
         if recovery['decision'] == 'VERIFY_COMMITTED':
@@ -184,15 +215,21 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
                     c.remote(role, 'commit', wait_lock=True)
         # Recheck durable cluster state after probes, before authorizing cleanup.
         checked = c.inspect_cluster()
-        if any(release(s['stable']) != verify for s in checked.values()):
+        if any(release(s['stable']) != verify and not (recovery.get('onboarding') and r == 'vps4' and verify == recovery['previous'] and release(s['stable']) is None)
+               for r, s in checked.items()):
             raise RuntimeError('INCONSISTENT_STATE: stable changed during verification')
         for role in owned:
             p = checked[role]['pending']
             if not p or (p['transaction'], p['target']) != (c.transaction, c.target):
                 raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: ownership changed during recovery')
-        for role in owned:
+        finish_roles = [role for role in owned if role != 'vps4']
+        if recovery.get('onboarding') and 'vps4' in owned:
+            finish_roles.append('vps4')
+        else:
+            finish_roles = list(owned)
+        for role in finish_roles:
             c.remote(role, 'authorize-finish', wait_lock=True)
-        for role in owned:
+        for role in finish_roles:
             c.remote(role, 'finish', wait_lock=True)
         remaining = any(s['pending'] for s in c.inspect_cluster().values())
         if remaining and not recovery['deferred']:

@@ -70,9 +70,13 @@ def migration_endpoint(values, service, migrating=False):
     return url
 
 
-def validate_database_plan(values, registry, run_migrations=False):
+def validate_database_plan(values, registry, run_migrations=False, migration_scope=None):
     groups, endpoints = {}, {}
-    for service, (name, entry) in migration_services(registry).items():
+    registered = migration_services(registry)
+    scope = None if migration_scope is None else set(migration_scope)
+    if scope is not None and not scope <= set(registered):
+        raise ValueError('Migration scope references unregistered service')
+    for service, (name, entry) in registered.items():
         if not entry.get('deploy'):
             continue
         suffix = service.upper().replace('-', '_')
@@ -88,7 +92,7 @@ def validate_database_plan(values, registry, run_migrations=False):
         maximum = integer(values, 'DB_POOL_MAX_' + suffix, values.get('DB_POOL_MAX', '').strip() or None, maximum=100)
         replicas = integer(values, 'DB_POOL_REPLICAS_' + suffix)
         groups[group] = groups.get(group, 0) + maximum * replicas
-        migration_endpoint(values, service, migrating=run_migrations)
+        migration_endpoint(values, service, migrating=run_migrations and (scope is None or service in scope))
     integer(values, 'DB_POOL_TIMEOUT_MS', '5000', maximum=60000)
     integer(values, 'DB_POOL_IDLE_MS', '10000', maximum=300000)
     result = {}

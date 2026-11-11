@@ -65,6 +65,7 @@ class Coordinator:
                     '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3']
         self.journal = {'transaction': self.transaction, 'target_release': self.target,
                         'operation': 'rollback' if args.rollback_release else 'deploy',
+                        'onboarding_vps4': bool(getattr(args, 'onboard_vps4', False)),
                         'status': 'PREPARING', 'hosts': {}, 'rollback': {}}
         self.output = Path(args.output)
         self.persist()
@@ -162,6 +163,8 @@ sys.stdin.read()
                    target or self.target, self.transaction]
         if action != 'inspect':
             command += ['--expected-state', self.states[role]['token']]
+            if action == 'begin' and role == 'vps4' and getattr(self.args, 'onboard_vps4', False):
+                command.append('--onboard-vps4')
             if getattr(self, 'fence', None):
                 command += ['--fence', self.fence]
         if wait_lock:
@@ -199,7 +202,7 @@ sys.stdin.read()
         original = self.transaction, self.target
         try:
             for _ in range(len(ROLES) + 1):
-                reconcile(self, automatic=True)
+                reconcile(self, automatic=True, onboarding=bool(getattr(self.args, 'onboard_vps4', False)))
                 if not any(state['pending'] for state in self.inspect_cluster().values()):
                     break
             else:
@@ -219,7 +222,7 @@ sys.stdin.read()
         if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', domain) or '.' not in domain:
             raise ValueError('Invalid public API domain')
         files = {}
-        for name in ('host.py', 'release_log.py', 'services.json', 'compose.production.yml', 'nginx/nginx.conf', 'nginx/handygo.conf'):
+        for name in ('host.py', 'release_log.py', 'services.json', 'compose.production.yml', 'nginx/nginx.conf', 'nginx/handygo.conf', 'env-preflight.mjs'):
             content = (HERE / name).read_bytes()
             if name == 'nginx/handygo.conf':
                 content = content.replace(b'API_DOMAIN', domain.encode())
@@ -245,7 +248,11 @@ sys.stdin.read()
         module.validate_service_endpoints(values, registry)
         from database_plan import validate_database_plan, validate_migration_owners
         validate_migration_owners(HERE.parents[1], registry, module.MIGRATIONS)
-        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations)
+        migration_scope = (sorted({service for services in module.ONBOARDING_MIGRATIONS.values()
+                                   for service in services})
+                           if getattr(self.args, 'onboard_vps4', False) else None)
+        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations,
+                                                 migration_scope=migration_scope)
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
         # A newly enabled migration owner must require review even when SQL is unchanged.
@@ -261,6 +268,8 @@ sys.stdin.read()
             'database_budget': database_budget,
             'run_migrations': self.args.run_migrations,
             'rollback_compatible': True,
+            'onboard_vps4': bool(getattr(self.args, 'onboard_vps4', False)),
+            'migration_scope': migration_scope,
             'hosts': hosts, 'services': selected,
             'images': {name: self.args.app_image for name in selected} | {'nginx': self.args.nginx_image},
             'excluded': {n: 'Disabled or NOT_READY' for n in registry if n not in selected},
@@ -323,7 +332,11 @@ sys.stdin.read()
                 if not self.args.rollback_release and snapshot['migration_hash'] != manifest['migration_hash'] and not self.args.run_migrations:
                     raise RuntimeError('New/initial migrations require an explicitly reviewed run_migrations deployment')
             previous_ids = [self.journal['hosts'][r]['begin']['previous'] for r in ROLES]
-            if any(value != previous_ids[0] for value in previous_ids):
+            if getattr(self.args, 'onboard_vps4', False):
+                if (self.args.rollback_release or previous_ids[0] is not None
+                        or previous_ids[1] is None or any(value != previous_ids[1] for value in previous_ids[2:])):
+                    raise RuntimeError('VPS4 onboarding snapshot is not the validated 3-to-4 host transition')
+            elif any(value != previous_ids[0] for value in previous_ids):
                 raise RuntimeError('Hosts disagree on stable release; reconcile before deploying')
             for role in ROLES:
                 self.remote(role, 'prepare')
@@ -425,10 +438,14 @@ def main():
     parser.add_argument('--tree')
     parser.add_argument('--evidence')
     parser.add_argument('--run-migrations', action='store_true')
+    parser.add_argument('--onboard-vps4', action='store_true',
+                        help='Authorize the one-time pristine VPS4 participant transition')
     parser.add_argument('--output', default='release-output')
     args = parser.parse_args()
     if args.rollback_release and args.run_migrations:
         parser.error('Rollback never runs database migrations')
+    if args.onboard_vps4 and (args.rollback_release or not args.run_migrations):
+        parser.error('VPS4 onboarding requires a new release and explicit migration approval')
     if not args.rollback_release and any(not getattr(args, key) for key in (
             'env_file', 'app_image', 'migration_image', 'nginx_image', 'commit', 'tree', 'evidence')):
         parser.error('Deploy requires ENV, image digests, commit/tree and CI evidence')

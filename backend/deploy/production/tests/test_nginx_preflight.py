@@ -144,10 +144,11 @@ class NginxPreflightTests(unittest.TestCase):
         self.assertNotIn('up', actions)
         self.assertFalse((self.root / 'pending.json').exists())
 
-    def test_vps2_and_vps3_and_vps4_do_not_run_nginx_permission_or_container_checks(self):
+    def test_non_edge_hosts_skip_nginx_checks_and_vps4_runs_candidate_env_preflight(self):
         self.obj.owner, self.obj.validate_bundle = Mock(), Mock()
         self.obj.check_memory = Mock(return_value={})
         self.obj.prepare_nginx_files, self.obj.check_nginx = Mock(), Mock()
+        self.obj.check_env_dependencies = Mock()
         for role, ip in (('vps2', '10.77.0.2'), ('vps3', '10.77.0.3'), ('vps4', '10.77.0.4')):
             self.obj.role, self.obj.metadata, self.obj.names = role, {'private_ip': ip}, ['fixture-service']
             with patch.object(host, 'run', side_effect=['2.30.0', f'inet {ip}/24', 'x86_64']), \
@@ -155,6 +156,7 @@ class NginxPreflightTests(unittest.TestCase):
                 self.assertTrue(self.obj.prepare(RELEASE)['prepared'])
         self.obj.prepare_nginx_files.assert_not_called()
         self.obj.check_nginx.assert_not_called()
+        self.assertEqual(self.obj.check_env_dependencies.call_count, 1)
 
 
 @unittest.skipUnless(os.environ.get('HANDYGO_TEST_NGINX_IMAGE'),

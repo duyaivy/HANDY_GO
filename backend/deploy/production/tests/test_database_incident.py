@@ -77,6 +77,22 @@ class DatabaseIncidentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_AUTH'):
             validate_database_plan(values, self.registry, run_migrations=True)
 
+    def test_onboarding_requires_ddl_confirmation_only_for_message_related_migrations(self):
+        values = dict(self.values)
+        for service in SERVICES:
+            suffix = service.upper().replace('-', '_')
+            if service not in ('message', 'notification'):
+                values.pop('DB_DDL_VERIFIED_' + suffix, None)
+        validate_database_plan(values, self.registry, run_migrations=True,
+                               migration_scope={'message', 'notification'})
+        for service in ('message', 'notification'):
+            key = 'DB_DDL_VERIFIED_' + service.upper()
+            invalid = dict(values)
+            invalid.pop(key)
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, key):
+                validate_database_plan(invalid, self.registry, run_migrations=True,
+                                       migration_scope={'message', 'notification'})
+
     def test_supabase_poolers_follow_actual_consumer_requirements(self):
         values = {key: val for key, val in self.values.items() if not key.startswith('DIRECT_URL_')}
         for port in (5432, 6543):

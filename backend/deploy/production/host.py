@@ -34,6 +34,7 @@ MIGRATIONS = {
         if item.get('migration') is not None and item.get('host') == role and item.get('deploy'))
     for role in ROLES
 }
+ONBOARDING_MIGRATIONS = {'vps4': ('message',), 'vps1': ('notification',)}
 NGINX_PREFLIGHT = '''\
 for directory in /etc/nginx/tls /var/www/certbot; do
     if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
@@ -109,6 +110,34 @@ def inspect_state(role):
         snapshot(stable)
     elif (ROOT / 'stable.json').exists():
         raise RuntimeError('Invalid stable journal')
+    elif role == 'vps4' and pending is None:
+        containers = run(['docker', 'ps', '-aq'],
+                         label='inspect uninitialized VPS4 containers')
+        releases = list((ROOT / 'releases').glob('*')) if (ROOT / 'releases').exists() else []
+        receipts = list((ROOT / 'transactions').glob('*.json')) if (ROOT / 'transactions').exists() else []
+        records = [read(path) for path in receipts]
+        known_bootstrap = bool(records) and all(
+            isinstance(record, dict) and record.get('onboarding') is True
+            and ((record.get('phase') == 'RESTORED'
+                  and record.get('recovery_decision') == 'REMOVE_ONBOARDED_VPS4')
+                 or (record.get('phase') == 'SNAPSHOT' and record.get('touched') is False))
+            and record.get('unlock') == 'VERIFIED_FINISH'
+            for record in records)
+        release_ids = {record.get('target') for record in records if isinstance(record, dict)}
+        if known_bootstrap:
+            if any(path.name not in release_ids for path in releases):
+                known_bootstrap = False
+            for release_id in release_ids:
+                try:
+                    old_bundle = Host(role, release_id)
+                    if old_bundle.manifest.get('onboard_vps4') is not True:
+                        known_bootstrap = False
+                    old_bundle.validate_bundle()
+                except Exception:
+                    known_bootstrap = False
+        if (containers or (ROOT / 'container-evidence.json').exists()
+                or (releases or receipts) and not known_bootstrap):
+            raise RuntimeError('VPS4 has prior runtime or release state; explicit operator reconciliation required')
     if pending is not None:
         if not isinstance(pending, dict) or any(not isinstance(pending.get(key), str) or not re.fullmatch(RELEASE_ID, pending[key]) for key in ('transaction', 'target')):
             raise RuntimeError('Invalid pending owner or target')
@@ -522,10 +551,11 @@ class Host:
         if not current.get('running') or current.get('oom_killed') or current.get('health') != 'healthy':
             fail('UNHEALTHY')
 
-    def begin(self, transaction):
+    def begin(self, transaction, onboard_vps4=False):
         if (ROOT / 'pending.json').exists():
             raise RuntimeError('Unfinished transaction exists; do not deploy until reconciled')
         stable = read(ROOT / 'stable.json')
+        previous = None
         if stable:
             if not re.fullmatch(RELEASE_ID, stable['release_id']):
                 raise RuntimeError('Invalid previous stable ID')
@@ -533,11 +563,15 @@ class Host:
             if previous is None:
                 raise RuntimeError('Previous stable bundle missing')
         else:
-            existing = run(['docker', 'ps', '-aq', '--filter', 'label=com.docker.compose.project=handygo'])
+            if onboard_vps4 and (self.role != 'vps4' or self.manifest.get('onboard_vps4') is not True):
+                raise RuntimeError('Onboarding authorization does not match this VPS4 release')
+            existing = run(['docker', 'ps', '-aq'])
             if existing:
                 raise RuntimeError('Unmanaged handygo containers exist; explicit migration/adoption required')
         state = {'schema_version': 2, 'transaction': transaction, 'previous': stable,
                  'target': self.release_id, 'touched': False, 'phase': 'SNAPSHOT'}
+        if onboard_vps4:
+            state['onboarding'] = True
         if self.manifest.get('container_verification_version') == 1:
             state['container_evidence'] = self._capture_baseline()
         write(ROOT / 'pending.json', state)
@@ -650,9 +684,10 @@ class Host:
                 images.add(self.manifest['nginx_image'])
             for image in sorted(images):
                 run(['docker', 'image', 'inspect', image], label=f'{self.role} check cached image')
-            self.check_env_dependencies()
         else:
             self.compose('pull', *self.names)
+        if self.manifest.get('env_refresh') or self.role == 'vps4':
+            self.check_env_dependencies()
         if self.manifest['run_migrations'] and self.release_id == transaction:
             run(['docker', 'pull', self.manifest['migration_image']])
         if self.role == 'vps1':
@@ -684,7 +719,8 @@ class Host:
         state.pop('verification', None)
         state.update(touched=True, phase='APPLYING')
         write(ROOT / 'pending.json', state)
-        migrations = MIGRATIONS[self.role]
+        # Onboarding runs only Message storage and its additive notification enum.
+        migrations = ONBOARDING_MIGRATIONS.get(self.role, ()) if self.manifest.get('onboard_vps4') else MIGRATIONS[self.role]
         if self.manifest['run_migrations'] and migrations and self.release_id == transaction:
             if tracked:
                 for name, baseline in evidence['baseline'].items():
@@ -779,7 +815,24 @@ class Host:
         if not state['touched']:
             return {'rollback': 'NOT_NEEDED'}
         if not state['previous']:
-            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: bootstrap has no previous release')
+            if getattr(self, 'role', None) != 'vps4' or state.get('onboarding') is not True or self.manifest.get('onboard_vps4') is not True:
+                raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: bootstrap has no previous release')
+            state.pop('verification', None)
+            state['recovery_attempt'] = state.get('recovery_attempt', 0) + 1
+            state['recovery_decision'] = 'REMOVE_ONBOARDED_VPS4'
+            state['recovery_from_phase'] = state.get('phase', 'APPLYING')
+            state['phase'] = 'APPLYING'
+            write(ROOT / 'pending.json', state)
+            current_stable = read(ROOT / 'stable.json')
+            if current_stable not in (None, {'release_id': self.release_id}):
+                raise RuntimeError('VPS4 stable state changed during onboarding rollback')
+            self.compose('rm', '-s', '-f', *self.names)
+            if (ROOT / 'stable.json').exists():
+                (ROOT / 'stable.json').unlink()
+                sync_directory(ROOT)
+            state['phase'] = 'RESTORED'
+            write(ROOT / 'pending.json', state)
+            return {'rollback': 'NO_PREVIOUS_RELEASE', 'release_id': None}
         old = Host(self.role, state['previous']['release_id'])
         old.validate_bundle()
         if (not self.manifest.get('rollback_compatible') or not old.manifest.get('rollback_compatible')
@@ -992,6 +1045,9 @@ def main():
     wait_lock = '--wait-lock' in arguments
     if wait_lock:
         arguments.remove('--wait-lock')
+    onboard_vps4 = '--onboard-vps4' in arguments
+    if onboard_vps4:
+        arguments.remove('--onboard-vps4')
     expected_state = None
     if '--expected-state' in arguments:
         index = arguments.index('--expected-state')
@@ -1054,7 +1110,7 @@ def main():
             elif action == 'authorize-finish':
                 result = host.authorize_finish(transaction)
             elif action in ('begin', 'prepare', 'apply', 'commit', 'restore', 'finish'):
-                result = getattr(host, action)(transaction)
+                result = host.begin(transaction, onboard_vps4=onboard_vps4) if action == 'begin' else getattr(host, action)(transaction)
             else:
                 raise ValueError('Unknown host action')
         except Exception as error:

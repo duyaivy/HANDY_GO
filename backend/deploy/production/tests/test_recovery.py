@@ -145,6 +145,43 @@ class RecoveryTests(unittest.TestCase):
     def reconcile(self, **kwargs):
         return recovery.reconcile(self.c, **kwargs)
 
+    def test_explicit_onboarding_accepts_only_pristine_vps4_without_stable_snapshot(self):
+        states = copy.deepcopy(self.cluster.states)
+        states['vps4']['stable'] = None
+        states['vps4']['manifests'] = {}
+        with self.assertRaisesRegex(RuntimeError, 'stable releases differ'):
+            recovery.plan(states)
+        self.assertEqual(recovery.plan(states, onboarding=True)['decision'], 'RECOVERY_NOT_NEEDED')
+        states['vps4']['pending'] = pending(INCIDENT_A, previous=None)
+        with self.assertRaisesRegex(RuntimeError, 'onboarding VPS4 is not pristine'):
+            recovery.plan(states, onboarding=True)
+
+    def test_onboarding_snapshot_must_not_have_unknown_release_metadata(self):
+        states = copy.deepcopy(self.cluster.states)
+        states['vps4']['stable'] = None
+        states['vps4']['manifests'] = {OLD: manifest(OLD)}
+        with self.assertRaisesRegex(RuntimeError, 'onboarding VPS4 is not pristine'):
+            recovery.plan(states, onboarding=True)
+
+    def test_explicit_onboarding_rejects_vps4_that_already_has_a_stable_release(self):
+        with self.assertRaisesRegex(RuntimeError, 'already initialized'):
+            recovery.plan(copy.deepcopy(self.cluster.states), onboarding=True)
+
+    def test_partial_onboarding_rollout_recovers_to_three_host_baseline(self):
+        states = copy.deepcopy(self.cluster.states)
+        target_manifest = manifest(INCIDENT_A) | {'onboard_vps4': True}
+        for role, state in states.items():
+            state['manifests'][INCIDENT_A] = copy.deepcopy(target_manifest)
+            state['pending'] = pending(INCIDENT_A, phase='APPLYING', previous=OLD)
+            state['pending']['touched'] = True
+        states['vps4']['stable'] = {'release_id': INCIDENT_A}
+        states['vps4']['pending']['previous'] = None
+        states['vps4']['pending']['onboarding'] = True
+        result = recovery.plan(states, expected=(INCIDENT_A, INCIDENT_A))
+        self.assertEqual(result['decision'], 'RESTORE_PREVIOUS')
+        self.assertEqual(result['previous'], OLD)
+        self.assertTrue(result['onboarding'])
+
     def assert_locked(self, *roles):
         self.assertFalse(self.cluster.actions('finish'))
         for role in roles:

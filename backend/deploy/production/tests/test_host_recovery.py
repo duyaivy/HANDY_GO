@@ -108,6 +108,51 @@ class HostRecoveryTests(unittest.TestCase):
         self.assertEqual(host.read(self.root / 'stable.json'), {'release_id': TARGET})
         self.assertTrue((self.root / 'pending.json').exists())
 
+    def test_onboarded_vps4_without_previous_app_removes_only_new_service(self):
+        executor = host.Host.__new__(host.Host)
+        executor.role, executor.release_id = 'vps4', TARGET
+        executor.names = ['message-service']
+        executor.manifest = {'onboard_vps4': True}
+        state = {'transaction': TARGET, 'target': TARGET, 'previous': None,
+                 'onboarding': True, 'touched': True, 'phase': 'APPLYING'}
+        executor.owner = Mock(return_value=state)
+        executor.compose = Mock()
+        host.write(self.root / 'stable.json', {'release_id': TARGET})
+        with patch.object(host, 'ROOT', self.root):
+            result = executor.restore(TARGET)
+        self.assertEqual(result, {'rollback': 'NO_PREVIOUS_RELEASE', 'release_id': None})
+        executor.compose.assert_called_once_with('rm', '-s', '-f', 'message-service')
+        self.assertFalse((self.root / 'stable.json').exists())
+        self.assertEqual(host.read(self.root / 'pending.json')['phase'], 'RESTORED')
+
+    def test_pristine_vps4_is_inspectable_without_fabricating_a_stable_snapshot(self):
+        fresh = self.root / 'fresh-vps4'
+        fresh.mkdir()
+        host.write(fresh / 'host.json', {'role': 'vps4', 'private_ip': '10.77.0.4'})
+        with patch.object(host, 'ROOT', fresh), patch.object(host, 'run', return_value=''):
+            state = host.inspect_state('vps4')
+        self.assertIsNone(state['stable'])
+        self.assertIsNone(state['pending'])
+        self.assertEqual(state['manifests'], {})
+        self.assertFalse((fresh / 'stable.json').exists())
+
+    def test_unmanaged_vps4_container_conflicting_journal_and_prior_bundle_block_onboarding(self):
+        fresh = self.root / 'unsafe-vps4'
+        fresh.mkdir()
+        host.write(fresh / 'host.json', {'role': 'vps4', 'private_ip': '10.77.0.4'})
+        with patch.object(host, 'ROOT', fresh), patch.object(host, 'run', return_value='container-id'):
+            with self.assertRaisesRegex(RuntimeError, 'prior runtime or release state'):
+                host.inspect_state('vps4')
+        with patch.object(host, 'ROOT', fresh), patch.object(host, 'run', return_value=''):
+            host.write(fresh / 'pending.json', {'foreign': 'journal'})
+            with self.assertRaisesRegex(RuntimeError, 'Invalid pending'):
+                host.inspect_state('vps4')
+            (fresh / 'pending.json').unlink()
+            (fresh / 'releases').mkdir()
+            (fresh / 'releases' / 'unknown').mkdir()
+            with self.assertRaisesRegex(RuntimeError, 'prior runtime or release state'):
+                host.inspect_state('vps4')
+
     def test_old_broker_unhealthy_preserves_journal_and_stable(self):
         self.pending(touched=True, phase='APPLYING')
         def compose(*args, **kwargs):
