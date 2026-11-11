@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { createMessageApp } from '../src/application.js';
 import { AuthorityClient } from '../src/authority.js';
 import { MessagePrisma } from '../src/persistence.js';
+import { CursorCodec } from '../src/security.js';
 import type { TokenVerifierService } from '../../../libs/auth/src/token-verifier.service.js';
 
 const apps: NestExpressApplication[] = [];
@@ -142,6 +143,54 @@ describe('Message Service OpenAPI and Swagger UI', () => {
     expect(schemas.ChatReadStateDto).toBeDefined();
     expect(schemas.ConversationPageDto).toBeDefined();
     expect(schemas.MessageHistoryPageDto).toBeDefined();
+
+    // 7. Verify Finding 1: Conversation creation description accuracy
+    const postConv = spec.paths['/api/v1/conversations']?.post;
+    expect(postConv.description).toContain('open_for_bidding');
+    expect(postConv.description).not.toContain('báo giá đã được xác nhận');
+    expect(schemas.ConversationCreateDto.properties.bidId.description).not.toContain(
+      'đã được xác nhận',
+    );
+
+    // 8. Verify Finding 2: Architecture documentation in Swagger description
+    expect(spec.info.description).toContain('https://handygo.duyaivy.id.vn/docs');
+    expect(spec.info.description).toContain('http://10.77.0.4:3009/docs-json');
+    expect(spec.info.description).toContain('/api/v1/conversations');
+    expect(spec.info.description).toContain('/api/v1/chat/socket.io/');
+    expect(spec.info.description).not.toContain('định tuyến thông qua API Gateway');
+
+    // 9. Verify Finding 3: Cursor HMAC signing and example validity
+    const nextCursorExample =
+      schemas.ConversationPageDto?.properties?.nextCursor?.example;
+    expect(nextCursorExample).toBeDefined();
+
+    const codec = new CursorCodec('s'.repeat(32));
+    const decoded = codec.decode(
+      'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      nextCursorExample,
+    );
+    expect(decoded.id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
+    expect(decoded.timestamp).toBeInstanceOf(Date);
+
+    // Query cursor must not have hardcoded example breaking Swagger "Try it out"
+    if (schemas.ConversationListQueryDto?.properties?.cursor) {
+      expect(
+        schemas.ConversationListQueryDto.properties.cursor.example,
+      ).toBeUndefined();
+    }
+
+    // Unsigned plain base64 JSON must be rejected by CursorCodec
+    const unauthenticatedJson = Buffer.from(
+      JSON.stringify({
+        v: 1,
+        userId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+        sortTimestamp: new Date().toISOString(),
+        id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      }),
+    ).toString('base64url');
+    expect(() =>
+      codec.decode('a1b2c3d4-e5f6-7890-abcd-ef1234567890', unauthenticatedJson),
+    ).toThrow();
   });
 
   it('reconciles with checked-in docs/message-service/openapi.json without silent drift', () => {

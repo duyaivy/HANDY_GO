@@ -7,10 +7,11 @@ import { SERVICE_ROUTES } from '../proxy/proxy.constants.js';
  * Định nghĩa thêm các dịch vụ có tài liệu OpenAPI nhưng không proxy REST qua SERVICE_ROUTES.
  * Message Service được Nginx định tuyến trực tiếp đến VPS4 trong production,
  * Gateway chỉ fetch spec /docs-json phục vụ giao diện Swagger UI /docs.
+ * Dùng ReadonlyMap để ngăn ngừa prototype pollution (constructor, toString, __proto__).
  */
-const EXTRA_SPEC_SERVICES: Record<string, string> = {
-  'message-service': 'MESSAGE_SERVICE_URL',
-};
+const EXTRA_SPEC_SERVICES: ReadonlyMap<string, string> = new Map([
+  ['message-service', 'MESSAGE_SERVICE_URL'],
+]);
 
 /**
  * SwaggerSpecsController
@@ -40,9 +41,9 @@ export class SwaggerSpecsController {
     const route = SERVICE_ROUTES.find(
       (r) => r.upstreamName === serviceName,
     );
-    const envKey = route?.envKey ?? EXTRA_SPEC_SERVICES[serviceName];
+    const envKey = route?.envKey ?? EXTRA_SPEC_SERVICES.get(serviceName);
 
-    if (!envKey) {
+    if (!envKey || typeof envKey !== 'string') {
       throw new NotFoundException(
         `Microservice "${serviceName}" không tồn tại trong cấu hình Gateway.`,
       );

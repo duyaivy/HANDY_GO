@@ -12,10 +12,8 @@ export class ConversationListQueryDto {
 
   @ApiPropertyOptional({
     description:
-      'Con trỏ phân trang dạng opaque base64url lấy từ nextCursor của trang trước',
+      'Con trỏ phân trang dạng opaque HMAC-signed token lấy trực tiếp từ trường nextCursor của phản hồi trang trước. Client không được tự tạo hay chỉnh sửa giá trị này. Không truyền tham số này khi lấy trang đầu tiên.',
     maxLength: 2048,
-    example:
-      'eyJ2IjoxLCJ1c2VySWQiOiJhMWIyYzNkNC1lNWY2LTc4OTAtYWJjZC1lZjEyMzQ1Njc4OTAiLCJzb3J0VGltZXN0YW1wIjoiMjAyNi0xMS0xMVQwNTowMDowMC4wMDBaIiwiaWQiOiJmNDdhYzEwYi01OGNjLTQzNzItYTU2Ny0wZTAyYjJjM2Q0NzkifQ',
   })
   cursor?: string;
 }

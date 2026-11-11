@@ -1,8 +1,17 @@
 # REST API contracts (v1)
 
-These are the production REST API contracts for Message Service. Machine-readable API: [openapi.json](openapi.json), also exposed live at `/docs` (Swagger UI) and `/docs-json`. Portable wire types and validation: `backend/libs/common/src/message-contracts/`. Base URL is `https://handygo.duyaivy.id.vn`. Routed in production via Nginx to VPS4.
+These are the production REST API contracts for Message Service. Machine-readable API: [openapi.json](openapi.json). Portable wire types and validation: `backend/libs/common/src/message-contracts/`. Base URL is `https://handygo.duyaivy.id.vn`.
 
-All operations require a valid access JWT, active account/session, and server-derived marketplace `userId` (not account `sub`). REST through the existing Gateway must preserve its authenticated identity and trusted internal authentication conventions. Direct internal calls never trust a caller's `x-user-id` without checking the service credential. Every operation checks conversation membership independently of room membership. Unrelated or unknown conversation IDs return indistinguishable 404. Suspended/revoked identity returns 401.
+### Architecture & OpenAPI Endpoints
+- **Public Swagger UI:** `https://handygo.duyaivy.id.vn/docs` (unified multi-service documentation hosted by API Gateway).
+- **Public Message Service OpenAPI specification:** `https://handygo.duyaivy.id.vn/docs/specs/message-service` (proxied and normalized by API Gateway for browser consumption).
+- **Public Gateway OpenAPI JSON:** `https://handygo.duyaivy.id.vn/docs-json`.
+- **Internal Message Service OpenAPI JSON:** `http://10.77.0.4:3009/docs-json` (served directly by Message Service on VPS4 over WireGuard; locally `http://127.0.0.1:3009/docs-json`).
+- **REST API Routing:** Production Nginx on VPS1 routes `/api/v1/conversations` directly to Message Service on VPS4 (`http://10.77.0.4:3009`) via WireGuard. API Gateway does not proxy Message Service REST routes.
+- **Socket.IO Routing:** `/api/v1/chat/socket.io/` is routed directly through production Nginx on VPS1 to VPS4 (`http://10.77.0.4:3009`), bypassing API Gateway.
+- **Swagger "Try it out":** Requests from Swagger UI target public endpoints at `https://handygo.duyaivy.id.vn/api/v1/conversations`, which Nginx forwards to VPS4.
+
+All operations require a valid access JWT, active account/session, and server-derived marketplace `userId` (not account `sub`). In production, Nginx forwards caller Authorization headers directly to Message Service on VPS4, stripping client identity headers (`X-User-Id`, `X-Internal-Secret`, etc.) to guarantee security. Direct internal calls never trust a caller's `x-user-id` without checking the service credential. Every operation checks conversation membership independently of room membership. Unrelated or unknown conversation IDs return indistinguishable 404. Suspended/revoked identity returns 401.
 
 Responses reuse the existing common envelope exactly: `{statusCode:number,message:string,data:T,code?:string}`. Success omits `code`; error has `data:null` and stable `code`. Dates are UTC ISO 8601 strings. UUIDs follow repository UUID identity. PostgreSQL bigint sequences are canonical decimal **strings**, including `"0"`, never JSON numbers. All object input properties are allowlisted; reject extra fields, null where omitted optional fields are expected, invalid UUIDs and unbounded cursors.
 

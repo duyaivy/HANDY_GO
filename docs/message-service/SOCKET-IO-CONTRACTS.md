@@ -1,8 +1,11 @@
 # Socket.IO Real-time Chat Contracts (v1)
 
-This document specifies the production Socket.IO v1 contracts for HANDY_GO Message Service running on VPS4. REST endpoints are documented separately via Swagger UI (`/docs`) and OpenAPI JSON (`/docs-json`).
-
-Production Nginx terminates TLS at `https://handygo.duyaivy.id.vn` and routes `/api/v1/chat/socket.io/` directly to VPS4 over WireGuard (`http://10.77.0.4:3009`), supporting HTTP Long-Polling and WebSocket sticky upgrades.
+This document specifies the production Socket.IO v1 contracts for HANDY_GO Message Service running on VPS4. REST endpoints and OpenAPI documentation are structured as follows:
+- **Public Swagger UI:** `https://handygo.duyaivy.id.vn/docs` (Gateway multi-service dropdown)
+- **Public Message Service OpenAPI Specification:** `https://handygo.duyaivy.id.vn/docs/specs/message-service`
+- **Public Gateway OpenAPI JSON:** `https://handygo.duyaivy.id.vn/docs-json`
+- **Internal Message Service OpenAPI JSON:** `http://10.77.0.4:3009/docs-json` (VPS4 WireGuard; `http://127.0.0.1:3009/docs-json` locally)
+- **Routing:** Production Nginx on VPS1 terminates TLS at `https://handygo.duyaivy.id.vn` and routes `/api/v1/chat/socket.io/` directly to VPS4 over WireGuard (`http://10.77.0.4:3009`), supporting HTTP Long-Polling and WebSocket sticky upgrades without passing through API Gateway.
 
 ---
 
@@ -33,16 +36,27 @@ const socket = io('https://handygo.duyaivy.id.vn', {
 
 1. **Token Validation:** Verified using `TokenVerifierService` (RS256 signature, issuer, audience, expiration, non-empty `userId`).
 2. **Concurrent Connection Slots:** Maximum **10 concurrent sockets per user** (`userId`). Excess handshakes are rejected with `RATE_LIMITED`.
-3. **Connection Error Shape:** Handshake failure produces a `connect_error` event with:
-   ```json
-   {
-     "message": "Unauthorized",
-     "data": {
-       "code": "UNAUTHORIZED",
-       "retryable": false
+3. **Connection Error Shape:** Handshake failure produces a client `connect_error` event distinguished by failure cause:
+   - **Authentication failure** (missing, invalid, or expired token):
+     ```json
+     {
+       "message": "Unauthorized",
+       "data": {
+         "code": "UNAUTHORIZED",
+         "retryable": false
+       }
      }
-   }
-   ```
+     ```
+   - **Connection slot limit exceeded** (> 10 concurrent sockets):
+     ```json
+     {
+       "message": "Rate limited",
+       "data": {
+         "code": "RATE_LIMITED",
+         "retryable": true
+       }
+     }
+     ```
 4. **Token Expiry Disconnect:** Upon connection, the server arms an unreferenced timer scheduled for `user.exp * 1000 - Date.now()`. When the token expires, the socket is immediately and forcibly disconnected (`socket.disconnect(true)`). Clients must refresh tokens before expiry and reconnect.
 
 ---

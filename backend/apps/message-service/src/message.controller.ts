@@ -81,7 +81,7 @@ export class MessageController {
   @ApiOperation({
     summary: 'Tạo hoặc lấy cuộc trò chuyện theo lượt báo giá (bid)',
     description:
-      'Khởi tạo cuộc trò chuyện mới giữa khách hàng và thợ dựa trên lượt báo giá đã được xác nhận. Nếu cuộc trò chuyện đã tồn tại cho yêu cầu này, API sẽ trả về thông tin cuộc trò chuyện hiện có một cách idempotent (mã 200 thay vì 201).',
+      'Khởi tạo cuộc trò chuyện mới hoặc lấy cuộc trò chuyện hiện có giữa khách hàng và thợ dựa trên lượt báo giá hợp lệ (bid). Cho phép tạo hội thoại khi báo giá đang hoạt động (active) trong giai đoạn đấu thầu (open_for_bidding hoặc bidding_closed) mà không bắt buộc khách hàng phải chấp nhận báo giá trước, hoặc khi yêu cầu dịch vụ đã chuyển thành đơn hàng với thợ được chọn. Nếu cuộc trò chuyện đã tồn tại cho cặp yêu cầu - thợ này, API sẽ trả về thông tin cuộc trò chuyện hiện có một cách idempotent (mã 200 thay vì 201).',
   })
   @ApiBody({ type: ConversationCreateDto })
   @ApiResponse({
@@ -158,7 +158,7 @@ export class MessageController {
     required: false,
     type: String,
     description:
-      'Con trỏ phân trang dạng opaque base64url lấy từ nextCursor của kết quả trước.',
+      'Con trỏ phân trang dạng opaque HMAC-signed token lấy trực tiếp từ nextCursor của kết quả trước. Không truyền khi lấy trang đầu tiên.',
   })
   @ApiResponse({
     status: 200,

@@ -223,5 +223,35 @@ describe('SwaggerSpecsController (Unit)', () => {
         ).rejects.toThrow(NotFoundException);
       }
     });
+
+    it('từ chối các thuộc tính kế thừa và prototype pollution (constructor, toString, __proto__)', async () => {
+      for (const prototypeKey of [
+        'constructor',
+        'toString',
+        'valueOf',
+        '__proto__',
+        'hasOwnProperty',
+        'isPrototypeOf',
+      ]) {
+        await expect(
+          controller.getServiceSpec(prototypeKey),
+        ).rejects.toThrow(NotFoundException);
+      }
+    });
+
+    it('chấp nhận các dịch vụ hợp lệ được định nghĩa trong SERVICE_ROUTES hoặc allowlist', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ openapi: '3.0.0', paths: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      await expect(
+        controller.getServiceSpec('auth-service'),
+      ).resolves.toBeDefined();
+      await expect(
+        controller.getServiceSpec('message-service'),
+      ).resolves.toBeDefined();
+    });
   });
 });
