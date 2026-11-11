@@ -590,11 +590,12 @@ Before an owner-authorized release-branch run, complete these prerequisites:
    `REDIS_URL` because it is part of the shared production dependency contract.
    Do not use shared `DATABASE_URL` as the Message Service database fallback.
 4. Review database backup/PITR and DDL access. Set
-   `DB_DDL_VERIFIED_MESSAGE=true` and `DB_DDL_VERIFIED_NOTIFICATION=true` only
-   after confirming the effective migration endpoints and schema permissions.
-   The onboarding operation executes the additive Message schema migration on
-   VPS4 and the additive `chat` notification-category migration on VPS1. It does
-   not execute Order, Bidding, Matching, Tracking, Wallet, Catalog, or unrelated
+   `DB_DDL_VERIFIED_MESSAGE=true`, `DB_DDL_VERIFIED_NOTIFICATION=true`, and
+   `DB_DDL_VERIFIED_ORDER=true` only after confirming the effective migration
+   endpoints and schema permissions. The onboarding operation executes the
+   additive Message schema migration on VPS4, the additive `chat` notification-category
+   migration on VPS1, and the additive order evidence client ID migration on VPS2.
+   It does not execute Bidding, Matching, Tracking, Wallet, Catalog, or unrelated
    Auth/User Trust migrations.
 5. Dispatch **Backend production** from `release`, choose a reviewed CI-proven
    candidate, set `onboard_vps4=true` and `run_migrations=true`, and leave
@@ -610,7 +611,7 @@ existing coordinator ordering and rollback checks.
 If the transaction fails after VPS4 has begun but before cluster commit,
 recovery removes only the Message Service containers created by that release
 and leaves VPS4 without `stable.json`; it does not invent an application version
-to roll back to. VPS1–VPS3 restore their recorded stable version. The two schema
+to roll back to. VPS1–VPS3 restore their recorded stable version. The three schema
 migrations are additive and are not automatically reversed. If compensation
 fails, keep the pending journals intact and use the existing production
 recovery workflow with the exact original run ID, attempt, transaction and

@@ -36,9 +36,10 @@ MIGRATIONS = {
         if item.get('migration') is not None and item.get('host') == role and item.get('deploy'))
     for role in ROLES
 }
-ONBOARDING_MIGRATIONS = {'vps4': ('message',), 'vps1': ('notification',)}
+ONBOARDING_MIGRATIONS = {'vps4': ('message',), 'vps2': ('order',), 'vps1': ('notification',)}
 # Exact reviewed SQL additions: any edited/new SQL requires a fresh compatibility review.
 ONBOARDING_ADDITIVE_SQL = {
+    'apps/order-service/prisma/migrations/20261109203000_add_order_evidence_client_id/migration.sql': '407e2690d8d864d0c05e59fe3d5c9f4a114e787bb97c0513310cb47514753223',
     'apps/message-service/prisma/migrations/20261106000000_initial_message/migration.sql': '4ed3cc6434ec33f5cc4714309fb3e9e0e4a6526148246767bc81ff553ae9637f',
     'apps/message-service/prisma/migrations/20261106010000_conversation_list_indexes/migration.sql': '8889fd468a6e39f6e3acce3f5f830088bec8d3d3eca4ad46ac119923f4e89093',
     'apps/notification-service/prisma/migrations/20261106010000_message_notifications/migration.sql': 'ac5186f7b60175b83d82da528cb1fb0fcc52d786c9c21161f2bfd8a1036b365c',
@@ -55,8 +56,8 @@ def rollback_migrations_compatible(current, previous):
         return True
     if current.get('onboard_vps4'):
         proof = current.get('migration_compatibility', {})
-        return (current.get('migration_scope') == ['message', 'notification']
-                and proof.get('policy') == 'vps4-additive-v1'
+        return (current.get('migration_scope') == ['message', 'notification', 'order']
+                and proof.get('policy') == 'vps4-additive-v2'
                 and proof.get('sql') == ONBOARDING_ADDITIVE_SQL
                 and proof.get('baseline_hash') == previous.get('migration_hash')
                 and bool(proof.get('baseline_hash'))

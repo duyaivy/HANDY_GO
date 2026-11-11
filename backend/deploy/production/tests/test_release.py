@@ -440,7 +440,12 @@ class ReleaseTests(unittest.TestCase):
         migrations = [(role, args[-1]) for role, args in commands
                       if isinstance(args, list) and args[-1].startswith('prisma:migrate:')]
         self.assertEqual(migrations, [('vps4', 'prisma:migrate:message'),
-                                      ('vps1', 'prisma:migrate:notification')])
+                                      ('vps1', 'prisma:migrate:notification'),
+                                      ('vps2', 'prisma:migrate:order')])
+        self.assertIn(('vps1', 'prisma:migrate:notification'), migrations)
+        self.assertIn(('vps2', 'prisma:migrate:order'), migrations)
+        self.assertIn(('vps4', 'prisma:migrate:message'), migrations)
+        self.assertNotIn('vps3', [role for role, _ in migrations])
 
     def test_wallet_migration_failure_blocks_service_start(self):
         obj = host.Host.__new__(host.Host)

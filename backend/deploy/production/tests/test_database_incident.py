@@ -81,17 +81,32 @@ class DatabaseIncidentTests(unittest.TestCase):
         values = dict(self.values)
         for service in SERVICES:
             suffix = service.upper().replace('-', '_')
-            if service not in ('message', 'notification'):
+            if service not in ('message', 'notification', 'order'):
                 values.pop('DB_DDL_VERIFIED_' + suffix, None)
         validate_database_plan(values, self.registry, run_migrations=True,
-                               migration_scope={'message', 'notification'})
-        for service in ('message', 'notification'):
+                               migration_scope={'message', 'notification', 'order'})
+        for service in ('message', 'notification', 'order'):
             key = 'DB_DDL_VERIFIED_' + service.upper()
             invalid = dict(values)
             invalid.pop(key)
             with self.subTest(service=service), self.assertRaisesRegex(ValueError, key):
                 validate_database_plan(invalid, self.registry, run_migrations=True,
-                                       migration_scope={'message', 'notification'})
+                                       migration_scope={'message', 'notification', 'order'})
+
+    def test_onboarding_requires_ddl_confirmation_for_order(self):
+        values = dict(self.values)
+        values['DB_DDL_VERIFIED_ORDER'] = 'false'
+        with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_ORDER'):
+            validate_database_plan(values, self.registry, run_migrations=True,
+                                   migration_scope={'message', 'notification', 'order'})
+        values.pop('DB_DDL_VERIFIED_ORDER', None)
+        with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_ORDER'):
+            validate_database_plan(values, self.registry, run_migrations=True,
+                                   migration_scope={'message', 'notification', 'order'})
+        values['DB_DDL_VERIFIED_ORDER'] = 'true'
+        plan = validate_database_plan(values, self.registry, run_migrations=True,
+                                      migration_scope={'message', 'notification', 'order'})
+        self.assertIn('PRIMARY', plan)
 
     def test_supabase_poolers_follow_actual_consumer_requirements(self):
         values = {key: val for key, val in self.values.items() if not key.startswith('DIRECT_URL_')}
@@ -226,8 +241,10 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
+            self.assertEqual(proof['policy'], 'vps4-additive-v2')
+            self.assertEqual(proof['baseline_hash'], '74b963d47f03b9d80b069253585a10185849cea034b0b34218ebdaa0e7e84a45')
             current = {'rollback_compatible': True, 'onboard_vps4': True,
-                       'migration_scope': ['message', 'notification'],
+                       'migration_scope': ['message', 'notification', 'order'],
                        'migration_hash': proof['inventory_hash'], 'migration_compatibility': proof}
             previous = {'rollback_compatible': True, 'migration_hash': proof['baseline_hash']}
             self.assertTrue(host.rollback_migrations_compatible(current, previous))
