@@ -187,7 +187,9 @@
       "migration": "message",
       "migration_order": 0,
       "url_env": "MESSAGE_SERVICE_URL",
-      "http_callers": [],
+      "http_callers": [
+        "api-gateway"
+      ],
       "wireguard_http": true
     }
   }

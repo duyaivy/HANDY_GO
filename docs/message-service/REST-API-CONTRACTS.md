@@ -1,6 +1,6 @@
 # REST API contracts (v1)
 
-These are Phase 2 implementation contracts, not live routes. Machine-readable API: [openapi.json](openapi.json). Portable wire types and validation: `backend/libs/common/src/message-contracts/`. Keep these artifacts together when changing v1. Base URL stays `https://handygo.duyaivy.id.vn`. No new chat subdomain. Phase 3 will route these paths.
+These are the production REST API contracts for Message Service. Machine-readable API: [openapi.json](openapi.json), also exposed live at `/docs` (Swagger UI) and `/docs-json`. Portable wire types and validation: `backend/libs/common/src/message-contracts/`. Base URL is `https://handygo.duyaivy.id.vn`. Routed in production via Nginx to VPS4.
 
 All operations require a valid access JWT, active account/session, and server-derived marketplace `userId` (not account `sub`). REST through the existing Gateway must preserve its authenticated identity and trusted internal authentication conventions. Direct internal calls never trust a caller's `x-user-id` without checking the service credential. Every operation checks conversation membership independently of room membership. Unrelated or unknown conversation IDs return indistinguishable 404. Suspended/revoked identity returns 401.
 
@@ -16,7 +16,7 @@ Responses reuse the existing common envelope exactly: `{statusCode:number,messag
 | `GET /api/v1/conversations/{id}/messages` | `limit?:1..100` (default 30), `beforeSequence?:decimal`, `afterSequence?:decimal` | `MessageHistoryPage`, 200                  | READ                                      |
 | `PATCH /api/v1/conversations/{id}/read`   | `{lastReadSequence:decimal}`                                                      | `ChatReadState`, 200                       | READ, own user only                       |
 
-REST sends are intentionally absent: `message.send` uses Socket.IO. `/api/v1/messages/...` is reserved; Phase 1 does not invent an unused endpoint.
+REST sends are intentionally absent: `message.send` uses Socket.IO as documented in [SOCKET-IO-CONTRACTS.md](SOCKET-IO-CONTRACTS.md). `/api/v1/messages/...` is reserved; the service does not expose a REST send endpoint.
 
 Creation resolves the bid, request, owner, worker and selected order from authenticated internal authorities. The caller must be that customer or worker, the bid must have been persisted validly, and sending must currently be allowed. The client cannot choose request/customer/worker IDs. The unique request/customer/worker tuple gives atomic create-or-get idempotency; handle its unique violation by reading the winner. Return the same conversation ID through conversion to an order. Closed existing conversations remain discoverable by GET; POST must not reopen them. The current Bidding implementation does not permit resubmitting a withdrawn bid; this phase introduces no such capability. No transfer to a different worker is allowed. Recommendation-based orders without a previously valid bid are ineligible under the approved requirement.
 

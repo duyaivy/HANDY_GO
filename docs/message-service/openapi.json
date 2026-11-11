@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "HANDY_GO Message Service Phase 1 Contracts",
+    "title": "HANDY_GO Message Service API",
     "version": "1.0.0",
-    "description": "Design contract for Phase 2. These operations are not implemented or routed in Phase 1. Portable runtime validators impose cross-field and security constraints described in accompanying docs."
+    "description": "Production OpenAPI specification for HANDY_GO Message Service. REST operations provide conversation management, history, and read tracking. Real-time message exchange, typing indicators, and events are handled over Socket.IO as documented in SOCKET-IO-CONTRACTS.md."
   },
   "servers": [
     {
@@ -15,7 +15,7 @@
       "get": {
         "operationId": "listConversations",
         "summary": "List only authenticated participant conversations",
-        "tags": ["Message Service (Phase 2 contract)"],
+        "tags": ["Conversations"],
         "security": [
           {
             "JWT-Auth": []
@@ -108,7 +108,7 @@
       "post": {
         "operationId": "createConversation",
         "summary": "Create or retrieve pair derived from an eligible committed bid",
-        "tags": ["Message Service (Phase 2 contract)"],
+        "tags": ["Conversations"],
         "security": [
           {
             "JWT-Auth": []
@@ -232,7 +232,7 @@
       "get": {
         "operationId": "getConversation",
         "summary": "Get authorized conversation and read states",
-        "tags": ["Message Service (Phase 2 contract)"],
+        "tags": ["Conversations"],
         "security": [
           {
             "JWT-Auth": []
@@ -317,7 +317,7 @@
       "get": {
         "operationId": "listMessages",
         "summary": "Page authorized history by server sequence",
-        "tags": ["Message Service (Phase 2 contract)"],
+        "tags": ["Conversations"],
         "security": [
           {
             "JWT-Auth": []
@@ -428,7 +428,7 @@
       "patch": {
         "operationId": "advanceReadState",
         "summary": "Advance own read cursor monotonically",
-        "tags": ["Message Service (Phase 2 contract)"],
+        "tags": ["Conversations"],
         "security": [
           {
             "JWT-Auth": []

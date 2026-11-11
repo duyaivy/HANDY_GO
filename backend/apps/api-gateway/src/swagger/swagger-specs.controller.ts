@@ -4,6 +4,15 @@ import { ConfigService } from '@app/config';
 import { SERVICE_ROUTES } from '../proxy/proxy.constants.js';
 
 /**
+ * Định nghĩa thêm các dịch vụ có tài liệu OpenAPI nhưng không proxy REST qua SERVICE_ROUTES.
+ * Message Service được Nginx định tuyến trực tiếp đến VPS4 trong production,
+ * Gateway chỉ fetch spec /docs-json phục vụ giao diện Swagger UI /docs.
+ */
+const EXTRA_SPEC_SERVICES: Record<string, string> = {
+  'message-service': 'MESSAGE_SERVICE_URL',
+};
+
+/**
  * SwaggerSpecsController
  *
  * Cung cấp endpoint proxy `/docs/specs/:serviceName` để Swagger UI tại API Gateway
@@ -11,8 +20,8 @@ import { SERVICE_ROUTES } from '../proxy/proxy.constants.js';
  * cần khai báo lại endpoint thủ công ở Gateway.
  *
  * Cơ chế hoạt động:
- *  1. Client (trình duyệt Swagger UI) gọi: GET /docs/specs/auth-service
- *  2. Gateway fetch nội bộ: GET http://<AUTH_SERVICE_URL>/docs-json
+ *  1. Client (trình duyệt Swagger UI) gọi: GET /docs/specs/auth-service (hoặc message-service)
+ *  2. Gateway fetch nội bộ: GET http://<SERVICE_URL>/docs-json
  *  3. Gateway chuẩn hóa trường `servers` → [{ url: "/" }] để "Try it out"
  *     của Swagger UI tự động gọi qua cổng Gateway.
  *  4. Loại bỏ endpoint nội bộ `/health` của container để tránh xung đột với
@@ -31,8 +40,9 @@ export class SwaggerSpecsController {
     const route = SERVICE_ROUTES.find(
       (r) => r.upstreamName === serviceName,
     );
+    const envKey = route?.envKey ?? EXTRA_SPEC_SERVICES[serviceName];
 
-    if (!route) {
+    if (!envKey) {
       throw new NotFoundException(
         `Microservice "${serviceName}" không tồn tại trong cấu hình Gateway.`,
       );
@@ -40,7 +50,7 @@ export class SwaggerSpecsController {
 
     let serviceUrl: string;
     try {
-      serviceUrl = this.config.getUrl(route.envKey);
+      serviceUrl = this.config.getUrl(envKey);
     } catch {
       return this.buildOfflineSpec(serviceName);
     }

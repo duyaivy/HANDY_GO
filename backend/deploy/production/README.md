@@ -629,3 +629,8 @@ wins. The Socket.IO path is fixed in code at
 REST `/api/v1/conversations` and that Socket.IO path to `10.77.0.4:3009`, with
 HTTP/1.1 Upgrade and Connection headers for WebSocket. The broker queue setting
 consumed by code is `MESSAGE_EVENT_QUEUE`; `RABBITMQ_QUEUE_MESSAGE` is unused.
+The API Gateway fetches the Message Service OpenAPI specification via
+`MESSAGE_SERVICE_URL` (`http://10.77.0.4:3009/docs-json`) over the WireGuard
+mesh to populate the unified Swagger UI documentation page at `/docs`. Gateway
+rewrites downstream servers to the public root `/` so interactive requests
+('Try it out') route through production Nginx.
