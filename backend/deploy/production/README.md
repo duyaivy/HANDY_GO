@@ -164,7 +164,19 @@ docker run --rm alpine:3.22 ping -c 3 10.77.0.3
 
 Phép thử từ container xác nhận đường Docker → WireGuard trước khi deploy; cho phép ICMP nội bộ giữa peer khi thử. Chưa có application container ở lần đầu nên chưa thể gọi `/health` trên cổng service. Sau reboot kiểm tra lại `wg0`, Docker và hai peer; nếu NAT/FORWARD bị chặn thì sửa firewall theo topology trước khi deploy.
 
-Provider firewall: cả ba host chỉ mở SSH từ nguồn quản trị/CI tin cậy và UDP 51820 từ hai peer. VPS1 thêm TCP 80/443. User Trust port 3002 chỉ bind vào WireGuard IP VPS1 để Matching/Bidding/Wallet trên các VPS khác gọi API nội bộ; firewall chỉ cho phép peer WireGuard. Các port ứng dụng còn lại không public; VPS2/3 chỉ bind WireGuard IP. Kiểm tra IPv6 và Docker forwarding/DOCKER-USER; **không chỉ dựa vào UFW** để chặn Docker published ports. GitHub-hosted runner có IP thay đổi; ưu tiên egress cố định/bastion. Nếu mở SSH rộng thì bắt buộc key-only và theo dõi brute force.
+Provider firewall: các host chỉ mở SSH từ nguồn quản trị/CI tin cậy và UDP 51820 giữa các WireGuard peer. VPS1 thêm TCP 80/443 cho Nginx public edge. Trên VPS1:
+- Auth (3001), User Trust (3002), Notification (3008) và API Gateway (3000) bind vào WireGuard IP `10.77.0.1` (`${PRIVATE_IP}`).
+- **Tuyệt đối không bind `0.0.0.0`** cho các port nội bộ này và **không tạo route Nginx public cho Notification**; client bên ngoài chỉ tương tác qua API Gateway.
+- **Quy tắc firewall VPS1 (tối thiểu cần thiết):**
+  - Chỉ cho phép inbound tới port 3000, 3001, 3002, 3008 trên interface WireGuard `wg0` từ dải IP nội bộ WireGuard `10.77.0.0/24`:
+    ```bash
+    ufw allow in on wg0 to 10.77.0.1 port 3001 proto tcp comment "Auth via WireGuard"
+    ufw allow in on wg0 to 10.77.0.1 port 3002 proto tcp comment "User Trust via WireGuard"
+    ufw allow in on wg0 to 10.77.0.1 port 3008 proto tcp comment "Notification via WireGuard"
+    ```
+  - Không mở port 3008 ra Internet, không disable UFW, và không thêm allow broad public.
+  - Các container trên cùng VPS1 giao tiếp nội bộ qua Docker bridge network bằng Docker DNS, không cần đi qua interface WireGuard của host.
+Các port ứng dụng còn lại trên VPS2/3/4 cũng chỉ bind WireGuard IP. Kiểm tra IPv6 và Docker forwarding/DOCKER-USER; **không chỉ dựa vào UFW** để chặn Docker published ports. GitHub-hosted runner có IP thay đổi; ưu tiên egress cố định/bastion. Nếu mở SSH rộng thì bắt buộc key-only và theo dõi brute force.
 
 Không chạy PostgreSQL, Redis hoặc RabbitMQ container trên các VPS. Cloud dùng TLS, IP allowlist cả ba VPS, credentials tối thiểu, backup/PITR và quota phù hợp. Database adapter hiện chưa có biến cấu hình pool max riêng; không tự thêm `DB_POOL_SIZE` rồi coi như đã có tác dụng.
 
@@ -192,9 +204,14 @@ Khi thêm ENV cho service, thêm vào đúng mục ở cả hai template, triể
 - `env_file`: đưa ENV ứng dụng vào container.
 - `--env-file /dev/null`: tránh tự đọc `.env` của người vận hành khi Compose nội suy.
 - Metadata như APP_IMAGE/NGINX_IMAGE/PRIVATE_IP được host executor cung cấp cho process Compose.
-- `environment` chỉ override PORT/NODE_OPTIONS; ConfigModule và cách đọc biến hiện có được giữ nguyên.
+- `environment`: Override cấu hình môi trường cụ thể cho từng container; Compose `environment` có độ ưu tiên cao hơn `env_file`.
+- **Quy tắc định tuyến mạng microservices (Networking Rule):**
+  - **Cùng VPS → Docker DNS:** Các container trên cùng máy (cùng bridge network `handygo_default`) phải kết nối với nhau qua Docker DNS (tên service Docker: cổng container, ví dụ `http://auth-service:3001`, `http://user-trust-service:3002`, `http://notification-service:3008`). Việc container cố kết nối ngược lại IP WireGuard của host (`10.77.0.1`) sẽ bị lỗi timeout do cơ chế hairpin NAT / routing loop giữa bridge network và interface `wg0`.
+  - **Khác VPS → WireGuard IP:** Các container trên VPS khác (ví dụ Message Service trên VPS4 gọi Auth/User Trust trên VPS1, hoặc API Gateway trên VPS1 gọi Order trên VPS2) bắt buộc phải dùng IP WireGuard của VPS đích (`http://10.77.0.x:PORT`) vì Docker DNS chỉ có phạm vi nội bộ trong host.
+  - **Vì sao shared ENV dùng WireGuard IP trong khi API Gateway override Docker DNS?**
+    File shared ENV (`production.env.example` / `BACKEND_PRODUCTION_ENV`) là duy nhất và được triển khai đồng nhất cho tất cả các VPS. Để các service ở VPS2, VPS3, VPS4 có thể gọi Auth, User Trust và Notification trên VPS1, shared ENV phải khai báo các URL theo IP WireGuard (`http://10.77.0.1:3001`, `http://10.77.0.1:3002`, `http://10.77.0.1:3008`). Riêng container API Gateway trên VPS1 sẽ override ba URL này trong `compose.production.yml` bằng Docker DNS cục bộ để đảm bảo kết nối nội bộ ổn định và vượt qua các probe kiểm tra (`ops/verify.mjs`).
 
-Khi chuyển từ mapping Notification trên VPS3 sang VPS1, cập nhật **NOTIFICATION_SERVICE_URL=http://notification-service:3008** trong GitHub Environment secret BACKEND_PRODUCTION_ENV trước lần deploy tiếp theo; không chỉ sửa file example. Coordinator sẽ dùng ENV mới giống nhau trên cả ba host và reconcile container theo manifest.
+Cập nhật **NOTIFICATION_SERVICE_URL=http://10.77.0.1:3008** trong GitHub Environment secret `BACKEND_PRODUCTION_ENV` trước lần deploy tiếp theo. Coordinator sẽ dùng ENV mới đồng nhất trên cả 4 host và container API Gateway sẽ tự động ghi đè bằng `http://notification-service:3008` thông qua Compose.
 
 Ba bản sao ENV dùng cùng SHA-256 trong manifest. Mỗi release giữ một **snapshot của cùng ENV chung**, `releases/<id>/shared.env`, mode 600; không có auth.env/order.env/migration.env. Snapshot cũ là cần thiết để rollback đúng cấu hình. Đây là versioning của một cấu hình ứng dụng, không phải tách ENV theo service.
 
