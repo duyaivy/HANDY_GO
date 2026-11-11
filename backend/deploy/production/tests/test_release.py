@@ -91,6 +91,7 @@ class ReleaseTests(unittest.TestCase):
         obj.inspect_cluster = Mock(side_effect=lambda: states)
         obj.bundle = Mock(return_value=(manifest, b'archive'))
         obj.ssh_run = Mock(return_value=b'')
+        obj.executor = Mock(return_value={})
         obj.public_smoke = Mock()
         calls = []
 
@@ -171,7 +172,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_staging_failure_does_not_require_transaction_recovery(self):
         obj, calls = self.make_coordinator()
-        obj.ssh_run.side_effect = RuntimeError('vps2: SSH failed')
+        obj.executor.side_effect = RuntimeError('vps2: SSH failed')
         with self.assertRaisesRegex(RuntimeError, 'FAILED_BEFORE_ROLLOUT'):
             obj.execute()
         self.assertEqual(obj.journal['status'], 'FAILED_BEFORE_ROLLOUT')

@@ -15,6 +15,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import tarfile
+import io
 
 from release_log import emit, load_secrets, redact
 
@@ -35,6 +37,33 @@ MIGRATIONS = {
     for role in ROLES
 }
 ONBOARDING_MIGRATIONS = {'vps4': ('message',), 'vps1': ('notification',)}
+# Exact reviewed SQL additions: any edited/new SQL requires a fresh compatibility review.
+ONBOARDING_ADDITIVE_SQL = {
+    'apps/message-service/prisma/migrations/20261106000000_initial_message/migration.sql': '4ed3cc6434ec33f5cc4714309fb3e9e0e4a6526148246767bc81ff553ae9637f',
+    'apps/message-service/prisma/migrations/20261106010000_conversation_list_indexes/migration.sql': '8889fd468a6e39f6e3acce3f5f830088bec8d3d3eca4ad46ac119923f4e89093',
+    'apps/notification-service/prisma/migrations/20261106010000_message_notifications/migration.sql': 'ac5186f7b60175b83d82da528cb1fb0fcc52d786c9c21161f2bfd8a1036b365c',
+}
+
+
+def rollback_migrations_compatible(current, previous):
+    if not current.get('rollback_compatible') or not previous.get('rollback_compatible'):
+        return False
+    # ENV refresh preserves the accepted inventory, including onboarding metadata.
+    # Equal nonempty hashes need no delta certificate; both releases already name
+    # the same migration state. Changed hashes still require the exact proof below.
+    if current.get('migration_hash') and current['migration_hash'] == previous.get('migration_hash'):
+        return True
+    if current.get('onboard_vps4'):
+        proof = current.get('migration_compatibility', {})
+        return (current.get('migration_scope') == ['message', 'notification']
+                and proof.get('policy') == 'vps4-additive-v1'
+                and proof.get('sql') == ONBOARDING_ADDITIVE_SQL
+                and proof.get('baseline_hash') == previous.get('migration_hash')
+                and bool(proof.get('baseline_hash'))
+                and proof.get('inventory_hash') == current.get('migration_hash'))
+    return False
+
+
 NGINX_PREFLIGHT = '''\
 for directory in /etc/nginx/tls /var/www/certbot; do
     if [ ! -d "$directory" ] || [ ! -x "$directory" ]; then
@@ -89,7 +118,95 @@ def write(path, data):
 
 def state_token():
     state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending', 'fence', 'container-evidence')}
+    state['staging'] = {path.name: read(path) for path in (ROOT / 'staging').glob('*.json')}
     return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def staging_records(role):
+    records = {}
+    for path in (ROOT / 'staging').glob('*.json'):
+        record = read(path)
+        if (not isinstance(record, dict) or record.get('role') != role
+                or not re.fullmatch(RELEASE_ID, record.get('transaction', ''))
+                or record.get('target') != path.stem
+                or not re.fullmatch(RELEASE_ID, path.stem)
+                or record.get('status') not in ('STAGING', 'STAGED', 'CONSUMED', 'CLEANED')
+                or not re.fullmatch(r'[a-f0-9]{64}', record.get('archive_sha256', ''))
+                or not re.fullmatch(r'[1-9][0-9]*:[a-f0-9]{32}', record.get('fence', ''))):
+            raise RuntimeError('Invalid staging ownership receipt; preserve artifacts')
+        records[path.stem] = record
+    return records
+
+
+def stage_bundle(role, release_id, transaction, archive, fence):
+    if release_id != transaction or not fence or not re.fullmatch(RELEASE_ID, release_id):
+        raise RuntimeError('Staging requires a new release and fenced transaction')
+    directory = ROOT / 'releases' / release_id
+    receipts = ROOT / 'staging'
+    receipts.mkdir(mode=0o700, exist_ok=True)
+    receipt = receipts / (release_id + '.json')
+    if directory.exists() or receipt.exists():
+        raise RuntimeError('Immutable release or staging receipt already exists')
+    # Validate archive paths before recording ownership or writing any release files.
+    with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
+        members = bundle.getmembers()
+        names = [item.name for item in members]
+        if len(names) != len(set(names)) or any(
+                not item.isfile() or Path(item.name).is_absolute() or '..' in Path(item.name).parts
+                for item in members):
+            raise RuntimeError('Unsafe release archive')
+        record = dict(role=role, transaction=transaction, target=release_id, fence=fence,
+                      status='STAGING', archive_sha256=hashlib.sha256(archive).hexdigest())
+        write(receipt, record)  # Durable ownership precedes directory creation/extraction.
+        directory.mkdir(mode=0o700)
+        sync_directory(directory.parent)
+        for item in members:
+            destination = directory / item.name
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            with bundle.extractfile(item) as source, destination.open('xb') as output:
+                os.chmod(destination, 0o600)
+                shutil.copyfileobj(source, output)
+                output.flush()
+                os.fsync(output.fileno())
+    Host(role, release_id).validate_bundle()
+    record['status'] = 'STAGED'
+    write(receipt, record)
+    return {'staged': True}
+
+
+def transaction_release_references():
+    references = set()
+    for receipt in (ROOT / 'transactions').glob('*.json'):
+        history = read(receipt)
+        if not isinstance(history, dict):
+            raise RuntimeError('Invalid transaction receipt; preserve release history')
+        for target in (history.get('target'), (history.get('previous') or {}).get('release_id')):
+            if target is not None:
+                references.add(target)
+    return references
+
+
+def cleanup_staging(role, release_id):
+    record = staging_records(role).get(release_id)
+    if record is None:
+        raise RuntimeError('No staging ownership receipt; preserve release')
+    if record['status'] == 'CONSUMED':
+        raise RuntimeError('Staging was consumed by a deployment; preserve release history')
+    if release_id in transaction_release_references():
+        raise RuntimeError('Staged release is referenced by transaction history')
+    pending, stable = read(ROOT / 'pending.json'), read(ROOT / 'stable.json')
+    if (pending and (pending.get('target') == release_id or
+                     (pending.get('previous') or {}).get('release_id') == release_id)) or (stable or {}).get('release_id') == release_id:
+        raise RuntimeError('Staged release is referenced by deployment state')
+    directory = ROOT / 'releases' / release_id
+    if directory.is_symlink():
+        raise RuntimeError('Unexpected staging symlink; preserve artifacts')
+    if directory.exists():
+        shutil.rmtree(directory)
+        sync_directory(directory.parent)
+    record['status'] = 'CLEANED'
+    write(ROOT / 'staging' / (release_id + '.json'), record)
+    return {'staging_cleaned': True}
 
 
 def inspect_state(role):
@@ -100,6 +217,7 @@ def inspect_state(role):
     if metadata.get('private_ip') != {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]:
         raise RuntimeError('Unexpected WireGuard host identity')
     state = {key: read(ROOT / (key + '.json')) for key in ('stable', 'pending')}
+    staged = staging_records(role)
     references = set()
     def snapshot(value):
         if not isinstance(value, dict) or not isinstance(value.get('release_id'), str) or not re.fullmatch(RELEASE_ID, value['release_id']):
@@ -113,7 +231,8 @@ def inspect_state(role):
     elif role == 'vps4' and pending is None:
         containers = run(['docker', 'ps', '-aq'],
                          label='inspect uninitialized VPS4 containers')
-        releases = list((ROOT / 'releases').glob('*')) if (ROOT / 'releases').exists() else []
+        releases = [path for path in (ROOT / 'releases').glob('*')
+                    if path.name not in staged or staged[path.name]['status'] not in ('STAGING', 'STAGED')]
         receipts = list((ROOT / 'transactions').glob('*.json')) if (ROOT / 'transactions').exists() else []
         records = [read(path) for path in receipts]
         known_bootstrap = bool(records) and all(
@@ -161,7 +280,7 @@ def inspect_state(role):
         if not isinstance(executor.manifest.get('migration_hash'), str) or not executor.manifest['migration_hash']:
             raise RuntimeError('Missing migration metadata')
         manifests[release_id] = executor.manifest
-    return {**state, 'role': role, 'manifests': manifests, 'token': state_token()}
+    return {**state, 'role': role, 'manifests': manifests, 'staging': staged, 'release_history': sorted(transaction_release_references()), 'token': state_token()}
 
 
 def run(argv, env=None, label=None):
@@ -575,6 +694,10 @@ class Host:
         if self.manifest.get('container_verification_version') == 1:
             state['container_evidence'] = self._capture_baseline()
         write(ROOT / 'pending.json', state)
+        staged = staging_records(self.role).get(self.release_id)
+        if staged is not None:
+            staged['status'] = 'CONSUMED'
+            write(ROOT / 'staging' / (self.release_id + '.json'), staged)
         return {'previous': stable, 'previous_manifest': previous if stable else None,
                 'migration_hash': previous['migration_hash'] if stable else None}
 
@@ -696,6 +819,16 @@ class Host:
 
     def check_env_dependencies(self):
         script = (self.bundle / 'env-preflight.mjs').read_text()
+        if self.role == 'vps4':
+            # Compose creates its configured network idempotently, without starting
+            # dependencies or publishing service ports. Override the entrypoint so
+            # the Message application never runs during prepare. Retain the empty
+            # network after compensation: retries reuse the exact Compose network.
+            self.compose('run', '--rm', '--no-deps', '-T', '--pull', 'never',
+                         '--entrypoint', 'node', '-e', 'NODE_OPTIONS=--max-old-space-size=64',
+                         'message-service', '--input-type=module', '-e', script, self.role,
+                         label='vps4 validate candidate ENV dependencies (no application writes)')
+            return
         run(['docker', 'run', '--rm', '--pull=never', '--network', 'handygo_default',
              '--user', '1000:1000', '--read-only', '--memory=128m', '--memory-swap=256m', '--cpus=0.25',
              '--pids-limit=64', '--cap-drop=ALL', '--security-opt=no-new-privileges',
@@ -835,9 +968,7 @@ class Host:
             return {'rollback': 'NO_PREVIOUS_RELEASE', 'release_id': None}
         old = Host(self.role, state['previous']['release_id'])
         old.validate_bundle()
-        if (not self.manifest.get('rollback_compatible') or not old.manifest.get('rollback_compatible')
-                or not self.manifest.get('migration_hash')
-                or self.manifest['migration_hash'] != old.manifest.get('migration_hash')):
+        if not rollback_migrations_compatible(self.manifest, old.manifest):
             raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: migration compatibility is not proven')
         state.pop('verification', None)
         state['recovery_attempt'] = state.get('recovery_attempt', 0) + 1
@@ -1096,6 +1227,13 @@ def main():
             return
         if fence is not None and read(ROOT / 'fence.json') != fence:
             raise RuntimeError('Coordinator session fenced; refusing stale operation')
+        if action in ('stage', 'cleanup-staging'):
+            if expected_state is None or fence is None:
+                raise RuntimeError('Staging mutation requires inspected state and fence')
+            result = (stage_bundle(role, release_id, transaction, sys.stdin.buffer.read(), fence)
+                      if action == 'stage' else cleanup_staging(role, release_id))
+            print(json.dumps({**result, '_state': inspect_state(role)}))
+            return
         host = Host(role, release_id)
         emit(role, f'Start {action}: {release_id}')
         try:

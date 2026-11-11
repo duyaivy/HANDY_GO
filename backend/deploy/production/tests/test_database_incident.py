@@ -212,3 +212,32 @@ class DatabaseIncidentTests(unittest.TestCase):
                 migration.unlink()
             with self.assertRaisesRegex(ValueError, 'Migration SQL missing|outside configured execution path'):
                 migration_inventory(root, self.registry)
+
+
+class OnboardingMigrationProofTests(unittest.TestCase):
+    def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
+        import tempfile
+        import shutil
+        from database_plan import onboarding_migration_proof
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for source in PROD.parents[1].glob('apps/*/prisma/migrations/**/migration.sql'):
+                destination = root / source.relative_to(PROD.parents[1])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            proof = onboarding_migration_proof(root, host.MIGRATIONS)
+            current = {'rollback_compatible': True, 'onboard_vps4': True,
+                       'migration_scope': ['message', 'notification'],
+                       'migration_hash': proof['inventory_hash'], 'migration_compatibility': proof}
+            previous = {'rollback_compatible': True, 'migration_hash': proof['baseline_hash']}
+            self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            extra = root / 'apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql'
+            extra.parent.mkdir(parents=True)
+            extra.write_text('DROP TABLE wallets;')
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(migration_hash=changed['inventory_hash'], migration_compatibility=changed)
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
+            pinned = root / next(iter(host.ONBOARDING_ADDITIVE_SQL))
+            pinned.write_text('DROP SCHEMA public CASCADE;')
+            with self.assertRaisesRegex(ValueError, 'reviewed additive'):
+                onboarding_migration_proof(root, host.MIGRATIONS)

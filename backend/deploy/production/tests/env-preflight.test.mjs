@@ -205,3 +205,16 @@ for (const blank of [undefined, '', '   ']) {
     assert.equal(options.port, 465);
   });
 }
+
+for (const role of ['vps2', 'vps3']) {
+  test(`${role} retains shared dependency checks and rejects dependency failure`, async () => {
+    const healthy = fixture();
+    await checkEnv(role, env, healthy.load, () => {});
+    for (const probe of ['postgres-query', 'redis-ping', 'rabbit-connect']) {
+      assert.ok(healthy.calls.includes(probe));
+      const failing = fixture(probe);
+      await assert.rejects(checkEnv(role, env, failing.load, () => {}));
+    }
+    assert.ok(!healthy.calls.includes('smtp-verify'));
+  });
+}

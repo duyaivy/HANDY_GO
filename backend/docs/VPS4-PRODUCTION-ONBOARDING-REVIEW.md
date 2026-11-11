@@ -134,3 +134,75 @@ No SSH access, production database connection, migration, deployment, ENV refres
 ## GO / NO-GO
 
 **NO-GO for production deployment until release integration, owner review, release-branch CI, and production prerequisites are complete.** The local code change is ready for review, but production promotion remains a separate owner-approved action.
+
+## Blocking review remediation (2026-11-11)
+
+Follow-up to reviewed commit `068ec5622b92`; all changes remain on
+`fix/vps4-production-onboarding`.
+
+1. **Missing network:** raw `docker run --network handygo_default` assumed a network
+   that `compose pull` never creates. VPS4 now uses `compose run --rm --no-deps`
+   with the Node entrypoint overridden to run only the ENV probe. Compose initializes
+   its existing configured network idempotently; no application entrypoint or
+   published service port runs. Empty networks remain available for retries.
+2. **Interrupted onboarding recovery:** the pristine-only guard ran before pending
+   ownership classification. Recovery now validates the pending transaction and
+   manifest first and supports authorized SNAPSHOT, APPLYING, VERIFIED, RESTORED
+   and partially committed states. Unknown ownership remains rejected. Compensation
+   accepts VPS4's explicit `NO_PREVIOUS_RELEASE` response without fabricating history.
+3. **Migration rollback:** coordinator and host restore had different policies.
+   They now share `rollback_migrations_compatible`. Equal nonempty hashes require
+   both rollback compatibility declarations. Changed hashes require a certificate
+   pinning the exact three reviewed additive Message/Notification SQL files, the
+   complete previous baseline inventory/ownership hash, and the new inventory hash.
+   The scoped migration set must be exactly Message and Notification. Any unrelated
+   inventory changes invalidate the baseline before prepare; partial execution of
+   these additive migrations remains compatible. Altered or incompatible SQL fails
+   closed. ENV refresh rollback with retained onboarding metadata is also covered.
+4. **Partial staging:** staging previously left an unowned immutable directory when
+   another host failed. Fenced host staging now writes a durable ownership receipt
+   before extraction and validates archive paths and immutable contents. Cleanup
+   removes only abandoned, owned staging directories, retains CLEANED receipts,
+   and is retryable after interruption. Beginning a deployment marks staging CONSUMED.
+   Stable/pending references and every terminal transaction receipt permanently
+   protect release bundles from this cleanup, including compensated onboarding
+   bundles needed to authenticate later inspection. Unknown artifacts are retained
+   and rejected. After successful cleanup, retry uses a new workflow attempt/release
+   identity; immutable IDs are never overwritten.
+
+Changed files: `deploy/production/{host,orchestrate,recovery,database_plan}.py`,
+`deploy/production/tests/{test_staging,test_vps4_network,test_host_recovery,test_recovery,test_release,test_database_incident}.py`,
+`deploy/production/tests/env-preflight.test.mjs`, and this report.
+
+Regression coverage includes each host failing staging, interrupted extraction and
+cleanup, retries, unknown artifacts, historical/terminal release retention, all five
+onboarding recovery phases, real differing inventory hashes, partial additive SQL
+execution, changed/unexecuted unrelated SQL, and ENV refresh rollback after onboarding.
+Mocks/fakes isolate all SSH and transaction failure scenarios from production.
+
+Actual follow-up verification:
+
+| Check | Result |
+| --- | --- |
+| Complete production Python coordinator/recovery suite | 261 tests run, OK; 2 Docker-gated tests skipped |
+| ENV preflight suite, all four roles | 22 passed |
+| Production Compose validation | Passed all four profiles and optional-ENV cases |
+| Production configuration and migration inventory checks | Passed |
+| actionlint 1.7.7, three production workflows and pr-ci | Passed |
+| Message runtime typecheck and build | Passed |
+| Message Prisma validation | Passed with explicit dummy localhost URL; no DB connection |
+| Message unit tests | 9 files, 63 tests passed |
+| Message runtime Docker integration | Attempted; blocked by unavailable Docker daemon |
+| Production runtime Docker image build | Attempted; blocked by unavailable Docker daemon |
+
+Independent review found and prompted correction of historical staging cleanup,
+compensated-bundle retention, and ENV refresh compatibility regressions; dedicated
+regression tests now cover them. No production host, database or secret was accessed.
+
+**Remaining risk / NO-GO:** the reconstructed compatible baseline of current main
+is different from the inspected remote release migration inventory. Onboarding will
+reject this difference safely. The owner must reconcile the release integration's
+migration inventory or approve a separate compatible migration rollout before
+onboarding. Do not edit journal hashes or broaden the additive allowlist to bypass
+this rejection. Docker integration and image build must still pass on Docker-enabled
+CI, and the earlier release integration/production prerequisites remain mandatory.

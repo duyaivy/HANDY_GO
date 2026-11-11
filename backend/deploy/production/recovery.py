@@ -6,6 +6,7 @@ import time
 
 from orchestrate import Coordinator, ROLES, ID
 from release_log import redact
+from host import rollback_migrations_compatible
 
 
 def release(state):
@@ -16,9 +17,6 @@ def plan(states, expected=None, onboarding=False):
     onboarding = onboarding or any(
         isinstance(s.get('pending'), dict) and s['pending'].get('onboarding') is True
         for s in states.values())
-    if onboarding and 'vps4' in states and release(states['vps4'].get('stable')) is None:
-        if states['vps4'].get('pending') is not None or states['vps4'].get('manifests'):
-            raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: onboarding VPS4 is not pristine')
     owned = {}
     for r, s in states.items():
         if s.get('pending'):
@@ -64,15 +62,18 @@ def plan(states, expected=None, onboarding=False):
     transaction, target = next(iter(identities))
     previous_ids = {release(p['previous']) for p in owned.values()}
     onboarding_participants = [r for r, p in owned.items() if p.get('onboarding') is True]
+    if onboarding and 'vps4' in owned and not onboarding_participants:
+        raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: onboarding VPS4 is not pristine')
     if onboarding_participants:
         if (onboarding_participants != ['vps4'] or release(owned['vps4']['previous']) is not None
                 or states['vps4']['manifests'].get(target, {}).get('onboard_vps4') is not True):
             raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: invalid VPS4 onboarding journal')
-        previous_values = {release(s['stable']) for r, s in states.items() if r != 'vps4'}
+        previous_values = {release(s['stable']) for r, s in states.items()
+                           if r != 'vps4' and r not in owned and release(s['stable']) != target}
         previous_values.update(release(p['previous']) for r, p in owned.items() if r != 'vps4')
-        if len(previous_values) != 1 or None in previous_values:
+        if (len(previous_values) != 1 or None in previous_values) and stable_ids != {target}:
             raise RuntimeError('INCONSISTENT_STATE: onboarding baseline releases differ')
-        previous = next(iter(previous_values))
+        previous = next(iter(previous_values), None)
     else:
         if len(previous_ids) != 1:
             raise RuntimeError('INCONSISTENT_STATE: previous snapshots differ')
@@ -105,9 +106,7 @@ def plan(states, expected=None, onboarding=False):
     old = [s['manifests'][previous] for r, s in states.items() if r != 'vps4' or not onboarding]
     if any(m != old[0] for m in old):
         raise RuntimeError('INCONSISTENT_STATE: previous manifests differ')
-    if not untouched and (not target_manifest.get('rollback_compatible') or
-                          not old[0].get('rollback_compatible') or
-                          (not onboarding and target_manifest['migration_hash'] != old[0]['migration_hash'])):
+    if not untouched and not rollback_migrations_compatible(target_manifest, old[0]):
         raise RuntimeError('MANUAL_INTERVENTION_REQUIRED: migration compatibility not proven; never undo DB automatically')
     return dict(result, decision='FINISH_SNAPSHOT' if untouched else 'RESTORE_PREVIOUS',
                 verify=previous, previous_manifest=old[0], onboarding=bool(onboarding_participants))
@@ -200,7 +199,9 @@ def reconcile(coordinator, expected=None, automatic=False, inspect_only=False, e
                 if role in owned and owned[role].get('phase') != 'RESTORED':
                     result = c.remote(role, 'restore', wait_lock=True)
                     c.journal['rollback'][role] = result['rollback']
-                    if result['rollback'] not in ('RESTORED', 'NOT_NEEDED'):
+                    if result['rollback'] not in ('RESTORED', 'NOT_NEEDED') and not (
+                            recovery.get('onboarding') and role == 'vps4'
+                            and result['rollback'] == 'NO_PREVIOUS_RELEASE'):
                         raise RuntimeError(f'{role}: restore did not complete')
         verify = recovery['verify']
         if verify:

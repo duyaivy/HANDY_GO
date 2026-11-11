@@ -233,6 +233,31 @@ def validate_migration_owners(root, registry, owners):
     return inventory
 
 
+def onboarding_migration_proof(root, owners):
+    """Bind the complete inventory to a historical baseline plus exact additive SQL.
+
+    Scoped deploys must never certify unrelated, unexecuted migrations as applied.
+    Reconstructing the old complete hash proves those files and owners unchanged.
+    Every prefix of the approved additions remains safe for the old applications.
+    """
+    import hashlib
+    from host import ONBOARDING_ADDITIVE_SQL
+    root = Path(root)
+    migrations = sorted((root / 'apps').glob('*/prisma/migrations/**/migration.sql'))
+    found = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in migrations if str(p.relative_to(root)) in ONBOARDING_ADDITIVE_SQL}
+    if found != ONBOARDING_ADDITIVE_SQL:
+        raise ValueError('Onboarding SQL differs from reviewed additive migration policy')
+    def inventory_hash(paths, ownership):
+        data = b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in paths)
+        data += b'\0owners\0' + json.dumps(ownership, sort_keys=True).encode()
+        return hashlib.sha256(data).hexdigest()
+    baseline_owners = {role: names for role, names in owners.items() if role != 'vps4'}
+    return {'policy': 'vps4-additive-v1', 'sql': found,
+            'baseline_hash': inventory_hash([p for p in migrations if str(p.relative_to(root)) not in found], baseline_owners),
+            'inventory_hash': inventory_hash(migrations, owners)}
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Validate production migration inventory without database access')

@@ -148,7 +148,7 @@ sys.stdin.read()
                 process.terminate()
                 process.wait(timeout=10)
 
-    def executor(self, role, action, target=None, wait_lock=True):
+    def executor(self, role, action, target=None, wait_lock=True, data=None):
         # Execute reviewed runner code, never host.py from an old release/artifact.
         sources = {name: (HERE / name).read_text() for name in ('host.py', 'release_log.py', 'services.json')}
         loader = ('import base64,json,sys,types; '
@@ -169,7 +169,7 @@ sys.stdin.read()
                 command += ['--fence', self.fence]
         if wait_lock:
             command.append('--wait-lock')
-        response = json.loads(self.ssh_run(role, shlex.join(command),
+        response = json.loads(self.ssh_run(role, shlex.join(command), data=data,
                               label=f'{action} release {target or self.target}', timeout=3600))
         if action == 'inspect':
             return response
@@ -209,8 +209,20 @@ sys.stdin.read()
                 raise RuntimeError('RECOVERY_REQUIRED: bounded reconciliation did not finish')
         finally:
             self.transaction, self.target = original
+        self.cleanup_staged_releases()
         self.journal.update(transaction=self.transaction, target_release=self.target)
         self.persist()
+
+    def cleanup_staged_releases(self):
+        states = self.inspect_cluster()
+        for role, state in states.items():
+            references = {(state.get('stable') or {}).get('release_id')}
+            references.update(state.get('release_history', []))
+            pending = state.get('pending') or {}
+            references.update((pending.get('target'), (pending.get('previous') or {}).get('release_id')))
+            for target, record in state.get('staging', {}).items():
+                if target not in references and record['status'] in ('STAGING', 'STAGED'):
+                    self.executor(role, 'cleanup-staging', target=target)
 
     def bundle(self):
         if not re.fullmatch(r'[a-f0-9]{40}', self.args.commit or '') or not re.fullmatch(r'[a-f0-9]{40,64}', self.args.tree or ''):
@@ -246,7 +258,7 @@ sys.stdin.read()
                 raise ValueError('Only digest image references are accepted')
         values = module.validate_env(Path(self.args.env_file))
         module.validate_service_endpoints(values, registry)
-        from database_plan import validate_database_plan, validate_migration_owners
+        from database_plan import validate_database_plan, validate_migration_owners, onboarding_migration_proof
         validate_migration_owners(HERE.parents[1], registry, module.MIGRATIONS)
         migration_scope = (sorted({service for services in module.ONBOARDING_MIGRATIONS.values()
                                    for service in services})
@@ -270,6 +282,8 @@ sys.stdin.read()
             'rollback_compatible': True,
             'onboard_vps4': bool(getattr(self.args, 'onboard_vps4', False)),
             'migration_scope': migration_scope,
+            'migration_compatibility': (onboarding_migration_proof(HERE.parents[1], module.MIGRATIONS)
+                                        if migration_scope is not None else None),
             'hosts': hosts, 'services': selected,
             'images': {name: self.args.app_image for name in selected} | {'nginx': self.args.nginx_image},
             'excluded': {n: 'Disabled or NOT_READY' for n in registry if n not in selected},
@@ -314,10 +328,7 @@ sys.stdin.read()
             else:
                 manifest, archive = self.bundle()
                 for role in ROLES:
-                    directory = f'{ROOT}/releases/{self.target}'
-                    # mkdir without -p: a release is immutable, retries use a new run attempt.
-                    self.ssh_run(role, f'umask 077 && mkdir {shlex.quote(directory)} && tar -xzf - -C {shlex.quote(directory)}',
-                                 archive, label=f'stage release bundle {self.target}')
+                    self.executor(role, 'stage', data=archive)
             for role in ROLES:
                 attempted.append(role)
                 self.journal.setdefault('ownership', {})[role] = 'BEGIN_OUTCOME_UNKNOWN'
@@ -325,6 +336,10 @@ sys.stdin.read()
                 participants.append(role)
                 self.journal['ownership'][role] = 'BEGIN_CONFIRMED'
                 previous = snapshot['previous']
+                if getattr(self.args, 'onboard_vps4', False) and role != 'vps4':
+                    from host import rollback_migrations_compatible
+                    if not rollback_migrations_compatible(manifest, snapshot.get('previous_manifest') or {}):
+                        raise RuntimeError('Onboarding migration baseline differs; compatibility review required')
                 if self.args.rollback_release and not previous:
                     raise RuntimeError('Cannot rollback an uninitialized host')
                 if self.args.rollback_release and snapshot['migration_hash'] != manifest['migration_hash']:
@@ -362,6 +377,10 @@ sys.stdin.read()
             self.journal['status'] = 'FAILED'
             self.persist()
             if not attempted:
+                try:
+                    self.cleanup_staged_releases()
+                except Exception as cleanup_error:
+                    self.journal['staging_cleanup_error'] = redact(cleanup_error)
                 self.journal['status'] = 'FAILED_BEFORE_ROLLOUT'
                 self.persist()
                 raise RuntimeError('FAILED_BEFORE_ROLLOUT; no host transaction was started') from error

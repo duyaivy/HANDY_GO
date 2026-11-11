@@ -91,6 +91,44 @@ class HostRecoveryTests(unittest.TestCase):
             self.executor.finish(TARGET)
         self.assertEqual(before, (self.root / 'pending.json').read_bytes())
 
+    def test_additive_onboarding_restores_different_hash_after_partial_migrations(self):
+        self.pending(touched=True, phase='APPLYING')
+        self.executor.manifest.update(onboard_vps4=True, migration_hash='new-hash',
+            migration_scope=['message', 'notification'],
+            migration_compatibility={'policy': 'vps4-additive-v1', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+                                     'baseline_hash': 'same', 'inventory_hash': 'new-hash'})
+        with patch.object(host.Host, 'compose') as compose:
+            self.assertEqual(self.executor.restore(TARGET)['rollback'], 'RESTORED')
+        self.assertTrue(compose.called)
+        self.assertEqual(host.read(self.root / 'stable.json'), {'release_id': OLD})
+
+    def test_env_refresh_after_onboarding_restores_same_migration_inventory(self):
+        self.pending(touched=True, phase='APPLYING')
+        self.executor.manifest.update(env_refresh=True, run_migrations=False,
+            onboard_vps4=True, migration_scope=['message', 'notification'],
+            migration_compatibility={'policy': 'vps4-additive-v1', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+                                     'baseline_hash': 'historical-three-host-hash', 'inventory_hash': 'same'})
+        with patch.object(host.Host, 'compose') as compose:
+            self.assertEqual(self.executor.restore(TARGET)['rollback'], 'RESTORED')
+        self.assertEqual(host.read(self.root / 'stable.json'), {'release_id': OLD})
+        self.assertIn('never', compose.call_args_list[-1].args)
+        self.assertFalse(host.rollback_migrations_compatible(
+            {'rollback_compatible': True, 'migration_hash': ''},
+            {'rollback_compatible': True, 'migration_hash': ''}))
+
+    def test_additive_certificate_rejects_other_scope_or_changed_sql(self):
+        current = {'rollback_compatible': True, 'migration_hash': 'new', 'onboard_vps4': True,
+                   'migration_scope': ['message', 'notification'],
+                   'migration_compatibility': {'policy': 'vps4-additive-v1', 'sql': dict(host.ONBOARDING_ADDITIVE_SQL),
+                                               'baseline_hash': 'old', 'inventory_hash': 'new'}}
+        previous = {'rollback_compatible': True, 'migration_hash': 'old'}
+        self.assertTrue(host.rollback_migrations_compatible(current, previous))
+        current['migration_scope'].append('wallet')
+        self.assertFalse(host.rollback_migrations_compatible(current, previous))
+        current['migration_scope'].pop()
+        current['migration_compatibility']['sql']['extra.sql'] = 'x'
+        self.assertFalse(host.rollback_migrations_compatible(current, previous))
+
     def test_migration_mismatch_blocks_restore_before_docker(self):
         self.pending(touched=True, phase='APPLYING')
         self.executor.manifest['migration_hash'] = 'new-migrations'
