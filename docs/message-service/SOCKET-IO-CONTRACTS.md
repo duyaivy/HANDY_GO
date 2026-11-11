@@ -1,50 +1,182 @@
-# Socket.IO v1 contracts
+# Socket.IO Real-time Chat Contracts (v1)
 
-Phase 2 specification only; no gateway is started by this phase. Socket.IO **path** is `/api/v1/chat/socket.io/`, namespace is `/`, rooms are server-created `user:{userId}` and `conversation:{conversationId}`. Path, namespace and room are different concepts. Use HTTPS/WSS on the existing public domain. Do not add a chat subdomain. Phase 3 owns routing/sticky upgrade configuration.
+This document specifies the production Socket.IO v1 contracts for HANDY_GO Message Service running on VPS4. REST endpoints and OpenAPI documentation are structured as follows:
+- **Public Swagger UI:** `https://handygo.duyaivy.id.vn/docs` (Gateway multi-service dropdown)
+- **Public Message Service OpenAPI Specification:** `https://handygo.duyaivy.id.vn/docs/specs/message-service`
+- **Public Gateway OpenAPI JSON:** `https://handygo.duyaivy.id.vn/docs-json`
+- **Internal Message Service OpenAPI JSON:** `http://10.77.0.4:3009/docs-json` (VPS4 WireGuard; `http://127.0.0.1:3009/docs-json` locally)
+- **Routing:** Production Nginx on VPS1 terminates TLS at `https://handygo.duyaivy.id.vn` and routes `/api/v1/chat/socket.io/` directly to VPS4 over WireGuard (`http://10.77.0.4:3009`), supporting HTTP Long-Polling and WebSocket sticky upgrades without passing through API Gateway.
 
-Wire interfaces are `ClientToServerChatEvents`, `ServerToClientChatEvents` and `ChatAck<T>` in `backend/libs/common/src/message-contracts/types.ts`. Every client event must supply an ACK callback. ACK shapes are exactly `{ok:true,data:T}` or `{ok:false,error:{code:ChatErrorCode,message:string,retryable:boolean,retryAfterMs?:number}}`; HTTP envelopes are reserved for REST. Never use client-supplied sender/user/room IDs as identity.
+---
 
-Connect using `auth:{token:accessToken}` (no query-string credentials). Verify RS256, issuer, audience, exp, token type and marketplace `userId`; check active session/account with Auth integration. Connection error is `connect_error` with `data:{code:"UNAUTHORIZED",retryable:false}`. Reconnect with refreshed token after expiry. Timers disconnect at JWT expiry; per-event expiry/revocation checks prevent a still-connected socket continuing to write. Connected sockets are not permanent authorization grants.
+## 1. Connection & Authentication
 
-## Events
+- **Path:** `/api/v1/chat/socket.io/`
+- **Namespace:** `/` (default namespace)
+- **Transport:** Polling (`transport=polling`) and WebSocket upgrade (`transport=websocket`)
+- **Max Payload Buffer:** 16,384 bytes (16 KiB)
 
-| Client → server      | Payload                             | Success ACK data                                    | Required check                                                         |
-| -------------------- | ----------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| `conversation.join`  | `{conversationId}`                  | `{conversation:ChatConversation,highWaterSequence}` | current active identity + READ; room entry grants no further authority |
-| `conversation.leave` | `{conversationId}`                  | `{conversationId}`                                  | identity + READ before reporting membership; idempotent                |
-| `message.send`       | `MessageSendInput` below            | `{message:ChatMessage,duplicate:boolean}`           | current authoritative SEND, ownership and reply checks                 |
-| `message.read`       | `{conversationId,lastReadSequence}` | `ChatReadState`                                     | READ; update only authenticated user's monotonic cursor                |
-| `typing.start`       | `{conversationId}`                  | `{conversationId}`                                  | current SEND                                                           |
-| `typing.stop`        | `{conversationId}`                  | `{conversationId}`                                  | current SEND (permission loss triggers server stop regardless)         |
+### Handshake Authentication
 
-| Server → client        | Payload                                      | Delivery                                                           |
-| ---------------------- | -------------------------------------------- | ------------------------------------------------------------------ |
-| `message.new`          | `ChatMessage`                                | authorized participants' devices after commit; duplicates possible |
-| `message.read.updated` | `ChatReadState`                              | authorized participants' devices after actual committed advance    |
-| `typing.update`        | `{conversationId,userId,isTyping,expiresAt}` | conversation room, without draft text                              |
+Clients must provide their JWT Access Token in the handshake `auth` object. Query string credentials are not accepted.
 
-No server accepts a client `message.new`, `message.read.updated`, `typing.update`, or arbitrary room event. Unknown event/payload fields are rejected before handler work. Shared validators name operations exactly as above; REST uses `conversation.create`, `conversations.list`, `messages.list`. READ joins remain allowed for eligible historical members of a closed conversation; SEND and typing do not.
+```javascript
+import { io } from 'socket.io-client';
 
-## Sending and replies
+const socket = io('https://handygo.duyaivy.id.vn', {
+  path: '/api/v1/chat/socket.io/',
+  auth: {
+    token: accessToken, // Bearer JWT token from POST /api/v1/auth/login
+  },
+  transports: ['polling', 'websocket'],
+});
+```
 
-`MessageSendInput = {conversationId,clientMessageId:UUID,messageType:TEXT|IMAGE|VIDEO,content?:string,replyToId?:UUID,attachments?:[{storageKey:string}]}`. TEXT requires nonblank content of at most 4000 UTF-16 code units and no attachments; IMAGE permits 1–4 images and optional nonblank caption; VIDEO permits one video and optional caption. All attachments must match the message type. Omit unused fields; null is not accepted. `storageKey` is the existing Cloudinary `publicId`, 1–512 characters from `[A-Za-z0-9_/-]`. Do not send URLs, MIME/size metadata, binaries, sender IDs or eligibility flags. Duplicate asset keys in one message are invalid. Metadata comes from trusted provider lookup/ownership integration, never mobile assertions.
+### Handshake Verification & Admission Policy
 
-Server establishes sender ID, validates content, retrieves independently verified media metadata and reply target in the same conversation, checks fresh authority and persists message/attachments/outbox transactionally. SQL assigns bigint sequence while locking the conversation row. ACK success is issued **after commit**, not when the handler receives input. A database failure must produce an error ACK with no successful broadcast. Actual send/persistence/integration handlers are Phase 2 work.
+1. **Token Validation:** Verified using `TokenVerifierService` (RS256 signature, issuer, audience, expiration, non-empty `userId`).
+2. **Concurrent Connection Slots:** Maximum **10 concurrent sockets per user** (`userId`). Excess handshakes are rejected with `RATE_LIMITED`.
+3. **Connection Error Shape:** Handshake failure produces a client `connect_error` event distinguished by failure cause:
+   - **Authentication failure** (missing, invalid, or expired token):
+     ```json
+     {
+       "message": "Unauthorized",
+       "data": {
+         "code": "UNAUTHORIZED",
+         "retryable": false
+       }
+     }
+     ```
+   - **Connection slot limit exceeded** (> 10 concurrent sockets):
+     ```json
+     {
+       "message": "Rate limited",
+       "data": {
+         "code": "RATE_LIMITED",
+         "retryable": true
+       }
+     }
+     ```
+4. **Token Expiry Disconnect:** Upon connection, the server arms an unreferenced timer scheduled for `user.exp * 1000 - Date.now()`. When the token expires, the socket is immediately and forcibly disconnected (`socket.disconnect(true)`). Clients must refresh tokens before expiry and reconnect.
 
-`clientMessageId` is UUID generated once for each logical outgoing message; the unique scope is `(senderId,clientMessageId)` across all conversations. After permission checks, an exact canonical replay returns the original persisted message and `duplicate:true`, without allocating a new committed sequence/outbox event. A different conversation, type, content, reply target or ordered attachments with the same key gives IDEMPOTENCY_CONFLICT. Canonical payload keeps content exactly as validated (no silent trimming), omits absent optional fields, treats empty attachments like omitted for TEXT, and preserves attachment order. No content hash is required in schema: compare persisted fields after reading the unique winner. Concurrent unique violations require transaction rollback, winner lookup and canonical comparison. A newly allocated transaction may roll back; clients see no successful sequence until commit.
+---
 
-Broadcast can arrive before or after sender ACK. Include the sending device and all other authorized devices of both participants; use Socket.IO room-union delivery to avoid duplicate emission to a socket in both user and conversation rooms. Keep user-room events limited to conversations authorized for that user and re-check account state before sending. Mobile reconciles optimistic entry by `clientMessageId`, then deduplicates by message ID/sequence. Duplicate retry does not require a new broadcast. Lost ACK/broadcast is recovered with same-key retry and REST history. Socket.IO is not a durable exactly-once transport.
+## 2. Rooms & Presence
 
-Reply target must exist and share conversation; return the same REPLY_NOT_FOUND for absent or inaccessible target. Target is loaded transactionally and protected by composite foreign key. `reply` includes sender/type/160-code-point text preview or an unavailable placeholder; mobile does not fetch a second endpoint for every reply. No MVP delete endpoint exists. If a future retention/tombstone policy hides a target, preserve unavailable preview semantics and reply ID.
+- **User Room:** `user:{userId}` — Joined automatically upon successful authentication. Used for user-scoped broadcasts (e.g. new messages across all user conversations).
+- **Conversation Room:** `conversation:{conversationId}` — Joined explicitly by client via `conversation.join`. Used for active viewing, typing indicators, and message broadcasts.
 
-## Reconnect and permission changes
+---
 
-On connect, add the authenticated user's own room only. Client then GETs its list, joins an authorized conversation and fetches history after its last **contiguous** sequence to high water. Persist sequence after processing, tolerate duplicates and gaps, and request missing history. Do not assume socket recovery means every event was delivered. A history request and join can overlap safely through deduplication. Read state is fetched with conversation detail. Server removes rooms/typing on account or membership invalidation and refuses each subsequent event based on current authority even before room removal. Closed business state does not delete historical access.
+## 3. Wire Interfaces & Acknowledgement (ACK) Format
 
-## Typing, limits and multi-device behavior
+Every client-to-server event must supply an Acknowledgement (ACK) callback. Responses follow standard `ChatAck<T>`:
 
-Typing is process-local ephemeral memory keyed by conversation/user/socket. No PostgreSQL, outbox, RabbitMQ or Redis requirement. Client starts on typing, refreshes every 2.5 seconds, stops after approximately 1.5 seconds idle, and never sends draft text. Server expires each socket's activity after 5 seconds. Aggregate `isTyping:true` while any authorized device is active; emit false only when the last device stops/expires/disconnects or permission is revoked. `expiresAt` is server time, latest active expiry, false events use now. A READ_ONLY conversation cannot start typing. Evict all entries on disconnect. Clients also expire display locally at expiresAt so process restart does not leave stale indicators.
+### Success ACK:
+```json
+{
+  "ok": true,
+  "data": { ... }
+}
+```
 
-Initial configurable limits: Socket.IO `maxHttpBufferSize=16384` bytes; per-send validated serialized UTF-8 JSON ≤16 KiB; at most 4 attachments; no binary frames. Reject unsupported binary payloads. Per user: 20 sends/10 seconds, 60 sends/minute, 10 concurrent sockets; joins/reads 120/minute, typing starts at most 1/second per conversation/socket. REST list/history 120/minute/user, create 20/minute/user. Over-limit ACK uses RATE_LIMITED, retryable true and retryAfterMs. Client must debounce; server always enforces. Local counters suffice for one instance; scaling requires shared counters and adapter coordination.
+### Error ACK:
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "CHAT_ERROR_CODE",
+    "message": "CHAT_ERROR_CODE",
+    "retryable": false,
+    "retryAfterMs": 1000
+  }
+}
+```
 
-Single instance may use local rooms and typing. Before horizontal scaling add Redis Socket.IO adapter (ephemeral fanout only), shared rate/typing coordination, suitable load-balancer WebSocket/sticky polling behavior and durable outbox/recovery tests. PostgreSQL remains message source of truth. Dependency calls are bounded async I/O; no blocking moderation/provider work inside event loop.
+HTTP response envelopes (`{ statusCode, message, data }`) are strictly reserved for REST APIs and are **never** used for Socket.IO ACKs.
+
+---
+
+## 4. Client-to-Server Events
+
+| Event | Input Payload | Success ACK Data | Description & Validation |
+|-------|---------------|------------------|--------------------------|
+| `conversation.join` | `{ conversationId: UUID }` | `{ conversation: ChatConversation, highWaterSequence: string }` | Validates user membership (READ permission) and joins `conversation:{conversationId}` room. |
+| `conversation.leave` | `{ conversationId: UUID }` | `{ conversationId: UUID }` | Leaves `conversation:{conversationId}` room, stops active typing indicator. Idempotent. |
+| `message.send` | `MessageSendInput` (see below) | `{ message: ChatMessage, duplicate: boolean }` | Sends a new message transactionally. Allocates monotonic sequence and stores outbox. |
+| `message.read` | `{ conversationId: UUID, lastReadSequence: string }` | `ChatReadState` | Advances authenticated user's monotonic read cursor. Broadcasts `message.read.updated` if sequence actually advanced. |
+| `typing.start` | `{ conversationId: UUID }` | `{ conversationId: UUID }` | Announces user started typing. Requires SEND permission. Rate limited to 1/s per socket. |
+| `typing.stop` | `{ conversationId: UUID }` | `{ conversationId: UUID }` | Announces user stopped typing. |
+
+### MessageSendInput Schema
+
+```typescript
+interface MessageSendInput {
+  conversationId: string; // UUID
+  clientMessageId: string; // UUID (generated once by client per outgoing message)
+  messageType: 'TEXT' | 'IMAGE' | 'VIDEO';
+  content?: string; // Required for TEXT (max 4000 UTF-16 code units); optional caption for media
+  replyToId?: string; // UUID of message in the same conversation being replied to
+  attachments?: Array<{
+    storageKey: string; // Cloudinary publicId, 1-512 chars from [A-Za-z0-9_/-]
+  }>;
+}
+```
+
+#### Rules by Message Type:
+- **`TEXT`:** `content` is required (non-blank, ≤ 4000 code units). `attachments` must be omitted or empty.
+- **`IMAGE`:** 1 to 4 image attachments. `content` is optional (caption).
+- **`VIDEO`:** Exactly 1 video attachment. `content` is optional (caption).
+- **Contact Info Guard:** Deterministic scanning blocks phone numbers, emails, social handles (Zalo, Telegram, WhatsApp), and payment bypass keywords (`CONTACT_INFORMATION_BLOCKED`).
+
+### Idempotency & Deduping (`clientMessageId`)
+
+- `clientMessageId` is scoped to `(senderId, clientMessageId)` across all conversations.
+- Re-sending with identical payload returns the already-committed `message` and `duplicate: true`.
+- Re-sending with different payload using the same `clientMessageId` fails with `IDEMPOTENCY_CONFLICT`.
+
+---
+
+## 5. Server-to-Client Events
+
+| Event | Payload Schema | Target Audience | Description |
+|-------|----------------|-----------------|-------------|
+| `message.new` | `ChatMessage` | Both participants' sockets in `user:{userId}` | Broadcast after message commit. Delivers new incoming/outgoing message. |
+| `message.read.updated` | `ChatReadState` | Both participants' sockets in `user:{userId}` | Emitted when a participant advances their read sequence. |
+| `typing.update` | `TypingUpdate` | Devices in `conversation:{id}` except sender | Volatile broadcast indicating typing status of the other participant. |
+
+### TypingUpdate Schema
+
+```typescript
+interface TypingUpdate {
+  conversationId: string;
+  userId: string;
+  isTyping: boolean;
+  expiresAt: string; // ISO 8601 UTC timestamp
+}
+```
+
+Typing state is ephemeral memory (not persisted in DB). Server expires typing activity after 5 seconds of inactivity.
+
+---
+
+## 6. Rate Limits
+
+| Scope | Key | Limit | Window |
+|-------|-----|-------|--------|
+| Connections | per `userId` | 10 concurrent | Instantaneous |
+| Sends (burst) | `send-short:{userId}` | 20 messages | 10 seconds |
+| Sends (sustained) | `send-long:{userId}` | 60 messages | 60 seconds |
+| Typing Start | `typing:{socketId}:{convId}` | 1 start | 1 second |
+| Typing Events | `typing-user:{userId}` | 120 events | 60 seconds |
+| General Events | `events:{userId}` | 120 events | 60 seconds |
+
+---
+
+## 7. Reconnection & Catch-Up Workflow
+
+1. Client connects via Socket.IO with valid JWT.
+2. Server admits client and joins `user:{userId}`.
+3. Client issues `conversation.join` to receive `highWaterSequence`.
+4. If client was offline and missed messages, it issues `GET /api/v1/conversations/:id/messages?afterSequence=<lastSeenSequence>` via REST history to fetch contiguous missing messages up to `highWaterSequence`.
+5. Duplicates between Socket.IO broadcast and REST history are deduplicated using message `id` and `sequence`.

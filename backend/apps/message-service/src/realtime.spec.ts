@@ -52,18 +52,18 @@ describe('Socket.IO admission and early rate limits', () => {
     await realtime.close();
     vi.restoreAllMocks();
   });
-  function connect() {
+  function connect(token = 'token') {
     const socket = io(base, {
       path: '/api/v1/chat/socket.io/',
       transports: ['websocket'],
-      auth: { token: 'token' },
+      auth: { token },
       forceNew: true,
       reconnection: false,
     });
     sockets.push(socket);
-    return new Promise<{ socket: Socket; ok: boolean }>((resolve) => {
+    return new Promise<{ socket: Socket; ok: boolean; error?: any }>((resolve) => {
       socket.once('connect', () => resolve({ socket, ok: true }));
-      socket.once('connect_error', () => resolve({ socket, ok: false }));
+      socket.once('connect_error', (error) => resolve({ socket, ok: false, error }));
     });
   }
   const ack = (
@@ -76,10 +76,48 @@ describe('Socket.IO admission and early rate limits', () => {
     // Delay a later admission step so all checks run before any connection handler.
     realtime.io.use((_socket, next) => setTimeout(next, 50));
     const results = await Promise.all(Array.from({ length: 20 }, connect));
-    expect(results.filter((result) => result.ok)).toHaveLength(10);
+    const successful = results.filter((result) => result.ok);
+    const rejected = results.filter((result) => !result.ok);
+    expect(successful).toHaveLength(10);
+    expect(rejected).toHaveLength(10);
+    for (const r of rejected) {
+      expect(r.error.message).toBe('Rate limited');
+      expect(r.error.data).toEqual({ code: 'RATE_LIMITED', retryable: true });
+    }
     results.forEach(({ socket }) => socket.disconnect());
     await vi.waitFor(() => expect(realtime.io.engine.clientsCount).toBe(0));
     expect((await connect()).ok).toBe(true);
+  });
+
+  it('rejects handshake with UNAUTHORIZED when JWT authentication fails', async () => {
+    identity.authenticate.mockRejectedValueOnce(new Error('Invalid token'));
+    const { ok, error } = await connect('bad-jwt');
+    expect(ok).toBe(false);
+    expect(error.message).toBe('Unauthorized');
+    expect(error.data).toEqual({ code: 'UNAUTHORIZED', retryable: false });
+  });
+
+  it('rejects handshake with RATE_LIMITED when exceeding 10 concurrent sockets and recovers slot on disconnect', async () => {
+    const active = [];
+    for (let i = 0; i < 10; i++) {
+      const res = await connect();
+      expect(res.ok).toBe(true);
+      active.push(res);
+    }
+
+    // 11th socket exceeds limit
+    const excess = await connect();
+    expect(excess.ok).toBe(false);
+    expect(excess.error.message).toBe('Rate limited');
+    expect(excess.error.data).toEqual({ code: 'RATE_LIMITED', retryable: true });
+
+    // Disconnect one socket
+    active[0].socket.disconnect();
+    await vi.waitFor(() => expect(realtime.io.engine.clientsCount).toBe(9));
+
+    // Next connection succeeds
+    const recovered = await connect();
+    expect(recovered.ok).toBe(true);
   });
 
   it('releases reservations for clients that abandon a pending handshake', async () => {

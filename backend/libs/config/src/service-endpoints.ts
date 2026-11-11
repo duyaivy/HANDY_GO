@@ -2,7 +2,7 @@ import topology from '../../../deploy/production/services.json' with { type: 'js
 import { isIP } from 'node:net';
 
 const privateIps: Record<string, string> = {
-  vps1: '10.77.0.1', vps2: '10.77.0.2', vps3: '10.77.0.3',
+  vps1: '10.77.0.1', vps2: '10.77.0.2', vps3: '10.77.0.3', vps4: '10.77.0.4',
 };
 type EndpointService = { host: string; port: number; url_env?: string; http_callers?: string[]; wireguard_http?: boolean };
 

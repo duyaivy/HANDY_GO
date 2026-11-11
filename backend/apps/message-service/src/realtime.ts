@@ -72,7 +72,13 @@ export class MessageRealtime {
         socket.data.token = token;
         socket.data.user = user;
         next();
-      } catch {
+      } catch (err) {
+        if (err instanceof ChatError && err.code === 'RATE_LIMITED') {
+          const error = new Error('Rate limited') as Error & { data: unknown };
+          error.data = { code: 'RATE_LIMITED', retryable: true };
+          next(error);
+          return;
+        }
         const error = new Error('Unauthorized') as Error & { data: unknown };
         error.data = { code: 'UNAUTHORIZED', retryable: false };
         next(error);
