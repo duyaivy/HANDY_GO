@@ -86,7 +86,7 @@ export class TopupsService implements OnModuleInit {
     const existing = await this.database.client.topupRequest.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, select: { ...topupSelect, userId: true } });
     if (existing) return this.replay(existing, userId, amountVnd);
 
-    const txnRef = `HG${Date.now().toString(36)}${randomBytes(6).toString('hex')}`.toUpperCase();
+    const txnRef = `${Date.now()}${BigInt(`0x${randomBytes(6).toString('hex')}`).toString().padStart(15, '0')}`;
     const now = new Date();
     const expiresAt = new Date(now.getTime() + TOPUP_TTL_MS);
     const checkoutUrl = this.provider.buildCheckoutUrl({

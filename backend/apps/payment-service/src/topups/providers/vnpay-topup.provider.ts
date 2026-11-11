@@ -84,7 +84,7 @@ export class VnpayTopupProvider extends TopupProvider {
       vnp_OrderType: 'other',
       vnp_ReturnUrl: this.returnUrl!,
       vnp_TxnRef: input.txnRef,
-      vnp_BankCode: 'VNPAYQR',
+      vnp_BankCode: process.env.VNPAY_BANK_CODE?.trim() || 'VNPAYQR',
     };
     const signData = canonical(params);
     const base = process.env.VNPAY_PAY_URL?.trim() || SANDBOX_PAY_URL;

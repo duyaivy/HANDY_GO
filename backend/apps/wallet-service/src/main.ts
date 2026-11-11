@@ -12,6 +12,7 @@ await bootstrapApplication(WalletServiceModule, {
       .setTitle('wallet-service API')
       .setDescription('API documentation for wallet-service')
       .setVersion('1.0')
+      .addBearerAuth()
       .build();
     SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
   },

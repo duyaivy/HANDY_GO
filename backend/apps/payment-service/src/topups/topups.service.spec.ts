@@ -57,7 +57,7 @@ describe('TopupsService.create', () => {
     expect(client.topupRequest.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ userId, amountVnd: 50000n, pointsToCredit: 50000n, status: 'awaiting_payment', provider: 'vnpay' }),
     }));
-    expect(provider.buildCheckoutUrl).toHaveBeenCalledWith(expect.objectContaining({ amountVnd: 50000n, ipAddress: '10.0.0.1' }));
+    expect(provider.buildCheckoutUrl).toHaveBeenCalledWith(expect.objectContaining({ amountVnd: 50000n, ipAddress: '10.0.0.1', txnRef: expect.stringMatching(/^\d{28}$/) }));
     expect(result).toMatchObject({ amountVnd: '50000', pointsToCredit: '50000', checkoutUrl: 'https://pay.example/checkout' });
   });
 

@@ -1,0 +1,37 @@
+name: handygo-payment-local
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: handygo_local
+      POSTGRES_PASSWORD: handygo_local_dev
+      POSTGRES_DB: handygo_payment_local
+    ports:
+      - '127.0.0.1:55434:5432'
+    volumes:
+      - payment-local-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U handygo_local -d handygo_payment_local']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: handygo_local
+      RABBITMQ_DEFAULT_PASS: handygo_local_dev
+    ports:
+      - '127.0.0.1:5674:5672'
+      - '127.0.0.1:15674:15672'
+    volumes:
+      - payment-local-rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 10s
+      retries: 20
+volumes:
+  payment-local-postgres:
+  payment-local-rabbitmq:

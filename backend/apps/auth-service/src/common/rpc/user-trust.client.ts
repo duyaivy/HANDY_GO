@@ -56,8 +56,13 @@ export class UserTrustClient {
       if (err instanceof AppException) {
         throw err;
       }
+      const reason = typeof err === 'string'
+        ? err
+        : err instanceof Error
+          ? err.message
+          : 'RPC returned an error without an Error message';
       this.logger.error(
-        `Failed to confirm user status for userId ${userId}: ${(err as Error)?.message}`,
+        `Failed to confirm user status for userId ${userId}: ${reason}`,
       );
       throw new AppException(
         HttpStatus.SERVICE_UNAVAILABLE,
