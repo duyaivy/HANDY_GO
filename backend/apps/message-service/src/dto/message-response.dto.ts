@@ -378,8 +378,6 @@ export class ConversationPageDto {
     description:
       'Con trỏ phân trang dạng opaque HMAC token để truyền vào query parameter cursor của trang tiếp theo; nhận giá trị null nếu đã đến trang cuối cùng. Client phải giữ nguyên giá trị chuỗi này nhận từ phản hồi trước mà không tự tạo hoặc chỉnh sửa.',
     nullable: true,
-    example:
-      'ZXlKMklqb3hMQ0oxYzJWeVNXUWlPaUpoTVdJeVl6TmtOQzFsTldZMkxUYzRPVEF0WVdKalpDMWxaakV5TXpRMU5qYzRPVEFpTENKemIzSjBWR2x0WlhOMFlXMXdJam9pTWpBeU5pMHhNUzB4TVZRd05Ub3dNRG93TUM0d01EQmFJaXdpYVdRaU9pSm1ORGRoWXpFd1lpMDFPR05qTFRRek56SXRZVFUyTnkwd1pUQXlZakpqTTJRME56a2lmUS44eVdrNkJVTXJRZ2JHVWp4enBxRWJKNzBsekJHbGlXaWloZHBmS3Y3NTRr',
   })
   nextCursor!: string | null;
 }

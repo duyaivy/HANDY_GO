@@ -159,18 +159,13 @@ describe('Message Service OpenAPI and Swagger UI', () => {
     expect(spec.info.description).toContain('/api/v1/chat/socket.io/');
     expect(spec.info.description).not.toContain('định tuyến thông qua API Gateway');
 
-    // 9. Verify Finding 3: Cursor HMAC signing and example validity
-    const nextCursorExample =
-      schemas.ConversationPageDto?.properties?.nextCursor?.example;
-    expect(nextCursorExample).toBeDefined();
-
-    const codec = new CursorCodec('s'.repeat(32));
-    const decoded = codec.decode(
-      'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-      nextCursorExample,
-    );
-    expect(decoded.id).toBe('f47ac10b-58cc-4372-a567-0e02b2c3d479');
-    expect(decoded.timestamp).toBeInstanceOf(Date);
+    // 9. Verify Cursor HMAC signing and absence of misleading cursor examples
+    expect(
+      schemas.ConversationPageDto?.properties?.nextCursor?.example,
+    ).toBeUndefined();
+    expect(
+      schemas.ConversationPageDto?.properties?.nextCursor?.nullable,
+    ).toBe(true);
 
     // Query cursor must not have hardcoded example breaking Swagger "Try it out"
     if (schemas.ConversationListQueryDto?.properties?.cursor) {
@@ -179,17 +174,43 @@ describe('Message Service OpenAPI and Swagger UI', () => {
       ).toBeUndefined();
     }
 
+    // Verify CursorCodec encode/decode with a test-only secret and generated cursor
+    const testSecret = 's'.repeat(32);
+    const codec = new CursorCodec(testSecret);
+    const testUserId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+    const testId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const testDate = new Date('2026-11-11T05:00:00.000Z');
+
+    const generatedCursor = codec.encode(testUserId, testDate, testId);
+    expect(typeof generatedCursor).toBe('string');
+
+    const decoded = codec.decode(testUserId, generatedCursor);
+    expect(decoded.id).toBe(testId);
+    expect(decoded.timestamp).toBeInstanceOf(Date);
+    expect(decoded.timestamp.getTime()).toBe(testDate.getTime());
+
     // Unsigned plain base64 JSON must be rejected by CursorCodec
     const unauthenticatedJson = Buffer.from(
       JSON.stringify({
         v: 1,
-        userId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        sortTimestamp: new Date().toISOString(),
-        id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+        userId: testUserId,
+        sortTimestamp: testDate.toISOString(),
+        id: testId,
       }),
     ).toString('base64url');
     expect(() =>
-      codec.decode('a1b2c3d4-e5f6-7890-abcd-ef1234567890', unauthenticatedJson),
+      codec.decode(testUserId, unauthenticatedJson),
+    ).toThrow();
+
+    // Tampered cursor signature must be rejected by CursorCodec
+    const tamperedCursor = `${generatedCursor.slice(0, -2)}xx`;
+    expect(() =>
+      codec.decode(testUserId, tamperedCursor),
+    ).toThrow();
+
+    // Cursor decoded with mismatched userId must be rejected
+    expect(() =>
+      codec.decode('b2c3d4e5-f6a7-8901-bcde-f12345678901', generatedCursor),
     ).toThrow();
   });
 
