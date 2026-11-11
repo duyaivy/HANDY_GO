@@ -77,6 +77,22 @@ class DatabaseIncidentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_AUTH'):
             validate_database_plan(values, self.registry, run_migrations=True)
 
+    def test_onboarding_requires_ddl_confirmation_only_for_message_related_migrations(self):
+        values = dict(self.values)
+        for service in SERVICES:
+            suffix = service.upper().replace('-', '_')
+            if service not in ('message', 'notification'):
+                values.pop('DB_DDL_VERIFIED_' + suffix, None)
+        validate_database_plan(values, self.registry, run_migrations=True,
+                               migration_scope={'message', 'notification'})
+        for service in ('message', 'notification'):
+            key = 'DB_DDL_VERIFIED_' + service.upper()
+            invalid = dict(values)
+            invalid.pop(key)
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, key):
+                validate_database_plan(invalid, self.registry, run_migrations=True,
+                                       migration_scope={'message', 'notification'})
+
     def test_supabase_poolers_follow_actual_consumer_requirements(self):
         values = {key: val for key, val in self.values.items() if not key.startswith('DIRECT_URL_')}
         for port in (5432, 6543):
@@ -196,3 +212,32 @@ class DatabaseIncidentTests(unittest.TestCase):
                 migration.unlink()
             with self.assertRaisesRegex(ValueError, 'Migration SQL missing|outside configured execution path'):
                 migration_inventory(root, self.registry)
+
+
+class OnboardingMigrationProofTests(unittest.TestCase):
+    def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
+        import tempfile
+        import shutil
+        from database_plan import onboarding_migration_proof
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for source in PROD.parents[1].glob('apps/*/prisma/migrations/**/migration.sql'):
+                destination = root / source.relative_to(PROD.parents[1])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            proof = onboarding_migration_proof(root, host.MIGRATIONS)
+            current = {'rollback_compatible': True, 'onboard_vps4': True,
+                       'migration_scope': ['message', 'notification'],
+                       'migration_hash': proof['inventory_hash'], 'migration_compatibility': proof}
+            previous = {'rollback_compatible': True, 'migration_hash': proof['baseline_hash']}
+            self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            extra = root / 'apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql'
+            extra.parent.mkdir(parents=True)
+            extra.write_text('DROP TABLE wallets;')
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(migration_hash=changed['inventory_hash'], migration_compatibility=changed)
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
+            pinned = root / next(iter(host.ONBOARDING_ADDITIVE_SQL))
+            pinned.write_text('DROP SCHEMA public CASCADE;')
+            with self.assertRaisesRegex(ValueError, 'reviewed additive'):
+                onboarding_migration_proof(root, host.MIGRATIONS)

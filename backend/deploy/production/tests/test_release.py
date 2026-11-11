@@ -91,6 +91,7 @@ class ReleaseTests(unittest.TestCase):
         obj.inspect_cluster = Mock(side_effect=lambda: states)
         obj.bundle = Mock(return_value=(manifest, b'archive'))
         obj.ssh_run = Mock(return_value=b'')
+        obj.executor = Mock(return_value={})
         obj.public_smoke = Mock()
         calls = []
 
@@ -171,7 +172,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_staging_failure_does_not_require_transaction_recovery(self):
         obj, calls = self.make_coordinator()
-        obj.ssh_run.side_effect = RuntimeError('vps2: SSH failed')
+        obj.executor.side_effect = RuntimeError('vps2: SSH failed')
         with self.assertRaisesRegex(RuntimeError, 'FAILED_BEFORE_ROLLOUT'):
             obj.execute()
         self.assertEqual(obj.journal['status'], 'FAILED_BEFORE_ROLLOUT')
@@ -420,6 +421,26 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(wallet[0][0], 'migration_vps3')
         first_start = next(c for c in calls.mock_calls if c[0] == 'vps3' and c.args[0] == 'up')
         self.assertLess(calls.mock_calls.index(wallet[0]), calls.mock_calls.index(first_start))
+
+    def test_onboarding_runs_only_message_and_chat_notification_migrations(self):
+        commands = []
+        roles = {'vps4': ('message-service',), 'vps1': ('notification-service',),
+                 'vps3': ('catalog-service',), 'vps2': ('order-service',)}
+        for role, names in roles.items():
+            obj = host.Host.__new__(host.Host)
+            obj.role, obj.release_id, obj.bundle = role, RELEASE, self.root
+            obj.names = list(names)
+            obj.manifest = {'run_migrations': True, 'onboard_vps4': True,
+                            'migration_image': 'test-image'}
+            obj.owner = Mock(return_value={'previous': None, 'onboarding': role == 'vps4'})
+            obj.compose, obj.verify = Mock(), Mock()
+            with patch.object(host, 'ROOT', self.root), patch.object(host, 'run',
+                    side_effect=lambda args, **_: commands.append((role, args))):
+                obj.apply(RELEASE)
+        migrations = [(role, args[-1]) for role, args in commands
+                      if isinstance(args, list) and args[-1].startswith('prisma:migrate:')]
+        self.assertEqual(migrations, [('vps4', 'prisma:migrate:message'),
+                                      ('vps1', 'prisma:migrate:notification')])
 
     def test_wallet_migration_failure_blocks_service_start(self):
         obj = host.Host.__new__(host.Host)

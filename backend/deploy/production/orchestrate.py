@@ -65,6 +65,7 @@ class Coordinator:
                     '-o', 'ConnectTimeout=15', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3']
         self.journal = {'transaction': self.transaction, 'target_release': self.target,
                         'operation': 'rollback' if args.rollback_release else 'deploy',
+                        'onboarding_vps4': bool(getattr(args, 'onboard_vps4', False)),
                         'status': 'PREPARING', 'hosts': {}, 'rollback': {}}
         self.output = Path(args.output)
         self.persist()
@@ -147,7 +148,7 @@ sys.stdin.read()
                 process.terminate()
                 process.wait(timeout=10)
 
-    def executor(self, role, action, target=None, wait_lock=True):
+    def executor(self, role, action, target=None, wait_lock=True, data=None):
         # Execute reviewed runner code, never host.py from an old release/artifact.
         sources = {name: (HERE / name).read_text() for name in ('host.py', 'release_log.py', 'services.json')}
         loader = ('import base64,json,sys,types; '
@@ -162,11 +163,13 @@ sys.stdin.read()
                    target or self.target, self.transaction]
         if action != 'inspect':
             command += ['--expected-state', self.states[role]['token']]
+            if action == 'begin' and role == 'vps4' and getattr(self.args, 'onboard_vps4', False):
+                command.append('--onboard-vps4')
             if getattr(self, 'fence', None):
                 command += ['--fence', self.fence]
         if wait_lock:
             command.append('--wait-lock')
-        response = json.loads(self.ssh_run(role, shlex.join(command),
+        response = json.loads(self.ssh_run(role, shlex.join(command), data=data,
                               label=f'{action} release {target or self.target}', timeout=3600))
         if action == 'inspect':
             return response
@@ -199,15 +202,27 @@ sys.stdin.read()
         original = self.transaction, self.target
         try:
             for _ in range(len(ROLES) + 1):
-                reconcile(self, automatic=True)
+                reconcile(self, automatic=True, onboarding=bool(getattr(self.args, 'onboard_vps4', False)))
                 if not any(state['pending'] for state in self.inspect_cluster().values()):
                     break
             else:
                 raise RuntimeError('RECOVERY_REQUIRED: bounded reconciliation did not finish')
         finally:
             self.transaction, self.target = original
+        self.cleanup_staged_releases()
         self.journal.update(transaction=self.transaction, target_release=self.target)
         self.persist()
+
+    def cleanup_staged_releases(self):
+        states = self.inspect_cluster()
+        for role, state in states.items():
+            references = {(state.get('stable') or {}).get('release_id')}
+            references.update(state.get('release_history', []))
+            pending = state.get('pending') or {}
+            references.update((pending.get('target'), (pending.get('previous') or {}).get('release_id')))
+            for target, record in state.get('staging', {}).items():
+                if target not in references and record['status'] in ('STAGING', 'STAGED'):
+                    self.executor(role, 'cleanup-staging', target=target)
 
     def bundle(self):
         if not re.fullmatch(r'[a-f0-9]{40}', self.args.commit or '') or not re.fullmatch(r'[a-f0-9]{40,64}', self.args.tree or ''):
@@ -219,7 +234,7 @@ sys.stdin.read()
         if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', domain) or '.' not in domain:
             raise ValueError('Invalid public API domain')
         files = {}
-        for name in ('host.py', 'release_log.py', 'services.json', 'compose.production.yml', 'nginx/nginx.conf', 'nginx/handygo.conf'):
+        for name in ('host.py', 'release_log.py', 'services.json', 'compose.production.yml', 'nginx/nginx.conf', 'nginx/handygo.conf', 'env-preflight.mjs'):
             content = (HERE / name).read_bytes()
             if name == 'nginx/handygo.conf':
                 content = content.replace(b'API_DOMAIN', domain.encode())
@@ -243,9 +258,13 @@ sys.stdin.read()
                 raise ValueError('Only digest image references are accepted')
         values = module.validate_env(Path(self.args.env_file))
         module.validate_service_endpoints(values, registry)
-        from database_plan import validate_database_plan, validate_migration_owners
+        from database_plan import validate_database_plan, validate_migration_owners, onboarding_migration_proof
         validate_migration_owners(HERE.parents[1], registry, module.MIGRATIONS)
-        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations)
+        migration_scope = (sorted({service for services in module.ONBOARDING_MIGRATIONS.values()
+                                   for service in services})
+                           if getattr(self.args, 'onboard_vps4', False) else None)
+        database_budget = validate_database_plan(values, registry, run_migrations=self.args.run_migrations,
+                                                 migration_scope=migration_scope)
         migrations = sorted((HERE.parents[1] / 'apps').glob('*/prisma/migrations/**/migration.sql'))
         migration_bytes = b''.join(str(p.relative_to(HERE.parents[1])).encode() + b'\0' + p.read_bytes() for p in migrations)
         # A newly enabled migration owner must require review even when SQL is unchanged.
@@ -261,6 +280,10 @@ sys.stdin.read()
             'database_budget': database_budget,
             'run_migrations': self.args.run_migrations,
             'rollback_compatible': True,
+            'onboard_vps4': bool(getattr(self.args, 'onboard_vps4', False)),
+            'migration_scope': migration_scope,
+            'migration_compatibility': (onboarding_migration_proof(HERE.parents[1], module.MIGRATIONS)
+                                        if migration_scope is not None else None),
             'hosts': hosts, 'services': selected,
             'images': {name: self.args.app_image for name in selected} | {'nginx': self.args.nginx_image},
             'excluded': {n: 'Disabled or NOT_READY' for n in registry if n not in selected},
@@ -305,10 +328,7 @@ sys.stdin.read()
             else:
                 manifest, archive = self.bundle()
                 for role in ROLES:
-                    directory = f'{ROOT}/releases/{self.target}'
-                    # mkdir without -p: a release is immutable, retries use a new run attempt.
-                    self.ssh_run(role, f'umask 077 && mkdir {shlex.quote(directory)} && tar -xzf - -C {shlex.quote(directory)}',
-                                 archive, label=f'stage release bundle {self.target}')
+                    self.executor(role, 'stage', data=archive)
             for role in ROLES:
                 attempted.append(role)
                 self.journal.setdefault('ownership', {})[role] = 'BEGIN_OUTCOME_UNKNOWN'
@@ -316,6 +336,10 @@ sys.stdin.read()
                 participants.append(role)
                 self.journal['ownership'][role] = 'BEGIN_CONFIRMED'
                 previous = snapshot['previous']
+                if getattr(self.args, 'onboard_vps4', False) and role != 'vps4':
+                    from host import rollback_migrations_compatible
+                    if not rollback_migrations_compatible(manifest, snapshot.get('previous_manifest') or {}):
+                        raise RuntimeError('Onboarding migration baseline differs; compatibility review required')
                 if self.args.rollback_release and not previous:
                     raise RuntimeError('Cannot rollback an uninitialized host')
                 if self.args.rollback_release and snapshot['migration_hash'] != manifest['migration_hash']:
@@ -323,7 +347,11 @@ sys.stdin.read()
                 if not self.args.rollback_release and snapshot['migration_hash'] != manifest['migration_hash'] and not self.args.run_migrations:
                     raise RuntimeError('New/initial migrations require an explicitly reviewed run_migrations deployment')
             previous_ids = [self.journal['hosts'][r]['begin']['previous'] for r in ROLES]
-            if any(value != previous_ids[0] for value in previous_ids):
+            if getattr(self.args, 'onboard_vps4', False):
+                if (self.args.rollback_release or previous_ids[0] is not None
+                        or previous_ids[1] is None or any(value != previous_ids[1] for value in previous_ids[2:])):
+                    raise RuntimeError('VPS4 onboarding snapshot is not the validated 3-to-4 host transition')
+            elif any(value != previous_ids[0] for value in previous_ids):
                 raise RuntimeError('Hosts disagree on stable release; reconcile before deploying')
             for role in ROLES:
                 self.remote(role, 'prepare')
@@ -349,6 +377,10 @@ sys.stdin.read()
             self.journal['status'] = 'FAILED'
             self.persist()
             if not attempted:
+                try:
+                    self.cleanup_staged_releases()
+                except Exception as cleanup_error:
+                    self.journal['staging_cleanup_error'] = redact(cleanup_error)
                 self.journal['status'] = 'FAILED_BEFORE_ROLLOUT'
                 self.persist()
                 raise RuntimeError('FAILED_BEFORE_ROLLOUT; no host transaction was started') from error
@@ -425,10 +457,14 @@ def main():
     parser.add_argument('--tree')
     parser.add_argument('--evidence')
     parser.add_argument('--run-migrations', action='store_true')
+    parser.add_argument('--onboard-vps4', action='store_true',
+                        help='Authorize the one-time pristine VPS4 participant transition')
     parser.add_argument('--output', default='release-output')
     args = parser.parse_args()
     if args.rollback_release and args.run_migrations:
         parser.error('Rollback never runs database migrations')
+    if args.onboard_vps4 and (args.rollback_release or not args.run_migrations):
+        parser.error('VPS4 onboarding requires a new release and explicit migration approval')
     if not args.rollback_release and any(not getattr(args, key) for key in (
             'env_file', 'app_image', 'migration_image', 'nginx_image', 'commit', 'tree', 'evidence')):
         parser.error('Deploy requires ENV, image digests, commit/tree and CI evidence')

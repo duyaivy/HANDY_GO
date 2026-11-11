@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import orchestrate
 import recovery
+import host
 import release_log
 
 OLD = 'prod-20261030-41006406106-a1'
@@ -56,6 +57,7 @@ class Cluster:
         c.public_smoke = Mock()
         c.bundle = Mock(side_effect=self.bundle)
         c.ssh_run = Mock(return_value=b'')
+        c.executor = Mock(return_value={'staged': True})
         self.c = c
 
     def bundle(self):
@@ -108,6 +110,8 @@ class Cluster:
                 if not p['touched']:
                     result = {'rollback': 'NOT_NEEDED'}
                 elif not p['previous']:
+                    p['phase'] = 'RESTORED'
+                    state['stable'] = None
                     result = {'rollback': 'NO_PREVIOUS_RELEASE'}
                 else:
                     p['phase'] = 'RESTORED'
@@ -144,6 +148,92 @@ class RecoveryTests(unittest.TestCase):
 
     def reconcile(self, **kwargs):
         return recovery.reconcile(self.c, **kwargs)
+
+    def test_explicit_onboarding_accepts_only_pristine_vps4_without_stable_snapshot(self):
+        states = copy.deepcopy(self.cluster.states)
+        states['vps4']['stable'] = None
+        states['vps4']['manifests'] = {}
+        with self.assertRaisesRegex(RuntimeError, 'stable releases differ'):
+            recovery.plan(states)
+        self.assertEqual(recovery.plan(states, onboarding=True)['decision'], 'RECOVERY_NOT_NEEDED')
+        states['vps4']['pending'] = pending(INCIDENT_A, previous=None)
+        with self.assertRaisesRegex(RuntimeError, 'onboarding VPS4 is not pristine'):
+            recovery.plan(states, onboarding=True)
+
+    def test_onboarding_snapshot_must_not_have_unknown_release_metadata(self):
+        states = copy.deepcopy(self.cluster.states)
+        states['vps4']['stable'] = None
+        states['vps4']['manifests'] = {OLD: manifest(OLD)}
+        with self.assertRaisesRegex(RuntimeError, 'onboarding VPS4 is not pristine'):
+            recovery.plan(states, onboarding=True)
+
+    def test_explicit_onboarding_rejects_vps4_that_already_has_a_stable_release(self):
+        with self.assertRaisesRegex(RuntimeError, 'already initialized'):
+            recovery.plan(copy.deepcopy(self.cluster.states), onboarding=True)
+
+    def test_partial_onboarding_rollout_recovers_to_three_host_baseline(self):
+        states = copy.deepcopy(self.cluster.states)
+        target_manifest = manifest(INCIDENT_A, 'new-hash') | {'onboard_vps4': True,
+            'migration_scope': ['message', 'notification'],
+            'migration_compatibility': {'policy': 'vps4-additive-v1', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+                                        'baseline_hash': 'same', 'inventory_hash': 'new-hash'}}
+        for role, state in states.items():
+            state['manifests'][INCIDENT_A] = copy.deepcopy(target_manifest)
+            state['pending'] = pending(INCIDENT_A, phase='APPLYING', previous=OLD)
+            state['pending']['touched'] = True
+        states['vps4']['stable'] = {'release_id': INCIDENT_A}
+        states['vps4']['pending']['previous'] = None
+        states['vps4']['pending']['onboarding'] = True
+        result = recovery.plan(states, expected=(INCIDENT_A, INCIDENT_A))
+        self.assertEqual(result['decision'], 'RESTORE_PREVIOUS')
+        self.assertEqual(result['previous'], OLD)
+        self.assertTrue(result['onboarding'])
+
+    def test_interrupted_onboarding_phases_and_partial_commit(self):
+        for phase in ('SNAPSHOT', 'APPLYING', 'VERIFIED', 'RESTORED', 'COMMITTED'):
+            for commit_existing in (False, True):
+                with self.subTest(phase=phase, commit_existing=commit_existing):
+                    states = copy.deepcopy(self.cluster.states)
+                    target = manifest(INCIDENT_A, 'b' * 64) | {
+                        'onboard_vps4': True, 'migration_scope': ['message', 'notification'],
+                        'migration_compatibility': {'policy': 'vps4-additive-v1',
+                            'sql': host.ONBOARDING_ADDITIVE_SQL, 'baseline_hash': 'a' * 64,
+                            'inventory_hash': 'b' * 64}}
+                    for role, state in states.items():
+                        state['manifests'][OLD]['migration_hash'] = 'a' * 64
+                        state['manifests'][INCIDENT_A] = copy.deepcopy(target)
+                        state['pending'] = pending(INCIDENT_A, phase=phase)
+                    states['vps4']['pending'].update(previous=None, onboarding=True)
+                    states['vps4']['stable'] = None
+                    if phase == 'COMMITTED':
+                        states['vps4']['stable'] = {'release_id': INCIDENT_A}
+                    if commit_existing and phase != 'SNAPSHOT':
+                        states['vps1']['stable'] = {'release_id': INCIDENT_A}
+                    result = recovery.plan(states, (INCIDENT_A, INCIDENT_A))
+                    self.assertEqual(result['decision'], 'FINISH_SNAPSHOT' if phase == 'SNAPSHOT' else 'RESTORE_PREVIOUS')
+                    self.assertEqual(result, recovery.plan(copy.deepcopy(states), (INCIDENT_A, INCIDENT_A)))
+                    if phase != 'SNAPSHOT':
+                        for state in states.values():
+                            state['manifests'][INCIDENT_A]['migration_compatibility']['baseline_hash'] = 'unrelated'
+                        with self.assertRaisesRegex(RuntimeError, 'migration compatibility'):
+                            recovery.plan(states, (INCIDENT_A, INCIDENT_A))
+
+    def test_onboarding_compensation_and_repeated_recovery(self):
+        target = manifest(INCIDENT_A, 'new') | {
+            'onboard_vps4': True, 'migration_scope': ['message', 'notification'],
+            'migration_compatibility': {'policy': 'vps4-additive-v1', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+                                      'baseline_hash': 'same', 'inventory_hash': 'new'}}
+        for role, state in self.cluster.states.items():
+            self.cluster.own(role, phase='APPLYING', previous=None if role == 'vps4' else OLD)
+            state['manifests'][INCIDENT_A] = copy.deepcopy(target)
+        self.cluster.states['vps4']['pending']['onboarding'] = True
+        self.c.transaction = self.c.target = INCIDENT_A
+        self.reconcile(expected=(INCIDENT_A, INCIDENT_A))
+        self.assertIsNone(self.cluster.states['vps4']['stable'])
+        self.assertTrue(all(not state['pending'] for state in self.cluster.states.values()))
+        # Fresh onboarding authorization is required after compensation.
+        self.cluster.states['vps4']['manifests'] = {}
+        self.assertEqual(recovery.plan(self.cluster.states, onboarding=True)['decision'], 'RECOVERY_NOT_NEEDED')
 
     def assert_locked(self, *roles):
         self.assertFalse(self.cluster.actions('finish'))
