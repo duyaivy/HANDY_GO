@@ -70,10 +70,11 @@ jobs:
       - name: Validate production automation
         run: |
           python3 -m venv "$RUNNER_TEMP/production-validation"
+          VENV_PYTHON="$RUNNER_TEMP/production-validation/bin/python"
           "$RUNNER_TEMP/production-validation/bin/pip" install --disable-pip-version-check pyyaml==6.0.3
-          "$RUNNER_TEMP/production-validation/bin/python" scripts/check-production-config.py
-          python3 scripts/validate-production-compose.py
-          python3 -m unittest discover -s deploy/production/tests -v
+          "$VENV_PYTHON" scripts/check-production-config.py
+          "$VENV_PYTHON" scripts/validate-production-compose.py
+          "$VENV_PYTHON" -m unittest discover -s deploy/production/tests -v
           bash -n deploy/production/deploy.sh
           docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/pr-ci.yml /repo/.github/workflows/backend-production.yml /repo/.github/workflows/backend-env-refresh.yml /repo/.github/workflows/backend-production-recovery.yml
       - uses: actions/upload-artifact@v6

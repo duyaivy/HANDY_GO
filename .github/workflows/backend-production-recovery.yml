@@ -100,7 +100,10 @@ jobs:
           PY
       - name: Validate recovery automation
         run: |
-          python3 -m unittest discover -s deploy/production/tests -v
+          python3 -m venv "$RUNNER_TEMP/production-validation"
+          VENV_PYTHON="$RUNNER_TEMP/production-validation/bin/python"
+          "$RUNNER_TEMP/production-validation/bin/pip" install --disable-pip-version-check pyyaml==6.0.3
+          "$VENV_PYTHON" -m unittest discover -s deploy/production/tests -v
           bash -n deploy/production/setup-ssh.sh
           docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/backend-production-recovery.yml
       - name: Prepare existing production SSH identities

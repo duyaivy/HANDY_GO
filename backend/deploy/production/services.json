@@ -64,7 +64,7 @@
       "http_callers": [
         "api-gateway"
       ],
-      "wireguard_http": false
+      "wireguard_http": true
     },
     "order-service": {
       "host": "vps2",
