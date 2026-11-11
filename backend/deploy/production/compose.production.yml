@@ -60,7 +60,12 @@ services:
     <<: *app
     profiles: [vps1]
     command: [node, dist/apps/api-gateway/main.js]
-    environment: {PORT: '3000', NODE_OPTIONS: '--max-old-space-size=80'}
+    environment:
+      PORT: '3000'
+      NODE_OPTIONS: '--max-old-space-size=80'
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      NOTIFICATION_SERVICE_URL: http://notification-service:3008
     mem_limit: 160m
     memswap_limit: 320m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3000:3000']
@@ -88,6 +93,7 @@ services:
     environment: {PORT: '3008', NODE_OPTIONS: '--max-old-space-size=64'}
     mem_limit: 128m
     memswap_limit: 256m
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3008:3008']
   order-service:
     <<: *app
     profiles: [vps2]

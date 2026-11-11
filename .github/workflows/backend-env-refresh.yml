@@ -63,8 +63,12 @@ jobs:
           fi
       - name: Validate refresh automation
         run: |
-          python3 -m unittest discover -s deploy/production/tests -v
-          python3 scripts/validate-production-compose.py
+          python3 -m venv "$RUNNER_TEMP/production-validation"
+          VENV_PYTHON="$RUNNER_TEMP/production-validation/bin/python"
+          "$RUNNER_TEMP/production-validation/bin/pip" install --disable-pip-version-check pyyaml==6.0.3
+          "$VENV_PYTHON" scripts/check-production-config.py
+          "$VENV_PYTHON" scripts/validate-production-compose.py
+          "$VENV_PYTHON" -m unittest discover -s deploy/production/tests -v
           bash -n deploy/production/setup-ssh.sh
           node --check deploy/production/env-preflight.mjs
           docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/backend-env-refresh.yml

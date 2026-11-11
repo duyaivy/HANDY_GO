@@ -25,6 +25,16 @@ for role in ('vps1', 'vps2', 'vps3', 'vps4'):
         assert services[name]['environment']['NODE_ENV'] == 'production'
         assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
+    if role == 'vps1':
+        gateway_env = services['api-gateway']['environment']
+        assert gateway_env['AUTH_SERVICE_URL'] == 'http://auth-service:3001'
+        assert gateway_env['USER_TRUST_SERVICE_URL'] == 'http://user-trust-service:3002'
+        assert gateway_env['NOTIFICATION_SERVICE_URL'] == 'http://notification-service:3008'
+    elif role == 'vps4':
+        message_env = services['message-service']['environment']
+        assert message_env['AUTH_SERVICE_URL'] == 'http://10.77.0.1:3001'
+        assert message_env['USER_TRUST_SERVICE_URL'] == 'http://10.77.0.1:3002'
+        assert message_env['NOTIFICATION_SERVICE_URL'] == 'http://10.77.0.1:3008'
     for name in expected - {'nginx'}:
         if role == 'vps1' and not registry[name].get('wireguard_http'):
             assert 'ports' not in services[name]
@@ -57,7 +67,15 @@ with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
         for name, service in services.items():
             if name == 'nginx':
                 continue
-            assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'}
+            if role == 'vps1' and name == 'api-gateway':
+                assert set(service['environment']) == set(required_keys) | {
+                    'PORT', 'NODE_OPTIONS', 'AUTH_SERVICE_URL', 'USER_TRUST_SERVICE_URL', 'NOTIFICATION_SERVICE_URL'
+                }
+                assert service['environment']['AUTH_SERVICE_URL'] == 'http://auth-service:3001'
+                assert service['environment']['USER_TRUST_SERVICE_URL'] == 'http://user-trust-service:3002'
+                assert service['environment']['NOTIFICATION_SERVICE_URL'] == 'http://notification-service:3008'
+            else:
+                assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'}
         print(f'{role}: Compose resolves with every optional ENV absent')
     # Infrastructure interpolation remains mandatory.
     for required in ('APP_IMAGE', 'APP_ENV_FILE', 'PRIVATE_IP', 'NGINX_IMAGE'):

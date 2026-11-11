@@ -15,8 +15,13 @@ export function validateProductionServiceEndpoints(
   for (const [name, target] of Object.entries(services)) {
     if (!target.url_env || !target.http_callers?.includes(serviceName)) continue;
     const url = origin(config[target.url_env], target.url_env);
-    const crossesHosts = target.http_callers.some(caller => services[caller]?.host !== target.host);
-    const allowed = crossesHosts ? [privateIps[target.host]] : [name, ...(target.wireguard_http ? [privateIps[target.host]] : [])];
+    const callerHost = services[serviceName]?.host;
+    const crossesHosts = callerHost ? callerHost !== target.host : target.http_callers.some(caller => services[caller]?.host !== target.host);
+    const allowed = crossesHosts
+      ? [privateIps[target.host]]
+      : serviceName === 'api-gateway'
+        ? [name]
+        : [name, ...(target.wireguard_http ? [privateIps[target.host]] : [])];
     if (url.protocol !== 'http:' || !allowed.includes(url.hostname) || url.port !== String(target.port)) {
       throw new Error(`${target.url_env} must target ${allowed[0]}:${target.port}${crossesHosts ? ' over WireGuard' : ' using same-host Docker DNS'}`);
     }
