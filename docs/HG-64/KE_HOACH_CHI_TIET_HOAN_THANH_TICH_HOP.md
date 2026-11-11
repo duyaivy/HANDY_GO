@@ -4,10 +4,10 @@
 > **Nhánh phát triển:** `feature/HG-64-integrate-tracking-service-into-order-service`  
 > **Ngày lập kế hoạch:** 06/11/2026  
 > **Tài liệu tham chiếu:**
-> - Báo cáo rà soát hiện trạng: [`docs/HG-64/BAO_CAO_KIEM_TRA_TICH_HOP_TRACKING_ORDER.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/BAO_CAO_KIEM_TRA_TICH_HOP_TRACKING_ORDER.md)
-> - Báo cáo kỹ thuật Tracking Service: [`docs/HG47_TRACKING_SERVICE.md`](file:///d:/SCHOOL/PBL6/docs/HG47_TRACKING_SERVICE.md)
-> - Thiết kế DBML v2: [`docs/dbml/tracking-service-v2.dbml`](file:///d:/SCHOOL/PBL6/docs/dbml/tracking-service-v2.dbml)
-> - Hướng dẫn Smart Interop: [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](file:///d:/SCHOOL/PBL6/docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md)
+> - Báo cáo rà soát hiện trạng: [`docs/HG-64/BAO_CAO_KIEM_TRA_TICH_HOP_TRACKING_ORDER.md`](BAO_CAO_KIEM_TRA_TICH_HOP_TRACKING_ORDER.md)
+> - Báo cáo kỹ thuật Tracking Service: [`docs/HG47_TRACKING_SERVICE.md`](../HG47_TRACKING_SERVICE.md)
+> - Thiết kế DBML v2: [`docs/dbml/tracking-service-v2.dbml`](../dbml/tracking-service-v2.dbml)
+> - Hướng dẫn Smart Interop: [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](../order-service/SMART_INTEROP_INTEGRATION_GUIDE.md)
 
 ---
 
@@ -18,8 +18,8 @@ Mục tiêu của kế hoạch là đưa quá trình tích hợp giữa **Order 
 ### Tiêu chuẩn hoàn thành 100% (DoD):
 1. **Backend Event Completeness:** Toàn bộ các mốc sự kiện vòng đời đơn hàng (kể cả các trường hợp biên: yêu cầu làm lại `rework`, khiếu nại `dispute`, hủy đơn `cancelled`) đều được phát đi từ `order-service` và được `tracking-service` tiêu thụ, tính toán milestone chính xác.
 2. **Mobile API & SSE Client:** Mobile App sở hữu module `TrackingApi` và `TrackingSseClient` chuyên biệt, hỗ trợ cơ chế tự động kết nối lại (Auto-reconnect), bù đắp sự kiện bị lỡ (`Last-Event-ID`), và xử lý heartbeat ping.
-3. **Customer Experience (UI/UX):** Màn hình Chi tiết đơn hàng của Khách hàng ([`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)) hiển thị toàn bộ 7 mốc tiến trình hành trình (từ lúc tạo yêu cầu $\to$ đấu thầu $\to$ đề xuất $\to$ thi công $\to$ hoàn tất) và **tự động nhảy trạng thái thời gian thực qua SSE mà người dùng không cần kéo để làm mới (no pull-to-refresh)**.
-4. **Worker Experience (UI/UX):** Màn hình Việc làm của Thợ ([`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)) hiển thị mốc thời gian thi công đồng bộ, nhận thông báo tức thì khi khách yêu cầu sửa lại hoặc nghiệm thu thành công.
+3. **Customer Experience (UI/UX):** Màn hình Chi tiết đơn hàng của Khách hàng ([`customer-order-detail-screen.tsx`](../../mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)) hiển thị toàn bộ 7 mốc tiến trình hành trình (từ lúc tạo yêu cầu $\to$ đấu thầu $\to$ đề xuất $\to$ thi công $\to$ hoàn tất) và **tự động nhảy trạng thái thời gian thực qua SSE mà người dùng không cần kéo để làm mới (no pull-to-refresh)**.
+4. **Worker Experience (UI/UX):** Màn hình Việc làm của Thợ ([`worker-job-detail-screen.tsx`](../../mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)) hiển thị mốc thời gian thi công đồng bộ, nhận thông báo tức thì khi khách yêu cầu sửa lại hoặc nghiệm thu thành công.
 5. **Testing & Stability:** 100% Unit test, Hook test, Component test trên Mobile và Integration test trên Backend đều PASS. Đảm bảo fallback êm dịu (*Graceful degradation*) khi mất kết nối mạng.
 
 ---
@@ -49,26 +49,26 @@ flowchart TD
 Mục tiêu: Đảm bảo không bỏ sót bất kỳ biến động trạng thái nào giữa hai dịch vụ, đặc biệt là các luồng bất thường (*unhappy paths*).
 
 - [x] **Bước 1.1: Rà soát các sự kiện biên trong `order-service`**
-  - **Mô tả:** Kiểm tra các hàm chuyển trạng thái đặc thù trong [`orders.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/orders/orders.service.ts):
+  - **Mô tả:** Kiểm tra các hàm chuyển trạng thái đặc thù trong [`orders.service.ts`](../../backend/apps/order-service/src/orders/orders.service.ts):
     - `requestRework()`: Xác nhận đã phát `order.status.changed` với `nextStatus: 'in_progress'` hoặc `order.rework_requested`.
     - `disputeOrder()`: Xác nhận phát `order.disputed` và `order.status.changed` với `nextStatus: 'disputed'`.
     - `resolveDispute()`: Xác nhận phát sự kiện chuyển trạng thái tiếp theo sau khi Admin can thiệp xử lý.
   - **Tệp liên quan:**
-    - [`backend/apps/order-service/src/orders/orders.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/orders/orders.service.ts)
-    - [`backend/apps/order-service/src/common/constants/order.constants.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/common/constants/order.constants.ts)
+    - [`backend/apps/order-service/src/orders/orders.service.ts`](../../backend/apps/order-service/src/orders/orders.service.ts)
+    - [`backend/apps/order-service/src/common/constants/order.constants.ts`](../../backend/apps/order-service/src/common/constants/order.constants.ts)
   - **Tiêu chí chấp thuận:** Có outbox event phát ra cho 100% các nhánh trạng thái trong State Machine. *(Đã hoàn thành - Commit `3d88da0`)*
 
 - [x] **Bước 1.2: Bổ sung xử lý sự kiện tranh chấp và làm lại trong `tracking-service`**
-  - **Mô tả:** Kiểm tra hàm `calculatePhaseAndMilestones` trong [`summary.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/summary/summary.service.ts) để đảm bảo khi nhận sự kiện tranh chấp hoặc yêu cầu sửa chữa, Phase của tiến trình chuyển chính xác:
+  - **Mô tả:** Kiểm tra hàm `calculatePhaseAndMilestones` trong [`summary.service.ts`](../../backend/apps/tracking-service/src/summary/summary.service.ts) để đảm bảo khi nhận sự kiện tranh chấp hoặc yêu cầu sửa chữa, Phase của tiến trình chuyển chính xác:
     - `disputed` $\to$ Phase `DISPUTED`
     - `rework` $\to$ Phase `ORDER_IN_PROGRESS` (kèm ghi chú reason trong metadata)
   - **Tệp liên quan:**
-    - [`backend/apps/tracking-service/src/summary/summary.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/summary/summary.service.ts)
-    - [`backend/apps/tracking-service/src/events/tracking-events.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/events/tracking-events.service.ts)
+    - [`backend/apps/tracking-service/src/summary/summary.service.ts`](../../backend/apps/tracking-service/src/summary/summary.service.ts)
+    - [`backend/apps/tracking-service/src/events/tracking-events.service.ts`](../../backend/apps/tracking-service/src/events/tracking-events.service.ts)
   - **Tiêu chí chấp thuận:** Unit test cho `SummaryService` bao phủ ca `disputed` và `rework` chuyển đổi phase chính xác. *(Đã hoàn thành - Commit `3d88da0`)*
 
 - [x] **Bước 1.3: Kiểm tra thiết lập API Gateway đối với SSE**
-  - **Mô tả:** Xác minh cấu hình reverse proxy tại [`proxy.constants.ts`](file:///d:/SCHOOL/PBL6/backend/apps/api-gateway/src/proxy/proxy.constants.ts) và Nginx (nếu có) đảm bảo:
+  - **Mô tả:** Xác minh cấu hình reverse proxy tại [`proxy.constants.ts`](../../backend/apps/api-gateway/src/proxy/proxy.constants.ts) và Nginx (nếu có) đảm bảo:
     - Route `/api/v1/tracking/*` forward đầy đủ các header: `x-internal-secret`, `x-user-id`, `x-user-roles`.
     - Route SSE `/api/v1/tracking/requests/:id/live` không bị proxy đệm dữ liệu (tắt `proxy_buffering off`, header `X-Accel-Buffering: no`, giữ `chunked transfer`).
   - **Tiêu chí chấp thuận:** Kết nối thử nghiệm SSE qua Gateway duy trì kết nối > 60 giây và nhận ping đều đặn. *(Đã hoàn thành - Commit `3d88da0`)*
@@ -80,7 +80,7 @@ Mục tiêu: Đảm bảo không bỏ sót bất kỳ biến động trạng th�
 Mục tiêu: Cung cấp đầy đủ hạ tầng API client, cơ chế kết nối thời gian thực và state management cho tính năng Tracking trên ứng dụng di động.
 
 - [x] **Bước 2.1: Định nghĩa kiểu dữ liệu chuẩn (Types & DTOs)**
-  - **Mô tả:** Tạo file định nghĩa types cho Tracking Service tại [`mobile/src/features/tracking/types/tracking.types.ts`](file:///d:/SCHOOL/PBL6/mobile/src/features/tracking/types/tracking.types.ts):
+  - **Mô tả:** Tạo file định nghĩa types cho Tracking Service tại [`mobile/src/features/tracking/types/tracking.types.ts`](../../mobile/src/features/tracking/types/tracking.types.ts):
     - `TrackingPhase`: `'DRAFT' | 'SEEKING_WORKERS' | 'BOOKING_PROPOSAL' | 'ORDER_CONFIRMED' | 'ORDER_IN_PROGRESS' | 'ORDER_FINISHED' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED' | 'DISPUTED'`
     - `TrackingMilestone`: `{ key, title, description, status: 'completed' | 'in_progress' | 'pending' | 'skipped', reachedAt }`
     - `TrackingTimelineItem`: DTO chứa chi tiết sự kiện append-only (`eventType`, `occurredAt`, `actor`, `reason`, `metadata`).
@@ -99,7 +99,7 @@ Mục tiêu: Cung cấp đầy đủ hạ tầng API client, cơ chế kết n�
   - **Tiêu chí chấp thuận:** Có mock test kiểm tra parse dữ liệu thành công và xử lý mã lỗi HTTP 403, 404. *(Đã hoàn thành - Commit `1f8f15e`)*
 
 - [x] **Bước 2.3: Xây dựng `TrackingSseClient` chuyên biệt**
-  - **Mô tả:** Kế thừa kiến trúc vững chắc từ [`bidding-sse-client.ts`](file:///d:/SCHOOL/PBL6/mobile/src/services/sse/bidding-sse-client.ts) để xây dựng client SSE cho Tracking:
+  - **Mô tả:** Kế thừa kiến trúc vững chắc từ [`bidding-sse-client.ts`](../../mobile/src/services/sse/bidding-sse-client.ts) để xây dựng client SSE cho Tracking:
     - Kết nối tới `GET /api/v1/tracking/requests/:serviceRequestId/live`.
     - Gắn kèm Bearer Access Token (tự động lấy token mới khi refresh).
     - Tự động lưu `lastEventId` để gửi header `Last-Event-ID` khi reconnect nhằm bù đắp sự kiện bị lỡ.
@@ -138,13 +138,13 @@ Mục tiêu: Nâng cấp trải nghiệm khách hàng, thay thế bảng `status
   - **Tiêu chí chấp thuận:** Component render đẹp mắt trên cả Light mode và Dark mode, hỗ trợ i18n tiếng Việt. *(Đã hoàn thành - Commit `6542811`)*
 
 - [x] **Bước 3.2: Tích hợp vào `customer-order-detail-screen.tsx`**
-  - **Mô tả:** Cập nhật màn hình [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx):
+  - **Mô tả:** Cập nhật màn hình [`customer-order-detail-screen.tsx`](../../mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx):
     - Đọc `serviceRequestId` từ thông tin đơn hàng `order.serviceRequestId`.
     - Sử dụng `useTrackingSummary` và `useTrackingEvents(order.serviceRequestId)`.
     - Thay thế khối render `statusHistory` cũ bằng `<OrderTrackingTimeline />`.
     - Đặt cơ chế Fallback an toàn: nếu API Tracking trả về lỗi hoặc không có dữ liệu, tự động fallback về hiển thị `statusHistory` cũ của Order Service.
   - **Tệp chỉnh sửa:**
-    - [`mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)
+    - [`mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx`](../../mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)
   - **Tiêu chí chấp thuận:** Khi Thợ bấm "Bắt đầu làm việc" trên máy của Thợ, màn hình chi tiết đơn của Khách hàng lập tức chuyển mốc mà không cần vuốt màn hình để refresh. *(Đã hoàn thành - Commit `6542811`)*
 
 - [x] **Bước 3.3: Hiển thị trạng thái kết nối Live Indicator**
@@ -160,11 +160,11 @@ Mục tiêu: Nâng cấp trải nghiệm khách hàng, thay thế bảng `status
 Mục tiêu: Giúp Thợ nắm bắt tức thì các mốc kiểm duyệt, nghiệm thu hoặc yêu cầu làm lại từ phía Khách hàng.
 
 - [x] **Bước 4.1: Tích hợp Timeline vào `worker-job-detail-screen.tsx`**
-  - **Mô tả:** Nâng cấp [`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx):
+  - **Mô tả:** Nâng cấp [`worker-job-detail-screen.tsx`](../../mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx):
     - Nhúng `OrderTrackingTimeline` phiên bản dành cho Thợ.
     - Đảm bảo tuân thủ nguyên tắc bảo mật thông tin (Role-based security & Bid shielding: Thợ chỉ xem được các sự kiện của đơn hàng mình được phân công).
   - **Tệp chỉnh sửa:**
-    - [`mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)
+    - [`mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx`](../../mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)
   - **Tiêu chí chấp thuận:** Thợ theo dõi được tiến trình công việc từ lúc xác nhận đến khi hoàn tất. *(Đã hoàn thành - Commit `8434fcc`)*
 
 - [x] **Bước 4.2: Tự động phản ứng với sự kiện Rework và Nghiệm thu**
@@ -196,13 +196,13 @@ Mục tiêu: Đảm bảo độ tin cậy tuyệt đối trước khi đóng tic
     6. Thiết bị B: Báo hoàn tất (`order.status.changed`: `in_progress` → `awaiting_customer_confirmation`).
     7. Thiết bị A: Tự động hiện thông báo "Thợ đã làm xong, vui lòng nghiệm thu". Khách bấm "Nghiệm thu" (`order.completed`).
     8. Cả 2 máy chuyển sang mốc "Hoàn tất".
-  - **Tiêu chí chấp thuận:** Luồng chạy mượt mà, không phát sinh lỗi console, không cần pull-to-refresh thủ công. Đã tự động hóa toàn diện trong [`tracking-e2e-resilience.test.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx). *(Đã hoàn thành - Commit `7ae0b85`)*
+  - **Tiêu chí chấp thuận:** Luồng chạy mượt mà, không phát sinh lỗi console, không cần pull-to-refresh thủ công. Đã tự động hóa toàn diện trong [`tracking-e2e-resilience.test.tsx`](../../mobile/src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx). *(Đã hoàn thành - Commit `7ae0b85`)*
 
 - [x] **Bước 5.3: Hoàn thiện tài liệu và cập nhật `AGENTS.md`**
   - **Mô tả:**
-    - Cập nhật tài liệu [`backend/AGENTS.md`](file:///d:/SCHOOL/PBL6/backend/AGENTS.md) ghi nhận hoàn tất các điểm tích hợp.
-    - Cập nhật [`docs/HG-64/README.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/README.md) đánh dấu hoàn thành 100%.
-    - Cập nhật [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](file:///d:/SCHOOL/PBL6/docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md) chuyển trạng thái điểm neo Tracking từ "Fallback" sang "Live Production".
+    - Cập nhật tài liệu [`backend/AGENTS.md`](../../backend/AGENTS.md) ghi nhận hoàn tất các điểm tích hợp.
+    - Cập nhật [`docs/HG-64/README.md`](README.md) đánh dấu hoàn thành 100%.
+    - Cập nhật [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](../order-service/SMART_INTEROP_INTEGRATION_GUIDE.md) chuyển trạng thái điểm neo Tracking từ "Fallback" sang "Live Production".
   - **Tiêu chí chấp thuận:** 100% hồ sơ tài liệu và checklist được cập nhật đầy đủ. *(Đã hoàn thành - Commit `7ae0b85`)*
 
 ---

@@ -93,13 +93,13 @@ pnpm test src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx
 
 Khi hoàn tất cả 5 giai đoạn, thực hiện cập nhật các tài liệu kỹ thuật sau:
 
-1. **Cập nhật [`backend/AGENTS.md`](file:///d:/SCHOOL/PBL6/backend/AGENTS.md):**
+1. **Cập nhật [`backend/AGENTS.md`](../../backend/AGENTS.md):**
    - Đánh dấu hoàn tất việc tích hợp dòng thời gian SSE của Tracking Service với Order Service.
-2. **Cập nhật [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](file:///d:/SCHOOL/PBL6/docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md):**
+2. **Cập nhật [`docs/order-service/SMART_INTEROP_INTEGRATION_GUIDE.md`](../order-service/SMART_INTEROP_INTEGRATION_GUIDE.md):**
    - Đổi trạng thái mục `Tracking / Map Service` từ "Smart Interop Fallback" thành "Live Production SSE".
-3. **Cập nhật [`docs/HG-64/README.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/README.md):**
+3. **Cập nhật [`docs/HG-64/README.md`](README.md):**
    - Chuyển trạng thái Ticket HG-64 từ `In Progress` sang `✅ COMPLETED 100%`.
-4. **Cập nhật [`docs/HG-64/TRACKING_TIEN_DO_HG-64.md`](file:///d:/SCHOOL/PBL6/docs/HG-64/TRACKING_TIEN_DO_HG-64.md):**
+4. **Cập nhật [`docs/HG-64/TRACKING_TIEN_DO_HG-64.md`](TRACKING_TIEN_DO_HG-64.md):**
    - Đánh dấu 100% các tiêu chí Definition of Done và toàn bộ 5/5 giai đoạn.
 
 ---

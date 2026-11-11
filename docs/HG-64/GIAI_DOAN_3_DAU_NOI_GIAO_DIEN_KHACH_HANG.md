@@ -10,7 +10,7 @@
 
 ## 1. Mục tiêu giai đoạn
 
-Nâng cấp màn hình Chi tiết Đơn hàng của Khách hàng ([`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)):
+Nâng cấp màn hình Chi tiết Đơn hàng của Khách hàng ([`customer-order-detail-screen.tsx`](../../mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)):
 1. Thay thế khối stepper tĩnh `statusHistory` (chỉ hiển thị vài trạng thái sau khi đã có đơn) bằng **Dòng thời gian toàn diện (`OrderTrackingTimeline`)** hiển thị trọn vẹn 7 cột mốc từ khi gửi yêu cầu tới khi thanh toán.
 2. Tích hợp kết nối SSE trực tiếp qua `useTrackingEvents` để **màn hình tự động nhảy trạng thái khi thợ làm việc mà không cần vuốt để tải lại (no pull-to-refresh)**.
 3. Đảm bảo cơ chế phòng vệ **Graceful Fallback**: nếu API Tracking bị gián đoạn, tự động rơi về hiển thị `statusHistory` của Order Service để đảm bảo người dùng luôn xem được thông tin.
@@ -173,7 +173,7 @@ export const OrderTrackingTimeline: React.FC<Props> = ({
 ### Bước 3.2: Tích hợp vào `customer-order-detail-screen.tsx`
 
 #### 📍 Vị trí tệp:
-- [`mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)
+- [`mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx`](../../mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx)
 
 #### 📝 Các bước chỉnh sửa:
 1. **Import Hook & Component:**

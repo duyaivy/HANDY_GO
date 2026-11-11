@@ -1,6 +1,11 @@
 import { Controller, Logger } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
-import { EVENT_PATTERNS } from '@app/common';
+import {
+  EVENT_PATTERNS,
+  type OrderCreatedPayload,
+  type OrderStatusChangedPayload,
+  type ServiceRequestBiddingClosedPayload,
+} from '@app/common';
 import { TrackingEventsService } from './tracking-events.service.js';
 import type { EventEnvelope } from './dto/event-envelope.dto.js';
 
@@ -40,7 +45,7 @@ export class TrackingEventsConsumer {
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED)
   async handleServiceRequestBiddingClosed(
-    @Payload() data: EventEnvelope,
+    @Payload() data: EventEnvelope<ServiceRequestBiddingClosedPayload>,
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(
@@ -240,7 +245,7 @@ export class TrackingEventsConsumer {
 
   @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
   async handleOrderCreated(
-    @Payload() data: EventEnvelope,
+    @Payload() data: EventEnvelope<OrderCreatedPayload>,
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_CREATED);
@@ -248,7 +253,7 @@ export class TrackingEventsConsumer {
 
   @EventPattern(EVENT_PATTERNS.ORDER_STATUS_CHANGED)
   async handleOrderStatusChanged(
-    @Payload() data: EventEnvelope,
+    @Payload() data: EventEnvelope<OrderStatusChangedPayload>,
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_STATUS_CHANGED);

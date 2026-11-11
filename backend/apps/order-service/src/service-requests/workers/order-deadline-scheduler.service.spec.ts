@@ -92,6 +92,8 @@ describe('OrderDeadlineSchedulerService', () => {
           eventType: ORDER_CONSTANTS.EVENT_SERVICE_REQUEST_BIDDING_CLOSED,
           payload: expect.objectContaining({
             serviceRequestId: 'req-1',
+            requestId: 'req-1',
+            requestCode: 'REQ-20261022-A1B2',
             customerUserId: 'user-1',
             biddingClosedAt: now.toISOString(),
           }),

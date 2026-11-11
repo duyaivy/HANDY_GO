@@ -10,7 +10,7 @@
 
 ## 1. Mục tiêu giai đoạn
 
-Nâng cấp màn hình Chi tiết Công việc của Thợ ([`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)):
+Nâng cấp màn hình Chi tiết Công việc của Thợ ([`worker-job-detail-screen.tsx`](../../mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)):
 1. Hiển thị dòng thời gian tiến độ thi công đồng bộ với Khách hàng.
 2. Tự động phản ứng với sự kiện **Khách yêu cầu làm lại (`rework`)**: Hiển thị lý do thợ cần sửa, tự động mở lại nút cho phép thợ hoàn tất và tải ảnh minh chứng bổ sung.
 3. Tự động phản ứng với sự kiện **Khách nghiệm thu thành công (`completed`)**: Hiển thị thông báo chúc mừng, cập nhật trạng thái tiền thù lao đã được chuyển quyết toán.
@@ -23,7 +23,7 @@ Nâng cấp màn hình Chi tiết Công việc của Thợ ([`worker-job-detail-
 ### Bước 4.1: Nhúng `OrderTrackingTimeline` vào `worker-job-detail-screen.tsx`
 
 #### 📍 Vị trí tệp:
-- [`mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)
+- [`mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx`](../../mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)
 
 #### 📝 Các bước chỉnh sửa:
 1. **Import Hook & Component:**

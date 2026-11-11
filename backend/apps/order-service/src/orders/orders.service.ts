@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/order-client';
+import type { OrderCreatedPayload, OrderStatusChangedPayload } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
 import { generateOrderCode } from '../common/utils/code-generator.util.js';
@@ -330,7 +331,7 @@ export class OrdersService {
             latitude: Number(createdOrder.latitude),
             longitude: Number(createdOrder.longitude),
             createdAt: createdOrder.createdAt.toISOString(),
-          },
+          } satisfies OrderCreatedPayload,
         },
         tx,
       );
@@ -1719,7 +1720,7 @@ export class OrdersService {
           nextStatus,
           notificationKind: 'status_update',
           ...extraPayload,
-        },
+        } satisfies OrderStatusChangedPayload,
       },
       tx,
     );

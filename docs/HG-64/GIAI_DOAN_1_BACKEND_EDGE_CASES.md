@@ -22,11 +22,11 @@
 ### Bước 1.1: Rà soát & Bổ sung Outbox Events cho Edge Cases trong Order Service
 
 #### 📍 Vị trí tệp:
-- [`backend/apps/order-service/src/orders/orders.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/orders/orders.service.ts)
-- [`backend/apps/order-service/src/common/constants/order.constants.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/common/constants/order.constants.ts)
+- [`backend/apps/order-service/src/orders/orders.service.ts`](../../backend/apps/order-service/src/orders/orders.service.ts)
+- [`backend/apps/order-service/src/common/constants/order.constants.ts`](../../backend/apps/order-service/src/common/constants/order.constants.ts)
 
 #### 📝 Nhiệm vụ cụ thể:
-1. Mở [`order.constants.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/common/constants/order.constants.ts) và xác nhận đã có đủ các hằng số sự kiện:
+1. Mở [`order.constants.ts`](../../backend/apps/order-service/src/common/constants/order.constants.ts) và xác nhận đã có đủ các hằng số sự kiện:
    ```typescript
    export const ORDER_CONSTANTS = {
      // ...
@@ -37,7 +37,7 @@
    } as const;
    ```
 
-2. Kiểm tra phương thức `requestRework` trong [`orders.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/order-service/src/orders/orders.service.ts):
+2. Kiểm tra phương thức `requestRework` trong [`orders.service.ts`](../../backend/apps/order-service/src/orders/orders.service.ts):
    - Đảm bảo trong transaction `tx`, sau khi tạo `orderStatusHistory` với `toStatus: 'in_progress'` và ghi chú lý do khách yêu cầu sửa, cần gọi:
    ```typescript
    await this.emitOrderStatusChangedEvent(
@@ -65,11 +65,11 @@
 ### Bước 1.2: Gia cố Phân loại Milestone & Phase trong Tracking Service
 
 #### 📍 Vị trí tệp:
-- [`backend/apps/tracking-service/src/summary/summary.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/summary/summary.service.ts)
-- [`backend/apps/tracking-service/src/events/tracking-events.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/events/tracking-events.service.ts)
+- [`backend/apps/tracking-service/src/summary/summary.service.ts`](../../backend/apps/tracking-service/src/summary/summary.service.ts)
+- [`backend/apps/tracking-service/src/events/tracking-events.service.ts`](../../backend/apps/tracking-service/src/events/tracking-events.service.ts)
 
 #### 📝 Nhiệm vụ cụ thể:
-1. Mở [`summary.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/summary/summary.service.ts), rà soát hàm `calculatePhaseAndMilestones`:
+1. Mở [`summary.service.ts`](../../backend/apps/tracking-service/src/summary/summary.service.ts), rà soát hàm `calculatePhaseAndMilestones`:
    - Đảm bảo nhận diện trường hợp `targetStatus === 'disputed'`:
      ```typescript
      if (targetStatus === 'disputed') {
@@ -80,7 +80,7 @@
      - Giữ Phase ở `ORDER_IN_PROGRESS`.
      - Milestone `order_finished` chuyển về trạng thái `in_progress` kèm mô tả lý do khách yêu cầu sửa lại.
 
-2. Cập nhật whitelist trường metadata an toàn trong `sanitizeMetadata` tại [`tracking-events.service.ts`](file:///d:/SCHOOL/PBL6/backend/apps/tracking-service/src/events/tracking-events.service.ts):
+2. Cập nhật whitelist trường metadata an toàn trong `sanitizeMetadata` tại [`tracking-events.service.ts`](../../backend/apps/tracking-service/src/events/tracking-events.service.ts):
    - Bổ sung `'reworkReason'`, `'disputeReason'`, `'resolution'` vào mảng `safeKeys` để các thông tin này hiển thị được lên Timeline mà không bị cắt bỏ.
 
 ---
@@ -88,7 +88,7 @@
 ### Bước 1.3: Xác minh Thiết lập API Gateway cho Luồng SSE
 
 #### 📍 Vị trí tệp:
-- [`backend/apps/api-gateway/src/proxy/proxy.constants.ts`](file:///d:/SCHOOL/PBL6/backend/apps/api-gateway/src/proxy/proxy.constants.ts)
+- [`backend/apps/api-gateway/src/proxy/proxy.constants.ts`](../../backend/apps/api-gateway/src/proxy/proxy.constants.ts)
 
 #### 📝 Nhiệm vụ cụ thể:
 1. Kiểm tra cấu hình upstream của `tracking-service` tại Gateway:

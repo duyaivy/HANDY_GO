@@ -26,6 +26,7 @@ Mỗi mục gồm tên, đường dẫn và công dụng ngắn gọn. Chỉ c�
 | `HttpExceptionFilter` | `libs/common/src/filters/http-exception.filter.ts` | Chuẩn hóa response lỗi và ghi log tập trung. |
 | `ApiResponseDto`, `ApiErrorResponseDto`, `buildSuccessResponse`, `buildErrorResponse` | `libs/common/src/dto/api-response.dto.ts` | Tạo response envelope thống nhất. |
 | `EVENT_PATTERNS`, `DomainEvent` | `libs/common/src/events/` | Tên event và envelope dùng giữa các service. |
+| `OrderCreatedPayload`, `OrderStatusChangedPayload`, `ServiceRequestBiddingClosedPayload` | `libs/common/src/events/order-tracking-payloads.ts` | Payload contract cho ba event Order phát và Tracking nhận. |
 | `OutboxPublisherService`, `OutboxRepository` | `libs/common/src/outbox/` | Publisher và repository contract dùng chung cho các adapter outbox. |
 | `PollBackoff`, `safeOutboxError` | `libs/common/src/outbox/poll-backoff.ts` | Backoff có jitter và chuẩn hóa lỗi dependency để ghi log an toàn. |
 | `renderEmailTemplate` | `libs/common/src/templates/` | Render email từ template và biến đầu vào. |

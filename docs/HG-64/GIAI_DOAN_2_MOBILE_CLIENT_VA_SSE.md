@@ -147,7 +147,7 @@ export const TrackingApi = {
 
 ### Bước 2.3: Xây dựng `TrackingSseClient`
 
-Kế thừa mô hình client từ [`bidding-sse-client.ts`](file:///d:/SCHOOL/PBL6/mobile/src/services/sse/bidding-sse-client.ts).
+Kế thừa mô hình client từ [`bidding-sse-client.ts`](../../mobile/src/services/sse/bidding-sse-client.ts).
 
 #### 📍 Vị trí tệp:
 - `mobile/src/services/sse/tracking-sse-client.ts`
