@@ -48,6 +48,8 @@
 5. [HG64-05 — Kiểm thử xuyên suốt với dịch vụ thật](./HG64-05_KIEM_THU_XUYEN_SUOT.md) (P2)
 6. [HG64-06 — Đồng bộ contract và tài liệu](./HG64-06_DONG_BO_CONTRACT_VA_TAI_LIEU.md) (P3)
 
+Xem [bảng rà soát hoàn thành và hướng dẫn kiểm thử trực tiếp từng task](./KIEM_TRA_VA_KIEM_THU_TRUC_TIEP_HG64.md) để chạy lại trên máy và ghi nhận bằng chứng nghiệm thu.
+
 ## 5. Trạng thái kiểm chứng ngày 11/11/2026
 
 - **Mã nguồn:** Order Service ghi event vào transactional outbox; Tracking Service nhận event qua RabbitMQ, lưu timeline, xử lý trùng lặp và phát SSE. Ba payload `order.created`, `order.status.changed`, `service_request.bidding_closed` dùng contract chung trong `@app/common`.
