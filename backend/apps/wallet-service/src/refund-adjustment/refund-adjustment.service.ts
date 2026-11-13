@@ -60,7 +60,7 @@ export class RefundAdjustmentService {
         }
         if (previous.reduce((sum, row) => sum + row.totalAmount, 0n) + amount > BigInt(dto.grossAmount))
           throw new RefundNeedsReviewException('Refund exceeds original cash amount');
-        const originalPoint = await tx.walletTransfer.findFirst({ where: { kind: 'payment', operationId: { startsWith: `${dto.paymentId}:` } } });
+        const originalPoint = await tx.walletTransfer.findFirst({ where: { kind: 'payment', status: 'completed', operationId: { startsWith: `${dto.paymentId}:` } } });
         if (originalPoint) throw new RefundNeedsReviewException('Cash refund contradicts existing Point settlement');
         const customer = await tx.wallet.findUnique({ where: { userId } });
         const fund = await tx.wallet.findUnique({ where: { systemKey: 'PLATFORM_FEES' } });
@@ -80,7 +80,7 @@ export class RefundAdjustmentService {
       }
 
       // --- Find original payment and lock it (A fix: lock prevents concurrent over-refund) ---
-      const original = await tx.walletTransfer.findFirst({ where: { operationId: { startsWith: `${dto.paymentId}:` }, kind: 'payment' } });
+      const original = await tx.walletTransfer.findFirst({ where: { operationId: { startsWith: `${dto.paymentId}:` }, kind: 'payment', status: 'completed' } });
       if (!original) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Original payment transfer not found');
 
       // Lock the payment transfer row to serialize concurrent refunds on the same payment

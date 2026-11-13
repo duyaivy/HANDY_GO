@@ -198,7 +198,17 @@ beforeAll(async () => {
     throw new Error('Isolated test DB required');
   for (const name of ['PAYMENT', 'WALLET', 'ORDER'])
     setEnv(`DATABASE_URL_${name}`, raw);
-  setEnv('RABBITMQ_URL', 'amqp://handygo_test:handygo_test_pw@localhost:56674');
+  const testBroker =
+    process.env.PAYMENT_TEST_RABBITMQ_URL ??
+    'amqp://handygo_test:handygo_test_pw@localhost:56674';
+  const brokerUrl = new URL(testBroker);
+  if (
+    !['localhost', '127.0.0.1'].includes(brokerUrl.hostname) ||
+    !['56672', '56674'].includes(brokerUrl.port)
+  ) {
+    throw new Error('Isolated local Payment test broker required');
+  }
+  setEnv('RABBITMQ_URL', testBroker);
   setEnv('RABBITMQ_EXCHANGE', `payment-cross-${randomUUID()}`);
   setEnv(
     'JWT_PUBLIC_KEY',

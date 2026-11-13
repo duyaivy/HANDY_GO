@@ -126,3 +126,9 @@ Sweeps select due records in retry-time/ID order and reserve a 30-second retry w
 Deploy Order's additive `completedAt` eligibility field before Payment. HTTP open and order.completed now use the same completion helper under a Payment row lock, with the pending event in the same transaction. If eligibility has no usable timestamp and Payment has not received completion yet, open returns 409; callers can retry after the Order event arrives. Historical missing events are not automatically replayed.
 
 Regression checks: `pnpm exec vitest run apps/payment-service/src/payment-reconciliation-regression.spec.ts`. PostgreSQL concurrency/rollback checks: `apps/payment-service/test/integration/payment-reconciliation-regression.int-spec.ts`, included in `pnpm run test:payment:docker`.
+
+## Historical pending recovery and insufficient-funds operations
+
+Wallet now persists a terminal `failed` operation with `failureCode: INSUFFICIENT_FUNDS` for payment debit shortfalls, without ledger postings or balance events. Payment finalizes that attempt as failed; a new customer confirmation can create a new operation. HTTP errors/timeouts/lookup 404 remain unresolved and reuse the existing operation ID. Refund lookup considers only completed payment transfers.
+
+Run `pnpm run recover:payment:pending --report <new-report.json>` from `backend/` for a read-only inventory using an explicit `DATABASE_URL_PAYMENT`. Apply requires a reviewed downstream manifest, actor UUID, reason and the dry-run cutoff; it rechecks each Payment under a row lock and commits outbox plus audit together. Existing events are not recreated, and terminal/in-flight payments require separate reconciliation. See the [recovery runbook](../../../docs/payment-service/payment-recovery-runbook.md) for manifest format, batching, deployment order, limitations and local test setup.

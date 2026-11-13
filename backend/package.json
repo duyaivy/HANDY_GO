@@ -26,6 +26,7 @@
     "prisma:generate:matching": "prisma generate --schema=apps/matching-service/prisma/schema.prisma --config=apps/matching-service/prisma/prisma.config.ts",
     "prisma:generate:payment": "prisma generate --schema=apps/payment-service/prisma/schema.prisma",
     "seed:payment:commission": "node --experimental-strip-types apps/payment-service/prisma/seed-commission.ts",
+    "recover:payment:pending": "node --experimental-strip-types scripts/backfill-payment-pending.mjs",
     "prisma:generate": "pnpm run prisma:generate:auth && pnpm run prisma:generate:user-trust && pnpm run prisma:generate:catalog && pnpm run prisma:generate:order && pnpm run prisma:generate:bidding && pnpm run prisma:generate:notification && pnpm run prisma:generate:matching && pnpm run prisma:generate:wallet && pnpm run prisma:generate:payment && pnpm run prisma:generate:tracking && pnpm run prisma:generate:message",
     "prisma:generate:wallet": "prisma generate --schema=apps/wallet-service/prisma/schema.prisma",
     "prisma:generate:tracking": "prisma generate --schema=apps/tracking-service/prisma/schema.prisma --config=apps/tracking-service/prisma/prisma.config.ts",

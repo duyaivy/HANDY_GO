@@ -14,6 +14,7 @@ export interface WalletOperationStatus {
   transferId?: string;
   kind?: string;
   amount?: string;
+  failureCode?: string;
 }
 
 @Injectable()
