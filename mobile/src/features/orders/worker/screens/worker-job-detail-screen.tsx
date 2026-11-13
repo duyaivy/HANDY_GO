@@ -431,7 +431,7 @@ export function WorkerJobDetailScreen({
                 🎉 Đơn hàng đã hoàn tất!
               </Text>
               <Text className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
-                Khách hàng đã thanh toán và nghiệm thu thành công.
+                Khách hàng đã nghiệm thu công việc.
               </Text>
             </View>
           )}

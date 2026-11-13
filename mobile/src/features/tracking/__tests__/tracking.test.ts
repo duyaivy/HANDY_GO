@@ -13,6 +13,46 @@ describe('Tracking API & Hooks Unit Tests', () => {
   });
 
   describe('TrackingApi', () => {
+    it.each([
+      ['pending', { status: 'pending', lastEventAt: '2026-11-10T11:00:00.000Z' }],
+      ['absent', undefined],
+    ])('does not mark payment complete for an accepted order when payment is %s', async (_case, payment) => {
+      (request as jest.Mock).mockResolvedValue({
+        serviceRequestId: 'req-completed',
+        orderId: 'order-completed',
+        currentPhase: 'COMPLETED',
+        order: { orderId: 'order-completed', status: 'completed' },
+        payment,
+      });
+
+      const result = await TrackingApi.getSummary('req-completed');
+      const milestone = result.milestones.find(item => item.key === 'payment_completion');
+      expect(milestone).toMatchObject({
+        status: 'in_progress',
+        description: 'Đơn đã nghiệm thu, đang chờ xác nhận thanh toán',
+        reachedAt: null,
+      });
+      expect(milestone?.description).not.toContain('Đã thanh toán');
+    });
+
+    it.each(['succeeded', 'completed', 'paid'])('marks payment complete only with explicit %s status', async (status) => {
+      const lastEventAt = '2026-11-10T11:00:00.000Z';
+      (request as jest.Mock).mockResolvedValue({
+        serviceRequestId: 'req-completed',
+        orderId: 'order-completed',
+        currentPhase: 'COMPLETED',
+        order: { orderId: 'order-completed', status: 'completed' },
+        payment: { status, lastEventAt },
+      });
+
+      const result = await TrackingApi.getSummary('req-completed');
+      expect(result.milestones.find(item => item.key === 'payment_completion')).toMatchObject({
+        status: 'completed',
+        description: 'Đã thanh toán và hoàn tất dịch vụ',
+        reachedAt: lastEventAt,
+      });
+    });
+
     it('shows work finished and payment pending while awaiting customer confirmation', async () => {
       const finishedAt = '2026-11-10T10:00:00.000Z';
       (request as jest.Mock).mockResolvedValue({

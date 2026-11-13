@@ -238,19 +238,25 @@ export function computeMilestonesFromSummary(
   });
 
   // 5. Payment & Finalization Milestone
-  const isPaymentCompleted = payment?.status === 'succeeded' || phase === 'COMPLETED';
-  const isPaymentPending = orderStatus === 'awaiting_customer_confirmation' || phase === 'AWAITING_CONFIRMATION' || phase === 'ORDER_FINISHED' || payment?.status === 'pending';
+  const isPaymentCompleted = payment?.status === 'succeeded' || payment?.status === 'completed' || payment?.status === 'paid';
+  const isAwaitingConfirmation = orderStatus === 'awaiting_customer_confirmation' || phase === 'AWAITING_CONFIRMATION' || phase === 'ORDER_FINISHED';
+  const isOrderAccepted = orderStatus === 'completed' || phase === 'COMPLETED';
+  const isPaymentPending = isAwaitingConfirmation || isOrderAccepted || payment?.status === 'pending';
 
   milestones.push({
     key: 'payment_completion',
     title: 'Nghiệm thu & Thanh toán',
     description: isPaymentCompleted
       ? 'Đã thanh toán và hoàn tất dịch vụ'
-      : isPaymentPending
+      : isAwaitingConfirmation
         ? 'Chờ khách hàng nghiệm thu và thanh toán'
-        : 'Thanh toán sau khi hoàn thành',
+        : isOrderAccepted
+          ? 'Đơn đã nghiệm thu, đang chờ xác nhận thanh toán'
+          : isPaymentPending
+            ? 'Đang chờ xác nhận thanh toán'
+            : 'Thanh toán sau khi hoàn thành',
     status: isPaymentCompleted ? 'completed' : isPaymentPending ? 'in_progress' : 'pending',
-    reachedAt: payment?.lastEventAt || null,
+    reachedAt: isPaymentCompleted ? payment?.lastEventAt || null : null,
   });
 
   return milestones;
