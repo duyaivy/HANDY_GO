@@ -274,6 +274,20 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.stringContaining('Tiền công đang được quyết toán vào ví của bạn'),
       expect.any(Array),
     );
+    act(() => capturedEventHandler?.({
+      id: 'evt-completed-status',
+      eventId: 'evt-completed-status',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'awaiting_customer_confirmation',
+      toStatus: 'completed',
+      occurredAt: '2026-11-06T10:30:00.000Z',
+      recordedAt: '2026-11-06T10:30:00.000Z',
+    }));
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(2);
 
     (useWorkerJobDetail as jest.Mock).mockReturnValue({
       ...defaultWorkerJobMock,
@@ -306,6 +320,20 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.stringContaining('Đơn hàng đang trong trạng thái xem xét tranh chấp'),
       expect.any(Array),
     );
+    act(() => capturedEventHandler?.({
+      id: 'evt-dispute-status',
+      eventId: 'evt-dispute-status',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'in_progress',
+      toStatus: 'disputed',
+      occurredAt: '2026-11-06T11:00:00.000Z',
+      recordedAt: '2026-11-06T11:00:00.000Z',
+    }));
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(2);
 
     (useWorkerJobDetail as jest.Mock).mockReturnValue({
       ...defaultWorkerJobMock,
@@ -313,6 +341,46 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     });
     rerender(<WorkerJobDetailScreen jobId="job-123" />);
     expect(screen.getByTestId('worker-disputed-banner')).toBeOnTheScreen();
+  });
+
+  it('shows replayed dispute event only once but alerts for a new dispute event', () => {
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    const disputeEvent: TrackingEventItem = {
+      id: 'evt-dispute-first',
+      eventId: 'evt-dispute-first',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.disputed',
+      sourceService: 'order-service',
+      toStatus: 'disputed',
+      occurredAt: '2026-11-06T11:00:00.000Z',
+      recordedAt: '2026-11-06T11:00:00.000Z',
+    };
+    act(() => {
+      capturedEventHandler?.(disputeEvent);
+      capturedEventHandler?.(disputeEvent);
+      capturedEventHandler?.({ ...disputeEvent, id: 'evt-dispute-second', eventId: 'evt-dispute-second' });
+    });
+    expect(alertSpy).toHaveBeenCalledTimes(2);
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('clears the notified event IDs when switching jobs', () => {
+    const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
+    const event: TrackingEventItem = {
+      id: 'evt-shared',
+      eventId: 'evt-shared',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.disputed',
+      sourceService: 'order-service',
+      occurredAt: '2026-11-06T11:00:00.000Z',
+      recordedAt: '2026-11-06T11:00:00.000Z',
+    };
+    act(() => capturedEventHandler?.(event));
+    rerender(<WorkerJobDetailScreen jobId="job-456" />);
+    act(() => capturedEventHandler?.({ ...event, entityId: 'job-456' }));
+    expect(alertSpy).toHaveBeenCalledTimes(2);
   });
 
   it('reconciles dispute resolution from Order API without remounting despite stale Tracking', () => {

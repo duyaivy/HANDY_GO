@@ -98,11 +98,14 @@ export function WorkerJobDetailScreen({
   const [demoStatus, setDemoStatus] = React.useState('created');
   const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobId = React.useRef(jobId);
+  const notifiedEventIds = React.useRef(new Set<string>());
 
   React.useEffect(() => {
     activeJobId.current = jobId;
+    const notifiedIds = notifiedEventIds.current;
     return () => {
       activeJobId.current = '';
+      notifiedIds.clear();
       if (retryTimer.current) {
         clearTimeout(retryTimer.current);
       }
@@ -131,6 +134,15 @@ export function WorkerJobDetailScreen({
       }
     });
 
+    // Mọi event cập nhật dữ liệu; chỉ event nghiệp vụ chuyên biệt được hiện Alert một lần.
+    if (event.eventType !== 'order.rework_requested' && event.eventType !== 'order.completed' && event.eventType !== 'order.disputed') {
+      return;
+    }
+    if (notifiedEventIds.current.has(event.eventId)) {
+      return;
+    }
+    notifiedEventIds.current.add(event.eventId);
+
     // Chỉ event nghiệp vụ của khách mới là yêu cầu làm lại; reason của admin không phải rework.
     if (event.eventType === 'order.rework_requested') {
       const reworkReason = event.metadata?.reworkReason;
@@ -145,7 +157,7 @@ export function WorkerJobDetailScreen({
     }
 
     // 2. Trường hợp Khách hàng đã duyệt nghiệm thu thành công
-    if (event.eventType === 'order.completed' || event.toStatus === 'completed') {
+    if (event.eventType === 'order.completed') {
       Alert.alert(
         '🎉 Nghiệm thu thành công!',
         'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
@@ -154,7 +166,7 @@ export function WorkerJobDetailScreen({
     }
 
     // 3. Trường hợp đơn bị tranh chấp / khiếu nại
-    if (event.eventType === 'order.disputed' || event.toStatus === 'disputed') {
+    if (event.eventType === 'order.disputed') {
       Alert.alert(
         '🚨 Đơn hàng đang được khiếu nại',
         'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.',
