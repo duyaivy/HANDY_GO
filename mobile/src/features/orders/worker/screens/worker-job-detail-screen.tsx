@@ -79,6 +79,7 @@ export function WorkerJobDetailScreen({
     isLoading,
     isStartingOrder,
     order,
+    refetch,
     startOrder,
     statusHistory,
   } = useWorkerJobDetail(jobId);
@@ -111,6 +112,7 @@ export function WorkerJobDetailScreen({
           || 'Khách hàng yêu cầu chỉnh sửa lại công việc';
       setLocalStatus('in_progress');
       setReworkReason(reworkReasonText);
+      void refetch?.();
       Alert.alert(
         '⚠️ Yêu cầu chỉnh sửa công việc',
         `Khách hàng vừa gửi yêu cầu sửa lại:\n\n"${reworkReasonText}"\n\nVui lòng kiểm tra và hoàn thiện lại công việc.`,
@@ -137,7 +139,7 @@ export function WorkerJobDetailScreen({
         [{ text: 'Xem chi tiết', style: 'destructive' }],
       );
     }
-  }, []);
+  }, [refetch]);
 
   // Lắng nghe sự kiện SSE với callback xử lý thông báo
   const { connectionStatus } = useTrackingEvents(serviceRequestId, handleWorkerRealtimeEvent);

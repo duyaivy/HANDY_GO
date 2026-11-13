@@ -106,6 +106,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     isLoading: false,
     isStartingOrder: false,
     order: mockJobOrderBase,
+    refetch: jest.fn(),
     startOrder: jest.fn(),
     statusHistory: [
       {
@@ -211,6 +212,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.stringContaining('Mối nối van nước còn rỉ'),
       expect.any(Array),
     );
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(1);
 
     // Rework banner is visible
     expect(screen.getByTestId('worker-rework-alert-banner')).toBeOnTheScreen();

@@ -1,12 +1,19 @@
 import type { UploadImageOptions } from '../../api/orders.api';
+import type { TrackingEventItem } from '@/features/tracking';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
+import { useTrackingEvents } from '@/features/tracking';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { OrdersApi } from '../../api/orders.api';
 import { WorkerJobCompleteScreen } from '../screens/worker-job-complete-screen';
 
 const mockPush = jest.fn();
 const mockBack = jest.fn();
+let capturedTrackingEvent: ((event: TrackingEventItem) => void) | undefined;
+
+jest.mock('@/features/tracking', () => ({
+  useTrackingEvents: jest.fn(),
+}));
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(() => ({
@@ -25,6 +32,11 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => { });
     mockPush.mockClear();
     mockBack.mockClear();
+    capturedTrackingEvent = undefined;
+    (useTrackingEvents as jest.Mock).mockImplementation((_serviceRequestId, onEvent) => {
+      capturedTrackingEvent = onEvent;
+      return { connectionStatus: 'connected' };
+    });
   });
 
   afterEach(() => {
@@ -193,15 +205,22 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
   });
 
   it('Kịch bản 6: Nộp thành công hoàn tất đơn hàng (uploadEvidence -> finishOrder -> Chuyển màn hình)', async () => {
+    let orderStatus = 'in_progress';
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockImplementation(async () => ({
+      data: { id: 'ORD-TEST-999', status: orderStatus, evidences: [] },
+      statusCode: 200,
+      message: 'OK',
+    } as any));
     jest.spyOn(OrdersApi, 'uploadImage').mockResolvedValue(
       'https://res.cloudinary.com/demo/image/upload/clean-evidence.jpg',
     );
     const uploadEvidenceSpy = jest.spyOn(OrdersApi, 'uploadEvidence').mockResolvedValue({
       data: { id: 'evi-1', orderId: 'ORD-TEST-999', mediaUrl: 'https://res.cloudinary.com/demo/image/upload/clean-evidence.jpg', mediaType: 'image' } as any,
     } as any);
-    const finishOrderSpy = jest.spyOn(OrdersApi, 'finishOrder').mockResolvedValue({
-      data: { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation' } as any,
-    } as any);
+    const finishOrderSpy = jest.spyOn(OrdersApi, 'finishOrder').mockImplementation(async () => {
+      orderStatus = 'awaiting_customer_confirmation';
+      return { data: { id: 'ORD-TEST-999', status: orderStatus, evidences: [] } } as any;
+    });
 
     render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
 
@@ -227,6 +246,13 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
         expect.stringContaining('Khách hàng đã nhận được thông báo để bấm nghiệm thu'),
         expect.any(Array),
       );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Đã nộp bằng chứng, đang chờ khách nghiệm thu')).toBeOnTheScreen();
+      expect(screen.getByText('Đã nộp, chờ khách nghiệm thu')).toBeOnTheScreen();
+      expect(screen.queryByText('⚠️ Trạng thái đơn không hợp lệ:')).toBeNull();
+      expect(screen.getByTestId('worker-finish-order-btn').props.accessibilityState?.disabled).toBe(true);
     });
 
     // Bấm nút "Về danh sách việc" trong alert
@@ -330,6 +356,60 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     const finishBtnCompleted = screen.getByTestId('worker-finish-order-btn');
     expect(finishBtnCompleted.props.accessibilityState?.disabled).toBe(true);
     expect(screen.getByText('Không thể nộp (Trạng thái: completed)')).toBeOnTheScreen();
+  });
+
+  it('unlocks evidence submission when a customer rework event updates the Order status', async () => {
+    const initialOrder = {
+      id: 'ORD-TEST-999',
+      serviceRequestId: 'REQ-TEST-999',
+      status: 'awaiting_customer_confirmation',
+      evidences: [],
+    };
+    let currentOrder = initialOrder;
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockImplementation(async () => ({
+      statusCode: 200,
+      message: 'OK',
+      data: currentOrder,
+    } as any));
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    await waitFor(() => {
+      expect(screen.getByText('Đã nộp, chờ khách nghiệm thu')).toBeOnTheScreen();
+      expect(capturedTrackingEvent).toBeDefined();
+    });
+
+    currentOrder = { ...initialOrder, status: 'in_progress' };
+    act(() => {
+      capturedTrackingEvent?.({
+        entityId: 'ORD-TEST-999',
+        eventType: 'order.rework_requested',
+        toStatus: 'in_progress',
+      } as TrackingEventItem);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)')).toBeOnTheScreen();
+      expect(screen.queryByTestId('worker-refresh-order-status-btn')).toBeNull();
+    });
+  });
+
+  it('lets the worker refresh an old awaiting-confirmation status after missing SSE', async () => {
+    const initialOrder = { id: 'ORD-TEST-999', status: 'awaiting_customer_confirmation', evidences: [] };
+    let currentOrder = initialOrder;
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockImplementation(async () => ({
+      statusCode: 200,
+      message: 'OK',
+      data: currentOrder,
+    } as any));
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    const refreshButton = await screen.findByTestId('worker-refresh-order-status-btn');
+    currentOrder = { ...initialOrder, status: 'in_progress' };
+    fireEvent.press(refreshButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)')).toBeOnTheScreen();
+    });
   });
 
   it('ORD-10: Lỗi ở ảnh thứ ba rồi gửi lại: chỉ ảnh thứ ba được gửi lại, ảnh 1 và 2 không bị gửi trùng', async () => {

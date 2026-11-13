@@ -1,4 +1,5 @@
 import type { EvidenceImageItem } from '../../types/order.types';
+import type { TrackingEventItem } from '@/features/tracking';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
@@ -16,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useTrackingEvents } from '@/features/tracking';
 import { OrdersApi } from '../../api/orders.api';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
@@ -39,7 +41,17 @@ export function WorkerJobCompleteScreen({
   const searchParams = useLocalSearchParams<{ id?: string }>();
   const jobId = propJobId || searchParams?.id || 'JOB-1020';
 
-  const { deleteEvidence, finishOrder, isDeletingEvidence, order, uploadEvidence } = useWorkerJobDetail(jobId);
+  const { deleteEvidence, finishOrder, isDeletingEvidence, isRefetching, order, refetch, uploadEvidence } = useWorkerJobDetail(jobId);
+
+  const handleOrderEvent = React.useCallback((event: TrackingEventItem) => {
+    if (
+      event.entityId === jobId
+      && (event.eventType === 'order.rework_requested' || event.eventType === 'order.status.changed')
+    ) {
+      void refetch();
+    }
+  }, [jobId, refetch]);
+  useTrackingEvents(order?.serviceRequestId, handleOrderEvent);
 
   // Khởi tạo danh sách bằng chứng
   const [evidenceItems, setEvidenceItems] = React.useState<EvidenceImageItem[]>(() => {
@@ -323,9 +335,17 @@ export function WorkerJobCompleteScreen({
     }
   };
 
+  const isAwaitingConfirmation = order?.status === 'awaiting_customer_confirmation' && jobId !== 'JOB-1020';
   const isInvalidStatus = Boolean(
     order?.status && order.status !== 'in_progress' && jobId !== 'JOB-1020',
   );
+
+  const handleRefreshStatus = async () => {
+    const result = await refetch();
+    if (result.isError) {
+      Alert.alert('Không thể cập nhật trạng thái', 'Không tải được trạng thái đơn hàng mới. Vui lòng thử lại.');
+    }
+  };
 
   const handleFinishJob = async () => {
     // 0. Chặn nộp nếu trạng thái đơn không phải in_progress (P2-05)
@@ -454,8 +474,27 @@ export function WorkerJobCompleteScreen({
       />
 
       <ScrollView testID="worker-job-complete-screen" className="flex-1 p-4">
-        {/* Cảnh báo trạng thái đơn nếu không phải in_progress */}
-        {order?.status && order.status !== 'in_progress' && jobId !== 'JOB-1020' && (
+        {isAwaitingConfirmation && (
+          <View className="mb-4 rounded-2xl border border-sky-200 bg-sky-50/90 p-4 dark:border-sky-900 dark:bg-sky-950/30">
+            <Text className="text-xs font-bold text-sky-900 dark:text-sky-300">
+              Đã nộp bằng chứng, đang chờ khách nghiệm thu
+            </Text>
+            <Text className="mt-1 text-[11px]/4 text-sky-800 dark:text-sky-200">
+              Báo cáo hoàn thành đã được gửi. Nếu khách yêu cầu thi công lại, hãy kiểm tra trạng thái đơn để nộp bằng chứng mới.
+            </Text>
+            <Button
+              testID="worker-refresh-order-status-btn"
+              label={isRefetching ? 'Đang kiểm tra trạng thái...' : 'Kiểm tra lại trạng thái'}
+              variant="outline"
+              disabled={isRefetching}
+              className="mt-3 self-start rounded-xl"
+              onPress={() => { void handleRefreshStatus(); }}
+            />
+          </View>
+        )}
+
+        {/* Chỉ cảnh báo lỗi với trạng thái không thuộc luồng nộp thành công */}
+        {order?.status && isInvalidStatus && !isAwaitingConfirmation && (
           <View className="mb-4 rounded-2xl border border-rose-200 bg-rose-50/90 p-4 dark:border-rose-900 dark:bg-rose-950/30">
             <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
               ⚠️ Trạng thái đơn không hợp lệ:
@@ -465,6 +504,14 @@ export function WorkerJobCompleteScreen({
                 ? 'Đơn việc hiện đang ở trạng thái "Đã sẵn sàng". Bạn cần bấm "2. Bắt Đầu Thi Công (ORD-07)" trên màn hình chi tiết trước khi nộp ảnh nghiệm thu.'
                 : `Đơn việc hiện đang ở trạng thái "${order.status}". Chỉ đơn đang thi công mới có thể nộp ảnh nghiệm thu.`}
             </Text>
+            <Button
+              testID="worker-refresh-order-status-btn"
+              label={isRefetching ? 'Đang kiểm tra trạng thái...' : 'Kiểm tra lại trạng thái'}
+              variant="outline"
+              disabled={isRefetching}
+              className="mt-3 self-start rounded-xl"
+              onPress={() => { void handleRefreshStatus(); }}
+            />
           </View>
         )}
 
@@ -613,9 +660,11 @@ export function WorkerJobCompleteScreen({
               ? 'Đang gửi bằng chứng...'
               : isUploadingAny
                 ? 'Đang tải ảnh lên máy chủ...'
-                : isInvalidStatus
-                  ? `Không thể nộp (Trạng thái: ${order?.status})`
-                  : 'Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)'
+                : isAwaitingConfirmation
+                  ? 'Đã nộp, chờ khách nghiệm thu'
+                  : isInvalidStatus
+                    ? `Không thể nộp (Trạng thái: ${order?.status})`
+                    : 'Nộp Bằng Chứng & Báo Hoàn Thành (ORD-10)'
           }
           variant="default"
           disabled={isSubmitting || isDeletingEvidence || isUploadingAny || isInvalidStatus}
