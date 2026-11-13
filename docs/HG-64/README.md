@@ -36,6 +36,7 @@
 3. [`GIAI_DOAN_3_DAU_NOI_GIAO_DIEN_KHACH_HANG.md`](GIAI_DOAN_3_DAU_NOI_GIAO_DIEN_KHACH_HANG.md): Xây dựng Component `OrderTrackingTimeline` và tích hợp SSE vào màn hình Khách hàng.
 4. [`GIAI_DOAN_4_DAU_NOI_GIAO_DIEN_THO.md`](GIAI_DOAN_4_DAU_NOI_GIAO_DIEN_THO.md): Tích hợp Timeline cho Thợ, đồng bộ sự kiện làm lại và nghiệm thu tức thời.
 5. [`GIAI_DOAN_5_KIEM_THU_TOAN_TRINH_VA_NGHIEM_THU.md`](GIAI_DOAN_5_KIEM_THU_TOAN_TRINH_VA_NGHIEM_THU.md): Kịch bản kiểm thử 2 thiết bị thực tế, kiểm tra khả năng chịu lỗi và nghiệm thu bàn giao.
+6. [`HUONG_DAN_KIEM_THU_MOBILE_HG64.md`](HUONG_DAN_KIEM_THU_MOBILE_HG64.md): 📱 **Hướng dẫn chi tiết kiểm thử chức năng Tracking trên Mobile** (Cả tự động qua Jest và thủ công trên thiết bị thật).
 
 ---
 
