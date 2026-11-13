@@ -29,6 +29,9 @@ export class TopupSettlementService {
     });
   }
   async settle(dto: PaymentTopupSucceededDto) {
+    const simulated = dto.provider === 'mock' || dto.isSimulated === true;
+    if (simulated && (process.env.NODE_ENV === 'production' || process.env.TOPUP_MOCK_ENABLED?.trim().toLowerCase() !== 'true'))
+      throw new AppException(HttpStatus.FORBIDDEN, ERROR_CODES.FORBIDDEN, 'Simulated top-ups are disabled in this Wallet');
     const amount = BigInt(dto.amount);
     return this.prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({ where: { userId: dto.userId } });
@@ -42,9 +45,9 @@ export class TopupSettlementService {
         }
         return prior;
       }
-      const entry = await tx.walletTransaction.create({ data: { walletId: wallet.id, type: 'topup', direction: 'credit', amount, operationId: dto.paymentId, idempotencyKey: `topup:${dto.idempotencyKey}`, referenceId: dto.paymentId } });
+      const entry = await tx.walletTransaction.create({ data: { walletId: wallet.id, type: 'topup', direction: 'credit', amount, operationId: dto.paymentId, idempotencyKey: `topup:${dto.idempotencyKey}`, referenceId: dto.paymentId, ...(simulated ? { description: 'MOCK simulated provider confirmation; sandbox Point only' } : {}) } });
       await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amount } } });
-      const payload = { eventId: `wallet.topup.credited:${entry.id}`, transactionId: entry.id, walletId: wallet.id, userId: dto.userId, paymentId: dto.paymentId, amount: amount.toString() };
+      const payload = { eventId: `wallet.topup.credited:${entry.id}`, transactionId: entry.id, walletId: wallet.id, userId: dto.userId, paymentId: dto.paymentId, amount: amount.toString(), provider: dto.provider ?? 'vnpay', isSimulated: simulated };
       await tx.outboxEvent.createMany({ data: [
         { eventType: 'wallet.credited', payload },
         { eventType: 'wallet.topup.credited', payload },
