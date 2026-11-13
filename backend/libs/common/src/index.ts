@@ -12,3 +12,5 @@ export * from './templates/index.js';
 
 
 export * from './outbox/poll-backoff.js';
+
+export * from './message-contracts/index.js';

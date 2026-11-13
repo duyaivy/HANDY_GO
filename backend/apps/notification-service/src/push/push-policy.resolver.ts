@@ -17,6 +17,10 @@ export interface PushPolicyDecision {
   skipReason?: string;
 }
 
+const defaultPolicies: Record<string, PushPolicy> = {
+  'message.created': { enabled: true, mode: 'optional' },
+};
+
 export function simulatedPushPolicies(): Record<string, PushPolicy> {
   const map: Record<string, PushPolicy> = {};
   for (const type of NOTIFICATION_EVENTS) {
@@ -49,7 +53,7 @@ export class PushPolicyResolver {
 
     const raw = config.get<string>('PUSH_EVENT_POLICIES');
     if (!raw) {
-      this.policies = {};
+      this.policies = { ...defaultPolicies };
       return;
     }
 
@@ -60,7 +64,7 @@ export class PushPolicyResolver {
         return;
       }
 
-      const map: Record<string, PushPolicy> = {};
+      const map: Record<string, PushPolicy> = { ...defaultPolicies };
       for (const [key, val] of Object.entries(parsed)) {
         if (
           isRecord(val) &&

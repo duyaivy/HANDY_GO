@@ -91,6 +91,18 @@ describe('SessionService - Lưu trữ và Rotation Refresh Token (HG-31 Phase 2)
     tokenSigner = module.get<TokenSignerService>(TokenSignerService);
   });
 
+  it.each(['Worker', 'WORKER'])('signs canonical roles from code %s rather than a localized display name', async (code) => {
+    const account = structuredClone(mockAccount);
+    account.roles[0].role.code = code;
+    account.roles[0].role.name = 'Thợ đối tác HandyGo';
+
+    const prepared = await sessionService.prepareSession(account);
+    const payload = JSON.parse(Buffer.from(prepared.token.split('.')[1], 'base64url').toString());
+
+    expect(payload.roles).toEqual(['Worker']);
+    expect(prepared.user.roles).toEqual(['Worker']);
+  });
+
   describe('1. Lưu trữ Refresh Token khi Đăng nhập (createSession / saveSession)', () => {
     it('đăng nhập tạo bản ghi session có accountId, hash khác token rõ và expiresAt đúng 7 ngày', async () => {
       const session = await sessionService.createSession(mockAccount, '127.0.0.1', 'Mozilla/5.0');

@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { Text } from 'react-native';
 import { queryClient } from '@/lib/api/query-client';

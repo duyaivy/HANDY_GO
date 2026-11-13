@@ -19,6 +19,7 @@ import { GatewayAuthMiddleware } from './auth/gateway-auth.middleware.js';
 import { TokenVerifierService } from '@app/auth';
 import { CloudinaryModule } from '@app/cloudinary';
 import { UploadsController, UploadsModule } from './uploads/index.js';
+import { ChatMediaController } from './uploads/chat-media.controller.js';
 import { SwaggerSpecsController } from './swagger/index.js';
 import { DevVideoUploadController } from './dev/dev-video-upload.controller.js';
 import { CandidatesController, CandidatesModule } from './candidates/index.js';
@@ -45,6 +46,7 @@ import { CandidatesController, CandidatesModule } from './candidates/index.js';
   controllers: [
     ApiGatewayController,
     UploadsController,
+    ChatMediaController,
     CandidatesController,
     SwaggerSpecsController,
     DevVideoUploadController,
@@ -69,6 +71,10 @@ export class ApiGatewayModule implements NestModule {
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
     consumer
       .apply(GatewayAuthMiddleware)
+      .exclude({
+        path: 'internal/media/chat/verify',
+        method: RequestMethod.POST,
+      })
       .forRoutes({ path: '{*path}', method: RequestMethod.ALL });
     consumer
       .apply(ProxyMiddleware)

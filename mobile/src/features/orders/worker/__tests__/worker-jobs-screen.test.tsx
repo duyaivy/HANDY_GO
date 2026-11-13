@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { WorkerJobCompleteScreen } from '../screens/worker-job-complete-screen';

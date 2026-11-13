@@ -60,9 +60,15 @@ services:
     <<: *app
     profiles: [vps1]
     command: [node, dist/apps/api-gateway/main.js]
-    environment: {PORT: '3000', NODE_OPTIONS: '--max-old-space-size=80'}
+    environment:
+      PORT: '3000'
+      NODE_OPTIONS: '--max-old-space-size=80'
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
+      NOTIFICATION_SERVICE_URL: http://notification-service:3008
     mem_limit: 160m
     memswap_limit: 320m
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3000:3000']
   auth-service:
     <<: *app
     profiles: [vps1]
@@ -70,6 +76,7 @@ services:
     environment: {PORT: '3001', NODE_OPTIONS: '--max-old-space-size=112'}
     mem_limit: 208m
     memswap_limit: 416m
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3001:3001']
   user-trust-service:
     <<: *app
     profiles: [vps1]
@@ -86,6 +93,7 @@ services:
     environment: {PORT: '3008', NODE_OPTIONS: '--max-old-space-size=64'}
     mem_limit: 128m
     memswap_limit: 256m
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3008:3008']
   order-service:
     <<: *app
     profiles: [vps2]
@@ -142,6 +150,14 @@ services:
     mem_limit: 224m
     memswap_limit: 448m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3003:3003']
+  message-service:
+    <<: *app
+    profiles: [vps4]
+    command: [node, dist/message-runtime/apps/message-service/src/main.js]
+    environment: {PORT: '3009', NODE_OPTIONS: '--max-old-space-size=128'}
+    mem_limit: 256m
+    memswap_limit: 512m
+    ports: ['${PRIVATE_IP:?WireGuard IP required}:3009:3009']
 
 networks:
   default:

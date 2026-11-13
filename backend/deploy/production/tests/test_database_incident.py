@@ -12,18 +12,26 @@ from database_plan import SERVICES, migration_endpoint, validate_database_plan, 
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_message_direct_migration_url_uses_the_declared_message_schema(self):
+        values = {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message',
+                  'DB_DDL_VERIFIED_MESSAGE': 'true'}
+        self.assertEqual(migration_endpoint(values, 'message', migrating=True).query, 'schema=message')
+        with self.assertRaisesRegex(ValueError, 'wrong migration schema'):
+            migration_endpoint(values | {'DIRECT_URL_MESSAGE': 'postgresql://u:p@db/db?schema=message_service'},
+                               'message', migrating=True)
+
     def setUp(self):
         self.registry = json.loads((PROD / 'services.json').read_text())['services']
         self.values = {'DATABASE_URL': 'postgresql://tenant:secret@pool.example/postgres',
-                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '15', 'DB_POOL_RESERVE_PRIMARY': '6'}
+                       'DB_POOL_MAX': '1', 'DB_POOL_LIMIT_PRIMARY': '16', 'DB_POOL_RESERVE_PRIMARY': '6'}
         for service in SERVICES:
             suffix = service.upper().replace('-', '_')
             self.values.update({f'DB_POOL_GROUP_{suffix}': 'PRIMARY', f'DB_POOL_REPLICAS_{suffix}': '1',
                                 f'DIRECT_URL_{suffix}': 'postgresql://ddl:secret@direct.example/postgres',
                                 f'DB_DDL_VERIFIED_{suffix}': 'true'})
 
-    def test_nine_services_fit_explicit_budget(self):
-        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], 9)
+    def test_ten_services_fit_explicit_budget(self):
+        self.assertEqual(validate_database_plan(self.values, self.registry)['PRIMARY']['application_connections'], 10)
 
     def test_old_default_and_rollout_overlap_exceed_session_pool(self):
         for update in ({'DB_POOL_MAX': '10'}, {'DB_POOL_REPLICAS_ORDER': '2'}):
@@ -59,7 +67,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                         values[key] = blank
             values['DB_POOL_TIMEOUT_MS'] = values['DB_POOL_IDLE_MS'] = blank or ''
             with self.subTest(blank=blank):
-                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 9)
+                self.assertEqual(validate_database_plan(values, self.registry, run_migrations=True)['PRIMARY']['application_connections'], 10)
                 for service in SERVICES:
                     self.assertEqual(migration_endpoint(values, service, migrating=True).hostname, 'pool.example')
 
@@ -68,6 +76,37 @@ class DatabaseIncidentTests(unittest.TestCase):
         validate_database_plan(values, self.registry)
         with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_AUTH'):
             validate_database_plan(values, self.registry, run_migrations=True)
+
+    def test_onboarding_requires_ddl_confirmation_only_for_message_related_migrations(self):
+        values = dict(self.values)
+        for service in SERVICES:
+            suffix = service.upper().replace('-', '_')
+            if service not in ('message', 'notification', 'order'):
+                values.pop('DB_DDL_VERIFIED_' + suffix, None)
+        validate_database_plan(values, self.registry, run_migrations=True,
+                               migration_scope={'message', 'notification', 'order'})
+        for service in ('message', 'notification', 'order'):
+            key = 'DB_DDL_VERIFIED_' + service.upper()
+            invalid = dict(values)
+            invalid.pop(key)
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, key):
+                validate_database_plan(invalid, self.registry, run_migrations=True,
+                                       migration_scope={'message', 'notification', 'order'})
+
+    def test_onboarding_requires_ddl_confirmation_for_order(self):
+        values = dict(self.values)
+        values['DB_DDL_VERIFIED_ORDER'] = 'false'
+        with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_ORDER'):
+            validate_database_plan(values, self.registry, run_migrations=True,
+                                   migration_scope={'message', 'notification', 'order'})
+        values.pop('DB_DDL_VERIFIED_ORDER', None)
+        with self.assertRaisesRegex(ValueError, 'DB_DDL_VERIFIED_ORDER'):
+            validate_database_plan(values, self.registry, run_migrations=True,
+                                   migration_scope={'message', 'notification', 'order'})
+        values['DB_DDL_VERIFIED_ORDER'] = 'true'
+        plan = validate_database_plan(values, self.registry, run_migrations=True,
+                                      migration_scope={'message', 'notification', 'order'})
+        self.assertIn('PRIMARY', plan)
 
     def test_supabase_poolers_follow_actual_consumer_requirements(self):
         values = {key: val for key, val in self.values.items() if not key.startswith('DIRECT_URL_')}
@@ -150,18 +189,19 @@ class DatabaseIncidentTests(unittest.TestCase):
             shutil.copy2(root_source / 'package.json', root / 'package.json')
             (root / 'scripts').mkdir()
             shutil.copy2(root_source / 'scripts/migration-url.ts', root / 'scripts/migration-url.ts')
-            for app in (root_source / 'apps').iterdir():
-                if not app.is_dir(): continue
-                destination = root / 'apps' / app.name
-                for source in app.rglob('*'):
-                    if not source.is_file(): continue
-                    relative = source.relative_to(app)
-                    if source.name == 'schema.prisma' or source.name.startswith('prisma.config.') or source.name == 'migration.sql' or relative.parts[-2:] == ('prisma', 'prisma.config.ts'):
-                        target = destination / relative
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(source, target)
+            for parent in [p for p in ('apps', 'foundations') if (root_source / p).is_dir()]:
+                for app in (root_source / parent).iterdir():
+                    if not app.is_dir(): continue
+                    destination = root / parent / app.name
+                    for source in app.rglob('*'):
+                        if not source.is_file(): continue
+                        relative = source.relative_to(app)
+                        if source.name == 'schema.prisma' or source.name.startswith('prisma.config.') or source.name == 'migration.sql' or relative.parts[-2:] == ('prisma', 'prisma.config.ts'):
+                            target = destination / relative
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(source, target)
             registry = copy.deepcopy(self.registry)
-            self.assertEqual(len(migration_inventory(root, registry)), 9)
+            self.assertEqual(len(migration_inventory(root, registry)), 10)
             registry['api-gateway']['migration'] = 'api-gateway'
             with self.assertRaises(ValueError): migration_inventory(root, registry)
             duplicate = copy.deepcopy(self.registry)
@@ -187,3 +227,34 @@ class DatabaseIncidentTests(unittest.TestCase):
                 migration.unlink()
             with self.assertRaisesRegex(ValueError, 'Migration SQL missing|outside configured execution path'):
                 migration_inventory(root, self.registry)
+
+
+class OnboardingMigrationProofTests(unittest.TestCase):
+    def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
+        import tempfile
+        import shutil
+        from database_plan import onboarding_migration_proof
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for source in PROD.parents[1].glob('apps/*/prisma/migrations/**/migration.sql'):
+                destination = root / source.relative_to(PROD.parents[1])
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            proof = onboarding_migration_proof(root, host.MIGRATIONS)
+            self.assertEqual(proof['policy'], 'vps4-additive-v2')
+            self.assertEqual(proof['baseline_hash'], '74b963d47f03b9d80b069253585a10185849cea034b0b34218ebdaa0e7e84a45')
+            current = {'rollback_compatible': True, 'onboard_vps4': True,
+                       'migration_scope': ['message', 'notification', 'order'],
+                       'migration_hash': proof['inventory_hash'], 'migration_compatibility': proof}
+            previous = {'rollback_compatible': True, 'migration_hash': proof['baseline_hash']}
+            self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            extra = root / 'apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql'
+            extra.parent.mkdir(parents=True)
+            extra.write_text('DROP TABLE wallets;')
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(migration_hash=changed['inventory_hash'], migration_compatibility=changed)
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
+            pinned = root / next(iter(host.ONBOARDING_ADDITIVE_SQL))
+            pinned.write_text('DROP SCHEMA public CASCADE;')
+            with self.assertRaisesRegex(ValueError, 'reviewed additive'):
+                onboarding_migration_proof(root, host.MIGRATIONS)

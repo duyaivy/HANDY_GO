@@ -136,3 +136,13 @@ describe('customerHomeScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/customer/workers/th-01');
   });
 });
+
+it('opens the customer conversation list from the home header', () => {
+  useAuthStore.setState({
+    isAuthenticated: true,
+    user: { id: 'u-1', phone: '0912345678', email: 'user@example.com', roles: ['Customer'], permissions: [] },
+  });
+  render(<CustomerHomeScreen />);
+  fireEvent.press(screen.getByRole('button', { name: 'Tin nhắn' }));
+  expect(mockPush).toHaveBeenCalledWith('/customer/chat');
+});

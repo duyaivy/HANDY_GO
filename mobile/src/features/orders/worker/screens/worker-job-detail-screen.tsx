@@ -479,6 +479,7 @@ export function WorkerJobDetailScreen({
             Chức năng đang được phát triển
           </Text>
         </View>
+        {order?.serviceRequestId && <Button label="Lịch sử trò chuyện" onPress={() => router.push(`/worker/chat?requestId=${encodeURIComponent(order.serviceRequestId!)}` as any)} />}
       </ScrollView>
     </Screen>
   );

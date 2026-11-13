@@ -1,90 +1,57 @@
-import React from 'react';
+import React from "react";
+import { ChevronRight } from "lucide-react";
 
-interface PopularServiceItem {
+export interface PopularServiceItem {
   id: string;
   name: string;
   count: number;
-  progressPercent: number;
-  barColorClass: string;
 }
 
-const POPULAR_SERVICES: PopularServiceItem[] = [
-  {
-    id: 'dien',
-    name: 'Sửa điện',
-    count: 245,
-    progressPercent: 96,
-    barColorClass: 'bg-[#FF5E14]',
-  },
-  {
-    id: 'vesinh',
-    name: 'Vệ sinh',
-    count: 198,
-    progressPercent: 80,
-    barColorClass: 'bg-[#FF5E14]',
-  },
-  {
-    id: 'diennuoc',
-    name: 'Điện nước',
-    count: 165,
-    progressPercent: 68,
-    barColorClass: 'bg-[#FF5E14]',
-  },
-  {
-    id: 'dienlanh',
-    name: 'Điện lạnh',
-    count: 142,
-    progressPercent: 58,
-    barColorClass: 'bg-[#FDBA74]',
-  },
-  {
-    id: 'suamay',
-    name: 'Sửa máy',
-    count: 95,
-    progressPercent: 38,
-    barColorClass: 'bg-[#FED7AA]',
-  },
-];
-
-export const DashboardPopularServices: React.FC = () => {
+export const DashboardPopularServices: React.FC<{
+  data: PopularServiceItem[];
+  onViewAll?: () => void;
+}> = ({ data, onViewAll }) => {
+  const items = [...data].sort((a, b) => b.count - a.count).slice(0, 5);
+  const max = Math.max(1, ...items.map((i) => i.count));
   return (
-    <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/80 shadow-2xs flex flex-col justify-between">
-      {/* HEADER CARD */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-            Dịch vụ phổ biến
-          </h3>
-          <p className="text-xs text-slate-400 mt-0.5 font-medium">
-            Theo số lượng đơn
-          </p>
-        </div>
-
-        <span className="text-xs text-slate-400 font-medium">
-          Đơn vị: Đơn hàng
-        </span>
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-medium text-slate-900">Dịch vụ phổ biến</h2>
+        {onViewAll && (
+          <button
+            type="button"
+            onClick={onViewAll}
+            className="flex items-center text-sm text-slate-500 hover:text-slate-900"
+          >
+            Xem tất cả <ChevronRight className="h-4 w-4" />
+          </button>
+        )}
       </div>
-
-      {/* DANH SÁCH THANH TIẾN ĐỘ */}
-      <div className="mt-5 space-y-4">
-        {POPULAR_SERVICES.map((item) => (
-          <div key={item.id} className="space-y-1.5">
-            {/* TÊN DỊCH VỤ VÀ SỐ ĐƠN */}
-            <div className="flex items-center justify-between text-xs sm:text-sm font-semibold">
-              <span className="text-slate-800">{item.name}</span>
-              <span className="text-slate-900 font-bold">{item.count} đơn</span>
+      <ul className="mt-4 space-y-3.5">
+        {items.map((item) => (
+          <li key={item.id} className="text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="truncate text-slate-700" title={item.name}>
+                {item.name}
+              </span>
+              <span className="shrink-0 font-medium text-slate-900">
+                {item.count} đơn
+              </span>
             </div>
-
-            {/* THANH PROGRESS BAR BO GÓC TRÒN */}
-            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
               <div
-                className={`h-full rounded-full transition-all duration-700 ease-out ${item.barColorClass}`}
-                style={{ width: `${item.progressPercent}%` }}
+                className="h-full rounded-full bg-slate-900"
+                style={{ width: `${(item.count / max) * 100}%` }}
               />
             </div>
-          </div>
+          </li>
         ))}
-      </div>
-    </div>
+        {!items.length && (
+          <li className="text-sm text-slate-500">
+            Chưa có dữ liệu trong khoảng thời gian này.
+          </li>
+        )}
+      </ul>
+    </section>
   );
 };

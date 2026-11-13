@@ -78,13 +78,13 @@ class EnvRefreshTests(unittest.TestCase):
         self.assertNotIn('fixture-at-least-thirty-two-characters-', (obj.output / 'manifest.json').read_text())
 
     def test_budget_aware_refresh_cannot_increase_connections_past_limit(self):
-        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 10, 'reserve': 6, 'limit': 16}}
         self.env.write_text(self.env.read_text().replace('=false\n', '=true\n').replace('DB_POOL_MAX=1', 'DB_POOL_MAX=10'))
         with self.assertRaisesRegex(ValueError, 'exceeds limit'):
             self.coordinator().bundle()
 
     def test_budget_aware_refresh_without_optional_database_or_feature_settings(self):
-        self.old['database_budget'] = {'PRIMARY': {'application_connections': 9, 'reserve': 6, 'limit': 15}}
+        self.old['database_budget'] = {'PRIMARY': {'application_connections': 10, 'reserve': 6, 'limit': 16}}
         original = self.env.read_text()
         optional = ('DIRECT_URL_', 'DATABASE_URL_', 'DB_DDL_VERIFIED_',
                     'FIREBASE_', 'GOOGLE_APPLICATION_CREDENTIALS=',
@@ -96,7 +96,7 @@ class EnvRefreshTests(unittest.TestCase):
             with self.subTest(extra=bool(extra)):
                 self.env.write_text(stripped + extra)
                 manifest, data = self.coordinator().bundle()
-                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], 9)
+                self.assertEqual(manifest['database_budget']['PRIMARY']['application_connections'], 10)
                 self.assertEqual(manifest['config_sha256'], orchestrate.digest(self.env.read_bytes()))
                 with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as archive:
                     self.assertEqual(archive.extractfile('shared.env').read(), self.env.read_bytes())
@@ -203,8 +203,8 @@ class EnvRefreshTests(unittest.TestCase):
         obj.recover()
         self.assertEqual(obj.journal['status'], 'FAILED_ROLLBACK_SUCCESS')
         calls = obj.remote.call_args_list
-        self.assertEqual(sum(c.args[1] == 'restore' for c in calls), 3)
-        self.assertEqual(sum(c.args[1:] == ('verify', OLD) for c in calls), 3)
+        self.assertEqual(sum(c.args[1] == 'restore' for c in calls), len(orchestrate.ROLES))
+        self.assertEqual(sum(c.args[1:] == ('verify', OLD) for c in calls), len(orchestrate.ROLES))
         self.assertGreater(next(i for i, c in enumerate(calls) if c.args[1] == 'finish'),
                            max(i for i, c in enumerate(calls) if c.args[1] == 'verify'))
         self.assertTrue(all(s['pending'] is None for s in states.values()))
@@ -219,8 +219,8 @@ class EnvRefreshTests(unittest.TestCase):
         obj.recover()
         self.assertEqual(obj.journal['status'], 'STABLE')
         self.assertFalse(any(c.args[1] == 'restore' for c in obj.remote.call_args_list))
-        self.assertEqual(sum(c.args[1] == 'verify' for c in obj.remote.call_args_list), 3)
-        self.assertEqual(sum(c.args[1] == 'finish' for c in obj.remote.call_args_list), 2)
+        self.assertEqual(sum(c.args[1] == 'verify' for c in obj.remote.call_args_list), len(orchestrate.ROLES))
+        self.assertEqual(sum(c.args[1] == 'finish' for c in obj.remote.call_args_list), len(orchestrate.ROLES) - 1)
 
     def test_recovery_handles_crash_between_stable_write_and_phase_update(self):
         obj, states, _ = self.recovery()
@@ -228,7 +228,7 @@ class EnvRefreshTests(unittest.TestCase):
             state['stable'] = {'release_id': RELEASE}
             state['pending']['phase'] = 'VERIFIED'
         obj.recover()
-        self.assertEqual(sum(c.args[1] == 'commit' for c in obj.remote.call_args_list), 3)
+        self.assertEqual(sum(c.args[1] == 'commit' for c in obj.remote.call_args_list), len(orchestrate.ROLES))
 
     def test_partial_commit_is_rolled_back_instead_of_clearing_locks(self):
         obj, states, _ = self.recovery()
@@ -281,8 +281,8 @@ class EnvRefreshTests(unittest.TestCase):
         obj, states, _ = self.recovery()
         states['vps3']['pending'] = None
         obj.recover()
-        self.assertEqual(sum(c.args[1] == 'restore' for c in obj.remote.call_args_list), 2)
-        self.assertEqual(sum(c.args[1] == 'verify' for c in obj.remote.call_args_list), 3)
+        self.assertEqual(sum(c.args[1] == 'restore' for c in obj.remote.call_args_list), len(orchestrate.ROLES) - 1)
+        self.assertEqual(sum(c.args[1] == 'verify' for c in obj.remote.call_args_list), len(orchestrate.ROLES))
 
     def test_rollover_at_midnight_uses_pending_identity_from_original_day(self):
         obj, _, _ = self.recovery()

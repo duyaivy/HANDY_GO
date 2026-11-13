@@ -230,6 +230,10 @@ Phản hồi chuẩn: `{"status":"ok","service":"<name>","timestamp":"..."}`.
 ```
 
 
-## Triển khai Backend production trên 3 VPS
+## Triển khai Backend production trên 4 VPS
 
-Xem [hướng dẫn triển khai](deploy/production/README.md) để setup Docker, WireGuard, Nginx/TLS, một ENV chung, Nginx container, cloud secrets, GitHub Actions nhánh release và rollback theo manifest cho 11 ứng dụng trên 3 VPS RAM 1 GB. Setup và SSH sử dụng tài khoản `azureuser` có sẵn trên cả ba VPS. Service health-only được bật theo phê duyệt nhưng chưa hoàn thiện nghiệp vụ. Workflow nằm ở `.github/workflows/backend-production.yml` tại root Git repository.
+Xem [hướng dẫn triển khai](deploy/production/README.md) để setup Docker, WireGuard, Nginx/TLS, một ENV chung, cloud secrets, GitHub Actions nhánh release và rollback theo manifest cho 12 ứng dụng trên 4 VPS. VPS4 dùng WireGuard `10.77.0.4` cho Message Service. Lần đầu tham gia cụm phải dùng workflow onboarding được phê duyệt rõ ràng; không dùng ENV refresh để bootstrap. Workflow nằm ở `.github/workflows/backend-production.yml` tại root Git repository.
+
+## Message Service Phase 1
+
+[Architecture, database foundation, API/event contracts, verification and Phase 2 handoff](../docs/message-service/README.md). Phase 1 introduces no running chat endpoints or public routing.

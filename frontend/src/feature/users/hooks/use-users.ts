@@ -1,5 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import usersApiRequest from "../api/users.api";
+import { UserListQuery } from "../types";
 
 const USER_QUERY_KEY = ["users", "detail"] as const;
 
@@ -23,3 +24,10 @@ export const useOrderUsersQuery = (userIds: string[]) =>
       (id) => getUserQueryOptions(id),
     ),
   });
+  export const useUsersQuery = (query: UserListQuery) => {
+  return useQuery({
+    queryKey: ["users", "list", query],
+    queryFn: () => usersApiRequest.list(query),
+    staleTime: 5 * 60 * 1000,
+  });
+};

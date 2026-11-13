@@ -9,10 +9,9 @@ import { getSessionVersion, getToken, removeToken, setToken } from '@/lib/auth/u
 
 import { Logger } from '@/services/logger/logger';
 import { ApiError } from './api-error';
+import { privateApiPayload } from './api-log-policy';
 
-export function resolveApiBaseUrl(): string {
-  const configuredUrl = Env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3000/api/v1';
-
+export function resolveApiBaseUrl(configuredUrl = Env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3000/api/v1'): string {
   // In development on Android, adapt the URL if running on emulator vs physical device via USB reverse
   if (__DEV__ && Platform.OS === 'android') {
     if (configuredUrl.includes('127.0.0.1') || configuredUrl.includes('localhost') || configuredUrl.includes('10.0.2.2')) {
@@ -177,11 +176,11 @@ axiosInstance.interceptors.request.use(
       // Ignored if storage is not ready
     }
 
-    Logger.debug('API_REQUEST', `${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, config.data);
+    Logger.debug('API_REQUEST', `${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, privateApiPayload(config.url || '') ? undefined : config.data);
     return config;
   },
   (error) => {
-    Logger.error('API_REQUEST_ERROR', 'Request failed to send', error);
+    Logger.error('API_REQUEST_ERROR', 'Request failed to send');
     return Promise.reject(ApiError.fromAxiosError(error));
   },
 );
@@ -189,7 +188,7 @@ axiosInstance.interceptors.request.use(
 // Response Interceptor: Log response, handle 401 token refresh queue, classify errors
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse) => {
-    Logger.debug('API_RESPONSE', `${response.status} ${response.config.url}`, response.data);
+    Logger.debug('API_RESPONSE', `${response.status} ${response.config.url}`, privateApiPayload(response.config.url || '') ? undefined : response.data);
     return response;
   },
   async (error) => {
@@ -258,7 +257,7 @@ axiosInstance.interceptors.response.use(
     Logger.warn(
       'API_RESPONSE_ERROR',
       `${originalRequest?.method?.toUpperCase() || 'REQUEST'} ${url}: ${apiError.kind} (${apiError.statusCode ?? 'no status'}): ${apiError.message}`,
-      apiError.kind === 'RATE_LIMITED' ? undefined : error?.response?.data,
+      apiError.kind === 'RATE_LIMITED' || privateApiPayload(url) ? undefined : error?.response?.data,
     );
     return Promise.reject(apiError);
   },

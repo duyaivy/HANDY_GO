@@ -83,6 +83,16 @@ describe('GatewayAuthMiddleware (Unit)', () => {
     warn.mockRestore();
   });
 
+  it('returns 401 for an old token whose role cannot be forwarded in an HTTP header', async () => {
+    tokenVerifier.verifyAccessToken.mockResolvedValue({ ...mockPayload, roles: ['Thợ đối tác HandyGo'] });
+    const req = buildReq({ headers: { authorization: 'Bearer old-token' } });
+    const { res, status } = buildRes();
+    await middleware.use(req, res, next);
+    expect(status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+    expect(req.headers['x-user-roles']).toBeUndefined();
+  });
+
   describe('public route', () => {
     it('bypasses verifier và inject internal headers cho public route', async () => {
       const req = buildReq({ originalUrl: '/api/v1/catalog', method: 'GET' });

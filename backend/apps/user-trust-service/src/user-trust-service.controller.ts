@@ -49,7 +49,12 @@ import {
   StandardPermissions,
   type AuthenticatedUser,
 } from '@app/auth';
-import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
+import { UserDisplayNamesQueryDto } from './dto/user-display-names-query.dto.js';
+import {
+  buildSuccessResponse,
+  EVENT_PATTERNS,
+  type DomainEvent,
+} from '@app/common';
 import {
   UserTrustServiceService,
   type UserRegisteredData,
@@ -75,6 +80,16 @@ export class UserTrustServiceController {
     @Optional()
     private readonly cloudinaryService?: CloudinaryService,
   ) {}
+
+  @Public()
+  @UseGuards(InternalServiceGuard)
+  @Get('internal/users/display-names')
+  async getDisplayNames(@Query() query: UserDisplayNamesQueryDto) {
+    return buildSuccessResponse(
+      await this.userTrustService.getDisplayNames(query.ids),
+      'Public display names',
+    );
+  }
 
   private readonly logger = new Logger(UserTrustServiceController.name);
 
