@@ -77,6 +77,7 @@ export function WorkerJobDetailScreen({
     confirmReadiness,
     isConfirmingReadiness,
     isLoading,
+    isRefetching,
     isStartingOrder,
     order,
     refetch,
@@ -94,12 +95,42 @@ export function WorkerJobDetailScreen({
     isLoading: isTrackingLoading,
   } = useTrackingSummary(serviceRequestId);
 
-  // Trạng thái local cho phép test mượt mà ngay cả khi mock hoặc nhận sự kiện tức thì
-  const [localStatus, setLocalStatus] = React.useState<string | null>(null);
-  const [reworkReason, setReworkReason] = React.useState<string | null>(null);
+  const [demoStatus, setDemoStatus] = React.useState('created');
+  const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeJobId = React.useRef(jobId);
+
+  React.useEffect(() => {
+    activeJobId.current = jobId;
+    return () => {
+      activeJobId.current = '';
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+      }
+    };
+  }, [jobId]);
 
   // Xử lý sự kiện thời gian thực từ Tracking SSE
   const handleWorkerRealtimeEvent = React.useCallback((event: TrackingEventItem) => {
+    if (event.entityType !== 'order' || event.entityId !== jobId) {
+      return;
+    }
+    void refetch().then((result) => {
+      if (activeJobId.current !== jobId) {
+        return;
+      }
+      if (event.eventType === 'order.status.changed' && event.toStatus && result?.data?.status !== event.toStatus) {
+        if (retryTimer.current) {
+          clearTimeout(retryTimer.current);
+        }
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          if (activeJobId.current === jobId) {
+            void refetch();
+          }
+        }, 2000);
+      }
+    });
+
     // 1. Trường hợp Khách hàng yêu cầu sửa chữa (Rework)
     if (
       (event.eventType === 'order.status.changed' || event.eventType === 'order.rework_requested')
@@ -110,9 +141,6 @@ export function WorkerJobDetailScreen({
         = event.reason
           || (event.metadata as any)?.reason
           || 'Khách hàng yêu cầu chỉnh sửa lại công việc';
-      setLocalStatus('in_progress');
-      setReworkReason(reworkReasonText);
-      void refetch?.();
       Alert.alert(
         '⚠️ Yêu cầu chỉnh sửa công việc',
         `Khách hàng vừa gửi yêu cầu sửa lại:\n\n"${reworkReasonText}"\n\nVui lòng kiểm tra và hoàn thiện lại công việc.`,
@@ -122,7 +150,6 @@ export function WorkerJobDetailScreen({
 
     // 2. Trường hợp Khách hàng đã duyệt nghiệm thu thành công
     if (event.eventType === 'order.completed' || event.toStatus === 'completed') {
-      setLocalStatus('completed');
       Alert.alert(
         '🎉 Nghiệm thu thành công!',
         'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
@@ -132,45 +159,24 @@ export function WorkerJobDetailScreen({
 
     // 3. Trường hợp đơn bị tranh chấp / khiếu nại
     if (event.eventType === 'order.disputed' || event.toStatus === 'disputed') {
-      setLocalStatus('disputed');
       Alert.alert(
         '🚨 Đơn hàng đang được khiếu nại',
         'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.',
         [{ text: 'Xem chi tiết', style: 'destructive' }],
       );
     }
-  }, [refetch]);
+  }, [jobId, refetch]);
 
   // Lắng nghe sự kiện SSE với callback xử lý thông báo
   const { connectionStatus } = useTrackingEvents(serviceRequestId, handleWorkerRealtimeEvent);
 
-  const statusFromTracking = React.useMemo(() => {
-    if (trackingSummary?.order?.status) {
-      return trackingSummary.order.status;
-    }
-    if (trackingSummary?.currentPhase === 'ORDER_CONFIRMED') {
-      return 'confirmed';
-    }
-    if (trackingSummary?.currentPhase === 'ORDER_IN_PROGRESS') {
-      return 'in_progress';
-    }
-    if (trackingSummary?.currentPhase === 'AWAITING_CONFIRMATION' || trackingSummary?.currentPhase === 'ORDER_FINISHED') {
-      return 'awaiting_customer_confirmation';
-    }
-    if (trackingSummary?.currentPhase === 'COMPLETED') {
-      return 'completed';
-    }
-    if (trackingSummary?.currentPhase === 'DISPUTED') {
-      return 'disputed';
-    }
-    if (trackingSummary?.currentPhase === 'CANCELLED') {
-      return 'cancelled';
-    }
-    return undefined;
-  }, [trackingSummary]);
-
-  const currentStatus = localStatus || statusFromTracking || order?.status || 'created';
-  const activeReworkReason = reworkReason || trackingSummary?.order?.reworkReason;
+  const currentStatus = jobId === 'JOB-1020' ? demoStatus : order?.status;
+  const lastStatusChange = order?.statusHistory?.at(-1);
+  const activeReworkReason = currentStatus === 'in_progress'
+    && lastStatusChange?.fromStatus === 'awaiting_customer_confirmation'
+    && lastStatusChange.toStatus === 'in_progress'
+    ? lastStatusChange.reason
+    : null;
 
   // Lean Dispatch Rule 3 (Guard): Kiểm tra nếu chưa tới 30 phút trước giờ hẹn
   const isTooEarly = React.useMemo(() => {
@@ -188,32 +194,30 @@ export function WorkerJobDetailScreen({
 
   const handleConfirmReadiness = async () => {
     try {
-      if (jobId && jobId !== 'JOB-1020') {
+      if (jobId === 'JOB-1020') {
+        setDemoStatus('confirmed');
+      }
+      else {
         await confirmReadiness();
       }
-      setLocalStatus('confirmed');
       Alert.alert('Thành công', 'Đã xác nhận sẵn sàng thi công!');
     }
-    catch {
-      setLocalStatus('confirmed');
-      Alert.alert('Sẵn sàng', 'Đã xác nhận sẵn sàng thi công!');
+    catch (err: any) {
+      Alert.alert('Chưa thể xác nhận sẵn sàng', err?.message || 'Vui lòng thử lại.');
     }
   };
 
   const handleStartOrder = async () => {
     try {
-      if (jobId && jobId !== 'JOB-1020') {
+      if (jobId === 'JOB-1020') {
+        setDemoStatus('in_progress');
+      }
+      else {
         await startOrder();
       }
-      setLocalStatus('in_progress');
       Alert.alert('Bắt đầu', 'Đơn hàng đã bắt đầu tính thời gian thi công!');
     }
     catch (err: any) {
-      if (jobId === 'JOB-1020') {
-        setLocalStatus('in_progress');
-        Alert.alert('Bắt đầu', 'Đơn hàng đã chuyển sang trạng thái Đang làm!');
-        return;
-      }
       const message
         = err?.response?.data?.message
           || err?.message
@@ -236,6 +240,9 @@ export function WorkerJobDetailScreen({
           <View className="items-center justify-center py-4">
             <ActivityIndicator size="small" color={PRIMARY_COLOR} />
           </View>
+        )}
+        {isRefetching && (
+          <Text className="mb-2 text-xs text-neutral-500">Đang cập nhật trạng thái đơn việc...</Text>
         )}
 
         {/* Thẻ thông tin khách hàng & địa chỉ làm việc */}

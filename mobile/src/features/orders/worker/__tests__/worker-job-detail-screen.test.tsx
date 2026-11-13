@@ -2,7 +2,7 @@ import type { TrackingEventItem } from '@/features/tracking';
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { useTrackingEvents, useTrackingSummary } from '@/features/tracking';
-import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 import { WorkerJobDetailScreen } from '../screens/worker-job-detail-screen';
 
@@ -106,7 +106,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     isLoading: false,
     isStartingOrder: false,
     order: mockJobOrderBase,
-    refetch: jest.fn(),
+    refetch: jest.fn().mockResolvedValue({ data: mockJobOrderBase }),
     startOrder: jest.fn(),
     statusHistory: [
       {
@@ -188,7 +188,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
   });
 
   it('handles Rework event: triggers Alert, displays rework reason banner and enables completion button', () => {
-    render(<WorkerJobDetailScreen jobId="job-123" />);
+    const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
 
     act(() => {
       capturedEventHandler?.({
@@ -214,7 +214,22 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     );
     expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(1);
 
-    // Rework banner is visible
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: {
+        ...mockJobOrderBase,
+        statusHistory: [{
+          id: 'hist-rework',
+          fromStatus: 'awaiting_customer_confirmation',
+          toStatus: 'in_progress',
+          reason: 'Mối nối van nước còn rỉ, vui lòng siết chặt lại gioăng cao su',
+          createdAt: '2026-11-06T10:00:00.000Z',
+        }],
+      },
+    });
+    rerender(<WorkerJobDetailScreen jobId="job-123" />);
+
+    // Banner follows the refreshed Order history.
     expect(screen.getByTestId('worker-rework-alert-banner')).toBeOnTheScreen();
     expect(screen.getByText(/Mối nối van nước còn rỉ/)).toBeOnTheScreen();
 
@@ -223,7 +238,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
   });
 
   it('handles Completion event: triggers congrats Alert and transitions screen to completed', () => {
-    render(<WorkerJobDetailScreen jobId="job-123" />);
+    const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
 
     act(() => {
       capturedEventHandler?.({
@@ -245,12 +260,17 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.any(Array),
     );
 
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: { ...mockJobOrderBase, status: 'completed' },
+    });
+    rerender(<WorkerJobDetailScreen jobId="job-123" />);
     expect(screen.getByText('🎉 Đơn hàng đã hoàn tất!')).toBeOnTheScreen();
     expect(screen.queryByTestId('worker-complete-job-nav-btn')).toBeNull();
   });
 
   it('handles Dispute event: triggers Alert and displays dispute card', () => {
-    render(<WorkerJobDetailScreen jobId="job-123" />);
+    const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
 
     act(() => {
       capturedEventHandler?.({
@@ -272,7 +292,152 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.any(Array),
     );
 
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: { ...mockJobOrderBase, status: 'disputed' },
+    });
+    rerender(<WorkerJobDetailScreen jobId="job-123" />);
     expect(screen.getByTestId('worker-disputed-banner')).toBeOnTheScreen();
+  });
+
+  it('reconciles dispute resolution from Order API without remounting despite stale Tracking', () => {
+    const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: { ...mockJobOrderBase, status: 'disputed' },
+    });
+    rerender(<WorkerJobDetailScreen jobId="job-123" />);
+    expect(screen.getByTestId('worker-disputed-banner')).toBeOnTheScreen();
+
+    act(() => capturedEventHandler?.({
+      id: 'evt-resumed',
+      eventId: 'evt-resumed',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'disputed',
+      toStatus: 'in_progress',
+      occurredAt: '2026-11-06T11:30:00.000Z',
+      recordedAt: '2026-11-06T11:30:00.000Z',
+    }));
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(1);
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: mockJobOrderBase,
+    });
+    (useTrackingSummary as jest.Mock).mockReturnValue({
+      data: { ...mockTrackingSummary, currentPhase: 'DISPUTED', order: { status: 'disputed' } },
+      isLoading: false,
+      isError: false,
+    });
+    rerender(<WorkerJobDetailScreen jobId="job-123" />);
+    expect(screen.queryByTestId('worker-disputed-banner')).toBeNull();
+    expect(screen.getByTestId('worker-complete-job-nav-btn')).toBeOnTheScreen();
+  });
+
+  it('rechecks Order once when the first refetch still returns the old status', async () => {
+    jest.useFakeTimers();
+    try {
+      const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
+      (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
+      const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
+      await act(async () => capturedEventHandler?.({
+        id: 'evt-stale',
+        eventId: 'evt-stale',
+        entityType: 'order',
+        entityId: 'job-123',
+        eventType: 'order.status.changed',
+        sourceService: 'order-service',
+        fromStatus: 'disputed',
+        toStatus: 'in_progress',
+        occurredAt: '2026-11-06T11:30:00.000Z',
+        recordedAt: '2026-11-06T11:30:00.000Z',
+      }));
+      expect(refetch).toHaveBeenCalledTimes(1);
+      act(() => jest.advanceTimersByTime(2000));
+      expect(refetch).toHaveBeenCalledTimes(2);
+      unmount();
+    }
+    finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('cancels a pending status recheck when the screen closes', async () => {
+    jest.useFakeTimers();
+    try {
+      const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
+      (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
+      const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
+      await act(async () => capturedEventHandler?.({
+        id: 'evt-stale-close',
+        eventId: 'evt-stale-close',
+        entityType: 'order',
+        entityId: 'job-123',
+        eventType: 'order.status.changed',
+        sourceService: 'order-service',
+        fromStatus: 'disputed',
+        toStatus: 'in_progress',
+        occurredAt: '2026-11-06T11:30:00.000Z',
+        recordedAt: '2026-11-06T11:30:00.000Z',
+      }));
+      unmount();
+      act(() => jest.advanceTimersByTime(2000));
+      expect(refetch).toHaveBeenCalledTimes(1);
+    }
+    finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it.each(['completed', 'cancelled'])('hides work actions for authoritative %s status', (status) => {
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: { ...mockJobOrderBase, status },
+    });
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    expect(screen.queryByTestId('worker-complete-job-nav-btn')).toBeNull();
+  });
+
+  it('does not show actions until Order API returns an order', () => {
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, order: undefined, isLoading: true });
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    expect(screen.queryByTestId('worker-confirm-readiness-btn')).toBeNull();
+    expect(screen.queryByTestId('worker-start-order-btn')).toBeNull();
+    expect(screen.queryByTestId('worker-complete-job-nav-btn')).toBeNull();
+  });
+
+  it('ignores events for another order', () => {
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    act(() => capturedEventHandler?.({
+      id: 'evt-other',
+      eventId: 'evt-other',
+      entityType: 'order',
+      entityId: 'job-other',
+      eventType: 'order.completed',
+      sourceService: 'order-service',
+      toStatus: 'completed',
+      occurredAt: '2026-11-06T11:30:00.000Z',
+      recordedAt: '2026-11-06T11:30:00.000Z',
+    }));
+    expect(defaultWorkerJobMock.refetch).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByTestId('worker-complete-job-nav-btn')).toBeOnTheScreen();
+  });
+
+  it('does not report success when readiness confirmation fails', async () => {
+    const confirmReadiness = jest.fn().mockRejectedValue(new Error('API từ chối'));
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({
+      ...defaultWorkerJobMock,
+      order: { ...mockJobOrderBase, status: 'created' },
+      confirmReadiness,
+    });
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    fireEvent.press(screen.getByTestId('worker-confirm-readiness-btn'));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Chưa thể xác nhận sẵn sàng', 'API từ chối'));
+    expect(screen.getByTestId('worker-confirm-readiness-btn')).toBeOnTheScreen();
+    expect(screen.queryByTestId('worker-start-order-btn')).toBeNull();
   });
 
   it('navigates to job complete screen when worker presses complete job button', () => {
