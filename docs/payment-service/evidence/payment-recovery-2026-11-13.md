@@ -27,6 +27,7 @@ Không thêm migration: tận dụng `WalletTransfer.status = failed` và metada
 | `pnpm install --frozen-lockfile --ignore-scripts` | Pass sau khi sửa 3 tham chiếu lockfile thiếu entry |
 | Backend lint | Exit 0; 10 warning có sẵn tại User Trust/Message, không thuộc các file sửa |
 | Lint riêng CLI/helper recovery | Pass |
+| Validator Compose với ENV fixture public; env-preflight | 4 profile + optional ENV pass; 22/22 preflight pass |
 | `git diff --check` | Pass |
 
 Lệnh unit:
@@ -78,6 +79,8 @@ Backfill thực tế có mutation chỉ chạy trên fixture của database test
 Lượt unit toàn backend đầu tiên gặp dependency/client local chưa được cài/generate đầy đủ và một timeout khi chạy toàn bộ song song. Sau frozen install và generate lại Prisma client Message/Notification, typecheck/build toàn backend pass; chạy lại toàn suite với 4 worker đạt **1.796 pass, 141 skip, 0 failed**. Không đổi khai báo dependency hoặc mã Message/Notification.
 
 [CI đầu tiên của commit bd47e0b](https://github.com/duyaivy/HANDY_GO/actions/runs/43394795374) dừng ở bước `pnpm install --frozen-lockfile`: lockfile có 3 snapshot phụ thuộc `@types/node@24.13.4` nhưng không có entry tương ứng. Đồng bộ đúng 3 tham chiếu tại `@types/cors`, `@types/ws`, `engine.io` về `24.19.2` đã có trong lockfile và đang dùng ở backend; không cập nhật các phiên bản package khác. Frozen install local sau đó thành công và cài được các dependency Message đã khai báo. Các bước test trên lượt CI đầu tiên chưa chạy; kết quả CI sau sửa được cập nhật trong comment PR.
+
+[Lượt CI b093fa2](https://github.com/duyaivy/HANDY_GO/actions/runs/43395743182) đã qua frozen install nhưng dừng tại assertion SMTP_FROM trong validator Compose: chuỗi mong đợi bị hardcode khác ENV fixture hiện tại. Sửa validator so sánh với giá trị đọc từ chính fixture, vẫn kiểm chứng raw ENV được giữ nguyên; không sửa ENV hoặc Compose production. Local kiểm chứng cả 4 profile, trường hợp optional ENV vắng mặt và 22/22 env-preflight tests pass. Trên Windows, dùng file ENV rỗng tạm thay `/dev/null` trong bản chạy kiểm chứng; script gốc giữ nguyên đường dẫn dành cho CI Linux.
 
 Suite transport có cảnh báo socket MaxListenersExceededWarning nhưng hoàn tất với exit 0. Test lỗi posting cố ý phát sinh log lỗi DB để chứng minh rollback; đây không phải test thất bại.
 
