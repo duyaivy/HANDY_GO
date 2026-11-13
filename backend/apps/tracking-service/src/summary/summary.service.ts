@@ -57,11 +57,10 @@ export class SummaryService {
       );
     }
 
+    const isOwner = Boolean(user.isCustomer && flow.customerId === user.userId);
+
     // Role-based authorization: fail-closed if ownership or participation cannot be confirmed
     if (!user.isAdmin) {
-      const isOwner =
-        user.isCustomer && flow.customerId && flow.customerId === user.userId;
-
       let isParticipatingWorker = false;
       if (user.isWorker) {
         isParticipatingWorker = flow.events.some(
@@ -260,7 +259,7 @@ export class SummaryService {
       assignedWorkerId && assignedWorkerId === user.userId,
     );
     const isAuthorizedForOrderAndPayment =
-      user.isAdmin || user.isCustomer || (user.isWorker && isAssignedWorker);
+      user.isAdmin || isOwner || (user.isWorker && isAssignedWorker);
 
     if ((orderCreatedEvent || flow.orderId) && isAuthorizedForOrderAndPayment) {
       const orderCancelled = [...events]
@@ -438,7 +437,7 @@ export class SummaryService {
     } else if (user.isWorker) {
       userScope = `wrk:${user.userId}`;
     }
-    return `tracking:summary:${serviceRequestId}:${userScope}:v${version}`;
+    return `tracking:summary-auth2:${serviceRequestId}:${userScope}:v${version}`;
   }
 
   private computeCurrentPhase(
