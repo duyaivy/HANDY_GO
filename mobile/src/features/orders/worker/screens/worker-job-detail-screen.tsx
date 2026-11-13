@@ -131,16 +131,12 @@ export function WorkerJobDetailScreen({
       }
     });
 
-    // 1. Trường hợp Khách hàng yêu cầu sửa chữa (Rework)
-    if (
-      (event.eventType === 'order.status.changed' || event.eventType === 'order.rework_requested')
-      && event.toStatus === 'in_progress'
-      && (event.reason || (event.metadata as any)?.reason)
-    ) {
-      const reworkReasonText
-        = event.reason
-          || (event.metadata as any)?.reason
-          || 'Khách hàng yêu cầu chỉnh sửa lại công việc';
+    // Chỉ event nghiệp vụ của khách mới là yêu cầu làm lại; reason của admin không phải rework.
+    if (event.eventType === 'order.rework_requested') {
+      const reworkReason = event.metadata?.reworkReason;
+      const reworkReasonText = typeof reworkReason === 'string' && reworkReason.trim()
+        ? reworkReason.trim()
+        : 'Khách hàng yêu cầu chỉnh sửa lại công việc';
       Alert.alert(
         '⚠️ Yêu cầu chỉnh sửa công việc',
         `Khách hàng vừa gửi yêu cầu sửa lại:\n\n"${reworkReasonText}"\n\nVui lòng kiểm tra và hoàn thiện lại công việc.`,

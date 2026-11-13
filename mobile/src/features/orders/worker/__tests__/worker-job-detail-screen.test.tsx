@@ -196,11 +196,9 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
         eventId: 'evt-rework',
         entityType: 'order',
         entityId: 'job-123',
-        eventType: 'order.status.changed',
+        eventType: 'order.rework_requested',
         sourceService: 'order-service',
-        fromStatus: 'awaiting_customer_confirmation',
-        toStatus: 'in_progress',
-        reason: 'Mối nối van nước còn rỉ, vui lòng siết chặt lại gioăng cao su',
+        metadata: { reworkReason: 'Mối nối van nước còn rỉ, vui lòng siết chặt lại gioăng cao su' },
         occurredAt: '2026-11-06T10:00:00.000Z',
         recordedAt: '2026-11-06T10:00:00.000Z',
       });
@@ -213,6 +211,23 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       expect.any(Array),
     );
     expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(1);
+
+    act(() => capturedEventHandler?.({
+      id: 'evt-rework-status',
+      eventId: 'evt-rework-status',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'awaiting_customer_confirmation',
+      toStatus: 'in_progress',
+      reason: 'Mối nối van nước còn rỉ, vui lòng siết chặt lại gioăng cao su',
+      metadata: { reworkReason: 'Mối nối van nước còn rỉ, vui lòng siết chặt lại gioăng cao su' },
+      occurredAt: '2026-11-06T10:00:00.000Z',
+      recordedAt: '2026-11-06T10:00:00.000Z',
+    }));
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(2);
 
     (useWorkerJobDetail as jest.Mock).mockReturnValue({
       ...defaultWorkerJobMock,
@@ -318,10 +333,17 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
       sourceService: 'order-service',
       fromStatus: 'disputed',
       toStatus: 'in_progress',
+      reason: 'Admin xác nhận tiếp tục thi công',
+      metadata: { resolutionNote: 'Admin xác nhận tiếp tục thi công' },
       occurredAt: '2026-11-06T11:30:00.000Z',
       recordedAt: '2026-11-06T11:30:00.000Z',
     }));
     expect(defaultWorkerJobMock.refetch).toHaveBeenCalledTimes(1);
+    expect(alertSpy).not.toHaveBeenCalledWith(
+      '⚠️ Yêu cầu chỉnh sửa công việc',
+      expect.any(String),
+      expect.any(Array),
+    );
     (useWorkerJobDetail as jest.Mock).mockReturnValue({
       ...defaultWorkerJobMock,
       order: mockJobOrderBase,
@@ -334,6 +356,26 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     rerender(<WorkerJobDetailScreen jobId="job-123" />);
     expect(screen.queryByTestId('worker-disputed-banner')).toBeNull();
     expect(screen.getByTestId('worker-complete-job-nav-btn')).toBeOnTheScreen();
+  });
+
+  it('uses a neutral rework message when the dedicated event has no reason', () => {
+    render(<WorkerJobDetailScreen jobId="job-123" />);
+    act(() => capturedEventHandler?.({
+      id: 'evt-rework-empty',
+      eventId: 'evt-rework-empty',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.rework_requested',
+      sourceService: 'order-service',
+      metadata: { reworkReason: '   ' },
+      occurredAt: '2026-11-06T10:00:00.000Z',
+      recordedAt: '2026-11-06T10:00:00.000Z',
+    }));
+    expect(alertSpy).toHaveBeenCalledWith(
+      '⚠️ Yêu cầu chỉnh sửa công việc',
+      expect.stringContaining('Khách hàng yêu cầu chỉnh sửa lại công việc'),
+      expect.any(Array),
+    );
   });
 
   it('rechecks Order once when the first refetch still returns the old status', async () => {
