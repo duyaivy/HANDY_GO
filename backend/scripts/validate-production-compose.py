@@ -8,6 +8,8 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PROD = ROOT / 'deploy/production'
 registry = json.loads((PROD / 'services.json').read_text())['services']
+example = dict(line.split('=', 1) for line in (PROD / 'env/production.env.example').read_text(encoding='utf-8').splitlines()
+               if line and not line.startswith('#'))
 env = {**os.environ, 'APP_IMAGE': 'ghcr.io/example/backend@sha256:' + 'a' * 64,
        'NGINX_IMAGE': 'nginx@sha256:' + 'b' * 64,
        'APP_ENV_FILE': str(PROD / 'env/production.env.example'),
@@ -23,7 +25,7 @@ for role in ('vps1', 'vps2', 'vps3', 'vps4'):
     assert set(services) == expected, (role, set(services), expected)
     for name in expected - {'nginx'}:
         assert services[name]['environment']['NODE_ENV'] == 'production'
-        assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
+        assert services[name]['environment']['SMTP_FROM'] == example['SMTP_FROM']
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
     if role == 'vps1':
         gateway_env = services['api-gateway']['environment']
@@ -53,8 +55,6 @@ required_keys = ('NODE_ENV', 'DATABASE_URL', 'RABBITMQ_URL', 'REDIS_URL', 'OTP_S
                  'INTERNAL_SERVICE_SECRET', 'JWT_PUBLIC_KEY', 'JWT_PRIVATE_KEY',
                  'SMTP_USER', 'SMTP_PASS', 'CLOUDINARY_CLOUD_NAME',
                  'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
-example = dict(line.split('=', 1) for line in (PROD / 'env/production.env.example').read_text().splitlines()
-               if line and not line.startswith('#'))
 with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
     snapshot = Path(temporary) / 'shared.env'
     snapshot.write_text(''.join(f'{key}={example[key]}\n' for key in required_keys))

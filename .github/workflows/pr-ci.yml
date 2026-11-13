@@ -131,6 +131,27 @@ jobs:
       - name: Run tests
         run: pnpm run test
 
+      - name: Payment Wallet Order integration with real HTTP and RabbitMQ
+        env:
+          NODE_ENV: test
+          PAYMENT_TEST_DATABASE_URL: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DATABASE_URL_PAYMENT: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DIRECT_URL_PAYMENT: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DATABASE_URL_WALLET: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DIRECT_URL_WALLET: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DATABASE_URL_ORDER: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+          DIRECT_URL_ORDER: postgresql://handygo_test:handygo_test_pw@localhost:55433/handygo_hg51_payment_test
+        run: |
+          docker compose --env-file scripts/payment-test.env.template -f docker-compose.payment-test.yml up -d --wait
+          pnpm run prisma:migrate:payment
+          pnpm run prisma:migrate:wallet
+          pnpm run prisma:migrate:order
+          pnpm run test:integration:payment
+
+      - name: Stop payment integration infrastructure
+        if: always()
+        run: docker compose --env-file scripts/payment-test.env.template -f docker-compose.payment-test.yml down -v
+
       - name: Build
         run: pnpm run build
 
