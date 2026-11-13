@@ -112,8 +112,8 @@ export default function CustomerBookingSelectAddressRoute() {
         setGpsStatus('failed');
         if (showFeedback) {
           Alert.alert(
-            'Không thể lấy vị trí',
-            'Không thể xác định vị trí GPS thiết bị. Vui lòng thử lại hoặc chọn vị trí trên bản đồ.',
+            'Không thể lấy vị trí GPS',
+            'Tín hiệu GPS thiết bị yếu hoặc đang ở trong phòng kín.\n\nBạn có thể:\n1. Bật "Độ chính xác vị trí của Google" trong Cài đặt vị trí máy.\n2. Nhập tìm kiếm địa chỉ ở thanh tìm kiếm bên trên.\n3. Hoặc kéo di chuyển ghim trực tiếp trên bản đồ.',
           );
         }
       }
