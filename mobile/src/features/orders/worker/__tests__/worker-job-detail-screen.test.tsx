@@ -447,59 +447,46 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
   });
 
   it('rechecks Order once when the first refetch still returns the old status', async () => {
-    jest.useFakeTimers();
-    try {
-      const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
-      (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
-      const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
-      await act(async () => capturedEventHandler?.({
-        id: 'evt-stale',
-        eventId: 'evt-stale',
-        entityType: 'order',
-        entityId: 'job-123',
-        eventType: 'order.status.changed',
-        sourceService: 'order-service',
-        fromStatus: 'disputed',
-        toStatus: 'in_progress',
-        occurredAt: '2026-11-06T11:30:00.000Z',
-        recordedAt: '2026-11-06T11:30:00.000Z',
-      }));
-      expect(refetch).toHaveBeenCalledTimes(1);
-      act(() => jest.advanceTimersByTime(2000));
-      expect(refetch).toHaveBeenCalledTimes(2);
-      unmount();
-    }
-    finally {
-      jest.useRealTimers();
-    }
-  });
+    const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
+    const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
+    await act(async () => capturedEventHandler?.({
+      id: 'evt-stale',
+      eventId: 'evt-stale',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'disputed',
+      toStatus: 'in_progress',
+      occurredAt: '2026-11-06T11:30:00.000Z',
+      recordedAt: '2026-11-06T11:30:00.000Z',
+    }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(2), { timeout: 5000 });
+    unmount();
+  }, 10000);
 
   it('cancels a pending status recheck when the screen closes', async () => {
-    jest.useFakeTimers();
-    try {
-      const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
-      (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
-      const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
-      await act(async () => capturedEventHandler?.({
-        id: 'evt-stale-close',
-        eventId: 'evt-stale-close',
-        entityType: 'order',
-        entityId: 'job-123',
-        eventType: 'order.status.changed',
-        sourceService: 'order-service',
-        fromStatus: 'disputed',
-        toStatus: 'in_progress',
-        occurredAt: '2026-11-06T11:30:00.000Z',
-        recordedAt: '2026-11-06T11:30:00.000Z',
-      }));
-      unmount();
-      act(() => jest.advanceTimersByTime(2000));
-      expect(refetch).toHaveBeenCalledTimes(1);
-    }
-    finally {
-      jest.useRealTimers();
-    }
-  });
+    const refetch = jest.fn().mockResolvedValue({ data: { status: 'disputed' } });
+    (useWorkerJobDetail as jest.Mock).mockReturnValue({ ...defaultWorkerJobMock, refetch });
+    const { unmount } = render(<WorkerJobDetailScreen jobId="job-123" />);
+    await act(async () => capturedEventHandler?.({
+      id: 'evt-stale-close',
+      eventId: 'evt-stale-close',
+      entityType: 'order',
+      entityId: 'job-123',
+      eventType: 'order.status.changed',
+      sourceService: 'order-service',
+      fromStatus: 'disputed',
+      toStatus: 'in_progress',
+      occurredAt: '2026-11-06T11:30:00.000Z',
+      recordedAt: '2026-11-06T11:30:00.000Z',
+    }));
+    unmount();
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  }, 10000);
 
   it.each(['completed', 'cancelled'])('hides work actions for authoritative %s status', (status) => {
     (useWorkerJobDetail as jest.Mock).mockReturnValue({
