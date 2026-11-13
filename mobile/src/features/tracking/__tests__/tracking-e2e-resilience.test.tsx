@@ -16,6 +16,23 @@ let mockCustomerSummary: TrackingSummaryResponse | undefined;
 let mockWorkerSummary: TrackingSummaryResponse | undefined;
 let mockIsCustomerTrackingError = false;
 let mockIsWorkerTrackingError = false;
+const mockWorkerOrderBase = {
+  id: 'ord-e2e-1',
+  serviceRequestId: 'sr-e2e-1',
+  status: 'in_progress',
+  agreedPrice: 500000,
+  agreedScope: 'Lắp đặt máy nước nóng năng lượng mặt trời',
+  addressText: '789 Trần Hưng Đạo, Đà Nẵng',
+  createdAt: '2026-11-06T08:00:00.000Z',
+  statusHistory: [{
+    id: 'hist-1',
+    orderId: 'ord-e2e-1',
+    fromStatus: null,
+    toStatus: 'created',
+    createdAt: '2026-11-06T08:00:00.000Z',
+  }],
+};
+let mockWorkerOrder: any = mockWorkerOrderBase;
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(() => ({
@@ -64,25 +81,10 @@ jest.mock('@/features/orders/hooks/use-customer-orders', () => ({
 
 jest.mock('@/features/orders/hooks/use-worker-jobs', () => ({
   useWorkerJobDetail: jest.fn(() => ({
-    order: {
-      id: 'ord-e2e-1',
-      serviceRequestId: 'sr-e2e-1',
-      status: 'in_progress',
-      agreedPrice: 500000,
-      agreedScope: 'Lắp đặt máy nước nóng năng lượng mặt trời',
-      addressText: '789 Trần Hưng Đạo, Đà Nẵng',
-      createdAt: '2026-11-06T08:00:00.000Z',
-    },
-    statusHistory: [
-      {
-        id: 'hist-1',
-        orderId: 'ord-e2e-1',
-        fromStatus: null,
-        toStatus: 'created',
-        createdAt: '2026-11-06T08:00:00.000Z',
-      },
-    ],
+    order: mockWorkerOrder,
+    statusHistory: mockWorkerOrder.statusHistory,
     isLoading: false,
+    refetch: jest.fn().mockResolvedValue({ data: mockWorkerOrder }),
     confirmReadiness: jest.fn(),
     startOrder: jest.fn(),
   })),
@@ -126,6 +128,9 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
     alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockIsCustomerTrackingError = false;
     mockIsWorkerTrackingError = false;
+    mockCustomerSummary = undefined;
+    mockWorkerSummary = undefined;
+    mockWorkerOrder = mockWorkerOrderBase;
   });
 
   afterEach(() => {
@@ -232,7 +237,7 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
         milestones: [],
       };
 
-      render(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
+      const { rerender } = render(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
 
       // Realtime rework SSE event arriving at Worker device
       act(() => {
@@ -241,10 +246,9 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
           eventId: 'evt-rework-7',
           entityType: 'order',
           entityId: 'ord-e2e-1',
-          eventType: 'order.status.changed',
+          eventType: 'order.rework_requested',
           sourceService: 'order-service',
-          toStatus: 'in_progress',
-          reason: 'Cần kiểm tra lại dây tiếp đất an toàn của máy nước nóng',
+          metadata: { reworkReason: 'Cần kiểm tra lại dây tiếp đất an toàn của máy nước nóng' },
           occurredAt: '2026-11-06T09:35:00.000Z',
           recordedAt: '2026-11-06T09:35:00.000Z',
         });
@@ -256,7 +260,19 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
         expect.any(Array),
       );
 
-      // Verify rework banner is displayed and complete button is active
+      mockWorkerOrder = {
+        ...mockWorkerOrderBase,
+        statusHistory: [...mockWorkerOrderBase.statusHistory, {
+          id: 'hist-rework',
+          orderId: 'ord-e2e-1',
+          fromStatus: 'awaiting_customer_confirmation',
+          toStatus: 'in_progress',
+          reason: 'Cần kiểm tra lại dây tiếp đất an toàn của máy nước nóng',
+          createdAt: '2026-11-06T09:35:00.000Z',
+        }],
+      };
+      rerender(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
+      // Verify rework banner follows the refreshed Order and complete button stays active.
       expect(screen.getByTestId('worker-rework-alert-banner')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-complete-job-nav-btn')).toBeOnTheScreen();
     });
@@ -271,7 +287,7 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
         milestones: [],
       };
 
-      render(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
+      const { rerender } = render(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
 
       act(() => {
         capturedWorkerEventHandler?.({
@@ -293,6 +309,8 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
         expect.any(Array),
       );
 
+      mockWorkerOrder = { ...mockWorkerOrderBase, status: 'completed' };
+      rerender(<WorkerJobDetailScreen jobId="ord-e2e-1" />);
       expect(screen.getByText('🎉 Đơn hàng đã hoàn tất!')).toBeOnTheScreen();
     });
   });
