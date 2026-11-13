@@ -53,6 +53,7 @@ export const axiosInstance: AxiosInstance = axios.create({
 
 type CustomRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
+  _retry429?: boolean;
 };
 
 let refreshPromise: Promise<string> | null = null;
@@ -239,8 +240,26 @@ axiosInstance.interceptors.response.use(
       }
     }
 
+    // 429 Rate Limit retry with jitter
+    const is429 = error.response?.status === 429;
+    if (is429 && originalRequest && !originalRequest._retry429) {
+      originalRequest._retry429 = true;
+      const retryAfterHeader = error.response?.headers?.['retry-after'];
+      const retryAfterSec = retryAfterHeader ? Number.parseInt(String(retryAfterHeader), 10) : Number.NaN;
+      const delayMs = !Number.isNaN(retryAfterSec) && retryAfterSec >= 0
+        ? retryAfterSec * 1000
+        : 2000 + Math.random() * 1000;
+      Logger.warn('API_RATE_LIMIT_RETRY', `Request 429 rate limited. Retrying after ${Math.round(delayMs)}ms: ${url}`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      return axiosInstance(originalRequest);
+    }
+
     const apiError = ApiError.fromAxiosError(error);
-    Logger.warn('API_RESPONSE_ERROR', `${apiError.kind}: ${apiError.message}`, error?.response?.data);
+    Logger.warn(
+      'API_RESPONSE_ERROR',
+      `${originalRequest?.method?.toUpperCase() || 'REQUEST'} ${url}: ${apiError.kind} (${apiError.statusCode ?? 'no status'}): ${apiError.message}`,
+      apiError.kind === 'RATE_LIMITED' ? undefined : error?.response?.data,
+    );
     return Promise.reject(apiError);
   },
 );

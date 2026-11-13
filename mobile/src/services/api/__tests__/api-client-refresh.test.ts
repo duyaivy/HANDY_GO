@@ -285,4 +285,29 @@ describe('apiClient 401 refresh flow', () => {
     expect(getToken()).toBeNull();
     expect(mockOnUnauthorized).toHaveBeenCalledTimes(1);
   });
+
+  it('automatically retries once when receiving 429 Rate Limited', async () => {
+    let callCount = 0;
+    axiosInstance.defaults.adapter = async (config: any) => {
+      callCount++;
+      if (callCount === 1) {
+        const error: any = new Error('429');
+        error.isAxiosError = true;
+        error.response = {
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { 'retry-after': '0' },
+          config,
+          data: '<html>429 Too Many Requests</html>',
+        };
+        error.config = config;
+        throw error;
+      }
+      return { data: { success: true }, status: 200, statusText: 'OK', headers: {}, config };
+    };
+
+    const res = await ApiClient.get('/orders');
+    expect(callCount).toBe(2);
+    expect(res).toEqual({ success: true });
+  });
 });
