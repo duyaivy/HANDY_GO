@@ -19,6 +19,7 @@ sys.path.insert(0, str(PROD))
 import host
 import orchestrate
 import refresh_env
+from database_plan import SERVICES
 
 RELEASE = "prod-20261030-101-a1"
 OLD = "prod-20261029-100-a1"
@@ -165,7 +166,7 @@ class EnvRefreshTests(unittest.TestCase):
                 manifest, data = self.coordinator().bundle()
                 self.assertEqual(
                     manifest["database_budget"]["PRIMARY"]["application_connections"],
-                    10,
+                    len(SERVICES),
                 )
                 self.assertEqual(
                     manifest["config_sha256"], orchestrate.digest(self.env.read_bytes())

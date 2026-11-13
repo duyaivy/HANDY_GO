@@ -42,7 +42,7 @@ class DatabaseIncidentTests(unittest.TestCase):
             "DATABASE_URL": "postgresql://tenant:secret@pool.example/postgres",
             "DB_POOL_MAX": "1",
             "DB_POOL_LIMIT_PRIMARY": "16",
-            "DB_POOL_RESERVE_PRIMARY": str(15 - len(SERVICES)),
+            "DB_POOL_RESERVE_PRIMARY": str(16 - len(SERVICES)),
         }
         for service in SERVICES:
             suffix = service.upper().replace("-", "_")
@@ -55,12 +55,12 @@ class DatabaseIncidentTests(unittest.TestCase):
                 }
             )
 
-    def test_ten_services_fit_explicit_budget(self):
+    def test_registered_services_fit_explicit_budget(self):
         self.assertEqual(
             validate_database_plan(self.values, self.registry)["PRIMARY"][
                 "application_connections"
             ],
-            10,
+            len(SERVICES),
         )
 
     def test_old_default_and_rollout_overlap_exceed_session_pool(self):
@@ -119,7 +119,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                     validate_database_plan(values, self.registry, run_migrations=True)[
                         "PRIMARY"
                     ]["application_connections"],
-                    10,
+                    len(SERVICES),
                 )
                 for service in SERVICES:
                     self.assertEqual(
@@ -346,7 +346,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                             target.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(source, target)
             registry = copy.deepcopy(self.registry)
-            self.assertEqual(len(migration_inventory(root, registry)), 10)
+            self.assertEqual(len(migration_inventory(root, registry)), len(SERVICES))
             registry["api-gateway"]["migration"] = "api-gateway"
             with self.assertRaises(ValueError):
                 migration_inventory(root, registry)
@@ -407,7 +407,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             self.assertEqual(proof["policy"], "vps4-additive-v2")
             self.assertEqual(
                 proof["baseline_hash"],
-                "74b963d47f03b9d80b069253585a10185849cea034b0b34218ebdaa0e7e84a45",
+                "0fdda62ac971648dfc04209a4b6a2a8c3fb43665c2e1bdedd6a8e2390f52d5e1",
             )
             current = {
                 "rollback_compatible": True,

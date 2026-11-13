@@ -28,6 +28,7 @@ Không thêm migration: tận dụng `WalletTransfer.status = failed` và metada
 | Backend lint | Exit 0; 10 warning có sẵn tại User Trust/Message, không thuộc các file sửa |
 | Lint riêng CLI/helper recovery | Pass |
 | Validator Compose với ENV fixture public; env-preflight | 4 profile + optional ENV pass; 22/22 preflight pass |
+| Bộ test deploy Python trong Node 24/Python 3.11 Linux | 268 test: **266 pass, 2 skip, 0 failed** |
 | `git diff --check` | Pass |
 
 Lệnh unit:
@@ -81,6 +82,10 @@ Lượt unit toàn backend đầu tiên gặp dependency/client local chưa đư
 [CI đầu tiên của commit bd47e0b](https://github.com/duyaivy/HANDY_GO/actions/runs/43394795374) dừng ở bước `pnpm install --frozen-lockfile`: lockfile có 3 snapshot phụ thuộc `@types/node@24.13.4` nhưng không có entry tương ứng. Đồng bộ đúng 3 tham chiếu tại `@types/cors`, `@types/ws`, `engine.io` về `24.19.2` đã có trong lockfile và đang dùng ở backend; không cập nhật các phiên bản package khác. Frozen install local sau đó thành công và cài được các dependency Message đã khai báo. Các bước test trên lượt CI đầu tiên chưa chạy; kết quả CI sau sửa được cập nhật trong comment PR.
 
 [Lượt CI b093fa2](https://github.com/duyaivy/HANDY_GO/actions/runs/43395743182) đã qua frozen install nhưng dừng tại assertion SMTP_FROM trong validator Compose: chuỗi mong đợi bị hardcode khác ENV fixture hiện tại. Sửa validator so sánh với giá trị đọc từ chính fixture, vẫn kiểm chứng raw ENV được giữ nguyên; không sửa ENV hoặc Compose production. Local kiểm chứng cả 4 profile, trường hợp optional ENV vắng mặt và 22/22 env-preflight tests pass. Trên Windows, dùng file ENV rỗng tạm thay `/dev/null` trong bản chạy kiểm chứng; script gốc giữ nguyên đường dẫn dành cho CI Linux.
+
+[Lượt CI 72b0dc1](https://github.com/duyaivy/HANDY_GO/actions/runs/43396225392) đã qua validator và kiểm chứng migration DB, nhưng bộ test deploy phát hiện fixture public chưa đồng bộ: SMTP_FROM/NOTIFICATION_EVENT_POLICIES có dấu nháy ngoài trái contract raw ENV; budget/assertion vẫn tính 10 service trong khi registry có 11. Sửa **file mẫu public**, không sửa ENV thật: bỏ dấu nháy ngoài, giữ giới hạn mẫu 16 và dùng 11 application connections + reserve 5. Test lấy số service từ registry và kiểm tra thêm một replica vượt ngân sách đầy đủ. Cập nhật expected baseline hash trong test theo Git object hiện tại (`0fdda62ac971648dfc04209a4b6a2a8c3fb43665c2e1bdedd6a8e2390f52d5e1`), gồm migration Payment đã có trong PR; không sửa SQL, production hash policy hoặc logic deploy.
+
+Kiểm chứng toàn bộ 268 test deploy bằng container Linux Node 24/Python 3.11 tạm, repo mount chỉ đọc: **OK, 2 skipped**. Snapshot test dùng byte SQL LF như Git/Ubuntu CI; không dùng byte CRLF của checkout Windows để xác minh hash. Những thay đổi hỗ trợ CI này không thay đổi logic nghiệp vụ Payment/Wallet đã kiểm chứng ở các suite phía trên.
 
 Suite transport có cảnh báo socket MaxListenersExceededWarning nhưng hoàn tất với exit 0. Test lỗi posting cố ý phát sinh log lỗi DB để chứng minh rollback; đây không phải test thất bại.
 
