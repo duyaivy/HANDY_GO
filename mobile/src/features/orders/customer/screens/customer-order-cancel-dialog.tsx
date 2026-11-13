@@ -75,14 +75,14 @@ export function CustomerOrderCancelDialog({
           await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
         }
         catch {}
-        Alert.alert('Đã hủy đơn', 'Đơn hàng đã được hủy thành công.', [
+        Alert?.alert?.('Đã hủy đơn', 'Đơn hàng đã được hủy thành công.', [
           { text: 'Đóng', onPress: () => router.back() },
         ]);
         return;
       }
 
       if (isLockedOrCompleted) {
-        Alert.alert(
+        Alert?.alert?.(
           'Không thể hủy đơn',
           'Đơn hàng đang trong quá trình thực hiện hoặc đã hoàn thành, không thể hủy tự động.',
           [{ text: 'Đóng', onPress: () => router.back() }],
@@ -92,7 +92,7 @@ export function CustomerOrderCancelDialog({
 
       // True failure: DO NOT show fake success!
       const msg = getCancelErrorMessage(error);
-      Alert.alert(
+      Alert?.alert?.(
         'Hủy đơn thất bại',
         msg,
         [{ text: 'Thử lại' }],

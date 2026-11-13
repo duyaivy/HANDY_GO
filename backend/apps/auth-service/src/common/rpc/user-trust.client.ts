@@ -1,6 +1,6 @@
 import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { lastValueFrom } from 'rxjs';
+import { lastValueFrom, timeout } from 'rxjs';
 import { AppException, ERROR_CODES } from '@app/common';
 
 export interface UserAuthStatusRpcResponse {
@@ -18,24 +18,21 @@ export class UserTrustClient {
     private readonly rpcClient: ClientProxy,
   ) {}
 
-  async confirmUserStatus(userId: string, roles: string[]): Promise<void> {
+  async confirmUserStatus(
+    userId: string,
+    roles: string[],
+    timeoutMs = 10000,
+    requireActive = false,
+  ): Promise<void> {
     try {
-      const statusPromise = lastValueFrom(
-        this.rpcClient.send<
-          UserAuthStatusRpcResponse,
-          { userId: string; roles: string[] }
-        >('user.auth-status', { userId, roles }),
+      const status = await lastValueFrom(
+        this.rpcClient
+          .send<UserAuthStatusRpcResponse, { userId: string; roles: string[] }>(
+            'user.auth-status',
+            { userId, roles },
+          )
+          .pipe(timeout(timeoutMs)),
       );
-
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        const timer = setTimeout(
-          () => reject(new Error('User & Trust RPC timeout')),
-          10000,
-        );
-        timer.unref?.();
-      });
-
-      const status = await Promise.race([statusPromise, timeoutPromise]);
 
       if (!status || !status.exists || !status.isProvisioned) {
         throw new AppException(
@@ -45,7 +42,11 @@ export class UserTrustClient {
         );
       }
 
-      if (status.status === 'suspended' || status.status === 'deleted') {
+      if (
+        status.status === 'suspended' ||
+        status.status === 'deleted' ||
+        (requireActive && status.status !== 'active')
+      ) {
         throw new AppException(
           HttpStatus.FORBIDDEN,
           ERROR_CODES.ACCOUNT_BLOCKED,

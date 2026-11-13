@@ -178,7 +178,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       roles: [
         {
           role: {
-            name: 'Customer',
+            code: 'CUSTOMER', name: 'Customer',
             permissionRoles: [{ permission: { code: 'auth:me' } }],
           },
         },
@@ -214,7 +214,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       email: 'user@example.com',
       emailVerifiedAt: null,
       status: 'pending',
-      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+      roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
       otpChallenges: [
         {
           id: 'otp-1',
@@ -260,7 +260,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       email: 'user@example.com',
       emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+      roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.refreshSession.findFirst.mockResolvedValue({
@@ -303,7 +303,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       email: 'user@example.com',
       emailVerifiedAt: null,
       status: 'pending',
-      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+      roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
       otpChallenges: [
         {
           id: 'otp-challenge-fail-1',
@@ -353,7 +353,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       passwordHash,
       emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+      roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.account.findUnique.mockResolvedValue(mockAccount);
@@ -381,7 +381,7 @@ describe('Auth Service DI, RS256 Signing & DB Atomicity', () => {
       email: 'user@example.com',
       emailVerifiedAt: new Date(),
       status: 'active',
-      roles: [{ role: { name: 'Customer', permissionRoles: [] } }],
+      roles: [{ role: { code: 'CUSTOMER', name: 'Customer', permissionRoles: [] } }],
     };
 
     dbMock.refreshSession.findFirst.mockResolvedValue({

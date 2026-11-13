@@ -48,13 +48,17 @@ def endpoint(raw, label):
         raise ValueError(f'{label}: valid PostgreSQL endpoint required') from None
 
 
+def migration_schema(service):
+    return 'message' if service == 'message' else service.replace('-', '_') + '_service'
+
+
 def migration_endpoint(values, service, migrating=False):
     suffix = service.upper().replace('-', '_')
     direct = values.get('DIRECT_URL_' + suffix, '').strip()
     raw = direct or values.get('DATABASE_URL_' + suffix, '').strip() or values.get('DATABASE_URL', '').strip()
     url, _ = endpoint(raw, 'DIRECT_URL_' + suffix if direct else service)
-    schema = parse_qs(url.query).get('schema', [service.replace('-', '_') + '_service'])
-    if direct and schema != [service.replace('-', '_') + '_service']:
+    schema = parse_qs(url.query).get('schema', [migration_schema(service)])
+    if direct and schema != [migration_schema(service)]:
         raise ValueError(f'DIRECT_URL_{suffix}: wrong migration schema')
     if migrating:
         # Supavisor transaction mode cannot preserve Prisma Migrate advisory locks.
@@ -66,9 +70,13 @@ def migration_endpoint(values, service, migrating=False):
     return url
 
 
-def validate_database_plan(values, registry, run_migrations=False):
+def validate_database_plan(values, registry, run_migrations=False, migration_scope=None):
     groups, endpoints = {}, {}
-    for service, (name, entry) in migration_services(registry).items():
+    registered = migration_services(registry)
+    scope = None if migration_scope is None else set(migration_scope)
+    if scope is not None and not scope <= set(registered):
+        raise ValueError('Migration scope references unregistered service')
+    for service, (name, entry) in registered.items():
         if not entry.get('deploy'):
             continue
         suffix = service.upper().replace('-', '_')
@@ -84,7 +92,7 @@ def validate_database_plan(values, registry, run_migrations=False):
         maximum = integer(values, 'DB_POOL_MAX_' + suffix, values.get('DB_POOL_MAX', '').strip() or None, maximum=100)
         replicas = integer(values, 'DB_POOL_REPLICAS_' + suffix)
         groups[group] = groups.get(group, 0) + maximum * replicas
-        migration_endpoint(values, service, migrating=run_migrations)
+        migration_endpoint(values, service, migrating=run_migrations and (scope is None or service in scope))
     integer(values, 'DB_POOL_TIMEOUT_MS', '5000', maximum=60000)
     integer(values, 'DB_POOL_IDLE_MS', '10000', maximum=300000)
     result = {}
@@ -140,7 +148,11 @@ def migration_inventory(root, registry):
     scripts = json.loads((root / 'package.json').read_text()).get('scripts', {})
     registered = migration_services(registry)
     inventory = {}
-    for app in sorted((root / 'apps').iterdir()):
+    app_dirs = sorted((root / 'apps').iterdir())
+    foundations = root / 'foundations'
+    if foundations.is_dir():
+        app_dirs.extend(sorted(foundations.iterdir()))
+    for app in app_dirs:
         if not app.is_dir():
             continue
         schemas = sorted(app.rglob('*.prisma'))
@@ -156,7 +168,7 @@ def migration_inventory(root, registry):
         if key not in registered or registered[key][0] != app.name:
             raise ValueError(f'Migration owner classification missing or invalid: {app.name}')
         entry = registry[app.name]
-        if entry.get('deploy') is not True or entry.get('state') == 'NOT_READY' or entry.get('host') not in ('vps1', 'vps2', 'vps3'):
+        if entry.get('deploy') is not True or entry.get('state') == 'NOT_READY' or entry.get('host') not in ('vps1', 'vps2', 'vps3', 'vps4'):
             raise ValueError(f'Migration service has no production execution path: {app.name}')
         schema, config = _script_paths(root, key, scripts.get('prisma:migrate:' + key, ''))
         if schema != schemas[0].resolve() or not config.is_relative_to(app.resolve()):
@@ -184,7 +196,8 @@ def migration_inventory(root, registry):
             raise ValueError(f'Migration SQL missing: {key}')
         if set(path.resolve() for path in sql_files) != set(path.resolve() for path in migrations.glob('*/migration.sql')):
             raise ValueError(f'Migration SQL outside configured execution path: {key}')
-        if database_match[1] != key or database_match[2] != key.replace('-', '_') + '_service':
+        expected_schema = migration_schema(key)
+        if database_match[1] != key or database_match[2] != expected_schema:
             raise ValueError(f'Migration database/schema contract mismatch: {key}')
         if type(entry.get('migration_order')) is not int or entry['migration_order'] < 0:
             raise ValueError(f'Migration execution order missing: {key}')
@@ -205,7 +218,7 @@ def validate_migration_owners(root, registry, owners):
     configured = [name for names in owners.values() for name in names]
     if len(configured) != len(set(configured)):
         raise ValueError('Migration owners must cover every Prisma service exactly once')
-    if set(owners) != {'vps1', 'vps2', 'vps3'}:
+    if set(owners) != {'vps1', 'vps2', 'vps3', 'vps4'}:
         raise ValueError('Migration owner roles must match production VPS topology')
     inventory = migration_inventory(root, registry)
     if set(configured) != set(inventory):
@@ -218,6 +231,31 @@ def validate_migration_owners(root, registry, owners):
             if inventory[service]['host'] != role:
                 raise ValueError(f'Migration owner host mismatch: {service}')
     return inventory
+
+
+def onboarding_migration_proof(root, owners):
+    """Bind the complete inventory to a historical baseline plus exact additive SQL.
+
+    Scoped deploys must never certify unrelated, unexecuted migrations as applied.
+    Reconstructing the old complete hash proves those files and owners unchanged.
+    Every prefix of the approved additions remains safe for the old applications.
+    """
+    import hashlib
+    from host import ONBOARDING_ADDITIVE_SQL
+    root = Path(root)
+    migrations = sorted((root / 'apps').glob('*/prisma/migrations/**/migration.sql'))
+    found = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in migrations if str(p.relative_to(root)) in ONBOARDING_ADDITIVE_SQL}
+    if found != ONBOARDING_ADDITIVE_SQL:
+        raise ValueError('Onboarding SQL differs from reviewed additive migration policy')
+    def inventory_hash(paths, ownership):
+        data = b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in paths)
+        data += b'\0owners\0' + json.dumps(ownership, sort_keys=True).encode()
+        return hashlib.sha256(data).hexdigest()
+    baseline_owners = {role: names for role, names in owners.items() if role != 'vps4'}
+    return {'policy': 'vps4-additive-v2', 'sql': found,
+            'baseline_hash': inventory_hash([p for p in migrations if str(p.relative_to(root)) not in found], baseline_owners),
+            'inventory_hash': inventory_hash(migrations, owners)}
 
 
 if __name__ == '__main__':

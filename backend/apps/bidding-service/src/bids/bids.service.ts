@@ -1,3 +1,4 @@
+import type { ChatBidAuthority } from '@app/common';
 import { optionalValue } from '../../../../libs/config/src/optional-env.js';
 import {
   Injectable,
@@ -62,6 +63,49 @@ export class BidsService {
     @Optional()
     private readonly outboxPublisher?: OutboxPublisherService,
   ) {}
+
+  async getChatEligibility(bidId: string): Promise<ChatBidAuthority> {
+    const bid = await this.prisma.bid.findUnique({
+      where: { id: bidId },
+      include: { biddingRound: true },
+    });
+    if (!bid) throw new NotFoundException('Bid not found');
+    return this.chatBidSnapshot(bid);
+  }
+
+  async lookupChatBid(
+    requestId: string,
+    workerId: string,
+  ): Promise<ChatBidAuthority> {
+    const bid = await this.prisma.bid.findFirst({
+      where: { serviceRequestId: requestId, workerId },
+      include: { biddingRound: true },
+      orderBy: { submittedAt: 'desc' },
+    });
+    if (!bid) throw new NotFoundException('Bid not found');
+    return this.chatBidSnapshot(bid);
+  }
+
+  private chatBidSnapshot(
+    bid: Bid & { biddingRound: { status: ChatBidAuthority['roundStatus'] } },
+  ): ChatBidAuthority {
+    const now = new Date();
+    return {
+      bidId: bid.id,
+      requestId: bid.serviceRequestId,
+      workerId: bid.workerId,
+      status: bid.status,
+      version: bid.version,
+      submittedAt: bid.submittedAt.toISOString(),
+      validUntil: bid.validUntil?.toISOString() ?? null,
+      roundStatus: bid.biddingRound.status,
+      eligible:
+        bid.status === 'active' &&
+        bid.biddingRound.status !== 'cancelled' &&
+        (!bid.validUntil || bid.validUntil > now),
+      verifiedAt: now.toISOString(),
+    };
+  }
 
   /**
    * Worker submits a price quote for an open service request.
@@ -167,175 +211,177 @@ export class BidsService {
     }
 
     // Atomic transaction (F06: serialize Round/Bid lifecycle)
-    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Re-verify round state under transaction
-      const roundInTx =
-        typeof tx.biddingRound?.findUnique === 'function'
-          ? await tx.biddingRound.findUnique({ where: { id: round.id } })
-          : round;
-      let currentRound = roundInTx || round;
+    const response = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        // Re-verify round state under transaction
+        const roundInTx =
+          typeof tx.biddingRound?.findUnique === 'function'
+            ? await tx.biddingRound.findUnique({ where: { id: round.id } })
+            : round;
+        let currentRound = roundInTx || round;
 
-      if (currentRound.status === 'pending' && now >= currentRound.opensAt) {
-        const activated = await this.roundsService.activateRoundIfNeeded(
-          currentRound,
-          now,
-        );
-        if (activated) currentRound = activated;
-      }
+        if (currentRound.status === 'pending' && now >= currentRound.opensAt) {
+          const activated = await this.roundsService.activateRoundIfNeeded(
+            currentRound,
+            now,
+          );
+          if (activated) currentRound = activated;
+        }
 
-      if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
-        throw new BadRequestException(
-          'Phiên báo giá đã đóng hoặc đã kết thúc, không thể nộp báo giá',
-        );
-      }
-
-      // Re-verify worker unique bid under transaction
-      const existingInTx =
-        typeof tx.bid?.findUnique === 'function'
-          ? await tx.bid.findUnique({
-              where: {
-                biddingRoundId_workerId: {
-                  biddingRoundId: round.id,
-                  workerId,
-                },
-              },
-            })
-          : null;
-      if (existingInTx) {
-        if (existingInTx.status === 'withdrawn') {
-          throw new ConflictException(
-            'Bạn đã rút báo giá cho yêu cầu này. Theo quy định đấu thầu, bạn không thể nộp lại báo giá.',
+        if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
+          throw new BadRequestException(
+            'Phiên báo giá đã đóng hoặc đã kết thúc, không thể nộp báo giá',
           );
         }
-        throw new ConflictException(
-          'Bạn đã gửi báo giá cho yêu cầu này rồi. Vui lòng sử dụng chức năng điều chỉnh báo giá.',
-        );
-      }
 
-      // Anti-sniping: Nếu gửi báo giá trong 30 giây cuối cùng, tự động gia hạn thêm 2 phút (tối đa MAX_ANTI_SNIPING_EXTENSIONS lần)
-      let currentClosesAt = currentRound.closesAt;
-      const remainingMs = currentClosesAt.getTime() - now.getTime();
-      if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
-        const extensionCount =
-          typeof tx.outboxEvent.count === 'function'
-            ? await tx.outboxEvent.count({
+        // Re-verify worker unique bid under transaction
+        const existingInTx =
+          typeof tx.bid?.findUnique === 'function'
+            ? await tx.bid.findUnique({
                 where: {
-                  aggregateId: round.id,
-                  eventType: 'bidding.round.extended',
+                  biddingRoundId_workerId: {
+                    biddingRoundId: round.id,
+                    workerId,
+                  },
                 },
               })
-            : 0;
-
-        if (extensionCount < MAX_ANTI_SNIPING_EXTENSIONS) {
-          currentClosesAt = new Date(
-            currentClosesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+            : null;
+        if (existingInTx) {
+          if (existingInTx.status === 'withdrawn') {
+            throw new ConflictException(
+              'Bạn đã rút báo giá cho yêu cầu này. Theo quy định đấu thầu, bạn không thể nộp lại báo giá.',
+            );
+          }
+          throw new ConflictException(
+            'Bạn đã gửi báo giá cho yêu cầu này rồi. Vui lòng sử dụng chức năng điều chỉnh báo giá.',
           );
-          await tx.biddingRound.update({
-            where: { id: round.id },
-            data: { closesAt: currentClosesAt },
-          });
+        }
 
-          await tx.outboxEvent.create({
-            data: {
-              aggregateType: 'bidding_round',
-              aggregateId: round.id,
-              eventType: 'bidding.round.extended',
-              eventVersion: 1,
-              payload: {
-                roundId: round.id,
-                serviceRequestId,
-                requestId: serviceRequestId,
-                previousClosesAt: currentRound.closesAt.toISOString(),
-                newClosesAt: currentClosesAt.toISOString(),
-                extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
-                extensionCount: extensionCount + 1,
-                maxExtensions: MAX_ANTI_SNIPING_EXTENSIONS,
-                reason:
-                  'Anti-sniping extension triggered by last-minute bid submission',
+        // Anti-sniping: Nếu gửi báo giá trong 30 giây cuối cùng, tự động gia hạn thêm 2 phút (tối đa MAX_ANTI_SNIPING_EXTENSIONS lần)
+        let currentClosesAt = currentRound.closesAt;
+        const remainingMs = currentClosesAt.getTime() - now.getTime();
+        if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
+          const extensionCount =
+            typeof tx.outboxEvent.count === 'function'
+              ? await tx.outboxEvent.count({
+                  where: {
+                    aggregateId: round.id,
+                    eventType: 'bidding.round.extended',
+                  },
+                })
+              : 0;
+
+          if (extensionCount < MAX_ANTI_SNIPING_EXTENSIONS) {
+            currentClosesAt = new Date(
+              currentClosesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+            );
+            await tx.biddingRound.update({
+              where: { id: round.id },
+              data: { closesAt: currentClosesAt },
+            });
+
+            await tx.outboxEvent.create({
+              data: {
+                aggregateType: 'bidding_round',
+                aggregateId: round.id,
+                eventType: 'bidding.round.extended',
+                eventVersion: 1,
+                payload: {
+                  roundId: round.id,
+                  serviceRequestId,
+                  requestId: serviceRequestId,
+                  previousClosesAt: currentRound.closesAt.toISOString(),
+                  newClosesAt: currentClosesAt.toISOString(),
+                  extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
+                  extensionCount: extensionCount + 1,
+                  maxExtensions: MAX_ANTI_SNIPING_EXTENSIONS,
+                  reason:
+                    'Anti-sniping extension triggered by last-minute bid submission',
+                },
               },
+            });
+
+            this.logger.log(
+              `Anti-sniping kích hoạt (${extensionCount + 1}/${MAX_ANTI_SNIPING_EXTENSIONS}): Phiên ${round.id} được gia hạn thêm 2 phút đến ${currentClosesAt.toISOString()}`,
+            );
+          } else {
+            this.logger.warn(
+              `Phiên ${round.id} đã đạt số lần gia hạn Anti-sniping tối đa (${MAX_ANTI_SNIPING_EXTENSIONS}). Không gia hạn thêm.`,
+            );
+          }
+        }
+
+        // P1-02: Serialize with finalize/cancel by acquiring row lock and verifying round open status FIRST
+        if (typeof tx.biddingRound.updateMany === 'function') {
+          const updateRoundResult = await tx.biddingRound.updateMany({
+            where: {
+              id: round.id,
+              status: 'open',
+              closesAt: { gt: now },
+            },
+            data: {
+              bidCount: { increment: 1 },
             },
           });
 
-          this.logger.log(
-            `Anti-sniping kích hoạt (${extensionCount + 1}/${MAX_ANTI_SNIPING_EXTENSIONS}): Phiên ${round.id} được gia hạn thêm 2 phút đến ${currentClosesAt.toISOString()}`,
-          );
+          if (updateRoundResult.count === 0) {
+            throw new BadRequestException(
+              'Phiên đấu giá đã kết thúc hoặc không còn nhận báo giá (round closed or finalized)',
+            );
+          }
         } else {
-          this.logger.warn(
-            `Phiên ${round.id} đã đạt số lần gia hạn Anti-sniping tối đa (${MAX_ANTI_SNIPING_EXTENSIONS}). Không gia hạn thêm.`,
-          );
+          await tx.biddingRound.update({
+            where: { id: round.id },
+            data: {
+              bidCount: { increment: 1 },
+            },
+          });
         }
-      }
 
-      // P1-02: Serialize with finalize/cancel by acquiring row lock and verifying round open status FIRST
-      if (typeof tx.biddingRound.updateMany === 'function') {
-        const updateRoundResult = await tx.biddingRound.updateMany({
-          where: {
-            id: round.id,
-            status: 'open',
-            closesAt: { gt: now },
-          },
+        // Now create bid under the acquired round lock
+        const createdBid = await tx.bid.create({
           data: {
-            bidCount: { increment: 1 },
-          },
-        });
-
-        if (updateRoundResult.count === 0) {
-          throw new BadRequestException(
-            'Phiên đấu giá đã kết thúc hoặc không còn nhận báo giá (round closed or finalized)',
-          );
-        }
-      } else {
-        await tx.biddingRound.update({
-          where: { id: round.id },
-          data: {
-            bidCount: { increment: 1 },
-          },
-        });
-      }
-
-      // Now create bid under the acquired round lock
-      const createdBid = await tx.bid.create({
-        data: {
-          biddingRoundId: round.id,
-          serviceRequestId,
-          workerId,
-          amount: dto.amount,
-          message: dto.message || null,
-          validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
-          status: 'active',
-          version: 1,
-          submittedAt: now,
-        },
-      });
-
-      // Write Outbox Event: bid.submitted
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'bid',
-          aggregateId: createdBid.id,
-          eventType: EVENT_PATTERNS.BID_SUBMITTED,
-          eventVersion: 1,
-          payload: {
-            bidId: createdBid.id,
             biddingRoundId: round.id,
             serviceRequestId,
-            requestId: serviceRequestId,
-            customerId: round.customerId || null,
             workerId,
-            amount: Number(createdBid.amount),
-            message: createdBid.message,
-            validUntil: createdBid.validUntil
-              ? createdBid.validUntil.toISOString()
-              : null,
-            submittedAt: createdBid.submittedAt.toISOString(),
+            amount: dto.amount,
+            message: dto.message || null,
+            validUntil: dto.validUntil ? new Date(dto.validUntil) : null,
+            status: 'active',
+            version: 1,
+            submittedAt: now,
           },
-        },
-      });
+        });
 
-      const response = this.mapToBidResponse(createdBid, 0);
+        // Write Outbox Event: bid.submitted
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bid',
+            aggregateId: createdBid.id,
+            eventType: EVENT_PATTERNS.BID_SUBMITTED,
+            eventVersion: 1,
+            payload: {
+              bidId: createdBid.id,
+              biddingRoundId: round.id,
+              serviceRequestId,
+              requestId: serviceRequestId,
+              customerId: round.customerId || null,
+              workerId,
+              amount: Number(createdBid.amount),
+              message: createdBid.message,
+              validUntil: createdBid.validUntil
+                ? createdBid.validUntil.toISOString()
+                : null,
+              submittedAt: createdBid.submittedAt.toISOString(),
+            },
+          },
+        });
 
-      return response;
-    });
+        const response = this.mapToBidResponse(createdBid, 0);
+
+        return response;
+      },
+    );
 
     void this.outboxPublisher?.triggerPublish();
 
@@ -437,182 +483,188 @@ export class BidsService {
       : bid.validUntil;
 
     // Atomic CAS Transaction (F05 & F06)
-    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      // Re-check round status in transaction
-      const roundInTx =
-        typeof tx.biddingRound?.findUnique === 'function'
-          ? await tx.biddingRound.findUnique({ where: { id: round.id } })
-          : round;
-      const currentRound = roundInTx || round;
+    const response = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        // Re-check round status in transaction
+        const roundInTx =
+          typeof tx.biddingRound?.findUnique === 'function'
+            ? await tx.biddingRound.findUnique({ where: { id: round.id } })
+            : round;
+        const currentRound = roundInTx || round;
 
-      if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
-        throw new BadRequestException(
-          'Phiên báo giá đã kết thúc hoặc đã đóng, không thể điều chỉnh',
-        );
-      }
-
-      // Anti-sniping (tối đa MAX_ANTI_SNIPING_EXTENSIONS lần)
-      const remainingMs = currentRound.closesAt.getTime() - now.getTime();
-      if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
-        const extensionCount =
-          typeof tx.outboxEvent.count === 'function'
-            ? await tx.outboxEvent.count({
-                where: {
-                  aggregateId: round.id,
-                  eventType: 'bidding.round.extended',
-                },
-              })
-            : 0;
-
-        if (extensionCount < MAX_ANTI_SNIPING_EXTENSIONS) {
-          const newClosesAt = new Date(
-            currentRound.closesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+        if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
+          throw new BadRequestException(
+            'Phiên báo giá đã kết thúc hoặc đã đóng, không thể điều chỉnh',
           );
-          await tx.biddingRound.update({
-            where: { id: round.id },
-            data: { closesAt: newClosesAt },
-          });
+        }
 
-          await tx.outboxEvent.create({
-            data: {
-              aggregateType: 'bidding_round',
-              aggregateId: round.id,
-              eventType: 'bidding.round.extended',
-              eventVersion: 1,
-              payload: {
-                roundId: round.id,
-                serviceRequestId: bid.serviceRequestId,
-                requestId: bid.serviceRequestId,
-                previousClosesAt: currentRound.closesAt.toISOString(),
-                newClosesAt: newClosesAt.toISOString(),
-                extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
-                extensionCount: extensionCount + 1,
-                maxExtensions: MAX_ANTI_SNIPING_EXTENSIONS,
-                reason:
-                  'Anti-sniping extension triggered by last-minute bid revision',
+        // Anti-sniping (tối đa MAX_ANTI_SNIPING_EXTENSIONS lần)
+        const remainingMs = currentRound.closesAt.getTime() - now.getTime();
+        if (remainingMs > 0 && remainingMs <= ANTI_SNIPING_TRIGGER_WINDOW_MS) {
+          const extensionCount =
+            typeof tx.outboxEvent.count === 'function'
+              ? await tx.outboxEvent.count({
+                  where: {
+                    aggregateId: round.id,
+                    eventType: 'bidding.round.extended',
+                  },
+                })
+              : 0;
+
+          if (extensionCount < MAX_ANTI_SNIPING_EXTENSIONS) {
+            const newClosesAt = new Date(
+              currentRound.closesAt.getTime() + ANTI_SNIPING_EXTENSION_MS,
+            );
+            await tx.biddingRound.update({
+              where: { id: round.id },
+              data: { closesAt: newClosesAt },
+            });
+
+            await tx.outboxEvent.create({
+              data: {
+                aggregateType: 'bidding_round',
+                aggregateId: round.id,
+                eventType: 'bidding.round.extended',
+                eventVersion: 1,
+                payload: {
+                  roundId: round.id,
+                  serviceRequestId: bid.serviceRequestId,
+                  requestId: bid.serviceRequestId,
+                  previousClosesAt: currentRound.closesAt.toISOString(),
+                  newClosesAt: newClosesAt.toISOString(),
+                  extendedBySeconds: ANTI_SNIPING_EXTENSION_MS / 1000,
+                  extensionCount: extensionCount + 1,
+                  maxExtensions: MAX_ANTI_SNIPING_EXTENSIONS,
+                  reason:
+                    'Anti-sniping extension triggered by last-minute bid revision',
+                },
               },
-            },
-          });
+            });
 
-          this.logger.log(
-            `Anti-sniping kích hoạt qua điều chỉnh báo giá (${extensionCount + 1}/${MAX_ANTI_SNIPING_EXTENSIONS}): Phiên ${round.id} được gia hạn đến ${newClosesAt.toISOString()}`,
-          );
-        } else {
-          this.logger.warn(
-            `Phiên ${round.id} đã đạt số lần gia hạn Anti-sniping tối đa (${MAX_ANTI_SNIPING_EXTENSIONS}). Không gia hạn thêm.`,
-          );
-        }
-      }
-
-      const revisionNo = bid.revisions.length + 1;
-
-      // Create BidRevision record first so it is persisted in DB (N02)
-      const createdRevision = await tx.bidRevision.create({
-        data: {
-          bidId: bid.id,
-          revisionNo,
-          previousAmount: bid.amount,
-          newAmount,
-          previousMessage: bid.message,
-          newMessage,
-          revisedAt: now,
-        },
-      });
-
-      let updatedBid: any;
-      if (typeof tx.bid.updateMany === 'function') {
-        // Atomic Compare-And-Swap UPDATE (F05)
-        const updateResult = await tx.bid.updateMany({
-          where: {
-            id: bid.id,
-            workerId,
-            version: dto.version,
-            status: 'active',
-          },
-          data: {
-            amount: newAmount,
-            message: newMessage,
-            validUntil: newValidUntil,
-            version: { increment: 1 },
-            updatedAt: now,
-          },
-        });
-
-        if (updateResult.count === 0) {
-          throw new ConflictException(
-            'Xung đột phiên bản dữ liệu (optimistic lock mismatch) hoặc báo giá đã bị thay đổi bởi yêu cầu khác',
-          );
+            this.logger.log(
+              `Anti-sniping kích hoạt qua điều chỉnh báo giá (${extensionCount + 1}/${MAX_ANTI_SNIPING_EXTENSIONS}): Phiên ${round.id} được gia hạn đến ${newClosesAt.toISOString()}`,
+            );
+          } else {
+            this.logger.warn(
+              `Phiên ${round.id} đã đạt số lần gia hạn Anti-sniping tối đa (${MAX_ANTI_SNIPING_EXTENSIONS}). Không gia hạn thêm.`,
+            );
+          }
         }
 
-        updatedBid =
-          typeof tx.bid.findUniqueOrThrow === 'function'
-            ? await tx.bid.findUniqueOrThrow({
-                where: { id: bid.id },
-                include: {
-                  revisions: { orderBy: { revisionNo: 'asc' } },
-                },
-              })
-            : await tx.bid.findUnique({
-                where: { id: bid.id },
-                include: {
-                  revisions: { orderBy: { revisionNo: 'asc' } },
-                },
-              });
-      } else {
-        // Fallback for unit testing mocks
-        updatedBid = await tx.bid.update({
-          where: { id: bid.id },
-          data: {
-            amount: newAmount,
-            message: newMessage,
-            validUntil: newValidUntil,
-            version: { increment: 1 },
-            updatedAt: now,
-          },
-          include: {
-            revisions: {
-              orderBy: { revisionNo: 'asc' },
-            },
-          },
-        });
-      }
+        const revisionNo = bid.revisions.length + 1;
 
-      // Write Outbox Event: bid.revised
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'bid',
-          aggregateId: bid.id,
-          eventType: EVENT_PATTERNS.BID_REVISED,
-          eventVersion: 1,
-          payload: {
+        // Create BidRevision record first so it is persisted in DB (N02)
+        const createdRevision = await tx.bidRevision.create({
+          data: {
             bidId: bid.id,
-            biddingRoundId: bid.biddingRoundId,
-            serviceRequestId: bid.serviceRequestId,
-            requestId: bid.serviceRequestId,
-            customerId: bid.biddingRound?.customerId || null,
-            workerId,
             revisionNo,
-            previousAmount: Number(bid.amount),
+            previousAmount: bid.amount,
             newAmount,
             previousMessage: bid.message,
             newMessage,
-            version: updatedBid.version,
-            validUntil: newValidUntil ? newValidUntil.toISOString() : null,
-            revisedAt: now.toISOString(),
+            revisedAt: now,
           },
-        },
-      });
+        });
 
-      // Ensure returned revisions list contains the newly created revision (N02)
-      let revisionsList: BidRevision[] = updatedBid?.revisions || [];
-      if (!revisionsList.some((r: any) => r.revisionNo === revisionNo)) {
-        revisionsList = [...(bid.revisions || []), createdRevision];
-      }
+        let updatedBid: any;
+        if (typeof tx.bid.updateMany === 'function') {
+          // Atomic Compare-And-Swap UPDATE (F05)
+          const updateResult = await tx.bid.updateMany({
+            where: {
+              id: bid.id,
+              workerId,
+              version: dto.version,
+              status: 'active',
+            },
+            data: {
+              amount: newAmount,
+              message: newMessage,
+              validUntil: newValidUntil,
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+          });
 
-      const response = this.mapToBidResponse(updatedBid, revisionNo, revisionsList);
+          if (updateResult.count === 0) {
+            throw new ConflictException(
+              'Xung đột phiên bản dữ liệu (optimistic lock mismatch) hoặc báo giá đã bị thay đổi bởi yêu cầu khác',
+            );
+          }
 
-      return response;
-    });
+          updatedBid =
+            typeof tx.bid.findUniqueOrThrow === 'function'
+              ? await tx.bid.findUniqueOrThrow({
+                  where: { id: bid.id },
+                  include: {
+                    revisions: { orderBy: { revisionNo: 'asc' } },
+                  },
+                })
+              : await tx.bid.findUnique({
+                  where: { id: bid.id },
+                  include: {
+                    revisions: { orderBy: { revisionNo: 'asc' } },
+                  },
+                });
+        } else {
+          // Fallback for unit testing mocks
+          updatedBid = await tx.bid.update({
+            where: { id: bid.id },
+            data: {
+              amount: newAmount,
+              message: newMessage,
+              validUntil: newValidUntil,
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+            include: {
+              revisions: {
+                orderBy: { revisionNo: 'asc' },
+              },
+            },
+          });
+        }
+
+        // Write Outbox Event: bid.revised
+        await tx.outboxEvent.create({
+          data: {
+            aggregateType: 'bid',
+            aggregateId: bid.id,
+            eventType: EVENT_PATTERNS.BID_REVISED,
+            eventVersion: 1,
+            payload: {
+              bidId: bid.id,
+              biddingRoundId: bid.biddingRoundId,
+              serviceRequestId: bid.serviceRequestId,
+              requestId: bid.serviceRequestId,
+              customerId: bid.biddingRound?.customerId || null,
+              workerId,
+              revisionNo,
+              previousAmount: Number(bid.amount),
+              newAmount,
+              previousMessage: bid.message,
+              newMessage,
+              version: updatedBid.version,
+              validUntil: newValidUntil ? newValidUntil.toISOString() : null,
+              revisedAt: now.toISOString(),
+            },
+          },
+        });
+
+        // Ensure returned revisions list contains the newly created revision (N02)
+        let revisionsList: BidRevision[] = updatedBid?.revisions || [];
+        if (!revisionsList.some((r: any) => r.revisionNo === revisionNo)) {
+          revisionsList = [...(bid.revisions || []), createdRevision];
+        }
+
+        const response = this.mapToBidResponse(
+          updatedBid,
+          revisionNo,
+          revisionsList,
+        );
+
+        return response;
+      },
+    );
 
     void this.outboxPublisher?.triggerPublish();
 
@@ -672,115 +724,117 @@ export class BidsService {
     }
 
     // Atomic CAS Transaction (F05 & F06)
-    const response = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const roundInTx =
-        typeof tx.biddingRound?.findUnique === 'function'
-          ? await tx.biddingRound.findUnique({ where: { id: round.id } })
-          : round;
-      const currentRound = roundInTx || round;
+    const response = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const roundInTx =
+          typeof tx.biddingRound?.findUnique === 'function'
+            ? await tx.biddingRound.findUnique({ where: { id: round.id } })
+            : round;
+        const currentRound = roundInTx || round;
 
-      if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
-        throw new BadRequestException(
-          'Phiên báo giá đã đóng hoặc kết thúc, không thể rút',
-        );
-      }
-
-      let updatedBid: any;
-      if (typeof tx.bid.updateMany === 'function') {
-        // Atomic Compare-And-Swap UPDATE (F05)
-        const updateResult = await tx.bid.updateMany({
-          where: {
-            id: bid.id,
-            workerId,
-            version: dto.version,
-            status: 'active',
-          },
-          data: {
-            status: 'withdrawn',
-            version: { increment: 1 },
-            updatedAt: now,
-          },
-        });
-
-        if (updateResult.count === 0) {
-          throw new ConflictException(
-            'Xung đột phiên bản dữ liệu (optimistic lock mismatch) hoặc báo giá đã bị thay đổi trước đó',
+        if (currentRound.status !== 'open' || now >= currentRound.closesAt) {
+          throw new BadRequestException(
+            'Phiên báo giá đã đóng hoặc kết thúc, không thể rút',
           );
         }
 
-        updatedBid =
-          typeof tx.bid.findUniqueOrThrow === 'function'
-            ? await tx.bid.findUniqueOrThrow({
-                where: { id: bid.id },
-                include: {
-                  revisions: true,
-                },
-              })
-            : await tx.bid.findUnique({
-                where: { id: bid.id },
-                include: {
-                  revisions: true,
-                },
-              });
-      } else {
-        updatedBid = await tx.bid.update({
-          where: { id: bid.id },
+        let updatedBid: any;
+        if (typeof tx.bid.updateMany === 'function') {
+          // Atomic Compare-And-Swap UPDATE (F05)
+          const updateResult = await tx.bid.updateMany({
+            where: {
+              id: bid.id,
+              workerId,
+              version: dto.version,
+              status: 'active',
+            },
+            data: {
+              status: 'withdrawn',
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+          });
+
+          if (updateResult.count === 0) {
+            throw new ConflictException(
+              'Xung đột phiên bản dữ liệu (optimistic lock mismatch) hoặc báo giá đã bị thay đổi trước đó',
+            );
+          }
+
+          updatedBid =
+            typeof tx.bid.findUniqueOrThrow === 'function'
+              ? await tx.bid.findUniqueOrThrow({
+                  where: { id: bid.id },
+                  include: {
+                    revisions: true,
+                  },
+                })
+              : await tx.bid.findUnique({
+                  where: { id: bid.id },
+                  include: {
+                    revisions: true,
+                  },
+                });
+        } else {
+          updatedBid = await tx.bid.update({
+            where: { id: bid.id },
+            data: {
+              status: 'withdrawn',
+              version: { increment: 1 },
+              updatedAt: now,
+            },
+            include: {
+              revisions: true,
+            },
+          });
+        }
+
+        // Decrement round bidCount when a bid is withdrawn
+        if (typeof tx.biddingRound?.updateMany === 'function') {
+          await tx.biddingRound.updateMany({
+            where: { id: bid.biddingRoundId, bidCount: { gt: 0 } },
+            data: {
+              bidCount: { decrement: 1 },
+            },
+          });
+        } else if (typeof tx.biddingRound?.update === 'function') {
+          await tx.biddingRound.update({
+            where: { id: bid.biddingRoundId },
+            data: {
+              bidCount: { decrement: 1 },
+            },
+          });
+        }
+
+        // Write Outbox Event: bid.withdrawn
+        await tx.outboxEvent.create({
           data: {
-            status: 'withdrawn',
-            version: { increment: 1 },
-            updatedAt: now,
-          },
-          include: {
-            revisions: true,
+            aggregateType: 'bid',
+            aggregateId: bid.id,
+            eventType: EVENT_PATTERNS.BID_WITHDRAWN,
+            eventVersion: 1,
+            payload: {
+              bidId: bid.id,
+              biddingRoundId: bid.biddingRoundId,
+              serviceRequestId: bid.serviceRequestId,
+              requestId: bid.serviceRequestId,
+              customerId: bid.biddingRound?.customerId || null,
+              workerId,
+              reason: dto.reason || null,
+              version: updatedBid.version,
+              withdrawnAt: now.toISOString(),
+            },
           },
         });
-      }
 
-      // Decrement round bidCount when a bid is withdrawn
-      if (typeof tx.biddingRound?.updateMany === 'function') {
-        await tx.biddingRound.updateMany({
-          where: { id: bid.biddingRoundId, bidCount: { gt: 0 } },
-          data: {
-            bidCount: { decrement: 1 },
-          },
-        });
-      } else if (typeof tx.biddingRound?.update === 'function') {
-        await tx.biddingRound.update({
-          where: { id: bid.biddingRoundId },
-          data: {
-            bidCount: { decrement: 1 },
-          },
-        });
-      }
+        const response = this.mapToBidResponse(
+          updatedBid,
+          updatedBid.revisions?.length || 0,
+        );
 
-      // Write Outbox Event: bid.withdrawn
-      await tx.outboxEvent.create({
-        data: {
-          aggregateType: 'bid',
-          aggregateId: bid.id,
-          eventType: EVENT_PATTERNS.BID_WITHDRAWN,
-          eventVersion: 1,
-          payload: {
-            bidId: bid.id,
-            biddingRoundId: bid.biddingRoundId,
-            serviceRequestId: bid.serviceRequestId,
-            requestId: bid.serviceRequestId,
-            customerId: bid.biddingRound?.customerId || null,
-            workerId,
-            reason: dto.reason || null,
-            version: updatedBid.version,
-            withdrawnAt: now.toISOString(),
-          },
-        },
-      });
-
-      const response = this.mapToBidResponse(
-        updatedBid,
-        updatedBid.revisions?.length || 0,
-      );
-
-      return response;
-    });
+        return response;
+      },
+    );
 
     void this.outboxPublisher?.triggerPublish();
 

@@ -90,7 +90,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install production config validator dependency
-        run: python -m pip install --disable-pip-version-check pyyaml==6.0.3
+        run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.3
 
       - name: Validate migration inventory and production configuration
         run: |
@@ -103,6 +103,10 @@ jobs:
         run: pnpm run keys:generate
 
       - name: Generate Prisma clients
+        # Config parsing only; client generation does not connect to a database.
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/prisma_generate
+          DATABASE_URL_MESSAGE: postgresql://ci:ci@127.0.0.1:5432/prisma_generate?schema=message
         run: pnpm run prisma:generate
 
       - name: Verify wallet migrations on disposable PostgreSQL

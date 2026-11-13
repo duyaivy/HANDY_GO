@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsNotEmpty,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -9,6 +10,10 @@ import {
 } from 'class-validator';
 
 export class InitVideoUploadDto {
+  @IsOptional()
+  @IsIn(['chat'])
+  intent?: 'chat';
+
   @ApiProperty({
     description: 'Tên file video gốc',
     example: 'demo.mp4',
@@ -26,7 +31,8 @@ export class InitVideoUploadDto {
   fileSize!: number;
 
   @ApiProperty({
-    description: 'MIME type của file video (video/mp4, video/quicktime, video/webm)',
+    description:
+      'MIME type của file video (video/mp4, video/quicktime, video/webm)',
     example: 'video/mp4',
   })
   @IsNotEmpty({ message: 'mimeType không được để trống' })

@@ -2,6 +2,7 @@ import { Injectable, type NestMiddleware } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { rateLimit, type RateLimitRequestHandler } from 'express-rate-limit';
 import crypto from 'node:crypto';
+import { ConfigService } from '@app/config';
 import { buildErrorResponse, ERROR_CODES } from '@app/common';
 
 @Injectable()
@@ -9,7 +10,7 @@ export class RateLimitMiddleware implements NestMiddleware {
   private readonly globalLimiter: RateLimitRequestHandler;
   private readonly authLimiter: RateLimitRequestHandler;
 
-  constructor() {
+  constructor(private readonly config: ConfigService) {
     const sendRateLimitResponse = (req: Request, res: Response): void => {
       const existingRequestId = req.headers['x-request-id'];
       const requestId =
@@ -52,6 +53,20 @@ export class RateLimitMiddleware implements NestMiddleware {
 
   use(req: Request, res: Response, next: NextFunction): void {
     const pathname = req.originalUrl || req.url;
+    const secret = req.headers['x-internal-secret'];
+    const expected = this.config.internalServiceSecret;
+    // Trusted service verification has no user-IP budget; the handler also authenticates it.
+    if (
+      req.method === 'POST' &&
+      pathname.split('?')[0] === '/api/v1/internal/media/chat/verify' &&
+      typeof secret === 'string' &&
+      expected &&
+      Buffer.byteLength(secret) === Buffer.byteLength(expected) &&
+      crypto.timingSafeEqual(Buffer.from(secret), Buffer.from(expected))
+    ) {
+      next();
+      return;
+    }
 
     if (
       pathname === '/api/v1/auth' ||

@@ -13,10 +13,11 @@ export function eventFixture(type: NotificationEventType): NotificationEvent {
   const data: Record<string, unknown> = Object.fromEntries(
     contract.ids.map((id) => [id, randomUUID()]),
   );
+  if (type === 'message.created')
+    Object.assign(data, { orderId: null, sequence: '1', messageType: 'TEXT' });
   if (type === 'matching.eligible_workers.ready')
     data.eligibleWorkerIds = [randomUUID(), randomUUID()];
-  if (type === 'matching.completed')
-    data.customerId = randomUUID();
+  if (type === 'matching.completed') data.customerId = randomUUID();
   if (type === 'order.status.changed')
     Object.assign(data, {
       previousStatus: 'TEST_BEFORE',

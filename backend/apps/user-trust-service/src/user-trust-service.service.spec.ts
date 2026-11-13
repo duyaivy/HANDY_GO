@@ -2050,3 +2050,12 @@ describe('UserTrustServiceService', () => {
     });
   });
 });
+
+describe('minimal chat participant names', () => {
+  it('selects only public names for unique IDs', async () => {
+    const findMany = vi.fn().mockResolvedValue([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    const service = new UserTrustServiceService({user: {findMany}} as any);
+    expect(await service.getDisplayNames(['u', 'u'])).toEqual([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    expect(findMany).toHaveBeenCalledWith({where: {id: {in: ['u']}}, select: {id: true, fullName: true, avatarUrl: true}});
+  });
+});

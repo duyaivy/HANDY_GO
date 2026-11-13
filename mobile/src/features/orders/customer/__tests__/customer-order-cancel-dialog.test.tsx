@@ -18,6 +18,7 @@ jest.mock('expo-router', () => ({
 afterEach(() => {
   cleanup();
   jest.clearAllMocks();
+  jest.restoreAllMocks();
 });
 
 describe('customerOrderCancelDialog', () => {
