@@ -239,17 +239,21 @@ axiosInstance.interceptors.response.use(
       }
     }
 
-    // 429 Rate Limit retry with jitter
+    // Only reads can be replayed safely after a rate limit response.
     const is429 = error.response?.status === 429;
-    if (is429 && originalRequest && !originalRequest._retry429) {
+    const method = originalRequest?.method?.toUpperCase();
+    if (is429 && originalRequest && !originalRequest._retry429 && (method === 'GET' || method === 'HEAD')) {
       originalRequest._retry429 = true;
       const retryAfterHeader = error.response?.headers?.['retry-after'];
-      const retryAfterSec = retryAfterHeader ? Number.parseInt(String(retryAfterHeader), 10) : Number.NaN;
-      const delayMs = !Number.isNaN(retryAfterSec) && retryAfterSec >= 0
-        ? retryAfterSec * 1000
-        : 2000 + Math.random() * 1000;
+      const retryAfterSec = Number(retryAfterHeader);
+      const delayMs = retryAfterHeader != null && String(retryAfterHeader).trim() !== '' && Number.isFinite(retryAfterSec) && retryAfterSec >= 0
+        ? Math.min(retryAfterSec * 1000, 10000)
+        : 2000;
       Logger.warn('API_RATE_LIMIT_RETRY', `Request 429 rate limited. Retrying after ${Math.round(delayMs)}ms: ${url}`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (originalRequest.signal?.aborted) {
+        return Promise.reject(new axios.CanceledError('Request canceled before rate-limit retry', undefined, originalRequest));
+      }
       return axiosInstance(originalRequest);
     }
 

@@ -18,6 +18,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { useTrackingEvents } from '@/features/tracking';
+import { ApiError } from '@/services/api/api-error';
 import { OrdersApi } from '../../api/orders.api';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
@@ -449,6 +450,13 @@ export function WorkerJobCompleteScreen({
         '[WORKER_COMPLETE] Lỗi khi nộp bằng chứng hoặc báo xong việc:',
         err,
       );
+      if (err instanceof ApiError && err.kind === 'RATE_LIMITED') {
+        Alert.alert(
+          'Hệ thống đang nhận quá nhiều yêu cầu',
+          'Vui lòng kiểm tra lại trạng thái đơn và ảnh bằng chứng đã nộp trước khi thử lại.',
+        );
+        return;
+      }
       const message
         = err?.response?.data?.message
           || err?.message

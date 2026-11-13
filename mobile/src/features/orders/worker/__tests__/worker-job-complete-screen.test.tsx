@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Alert } from 'react-native';
 import { useTrackingEvents } from '@/features/tracking';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { ApiError } from '@/services/api/api-error';
 import { OrdersApi } from '../../api/orders.api';
 import { WorkerJobCompleteScreen } from '../screens/worker-job-complete-screen';
 
@@ -485,6 +486,26 @@ describe('WorkerJobCompleteScreen - Evidence Photo Attachment (TASK-11)', () => 
     expect(photo1Uploads).toHaveLength(1);
     expect(photo2Uploads).toHaveLength(1);
     expect(photo3Uploads).toHaveLength(2);
+  });
+
+  it('shows rate limit guidance and does not automatically resubmit evidence', async () => {
+    jest.spyOn(OrdersApi, 'uploadImage').mockResolvedValue('https://res.cloudinary.com/demo/image/upload/proof.jpg');
+    const uploadEvidence = jest.spyOn(OrdersApi, 'uploadEvidence').mockRejectedValue(
+      new ApiError('RATE_LIMITED', 'Hệ thống đang nhận quá nhiều yêu cầu.', { statusCode: 429 }),
+    );
+    const finishOrder = jest.spyOn(OrdersApi, 'finishOrder');
+
+    render(<WorkerJobCompleteScreen jobId="ORD-TEST-999" />);
+    await triggerPickFromLibrary([{ uri: 'file:///proof.jpg' }]);
+    expect(await screen.findByText('✓')).toBeOnTheScreen();
+    fireEvent.press(screen.getByTestId('worker-finish-order-btn'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+      'Hệ thống đang nhận quá nhiều yêu cầu',
+      expect.stringContaining('kiểm tra lại trạng thái đơn và ảnh bằng chứng'),
+    ));
+    expect(uploadEvidence).toHaveBeenCalledTimes(1);
+    expect(finishOrder).not.toHaveBeenCalled();
   });
 
   it('ORD-10: finishOrder() lỗi rồi gửi lại: không tạo thêm evidence; gọi trực tiếp finishOrder()', async () => {
