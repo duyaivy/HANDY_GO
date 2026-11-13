@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install --yes --no-install-recommends openssl \
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm run prisma:generate \
+RUN DATABASE_URL_MESSAGE='postgresql://ci:ci@127.0.0.1:5432/prisma_generate?schema=message' pnpm run prisma:generate \
   && pnpm exec nest build api-gateway \
   && pnpm exec nest build order-service \
   && pnpm exec nest build tracking-service
