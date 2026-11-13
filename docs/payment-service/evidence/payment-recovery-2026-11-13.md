@@ -19,10 +19,12 @@ Không thêm migration: tận dụng `WalletTransfer.status = failed` và metada
 | Kiểm tra | Kết quả |
 | --- | --- |
 | Unit/service Payment, Wallet, internal Order và common outbox, `--maxWorkers=4` | **41 file, 237/237 pass** |
+| Toàn bộ unit/backend sau frozen install và generate client, `--maxWorkers=4` | **221 file pass, 13 file skip; 1.796 tests pass, 141 skip, 0 failed** |
 | Toàn bộ Payment integration, PostgreSQL/HTTP/RabbitMQ thật | **9 file, 72/72 pass** |
 | Toàn bộ Wallet integration | **7 file, 77/77 pass** |
-| `typecheck:payment`, `typecheck:wallet` | Pass |
-| `nest build payment-service`, `nest build wallet-service` | Pass |
+| `typecheck:payment`, `typecheck:wallet`, typecheck toàn backend | Pass |
+| Build Payment/Wallet và `pnpm run build` toàn backend | Pass |
+| `pnpm install --frozen-lockfile --ignore-scripts` | Pass sau khi sửa 3 tham chiếu lockfile thiếu entry |
 | Backend lint | Exit 0; 10 warning có sẵn tại User Trust/Message, không thuộc các file sửa |
 | Lint riêng CLI/helper recovery | Pass |
 | `git diff --check` | Pass |
@@ -73,7 +75,9 @@ Backfill thực tế có mutation chỉ chạy trên fixture của database test
 
 ## Giới hạn xác minh
 
-Đã thử suite unit toàn backend: **1.743 passed, 1 failed, 120 skipped; 12 file failed, 213 passed, 9 skipped**. Các file Message không import được vì workspace thiếu `@prisma/message-client`, `socket.io` và `socket.io-client`; một test common outbox timeout khi chạy toàn bộ song song. Test common outbox sau đó pass trong lượt 237 test có giới hạn 4 worker. Không đổi dependency hay mã Message trong task này, không khẳng định toàn backend xanh.
+Lượt unit toàn backend đầu tiên gặp dependency/client local chưa được cài/generate đầy đủ và một timeout khi chạy toàn bộ song song. Sau frozen install và generate lại Prisma client Message/Notification, typecheck/build toàn backend pass; chạy lại toàn suite với 4 worker đạt **1.796 pass, 141 skip, 0 failed**. Không đổi khai báo dependency hoặc mã Message/Notification.
+
+[CI đầu tiên của commit bd47e0b](https://github.com/duyaivy/HANDY_GO/actions/runs/43394795374) dừng ở bước `pnpm install --frozen-lockfile`: lockfile có 3 snapshot phụ thuộc `@types/node@24.13.4` nhưng không có entry tương ứng. Đồng bộ đúng 3 tham chiếu tại `@types/cors`, `@types/ws`, `engine.io` về `24.19.2` đã có trong lockfile và đang dùng ở backend; không cập nhật các phiên bản package khác. Frozen install local sau đó thành công và cài được các dependency Message đã khai báo. Các bước test trên lượt CI đầu tiên chưa chạy; kết quả CI sau sửa được cập nhật trong comment PR.
 
 Suite transport có cảnh báo socket MaxListenersExceededWarning nhưng hoàn tất với exit 0. Test lỗi posting cố ý phát sinh log lỗi DB để chứng minh rollback; đây không phải test thất bại.
 
