@@ -204,10 +204,10 @@ export class SummaryService {
       const proposalWorkerId =
         meta?.workerId || latestProposalEvent.actorUserId;
 
-      // Privacy: If user is Worker, only expose proposal details if they are the designated worker
+      // Only the request owner, admin, or proposal worker can see proposal details.
       const isAuthorizedForProposal =
         user.isAdmin ||
-        user.isCustomer ||
+        isOwner ||
         (user.isWorker && proposalWorkerId === user.userId);
 
       if (isAuthorizedForProposal) {
@@ -394,7 +394,7 @@ export class SummaryService {
     const result: TrackingSummaryResponseDto = {
       flowId: flow.id,
       serviceRequestId: flow.serviceRequestId,
-      orderId: flow.orderId,
+      orderId: isAuthorizedForOrderAndPayment ? flow.orderId : undefined,
       customerId: flow.customerId,
       currentPhase,
       serviceRequest: reqMilestone,
@@ -437,7 +437,7 @@ export class SummaryService {
     } else if (user.isWorker) {
       userScope = `wrk:${user.userId}`;
     }
-    return `tracking:summary-auth2:${serviceRequestId}:${userScope}:v${version}`;
+    return `tracking:summary-auth3:${serviceRequestId}:${userScope}:v${version}`;
   }
 
   private computeCurrentPhase(

@@ -356,6 +356,8 @@ describe('SummaryService', () => {
     );
 
     // Rejected worker has participation rights to view the flow, but must NOT see the order or payment of the assigned worker
+    expect(summary.bookingProposal).toBeUndefined();
+    expect(summary.orderId).toBeUndefined();
     expect(summary.order).toBeUndefined();
     expect(summary.payment).toBeUndefined();
   });
@@ -385,7 +387,7 @@ describe('SummaryService', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
-  it('keeps Order and Payment private across dual-role, owner and assigned-worker Redis reads', async () => {
+  it('keeps proposal, Order, Payment and orderId private across dual-role, owner and assigned-worker Redis reads', async () => {
     const serviceRequestId = randomUUID();
     const orderId = randomUUID();
     const ownerId = randomUUID();
@@ -410,13 +412,14 @@ describe('SummaryService', () => {
       events: [
         { eventType: 'service_request.published', entityType: TrackingEntityType.service_request, entityId: serviceRequestId, occurredAt: now, metadata: {} },
         { eventType: 'bid.submitted', entityType: TrackingEntityType.bid, entityId: randomUUID(), actorUserId: participantId, occurredAt: now, metadata: { workerId: participantId, amount: 300000 } },
+        { eventType: 'booking_proposal.finalized', entityType: TrackingEntityType.booking_proposal, entityId: randomUUID(), actorUserId: ownerId, occurredAt: now, metadata: { workerId: assignedWorkerId, revisionNo: 1 } },
         { eventType: 'order.created', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, toStatus: 'created', metadata: { workerUserId: assignedWorkerId } },
         { eventType: 'order.completed', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, toStatus: 'completed', metadata: {} },
         { eventType: 'payment.succeeded', entityType: TrackingEntityType.payment, entityId: randomUUID(), occurredAt: now, metadata: {} },
       ],
     });
-    const oldKey = `tracking:summary:${serviceRequestId}:cust:${participantId}:v5`;
-    const cache = new Map<string, any>([[oldKey, { order: { status: 'completed' }, payment: { status: 'succeeded' } }]]);
+    const oldKey = `tracking:summary-auth2:${serviceRequestId}:cust:${participantId}:v5`;
+    const cache = new Map<string, any>([[oldKey, { bookingProposal: { status: 'finalized' }, orderId, order: { status: 'completed' }, payment: { status: 'succeeded' } }]]);
     const redisMock: any = {
       get: vi.fn(async (key: string) => cache.get(key) ?? null),
       set: vi.fn(async (key: string, value: any) => { cache.set(key, value); }),
@@ -424,21 +427,31 @@ describe('SummaryService', () => {
     const cachedService = new SummaryService(prismaMock, redisMock);
 
     const firstParticipantRead = await cachedService.getRequestSummary(serviceRequestId, participant);
+    expect(firstParticipantRead.bookingProposal).toBeUndefined();
+    expect(firstParticipantRead.orderId).toBeUndefined();
     expect(firstParticipantRead.order).toBeUndefined();
     expect(firstParticipantRead.payment).toBeUndefined();
     expect(firstParticipantRead.bidding.myBid?.amount).toBe(300000);
-    expect((await cachedService.getRequestSummary(serviceRequestId, owner)).order?.status).toBe('completed');
-    expect((await cachedService.getRequestSummary(serviceRequestId, assignedWorker)).payment?.status).toBe('succeeded');
+    const ownerSummary = await cachedService.getRequestSummary(serviceRequestId, owner);
+    expect(ownerSummary.bookingProposal?.status).toBe('finalized');
+    expect(ownerSummary.orderId).toBe(orderId);
+    expect(ownerSummary.order?.status).toBe('completed');
+    const assignedSummary = await cachedService.getRequestSummary(serviceRequestId, assignedWorker);
+    expect(assignedSummary.bookingProposal?.status).toBe('finalized');
+    expect(assignedSummary.orderId).toBe(orderId);
+    expect(assignedSummary.payment?.status).toBe('succeeded');
     expect((await cachedService.getRequestSummary(serviceRequestId, owner)).payment?.status).toBe('succeeded');
     expect((await cachedService.getRequestSummary(serviceRequestId, assignedWorker)).order?.status).toBe('completed');
     const secondParticipantRead = await cachedService.getRequestSummary(serviceRequestId, participant);
+    expect(secondParticipantRead.bookingProposal).toBeUndefined();
+    expect(secondParticipantRead.orderId).toBeUndefined();
     expect(secondParticipantRead.order).toBeUndefined();
     expect(secondParticipantRead.payment).toBeUndefined();
     expect(redisMock.get).not.toHaveBeenCalledWith(oldKey);
-    expect(redisMock.get).toHaveBeenCalledWith(`tracking:summary-auth2:${serviceRequestId}:cust:${participantId}:v5`);
-    expect(cache.has(`tracking:summary-auth2:${serviceRequestId}:cust:${ownerId}:v5`)).toBe(true);
-    expect(cache.has(`tracking:summary-auth2:${serviceRequestId}:wrk:${assignedWorkerId}:v5`)).toBe(true);
-    const newKeys = [...cache.keys()].filter(key => key.startsWith('tracking:summary-auth2:'));
+    expect(redisMock.get).toHaveBeenCalledWith(`tracking:summary-auth3:${serviceRequestId}:cust:${participantId}:v5`);
+    expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:cust:${ownerId}:v5`)).toBe(true);
+    expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:wrk:${assignedWorkerId}:v5`)).toBe(true);
+    const newKeys = [...cache.keys()].filter(key => key.startsWith('tracking:summary-auth3:'));
     expect(newKeys.every(key => new RegExp(`^tracking:[^:]+:${serviceRequestId}:`).test(key))).toBe(true);
 
     const outsider: GatewayUser = {
@@ -478,8 +491,8 @@ describe('SummaryService', () => {
       await redisMock.delByPattern(`tracking:*:${serviceRequestId}:*`);
       const after = await cachedService.getRequestSummary(serviceRequestId, user);
       expect(after.payment?.status).toBe('succeeded');
-      expect(cache.has(`tracking:summary-auth2:${serviceRequestId}:cust:${customerId}:v2`)).toBe(true);
-      expect(redisMock.get).toHaveBeenLastCalledWith(`tracking:summary-auth2:${serviceRequestId}:cust:${customerId}:v3`);
+      expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v2`)).toBe(true);
+      expect(redisMock.get).toHaveBeenLastCalledWith(`tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v3`);
     });
 
     it('checks ownership before returning a cached summary', async () => {
@@ -523,7 +536,7 @@ describe('SummaryService', () => {
 
       expect(result).toBe(cachedData);
       expect(redisMock.get).toHaveBeenCalledWith(
-        `tracking:summary-auth2:${serviceRequestId}:admin:v3`,
+        `tracking:summary-auth3:${serviceRequestId}:admin:v3`,
       );
       expect(prismaMock.trackingFlow.findUnique).toHaveBeenCalledOnce();
     });
@@ -579,7 +592,7 @@ describe('SummaryService', () => {
       );
 
       expect(redisMock.set).toHaveBeenCalledWith(
-        `tracking:summary-auth2:${serviceRequestId}:cust:${customerId}:v0`,
+        `tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v0`,
         expect.objectContaining({ currentPhase: 'COMPLETED' }),
         7 * 24 * 3600,
       );
