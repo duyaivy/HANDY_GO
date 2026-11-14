@@ -26,7 +26,13 @@ import {
 } from './topups.service.js';
 
 function clientIp(req: Request): string {
-  const raw = (req.ip ?? '').replace(/^::ffff:/, '');
+  const forwarded = req.headers['x-forwarded-for'];
+  const first = typeof forwarded === 'string'
+    ? forwarded.split(',')[0].trim()
+    : Array.isArray(forwarded) && forwarded[0]
+      ? forwarded[0].trim()
+      : '';
+  const raw = (first || req.ip || '').replace(/^::ffff:/, '');
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(raw) ? raw : '127.0.0.1';
 }
 
