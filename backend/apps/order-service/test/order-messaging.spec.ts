@@ -257,9 +257,9 @@ describe('D3 — Messaging and Integration Suite (BE-04, BE-05, BE-06, BE-07, BE
       const fixedCreatedAt = new Date('2026-10-27T08:30:00.000Z');
       const eventRecord = {
         id: fixedEventId,
-        eventType: 'order.confirmed',
+        eventType: 'order.status.changed',
         eventVersion: 1,
-        payload: { orderId: ORDER_ID },
+        payload: { orderId: ORDER_ID, previousStatus: 'created', nextStatus: 'confirmed' },
         createdAt: fixedCreatedAt,
         retryCount: 2,
       };

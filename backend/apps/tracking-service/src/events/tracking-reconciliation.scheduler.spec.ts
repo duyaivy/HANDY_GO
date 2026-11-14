@@ -14,6 +14,7 @@ describe('TrackingReconciliationScheduler', () => {
         flushedOrders: 1,
         stalledOrders: 0,
       }),
+      countUnresolvedRejectedEvents: vi.fn().mockResolvedValue(0),
     };
     scheduler = new TrackingReconciliationScheduler(
       eventsServiceMock as unknown as TrackingEventsService,
@@ -42,6 +43,14 @@ describe('TrackingReconciliationScheduler', () => {
       flushedOrders: 1,
       stalledOrders: 0,
     });
+  });
+
+  it('counts quarantined events during reconciliation', async () => {
+    eventsServiceMock.countUnresolvedRejectedEvents.mockResolvedValue(3);
+    const warn = vi.spyOn((scheduler as any).logger, 'warn');
+    await scheduler.triggerReconciliation();
+    expect(eventsServiceMock.countUnresolvedRejectedEvents).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith('[REJECTED_TRACKING_EVENTS_ALERT] 3 unresolved events require replay');
   });
 
   it('should prevent overlapping executions when previous cycle is still running', async () => {

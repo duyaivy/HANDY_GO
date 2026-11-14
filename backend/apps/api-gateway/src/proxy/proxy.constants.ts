@@ -31,10 +31,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
   {
     upstreamName: 'ai-service',
     envKey: 'AI_SERVICE_URL',
-    prefixes: [
-      '/api/v1/ocr',
-      '/ocr',
-    ],
+    prefixes: ['/api/v1/ocr', '/ocr'],
     timeoutEnvKey: 'AI_SERVICE_TIMEOUT_MS',
   },
   {
@@ -48,7 +45,9 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     prefixes: [],
     timeoutMs: 0,
     customMatch: (pathname: string) =>
-      /^\/api\/v1\/bids\/requests\/[^/?#]+\/events(\/.*)?(\?.*)?$/.test(pathname),
+      /^\/api\/v1\/bids\/requests\/[^/?#]+\/events(\/.*)?(\?.*)?$/.test(
+        pathname,
+      ),
   },
   {
     upstreamName: 'bidding-service',
@@ -94,6 +93,16 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     upstreamName: 'wallet-service',
     envKey: 'WALLET_SERVICE_URL',
     prefixes: ['/api/v1/wallets'],
+  },
+  {
+    upstreamName: 'tracking-service-sse',
+    envKey: 'TRACKING_SERVICE_URL',
+    prefixes: [],
+    timeoutMs: 0,
+    customMatch: (pathname: string) =>
+      /^\/api\/v1\/tracking\/requests\/[^/?#]+\/live(\/.*)?(\?.*)?$/.test(
+        pathname,
+      ),
   },
   {
     upstreamName: 'tracking-service',

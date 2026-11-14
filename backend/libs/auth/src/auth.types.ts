@@ -24,6 +24,14 @@ export const StandardPermissions = {
   CATALOG_CREATE: 'catalog:create',
   CATALOG_UPDATE: 'catalog:update',
   CATALOG_DELETE: 'catalog:delete',
+  PAYMENT_READ_ALL: 'payment:read:all',
+  COMMISSION_MANAGE: 'commission:manage',
+  REFUND_READ_ALL: 'refund:read:all',
+  REFUND_CREATE: 'refund:create',
+  REFUND_APPROVE: 'refund:approve',
+  REFUND_CONFIRM: 'refund:confirm',
+  PAYMENT_RECONCILE: 'payment:reconcile',
+  PAYMENT_DLQ_REPLAY: 'payment:dlq:replay',
 } as const;
 
 export const TokenType = {

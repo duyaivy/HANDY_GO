@@ -142,6 +142,33 @@ describe('OrdersService', () => {
     statusHistory: [],
   };
 
+  const expectSingleStatusTransition = (
+    previousStatus: string,
+    nextStatus: string,
+    timestampField: 'confirmedAt' | 'startedAt' | 'finishedAt',
+  ) => {
+    expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(1);
+    expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+        aggregateId: mockOrderId,
+        eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+        payload: expect.objectContaining({
+          orderId: mockOrderId,
+          customerId: mockCustomerId,
+          customerUserId: mockCustomerId,
+          workerId: mockWorkerId,
+          workerUserId: mockWorkerId,
+          previousStatus,
+          nextStatus,
+          notificationKind: 'status_update',
+          [timestampField]: expect.any(String),
+        }),
+      }),
+      txMock,
+    );
+  };
+
   beforeEach(() => {
     let lastOrderUpdatedData: any = null;
 
@@ -287,6 +314,13 @@ describe('OrdersService', () => {
           eventType: ORDER_CONSTANTS.EVENT_ORDER_CREATED,
           payload: expect.objectContaining({
             orderId: mockOrderId,
+            serviceRequestId: mockRequestId,
+            requestId: mockRequestId,
+            bookingProposalId: mockProposalId,
+            customerId: mockCustomerId,
+            customerUserId: mockCustomerId,
+            workerId: mockWorkerId,
+            workerUserId: mockWorkerId,
             agreedPrice: validProposal.agreedPrice.toString(),
             currency: 'VND',
             addressText: '123 Đường Nguyễn Tri Phương, Đà Nẵng',
@@ -430,7 +464,9 @@ describe('OrdersService', () => {
         {
           id: 'existing-conflict-order',
           orderCode: 'ORD-EXISTING-1',
-          scheduledAt: new Date(validProposal.scheduledAt.getTime() + 30 * 60 * 1000),
+          scheduledAt: new Date(
+            validProposal.scheduledAt.getTime() + 30 * 60 * 1000,
+          ),
         },
       ]);
 
@@ -441,7 +477,7 @@ describe('OrdersService', () => {
   });
 
   describe('confirmReadiness', () => {
-    it('should confirm readiness (created -> confirmed) and emit order.confirmed', async () => {
+    it('should confirm readiness (created -> confirmed) with one status event', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'created',
@@ -464,12 +500,7 @@ describe('OrdersService', () => {
           data: expect.objectContaining({ status: 'confirmed' }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_CONFIRMED,
-        }),
-        txMock,
-      );
+      expectSingleStatusTransition('created', 'confirmed', 'confirmedAt');
       expect(result.status).toBe('confirmed');
     });
 
@@ -494,7 +525,7 @@ describe('OrdersService', () => {
   });
 
   describe('start', () => {
-    it('should start work (confirmed -> in_progress) and emit order.started', async () => {
+    it('should start work (confirmed -> in_progress) with one status event', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'confirmed',
@@ -517,12 +548,7 @@ describe('OrdersService', () => {
           data: expect.objectContaining({ status: 'in_progress' }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_STARTED,
-        }),
-        txMock,
-      );
+      expectSingleStatusTransition('confirmed', 'in_progress', 'startedAt');
       expect(result.status).toBe('in_progress');
     });
 
@@ -593,11 +619,10 @@ describe('OrdersService', () => {
           }),
         }),
       );
-      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_FINISHED,
-        }),
-        txMock,
+      expectSingleStatusTransition(
+        'in_progress',
+        'awaiting_customer_confirmation',
+        'finishedAt',
       );
       expect(result.status).toBe('awaiting_customer_confirmation');
     });
@@ -643,7 +668,10 @@ describe('OrdersService', () => {
         toStatus: 'completed',
       });
 
-      const result = await service.confirmCompletion(mockOrderId, mockCustomerId);
+      const result = await service.confirmCompletion(
+        mockOrderId,
+        mockCustomerId,
+      );
 
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -692,7 +720,11 @@ describe('OrdersService', () => {
       });
 
       const dto = { reason: 'Mối nối vẫn bị rò rỉ nước' };
-      const result = await service.requestRework(mockOrderId, mockCustomerId, dto);
+      const result = await service.requestRework(
+        mockOrderId,
+        mockCustomerId,
+        dto,
+      );
 
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -707,6 +739,29 @@ describe('OrdersService', () => {
             reason: dto.reason,
           }),
         }),
+      );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_REWORK_REQUESTED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            customerUserId: mockCustomerId,
+            reason: dto.reason,
+          }),
+        }),
+        txMock,
+      );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            previousStatus: 'awaiting_customer_confirmation',
+            nextStatus: 'in_progress',
+            reason: dto.reason,
+          }),
+        }),
+        txMock,
       );
       expect(result.status).toBe('in_progress');
     });
@@ -729,7 +784,9 @@ describe('OrdersService', () => {
       });
 
       const dto = { reason: 'Bận việc đột xuất' };
-      const result = await service.cancel(mockOrderId, mockCustomerId, dto, ['Customer']);
+      const result = await service.cancel(mockOrderId, mockCustomerId, dto, [
+        'Customer',
+      ]);
 
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1014,6 +1071,18 @@ describe('OrdersService', () => {
         }),
         txMock,
       );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            nextStatus: 'disputed',
+            reason: dto.reason,
+            disputeReason: dto.reason,
+          }),
+        }),
+        txMock,
+      );
       expect(result.status).toBe('disputed');
     });
 
@@ -1062,6 +1131,19 @@ describe('OrdersService', () => {
           data: expect.objectContaining({ status: 'in_progress' }),
         }),
       );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            previousStatus: 'disputed',
+            nextStatus: 'in_progress',
+            reason: dto.resolutionNote,
+            resolution: 'resume_previous_state',
+          }),
+        }),
+        txMock,
+      );
       expect(result.status).toBe('in_progress');
     });
 
@@ -1100,6 +1182,19 @@ describe('OrdersService', () => {
       expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: ORDER_CONSTANTS.EVENT_ORDER_COMPLETED,
+        }),
+        txMock,
+      );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            previousStatus: 'disputed',
+            nextStatus: 'completed',
+            reason: dto.resolutionNote,
+            resolution: 'complete',
+          }),
         }),
         txMock,
       );
@@ -1142,6 +1237,19 @@ describe('OrdersService', () => {
         }),
         txMock,
       );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            previousStatus: 'disputed',
+            nextStatus: 'cancelled',
+            reason: dto.resolutionNote,
+            resolution: 'cancel',
+          }),
+        }),
+        txMock,
+      );
       expect(result.status).toBe('cancelled');
     });
 
@@ -1161,7 +1269,9 @@ describe('OrdersService', () => {
     it('should return order details for customer owner', async () => {
       prismaMock.order.findUnique.mockResolvedValue(validBaseOrder);
 
-      const result = await service.findById(mockOrderId, mockCustomerId, ['Customer']);
+      const result = await service.findById(mockOrderId, mockCustomerId, [
+        'Customer',
+      ]);
       expect(result.id).toBe(mockOrderId);
       expect(result.agreedPrice).toBe('350000');
     });
@@ -1170,7 +1280,11 @@ describe('OrdersService', () => {
       prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
       prismaMock.order.count.mockResolvedValue(1);
 
-      const result = await service.findAll(mockCustomerId, { page: 1, limit: 10 }, ['Customer']);
+      const result = await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10 },
+        ['Customer'],
+      );
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
     });
@@ -1200,7 +1314,9 @@ describe('OrdersService', () => {
       prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
       prismaMock.order.count.mockResolvedValue(1);
 
-      const result = await service.adminFindAll({ page: 1, limit: 10 }, ['Admin']);
+      const result = await service.adminFindAll({ page: 1, limit: 10 }, [
+        'Admin',
+      ]);
       expect(result.items).toHaveLength(1);
       expect(result.total).toBe(1);
       expect(prismaMock.order.findMany).toHaveBeenCalled();

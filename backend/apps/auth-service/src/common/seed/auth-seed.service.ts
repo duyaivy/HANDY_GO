@@ -48,6 +48,12 @@ export class AuthSeedService implements OnModuleInit {
       { code: StandardPermissions.CATALOG_CREATE, name: 'Tạo mới danh mục và dịch vụ', resource: 'catalog', action: 'create' },
       { code: StandardPermissions.CATALOG_UPDATE, name: 'Cập nhật danh mục và dịch vụ', resource: 'catalog', action: 'update' },
       { code: StandardPermissions.CATALOG_DELETE, name: 'Xóa danh mục và dịch vụ', resource: 'catalog', action: 'delete' },
+      ...[
+        StandardPermissions.PAYMENT_READ_ALL, StandardPermissions.COMMISSION_MANAGE,
+        StandardPermissions.REFUND_READ_ALL, StandardPermissions.REFUND_CREATE,
+        StandardPermissions.REFUND_APPROVE, StandardPermissions.REFUND_CONFIRM,
+        StandardPermissions.PAYMENT_RECONCILE, StandardPermissions.PAYMENT_DLQ_REPLAY,
+      ].map(code => ({ code, name: code, resource: code.split(':')[0], action: code.split(':').slice(1).join(':') })),
     ];
 
     // Seed permissions
@@ -108,6 +114,14 @@ export class AuthSeedService implements OnModuleInit {
         StandardPermissions.CATALOG_CREATE,
         StandardPermissions.CATALOG_UPDATE,
         StandardPermissions.CATALOG_DELETE,
+        StandardPermissions.PAYMENT_READ_ALL,
+        StandardPermissions.COMMISSION_MANAGE,
+        StandardPermissions.REFUND_READ_ALL,
+        StandardPermissions.REFUND_CREATE,
+        StandardPermissions.REFUND_APPROVE,
+        StandardPermissions.REFUND_CONFIRM,
+        StandardPermissions.PAYMENT_RECONCILE,
+        StandardPermissions.PAYMENT_DLQ_REPLAY,
       ],
     };
 

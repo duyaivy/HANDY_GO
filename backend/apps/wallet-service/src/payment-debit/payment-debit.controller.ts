@@ -16,7 +16,7 @@ export class PaymentDebitController {
   @ApiOperation({ summary: 'Atomically debit a customer payment and credit recipients' })
   async debit(@Headers('x-internal-secret') secret: string | undefined, @Param('userId') customerId: string, @Body() dto: DebitPaymentDto, @Req() req: Request, @Ip() ip: string) {
     this.assertTrusted(secret); resolveClientIp(this.config, req, ip);
-    return buildSuccessResponse(await this.service.debit(customerId, dto), 'Payment debited');
+    return buildSuccessResponse(await this.service.debit(customerId, dto), 'Payment operation processed');
   }
   @Get('operations/:operationId')
   async status(@Headers('x-internal-secret') secret: string | undefined, @Req() req: Request, @Ip() ip: string, @Param('operationId') id: string) {

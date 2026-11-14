@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/order-client';
+import type { OrderCreatedPayload, OrderStatusChangedPayload } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
 import { generateOrderCode } from '../common/utils/code-generator.util.js';
@@ -176,12 +177,12 @@ export class OrdersService {
       // 8.1. Worker Capacity Guard (Lean Dispatch Rule 2: Max 3 active orders)
       const activeOrderCount =
         typeof tx.order.count === 'function'
-          ? (await tx.order.count({
+          ? ((await tx.order.count({
               where: {
                 workerUserId,
                 status: { in: ['created', 'confirmed', 'in_progress'] },
               },
-            })) ?? 0
+            })) ?? 0)
           : 0;
       if (activeOrderCount >= ORDER_CONSTANTS.MAX_ACTIVE_ORDERS_PER_WORKER) {
         throw new ConflictException({
@@ -330,7 +331,7 @@ export class OrdersService {
             latitude: Number(createdOrder.latitude),
             longitude: Number(createdOrder.longitude),
             createdAt: createdOrder.createdAt.toISOString(),
-          },
+          } satisfies OrderCreatedPayload,
         },
         tx,
       );
@@ -359,7 +360,8 @@ export class OrdersService {
       if (order.workerUserId !== workerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only the assigned worker can confirm readiness for this order',
+          message:
+            'Only the assigned worker can confirm readiness for this order',
         });
       }
 
@@ -404,23 +406,6 @@ export class OrdersService {
         },
       });
 
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_CONFIRMED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            confirmedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
-
       await this.emitOrderStatusChangedEvent(
         tx,
         order,
@@ -463,14 +448,17 @@ export class OrdersService {
       }
 
       // Lean Dispatch Rule 3: Single in_progress order per worker
-      const activeWorkingOrder = typeof tx.order.findFirst === 'function' ? await tx.order.findFirst({
-        where: {
-          workerUserId,
-          status: 'in_progress',
-          id: { not: orderId },
-        },
-        select: { id: true, orderCode: true },
-      }) : null;
+      const activeWorkingOrder =
+        typeof tx.order.findFirst === 'function'
+          ? await tx.order.findFirst({
+              where: {
+                workerUserId,
+                status: 'in_progress',
+                id: { not: orderId },
+              },
+              select: { id: true, orderCode: true },
+            })
+          : null;
       if (activeWorkingOrder) {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.WORKER_ALREADY_BUSY,
@@ -523,23 +511,6 @@ export class OrdersService {
           reason: 'Worker started work execution',
         },
       });
-
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_STARTED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            startedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
 
       await this.emitOrderStatusChangedEvent(
         tx,
@@ -627,26 +598,10 @@ export class OrdersService {
           fromStatus: 'in_progress',
           toStatus: 'awaiting_customer_confirmation',
           changedByUserId: workerUserId,
-          reason: 'Worker completed work and submitted evidence for confirmation',
+          reason:
+            'Worker completed work and submitted evidence for confirmation',
         },
       });
-
-      await this.outboxRepo.createEvent(
-        {
-          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
-          aggregateId: orderId,
-          eventType: ORDER_CONSTANTS.EVENT_ORDER_FINISHED,
-          eventVersion: 1,
-          payload: {
-            orderId,
-            orderCode: order.orderCode,
-            workerUserId,
-            customerUserId: order.customerUserId,
-            finishedAt: now.toISOString(),
-          },
-        },
-        tx,
-      );
 
       await this.emitOrderStatusChangedEvent(
         tx,
@@ -680,7 +635,8 @@ export class OrdersService {
       if (order.customerUserId !== customerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only the ordering customer can confirm completion of this order',
+          message:
+            'Only the ordering customer can confirm completion of this order',
         });
       }
 
@@ -772,7 +728,8 @@ export class OrdersService {
       if (order.customerUserId !== customerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only the ordering customer can request rework for this order',
+          message:
+            'Only the ordering customer can request rework for this order',
         });
       }
 
@@ -797,7 +754,8 @@ export class OrdersService {
       if (updateResult.count === 0) {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-          message: 'Order status changed concurrently and rework cannot be requested',
+          message:
+            'Order status changed concurrently and rework cannot be requested',
         });
       }
 
@@ -815,12 +773,39 @@ export class OrdersService {
         },
       });
 
+      const now = new Date();
+
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+          aggregateId: orderId,
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_REWORK_REQUESTED,
+          eventVersion: 1,
+          payload: {
+            orderId,
+            orderCode: order.orderCode,
+            customerUserId,
+            customerId: customerUserId,
+            workerUserId: order.workerUserId,
+            workerId: order.workerUserId,
+            reason: dto.reason,
+            reworkReason: dto.reason,
+            requestedAt: now.toISOString(),
+          },
+        },
+        tx,
+      );
+
       await this.emitOrderStatusChangedEvent(
         tx,
         order,
         'awaiting_customer_confirmation',
         'in_progress',
-        { reason: dto.reason },
+        {
+          reason: dto.reason,
+          reworkReason: dto.reason,
+          reworkRequestedAt: now.toISOString(),
+        },
       );
 
       this.logger.log(
@@ -942,7 +927,8 @@ export class OrdersService {
       if (order.workerUserId !== workerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only the assigned worker can upload evidence for this order',
+          message:
+            'Only the assigned worker can upload evidence for this order',
         });
       }
 
@@ -1089,7 +1075,8 @@ export class OrdersService {
       if (order.workerUserId !== workerUserId) {
         throw new ForbiddenException({
           code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only the assigned worker can delete evidence for this order',
+          message:
+            'Only the assigned worker can delete evidence for this order',
         });
       }
 
@@ -1171,7 +1158,8 @@ export class OrdersService {
       if (updateResult.count === 0) {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-          message: 'Order status changed concurrently and dispute cannot be opened',
+          message:
+            'Order status changed concurrently and dispute cannot be opened',
         });
       }
 
@@ -1213,7 +1201,11 @@ export class OrdersService {
         order,
         order.status,
         'disputed',
-        { disputeReason: dto.reason, disputedAt: now.toISOString() },
+        {
+          reason: dto.reason,
+          disputeReason: dto.reason,
+          disputedAt: now.toISOString(),
+        },
       );
 
       this.logger.log(`Order ${orderId} moved to disputed by user ${userId}`);
@@ -1270,7 +1262,12 @@ export class OrdersService {
           order,
           'disputed',
           nextStatus,
-          { resolutionNote: dto.resolutionNote, resolvedAt: now.toISOString() },
+          {
+            reason: dto.resolutionNote,
+            resolutionNote: dto.resolutionNote,
+            resolution: dto.action,
+            resolvedAt: now.toISOString(),
+          },
         );
       } else if (dto.action === 'cancel') {
         nextStatus = 'cancelled';
@@ -1297,6 +1294,19 @@ export class OrdersService {
             },
           },
           tx,
+        );
+
+        await this.emitOrderStatusChangedEvent(
+          tx,
+          order,
+          'disputed',
+          'cancelled',
+          {
+            reason: dto.resolutionNote,
+            resolutionNote: dto.resolutionNote,
+            resolution: dto.action,
+            resolvedAt: now.toISOString(),
+          },
         );
       } else if (dto.action === 'complete') {
         nextStatus = 'completed';
@@ -1325,6 +1335,19 @@ export class OrdersService {
           },
           tx,
         );
+
+        await this.emitOrderStatusChangedEvent(
+          tx,
+          order,
+          'disputed',
+          'completed',
+          {
+            reason: dto.resolutionNote,
+            resolutionNote: dto.resolutionNote,
+            resolution: dto.action,
+            resolvedAt: now.toISOString(),
+          },
+        );
       }
 
       const updateResult = await tx.order.updateMany({
@@ -1341,7 +1364,8 @@ export class OrdersService {
       if (updateResult.count === 0) {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-          message: 'Dispute was already resolved or order status changed concurrently',
+          message:
+            'Dispute was already resolved or order status changed concurrently',
         });
       }
 
@@ -1413,11 +1437,7 @@ export class OrdersService {
   /**
    * List paginated orders for the current user.
    */
-  async findAll(
-    userId: string,
-    query: QueryOrderDto,
-    roles: string[] = [],
-  ) {
+  async findAll(userId: string, query: QueryOrderDto, roles: string[] = []) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const skip = (page - 1) * limit;
@@ -1426,10 +1446,7 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {};
 
     if (!isAdmin) {
-      where.OR = [
-        { customerUserId: userId },
-        { workerUserId: userId },
-      ];
+      where.OR = [{ customerUserId: userId }, { workerUserId: userId }];
     }
 
     if (typeof query.status === 'string' && query.status.trim().length > 0) {
@@ -1477,10 +1494,7 @@ export class OrdersService {
   /**
    * Admin global order query with advanced filters.
    */
-  async adminFindAll(
-    query: AdminQueryOrderDto,
-    roles: string[] = ['Admin'],
-  ) {
+  async adminFindAll(query: AdminQueryOrderDto, roles: string[] = ['Admin']) {
     const isAdmin = roles.some((r) => r.toLowerCase() === 'admin');
     if (!isAdmin) {
       throw new ForbiddenException({
@@ -1624,9 +1638,7 @@ export class OrdersService {
   /**
    * Internal mapper to format Prisma order into OrderResponseDto.
    */
-  private formatOrderResponse(
-    order: any,
-  ): OrderResponseDto {
+  private formatOrderResponse(order: any): OrderResponseDto {
     return {
       id: order.id,
       orderCode: order.orderCode,
@@ -1708,7 +1720,7 @@ export class OrdersService {
           nextStatus,
           notificationKind: 'status_update',
           ...extraPayload,
-        },
+        } satisfies OrderStatusChangedPayload,
       },
       tx,
     );

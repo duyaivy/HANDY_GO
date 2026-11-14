@@ -47,7 +47,8 @@
         "matching-service",
         "bidding-service",
         "wallet-service",
-        "message-service"
+        "message-service",
+        "payment-service"
       ],
       "wireguard_http": true
     },
@@ -79,7 +80,8 @@
       "http_callers": [
         "api-gateway",
         "bidding-service",
-        "message-service"
+        "message-service",
+        "payment-service"
       ],
       "wireguard_http": true
     },
@@ -138,7 +140,8 @@
       "deploy": true,
       "scope": "health-only",
       "memory_mib": 112,
-      "migration": null,
+      "migration": "payment",
+      "migration_order": 2,
       "url_env": "PAYMENT_SERVICE_URL",
       "http_callers": [
         "api-gateway"
@@ -156,7 +159,8 @@
       "migration_order": 1,
       "url_env": "WALLET_SERVICE_URL",
       "http_callers": [
-        "api-gateway"
+        "api-gateway",
+        "payment-service"
       ],
       "wireguard_http": true
     },
