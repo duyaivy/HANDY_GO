@@ -76,15 +76,15 @@ export function OrderStatusStepper({
     switch (status) {
       case 'created':
         return {
-          title: 'Đang điều phối thợ quanh bạn...',
-          subtitle: 'Hệ thống đang tìm và phân bổ thợ chuyên nghiệp phù hợp nhất.',
-          bgClass: 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900',
-          titleClass: 'text-blue-900 dark:text-blue-200',
-          subtitleClass: 'text-blue-700 dark:text-blue-300',
-          badgeText: 'Đã đặt dịch vụ',
-          badgeBg: 'bg-blue-100 dark:bg-blue-900/50',
-          badgeTextClass: 'text-blue-700 dark:text-blue-300',
-          icon: <ClockIcon size={22} color="#2563EB" />,
+          title: 'Đang chờ thợ xác nhận nhận việc...',
+          subtitle: 'Thợ phụ trách đang xem lại chi tiết và chuẩn bị xác nhận đơn.',
+          bgClass: 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900',
+          titleClass: 'text-amber-900 dark:text-amber-200',
+          subtitleClass: 'text-amber-700 dark:text-amber-300',
+          badgeText: 'Chờ thợ nhận việc',
+          badgeBg: 'bg-amber-100 dark:bg-amber-900/50',
+          badgeTextClass: 'text-amber-800 dark:text-amber-300',
+          icon: <ClockIcon size={22} color="#D97706" />,
         };
       case 'confirmed':
         return {

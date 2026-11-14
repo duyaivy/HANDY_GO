@@ -17,6 +17,11 @@ import { RouteNames } from '@/constants/route-names';
 import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { useServiceDetail } from '@/features/catalog';
 import {
+  OrderTrackingTimeline,
+  useTrackingEvents,
+  useTrackingSummary,
+} from '@/features/tracking';
+import {
   OrderEvidenceGallery,
   OrderPaymentCard,
   OrderServiceCard,
@@ -84,7 +89,7 @@ export function CustomerOrderDetailScreen({
   onBack,
 }: CustomerOrderDetailScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ id?: string; serviceName?: string }>();
+  const searchParams = useLocalSearchParams<{ id?: string; serviceName?: string; serviceRequestId?: string }>();
   const orderId = propOrderId || searchParams?.id || 'demo-001';
   const effectivePropServiceName = propServiceName || searchParams?.serviceName;
 
@@ -105,6 +110,19 @@ export function CustomerOrderDetailScreen({
     statusHistory,
     worker,
   } = useCustomerOrderDetail(orderId);
+
+  // Lấy serviceRequestId từ chi tiết order (hoặc search params)
+  const serviceRequestId = order?.serviceRequestId || (searchParams?.serviceRequestId as string | undefined);
+
+  // Lấy dữ liệu summary từ Tracking Service
+  const {
+    data: trackingSummary,
+    isError: isTrackingError,
+    isLoading: isTrackingLoading,
+  } = useTrackingSummary(serviceRequestId);
+
+  // Kết nối luồng thời gian thực SSE
+  const { connectionStatus } = useTrackingEvents(serviceRequestId);
 
   const { data: catalogService } = useServiceDetail(order?.serviceId);
 
@@ -343,49 +361,59 @@ export function CustomerOrderDetailScreen({
         {/* 5. Evidence Gallery with Lightbox Viewer */}
         <OrderEvidenceGallery evidences={order?.evidences} />
 
-        {/* 6. Order Status Timeline */}
-        {statusHistory && statusHistory.length > 0 && (
-          <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-            <View className="flex-row items-center gap-2 border-b border-neutral-100 pb-3 dark:border-neutral-800">
-              <View className="size-8 items-center justify-center rounded-xl bg-primary/10">
-                <ClockIcon size={18} color="#F5A524" />
-              </View>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Lịch sử trạng thái đơn hàng
-              </Text>
-            </View>
-
-            <View className="mt-3 gap-3">
-              {statusHistory.map((item: OrderStatusHistoryItem, index: number) => {
-                const isLatest = index === statusHistory.length - 1;
-                return (
-                  <View key={item.id || index} className="flex-row items-start gap-3">
-                    <View className="items-center">
-                      <View
-                        className={`mt-1 size-2.5 rounded-full ${
-                          isLatest ? 'bg-primary ring-2 ring-primary/30' : 'bg-neutral-400'
-                        }`}
-                      />
-                      {index < statusHistory.length - 1 && (
-                        <View className="my-1 h-6 w-0.5 bg-neutral-200 dark:bg-neutral-800" />
-                      )}
+        {/* 6. Order Status Timeline (Live SSE Tracking or Fallback to statusHistory) */}
+        {serviceRequestId && !isTrackingError && (trackingSummary || isTrackingLoading)
+          ? (
+              <OrderTrackingTimeline
+                summary={trackingSummary}
+                isLoading={isTrackingLoading}
+                connectionStatus={connectionStatus}
+              />
+            )
+          : (
+              statusHistory && statusHistory.length > 0 && (
+                <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+                  <View className="flex-row items-center gap-2 border-b border-neutral-100 pb-3 dark:border-neutral-800">
+                    <View className="size-8 items-center justify-center rounded-xl bg-primary/10">
+                      <ClockIcon size={18} color="#F5A524" />
                     </View>
-                    <View className="flex-1">
-                      <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                        Chuyển sang:
-                        {' '}
-                        {formatOrderStatus(item.toStatus)}
-                      </Text>
-                      <Text className="mt-0.5 text-[10px] text-neutral-400">
-                        {new Date(item.createdAt).toLocaleString('vi-VN')}
-                      </Text>
-                    </View>
+                    <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                      Lịch sử trạng thái đơn hàng (Dự phòng)
+                    </Text>
                   </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
+
+                  <View className="mt-3 gap-3">
+                    {statusHistory.map((item: OrderStatusHistoryItem, index: number) => {
+                      const isLatest = index === statusHistory.length - 1;
+                      return (
+                        <View key={item.id || index} className="flex-row items-start gap-3">
+                          <View className="items-center">
+                            <View
+                              className={`mt-1 size-2.5 rounded-full ${
+                                isLatest ? 'bg-primary ring-2 ring-primary/30' : 'bg-neutral-400'
+                              }`}
+                            />
+                            {index < statusHistory.length - 1 && (
+                              <View className="my-1 h-6 w-0.5 bg-neutral-200 dark:bg-neutral-800" />
+                            )}
+                          </View>
+                          <View className="flex-1">
+                            <Text className="text-xs font-bold text-neutral-900 dark:text-white">
+                              Chuyển sang:
+                              {' '}
+                              {formatOrderStatus(item.toStatus)}
+                            </Text>
+                            <Text className="mt-0.5 text-[10px] text-neutral-400">
+                              {new Date(item.createdAt).toLocaleString('vi-VN')}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )
+            )}
 
         {/* 7. Hidden Placeholder for automated test suite compatibility */}
         <View className="sr-only h-0 overflow-hidden opacity-0" accessible={false} pointerEvents="none">

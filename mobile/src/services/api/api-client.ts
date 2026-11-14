@@ -52,6 +52,7 @@ export const axiosInstance: AxiosInstance = axios.create({
 
 type CustomRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
+  _retry429?: boolean;
 };
 
 let refreshPromise: Promise<string> | null = null;
@@ -238,16 +239,60 @@ axiosInstance.interceptors.response.use(
       }
     }
 
+    // Only reads can be replayed safely after a rate limit response.
+    const is429 = error.response?.status === 429;
+    const method = originalRequest?.method?.toUpperCase();
+    if (is429 && originalRequest && !originalRequest._retry429 && (method === 'GET' || method === 'HEAD')) {
+      originalRequest._retry429 = true;
+      const retryAfterHeader = error.response?.headers?.['retry-after'];
+      const retryAfterSec = Number(retryAfterHeader);
+      const delayMs = retryAfterHeader != null && String(retryAfterHeader).trim() !== '' && Number.isFinite(retryAfterSec) && retryAfterSec >= 0
+        ? Math.min(retryAfterSec * 1000, 10000)
+        : 2000;
+      Logger.warn('API_RATE_LIMIT_RETRY', `Request 429 rate limited. Retrying after ${Math.round(delayMs)}ms: ${url}`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (originalRequest.signal?.aborted) {
+        return Promise.reject(new axios.CanceledError('Request canceled before rate-limit retry', undefined, originalRequest));
+      }
+      return axiosInstance(originalRequest);
+    }
+
     const apiError = ApiError.fromAxiosError(error);
-    Logger.warn('API_RESPONSE_ERROR', `${apiError.kind}: ${apiError.message}`, privateApiPayload(url) ? undefined : error?.response?.data);
+    Logger.warn(
+      'API_RESPONSE_ERROR',
+      `${originalRequest?.method?.toUpperCase() || 'REQUEST'} ${url}: ${apiError.kind} (${apiError.statusCode ?? 'no status'}): ${apiError.message}`,
+      apiError.kind === 'RATE_LIMITED' || privateApiPayload(url) ? undefined : error?.response?.data,
+    );
     return Promise.reject(apiError);
   },
 );
 
 /**
+ * Generic request helper wrapping axiosInstance.
+ * Automatically normalizes `/api/v1/` prefix if provided in URL (since baseURL already includes it),
+ * and unwraps standard API success response envelopes ({ statusCode, message, data }).
+ */
+export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+  const normalizedConfig: AxiosRequestConfig = { ...config };
+  if (normalizedConfig.url && normalizedConfig.url.startsWith('/api/v1/')) {
+    normalizedConfig.url = normalizedConfig.url.slice('/api/v1'.length);
+  }
+  const response = await axiosInstance.request<any>(normalizedConfig);
+  const body = response.data;
+  if (body && typeof body === 'object' && 'data' in body && ('statusCode' in body || 'message' in body)) {
+    return body.data as T;
+  }
+  return body as T;
+}
+
+/**
  * Standard API Client with typed helper methods.
  */
 export const ApiClient = {
+  request: async <T>(config: AxiosRequestConfig): Promise<T> => {
+    return request<T>(config);
+  },
+
   get: async <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
     const response = await axiosInstance.get<T>(url, config);
     return response.data;

@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  SERVICE_ROUTES,
-} from '../src/proxy/proxy.constants.js';
+import { SERVICE_ROUTES } from '../src/proxy/proxy.constants.js';
 import { ProxyMiddleware } from '../src/proxy/proxy.middleware.js';
 import type { ConfigService } from '@app/config';
 
@@ -42,9 +40,7 @@ describe('API Gateway SSE Streaming Isolation (BE-03 / BE-07)', () => {
       ),
     ).toBe(true);
     expect(
-      sseRoute.customMatch!(
-        '/api/v1/bids/requests/123/events?token=abc',
-      ),
+      sseRoute.customMatch!('/api/v1/bids/requests/123/events?token=abc'),
     ).toBe(true);
 
     // Does NOT match standard REST bidding paths
@@ -52,7 +48,9 @@ describe('API Gateway SSE Streaming Isolation (BE-03 / BE-07)', () => {
     expect(sseRoute.customMatch!('/api/v1/bids/me')).toBe(false);
     expect(sseRoute.customMatch!('/api/v1/bids/bid-123')).toBe(false);
     expect(sseRoute.customMatch!('/api/v1/requests/123/bids')).toBe(false);
-    expect(sseRoute.customMatch!('/api/v1/requests/123/candidates')).toBe(false);
+    expect(sseRoute.customMatch!('/api/v1/requests/123/candidates')).toBe(
+      false,
+    );
   });
 
   it('order-service excludeMatch must preserve pass-through for candidates controller', () => {
@@ -74,7 +72,9 @@ describe('API Gateway SSE Streaming Isolation (BE-03 / BE-07)', () => {
     ).toBe(true);
 
     // Does NOT exclude normal order-service requests
-    expect(orderRoute.excludeMatch!('/api/v1/service-requests/123')).toBe(false);
+    expect(orderRoute.excludeMatch!('/api/v1/service-requests/123')).toBe(
+      false,
+    );
     expect(orderRoute.excludeMatch!('/api/v1/orders/123')).toBe(false);
   });
 
@@ -98,5 +98,41 @@ describe('API Gateway SSE Streaming Isolation (BE-03 / BE-07)', () => {
 
     expect(sseEntry).toBeDefined();
     expect(biddingEntry).toBeDefined();
+  });
+
+  it('should define isolated tracking-service-sse route BEFORE general tracking-service route with timeoutMs: 0', () => {
+    const sseIndex = SERVICE_ROUTES.findIndex(
+      (r) => r.upstreamName === 'tracking-service-sse',
+    );
+    const generalTrackingIndex = SERVICE_ROUTES.findIndex(
+      (r) => r.upstreamName === 'tracking-service',
+    );
+
+    expect(sseIndex).toBeGreaterThanOrEqual(0);
+    expect(generalTrackingIndex).toBeGreaterThanOrEqual(0);
+    expect(sseIndex).toBeLessThan(generalTrackingIndex);
+
+    const sseRoute = SERVICE_ROUTES[sseIndex];
+    expect(sseRoute.timeoutMs).toBe(0);
+
+    // Matches valid SSE live stream paths
+    expect(
+      sseRoute.customMatch!(
+        '/api/v1/tracking/requests/f47ac10b-58cc-4372-a567-0e02b2c3d479/live',
+      ),
+    ).toBe(true);
+    expect(
+      sseRoute.customMatch!(
+        '/api/v1/tracking/requests/123/live?lastEventId=evt-100',
+      ),
+    ).toBe(true);
+
+    // Does NOT match standard REST tracking endpoints
+    expect(sseRoute.customMatch!('/api/v1/tracking/requests/123/summary')).toBe(
+      false,
+    );
+    expect(
+      sseRoute.customMatch!('/api/v1/tracking/requests/123/timeline'),
+    ).toBe(false);
   });
 });

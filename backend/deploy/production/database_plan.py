@@ -253,7 +253,7 @@ def onboarding_migration_proof(root, owners):
         data += b'\0owners\0' + json.dumps(ownership, sort_keys=True).encode()
         return hashlib.sha256(data).hexdigest()
     baseline_owners = {role: names for role, names in owners.items() if role != 'vps4'}
-    return {'policy': 'vps4-additive-v2', 'sql': found,
+    return {'policy': 'vps4-additive-v3', 'sql': found,
             'baseline_hash': inventory_hash([p for p in migrations if str(p.relative_to(root)) not in found], baseline_owners),
             'inventory_hash': inventory_hash(migrations, owners)}
 

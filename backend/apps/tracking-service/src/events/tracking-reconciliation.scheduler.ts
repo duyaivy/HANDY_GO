@@ -13,6 +13,7 @@ export class TrackingReconciliationScheduler
   private readonly logger = new Logger(TrackingReconciliationScheduler.name);
   private timer: NodeJS.Timeout | null = null;
   private isReconciling = false;
+  private lastRejectedAlertAt = 0;
   private readonly INTERVAL_MS =
     process.env.NODE_ENV === 'test' ? 1000 : 15000;
 
@@ -46,7 +47,13 @@ export class TrackingReconciliationScheduler
 
     this.isReconciling = true;
     try {
-      return await this.eventsService.reconcilePendingOrders();
+      const result = await this.eventsService.reconcilePendingOrders();
+      const rejectedCount = await this.eventsService.countUnresolvedRejectedEvents();
+      if (rejectedCount > 0 && Date.now() - this.lastRejectedAlertAt >= 60_000) {
+        this.logger.warn(`[REJECTED_TRACKING_EVENTS_ALERT] ${rejectedCount} unresolved events require replay`);
+        this.lastRejectedAlertAt = Date.now();
+      }
+      return result;
     } catch (error: any) {
       this.logger.error(
         `Error during tracking pending order reconciliation: ${error.message}`,
