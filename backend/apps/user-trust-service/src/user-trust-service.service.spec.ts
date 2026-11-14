@@ -64,6 +64,7 @@ describe('UserTrustServiceService', () => {
         count: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       workerServiceRegistration: {
         findUnique: vi.fn(),
@@ -2050,15 +2051,204 @@ describe('UserTrustServiceService', () => {
     });
   });
 
-  describe('handleKycFailed & reviewKycCase', () => {
+  describe('handleKycCompleted & handleKycFailed & reviewKycCase', () => {
     const userId = 'u-worker-1';
     const workerId = 'wp-1';
     const caseId = 'case-1';
+    const oldCaseId = 'case-old-rejected';
+
+    describe('handleKycCompleted', () => {
+      it('[P1] blocks late kyc.completed from overriding already rejected KYC case', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-completed-late',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        // Case rejected must NOT be overwritten to approved
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        // WorkerProfile must NOT be modified
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P1] skips late kyc.completed if case is already approved', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'approved' });
+
+        const event = {
+          eventId: 'evt-completed-dup',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P2] does NOT fallback to active case when kycCaseId is specified but not found', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-completed-missing-id',
+          data: {
+            userId,
+            kycCaseId: 'non-existent-case-uuid',
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        // Must NOT fallback to findFirst active case
+        expect(dbMock.kycCase.findFirst).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('ignores kyc.completed if kycCase belongs to another worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: 'other-worker', status: 'reviewing' });
+
+        const event = {
+          eventId: 'evt-completed-wrong-worker',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('successfully processes kyc.completed for reviewing case and marks worker verified', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'reviewing' });
+
+        const event = {
+          eventId: 'evt-completed-valid',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: caseId },
+            data: expect.objectContaining({ status: 'approved' }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'verified' }),
+          }),
+        );
+      });
+    });
 
     describe('handleKycFailed', () => {
+      it('[P1] blocks old rejected case event from mutating already verified worker (old vs new case)', async () => {
+        // Worker was approved on a newer KYC case and is verified
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        // Event arrives with new eventId for an older case that was rejected
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: oldCaseId, workerProfileId: workerId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-failed-retry-new-event-id',
+          data: {
+            userId,
+            kycCaseId: oldCaseId,
+            reason: 'Ảnh CMND cũ bị mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        // Old case is not modified
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        // Crucial [P1]: workerProfile MUST NOT be updated to 'rejected'
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P1] blocks kyc.failed from mutating case and worker when case is already approved', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'approved' });
+
+        const event = {
+          eventId: 'evt-failed-late',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Phân tích AI thất bại',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P2] does NOT fallback to active case when kycCaseId is specified but not found', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-failed-missing-id',
+          data: {
+            userId,
+            kycCaseId: 'non-existent-case-id',
+            reason: 'Lỗi',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        // Must NOT fallback to findFirst active case
+        expect(dbMock.kycCase.findFirst).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('ignores kyc.failed if kycCase belongs to another worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: 'other-worker', status: 'reviewing' });
+
+        const event = {
+          eventId: 'evt-failed-wrong-worker',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Ảnh mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
       it('should NOT create duplicate kycCase when target case is already rejected (after admin review)', async () => {
-        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
-        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, status: 'rejected' });
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'rejected' });
 
         const event = {
           eventId: 'evt-1',
@@ -2073,10 +2263,11 @@ describe('UserTrustServiceService', () => {
         expect(result).toEqual({ processed: true });
         expect(dbMock.kycCase.create).not.toHaveBeenCalled();
         expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
       });
 
-      it('should NOT create a new kycCase when no active case is found', async () => {
-        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+      it('should NOT create a new kycCase when no active case is found for legacy event', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
         dbMock.kycCase.findFirst.mockResolvedValue(null);
 
         const event = {
@@ -2090,12 +2281,14 @@ describe('UserTrustServiceService', () => {
         const result = await service.handleKycFailed(event as any);
         expect(result).toEqual({ processed: true });
         expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
       });
 
-      it('should update active kycCase to rejected without creating a new record', async () => {
-        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
-        dbMock.kycCase.findFirst.mockResolvedValue({
+      it('should update active kycCase and workerProfile when transitioning from reviewing', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({
           id: caseId,
+          workerProfileId: workerId,
           status: 'reviewing',
           aiSimilarityScore: 0.85,
         });
@@ -2104,6 +2297,7 @@ describe('UserTrustServiceService', () => {
           eventId: 'evt-3',
           data: {
             userId,
+            kycCaseId: caseId,
             reason: 'Ảnh CMND bị mờ',
             similarity: 0.7,
           },
@@ -2121,6 +2315,12 @@ describe('UserTrustServiceService', () => {
             }),
           }),
         );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'rejected' }),
+          }),
+        );
         expect(dbMock.kycCase.create).not.toHaveBeenCalled();
       });
     });
@@ -2130,6 +2330,7 @@ describe('UserTrustServiceService', () => {
         dbMock.kycCase.findUnique.mockResolvedValue({
           id: caseId,
           status: 'submitted',
+          version: 1,
           workerProfile: { id: workerId, userId },
         });
 
@@ -2142,6 +2343,7 @@ describe('UserTrustServiceService', () => {
         dbMock.kycCase.findUnique.mockResolvedValue({
           id: caseId,
           status: 'approved',
+          version: 2,
           workerProfile: { id: workerId, userId },
         });
 
@@ -2150,17 +2352,49 @@ describe('UserTrustServiceService', () => {
         ).rejects.toThrow(BadRequestException);
       });
 
-      it('successfully reviews KYC case when status is reviewing', async () => {
-        dbMock.kycCase.findUnique.mockResolvedValue({
+      it('[P1] throws ConflictException if concurrent review by another admin occurred (updateMany count 0)', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValueOnce({
           id: caseId,
           status: 'reviewing',
+          version: 1,
           workerProfileId: workerId,
           workerProfile: { id: workerId, userId },
         });
-        dbMock.kycCase.update.mockResolvedValue({
-          id: caseId,
-          status: 'approved',
-        });
+        // Concurrent update won race, updateMany matches 0 rows
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.reviewKycCase('admin-2', caseId, 'rejected', 'Từ chối đồng thời'),
+        ).rejects.toThrow(ConflictException);
+
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: caseId,
+              status: 'reviewing',
+              version: 1,
+            },
+          }),
+        );
+      });
+
+      it('successfully reviews KYC case atomically when status is reviewing and count is 1', async () => {
+        dbMock.kycCase.findUnique
+          .mockResolvedValueOnce({
+            id: caseId,
+            status: 'reviewing',
+            version: 1,
+            workerProfileId: workerId,
+            workerProfile: { id: workerId, userId },
+          })
+          .mockResolvedValueOnce({
+            id: caseId,
+            status: 'approved',
+            version: 2,
+            workerProfile: { id: workerId, userId },
+          });
+
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 1 });
         dbMock.workerProfile.update.mockResolvedValue({
           id: workerId,
           status: 'verified',
@@ -2168,13 +2402,24 @@ describe('UserTrustServiceService', () => {
 
         const res = await service.reviewKycCase('admin-1', caseId, 'approved', 'Duyệt thành công');
         expect(res.statusCode).toBe(200);
-        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
           expect.objectContaining({
-            where: { id: caseId },
+            where: {
+              id: caseId,
+              status: 'reviewing',
+              version: 1,
+            },
             data: expect.objectContaining({
               status: 'approved',
               reviewedByUserId: 'admin-1',
+              version: { increment: 1 },
             }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'verified' }),
           }),
         );
       });

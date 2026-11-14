@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { EVENT_PATTERNS } from '@app/common';
@@ -451,9 +451,13 @@ export class KycRepository {
       const fromStatus = kycCase.status;
       const toStatus = isApproved ? 'approved' : 'rejected';
 
-      // 1. Update KYC case with version increment
-      const updatedCase = await tx.kycCase.update({
-        where: { id: caseId },
+      // 1. Cập nhật nguyên tử với optimistic locking (id, status: 'reviewing', version: kycCase.version)
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseId,
+          status: 'reviewing',
+          version: kycCase.version,
+        },
         data: {
           status: toStatus,
           reviewedByUserId: adminUserId,
@@ -462,8 +466,18 @@ export class KycRepository {
           version: { increment: 1 },
           updatedAt: now,
         },
-        include: { workerProfile: true },
       });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException(
+          'Hồ sơ KYC đã được xử lý bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.',
+        );
+      }
+
+      const updatedCase = (await tx.kycCase.findUnique({
+        where: { id: caseId },
+        include: { workerProfile: true },
+      }))!;
 
       // 2. Synchronize WorkerProfile status
       await tx.workerProfile.update({
