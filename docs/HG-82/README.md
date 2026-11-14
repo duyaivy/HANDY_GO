@@ -2,7 +2,7 @@
 
 - **Mã công việc:** HG-82
 - **Tiêu đề:** `[BE] Khiếu nại đơn hàng trong vòng 7 ngày + admin xử lý đơn khiếu nại`
-- **Nhánh phát triển:** `feature/HG-82`
+- **Nhánh phát triển:** `feature/HG-82-order-dispute-7-days-admin-resolution`
 - **Base Branch:** `main` (`origin/main`)
 - **Dịch vụ liên quan:** `order-service`, `user-trust-service`, `payment-service`, `notification-service`, `api-gateway`
 - **Tài liệu tham chiếu:** `docs/order-service/PLAN_ORDER_SERVICE.md`
