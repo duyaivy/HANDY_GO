@@ -1222,6 +1222,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [
           { serviceId, serviceName: 'Vệ sinh máy lạnh', title: 'Vệ sinh máy lạnh' },
         ],
@@ -1244,6 +1245,7 @@ describe('UserTrustServiceService', () => {
 
       const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'approved',
+        expectedVersion: 1,
       });
 
       expect(res.statusCode).toBe(200);
@@ -1258,6 +1260,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [{ serviceId, serviceName: 'Vệ sinh máy lạnh' }],
         serviceArea: null,
         workerProfile: {
@@ -1271,6 +1274,7 @@ describe('UserTrustServiceService', () => {
 
       await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'approved',
+        expectedVersion: 1,
       });
 
       expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
@@ -1281,6 +1285,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         workerProfile: { status: 'draft' },
       });
 
@@ -1289,6 +1294,7 @@ describe('UserTrustServiceService', () => {
       const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'rejected',
         reason: 'Ảnh mờ',
+        expectedVersion: 1,
       });
 
       expect(res.statusCode).toBe(200);
@@ -1301,12 +1307,14 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'approved',
+        version: 1,
         workerProfile: { status: 'verified' },
       });
 
       await expect(
         service.reviewServiceRegistration('admin-1', 'reg-1', {
           decision: 'approved',
+          expectedVersion: 1,
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -1316,6 +1324,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [],
         serviceArea: null,
         workerProfile: { status: 'draft' },
@@ -1326,6 +1335,7 @@ describe('UserTrustServiceService', () => {
       await expect(
         service.reviewServiceRegistration('admin-1', 'reg-1', {
           decision: 'approved',
+          expectedVersion: 1,
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -2026,6 +2036,7 @@ describe('UserTrustServiceService', () => {
 
         const res = await service.reviewServiceRegistration(adminUserId, regId, {
           decision: 'approved',
+          expectedVersion: 1,
         });
 
         expect(res.statusCode).toBe(200);
@@ -2059,6 +2070,7 @@ describe('UserTrustServiceService', () => {
         const res = await service.reviewServiceRegistration(adminUserId, regId, {
           decision: 'rejected',
           reason: 'Hồ sơ chưa đạt tiêu chuẩn kinh nghiệm',
+          expectedVersion: 2,
         });
 
         expect(res.statusCode).toBe(200);
@@ -2090,8 +2102,44 @@ describe('UserTrustServiceService', () => {
         await expect(
           service.reviewServiceRegistration(adminUserId, regId, {
             decision: 'approved',
+            expectedVersion: 1,
           }),
         ).rejects.toThrow(ConflictException);
+      });
+
+      it('throws BadRequestException when expectedVersion is missing or invalid', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 1,
+          workerProfile: { id: workerProfileId },
+        });
+
+        // Missing expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+
+        // Null expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'rejected',
+            reason: 'Lý do',
+            expectedVersion: null,
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+
+        // Non-number expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: '1',
+          } as any),
+        ).rejects.toThrow(BadRequestException);
       });
 
       it('throws ConflictException if worker updated registration while Admin was reviewing (version mismatch on approval)', async () => {
@@ -2109,6 +2157,7 @@ describe('UserTrustServiceService', () => {
         await expect(
           service.reviewServiceRegistration(adminUserId, regId, {
             decision: 'approved',
+            expectedVersion: 1,
           }),
         ).rejects.toThrow(
           'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
@@ -2131,13 +2180,14 @@ describe('UserTrustServiceService', () => {
           service.reviewServiceRegistration(adminUserId, regId, {
             decision: 'rejected',
             reason: 'Ảnh chưa hợp lệ',
+            expectedVersion: 1,
           }),
         ).rejects.toThrow(
           'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
         );
       });
 
-      it('throws ConflictException when Admin expectedVersion does not match current registration version (stale screen approval)', async () => {
+      it('throws ConflictException when Admin expectedVersion does not match current registration version (stale screen approval and rejection)', async () => {
         dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
         // Current registration in DB has progressed to version 2 (worker edited it)
         dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
@@ -2170,7 +2220,7 @@ describe('UserTrustServiceService', () => {
         );
       });
 
-      it('passes expectedVersion to atomic CAS updateMany condition when expectedVersion matches', async () => {
+      it('passes expectedVersion to atomic CAS updateMany condition when expectedVersion matches (for both approve and reject)', async () => {
         dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
         dbMock.workerServiceRegistration.findUnique
           .mockResolvedValueOnce({
@@ -2187,16 +2237,42 @@ describe('UserTrustServiceService', () => {
             version: 1,
             services: [],
             serviceArea: {},
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
           });
 
         dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
 
-        const res = await service.reviewServiceRegistration(adminUserId, regId, {
+        // Approve with matching expectedVersion 1 -> 200 OK
+        const resApprove = await service.reviewServiceRegistration(adminUserId, regId, {
           decision: 'approved',
           expectedVersion: 1,
         });
 
-        expect(res.statusCode).toBe(200);
+        expect(resApprove.statusCode).toBe(200);
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: regId,
+              status: 'pending',
+              version: 1,
+            },
+          }),
+        );
+
+        // Reject with matching expectedVersion 1 -> 200 OK
+        const resReject = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'rejected',
+          reason: 'Lý do hợp lệ',
+          expectedVersion: 1,
+        });
+
+        expect(resReject.statusCode).toBe(200);
         expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith(
           expect.objectContaining({
             where: {
@@ -2240,10 +2316,12 @@ describe('UserTrustServiceService', () => {
 
         const admin1Promise = service.reviewServiceRegistration(adminUserId, regId, {
           decision: 'approved',
+          expectedVersion: 1,
         });
         const admin2Promise = service.reviewServiceRegistration('admin-user-2', regId, {
           decision: 'rejected',
           reason: 'Trùng lặp',
+          expectedVersion: 1,
         });
 
         const res1 = await admin1Promise;

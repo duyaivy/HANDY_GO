@@ -60,13 +60,13 @@ function isRegistrationPayloadMatch(
     // 2. Services: đối chiếu serviceId, title, description, experienceYears
     const existingServices = Array.isArray(existing.services)
       ? [...existing.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
     const dtoServices = Array.isArray(dto.services)
       ? [...dto.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
 
     if (existingServices.length !== dtoServices.length) {
@@ -140,13 +140,13 @@ function isRegistrationPayloadMatch(
     // 4. Evidence Files: url và fileType
     const existingEvidence = Array.isArray(existing.evidenceFiles)
       ? [...existing.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
     const dtoEvidence = Array.isArray(dto.evidenceFiles)
       ? [...dto.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
 
     if (existingEvidence.length !== dtoEvidence.length) {
@@ -210,7 +210,7 @@ export class UserTrustServiceService {
     private readonly cloudinaryService?: CloudinaryService,
     @Optional()
     private readonly catalogClient?: CatalogClient,
-  ) {}
+  ) { }
 
   async getDisplayNames(ids: string[]) {
     return this.db.user.findMany({
@@ -304,14 +304,14 @@ export class UserTrustServiceService {
       const user = existingUser
         ? existingUser
         : await tx.user.create({
-            data: {
-              id: data.userId,
-              fullName: data.fullName,
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
+          data: {
+            id: data.userId,
+            fullName: data.fullName,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
       if (isVersion3) {
         // Unified account: upsert both CustomerProfile and WorkerProfile in same transaction
@@ -810,11 +810,11 @@ export class UserTrustServiceService {
       ],
       customerProfile: u.customerProfile
         ? {
-            id: u.customerProfile.id,
-            bio: u.customerProfile.bio,
-            createdAt: u.customerProfile.createdAt,
-            updatedAt: u.customerProfile.updatedAt,
-          }
+          id: u.customerProfile.id,
+          bio: u.customerProfile.bio,
+          createdAt: u.customerProfile.createdAt,
+          updatedAt: u.customerProfile.updatedAt,
+        }
         : null,
       workerProfile: u.workerProfile,
       bankAccounts: u.bankAccounts,
@@ -1767,9 +1767,9 @@ export class UserTrustServiceService {
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(latitude * (Math.PI / 180)) *
-            Math.cos(areaLat * (Math.PI / 180)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
+          Math.cos(areaLat * (Math.PI / 180)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const dist = R * c;
 
@@ -2818,20 +2818,24 @@ export class UserTrustServiceService {
       );
     }
 
-    // [P1] Kiểm tra expectedVersion mà Admin đã nhìn thấy ở trang chi tiết
+    // [P1] Bắt buộc expectedVersion để ngăn duyệt dữ liệu đã bị sửa sau khi Admin mở trang chi tiết
     if (
-      dto.expectedVersion !== undefined &&
-      registration.version !== dto.expectedVersion
+      dto.expectedVersion === undefined ||
+      dto.expectedVersion === null ||
+      typeof dto.expectedVersion !== 'number'
     ) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp expectedVersion hợp lệ của đơn đăng ký',
+      );
+    }
+
+    if (registration.version !== dto.expectedVersion) {
       throw new ConflictException(
         'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
       );
     }
 
-    const targetVersion =
-      dto.expectedVersion !== undefined
-        ? dto.expectedVersion
-        : registration.version;
+    const targetVersion = dto.expectedVersion;
 
     const now = new Date();
 

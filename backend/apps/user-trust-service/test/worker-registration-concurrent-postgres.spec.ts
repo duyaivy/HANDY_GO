@@ -248,6 +248,13 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
     });
     expect(currentInDb?.version).toBe(2);
 
+    // 2b. Admin attempts to review without expectedVersion -> must throw BadRequestException (400)
+    await expect(
+      service.reviewServiceRegistration(adminId, regId, {
+        decision: 'approved',
+      } as any),
+    ).rejects.toThrow(BadRequestException);
+
     // 3. Admin attempts to approve using the stale version (version 1) that was loaded on screen
     // Must throw ConflictException and reject the stale approval
     await expect(
