@@ -18,6 +18,21 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: jest.fn(() => ({ id: 'ord-test-001' })),
 }));
 
+jest.mock('@/features/tracking', () => {
+  const actual = jest.requireActual('@/features/tracking');
+  return {
+    ...actual,
+    useTrackingSummary: jest.fn(() => ({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    })),
+    useTrackingEvents: jest.fn(() => ({
+      connectionStatus: 'disconnected',
+    })),
+  };
+});
+
 const initialAuthState = useAuthStore.getState();
 
 beforeEach(() => {
@@ -151,7 +166,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
 
       // 6. Timeline
-      expect(screen.getByText('Lịch sử trạng thái đơn hàng')).toBeOnTheScreen();
+      expect(screen.getByText(/Lịch sử trạng thái đơn hàng/)).toBeOnTheScreen();
 
       // 7. Hidden backwards-compatibility placeholder
       expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();

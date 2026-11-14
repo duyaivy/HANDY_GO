@@ -137,21 +137,21 @@ class DatabaseIncidentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DB_DDL_VERIFIED_AUTH"):
             validate_database_plan(values, self.registry, run_migrations=True)
 
-    def test_onboarding_requires_ddl_confirmation_only_for_message_related_migrations(
+    def test_onboarding_requires_ddl_confirmation_for_scoped_migrations(
         self,
     ):
         values = dict(self.values)
         for service in SERVICES:
             suffix = service.upper().replace("-", "_")
-            if service not in ("message", "notification", "order"):
+            if service not in ("message", "notification", "order", "tracking"):
                 values.pop("DB_DDL_VERIFIED_" + suffix, None)
         validate_database_plan(
             values,
             self.registry,
             run_migrations=True,
-            migration_scope={"message", "notification", "order"},
+            migration_scope={"message", "notification", "order", "tracking"},
         )
-        for service in ("message", "notification", "order"):
+        for service in ("message", "notification", "order", "tracking"):
             key = "DB_DDL_VERIFIED_" + service.upper()
             invalid = dict(values)
             invalid.pop(key)
@@ -160,7 +160,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                     invalid,
                     self.registry,
                     run_migrations=True,
-                    migration_scope={"message", "notification", "order"},
+                    migration_scope={"message", "notification", "order", "tracking"},
                 )
 
     def test_onboarding_requires_ddl_confirmation_for_order(self):
@@ -171,7 +171,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                 values,
                 self.registry,
                 run_migrations=True,
-                migration_scope={"message", "notification", "order"},
+                migration_scope={"message", "notification", "order", "tracking"},
             )
         values.pop("DB_DDL_VERIFIED_ORDER", None)
         with self.assertRaisesRegex(ValueError, "DB_DDL_VERIFIED_ORDER"):
@@ -179,14 +179,14 @@ class DatabaseIncidentTests(unittest.TestCase):
                 values,
                 self.registry,
                 run_migrations=True,
-                migration_scope={"message", "notification", "order"},
+                migration_scope={"message", "notification", "order", "tracking"},
             )
         values["DB_DDL_VERIFIED_ORDER"] = "true"
         plan = validate_database_plan(
             values,
             self.registry,
             run_migrations=True,
-            migration_scope={"message", "notification", "order"},
+            migration_scope={"message", "notification", "order", "tracking"},
         )
         self.assertIn("PRIMARY", plan)
 
@@ -404,7 +404,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
-            self.assertEqual(proof["policy"], "vps4-additive-v2")
+            self.assertEqual(proof["policy"], "vps4-additive-v3")
             self.assertEqual(
                 proof["baseline_hash"],
                 "0fdda62ac971648dfc04209a4b6a2a8c3fb43665c2e1bdedd6a8e2390f52d5e1",
@@ -412,7 +412,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             current = {
                 "rollback_compatible": True,
                 "onboard_vps4": True,
-                "migration_scope": ["message", "notification", "order"],
+                "migration_scope": ["message", "notification", "order", "tracking"],
                 "migration_hash": proof["inventory_hash"],
                 "migration_compatibility": proof,
             }

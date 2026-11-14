@@ -8,7 +8,8 @@ NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư 
 > [!NOTE]
 > **Trạng thái hiện tại:**
 >
-> - Gateway, Auth và User & Trust đã có luồng đăng ký, OTP, JWT, session và hồ sơ; các domain còn lại có phần scaffold.
+> - Gateway, Auth và User & Trust đã có luồng đăng ký, OTP, JWT, session và hồ sơ. Order và Tracking đã có luồng nghiệp vụ/event/SSE trong mã nguồn; các domain khác còn có phần scaffold.
+> - Kiểm thử Order/Tracking liên quan pass cục bộ ngày 11/11/2026; suite Compose với hạ tầng thật và pipeline PR chưa được xác minh trong lần rà soát này.
 > - Auth/User & Trust đang dùng PostgreSQL riêng, Prisma, RabbitMQ và RS256; luồng OTP gửi trực tiếp qua Gmail SMTP.
 > - Docker Compose có hai PostgreSQL, RabbitMQ, các ứng dụng NestJS và AI identity service (FastAPI).
 > - Luồng Customer đã chạy trên điện thoại thật; các ca OTP đồng thời, trạng thái deleted và validation backend còn có lỗi đã ghi nhận trong lần kiểm tra trước.
@@ -27,13 +28,13 @@ Trong môi trường local và Docker Compose, `api-gateway` đóng vai trò là
 | **`auth-service`** | `apps/auth-service` | `3001` | Đăng ký, OTP, login, RS256, refresh session, roles và outbox |
 | **`user-trust-service`** | `apps/user-trust-service` | `3002` | Nhận event, lưu user/Customer profile và cung cấp hồ sơ |
 | **`catalog-service`** | `apps/catalog-service` | `3003` | HTTP scaffold cho domain danh mục dịch vụ (catalog) |
-| **`order-service`** | `apps/order-service` | `3004` | HTTP scaffold cho domain đơn yêu cầu dịch vụ (order) |
+| **`order-service`** | `apps/order-service` | `3004` | API yêu cầu dịch vụ và đơn hàng; transactional outbox phát event cho Tracking |
 | **`bidding-service`** | `apps/bidding-service` | `3005` | HTTP scaffold cho domain đấu thầu / báo giá (bidding) |
 | **`matching-service`** | `apps/matching-service` | `3006` | HTTP scaffold cho domain khớp nối dịch vụ (matching) |
 | **`payment-service`** | `apps/payment-service` | `3007` | HTTP scaffold cho domain thanh toán (payment) |
 | **`notification-service`** | `apps/notification-service` | `3008` | HTTP scaffold cho domain thông báo (notification) |
 | **`wallet-service`** | `apps/wallet-service` | `3009` | HTTP scaffold cho domain ví điện tử (wallet - scaffold mở rộng) |
-| **`tracking-service`** | `apps/tracking-service` | `3010` | HTTP scaffold cho domain theo dõi lộ trình (tracking - scaffold mở rộng) |
+| **`tracking-service`** | `apps/tracking-service` | `3010` | Consumer event, timeline/summary và SSE; nghiệm thu hạ tầng thật còn chờ |
 
 AI identity service (FastAPI, thư mục `ai/` tại root repository) chạy trong Docker Compose, lắng nghe tại port `8000` theo `AI_SERVICE_PORT`; API Gateway truy cập qua `http://ai-service:8000`.
 
