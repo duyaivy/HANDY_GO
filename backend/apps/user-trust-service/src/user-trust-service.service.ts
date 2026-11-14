@@ -2318,13 +2318,12 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      // P1-02: Conditional update với status: pending để đảm bảo tính nguyên tử
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
-          updatedAt: registration.updatedAt,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2486,7 +2485,6 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
-        updatedAt: registration.updatedAt,
       },
       data: {
         status: 'rejected',
@@ -2770,12 +2768,11 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
-            updatedAt: registration.updatedAt,
           },
           data: {
             status: 'approved',
@@ -2887,7 +2884,6 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        updatedAt: registration.updatedAt,
       },
       data: {
         status: 'rejected',
