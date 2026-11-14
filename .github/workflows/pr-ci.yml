@@ -128,7 +128,15 @@ jobs:
       - name: Type check
         run: pnpm run typecheck
 
+      - name: Migrate user-trust schema on test PostgreSQL
+        env:
+          DATABASE_URL_USER_TRUST: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test?schema=user_trust_service
+          DIRECT_URL_USER_TRUST: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test?schema=user_trust_service
+        run: pnpm run prisma:migrate:user-trust
+
       - name: Run tests
+        env:
+          DATABASE_URL_USER_TRUST: postgresql://wallet_test:local_test_only@127.0.0.1:55439/wallet_migration_test?schema=user_trust_service
         run: pnpm run test
 
       - name: Payment Wallet Order integration with real HTTP and RabbitMQ
