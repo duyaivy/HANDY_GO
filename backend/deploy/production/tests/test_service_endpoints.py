@@ -70,6 +70,18 @@ class ServiceEndpointTests(unittest.TestCase):
         self.assertEqual(env.get('USER_TRUST_SERVICE_URL'), 'http://user-trust-service:3002')
         self.assertEqual(env.get('NOTIFICATION_SERVICE_URL'), 'http://notification-service:3008')
 
+    def test_same_host_microservices_override_docker_dns(self):
+        payment_env = self.compose['services']['payment-service']['environment']
+        self.assertEqual(payment_env.get('WALLET_SERVICE_URL'), 'http://wallet-service:3009')
+        self.assertEqual(payment_env.get('NODE_OPTIONS'), '--max-old-space-size=104')
+
+        order_env = self.compose['services']['order-service']['environment']
+        self.assertEqual(order_env.get('BIDDING_SERVICE_URL'), 'http://bidding-service:3005')
+        self.assertEqual(order_env.get('MATCHING_SERVICE_URL'), 'http://matching-service:3006')
+
+        bidding_env = self.compose['services']['bidding-service']['environment']
+        self.assertEqual(bidding_env.get('ORDER_SERVICE_URL'), 'http://order-service:3004')
+
     def test_shared_auth_and_user_trust_urls_remain_valid_wireguard_endpoints(self):
         self.assertEqual(self.values.get('AUTH_SERVICE_URL'), 'http://10.77.0.1:3001')
         self.assertEqual(self.values.get('USER_TRUST_SERVICE_URL'), 'http://10.77.0.1:3002')

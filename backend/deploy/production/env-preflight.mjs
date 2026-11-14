@@ -82,7 +82,7 @@ export async function checkEnv(
     const overrides = {
       vps1: ['AUTH', 'USER_TRUST', 'NOTIFICATION'],
       vps2: ['ORDER', 'BIDDING', 'MATCHING', 'TRACKING'],
-      vps3: ['WALLET', 'CATALOG'],
+      vps3: ['WALLET', 'CATALOG', 'PAYMENT'],
       vps4: ['MESSAGE'],
     }[role];
     if (!overrides) throw new Error('Unknown host role');
