@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import crypto from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { UserTrustPrismaService } from '@app/database';
 import { UserTrustServiceService } from '../src/user-trust-service.service.js';
 import { CatalogClient } from '../src/catalog/catalog.client.js';
