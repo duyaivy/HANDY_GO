@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { EVENT_PATTERNS } from '@app/common';
@@ -441,10 +441,10 @@ export class KycRepository {
         throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
       }
 
-      // Prevent reviewing finalized case or draft
-      if (kycCase.status === 'approved' || kycCase.status === 'rejected') {
-        throw new Error(
-          `Hồ sơ KYC đã được xử lý trước đó với trạng thái ${kycCase.status}. Không thể duyệt lại.`,
+      // Chỉ cho phép duyệt hoặc từ chối khi hồ sơ đang ở trạng thái 'reviewing'
+      if (kycCase.status !== 'reviewing') {
+        throw new BadRequestException(
+          `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
         );
       }
 
@@ -462,6 +462,7 @@ export class KycRepository {
           version: { increment: 1 },
           updatedAt: now,
         },
+        include: { workerProfile: true },
       });
 
       // 2. Synchronize WorkerProfile status

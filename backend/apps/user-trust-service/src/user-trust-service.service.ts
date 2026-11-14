@@ -1337,6 +1337,27 @@ export class UserTrustServiceService {
           },
         });
 
+        if (payload?.kycCaseId) {
+          const targetCase = await tx.kycCase.findUnique({
+            where: { id: payload.kycCaseId },
+          });
+
+          if (targetCase) {
+            if (targetCase.status === 'approved') {
+              return;
+            }
+            await tx.kycCase.update({
+              where: { id: targetCase.id },
+              data: {
+                status: 'approved',
+                reviewedAt: now,
+                updatedAt: now,
+              },
+            });
+            return;
+          }
+        }
+
         const activeCase = await tx.kycCase.findFirst({
           where: {
             workerProfileId: worker.id,
@@ -1429,9 +1450,35 @@ export class UserTrustServiceService {
         });
       }
 
-      const reason = payload?.reason || payload?.message || 'Xác minh AI không thành công';
+      const reason = payload?.reason || payload?.note || payload?.message || 'Xác minh AI không thành công';
       const similarity = payload?.similarity ? Number(payload.similarity) : null;
 
+      // 1. Nếu payload có kycCaseId cụ thể, kiểm tra hồ sơ đó trước
+      if (payload?.kycCaseId) {
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
+        });
+
+        if (targetCase) {
+          // Nếu hồ sơ đã ở trạng thái rejected (do Admin review hoặc đã xử lý trước đó), bỏ qua tránh trùng lặp
+          if (targetCase.status === 'rejected') {
+            return;
+          }
+          await tx.kycCase.update({
+            where: { id: targetCase.id },
+            data: {
+              status: 'rejected',
+              reviewNote: reason,
+              aiSimilarityScore: similarity ?? targetCase.aiSimilarityScore,
+              reviewedAt: now,
+              updatedAt: now,
+            },
+          });
+          return;
+        }
+      }
+
+      // 2. Nếu không có kycCaseId hoặc không tìm thấy, tìm hồ sơ active gần nhất
       const activeCase = await tx.kycCase.findFirst({
         where: {
           workerProfileId: worker.id,
@@ -1451,24 +1498,8 @@ export class UserTrustServiceService {
             updatedAt: now,
           },
         });
-      } else {
-        await tx.kycCase.create({
-          data: {
-            id: crypto.randomUUID(),
-            workerProfileId: worker.id,
-            idDocumentType: 'CCCD',
-            documentFrontRef: '',
-            selfieRef: '',
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity,
-            submittedAt: now,
-            reviewedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
       }
+      // Tuyệt đối không tạo mới hồ sơ KYC khi nhận sự kiện kyc.failed (tránh tạo hồ sơ rác/trùng lặp)
     });
 
     this.logger.log(`KYC failed processed for user ${userId}: ${payload?.reason || 'unspecified'}`);
@@ -1550,6 +1581,12 @@ export class UserTrustServiceService {
 
     if (!kycCase) {
       throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
+    }
+
+    if (kycCase.status !== 'reviewing') {
+      throw new BadRequestException(
+        `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
+      );
     }
 
     const now = new Date();
@@ -2281,13 +2318,13 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      // P1-02: Conditional update với status: pending và version để đảm bảo tính nguyên tử, chống lost update
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
-          updatedAt: registration.updatedAt,
+          version: registration.version,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2295,6 +2332,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
@@ -2449,11 +2487,12 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+        version: { increment: 1 },
         updatedAt: new Date(),
       },
     });
@@ -2733,18 +2772,19 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending và version (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
-            updatedAt: registration.updatedAt,
+            version: registration.version,
           },
           data: {
             status: 'approved',
             rejectionReason: null,
             reviewedByUserId: reviewerId,
             reviewedAt: now,
+            version: { increment: 1 },
             updatedAt: now,
           },
         });
@@ -2850,13 +2890,14 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
         reviewedByUserId: reviewerId,
         reviewedAt: now,
+        version: { increment: 1 },
         updatedAt: now,
       },
     });
