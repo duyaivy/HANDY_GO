@@ -1383,15 +1383,27 @@ export class UserTrustServiceService {
         caseToUpdate = activeCase;
       }
 
-      // [P1] Chỉ cập nhật case và WorkerProfile khi case hợp lệ và chuyển trạng thái thành công
-      await tx.kycCase.update({
-        where: { id: caseToUpdate.id },
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseToUpdate.id,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
+        },
         data: {
           status: 'approved',
           reviewedAt: now,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
+
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
+      }
 
       await tx.workerProfile.update({
         where: { id: worker.id },
@@ -1507,17 +1519,29 @@ export class UserTrustServiceService {
         caseToUpdate = activeCase;
       }
 
-      // [P1] Chỉ cập nhật case và WorkerProfile khi case hợp lệ và chuyển trạng thái thành công
-      await tx.kycCase.update({
-        where: { id: caseToUpdate.id },
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseToUpdate.id,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
+        },
         data: {
           status: 'rejected',
           reviewNote: reason,
           aiSimilarityScore: similarity ?? caseToUpdate.aiSimilarityScore,
           reviewedAt: now,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
+
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
+      }
 
       await tx.workerProfile.update({
         where: { id: worker.id },
