@@ -228,6 +228,18 @@ describe('KycService', () => {
         service.reviewKycCase('admin-1', 'case-1', { decision: 'approved' }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('throws BadRequestException if KYC case is not in reviewing status', async () => {
+      repoMock.reviewKycCaseByAdmin.mockRejectedValue(
+        new BadRequestException(
+          "Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: 'submitted'.",
+        ),
+      );
+
+      await expect(
+        service.reviewKycCase('admin-1', 'case-1', { decision: 'approved' }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('listAdminKycCases', () => {

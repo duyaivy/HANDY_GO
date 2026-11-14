@@ -1337,6 +1337,27 @@ export class UserTrustServiceService {
           },
         });
 
+        if (payload?.kycCaseId) {
+          const targetCase = await tx.kycCase.findUnique({
+            where: { id: payload.kycCaseId },
+          });
+
+          if (targetCase) {
+            if (targetCase.status === 'approved') {
+              return;
+            }
+            await tx.kycCase.update({
+              where: { id: targetCase.id },
+              data: {
+                status: 'approved',
+                reviewedAt: now,
+                updatedAt: now,
+              },
+            });
+            return;
+          }
+        }
+
         const activeCase = await tx.kycCase.findFirst({
           where: {
             workerProfileId: worker.id,
@@ -1429,9 +1450,35 @@ export class UserTrustServiceService {
         });
       }
 
-      const reason = payload?.reason || payload?.message || 'Xác minh AI không thành công';
+      const reason = payload?.reason || payload?.note || payload?.message || 'Xác minh AI không thành công';
       const similarity = payload?.similarity ? Number(payload.similarity) : null;
 
+      // 1. Nếu payload có kycCaseId cụ thể, kiểm tra hồ sơ đó trước
+      if (payload?.kycCaseId) {
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
+        });
+
+        if (targetCase) {
+          // Nếu hồ sơ đã ở trạng thái rejected (do Admin review hoặc đã xử lý trước đó), bỏ qua tránh trùng lặp
+          if (targetCase.status === 'rejected') {
+            return;
+          }
+          await tx.kycCase.update({
+            where: { id: targetCase.id },
+            data: {
+              status: 'rejected',
+              reviewNote: reason,
+              aiSimilarityScore: similarity ?? targetCase.aiSimilarityScore,
+              reviewedAt: now,
+              updatedAt: now,
+            },
+          });
+          return;
+        }
+      }
+
+      // 2. Nếu không có kycCaseId hoặc không tìm thấy, tìm hồ sơ active gần nhất
       const activeCase = await tx.kycCase.findFirst({
         where: {
           workerProfileId: worker.id,
@@ -1451,24 +1498,8 @@ export class UserTrustServiceService {
             updatedAt: now,
           },
         });
-      } else {
-        await tx.kycCase.create({
-          data: {
-            id: crypto.randomUUID(),
-            workerProfileId: worker.id,
-            idDocumentType: 'CCCD',
-            documentFrontRef: '',
-            selfieRef: '',
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity,
-            submittedAt: now,
-            reviewedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
       }
+      // Tuyệt đối không tạo mới hồ sơ KYC khi nhận sự kiện kyc.failed (tránh tạo hồ sơ rác/trùng lặp)
     });
 
     this.logger.log(`KYC failed processed for user ${userId}: ${payload?.reason || 'unspecified'}`);
@@ -1550,6 +1581,12 @@ export class UserTrustServiceService {
 
     if (!kycCase) {
       throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
+    }
+
+    if (kycCase.status !== 'reviewing') {
+      throw new BadRequestException(
+        `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
+      );
     }
 
     const now = new Date();

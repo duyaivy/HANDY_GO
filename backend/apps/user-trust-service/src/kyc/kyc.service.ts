@@ -246,6 +246,7 @@ export class KycService {
         await this.rabbitmq.emit(pattern, {
           kycCaseId: caseId,
           workerProfileId: updatedCase.workerProfileId,
+          userId: (updatedCase as any).workerProfile?.userId,
           decision: dto.decision,
           reviewedBy: adminUserId,
           reviewedAt: new Date().toISOString(),

@@ -2049,6 +2049,137 @@ describe('UserTrustServiceService', () => {
       );
     });
   });
+
+  describe('handleKycFailed & reviewKycCase', () => {
+    const userId = 'u-worker-1';
+    const workerId = 'wp-1';
+    const caseId = 'case-1';
+
+    describe('handleKycFailed', () => {
+      it('should NOT create duplicate kycCase when target case is already rejected (after admin review)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-1',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Ảnh mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+      });
+
+      it('should NOT create a new kycCase when no active case is found', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+        dbMock.kycCase.findFirst.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-2',
+          data: {
+            userId,
+            reason: 'Lý do từ chối',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+      });
+
+      it('should update active kycCase to rejected without creating a new record', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+        dbMock.kycCase.findFirst.mockResolvedValue({
+          id: caseId,
+          status: 'reviewing',
+          aiSimilarityScore: 0.85,
+        });
+
+        const event = {
+          eventId: 'evt-3',
+          data: {
+            userId,
+            reason: 'Ảnh CMND bị mờ',
+            similarity: 0.7,
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: caseId },
+            data: expect.objectContaining({
+              status: 'rejected',
+              reviewNote: 'Ảnh CMND bị mờ',
+              aiSimilarityScore: 0.7,
+            }),
+          }),
+        );
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('reviewKycCase', () => {
+      it('throws BadRequestException if KYC case is not in reviewing status', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          status: 'submitted',
+          workerProfile: { id: workerId, userId },
+        });
+
+        await expect(
+          service.reviewKycCase('admin-1', caseId, 'approved', 'Hồ sơ tốt'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('throws BadRequestException if KYC case is already approved or rejected', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          status: 'approved',
+          workerProfile: { id: workerId, userId },
+        });
+
+        await expect(
+          service.reviewKycCase('admin-1', caseId, 'rejected', 'Không hợp lệ'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('successfully reviews KYC case when status is reviewing', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          status: 'reviewing',
+          workerProfileId: workerId,
+          workerProfile: { id: workerId, userId },
+        });
+        dbMock.kycCase.update.mockResolvedValue({
+          id: caseId,
+          status: 'approved',
+        });
+        dbMock.workerProfile.update.mockResolvedValue({
+          id: workerId,
+          status: 'verified',
+        });
+
+        const res = await service.reviewKycCase('admin-1', caseId, 'approved', 'Duyệt thành công');
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.kycCase.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: caseId },
+            data: expect.objectContaining({
+              status: 'approved',
+              reviewedByUserId: 'admin-1',
+            }),
+          }),
+        );
+      });
+    });
+  });
 });
 
 describe('minimal chat participant names', () => {
