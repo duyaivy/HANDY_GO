@@ -407,7 +407,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             self.assertEqual(proof["policy"], "vps4-additive-v2")
             self.assertEqual(
                 proof["baseline_hash"],
-                "0fdda62ac971648dfc04209a4b6a2a8c3fb43665c2e1bdedd6a8e2390f52d5e1",
+                "cb5d8319b8f6783d45f5b136fc11593e8c6712ecce324f57fa3e55ceba094f01",
             )
             current = {
                 "rollback_compatible": True,

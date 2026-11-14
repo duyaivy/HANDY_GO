@@ -244,17 +244,17 @@ def onboarding_migration_proof(root, owners):
     from host import ONBOARDING_ADDITIVE_SQL
     root = Path(root)
     migrations = sorted((root / 'apps').glob('*/prisma/migrations/**/migration.sql'))
-    found = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-             for p in migrations if str(p.relative_to(root)) in ONBOARDING_ADDITIVE_SQL}
+    found = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in migrations if p.relative_to(root).as_posix() in ONBOARDING_ADDITIVE_SQL}
     if found != ONBOARDING_ADDITIVE_SQL:
         raise ValueError('Onboarding SQL differs from reviewed additive migration policy')
     def inventory_hash(paths, ownership):
-        data = b''.join(str(p.relative_to(root)).encode() + b'\0' + p.read_bytes() for p in paths)
+        data = b''.join(p.relative_to(root).as_posix().encode() + b'\0' + p.read_bytes() for p in paths)
         data += b'\0owners\0' + json.dumps(ownership, sort_keys=True).encode()
         return hashlib.sha256(data).hexdigest()
     baseline_owners = {role: names for role, names in owners.items() if role != 'vps4'}
     return {'policy': 'vps4-additive-v2', 'sql': found,
-            'baseline_hash': inventory_hash([p for p in migrations if str(p.relative_to(root)) not in found], baseline_owners),
+            'baseline_hash': inventory_hash([p for p in migrations if p.relative_to(root).as_posix() not in found], baseline_owners),
             'inventory_hash': inventory_hash(migrations, owners)}
 
 
