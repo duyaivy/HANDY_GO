@@ -54,6 +54,8 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
 
     service = new UserTrustServiceService(
       prisma,
+      undefined,
+      undefined,
       catalogClientMock as CatalogClient,
     );
 
