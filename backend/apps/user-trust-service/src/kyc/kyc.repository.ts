@@ -442,6 +442,12 @@ export class KycRepository {
       }
 
       // Chỉ cho phép duyệt hoặc từ chối khi hồ sơ đang ở trạng thái 'reviewing'
+      if (kycCase.status === 'approved' || kycCase.status === 'rejected') {
+        throw new ConflictException(
+          `Hồ sơ KYC đã được xử lý trước đó với trạng thái '${kycCase.status}' bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.`,
+        );
+      }
+
       if (kycCase.status !== 'reviewing') {
         throw new BadRequestException(
           `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,

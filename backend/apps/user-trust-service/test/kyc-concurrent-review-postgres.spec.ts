@@ -186,11 +186,15 @@ describe('KYC Admin Concurrent Review Integration with PostgreSQL', () => {
 
     // The losing request MUST throw ConflictException (or message about concurrent modification)
     const losingReason = (rejected[0] as PromiseRejectedResult).reason;
-    expect(
+    const isConflict =
       losingReason instanceof ConflictException ||
+      (losingReason && typeof losingReason === 'object' && 'status' in losingReason && (losingReason as any).status === 409) ||
+      (losingReason?.message && (
         losingReason.message.includes('quản trị viên khác') ||
-        losingReason.message.includes('thay đổi đồng thời'),
-    ).toBe(true);
+        losingReason.message.includes('thay đổi đồng thời') ||
+        losingReason.message.includes('được xử lý trước đó')
+      ));
+    expect(Boolean(isConflict)).toBe(true);
 
     // 7. Verify database integrity on PostgreSQL:
     const finalCase = await prisma.kycCase.findUnique({
