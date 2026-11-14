@@ -2318,12 +2318,13 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending để đảm bảo tính nguyên tử
+      // P1-02: Conditional update với status: pending và version để đảm bảo tính nguyên tử, chống lost update
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
+          version: registration.version,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2331,6 +2332,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
@@ -2485,10 +2487,12 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+        version: { increment: 1 },
         updatedAt: new Date(),
       },
     });
@@ -2768,17 +2772,19 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending và version (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
+            version: registration.version,
           },
           data: {
             status: 'approved',
             rejectionReason: null,
             reviewedByUserId: reviewerId,
             reviewedAt: now,
+            version: { increment: 1 },
             updatedAt: now,
           },
         });
@@ -2884,12 +2890,14 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
         reviewedByUserId: reviewerId,
         reviewedAt: now,
+        version: { increment: 1 },
         updatedAt: now,
       },
     });

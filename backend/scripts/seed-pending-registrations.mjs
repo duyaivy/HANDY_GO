@@ -49,15 +49,28 @@ const SAMPLE_WORKERS = [
 
 async function seedWorkerRegistrations() {
   const pool = new Pool({ connectionString });
-  const client = await pool.connect();
+  let client;
 
   try {
+    client = await pool.connect();
     console.log('🚀 Đang kiểm tra danh mục và dịch vụ trong catalog_service...');
     const catRes = await client.query(`SELECT id, name FROM catalog_service.categories LIMIT 5;`);
     const svcRes = await client.query(`SELECT id, category_id, name FROM catalog_service.services WHERE is_active = true LIMIT 10;`);
 
     const availableServices = svcRes.rows;
     const availableCategories = catRes.rows;
+
+    if (!availableCategories || availableCategories.length === 0) {
+      throw new Error(
+        'Catalog chưa có danh mục nào (categories empty). Vui lòng seed catalog_service trước khi chạy script.',
+      );
+    }
+
+    if (!availableServices || availableServices.length === 0) {
+      throw new Error(
+        'Catalog chưa có dịch vụ nào đang hoạt động (services empty). Vui lòng seed catalog_service trước khi chạy script.',
+      );
+    }
 
     console.log(`Tìm thấy ${availableCategories.length} danh mục và ${availableServices.length} dịch vụ.`);
 
@@ -87,36 +100,28 @@ async function seedWorkerRegistrations() {
         ON CONFLICT (user_id) DO NOTHING;
       `, [workerProfileId, userId]);
 
-      // Lấy danh mục và dịch vụ phù hợp
+      // Lấy danh mục và dịch vụ phù hợp từ catalog thực tế
       let matchedServices = availableServices.filter(s => s.name.toLowerCase().includes(w.serviceKeyword.toLowerCase()));
       if (matchedServices.length === 0) {
-        matchedServices = availableServices.slice(i * 2, i * 2 + 2);
+        const startIdx = (i * 2) % availableServices.length;
+        matchedServices = availableServices.slice(startIdx, startIdx + 2);
       }
-      if (matchedServices.length === 0 && availableServices.length > 0) {
+      if (matchedServices.length === 0) {
         matchedServices = [availableServices[0]];
       }
 
-      const categoryIds = matchedServices.length > 0
-        ? [...new Set(matchedServices.map(s => s.category_id).filter(Boolean))]
-        : (availableCategories.length > 0 ? [availableCategories[0].id] : [crypto.randomUUID()]);
+      const categoryIds = [...new Set(matchedServices.map(s => s.category_id).filter(Boolean))];
+      if (categoryIds.length === 0) {
+        categoryIds.push(availableCategories[0].id);
+      }
 
-      const servicesPayload = matchedServices.length > 0
-        ? matchedServices.map((s, idx) => ({
-            serviceId: s.id,
-            serviceName: s.name,
-            title: `Kỹ thuật viên: ${s.name}`,
-            description: `Có đầy đủ chứng chỉ và dụng cụ chuyên dụng sửa ${s.name}`,
-            experienceYears: 3 + idx * 2,
-          }))
-        : [
-            {
-              serviceId: crypto.randomUUID(),
-              serviceName: 'Sửa chữa điện nước tổng hợp',
-              title: 'Thợ sửa điện nước chuyên nghiệp',
-              description: 'Xử lý sự cố rò rỉ, cháy nổ điện nước',
-              experienceYears: 5,
-            },
-          ];
+      const servicesPayload = matchedServices.map((s, idx) => ({
+        serviceId: s.id,
+        serviceName: s.name,
+        title: `Kỹ thuật viên: ${s.name}`,
+        description: `Có đầy đủ chứng chỉ và dụng cụ chuyên dụng sửa ${s.name}`,
+        experienceYears: 3 + idx * 2,
+      }));
 
       const serviceAreaPayload = {
         address: w.address,
@@ -138,12 +143,12 @@ async function seedWorkerRegistrations() {
         },
       ];
 
-      // 3. Tạo WorkerServiceRegistration ở trạng thái pending
+      // 3. Tạo WorkerServiceRegistration ở trạng thái pending với version = 1
       await client.query(`
         INSERT INTO user_trust_service.worker_service_registrations (
-          id, worker_profile_id, category_ids, services, service_area, evidence_files, idempotency_key, status, created_at, updated_at
+          id, worker_profile_id, category_ids, services, service_area, evidence_files, idempotency_key, status, version, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', NOW(), NOW());
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 1, NOW(), NOW());
       `, [
         registrationId,
         workerProfileId,
@@ -179,10 +184,19 @@ async function seedWorkerRegistrations() {
     });
     console.log('\n================================================================');
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        // ignore rollback error
+      }
+    }
     console.error('❌ Lỗi khi tạo dữ liệu:', err);
+    process.exitCode = 1;
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
     await pool.end();
   }
 }
