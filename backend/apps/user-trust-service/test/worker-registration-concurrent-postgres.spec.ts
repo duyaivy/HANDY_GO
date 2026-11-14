@@ -16,10 +16,26 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
   const testRegistrationIds: string[] = [];
 
   beforeAll(async () => {
-    process.env.DATABASE_URL_USER_TRUST =
+    const fallbackTestUrl =
       process.env.DATABASE_URL_USER_TRUST ||
-      process.env.DATABASE_URL ||
-      'postgresql://postgres:postgres@localhost:5432/handy_user_trust';
+      process.env.INCIDENT_DATABASE_TEST_URL ||
+      process.env.WALLET_MIGRATION_TEST_URL ||
+      process.env.DATABASE_URL;
+
+    if (fallbackTestUrl) {
+      try {
+        const u = new URL(fallbackTestUrl);
+        if (!u.searchParams.get('schema')) {
+          u.searchParams.set('schema', 'user_trust_service');
+        }
+        process.env.DATABASE_URL_USER_TRUST = u.toString();
+      } catch {
+        process.env.DATABASE_URL_USER_TRUST = fallbackTestUrl;
+      }
+    } else {
+      process.env.DATABASE_URL_USER_TRUST =
+        'postgresql://postgres:postgres@localhost:5432/handy_user_trust';
+    }
 
     prisma = new UserTrustPrismaService();
 
@@ -44,13 +60,13 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
     try {
       await prisma.$connect();
       await prisma.$queryRaw`SELECT 1`;
-      // Check if worker_service_registrations table and version column exist
-      await prisma.$queryRaw`SELECT version FROM user_trust_service.worker_service_registrations LIMIT 1`;
+      // Verify workerServiceRegistration table is reachable and version column exists
+      await prisma.workerServiceRegistration.findFirst();
       isPostgresAvailable = true;
     } catch (err) {
       isPostgresAvailable = false;
       console.warn(
-        'PostgreSQL is not reachable or worker_service_registrations.version not migrated:',
+        'PostgreSQL is not reachable or tables do not exist:',
         (err as Error).message,
       );
     }
@@ -127,7 +143,7 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
         '["22222222-2222-2222-2222-222222222222"]'::jsonb,
         '[{"serviceId":"11111111-1111-1111-1111-111111111111","serviceName":"Sửa điện","experienceYears":3}]'::jsonb,
         '{"address":"Đà Nẵng","latitude":16.05,"longitude":108.2,"radiusKm":10}'::jsonb,
-        '[]'::jsonb,
+        '[{"url":"https://example.com/cert.jpg","fileType":"image"}]'::jsonb,
         ${crypto.randomUUID()},
         'pending',
         1,
@@ -139,6 +155,7 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
     // Admin reviews and approves the registration
     const result = await service.reviewServiceRegistration(adminId, regId, {
       decision: 'approved',
+      expectedVersion: 1,
     });
 
     expect(result.statusCode).toBe(200);
@@ -184,7 +201,7 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
         '["22222222-2222-2222-2222-222222222222"]'::jsonb,
         '[{"serviceId":"11111111-1111-1111-1111-111111111111","serviceName":"Old Service","experienceYears":1}]'::jsonb,
         '{"address":"Đà Nẵng","latitude":16.05,"longitude":108.2,"radiusKm":10}'::jsonb,
-        '[]'::jsonb,
+        '[{"url":"https://example.com/initial-evidence.jpg","fileType":"image"}]'::jsonb,
         ${crypto.randomUUID()},
         'pending',
         1,
@@ -193,13 +210,12 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
       )
     `;
 
-    // 1. Admin reads registration at version 1
-    const adminReadReg = await prisma.workerServiceRegistration.findUnique({
-      where: { id: regId },
-    });
-    expect(adminReadReg?.version).toBe(1);
+    // 1. Admin opens detail page and reads registration at version 1
+    const adminDetail = await service.getAdminServiceRegistrationDetail(regId);
+    expect(adminDetail.data.version).toBe(1);
+    const adminObservedVersion = adminDetail.data.version;
 
-    // 2. Worker modifies registration before admin clicks approve (e.g. increments version to 2)
+    // 2. Worker modifies registration with valid evidence before admin clicks approve (increments version to 2)
     const workerUpdateRes = await service.updateWorkerServiceRegistration(userId, regId, {
       categoryIds: ['22222222-2222-2222-2222-222222222222'],
       services: [
@@ -215,37 +231,55 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
         longitude: 105.8542,
         radiusKm: 20,
       },
-      evidenceFiles: [],
+      evidenceFiles: [
+        {
+          url: 'https://example.com/evidence-updated.jpg',
+          fileType: 'image',
+        },
+      ],
     } as any);
     expect(workerUpdateRes.statusCode).toBe(200);
 
-    // DB now has version = 2
+    // Database now has version = 2
     const currentInDb = await prisma.workerServiceRegistration.findUnique({
       where: { id: regId },
     });
     expect(currentInDb?.version).toBe(2);
 
-    // 3. Admin attempts to approve using the stale registration read (version 1)
-    // Directly testing optimistic condition { id: regId, status: 'pending', version: adminReadReg.version }
-    const adminConditionalUpdate = await prisma.workerServiceRegistration.updateMany({
-      where: {
-        id: regId,
-        status: 'pending',
-        version: adminReadReg!.version, // version = 1
-      },
-      data: {
-        status: 'approved',
-        version: { increment: 1 },
-      },
-    });
-
-    // Count MUST be 0 -> protecting against approving stale data
-    expect(adminConditionalUpdate.count).toBe(0);
-
-    // Service method throws ConflictException
+    // 3. Admin attempts to approve using the stale version (version 1) that was loaded on screen
+    // Must throw ConflictException and reject the stale approval
     await expect(
-      service.reviewServiceRegistration(adminId, regId, { decision: 'approved' }),
-    ).resolves.toBeDefined(); // If read fresh version 2 it succeeds; but with stale version it rejects
+      service.reviewServiceRegistration(adminId, regId, {
+        decision: 'approved',
+        expectedVersion: adminObservedVersion,
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    // Admin attempts to reject using the stale version -> also throws ConflictException
+    await expect(
+      service.reviewServiceRegistration(adminId, regId, {
+        decision: 'rejected',
+        reason: 'Stale rejection attempt',
+        expectedVersion: adminObservedVersion,
+      }),
+    ).rejects.toThrow(ConflictException);
+
+    // 4. Admin refreshes the page (reads fresh detail with version = 2) and successfully approves
+    const freshDetail = await service.getAdminServiceRegistrationDetail(regId);
+    expect(freshDetail.data.version).toBe(2);
+
+    const freshApproveRes = await service.reviewServiceRegistration(adminId, regId, {
+      decision: 'approved',
+      expectedVersion: freshDetail.data.version,
+    });
+    expect(freshApproveRes.statusCode).toBe(200);
+    expect(freshApproveRes.data.status).toBe('approved');
+
+    const finalDbCase = await prisma.workerServiceRegistration.findUnique({
+      where: { id: regId },
+    });
+    expect(finalDbCase?.status).toBe('approved');
+    expect(finalDbCase?.version).toBe(3);
   });
 
   it('handles 2 concurrent worker updates atomically (only 1 succeeds, other gets 409 ConflictException)', async (ctx) => {
@@ -279,7 +313,7 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
         '["22222222-2222-2222-2222-222222222222"]'::jsonb,
         '[{"serviceId":"11111111-1111-1111-1111-111111111111","serviceName":"Initial","experienceYears":1}]'::jsonb,
         '{"address":"Đà Nẵng","latitude":16.05,"longitude":108.2,"radiusKm":10}'::jsonb,
-        '[]'::jsonb,
+        '[{"url":"https://example.com/initial.jpg","fileType":"image"}]'::jsonb,
         ${crypto.randomUUID()},
         'pending',
         1,
@@ -292,31 +326,60 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
       categoryIds: ['22222222-2222-2222-2222-222222222222'],
       services: [{ serviceId: '11111111-1111-1111-1111-111111111111', title: 'Session 1', experienceYears: 2 }],
       serviceArea: { address: 'Đà Nẵng', latitude: 16.05, longitude: 108.2, radiusKm: 10 },
-      evidenceFiles: [],
+      evidenceFiles: [{ url: 'https://example.com/evidence1.jpg', fileType: 'image' }],
     };
 
     const dtoSession2 = {
       categoryIds: ['22222222-2222-2222-2222-222222222222'],
       services: [{ serviceId: '11111111-1111-1111-1111-111111111111', title: 'Session 2', experienceYears: 3 }],
       serviceArea: { address: 'Đà Nẵng', latitude: 16.05, longitude: 108.2, radiusKm: 15 },
-      evidenceFiles: [],
+      evidenceFiles: [{ url: 'https://example.com/evidence2.jpg', fileType: 'image' }],
     };
 
-    // Both sessions read registration with version = 1
-    const [put1, put2] = await Promise.allSettled([
-      service.updateWorkerServiceRegistration(userId, regId, dtoSession1 as any),
-      service.updateWorkerServiceRegistration(userId, regId, dtoSession2 as any),
-    ]);
-
-    // At least one succeeds; if both executed simultaneously on same version, exactly one wins and one throws ConflictException
-    const fulfilled = [put1, put2].filter((r) => r.status === 'fulfilled');
-    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
-
-    const finalReg = await prisma.workerServiceRegistration.findUnique({
-      where: { id: regId },
+    // Barrier ensuring both concurrent requests have read version 1 before either executes updateMany
+    let entered = 0;
+    let barrierResolve: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      barrierResolve = resolve;
     });
-    // Version must be at least 2
-    expect(finalReg!.version).toBeGreaterThanOrEqual(2);
+
+    const originalGetServices = catalogClientMock.getServices;
+    catalogClientMock.getServices = async () => {
+      entered++;
+      if (entered === 2) {
+        barrierResolve();
+      } else {
+        await barrier;
+      }
+      return originalGetServices ? originalGetServices() : [];
+    };
+
+    try {
+      // Both sessions read registration with version = 1 and contend on updateMany
+      const [put1, put2] = await Promise.allSettled([
+        service.updateWorkerServiceRegistration(userId, regId, dtoSession1 as any),
+        service.updateWorkerServiceRegistration(userId, regId, dtoSession2 as any),
+      ]);
+
+      // Exactly ONE succeeds (200 OK), exactly ONE fails with 409 ConflictException
+      const fulfilled = [put1, put2].filter((r) => r.status === 'fulfilled');
+      const rejected = [put1, put2].filter((r) => r.status === 'rejected');
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+
+      const loser = (rejected[0] as PromiseRejectedResult).reason;
+      expect(loser instanceof ConflictException).toBe(true);
+      expect(loser.message).toContain('cập nhật');
+
+      const finalReg = await prisma.workerServiceRegistration.findUnique({
+        where: { id: regId },
+      });
+      // Version must be exactly 2
+      expect(finalReg!.version).toBe(2);
+    } finally {
+      catalogClientMock.getServices = originalGetServices;
+    }
   });
 
   it('handles 2 concurrent Admin reviews atomically (only 1 wins, other gets ConflictException)', async (ctx) => {
@@ -354,7 +417,7 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
         '["22222222-2222-2222-2222-222222222222"]'::jsonb,
         '[{"serviceId":"11111111-1111-1111-1111-111111111111","serviceName":"Plumbing","experienceYears":4}]'::jsonb,
         '{"address":"Đà Nẵng","latitude":16.05,"longitude":108.2,"radiusKm":10}'::jsonb,
-        '[]'::jsonb,
+        '[{"url":"https://example.com/evidence-admin.jpg","fileType":"image"}]'::jsonb,
         ${crypto.randomUUID()},
         'pending',
         1,
@@ -363,10 +426,10 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
       )
     `;
 
-    // 2 Admins review concurrently: one approves, one rejects
+    // 2 Admins review concurrently: both send expectedVersion: 1 (one approves, one rejects)
     const [rev1, rev2] = await Promise.allSettled([
-      service.reviewServiceRegistration(admin1Id, regId, { decision: 'approved' }),
-      service.reviewServiceRegistration(admin2Id, regId, { decision: 'rejected', reason: 'Denied by Beta' }),
+      service.reviewServiceRegistration(admin1Id, regId, { decision: 'approved', expectedVersion: 1 }),
+      service.reviewServiceRegistration(admin2Id, regId, { decision: 'rejected', reason: 'Denied by Beta', expectedVersion: 1 }),
     ]);
 
     const fulfilled = [rev1, rev2].filter((r) => r.status === 'fulfilled');
@@ -385,4 +448,3 @@ describe('Worker Service Registration Concurrent & Postgres Precision Integratio
     expect(['approved', 'rejected']).toContain(finalReg!.status);
   });
 });
-

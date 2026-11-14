@@ -1163,6 +1163,7 @@ describe('UserTrustServiceService', () => {
           serviceArea: {},
           evidenceFiles: [],
           status: 'pending',
+          version: 1,
           rejectionReason: null,
           reviewedAt: null,
           createdAt: new Date(),
@@ -1179,6 +1180,7 @@ describe('UserTrustServiceService', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.data).toHaveLength(1);
+      expect(res.data[0].version).toBe(1);
       expect(res.pagination.total).toBe(1);
     });
 
@@ -1201,6 +1203,7 @@ describe('UserTrustServiceService', () => {
         serviceArea: {},
         evidenceFiles: [],
         status: 'pending',
+        version: 1,
         rejectionReason: null,
         reviewedAt: null,
         createdAt: new Date(),
@@ -1210,6 +1213,7 @@ describe('UserTrustServiceService', () => {
       const res = await service.getAdminServiceRegistrationDetail('reg-1');
       expect(res.statusCode).toBe(200);
       expect(res.data.id).toBe('reg-1');
+      expect(res.data.version).toBe(1);
       expect(res.data.worker.fullName).toBe('Nguyễn Thợ');
     });
 
@@ -2130,6 +2134,77 @@ describe('UserTrustServiceService', () => {
           }),
         ).rejects.toThrow(
           'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      });
+
+      it('throws ConflictException when Admin expectedVersion does not match current registration version (stale screen approval)', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        // Current registration in DB has progressed to version 2 (worker edited it)
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 2,
+          workerProfile: { id: workerProfileId },
+        });
+
+        // Admin was viewing the page with version 1
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+        );
+
+        // Also for rejection
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'rejected',
+            reason: 'Ảnh mờ',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+        );
+      });
+
+      it('passes expectedVersion to atomic CAS updateMany condition when expectedVersion matches', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            services: [],
+            serviceArea: {},
+          });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+
+        const res = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'approved',
+          expectedVersion: 1,
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: regId,
+              status: 'pending',
+              version: 1,
+            },
+          }),
         );
       });
 

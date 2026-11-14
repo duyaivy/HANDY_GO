@@ -2708,6 +2708,7 @@ export class UserTrustServiceService {
       serviceArea: item.serviceArea,
       evidenceFiles: item.evidenceFiles,
       status: item.status,
+      version: item.version,
       rejectionReason: item.rejectionReason,
       reviewedAt: item.reviewedAt,
       reviewer: item.reviewer,
@@ -2780,6 +2781,7 @@ export class UserTrustServiceService {
         serviceArea: registration.serviceArea,
         evidenceFiles: registration.evidenceFiles,
         status: registration.status,
+        version: registration.version,
         rejectionReason: registration.rejectionReason,
         reviewedAt: registration.reviewedAt,
         reviewer: registration.reviewer,
@@ -2816,6 +2818,21 @@ export class UserTrustServiceService {
       );
     }
 
+    // [P1] Kiểm tra expectedVersion mà Admin đã nhìn thấy ở trang chi tiết
+    if (
+      dto.expectedVersion !== undefined &&
+      registration.version !== dto.expectedVersion
+    ) {
+      throw new ConflictException(
+        'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+      );
+    }
+
+    const targetVersion =
+      dto.expectedVersion !== undefined
+        ? dto.expectedVersion
+        : registration.version;
+
     const now = new Date();
 
     let reviewerId: string | null = null;
@@ -2840,7 +2857,7 @@ export class UserTrustServiceService {
           where: {
             id: registrationId,
             status: 'pending',
-            version: registration.version,
+            version: targetVersion,
           },
           data: {
             status: 'approved',
@@ -2953,7 +2970,7 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        version: registration.version,
+        version: targetVersion,
       },
       data: {
         status: 'rejected',
