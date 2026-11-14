@@ -7,7 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 PROD = ROOT / 'deploy/production'
 registry = json.loads((PROD / 'services.json').read_text())['services']
 services = yaml.safe_load((PROD / 'compose.production.yml').read_text())['services']
-apps = {p.name for p in (ROOT / 'apps').iterdir() if (p / 'src/main.ts').exists()}
+# CLI entry points live under apps/ but are not long-running production services.
+non_service_apps = {'tracking-replay'}
+apps = {p.name for p in (ROOT / 'apps').iterdir()
+        if (p / 'src/main.ts').exists() and p.name not in non_service_apps}
 foundations = {p.name for p in (ROOT / 'foundations').iterdir() if (p / 'src/main.ts').exists()} if (ROOT / 'foundations').is_dir() else set()
 all_services = apps | foundations
 assert set(registry) == all_services
