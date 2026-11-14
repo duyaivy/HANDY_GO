@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   HttpStatus,
   Injectable,
@@ -246,6 +247,7 @@ export class KycService {
         await this.rabbitmq.emit(pattern, {
           kycCaseId: caseId,
           workerProfileId: updatedCase.workerProfileId,
+          userId: (updatedCase as any).workerProfile?.userId,
           decision: dto.decision,
           reviewedBy: adminUserId,
           reviewedAt: new Date().toISOString(),
@@ -266,6 +268,8 @@ export class KycService {
       };
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
+      if (err instanceof ConflictException) throw err;
+      if (err instanceof BadRequestException) throw err;
       throw new BadRequestException(err.message || 'Lỗi khi xử lý duyệt KYC');
     }
   }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { EVENT_PATTERNS } from '@app/common';
@@ -441,19 +441,29 @@ export class KycRepository {
         throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
       }
 
-      // Prevent reviewing finalized case or draft
+      // Chỉ cho phép duyệt hoặc từ chối khi hồ sơ đang ở trạng thái 'reviewing'
       if (kycCase.status === 'approved' || kycCase.status === 'rejected') {
-        throw new Error(
-          `Hồ sơ KYC đã được xử lý trước đó với trạng thái ${kycCase.status}. Không thể duyệt lại.`,
+        throw new ConflictException(
+          `Hồ sơ KYC đã được xử lý trước đó với trạng thái '${kycCase.status}' bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.`,
+        );
+      }
+
+      if (kycCase.status !== 'reviewing') {
+        throw new BadRequestException(
+          `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
         );
       }
 
       const fromStatus = kycCase.status;
       const toStatus = isApproved ? 'approved' : 'rejected';
 
-      // 1. Update KYC case with version increment
-      const updatedCase = await tx.kycCase.update({
-        where: { id: caseId },
+      // 1. Cập nhật nguyên tử với optimistic locking (id, status: 'reviewing', version: kycCase.version)
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseId,
+          status: 'reviewing',
+          version: kycCase.version,
+        },
         data: {
           status: toStatus,
           reviewedByUserId: adminUserId,
@@ -463,6 +473,17 @@ export class KycRepository {
           updatedAt: now,
         },
       });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException(
+          'Hồ sơ KYC đã được xử lý bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.',
+        );
+      }
+
+      const updatedCase = (await tx.kycCase.findUnique({
+        where: { id: caseId },
+        include: { workerProfile: true },
+      }))!;
 
       // 2. Synchronize WorkerProfile status
       await tx.workerProfile.update({
