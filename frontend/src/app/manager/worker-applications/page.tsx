@@ -1,3 +1,5 @@
-export default function WorkerApplications() {
-  return <h1>Duyệt hồ sơ thợ</h1>;
+import WorkerApplicationTable from "@/feature/worker-applications/components/worker-application-table";
+
+export default function WorkerApplicationsPage() {
+  return <WorkerApplicationTable />;
 }
