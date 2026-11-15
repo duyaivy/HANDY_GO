@@ -1,4 +1,11 @@
-export default function ComplainitsPage(){
-    return <h1> Quản lý khiếu nại</h1>
+import ComplaintsTable from "@/feature/complainits/components/complaints-table";
+import { Suspense } from "react";
 
+
+export default function ComplaintsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ComplaintsTable />
+    </Suspense>
+  );
 }
