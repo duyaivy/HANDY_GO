@@ -60,13 +60,13 @@ function isRegistrationPayloadMatch(
     // 2. Services: đối chiếu serviceId, title, description, experienceYears
     const existingServices = Array.isArray(existing.services)
       ? [...existing.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
     const dtoServices = Array.isArray(dto.services)
       ? [...dto.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
 
     if (existingServices.length !== dtoServices.length) {
@@ -140,13 +140,13 @@ function isRegistrationPayloadMatch(
     // 4. Evidence Files: url và fileType
     const existingEvidence = Array.isArray(existing.evidenceFiles)
       ? [...existing.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
     const dtoEvidence = Array.isArray(dto.evidenceFiles)
       ? [...dto.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
 
     if (existingEvidence.length !== dtoEvidence.length) {
@@ -210,7 +210,7 @@ export class UserTrustServiceService {
     private readonly cloudinaryService?: CloudinaryService,
     @Optional()
     private readonly catalogClient?: CatalogClient,
-  ) {}
+  ) { }
 
   async getDisplayNames(ids: string[]) {
     return this.db.user.findMany({
@@ -304,14 +304,14 @@ export class UserTrustServiceService {
       const user = existingUser
         ? existingUser
         : await tx.user.create({
-            data: {
-              id: data.userId,
-              fullName: data.fullName,
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
+          data: {
+            id: data.userId,
+            fullName: data.fullName,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
       if (isVersion3) {
         // Unified account: upsert both CustomerProfile and WorkerProfile in same transaction
@@ -810,11 +810,11 @@ export class UserTrustServiceService {
       ],
       customerProfile: u.customerProfile
         ? {
-            id: u.customerProfile.id,
-            bio: u.customerProfile.bio,
-            createdAt: u.customerProfile.createdAt,
-            updatedAt: u.customerProfile.updatedAt,
-          }
+          id: u.customerProfile.id,
+          bio: u.customerProfile.bio,
+          createdAt: u.customerProfile.createdAt,
+          updatedAt: u.customerProfile.updatedAt,
+        }
         : null,
       workerProfile: u.workerProfile,
       bankAccounts: u.bankAccounts,
@@ -1767,9 +1767,9 @@ export class UserTrustServiceService {
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(latitude * (Math.PI / 180)) *
-            Math.cos(areaLat * (Math.PI / 180)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
+          Math.cos(areaLat * (Math.PI / 180)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const dist = R * c;
 
@@ -2381,13 +2381,13 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      // P1-02: Conditional update với status: pending và version để đảm bảo tính nguyên tử, chống lost update
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
-          updatedAt: registration.updatedAt,
+          version: registration.version,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2395,6 +2395,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
@@ -2549,11 +2550,12 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+        version: { increment: 1 },
         updatedAt: new Date(),
       },
     });
@@ -2706,6 +2708,7 @@ export class UserTrustServiceService {
       serviceArea: item.serviceArea,
       evidenceFiles: item.evidenceFiles,
       status: item.status,
+      version: item.version,
       rejectionReason: item.rejectionReason,
       reviewedAt: item.reviewedAt,
       reviewer: item.reviewer,
@@ -2778,6 +2781,7 @@ export class UserTrustServiceService {
         serviceArea: registration.serviceArea,
         evidenceFiles: registration.evidenceFiles,
         status: registration.status,
+        version: registration.version,
         rejectionReason: registration.rejectionReason,
         reviewedAt: registration.reviewedAt,
         reviewer: registration.reviewer,
@@ -2814,6 +2818,25 @@ export class UserTrustServiceService {
       );
     }
 
+    // [P1] Bắt buộc expectedVersion để ngăn duyệt dữ liệu đã bị sửa sau khi Admin mở trang chi tiết
+    if (
+      dto.expectedVersion === undefined ||
+      dto.expectedVersion === null ||
+      typeof dto.expectedVersion !== 'number'
+    ) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp expectedVersion hợp lệ của đơn đăng ký',
+      );
+    }
+
+    if (registration.version !== dto.expectedVersion) {
+      throw new ConflictException(
+        'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+      );
+    }
+
+    const targetVersion = dto.expectedVersion;
+
     const now = new Date();
 
     let reviewerId: string | null = null;
@@ -2833,18 +2856,19 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending và version (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
-            updatedAt: registration.updatedAt,
+            version: targetVersion,
           },
           data: {
             status: 'approved',
             rejectionReason: null,
             reviewedByUserId: reviewerId,
             reviewedAt: now,
+            version: { increment: 1 },
             updatedAt: now,
           },
         });
@@ -2950,13 +2974,14 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: targetVersion,
       },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
         reviewedByUserId: reviewerId,
         reviewedAt: now,
+        version: { increment: 1 },
         updatedAt: now,
       },
     });

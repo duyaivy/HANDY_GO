@@ -353,6 +353,7 @@ model WorkerServiceRegistration {
   evidenceFiles    Json               @map("evidence_files")
   idempotencyKey   String?            @unique @map("idempotency_key") @db.VarChar(128)
   status           RegistrationStatus @default(pending)
+  version          Int                @default(1)
   rejectionReason  String?            @map("rejection_reason") @db.Text
   reviewedByUserId String?            @map("reviewed_by_user_id") @db.Uuid
   reviewedAt       DateTime?          @map("reviewed_at") @db.Timestamptz(6)
