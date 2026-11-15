@@ -25,7 +25,7 @@ export interface WorkerApplicationServiceArea {
 
 export interface WorkerApplicationEvidence {
   url: string;
-  name: string;
+  name?: string;
   fileType: string;
 }
 

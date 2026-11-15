@@ -166,7 +166,7 @@ export default function WorkerApplicationTable() {
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
-  const { data, isLoading, isFetching, isError, error, refetch } =
+  const { data, isLoading, isFetching, isPlaceholderData, isError, error, refetch } =
     useWorkerApplications({
       page: currentPage,
       limit: PAGE_SIZE,
@@ -181,8 +181,24 @@ export default function WorkerApplicationTable() {
   const totalPages = Math.max(1, pagination?.totalPages ?? 1);
   const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
 
-  // Sau khi xét duyệt hoặc thay đổi dữ liệu, trang cuối có thể không còn tồn tại.
-  // Chỉ điều chỉnh khi đã nhận dữ liệu mới để tránh dùng tổng trang cũ.
+  // Chỉ điều chỉnh từ dữ liệu thật của truy vấn thành công, tránh dùng
+  // placeholder cũ khi truy vấn mới đang tải hoặc bị tạm dừng do mất mạng.
+  useEffect(() => {
+    if (
+      !pagination ||
+      isLoading ||
+      isFetching ||
+      isPlaceholderData ||
+      isError ||
+      currentPage <= totalPages
+    ) return;
+
+    const timer = window.setTimeout(() => {
+      setCurrentPage((page) => (page > totalPages ? totalPages : page));
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [pagination, isLoading, isFetching, isPlaceholderData, isError, currentPage, totalPages]);
 
   const visiblePages: (number | "ellipsis-left" | "ellipsis-right")[] = [];
   const windowSize = 5;
@@ -650,7 +666,6 @@ export default function WorkerApplicationTable() {
         id={selectedApplicationId}
         onClose={() => {
           setSelectedApplicationId(null);
-          setCurrentPage(1);
         }}
       />
     </div>

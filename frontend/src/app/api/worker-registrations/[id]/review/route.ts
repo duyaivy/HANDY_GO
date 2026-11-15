@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { forwardBackendResponse } from "../../proxy-response";
 
 export async function POST(
   request: Request,
@@ -25,44 +26,70 @@ export async function POST(
     );
   }
 
+  let body: unknown;
+
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { message: "Dữ liệu yêu cầu không phải JSON hợp lệ" },
+      { status: 400 },
+    );
+  }
 
-    if (body.decision !== "approved" && body.decision !== "rejected") {
-      return NextResponse.json(
-        { message: "Quyết định xét duyệt không hợp lệ" },
-        { status: 400 },
-      );
-    }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return NextResponse.json(
+      { message: "Dữ liệu xét duyệt không hợp lệ" },
+      { status: 400 },
+    );
+  }
 
-    if (!Number.isInteger(body.expectedVersion) || body.expectedVersion < 1) {
-      return NextResponse.json(
-        { message: "Phiên bản hồ sơ không hợp lệ" },
-        { status: 400 },
-      );
-    }
+  const input = body as Record<string, unknown>;
 
-    if (
-      body.decision === "rejected" &&
-      (typeof body.reason !== "string" || !body.reason.trim())
-    ) {
-      return NextResponse.json(
-        { message: "Vui lòng nhập lý do từ chối" },
-        { status: 400 },
-      );
-    }
+  if (input.decision !== "approved" && input.decision !== "rejected") {
+    return NextResponse.json(
+      { message: "Quyết định xét duyệt không hợp lệ" },
+      { status: 400 },
+    );
+  }
 
+  if (
+    typeof input.expectedVersion !== "number" ||
+    !Number.isInteger(input.expectedVersion) ||
+    input.expectedVersion < 1
+  ) {
+    return NextResponse.json(
+      { message: "Phiên bản hồ sơ không hợp lệ" },
+      { status: 400 },
+    );
+  }
+
+  if (
+    input.decision === "rejected" &&
+    (typeof input.reason !== "string" || !input.reason.trim())
+  ) {
+    return NextResponse.json(
+      { message: "Vui lòng nhập lý do từ chối" },
+      { status: 400 },
+    );
+  }
+
+  const requestBody =
+    input.decision === "approved"
+      ? {
+          decision: "approved",
+          expectedVersion: input.expectedVersion,
+        }
+      : {
+          decision: "rejected",
+          expectedVersion: input.expectedVersion,
+          reason: (input.reason as string).trim(),
+        };
+
+  try {
     const backendUrl =
       `${apiEndpoint.replace(/\/$/, "")}` +
       `/admin/worker-registrations/${encodeURIComponent(id)}/review`;
-
-    const requestBody = {
-      decision: body.decision,
-      expectedVersion: body.expectedVersion,
-      ...(typeof body.reason === "string" && body.reason.trim()
-        ? { reason: body.reason.trim() }
-        : {}),
-    };
 
     const response = await fetch(backendUrl, {
       method: "POST",
@@ -75,18 +102,16 @@ export async function POST(
       cache: "no-store",
     });
 
-    const rawText = await response.text();
-    const result = rawText ? JSON.parse(rawText) : null;
-
-    return NextResponse.json(result, {
-      status: response.status,
-    });
+    return await forwardBackendResponse(
+      response,
+      "Không thể xét duyệt đăng ký làm việc",
+    );
   } catch (error) {
     console.error("[POST /api/worker-registrations/:id/review]", error);
 
     return NextResponse.json(
-      { message: "Không thể xét duyệt đăng ký làm việc" },
-      { status: 500 },
+      { message: "Không thể kết nối đến Backend" },
+      { status: 502 },
     );
   }
 }

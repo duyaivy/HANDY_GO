@@ -1,8 +1,9 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { forwardBackendResponse } from "../proxy-response";
 
 export async function GET(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const cookieStore = await cookies();
@@ -16,7 +17,6 @@ export async function GET(
   }
 
   const { id } = await context.params;
-
   const apiEndpoint = process.env.NEXT_PUBLIC_API_ENDPOINT;
 
   if (!apiEndpoint) {
@@ -40,18 +40,16 @@ export async function GET(
       cache: "no-store",
     });
 
-    const rawText = await response.text();
-    const result = rawText ? JSON.parse(rawText) : null;
-
-    return NextResponse.json(result, {
-      status: response.status,
-    });
+    return await forwardBackendResponse(
+      response,
+      "Không thể lấy chi tiết đăng ký làm việc",
+    );
   } catch (error) {
     console.error("[GET /api/worker-registrations/:id]", error);
 
     return NextResponse.json(
-      { message: "Không thể lấy chi tiết đăng ký làm việc" },
-      { status: 500 },
+      { message: "Không thể kết nối đến Backend" },
+      { status: 502 },
     );
   }
 }

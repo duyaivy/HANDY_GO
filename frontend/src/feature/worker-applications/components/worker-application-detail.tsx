@@ -147,7 +147,6 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
         ? {
             decision: "approved",
             expectedVersion,
-            ...(trimmedReason ? { reason: trimmedReason } : {}),
           }
         : { decision: "rejected", reason: trimmedReason, expectedVersion };
     try {
@@ -414,12 +413,14 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                       {application.evidenceFiles.map((file, index) => {
                         const key = `${file.url}-${index}`;
                         const kind = file.fileType?.toLowerCase();
+                        const fileName =
+                          file.name?.trim() || `Minh chứng ${index + 1}`;
                         return kind === "image" ? (
                           <button
                             key={key}
                             type="button"
                             onClick={() =>
-                              setPreview({ url: file.url, name: file.name })
+                              setPreview({ url: file.url, name: fileName })
                             }
                             className="overflow-hidden rounded-xl border border-slate-200 bg-white text-left transition-colors hover:border-orange-300"
                           >
@@ -432,7 +433,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={file.url}
-                                  alt={file.name}
+                                  alt={fileName}
                                   className="size-full object-contain"
                                   onError={() =>
                                     setFailedImages((prev) => ({
@@ -444,7 +445,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                               )}
                             </div>
                             <span className="block truncate px-3 py-2 text-[14px] text-slate-600">
-                              {file.name}
+                              {fileName}
                             </span>
                           </button>
                         ) : kind === "video" ? (
@@ -459,7 +460,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                               className="aspect-video w-full bg-black"
                             />
                             <p className="truncate px-3 py-2 text-[14px] text-slate-600">
-                              {file.name}
+                              {fileName}
                             </p>
                           </div>
                         ) : (
@@ -471,7 +472,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                             className="flex items-center gap-2 rounded-xl border border-slate-200 p-3 text-[14px] text-[#FF5E14] hover:bg-orange-50"
                           >
                             <FileImage className="size-4 shrink-0" />
-                            <span className="break-all">{file.name}</span>
+                            <span className="break-all">{fileName}</span>
                           </a>
                         );
                       })}
@@ -528,33 +529,29 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                         Bạn có chắc chắn muốn phê duyệt hồ sơ này?
                       </p>
                     )}
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="review-reason"
-                        className="block text-sm text-slate-800"
-                      >
-                        {reviewMode === "reject"
-                          ? "Lý do từ chối *"
-                          : "Lý do phê duyệt (không bắt buộc)"}
-                      </label>
-                      <textarea
-                        id="review-reason"
-                        rows={4}
-                        value={reason}
-                        maxLength={1000}
-                        disabled={isPending}
-                        onChange={(event) => {
-                          setReason(event.target.value);
-                          setReviewError("");
-                        }}
-                        placeholder={
-                          reviewMode === "reject"
-                            ? "Nhập lý do từ chối..."
-                            : "Nhập ghi chú phê duyệt (nếu có)..."
-                        }
-                        className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#FF5E14]"
-                      />
-                    </div>
+                    {reviewMode === "reject" && (
+                      <div className="space-y-2">
+                        <label
+                          htmlFor="review-reason"
+                          className="block text-sm text-slate-800"
+                        >
+                          Lý do từ chối *
+                        </label>
+                        <textarea
+                          id="review-reason"
+                          rows={4}
+                          value={reason}
+                          maxLength={1000}
+                          disabled={isPending}
+                          onChange={(event) => {
+                            setReason(event.target.value);
+                            setReviewError("");
+                          }}
+                          placeholder="Nhập lý do từ chối..."
+                          className="w-full rounded-lg border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#FF5E14]"
+                        />
+                      </div>
+                    )}
                     {reviewError && (
                       <p role="alert" className="text-sm text-rose-600">
                         {reviewError}
