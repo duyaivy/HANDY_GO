@@ -49,14 +49,26 @@ CMD ["pnpm", "run", "prisma:migrate"]
 FROM build AS production-dependencies
 # Preserve non-package generated clients across pnpm prune.
 RUN cp -a node_modules/@prisma/auth-client /auth-client \
-    && cp -a node_modules/@prisma/user-trust-client /user-trust-client \
-    && cp -a node_modules/@prisma/notification-client /notification-client \
+    && cp -a node_modules/@prisma/bidding-client /bidding-client \
+    && cp -a node_modules/@prisma/matching-client /matching-client \
     && cp -a node_modules/@prisma/message-client /message-client \
+    && cp -a node_modules/@prisma/notification-client /notification-client \
+    && cp -a node_modules/@prisma/order-client /order-client \
+    && cp -a node_modules/@prisma/payment-client /payment-client \
+    && cp -a node_modules/@prisma/tracking-client /tracking-client \
+    && cp -a node_modules/@prisma/user-trust-client /user-trust-client \
+    && cp -a node_modules/@prisma/wallet-client /wallet-client \
     && pnpm prune --prod \
     && cp -a /auth-client node_modules/@prisma/auth-client \
-    && cp -a /user-trust-client node_modules/@prisma/user-trust-client \
+    && cp -a /bidding-client node_modules/@prisma/bidding-client \
+    && cp -a /matching-client node_modules/@prisma/matching-client \
+    && cp -a /message-client node_modules/@prisma/message-client \
     && cp -a /notification-client node_modules/@prisma/notification-client \
-    && cp -a /message-client node_modules/@prisma/message-client
+    && cp -a /order-client node_modules/@prisma/order-client \
+    && cp -a /payment-client node_modules/@prisma/payment-client \
+    && cp -a /tracking-client node_modules/@prisma/tracking-client \
+    && cp -a /user-trust-client node_modules/@prisma/user-trust-client \
+    && cp -a /wallet-client node_modules/@prisma/wallet-client
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
