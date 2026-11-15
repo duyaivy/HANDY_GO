@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "composite": false
+  },
+  "references": [],
+  "include": [
+    "apps/order-service/src/dashboard/**/*.ts",
+    "apps/order-service/src/order-service.module.ts",
+    "apps/bidding-service/src/bids/dashboard-bids.controller.ts",
+    "apps/bidding-service/src/bidding-service.module.ts",
+    "apps/auth-service/src/internal/dashboard-customers.controller.ts",
+    "apps/auth-service/src/auth-service.module.ts",
+    "apps/api-gateway/src/proxy/proxy.constants.ts"
+  ]
+}

@@ -69,6 +69,7 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/service-requests',
       '/api/v1/booking-proposals',
       '/api/v1/admin/orders',
+      '/api/v1/admin/dashboard',
       '/api/v1/requests',
     ],
     excludeMatch: (pathname: string) =>

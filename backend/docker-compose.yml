@@ -162,6 +162,7 @@ services:
       ORDER_ENABLE_MOCK_VERIFIER: ${ORDER_ENABLE_MOCK_VERIFIER:-true}
       BIDDING_SERVICE_URL: http://bidding-service:3005
       MATCHING_SERVICE_URL: http://matching-service:3006
+      AUTH_SERVICE_URL: http://auth-service:3001
     ports:
       - '3004:3004'
 

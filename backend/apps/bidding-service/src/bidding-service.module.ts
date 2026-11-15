@@ -9,6 +9,8 @@ import { RoundsModule } from './rounds/rounds.module.js';
 import { BidsModule } from './bids/bids.module.js';
 import { BiddingEventsModule } from './events/bidding-events.module.js';
 import { SseModule } from './sse/sse.module.js';
+import { DashboardBidsController } from './bids/dashboard-bids.controller.js';
+import { TrustedGatewayGuard } from './common/guards/trusted-gateway.guard.js';
 
 @Module({
   imports: [
@@ -28,7 +30,7 @@ import { SseModule } from './sse/sse.module.js';
     BiddingEventsModule,
     SseModule,
   ],
-  controllers: [],
-  providers: [],
+  controllers: [DashboardBidsController],
+  providers: [TrustedGatewayGuard],
 })
 export class BiddingServiceModule {}
