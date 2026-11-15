@@ -68,9 +68,9 @@ function formatDate(value?: string | null) {
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 px-3.5 py-2.5 text-[14px]">
-      <span className="shrink-0 text-slate-500">{label}</span>
-      <span className="min-w-0 break-words text-right font-medium text-slate-800">
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg border border-slate-200/80 bg-slate-50/40 px-3.5 py-3 text-[14px]">
+      <span className="text-[13px] text-slate-500">{label}</span>
+      <span className="min-w-0 break-words text-left font-medium text-slate-800">
         {value || "—"}
       </span>
     </div>
@@ -317,7 +317,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                   <h4 className="text-[15px] font-semibold text-slate-900">
                     Thông tin đăng ký
                   </h4>
-                  <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <InfoRow
                       label="Mã hồ sơ thợ"
                       value={
@@ -383,7 +383,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                         <MapPin className="mt-0.5 size-4 shrink-0 text-[#FF5E14]" />
                         <span>{application.serviceArea.address}</span>
                       </div>
-                      <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <InfoRow
                           label="Bán kính phục vụ"
                           value={`${application.serviceArea.radiusKm} km`}
@@ -497,7 +497,7 @@ function DetailContent({ id, onClose }: { id: string; onClose: () => void }) {
                         {statusLabels[application.status]}
                       </span>
                     </div>
-                    <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <InfoRow
                         label="Ngày xét duyệt"
                         value={formatDate(application.reviewedAt)}
