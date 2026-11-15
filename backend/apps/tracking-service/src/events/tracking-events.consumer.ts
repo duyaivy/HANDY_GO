@@ -1,6 +1,11 @@
 import { Controller, Logger } from '@nestjs/common';
 import { Ctx, EventPattern, Payload } from '@nestjs/microservices';
-import { EVENT_PATTERNS } from '@app/common';
+import {
+  EVENT_PATTERNS,
+  type OrderCreatedPayload,
+  type OrderStatusChangedPayload,
+  type ServiceRequestBiddingClosedPayload,
+} from '@app/common';
 import { TrackingEventsService } from './tracking-events.service.js';
 import type { EventEnvelope } from './dto/event-envelope.dto.js';
 
@@ -19,7 +24,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_CREATED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_CREATED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED)
@@ -27,7 +36,23 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_PUBLISHED,
+    );
+  }
+
+  @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED)
+  async handleServiceRequestBiddingClosed(
+    @Payload() data: EventEnvelope<ServiceRequestBiddingClosedPayload>,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_BIDDING_CLOSED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED)
@@ -35,7 +60,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_CANCELLED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED)
@@ -43,7 +72,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.SERVICE_REQUEST_EXPIRED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.SERVICE_REQUEST_CONVERTED_TO_ORDER)
@@ -111,7 +144,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.BIDDING_ROUND_FINALIZED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.BIDDING_ROUND_FINALIZED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.BID_SUBMITTED)
@@ -147,7 +184,11 @@ export class TrackingEventsConsumer {
     @Payload() data: EventEnvelope,
     @Ctx() context: any,
   ): Promise<void> {
-    await this.processEvent(data, context, EVENT_PATTERNS.BOOKING_PROPOSAL_CREATED);
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.BOOKING_PROPOSAL_CREATED,
+    );
   }
 
   @EventPattern(EVENT_PATTERNS.BOOKING_PROPOSAL_CHANGES_REQUESTED)
@@ -204,7 +245,7 @@ export class TrackingEventsConsumer {
 
   @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
   async handleOrderCreated(
-    @Payload() data: EventEnvelope,
+    @Payload() data: EventEnvelope<OrderCreatedPayload>,
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_CREATED);
@@ -212,7 +253,7 @@ export class TrackingEventsConsumer {
 
   @EventPattern(EVENT_PATTERNS.ORDER_STATUS_CHANGED)
   async handleOrderStatusChanged(
-    @Payload() data: EventEnvelope,
+    @Payload() data: EventEnvelope<OrderStatusChangedPayload>,
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_STATUS_CHANGED);
@@ -232,6 +273,26 @@ export class TrackingEventsConsumer {
     @Ctx() context: any,
   ): Promise<void> {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_CANCELLED);
+  }
+
+  @EventPattern(EVENT_PATTERNS.ORDER_DISPUTED)
+  async handleOrderDisputed(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(data, context, EVENT_PATTERNS.ORDER_DISPUTED);
+  }
+
+  @EventPattern(EVENT_PATTERNS.ORDER_REWORK_REQUESTED)
+  async handleOrderReworkRequested(
+    @Payload() data: EventEnvelope,
+    @Ctx() context: any,
+  ): Promise<void> {
+    await this.processEvent(
+      data,
+      context,
+      EVENT_PATTERNS.ORDER_REWORK_REQUESTED,
+    );
   }
 
   // ==========================================================================
@@ -289,10 +350,13 @@ export class TrackingEventsConsumer {
   ): Promise<void> {
     const eventId = data?.eventId || data?.id;
     try {
-      const result = await this.eventsService.recordDomainEvent(data, fallbackPattern);
-      if (result.reason === 'INVALID_PAYLOAD_UNRESOLVABLE_FLOW') {
+      const result = await this.eventsService.recordDomainEvent(
+        data,
+        fallbackPattern,
+      );
+      if (result.reason === 'QUARANTINED_UNRESOLVABLE_FLOW') {
         this.logger.warn(
-          `Message ${eventId} (${fallbackPattern}) acknowledged without recording: invalid payload missing serviceRequestId and orderId.`,
+          `Message ${eventId} (${fallbackPattern}) acknowledged after quarantine.`,
         );
         this.ackMessage(context);
         return;
@@ -311,7 +375,13 @@ export class TrackingEventsConsumer {
   }
 
   private isTransientError(error: any): boolean {
-    if (['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(error?.code)) return true;
+    if (
+      error?.message === 'QUARANTINE_PERSIST_FAILED' ||
+      ['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034'].includes(
+        error?.code,
+      )
+    )
+      return true;
     const msg = error?.message || '';
     return (
       msg.includes('connection') ||

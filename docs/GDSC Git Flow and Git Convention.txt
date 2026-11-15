@@ -1,0 +1,49 @@
+Git Flow and Git Convention
+Good explanations, tips and trick before we build amazing products for our community!
+
+Git Flow
+
+Feature: feature/[Project code]-[ID]-[task_name]
+Bugfix: bugfix/[Project code]-[ID]-[task_name]
+Hotfix: hotfix/[Project code]-[ID]-[task_name]
+
+Eg:
+	feature/SC-2-build_base_code
+	bugfix/SC-3-fix_bug_not_show_header
+	hotfix/SC-4-change_text_color
+Branch name
+Git Convention
+
+Eg:
+	feature/SC-2-build_base_code
+
+SC: Project code (Smartfood Cooking - SC)
+2: Task ID
+build_base_code: Task name
+Branch name
+Git Convention
+
+Commit name: [Project code]-[ID]: [Task name]
+
+Eg: 
+ES-2: Build base code
+Build base FE
+Build base BE
+	
+Commit
+Git Convention
+
+Yêu cầu mô tả nội dung task đang làm, làm những gì, những file thay đổi.
+Eg:
+CHANGE LOG
+Các thay đổi
+Các thay đổi 
+Commit
+Pull Request / Merge Request
+
+Add reviewers
+Phải có ít nhất 1 approve 
+Người approve (và người tạo PR) chịu trách nhiệm về code đã review
+Pull Request / Merge Request
+
+THANK YOU !!!

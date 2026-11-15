@@ -7,7 +7,13 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiHeader, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiHeader,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { buildSuccessResponse } from '@app/common';
 import { InternalSecretGuard } from './guards/internal-secret.guard.js';
 import { InternalOrderService } from './internal-order.service.js';
@@ -25,6 +31,14 @@ import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 export class InternalOrderController {
   constructor(private readonly internalOrderService: InternalOrderService) {}
 
+  @Get('service-requests/:id/chat-state')
+  async getChatState(@Param('id', ParseUUIDPipe) id: string) {
+    return buildSuccessResponse(
+      await this.internalOrderService.getChatState(id),
+      'Chat state',
+    );
+  }
+
   @Get('service-requests/:id/bidding-eligibility')
   @ApiOperation({
     summary: 'Internal check for bidding eligibility (Bidding Service)',
@@ -41,7 +55,10 @@ export class InternalOrderController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query('workerId') workerId?: string,
   ) {
-    const data = await this.internalOrderService.getBiddingEligibility(id, workerId);
+    const data = await this.internalOrderService.getBiddingEligibility(
+      id,
+      workerId,
+    );
     return buildSuccessResponse(
       data,
       'Bidding eligibility retrieved successfully',
@@ -50,7 +67,8 @@ export class InternalOrderController {
 
   @Get('orders/:orderId/payment-eligibility')
   @ApiOperation({
-    summary: 'Internal check for payment settlement eligibility (Payment Service)',
+    summary:
+      'Internal check for payment settlement eligibility (Payment Service)',
     description:
       'Verifies if an Order is completed and returns the exact agreed price as a Decimal string.',
   })

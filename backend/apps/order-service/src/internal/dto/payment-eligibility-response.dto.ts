@@ -34,6 +34,9 @@ export class PaymentEligibilityResponseDto {
   @ApiProperty({ description: 'Whether the order is eligible for final settlement payout' })
   isEligibleForSettlement: boolean;
 
+  @ApiPropertyOptional({ description: 'Original Order completion time', nullable: true })
+  completedAt?: Date | null;
+
   @ApiPropertyOptional({ description: 'Reason if not eligible for settlement' })
   reason?: string;
 }

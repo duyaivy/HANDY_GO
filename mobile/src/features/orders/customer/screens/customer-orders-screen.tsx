@@ -61,7 +61,7 @@ function formatVND(amount: number | string | undefined | null): string {
   return `${n.toLocaleString('vi-VN')}đ`;
 }
 
-function formatOrderCreatedTime(createdAt?: string | null): string {
+function _formatOrderCreatedTime(createdAt?: string | null): string {
   if (!createdAt) {
     return 'Vừa tạo';
   }
@@ -103,11 +103,11 @@ function formatCancelledTime(cancelledAt?: string | null): string {
   }
 }
 
-function getStatusBadge(status: string, createdAt?: string | null) {
+function getStatusBadge(status: string, _createdAt?: string | null) {
   switch (status) {
     case 'created':
       return {
-        label: formatOrderCreatedTime(createdAt),
+        label: 'Chờ thợ nhận việc',
         bg: 'bg-amber-100 dark:bg-amber-950/40',
         text: 'text-amber-800 dark:text-amber-300',
       };
@@ -210,6 +210,9 @@ export function CustomerOrdersScreen({
       const normalized = decodedTab.toLowerCase();
       if (VIETNAMESE_LABEL_MAP[normalized]) {
         return VIETNAMESE_LABEL_MAP[normalized];
+      }
+      if (['draft', 'active', 'in_process', 'in-process'].includes(normalized)) {
+        return 'In process';
       }
     }
     return 'Searching';

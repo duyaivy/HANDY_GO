@@ -9,10 +9,9 @@ import { getSessionVersion, getToken, removeToken, setToken } from '@/lib/auth/u
 
 import { Logger } from '@/services/logger/logger';
 import { ApiError } from './api-error';
+import { privateApiPayload } from './api-log-policy';
 
-export function resolveApiBaseUrl(): string {
-  const configuredUrl = Env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3000/api/v1';
-
+export function resolveApiBaseUrl(configuredUrl = Env.EXPO_PUBLIC_API_URL || 'http://127.0.0.1:3000/api/v1'): string {
   // In development on Android, adapt the URL if running on emulator vs physical device via USB reverse
   if (__DEV__ && Platform.OS === 'android') {
     if (configuredUrl.includes('127.0.0.1') || configuredUrl.includes('localhost') || configuredUrl.includes('10.0.2.2')) {
@@ -53,6 +52,7 @@ export const axiosInstance: AxiosInstance = axios.create({
 
 type CustomRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
+  _retry429?: boolean;
 };
 
 let refreshPromise: Promise<string> | null = null;
@@ -176,11 +176,11 @@ axiosInstance.interceptors.request.use(
       // Ignored if storage is not ready
     }
 
-    Logger.debug('API_REQUEST', `${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, config.data);
+    Logger.debug('API_REQUEST', `${config.method?.toUpperCase()} ${config.baseURL}${config.url}`, privateApiPayload(config.url || '') ? undefined : config.data);
     return config;
   },
   (error) => {
-    Logger.error('API_REQUEST_ERROR', 'Request failed to send', error);
+    Logger.error('API_REQUEST_ERROR', 'Request failed to send');
     return Promise.reject(ApiError.fromAxiosError(error));
   },
 );
@@ -188,7 +188,7 @@ axiosInstance.interceptors.request.use(
 // Response Interceptor: Log response, handle 401 token refresh queue, classify errors
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse) => {
-    Logger.debug('API_RESPONSE', `${response.status} ${response.config.url}`, response.data);
+    Logger.debug('API_RESPONSE', `${response.status} ${response.config.url}`, privateApiPayload(response.config.url || '') ? undefined : response.data);
     return response;
   },
   async (error) => {
@@ -239,16 +239,60 @@ axiosInstance.interceptors.response.use(
       }
     }
 
+    // Only reads can be replayed safely after a rate limit response.
+    const is429 = error.response?.status === 429;
+    const method = originalRequest?.method?.toUpperCase();
+    if (is429 && originalRequest && !originalRequest._retry429 && (method === 'GET' || method === 'HEAD')) {
+      originalRequest._retry429 = true;
+      const retryAfterHeader = error.response?.headers?.['retry-after'];
+      const retryAfterSec = Number(retryAfterHeader);
+      const delayMs = retryAfterHeader != null && String(retryAfterHeader).trim() !== '' && Number.isFinite(retryAfterSec) && retryAfterSec >= 0
+        ? Math.min(retryAfterSec * 1000, 10000)
+        : 2000;
+      Logger.warn('API_RATE_LIMIT_RETRY', `Request 429 rate limited. Retrying after ${Math.round(delayMs)}ms: ${url}`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      if (originalRequest.signal?.aborted) {
+        return Promise.reject(new axios.CanceledError('Request canceled before rate-limit retry', undefined, originalRequest));
+      }
+      return axiosInstance(originalRequest);
+    }
+
     const apiError = ApiError.fromAxiosError(error);
-    Logger.warn('API_RESPONSE_ERROR', `${apiError.kind}: ${apiError.message}`, error?.response?.data);
+    Logger.warn(
+      'API_RESPONSE_ERROR',
+      `${originalRequest?.method?.toUpperCase() || 'REQUEST'} ${url}: ${apiError.kind} (${apiError.statusCode ?? 'no status'}): ${apiError.message}`,
+      apiError.kind === 'RATE_LIMITED' || privateApiPayload(url) ? undefined : error?.response?.data,
+    );
     return Promise.reject(apiError);
   },
 );
 
 /**
+ * Generic request helper wrapping axiosInstance.
+ * Automatically normalizes `/api/v1/` prefix if provided in URL (since baseURL already includes it),
+ * and unwraps standard API success response envelopes ({ statusCode, message, data }).
+ */
+export async function request<T>(config: AxiosRequestConfig): Promise<T> {
+  const normalizedConfig: AxiosRequestConfig = { ...config };
+  if (normalizedConfig.url && normalizedConfig.url.startsWith('/api/v1/')) {
+    normalizedConfig.url = normalizedConfig.url.slice('/api/v1'.length);
+  }
+  const response = await axiosInstance.request<any>(normalizedConfig);
+  const body = response.data;
+  if (body && typeof body === 'object' && 'data' in body && ('statusCode' in body || 'message' in body)) {
+    return body.data as T;
+  }
+  return body as T;
+}
+
+/**
  * Standard API Client with typed helper methods.
  */
 export const ApiClient = {
+  request: async <T>(config: AxiosRequestConfig): Promise<T> => {
+    return request<T>(config);
+  },
+
   get: async <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
     const response = await axiosInstance.get<T>(url, config);
     return response.data;

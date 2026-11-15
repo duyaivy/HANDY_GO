@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsString, ValidateIf } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsString, Min, ValidateIf } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ReviewWorkerRegistrationDto {
@@ -21,5 +21,15 @@ export class ReviewWorkerRegistrationDto {
   @IsNotEmpty({ message: 'Vui lòng cung cấp lý do từ chối' })
   @IsString({ message: 'Lý do từ chối phải là chuỗi ký tự' })
   reason?: string;
+
+  @ApiProperty({
+    description:
+      'Version của đơn đăng ký mà Admin đã xem trên màn hình (bắt buộc để ngăn duyệt dữ liệu đã bị sửa sau khi mở trang)',
+    example: 1,
+  })
+  @IsNotEmpty({ message: 'Vui lòng cung cấp expectedVersion' })
+  @IsInt({ message: 'expectedVersion phải là số nguyên' })
+  @Min(1, { message: 'expectedVersion phải lớn hơn hoặc bằng 1' })
+  expectedVersion!: number;
 }
 

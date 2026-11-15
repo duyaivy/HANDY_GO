@@ -1,4 +1,4 @@
-import { Injectable, type NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, type NestMiddleware } from '@nestjs/common';
 import { ConfigService } from '@app/config';
 import {
   createProxyMiddleware,
@@ -8,6 +8,7 @@ import {
 import type { Request, Response, NextFunction } from 'express';
 import type { Socket } from 'node:net';
 import crypto from 'node:crypto';
+import { validateHeaderValue } from 'node:http';
 import { buildErrorResponse, ERROR_CODES } from '@app/common';
 import { SERVICE_ROUTES, type ServiceRouteConfig } from './proxy.constants.js';
 
@@ -18,6 +19,7 @@ interface RouteHandlerEntry {
 
 @Injectable()
 export class ProxyMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(ProxyMiddleware.name);
   private readonly entries: RouteHandlerEntry[] = [];
 
   constructor(private readonly config: ConfigService) {
@@ -31,7 +33,10 @@ export class ProxyMiddleware implements NestMiddleware {
         route.timeoutMs !== undefined
           ? route.timeoutMs
           : route.timeoutEnvKey
-            ? Number(this.config.get(route.timeoutEnvKey) || this.config.upstreamTimeoutMs)
+            ? Number(
+                this.config.get(route.timeoutEnvKey) ||
+                  this.config.upstreamTimeoutMs,
+              )
             : this.config.upstreamTimeoutMs;
 
       console.log(
@@ -45,7 +50,10 @@ export class ProxyMiddleware implements NestMiddleware {
         proxyTimeout: timeoutMs,
         timeout: timeoutMs,
         ...(route.pathRewrite
-          ? { pathRewrite: (path, req) => route.pathRewrite!(path, req as Request) }
+          ? {
+              pathRewrite: (path, req) =>
+                route.pathRewrite!(path, req as Request),
+            }
           : {}),
         on: {
           proxyReq: (proxyReq, req) => {
@@ -57,7 +65,31 @@ export class ProxyMiddleware implements NestMiddleware {
                 : existingRequestId) || crypto.randomUUID();
 
             proxyReq.setHeader('x-request-id', requestId);
+
+            // Real-time SSE streams: disable gzip buffering by requesting uncompressed identity stream
+            const acceptHeader = String(clientReq.headers['accept'] || '');
+            const isSse =
+              route.upstreamName.endsWith('-sse') ||
+              acceptHeader.includes('text/event-stream');
+
+            if (isSse) {
+              proxyReq.setHeader('accept-encoding', 'identity');
+              proxyReq.setHeader('cache-control', 'no-cache');
+            }
+
             fixRequestBody(proxyReq, req);
+          },
+          proxyRes: (proxyRes, req, res) => {
+            const clientRes = res as Response;
+            const contentType = String(proxyRes.headers['content-type'] || '');
+            const isSse =
+              route.upstreamName.endsWith('-sse') ||
+              contentType.includes('text/event-stream');
+
+            if (isSse && !clientRes.headersSent) {
+              clientRes.setHeader('X-Accel-Buffering', 'no');
+              clientRes.setHeader('Cache-Control', 'no-cache, no-transform');
+            }
           },
           error: (err: Error, req, res) => {
             if (!('writeHead' in res)) {
@@ -87,6 +119,28 @@ export class ProxyMiddleware implements NestMiddleware {
               (Array.isArray(existingRequestId)
                 ? existingRequestId[0]
                 : existingRequestId) || 'unknown';
+
+            this.logger.error({
+              message: 'Upstream proxy request failed',
+              upstream: route.upstreamName,
+              requestId,
+              method: clientReq.method,
+              path: (clientReq.originalUrl || clientReq.url).split('?')[0],
+              errorCode: (err as NodeJS.ErrnoException).code ?? 'UNKNOWN',
+              errorName: err.name,
+              syscall: (err as NodeJS.ErrnoException).syscall,
+              invalidHeaders: Object.entries(clientReq.headers).flatMap(([name, value]) => {
+                try {
+                  if (value === undefined) return [name];
+                  for (const item of Array.isArray(value) ? value : [value]) {
+                    validateHeaderValue(name, item);
+                  }
+                  return [];
+                } catch {
+                  return [name];
+                }
+              }),
+            });
 
             clientRes.status(statusCode).json(
               buildErrorResponse(

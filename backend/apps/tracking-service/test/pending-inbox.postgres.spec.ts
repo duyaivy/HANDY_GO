@@ -20,10 +20,26 @@ describe.skipIf(!url)('PostgreSQL pending inbox durability', () => {
   }
   beforeAll(async () => { await db.$connect(); });
   afterAll(async () => {
+    await db.rejectedTrackingEvent.deleteMany({ where: { eventId: { in: ids } } });
     await db.pendingTrackingEvent.deleteMany({ where: { eventId: { in: ids } } });
     await db.trackingFlow.deleteMany({ where: { serviceRequestId: { in: requests } } });
     await db.consumedEvent.deleteMany({ where: { eventId: { in: ids } } });
     await db.$disconnect();
+  });
+
+  it('persists invalid delivery across service recreation and replays once after mapping repair', async () => {
+    const f = fixture();
+    const envelope = { eventId: f.eventId, eventType: 'order.status.changed', payload: { nextStatus: 'confirmed', accessToken: 'private' } };
+    expect((await service().recordDomainEvent(envelope)).reason).toBe('QUARANTINED_UNRESOLVABLE_FLOW');
+    await service().recordDomainEvent(envelope);
+    expect(await db.rejectedTrackingEvent.count({ where: { eventId: f.eventId } })).toBe(1);
+    const rejected = await db.rejectedTrackingEvent.findUniqueOrThrow({ where: { eventId: f.eventId } });
+    expect(JSON.stringify(rejected.envelope)).not.toContain('private');
+
+    expect((await service().replayRejectedEvent(f.eventId, f.serviceRequestId)).recorded).toBe(true);
+    expect(await db.trackingEvent.count({ where: { eventId: f.eventId } })).toBe(1);
+    expect((await db.rejectedTrackingEvent.findUniqueOrThrow({ where: { eventId: f.eventId } })).resolvedAt).not.toBeNull();
+    expect((await service().replayRejectedEvent(f.eventId, f.serviceRequestId)).reason).toBe('ALREADY_RESOLVED');
   });
 
   it('survives service recreation and duplicate delivery without Redis', async () => {

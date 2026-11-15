@@ -10,6 +10,8 @@ export function useDeadlineClock(deadlines: (string | null | undefined)[], refre
     AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
   );
   const deadlineKey = JSON.stringify(deadlines);
+  // Explicit wall-clock synchronization is needed when deadline inputs or focus change.
+  // eslint-disable-next-line react-hooks-extra/no-direct-set-state-in-use-effect
   const refreshClock = React.useCallback(() => setNow(Date.now()), []);
 
   useFocusEffect(React.useCallback(() => {

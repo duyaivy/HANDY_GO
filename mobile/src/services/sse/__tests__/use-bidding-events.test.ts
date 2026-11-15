@@ -77,6 +77,21 @@ describe('useBiddingEvents Hook Tests', () => {
   const wrapper = ({ children }: { children: React.ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, children);
 
+  it('reads connection state from the transport on open, close and disabled subscriptions', () => {
+    const view = renderHook<ReturnType<typeof useBiddingEvents>, { enabled: boolean }>(({ enabled }) => useBiddingEvents('req-status', { enabled }), { wrapper, initialProps: { enabled: true } });
+    const client = getActiveSseConnection('req-status')!;
+    expect(view.result.current.isConnected).toBe(true);
+    jest.mocked(client.getIsOpen).mockReturnValue(false);
+    act(() => mockListeners.close.forEach(listener => listener(undefined)));
+    expect(view.result.current.isConnected).toBe(false);
+    jest.mocked(client.getIsOpen).mockReturnValue(true);
+    act(() => mockListeners.open.forEach(listener => listener(undefined)));
+    expect(view.result.current.isConnected).toBe(true);
+    view.rerender({ enabled: false });
+    expect(view.result.current.isConnected).toBe(false);
+    view.unmount();
+  });
+
   it('enforces a single active connection per request ID when multiple components mount', () => {
     const requestId = 'req-shared-123';
 

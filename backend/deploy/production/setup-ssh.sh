@@ -3,7 +3,7 @@
 set -euo pipefail
 umask 077
 install -d -m 700 "$HOME/.ssh"
-for role in VPS1 VPS2 VPS3; do
+for role in VPS1 VPS2 VPS3 VPS4; do
   key_name="${role}_SSH_KEY"
   if [[ -z "${!key_name:-}" ]]; then
     echo "::error::Missing production secret $key_name"

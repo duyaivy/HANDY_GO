@@ -40,8 +40,8 @@ Mỗi khi mở một phiên chat mới với AI Agent, hãy luôn ghi nhớ 4 qu
    Mỗi tính năng mới phải là một thư mục độc lập trong `src/<feature-name>/`, bao gồm: Module, Controller, Service, DTO và Test riêng. Cấm tạo controller/service dùng chung ở root.
 3. **Tái sử dụng tối đa (Reuse First):**
    Yêu cầu Agent tra cứu bảng **Reusable Component Registry** trong [AGENTS.md](file:///Users/apple/QUOCDUY/PBL6/backend/AGENTS.md) trước khi code. Đã có `@app/common`, `@app/auth`, `@app/database`, `RateLimiterService`, `PhoneUtil`... thì bắt buộc phải dùng, không tự viết lại.
-4. **Bắt Agent tự cập nhật tài liệu:**
-   Khi Agent vừa tạo một helper hay service có khả năng dùng lại, bắt Agent phải tự cập nhật vào [AGENTS.md](file:///Users/apple/QUOCDUY/PBL6/backend/AGENTS.md).
+4. **Giữ danh mục tái sử dụng có chọn lọc:**
+   Không tự cập nhật `AGENTS.md` sau mỗi task. Chỉ thêm mục khi đã kiểm tra code và xác nhận thành phần được dùng thực tế ở nhiều luồng, hoặc người dùng yêu cầu ghi nhận một API dùng chung. Khả năng “có thể dùng lại” không đủ để thêm mục. Module khởi tạo, controller, DTO, service nghiệp vụ riêng, test factory và file mới không mặc nhiên thuộc danh mục. Với mục đã có, chỉ sửa khi API/đường dẫn thay đổi hoặc xóa khi không còn phù hợp.
 
 ---
 
@@ -92,13 +92,16 @@ Mỗi khi mở một phiên chat mới với AI Agent, hãy luôn ghi nhớ 4 qu
 
 ---
 
-### Bước 4: Tự động cập nhật Registry (Update Registry Prompt)
-*Bảo tồn tri thức cho các phiên code tiếp theo.*
+### Bước 4: Báo cáo kết quả (Completion Report Prompt)
+*Báo cáo thay đổi và kiểm chứng; không coi cập nhật `AGENTS.md` là bước bắt buộc.*
 
 > **Mẫu Prompt (English):**
 > ```markdown
-> During this implementation, did you create or modify any helper, utility function, DTO, RPC client, or service that can be reused across other features or services?
-> If so, immediately update Section 4 ("Reusable Component Registry") in AGENTS.md with the component name, file path, purpose, and usage contract.
+> Report the changes, verification results, and remaining issues.
+> Do not update AGENTS.md merely because a task is complete or a file was created or modified.
+> Add a registry entry only after verifying actual reuse across multiple flows in production code, excluding tests, re-exports, and dependency registration as evidence of reuse, or when the user explicitly requests documenting a shared API.
+> Potential future reuse alone does not qualify. Service-specific bootstrap modules, controllers, DTOs, business services, and test factories do not qualify merely by existing.
+> For existing entries, update changed APIs/paths and remove obsolete entries. Otherwise leave AGENTS.md unchanged.
 > ```
 
 ---

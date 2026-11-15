@@ -84,7 +84,7 @@ Enum refund_status {
 // New commission rule rows are versioned; never rewrite rules already in use.
 Table commission_rules {
   id uuid [pk]
-  rate_percent decimal(5,2) [not null, note: '0.00 - 100.00; e.g. 5.00 = 5%']
+  rate_percent decimal(5,2) [not null, note: 'PO 05/11: 0.00 - 30.00 inclusive; controlled initial seed 10.00, explicit rollout timestamp and real authorized actor required']
   effective_from timestamptz [not null]
   effective_to timestamptz
   is_active boolean [not null, default: true]
@@ -292,15 +292,45 @@ Table refunds {
   reason text [not null]
   idempotency_key varchar(150) [not null, unique]
   wallet_transfer_id uuid [note: 'Logical reference -> Wallet.wallet_transfers.id']
-  provider_refund_id varchar(150)
+  provider_refund_id varchar(150) [note: 'Legacy reserved field; HandyGo refunds only credit backed Point, not VNPAY refund']
   failure_reason text
+  approved_by_user_id uuid
+  approved_at timestamptz
+  rejected_by_user_id uuid
+  rejected_at timestamptz
+  decision_note text
   created_at timestamptz [not null]
   refunded_at timestamptz
   updated_at timestamptz [not null]
 
   indexes {
     (payment_id, created_at)
+    (status, created_at)
   }
+}
+
+Table admin_audit_logs {
+  id uuid [pk]
+  actor_user_id uuid [not null, note: 'Logical reference to verified Admin/audited system actor; no cross-service FK']
+  action varchar(80) [not null]
+  entity_type varchar(40) [not null]
+  entity_id varchar(200) [not null]
+  before_state jsonb
+  after_state jsonb
+  reason text
+  created_at timestamptz [not null]
+
+  indexes {
+    (entity_type, entity_id, created_at)
+    (actor_user_id, created_at)
+  }
+}
+
+Table daily_reconciliation_reports {
+  report_date date [pk, note: 'Vietnam calendar day']
+  summary jsonb [not null, note: 'Local unresolved snapshot only; walletLedgerCompared=false until live ledger comparison exists']
+  discrepancy_count int [not null, default: 0, note: 'Count of unresolved candidates, not proven ledger discrepancies']
+  generated_at timestamptz [not null]
 }
 
 Table outbox_events {
@@ -308,20 +338,40 @@ Table outbox_events {
   aggregate_type varchar(60) [not null]
   aggregate_id uuid [not null]
   event_type varchar(120) [not null]
+  event_version int [not null, default: 1]
   payload jsonb [not null]
+  status varchar(20) [not null, default: 'pending']
+  retry_count int [not null, default: 0]
+  next_retry_at timestamptz [not null]
+  last_error text
   created_at timestamptz [not null]
   published_at timestamptz
-  publish_attempts int [not null, default: 0]
 
   indexes {
-    (published_at, created_at)
+    (status, next_retry_at, created_at)
   }
 }
 
 Table consumed_events {
-  event_id uuid [pk]
+  event_id varchar(200) [pk, note: 'Producer IDs may contain colon; replay preserves original ID']
   event_type varchar(120) [not null]
   consumed_at timestamptz [not null]
+}
+
+Table failed_inbound_events {
+  event_id varchar(200) [pk]
+  event_type varchar(120) [not null]
+  payload jsonb [not null]
+  status varchar(20) [not null, default: 'retrying']
+  attempts int [not null, default: 0]
+  next_retry_at timestamptz [not null]
+  last_error text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (status, next_retry_at)
+  }
 }
 
 Ref: commission_rules.id < payments.commission_rule_id
@@ -334,8 +384,8 @@ Ref: topup_requests.id < provider_notifications.related_topup_id
 Ref: payouts.id < payout_attempts.payout_id
 
 // REQUIRED MIGRATION / SERVICE GUARDS:
-// 1. amounts > 0; payments: platform_fee >= 0; worker_earning >= 0;
-//    platform_fee + worker_earning = amount; commission_rate in [0,100].
+// 1. amounts > 0; payments: platform_fee >= 0; worker_earning > 0;
+//    platform_fee + worker_earning = amount; commission_rate in [0,30].
 // 2. round fee using PostgreSQL ROUND_HALF_UP semantics in VND; store snapshot at
 //    order.created. Publish new non-overlapping commission rule for changes.
 // 3. Do not permit payment before Order.completed; 'awaiting_customer_confirmation'
@@ -350,12 +400,14 @@ Ref: payouts.id < payout_attempts.payout_id
 //    is NOT 'completed': Wallet must credit once and acknowledge. Return URL is UI only.
 // 7. Payout: Mock provider returns SIMULATED outcomes, not actual bank receipts.
 //    Payment emits result; Wallet captures/releases its hold idempotently.
-// 8. Partial refunds: sum of completed/in-flight refundable amounts <= payment.amount.
-//    POINT reversal requires funded transfers; otherwise needs_review/manual handling.
+// 8. Full/partial refunds: reserve pending/processing/needs_review/completed under parent
+//    Payment lock; sum <= payment.amount. Both CASH and POINT refund ONLY to backed Point.
+//    Admin approval is audited; missing funded Wallet/reversal contract => needs_review.
+//    No completed status or refund success event before a committed credit.
 // 9. Only refund or change fees with explicit audited authorization and rule guards.
 // 10. Provider event signatures, duplicates, timeouts, late callbacks and reconciliation
 //     must be handled explicitly. Consume/emit events with inbox/outbox patterns.
 // 11. Service-to-service requests use authentication, idempotency, timeouts and retry.
-// 12. If partial refunds are supported, add partially_refunded to the Order Service
-//     payment_state read projection (Order v3.1 currently has only paid/refunded).
+// 12. Partial refund policy is approved; execution/events remain gated on funded Wallet
+//     operations, commission accounting and Order/Notification consumer compatibility.
 // 13. All TIMESTAMPTZ fields are stored UTC; display dates localized at the edge.

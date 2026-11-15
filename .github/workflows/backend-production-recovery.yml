@@ -54,6 +54,7 @@ jobs:
       VPS1_HOST: ${{ secrets.VPS1_HOST }}
       VPS2_HOST: ${{ secrets.VPS2_HOST }}
       VPS3_HOST: ${{ secrets.VPS3_HOST }}
+      VPS4_HOST: ${{ secrets.VPS4_HOST }}
       DEPLOY_USER: azureuser
       API_DOMAIN: ${{ vars.API_DOMAIN || 'handygo.duyaivy.id.vn' }}
       MODE: ${{ inputs.mode }}
@@ -99,7 +100,10 @@ jobs:
           PY
       - name: Validate recovery automation
         run: |
-          python3 -m unittest discover -s deploy/production/tests -v
+          python3 -m venv "$RUNNER_TEMP/production-validation"
+          VENV_PYTHON="$RUNNER_TEMP/production-validation/bin/python"
+          "$RUNNER_TEMP/production-validation/bin/pip" install --disable-pip-version-check pyyaml==6.0.3
+          "$VENV_PYTHON" -m unittest discover -s deploy/production/tests -v
           bash -n deploy/production/setup-ssh.sh
           docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" rhysd/actionlint:1.7.7 /repo/.github/workflows/backend-production-recovery.yml
       - name: Prepare existing production SSH identities
@@ -107,6 +111,7 @@ jobs:
           VPS1_SSH_KEY: ${{ secrets.VPS1_SSH_KEY }}
           VPS2_SSH_KEY: ${{ secrets.VPS2_SSH_KEY }}
           VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+          VPS4_SSH_KEY: ${{ secrets.VPS4_SSH_KEY }}
         run: bash deploy/production/setup-ssh.sh
       - name: Inspect or reconcile durable host state
         run: |
@@ -138,4 +143,4 @@ jobs:
       - name: Remove recovery runner credentials
         if: always()
         run: |
-          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_known_hosts
+          rm -f ~/.ssh/handygo_vps1 ~/.ssh/handygo_vps2 ~/.ssh/handygo_vps3 ~/.ssh/handygo_vps4 ~/.ssh/handygo_known_hosts

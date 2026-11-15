@@ -10,11 +10,10 @@ import {
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
-import { WrenchIcon } from '@/components/ui/icons';
+import { ChatIcon, WrenchIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { SECONDARY_COLOR } from '@/constants/colors';
-import { RouteNames } from '@/constants/route-names';
 import { WorkerBiddingApi } from '@/features/bidding/api/worker-bidding.api';
 import { WorkerBidModal } from '@/features/bidding/components/worker-bid-modal';
 import { isBeforeDeadline, useDeadlineClock } from '@/features/bidding/hooks/use-deadline-clock';
@@ -86,8 +85,8 @@ export function WorkerHomeScreen() {
     }, [isAuthenticated, user, refetch, refetchMyBids, refreshClock]),
   );
 
-  // Auto-open bidding modal when navigated with ?requestId=... (e.g. from matching notification)
-  React.useEffect(() => {
+  // Handle notification navigation while this screen is focused.
+  useFocusEffect(React.useCallback(() => {
     if (!requestId || !isAuthenticated || !user) {
       return;
     }
@@ -131,22 +130,11 @@ export function WorkerHomeScreen() {
     return () => {
       isCancelled = true;
     };
-  }, [requestId, isAuthenticated, user, jobs]);
+  }, [requestId, isAuthenticated, user, jobs]));
 
   if (!isAuthenticated || !user) {
     return <WorkerGuestOverview />;
   }
-
-  const switchRole = () => {
-    const { isAuthenticated: isAuth, user: currentUser } = useAuthStore.getState();
-    if (isAuth && currentUser) {
-      useAuthStore.getState().setActiveMode('Customer');
-    }
-    else {
-      useAuthStore.getState().setGuestRole('Customer');
-    }
-    router.replace(RouteNames.CUSTOMER_HOME as any);
-  };
 
   const handleOpenBidModal = (job: DiscoverableJobItem) => {
     handledRequestIdRef.current = job.id;
@@ -165,7 +153,7 @@ export function WorkerHomeScreen() {
 
   return (
     <Screen safeArea className="flex-1 bg-neutral-50 dark:bg-neutral-950">
-      {/* Top Bar: Title, Notification Bell & Quick Role Switch */}
+      {/* Top Bar: Title, Chat and Notifications */}
       <View className="flex-row items-center justify-between border-b border-neutral-100 bg-white px-4 py-3 shadow-2xs dark:border-neutral-800 dark:bg-neutral-900">
         <View className="flex-row items-center">
           <WrenchIcon size={22} color={SECONDARY_COLOR} />
@@ -175,19 +163,15 @@ export function WorkerHomeScreen() {
         </View>
 
         <View className="flex-row items-center gap-2">
-          <NotificationBell />
           <Pressable
-            testID="home-role-switch-chip"
-            onPress={switchRole}
             accessibilityRole="button"
-            accessibilityLabel="Đổi sang App Khách"
-            className="flex-row items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 shadow-2xs active:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/40"
+            accessibilityLabel="Tin nhắn"
+            className="size-11 items-center justify-center rounded-full active:bg-neutral-100"
+            onPress={() => router.push('/worker/chat')}
           >
-            <View className="mr-1.5 size-2 rounded-full bg-blue-600" />
-            <Text className="text-xs font-bold text-blue-700 dark:text-blue-300">
-              App Khách ⇄
-            </Text>
+            <ChatIcon />
           </Pressable>
+          <NotificationBell />
         </View>
       </View>
 

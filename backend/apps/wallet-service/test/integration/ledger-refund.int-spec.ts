@@ -50,9 +50,14 @@ describe('ledger locking & double spend (F01)', () => {
         workerEarning: '70',
         platformFee: '10',
       });
-    const results = await Promise.allSettled([attempt(1), attempt(2)]);
+    const results = await Promise.all([attempt(1), attempt(2)]);
 
-    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.map((r) => r.status).sort()).toEqual(['completed', 'failed']);
+    const failed = results.find((r) => r.status === 'failed')!;
+    expect(failed.failureCode).toBe('INSUFFICIENT_FUNDS');
+    expect(await h.payments.getStatus(failed.operationId)).toMatchObject({ status: 'failed', failureCode: 'INSUFFICIENT_FUNDS' });
+    expect(await h.prisma.walletTransaction.count({ where: { operationId: failed.operationId } })).toBe(0);
+    expect(await h.prisma.walletTransaction.count({ where: { direction: 'debit' } })).toBe(1);
     const customer = await balanceOf(h, customerUserId);
     expect(customer.balance).toBe(20n);
     expect(customer.balance).toBeGreaterThanOrEqual(0n);

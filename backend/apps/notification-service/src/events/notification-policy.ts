@@ -24,7 +24,10 @@ export interface PolicyConfiguration {
 }
 
 /** Canonical production event policies for bidding, matching, and proposal flows (BE-05) */
-export const DEFAULT_PRODUCTION_POLICIES: Partial<Record<NotificationEventType, EventPolicy>> = {
+export const DEFAULT_PRODUCTION_POLICIES: Partial<
+  Record<NotificationEventType, EventPolicy>
+> = {
+  'message.created': { mode: 'optional', roles: ['recipient'] },
   'bid.submitted': { mode: 'optional', roles: ['customer'] },
   'bid.revised': { mode: 'optional', roles: ['customer'] },
   'matching.eligible_workers.ready': { mode: 'optional', roles: ['worker'] },
@@ -97,9 +100,14 @@ export class NotificationPolicy {
       this.policies = simulatedPolicies();
       return;
     }
-    const raw = optionalValue(config.get<string>('NOTIFICATION_EVENT_POLICIES'));
+    const raw = optionalValue(
+      config.get<string>('NOTIFICATION_EVENT_POLICIES'),
+    );
     if (!raw) {
-      this.policies = { events: { ...DEFAULT_PRODUCTION_POLICIES }, transitions: {} };
+      this.policies = {
+        events: { ...DEFAULT_PRODUCTION_POLICIES },
+        transitions: {},
+      };
       return;
     }
     let input: unknown;
@@ -114,7 +122,9 @@ export class NotificationPolicy {
       !isRecord(input.transitions)
     )
       throw new Error('INVALID_NOTIFICATION_POLICY_CONFIG');
-    const events: PolicyConfiguration['events'] = { ...DEFAULT_PRODUCTION_POLICIES };
+    const events: PolicyConfiguration['events'] = {
+      ...DEFAULT_PRODUCTION_POLICIES,
+    };
     for (const [key, value] of Object.entries(input.events)) {
       if (!NOTIFICATION_EVENTS.includes(key as NotificationEventType))
         throw new Error('UNKNOWN_NOTIFICATION_POLICY_EVENT');

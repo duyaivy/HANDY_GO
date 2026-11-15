@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { TokenVerifierService } from '@app/auth';
 import { ConfigService } from '@app/config';
 import crypto from 'node:crypto';
+import { validateHeaderValue } from 'node:http';
 import { buildErrorResponse, ERROR_CODES } from '@app/common';
 
 import { isPublicRoute } from './gateway-auth-route.policy.js';
@@ -115,11 +116,23 @@ export class GatewayAuthMiddleware implements NestMiddleware {
     delete req.headers['x-user-roles'];
     delete req.headers['x-user-permissions'];
 
-    // 5. Inject trusted identity headers để forward tới downstream services
-    req.headers['x-user-id'] = payload.userId;
-    req.headers['x-user-account-id'] = payload.sub;
-    req.headers['x-user-roles'] = (payload.roles ?? []).join(',');
-    req.headers['x-user-permissions'] = (payload.permissions ?? []).join(',');
+    // Old tokens may contain localized role names that cannot be sent as HTTP headers.
+    // Return 401 so clients can refresh their session instead of failing in the proxy.
+    try {
+      const identityHeaders = {
+        'x-user-id': payload.userId,
+        'x-user-account-id': payload.sub,
+        'x-user-roles': (payload.roles ?? []).join(','),
+        'x-user-permissions': (payload.permissions ?? []).join(','),
+      };
+      for (const [name, value] of Object.entries(identityHeaders)) {
+        validateHeaderValue(name, value);
+      }
+      Object.assign(req.headers, identityHeaders);
+    } catch {
+      this.logger.warn(`[401] INVALID_TOKEN_CLAIMS requestId=${requestId} ip=${clientIp} method=${method} path=${pathname}`);
+      return buildUnauthorizedResponse(res, req, 'Mã truy cập không hợp lệ. Vui lòng làm mới phiên đăng nhập.');
+    }
 
     (req as any).user = {
       userId: payload.userId,

@@ -33,7 +33,8 @@ try {
     await admin.query(`CREATE DATABASE "${database}"`); // Existing DB => fail; never overwrite.
     created.push(database);
     const target = new URL(url); target.pathname = '/' + database;
-    const schema = service.replaceAll('-', '_') + '_service';
+    // Message owns schema "message"; the other services use the *_service convention.
+    const schema = service === 'message' ? 'message' : service.replaceAll('-', '_') + '_service';
     target.searchParams.set('schema', schema);
     const suffix = service.toUpperCase().replaceAll('-', '_');
     const env = { ...process.env, NODE_ENV: 'production', HANDYGO_MIGRATION: '1',

@@ -285,4 +285,133 @@ describe('apiClient 401 refresh flow', () => {
     expect(getToken()).toBeNull();
     expect(mockOnUnauthorized).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['GET', 'HEAD'])('automatically retries a %s once when receiving 429 Rate Limited', async (method) => {
+    let callCount = 0;
+    axiosInstance.defaults.adapter = async (config: any) => {
+      callCount++;
+      if (callCount === 1) {
+        const error: any = new Error('429');
+        error.isAxiosError = true;
+        error.response = {
+          status: 429,
+          statusText: 'Too Many Requests',
+          headers: { 'retry-after': '0' },
+          config,
+          data: '<html>429 Too Many Requests</html>',
+        };
+        error.config = config;
+        throw error;
+      }
+      return { data: { success: true }, status: 200, statusText: 'OK', headers: {}, config };
+    };
+
+    const res = await axiosInstance.request({ method, url: '/orders' });
+    expect(callCount).toBe(2);
+    expect(res.data).toEqual({ success: true });
+  });
+
+  it.each(['post', 'put', 'patch', 'delete'])('does not replay %s after 429', async (method) => {
+    let attempts = 0;
+    axiosInstance.defaults.adapter = async (config: any) => {
+      attempts++;
+      const error: any = new Error('429');
+      error.config = config;
+      error.response = { status: 429, headers: { 'retry-after': '0' }, config, data: '<html>429 Too Many Requests</html>' };
+      throw error;
+    };
+
+    const request = axiosInstance.request({ method, url: '/orders/order-123/evidences', data: { clientEvidenceId: 'evidence-123' } });
+    await expect(request).rejects.toMatchObject({ kind: 'RATE_LIMITED', statusCode: 429 });
+    expect(attempts).toBe(1);
+  });
+
+  it('stops retrying GET after the second 429', async () => {
+    let attempts = 0;
+    axiosInstance.defaults.adapter = async (config: any) => {
+      attempts++;
+      const error: any = new Error('429');
+      error.config = config;
+      error.response = { status: 429, headers: { 'retry-after': '0' }, config, data: {} };
+      throw error;
+    };
+    await expect(ApiClient.get('/orders')).rejects.toMatchObject({ kind: 'RATE_LIMITED' });
+    expect(attempts).toBe(2);
+  });
+
+  it('caps Retry-After at ten seconds for GET', async () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      axiosInstance.defaults.adapter = async (config: any) => {
+        attempts++;
+        if (attempts === 1) {
+          const error: any = new Error('429');
+          error.config = config;
+          error.response = { status: 429, headers: { 'retry-after': '3600' }, config, data: {} };
+          throw error;
+        }
+        return { data: { ok: true }, status: 200, statusText: 'OK', headers: {}, config };
+      };
+      const request = ApiClient.get('/orders');
+      await jest.advanceTimersByTimeAsync(9999);
+      expect(attempts).toBe(1);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(request).resolves.toEqual({ ok: true });
+      expect(attempts).toBe(2);
+    }
+    finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('uses two seconds when Retry-After is invalid', async () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      axiosInstance.defaults.adapter = async (config: any) => {
+        attempts++;
+        if (attempts === 1) {
+          const error: any = new Error('429');
+          error.config = config;
+          error.response = { status: 429, headers: { 'retry-after': 'invalid' }, config, data: {} };
+          throw error;
+        }
+        return { data: { ok: true }, status: 200, statusText: 'OK', headers: {}, config };
+      };
+      const request = ApiClient.get('/orders');
+      await jest.advanceTimersByTimeAsync(1999);
+      expect(attempts).toBe(1);
+      await jest.advanceTimersByTimeAsync(1);
+      await expect(request).resolves.toEqual({ ok: true });
+    }
+    finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not send a canceled GET again after the 429 delay', async () => {
+    jest.useFakeTimers();
+    try {
+      let attempts = 0;
+      axiosInstance.defaults.adapter = async (config: any) => {
+        attempts++;
+        const error: any = new Error('429');
+        error.config = config;
+        error.response = { status: 429, headers: { 'retry-after': '2' }, config, data: {} };
+        throw error;
+      };
+      const controller = new AbortController();
+      const request = axiosInstance.get('/orders', { signal: controller.signal });
+      const rejection = expect(request).rejects.toMatchObject({ code: 'ERR_CANCELED' });
+      await jest.advanceTimersByTimeAsync(0);
+      controller.abort();
+      await jest.advanceTimersByTimeAsync(2000);
+      await rejection;
+      expect(attempts).toBe(1);
+    }
+    finally {
+      jest.useRealTimers();
+    }
+  });
 });

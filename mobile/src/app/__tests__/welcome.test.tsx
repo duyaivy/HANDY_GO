@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { PRIMARY_COLOR, SECONDARY_COLOR } from '@/constants/colors';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';

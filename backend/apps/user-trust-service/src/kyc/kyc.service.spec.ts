@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KycService } from './kyc.service.js';
 import { EVENT_PATTERNS } from '@app/common';
@@ -227,6 +227,30 @@ describe('KycService', () => {
       await expect(
         service.reviewKycCase('admin-1', 'case-1', { decision: 'approved' }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('throws BadRequestException if KYC case is not in reviewing status', async () => {
+      repoMock.reviewKycCaseByAdmin.mockRejectedValue(
+        new BadRequestException(
+          "Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: 'submitted'.",
+        ),
+      );
+
+      await expect(
+        service.reviewKycCase('admin-1', 'case-1', { decision: 'approved' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rethrows ConflictException when concurrent review conflict occurs', async () => {
+      repoMock.reviewKycCaseByAdmin.mockRejectedValue(
+        new ConflictException(
+          'Hồ sơ KYC đã được xử lý bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.',
+        ),
+      );
+
+      await expect(
+        service.reviewKycCase('admin-1', 'case-1', { decision: 'approved' }),
+      ).rejects.toThrow(ConflictException);
     });
   });
 

@@ -31,6 +31,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
+import { ChatEntry } from '@/features/chat/chat-entry';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
@@ -865,10 +866,10 @@ export default function CustomerBookingRadarRoute() {
         `Bạn đã chọn thợ ${worker.name} với giá ${worker.priceText}. Đề xuất đã được gửi thành công và đang chờ thợ xác nhận nhận việc.`,
         [
           {
-            text: 'Xem hoạt động',
+            text: 'Xem đơn hàng',
             onPress: () => router.push({
               pathname: RouteNames.CUSTOMER_ORDERS,
-              params: { tab: 'Draft' },
+              params: { tab: 'In process' },
             } as any),
           },
           {
@@ -902,10 +903,10 @@ export default function CustomerBookingRadarRoute() {
           `Bạn đã gửi đề xuất cho thợ ${worker.name} rồi và đang chờ thợ xác nhận. Vui lòng kiểm tra trạng thái trong mục Hoạt động.`,
           [
             {
-              text: 'Xem hoạt động',
+              text: 'Xem đơn hàng',
               onPress: () => router.push({
                 pathname: RouteNames.CUSTOMER_ORDERS,
-                params: { tab: 'Draft' },
+                params: { tab: 'In process' },
               } as any),
             },
             {
@@ -1320,15 +1321,7 @@ export default function CustomerBookingRadarRoute() {
                                           : null}
                                       </Pressable>
 
-                                      <Pressable
-                                        onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                        className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                      >
-                                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                          <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                        </Svg>
-                                      </Pressable>
+                                      <ChatEntry bidId={worker.sourceBidId} name={worker.name} />
                                     </View>
 
                                     {/* Tags */}
@@ -1494,15 +1487,6 @@ export default function CustomerBookingRadarRoute() {
                                             : null}
                                         </Pressable>
 
-                                        <Pressable
-                                          onPress={() => router.push(`${RouteNames.CUSTOMER_CHAT}?workerId=${worker.id}&name=${encodeURIComponent(worker.name)}` as any)}
-                                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                          className="size-7 items-center justify-center rounded-xl bg-[#2563EB] active:opacity-80"
-                                        >
-                                          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                                            <Path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                          </Svg>
-                                        </Pressable>
                                       </View>
 
                                       {/* Tags */}

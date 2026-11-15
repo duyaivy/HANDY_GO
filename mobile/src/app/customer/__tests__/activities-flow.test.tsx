@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { WorkerDetailScreen } from '@/features/catalog';
 import { CustomerOrderDetailScreen, CustomerOrdersScreen } from '@/features/orders/customer';

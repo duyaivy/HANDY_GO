@@ -38,6 +38,7 @@ enum DeliveryStatus {
 }
 
 enum NotificationCategory {
+  chat
   request
   matching
   bidding

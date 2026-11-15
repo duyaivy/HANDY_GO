@@ -15,3 +15,9 @@ PublicKey = REPLACE_VPS3_PUBLIC_KEY
 Endpoint = REPLACE_VPS3_PUBLIC_IP:51820
 AllowedIPs = 10.77.0.3/32
 PersistentKeepalive = 25
+
+[Peer]
+PublicKey = REPLACE_VPS4_PUBLIC_KEY
+Endpoint = REPLACE_VPS4_PUBLIC_IP:51820
+AllowedIPs = 10.77.0.4/32
+PersistentKeepalive = 25

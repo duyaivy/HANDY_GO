@@ -1,3 +1,4 @@
+import { ChatSessionController } from './internal/chat-session.controller.js';
 import { Module } from '@nestjs/common';
 import { LoggerModule } from '@app/logger';
 import { ConfigModule } from '@app/config';
@@ -8,6 +9,7 @@ import { OtpModule } from './otp/otp.module.js';
 import { LoginModule } from './login/login.module.js';
 
 @Module({
+  controllers: [ChatSessionController],
   imports: [
     ConfigModule.forRoot({
       serviceName: 'auth-service',

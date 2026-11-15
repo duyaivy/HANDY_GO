@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import {
   BellIcon,
+  ChatIcon,
   OrdersIcon,
   SparklesIcon,
   WalletIcon,
@@ -18,6 +19,7 @@ type CategoryStyle = {
 };
 
 const CATEGORY_STYLES: Record<string, CategoryStyle> = {
+  chat: { Icon: ChatIcon, bgColor: 'bg-blue-100 dark:bg-blue-950/60', iconColor: '#2563EB' },
   order: {
     Icon: OrdersIcon,
     bgColor: 'bg-blue-100 dark:bg-blue-950/60',

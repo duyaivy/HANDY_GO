@@ -26,7 +26,7 @@ export function databasePoolConfig(connectionString: string, service: string): P
   }
   return {
     connectionString,
-    max: integer(raw ?? '1', key, 100),
+    max: integer(raw ?? '5', key, 100),
     connectionTimeoutMillis: integer(process.env.DB_POOL_TIMEOUT_MS?.trim() || '5000', 'DB_POOL_TIMEOUT_MS', 60000),
     idleTimeoutMillis: integer(process.env.DB_POOL_IDLE_MS?.trim() || '10000', 'DB_POOL_IDLE_MS', 300000),
     application_name: `handygo-${service}`,

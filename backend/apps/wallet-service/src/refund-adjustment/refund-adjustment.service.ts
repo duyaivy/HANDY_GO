@@ -23,9 +23,16 @@ export class RefundAdjustmentService {
     const idempotencyKey = `refund:${dto.refundId}`;
 
     return this.ledger.prisma.$transaction(async (tx) => {
+      // Serialize all refunds and replays for this payment before reading reservations.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dto.paymentId}))::text`;
       // --- Replay check (J fix: also verify owner) ---
       const existing = await tx.walletTransfer.findUnique({ where: { idempotencyKey } });
       if (existing) {
+        const metadata = existing.metadata as Record<string, unknown> | null;
+        if ((dto.method === 'cash' && (metadata?.cashGrossAmount !== dto.grossAmount || metadata?.customerUserId !== userId)) ||
+            (dto.method !== 'cash' && metadata?.cashGrossAmount !== undefined)) {
+          throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.CONFLICT, 'Refund funding payload changed');
+        }
         if (existing.operationId !== operationId || existing.totalAmount !== amount || existing.kind !== 'refund') {
           throw new AppException(HttpStatus.CONFLICT, ERROR_CODES.VALIDATION_ERROR, 'Refund retry payload does not match the original operation');
         }
@@ -41,14 +48,45 @@ export class RefundAdjustmentService {
         return { ...existing, idempotentReplay: true };
       }
 
+      if (dto.method === 'cash') {
+        if (process.env.NODE_ENV === 'production')
+          throw new RefundNeedsReviewException('Cash refund funding is sandbox-only pending Finance approval');
+        if (!dto.grossAmount) throw new RefundNeedsReviewException('Cash refund requires an authorized gross amount');
+        const previous = await tx.walletTransfer.findMany({ where: { kind: 'refund', operationId: { startsWith: `${dto.paymentId}:refund:` } } });
+        for (const row of previous) {
+          const metadata = row.metadata as Record<string, unknown> | null;
+          if (metadata?.cashGrossAmount !== dto.grossAmount || metadata?.customerUserId !== userId)
+            throw new RefundNeedsReviewException('Cash funding snapshot does not match');
+        }
+        if (previous.reduce((sum, row) => sum + row.totalAmount, 0n) + amount > BigInt(dto.grossAmount))
+          throw new RefundNeedsReviewException('Refund exceeds original cash amount');
+        const originalPoint = await tx.walletTransfer.findFirst({ where: { kind: 'payment', status: 'completed', operationId: { startsWith: `${dto.paymentId}:` } } });
+        if (originalPoint) throw new RefundNeedsReviewException('Cash refund contradicts existing Point settlement');
+        const customer = await tx.wallet.findUnique({ where: { userId } });
+        const fund = await tx.wallet.findUnique({ where: { systemKey: 'PLATFORM_FEES' } });
+        if (!customer || !fund || customer.id === fund.id) throw new RefundNeedsReviewException('Refund funding wallets unavailable');
+        try {
+          const transfer = await this.ledger.createBalancedTransferInTx(tx, { operationId, idempotencyKey, kind: 'refund', postings: [
+            { walletId: fund.id, direction: 'debit', amount, type: 'refund_recovery', referenceId: dto.paymentId },
+            { walletId: customer.id, direction: 'credit', amount, type: 'refund_credit', referenceId: dto.paymentId },
+          ] });
+          const metadata = transfer.metadata as Record<string, string>;
+          await tx.walletTransfer.update({ where: { id: transfer.id }, data: { metadata: { ...metadata, cashGrossAmount: dto.grossAmount, customerUserId: userId } } });
+          await tx.walletAuditLog.create({ data: { actorId: SYSTEM_ACTOR_ID, targetUserId: userId, action: 'wallet.cash_refund', reason: 'Approved Payment refund funded from PLATFORM_FEES', transferId: transfer.id, metadata: { paymentId: dto.paymentId, refundId: dto.refundId, grossAmount: dto.grossAmount } } });
+          return transfer;
+        } catch {
+          throw new RefundNeedsReviewException('Cash refund funding unavailable');
+        }
+      }
+
       // --- Find original payment and lock it (A fix: lock prevents concurrent over-refund) ---
-      const original = await tx.walletTransfer.findFirst({ where: { operationId: { startsWith: `${dto.paymentId}:` }, kind: 'payment' } });
+      const original = await tx.walletTransfer.findFirst({ where: { operationId: { startsWith: `${dto.paymentId}:` }, kind: 'payment', status: 'completed' } });
       if (!original) throw new AppException(HttpStatus.NOT_FOUND, ERROR_CODES.NOT_FOUND, 'Original payment transfer not found');
 
       // Lock the payment transfer row to serialize concurrent refunds on the same payment
       await tx.$queryRaw`SELECT id FROM "wallet_service"."wallet_transfers" WHERE id = ${original.id}::uuid FOR UPDATE`;
 
-      const entries = await tx.walletTransaction.findMany({ where: { transferId: original.id } });
+      const entries = await tx.walletTransaction.findMany({ where: { transferId: original.id }, orderBy: { walletId: 'asc' } });
       const customerEntry = entries.find((entry) => entry.direction === 'debit');
       const sources = entries.filter((entry) => entry.direction === 'credit');
       if (!customerEntry || sources.length === 0) throw new RefundNeedsReviewException('Refund needs review: original payment postings/sources are incomplete');

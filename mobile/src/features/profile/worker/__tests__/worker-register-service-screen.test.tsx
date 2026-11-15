@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unnecessary-use-prefix */
 import * as React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { DeviceLocationService } from '@/services/location/device-location';
@@ -7,6 +6,7 @@ import { WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerRegisterServiceScreen } from '../screens/worker-register-service-screen';
 
+let mockRouteParams: { editRegistrationId?: string; registrationData?: string } = {};
 const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
@@ -18,7 +18,7 @@ jest.mock('expo-router', () => ({
     replace: mockReplace,
     canGoBack: () => true,
   }),
-  useLocalSearchParams: () => ({}),
+  useLocalSearchParams: () => mockRouteParams,
 }));
 
 afterEach(() => {
@@ -33,6 +33,7 @@ afterEach(() => {
 
 describe('workerRegisterServiceScreen (Step-by-Step Flow)', () => {
   beforeEach(() => {
+    mockRouteParams = {};
     useAuthStore.setState({
       isAuthenticated: true,
       user: {
@@ -102,6 +103,26 @@ describe('workerRegisterServiceScreen (Step-by-Step Flow)', () => {
     });
 
     jest.spyOn(MapboxService, 'reverseGeocode').mockResolvedValue('456 Lê Duẩn, Tân Chính, Thanh Khê, Đà Nẵng');
+  });
+
+  it('initializes an edit form and discards the previous draft when switching registrations', async () => {
+    mockRouteParams = {
+      editRegistrationId: 'first',
+      registrationData: JSON.stringify({ categoryIds: ['cat-dien-lanh'], services: [{ serviceId: 'svc-vesinh', title: 'First service', experienceYears: 5, description: 'First description' }] }),
+    };
+    const view = render(<WorkerRegisterServiceScreen />);
+    expect(screen.getByTestId('service-title-input')).toHaveProp('value', 'First service');
+    expect(screen.getByTestId('service-description-input')).toHaveProp('value', 'First description');
+    fireEvent.changeText(screen.getByTestId('service-title-input'), 'Unsaved draft');
+    mockRouteParams = {
+      editRegistrationId: 'second',
+      registrationData: JSON.stringify({ categoryIds: ['cat-dien-lanh'], services: [{ serviceId: 'svc-vesinh', title: 'Second service' }] }),
+    };
+    view.rerender(<WorkerRegisterServiceScreen />);
+    expect(screen.getByTestId('service-title-input')).toHaveProp('value', 'Second service');
+    expect(screen.getByTestId('service-description-input')).toHaveProp('value', '');
+    expect(screen.getByTestId('service-experience-input')).toHaveProp('value', '3');
+    expect(await screen.findByTestId('step-3-info-container')).toBeOnTheScreen();
   });
 
   it('1. Step 1 only displays categories with image and search bar, then moves to Step 2 upon selection', async () => {

@@ -5,6 +5,8 @@ export interface PublicRouteRule {
 }
 
 export const PUBLIC_ROUTE_RULES: readonly PublicRouteRule[] = [
+  { path: '/api/v1/payments/topups/vnpay/ipn', methods: ['GET'], match: 'exact' },
+  { path: '/api/v1/payments/topups/vnpay/return', methods: ['GET'], match: 'exact' },
   // Auth endpoints (exact match, POST only)
   { path: '/api/v1/auth/login', methods: ['POST'], match: 'exact' },
   { path: '/api/v1/auth/register', methods: ['POST'], match: 'exact' },

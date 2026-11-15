@@ -158,7 +158,7 @@ describe.skipIf(!databaseUrl)(
       vi.unstubAllEnvs();
     });
 
-    it('runs independently and exposes all nine documented operations with response schemas', async () => {
+    it('runs independently and exposes all ten documented operations with response schemas', async () => {
       await request(app.getHttpServer()).get('/health').expect(200);
       const document = SwaggerModule.createDocument(
         app,
@@ -167,11 +167,13 @@ describe.skipIf(!databaseUrl)(
       const operations = Object.entries(document.paths)
         .filter(([path]) => path.startsWith(base))
         .flatMap(([, methods]) => Object.values(methods));
-      expect(operations).toHaveLength(9);
+      expect(operations).toHaveLength(10);
       for (const operation of operations) {
         expect(operation.security).toEqual([{ bearer: [] }]);
         expect(
-          operation.responses['200'].content['application/json'].schema.$ref,
+          (operation.responses['200'] ?? operation.responses['201']).content[
+            'application/json'
+          ].schema.$ref,
         ).toBeTruthy();
       }
       expect(document.paths[`${base}/send`]).toBeUndefined();
@@ -285,7 +287,7 @@ describe.skipIf(!databaseUrl)(
       expect(await db.deviceToken.count({ where: { userId: other } })).toBe(0);
     });
 
-    it('supports token-only idempotency and refuses token theft or installation collisions', async () => {
+    it('supports token-only idempotency and retires the previous binding during account and installation changes', async () => {
       const dto = { platform: 'ios', pushToken: 'shared-token' };
       const first = await request(app.getHttpServer())
         .post(`${base}/devices`)
@@ -302,7 +304,17 @@ describe.skipIf(!databaseUrl)(
         .post(`${base}/devices`)
         .set(headers(other))
         .send(dto)
-        .expect(409);
+        .expect(200);
+      expect(
+        await db.deviceToken.count({
+          where: { userId: owner, isActive: true },
+        }),
+      ).toBe(0);
+      expect(
+        await db.deviceToken.count({
+          where: { userId: other, isActive: true },
+        }),
+      ).toBe(1);
       await request(app.getHttpServer())
         .delete(`${base}/devices/${first.body.data.id}`)
         .set(headers(other))
@@ -316,8 +328,12 @@ describe.skipIf(!databaseUrl)(
         .post(`${base}/devices`)
         .set(headers())
         .send({ ...dto, deviceId: 'different' })
-        .expect(409);
-      expect(await db.deviceToken.count()).toBe(1);
+        .expect(200);
+      expect(
+        await db.deviceToken.count({
+          where: { isActive: true, pushToken: dto.pushToken },
+        }),
+      ).toBe(1);
     });
 
     it('serializes simultaneous duplicate registrations', async () => {
@@ -338,7 +354,7 @@ describe.skipIf(!databaseUrl)(
       expect(await db.deviceToken.count()).toBe(1);
     });
 
-    it('allows only one owner to claim the same token concurrently', async () => {
+    it('serializes concurrent account rebinding with exactly one active token owner', async () => {
       const results = await Promise.all(
         [owner, other].map((userId) =>
           request(app.getHttpServer())
@@ -351,11 +367,14 @@ describe.skipIf(!databaseUrl)(
             }),
         ),
       );
-      expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
-      expect(await db.deviceToken.count()).toBe(1);
+      expect(results.map((result) => result.status).sort()).toEqual([200, 200]);
       expect(
-        results.find((result) => result.status === 409)!.text,
-      ).not.toContain('contested-token');
+        await db.deviceToken.count({
+          where: { isActive: true, pushToken: 'contested-token' },
+        }),
+      ).toBe(1);
+      for (const result of results)
+        expect(result.text).not.toContain('contested-token');
     });
 
     it('enforces database deduplication, foreign keys and the DBML delivery constraints', async () => {

@@ -1,0 +1,59 @@
+# Message Service security design
+
+Phase 1 provides tested validators/policy and database constraints. Network handlers, authority endpoints, session introspection, media binding and moderation enforcement are Phase 2 dependencies. No deployed access-control claim is made.
+
+## Identity, trust and admission
+
+Reuse `libs/auth/src/token-verifier.service.ts` for JWT RS256/issuer/audience/expiry/type validation. Repository `JwtPayload.sub` is accountId; `userId` is marketplace identity and is the only participant/sender/read identity. Require exp/userId/sid and active session/account for chat even where legacy verifier permits sparse payloads. Roles (`Customer`/`Worker`) affect UI but never replace participant ownership. No administrator bypass to private conversation history is implicit in v1.
+
+Socket handshake uses `auth.token`, never URL query or logs. Reject unsupported origins with explicit allowlist. Do not trust CORS as authorization. Terminate sockets at exp, verify active account/session at connect and each sensitive operation, and eject user rooms on trusted suspension/deletion/revocation signal. Existing TokenVerifier verifies cryptographic token validity; it does **not** check session revocation. Phase 2 must implement bounded internal Auth session introspection keyed by sid/accountId/userId or equivalent trusted revocation projection with conservative TTL; fail closed if unavailable for new writes. Never claim immediate revocation from the existing library alone. Reconnect requires a refreshed valid token.
+
+REST reuses existing Gateway JWT guard and trusted service identity propagation. Message endpoints themselves still enforce membership and active identity; forged headers cannot substitute for trusted transport. Internal HTTP endpoints require configured service credentials (`x-internal-secret` where consistent with owner), constant-time comparison and network restriction; Gateway-propagated headers use the existing gateway-secret convention. Do not expose `/internal` publicly via Gateway/Nginx. WireGuard alone is insufficient service authorization. Prefer scoped per-caller secrets in future, provisioned outside Phase 1; no production secrets are changed here.
+
+CREATE resolves bid/request/worker/customer internally. READ checks immutable Message-owned pair. SEND checks current Bidding and Order authorities and authenticated actor; references/payloads cannot grant access. Read-state userId is server derived. JOIN checks READ, typing checks SEND and all events reauthorize regardless of rooms. Closing events disable typing and remove obsolete subscriptions as needed; historical pair membership continues. Generic 404 for absent/nonparticipant conversation prevents enumeration. An unattached or forged reply ID returns REPLY_NOT_FOUND without exposing the other conversation. SQL composite FK backs this runtime check.
+
+## Media: actual existing capability and required gap
+
+Actual owner is API Gateway (`apps/api-gateway/src/uploads/uploads.controller.ts`) using shared `libs/cloudinary/src/cloudinary.service.ts`. Authenticated global Gateway guards protect uploads. Existing `POST /api/v1/uploads/image` accepts multipart `file`, validates declared MIME/size and streams to Cloudinary; returns `{assetId,publicId,url,resourceType,format,width,height,bytes}` in common envelope. Existing `POST /api/v1/uploads/video/init` accepts `{fileName,fileSize,mimeType,checksumSha256?}` and returns `{uploadId,cloudName,apiKey,timestamp,signature,publicId,folder,resourceType,uploadUrl,chunkSize}`. Mobile uploads chunks directly to Cloudinary using X-Unique-Upload-Id and Content-Range until `done:true`. The upload signature authorizes upload, **not private viewing**. Existing image uploader uses public upload defaults and returned secure_url; no authenticated media-access ledger, upload-owner persistence or private delivery is implemented. Video init metadata/checksum is declared client input, not evidence that bytes were uploaded correctly.
+
+Reuse those APIs/provider; do not build a second uploader/provider. For chat, Phase 2 must extend the existing upload integration with an owner-bound receipt (actor userId + exact storageKey + intended resource type), provider-confirmed completion/metadata and private/authenticated delivery configuration. Provider Admin API/resource lookup verifies actual resource type/format/bytes/dimensions/duration; magic-byte inspection/provider processing may be required because declared MIME is spoofable. A publicId prefix or the client's assetId/url/signature proves neither ownership nor privacy. Keep shared `validateMediaReferences` policy **false** unless independent lookup says verified, ready, private, owned by sender and matching message type. If the required receipt/private capability is unavailable, reject attachments with MEDIA_UNVERIFIED while TEXT can proceed. Do not silently fall back to public assets.
+
+Chat caps: IMAGE JPEG/PNG/WebP ≤10 MiB each, at most4; VIDEO MP4/QuickTime/WebM ≤100 MiB, exactly1. Apply the lower of chat and existing upload configuration limits. Reject SVG, mismatched MIME/resource type, incomplete uploads, foreign owner, unknown reference and oversized files. Store storageKey plus verified metadata, never binary data or permanent provider URL in PostgreSQL. `ChatAttachment.url` is generated after READ check using existing provider's supported private signed delivery, expires in at most 5 minutes; never log it. An expired URL is refreshed by GET conversation messages; no unimplemented refresh route is promised. Protect against arbitrary URL fetch/SSRF by accepting only storage keys and provider SDK lookups. Previously public assets must not be retroactively advertised as private; new private chat uploads need provider delivery integration. Existing public delivery semantics are a security gap blocking media enablement, documented rather than hidden.
+
+## Validation, rate limits and logging
+
+All client inputs pass portable validators then server-owned authorization. Reject unknown props, invalid UUID/sequence, null optional fields, arbitrary user IDs and raw media URLs. HTTP parsers normalize decimal query `limit` to an integer with strict range checks before shared validator (reject arrays, decimals/NaN/blank/ambiguous repeated query values). Limit HTTP JSON body and Socket.IO frame/serialized message to 16 KiB. Max content4000 UTF-16 code units; bigint sequence strings never Number(). Parameterize all SQL, including decoded cursor values. Authenticated HMAC conversation-list cursors bind user and version; historical sequence cursors are safe only when every SQL query is scoped to the authorized conversation.
+
+Initial per-user send limit20/10sec and60/min; REST create20/min, history/list120/min; socket join/read120/min; typing at most1 start/sec/conversation/socket; max10 sockets/user. Local in-memory counters for one instance must bound memory/expire entries; future multi-instance shared counters accompany adapter scaling. Return RATE_LIMITED with retry delay; production tuning is Phase 2. Do not create Redis as initial persistence dependency.
+
+PR #68 hardening: both typing start and stop consume user (120/min), socket
+(40/10sec), and socket/conversation (4/sec) budgets before session verification,
+database access or permission checks. The existing 1 start/sec budget also applies
+before that work. Pending authenticated handshakes count toward the ten-socket
+limit; disconnect and transport close release their reservations.
+
+Session introspection evidence expires five seconds after verification starts;
+expired evidence is never extended on Auth failure. Revocation can therefore
+remain unseen within that cache window; this is bounded caching, not immediate
+revocation. Permission evidence also expires no later than its bid's `validUntil`.
+Deployment remains limited to one Message Service process until shared admission
+counters and cross-instance socket event delivery are implemented and tested.
+
+Image intake uses the configured `CLOUDINARY_IMAGE_MAX_SIZE_MB` limit (10 MiB
+default) in Multer before the handler, with one file and bounded form fields.
+JPEG/PNG/WebP MIME and matching signatures are checked before provider upload;
+Cloudinary remains responsible for decoding the complete image. Chat retains its
+10 MiB image and 100 MiB video business caps; actual provider bytes/type/owner
+are verified before attachment acceptance. Keep Nginx's 12 MiB body ceiling large
+enough for the 10 MiB image plus multipart overhead; changing the generic image
+cap requires checking the edge limit too.
+
+Use existing `@app/logger` Pino request correlation and redaction. Audit IDs, operation, eventId/correlationId, result code and timing, with no message content/draft, rejected text, access/refresh tokens, service secrets, upload signatures, signed URLs, full provider error or DB connection strings. Retry logs use existing safeOutboxError pattern. Operational metrics count rejects, authority timeouts, sequence conflicts and outbox age. Least-privilege database runtime role gets schema usage/table rights and needed sequences only; migration role owns only `message`; no cross-service SELECT or REFERENCES. See DATABASE-DESIGN for actual provisioning and migration checks.
+
+## Durability and residual risks
+
+Persist message/attachments/outbox atomically, ACK after commit. Sender/clientMessageId replay compares canonical persisted payload; no second message/event. SQL serializes per-conversation sequence allocation, validates participant sender/read state, bounds media and protects same-conversation replies. Runtime still checks metadata ownership, requester identity, original eligibility and current lifecycle; constraints do not authenticate a caller with arbitrary SQL credentials.
+
+RabbitMQ carries durable cross-service notifications/lifecycle reconciliation; direct socket broadcast does not require a broker round trip. Outbox and consumer inbox retries are at least once. Clients dedupe and REST-resync all sequence gaps. No exactly-once claim and no global ordering between different conversations. Do not block socket handlers with synchronous provider/moderation work; bounded async verification can return retryable failures before persistence.
+
+Cross-service online authority reads have a documented race with a concurrent upstream lifecycle mutation after read. Events are used to invalidate locally; this is not distributed serializability. Current session revocation/private media authorization/reporting do not yet exist as usable chat integrations. Phase 2 must implement and verify them before enabling corresponding production features. Retention/DSAR/support moderation privileges require an approved operational policy; Phase 1 never destroys data on lifecycle transitions or introduces an administrative history backdoor.

@@ -58,6 +58,45 @@ describe.skipIf(!databaseUrl || !rabbitUrl || !serviceUrl || !gatewaySecret)('ru
     expect(await db.pendingTrackingEvent.count({ where: { eventId: pendingId } })).toBe(0);
   });
 
+  it('records the Order bidding-close event once and reports closure without a round-close event', async () => {
+    const f = fixture(), customerId = randomUUID();
+    const publishedId = f.eventId(), openedId = f.eventId(), closedId = f.eventId();
+    const biddingClosedAt = new Date().toISOString();
+    await publish('service_request.published', {
+      eventId: publishedId, eventType: 'service_request.published',
+      serviceRequestId: f.serviceRequestId, customerUserId: customerId,
+    });
+    await waitFor(async () => (await db.trackingEvent.count({ where: { eventId: publishedId } })) === 1);
+    await publish('bidding.round.opened', {
+      eventId: openedId, eventType: 'bidding.round.opened',
+      serviceRequestId: f.serviceRequestId, roundId: randomUUID(),
+    });
+    await waitFor(async () => (await db.trackingEvent.count({ where: { eventId: openedId } })) === 1);
+    const closePayload = {
+      eventId: closedId, eventType: 'service_request.bidding_closed',
+      serviceRequestId: f.serviceRequestId, customerUserId: customerId,
+      biddingClosedAt,
+    };
+    await publish('service_request.bidding_closed', closePayload);
+    await publish('service_request.bidding_closed', closePayload);
+    await waitFor(async () => (await db.trackingEvent.count({ where: { eventId: closedId } })) === 1);
+    expect(await db.trackingEvent.count({ where: { eventId: closedId } })).toBe(1);
+
+    const headers = { 'x-internal-secret': gatewaySecret!, 'x-user-id': customerId, 'x-user-roles': 'Customer' };
+    const summaryResponse = await fetch(`${serviceUrl}/api/v1/tracking/requests/${f.serviceRequestId}/summary`, { headers });
+    expect(summaryResponse.status).toBe(200);
+    const summary = (await summaryResponse.json()).data;
+    expect(summary.serviceRequest.status).toBe('bidding_closed');
+    expect(summary.serviceRequest.biddingClosedAt).toBe(biddingClosedAt);
+    expect(summary.currentPhase).toBe('BIDDING_CLOSED');
+    expect(summary.bidding.status).toBe('open');
+
+    const timelineResponse = await fetch(`${serviceUrl}/api/v1/tracking/requests/${f.serviceRequestId}/timeline`, { headers });
+    expect(timelineResponse.status).toBe(200);
+    const timeline = (await timelineResponse.json()).data;
+    expect(timeline.items.filter((event: { eventId: string }) => event.eventId === closedId)).toHaveLength(1);
+  });
+
   it('streams an event over the running Compose HTTP SSE endpoint', async () => {
     const f = fixture(), customerId = randomUUID();
     await publish('service_request.created', { eventId: f.eventId(), eventType: 'service_request.created', serviceRequestId: f.serviceRequestId, customerId });

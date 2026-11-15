@@ -16,6 +16,7 @@ export class NotificationResponseDto {
       'payment',
       'wallet',
       'system',
+      'chat',
     ],
   })
   category!: string;

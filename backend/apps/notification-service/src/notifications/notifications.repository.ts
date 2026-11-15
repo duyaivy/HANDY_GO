@@ -13,6 +13,16 @@ const notificationSelect = {
   updatedAt: true,
 } satisfies Prisma.NotificationSelect;
 
+// Missing/NULL visibility is a legacy in-app notification. PostgreSQL JSON path
+// comparisons alone yield UNKNOWN for missing keys, so NOT(false) drops them.
+const visibleNotification: Prisma.NotificationWhereInput = {
+  OR: [
+    { payload: { equals: Prisma.DbNull } },
+    { payload: { path: ['inAppVisible'], equals: Prisma.AnyNull } },
+    { NOT: { payload: { path: ['inAppVisible'], equals: false } } },
+  ],
+};
+
 @Injectable()
 export class NotificationsRepository {
   constructor(private readonly db: NotificationPrismaService) {}
@@ -43,12 +53,7 @@ export class NotificationsRepository {
         recipientUserId: userId,
         readAt:
           isRead === undefined ? undefined : isRead ? { not: null } : null,
-        NOT: {
-          payload: {
-            path: ['inAppVisible'],
-            equals: false,
-          },
-        },
+        AND: [visibleNotification],
         ...(cursor
           ? {
               OR: [
@@ -69,12 +74,7 @@ export class NotificationsRepository {
       where: {
         recipientUserId: userId,
         readAt: null,
-        NOT: {
-          payload: {
-            path: ['inAppVisible'],
-            equals: false,
-          },
-        },
+        AND: [visibleNotification],
       },
     });
   }
@@ -84,12 +84,7 @@ export class NotificationsRepository {
       where: {
         id,
         recipientUserId: userId,
-        NOT: {
-          payload: {
-            path: ['inAppVisible'],
-            equals: false,
-          },
-        },
+        AND: [visibleNotification],
       },
       select: notificationSelect,
     });
@@ -113,12 +108,7 @@ export class NotificationsRepository {
       where: {
         recipientUserId: userId,
         readAt: null,
-        NOT: {
-          payload: {
-            path: ['inAppVisible'],
-            equals: false,
-          },
-        },
+        AND: [visibleNotification],
       },
       data: { readAt: new Date() },
     });

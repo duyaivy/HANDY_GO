@@ -1,6 +1,7 @@
 import type { AuthSessionData, AuthUser, LoginPayload, VerifyOtpPayload } from '@/services/auth/auth-api';
 import { create } from 'zustand';
 import { StorageKeys } from '@/constants/storage-keys';
+import { chatSocket } from '@/features/chat/chat-socket';
 import { queryClient } from '@/lib/api/query-client';
 import { getToken, hydrateTokens, removeToken, setToken } from '@/lib/auth/utils';
 import { storage } from '@/lib/storage';
@@ -249,6 +250,7 @@ const _useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
+    chatSocket.clear();
     set({ isLoading: true });
     try {
       await cleanupNotificationsBeforeLogout(get().user?.id).catch(() => {});
@@ -258,6 +260,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
       }
     }
     finally {
+      await queryClient.cancelQueries({ queryKey: ['chat'] });
+      queryClient.removeQueries({ queryKey: ['chat'] });
       await queryClient.cancelQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['user-profile'] });

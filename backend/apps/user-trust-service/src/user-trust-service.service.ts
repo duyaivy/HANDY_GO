@@ -60,13 +60,13 @@ function isRegistrationPayloadMatch(
     // 2. Services: đối chiếu serviceId, title, description, experienceYears
     const existingServices = Array.isArray(existing.services)
       ? [...existing.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
     const dtoServices = Array.isArray(dto.services)
       ? [...dto.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
 
     if (existingServices.length !== dtoServices.length) {
@@ -140,13 +140,13 @@ function isRegistrationPayloadMatch(
     // 4. Evidence Files: url và fileType
     const existingEvidence = Array.isArray(existing.evidenceFiles)
       ? [...existing.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
     const dtoEvidence = Array.isArray(dto.evidenceFiles)
       ? [...dto.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
 
     if (existingEvidence.length !== dtoEvidence.length) {
@@ -210,7 +210,14 @@ export class UserTrustServiceService {
     private readonly cloudinaryService?: CloudinaryService,
     @Optional()
     private readonly catalogClient?: CatalogClient,
-  ) {}
+  ) { }
+
+  async getDisplayNames(ids: string[]) {
+    return this.db.user.findMany({
+      where: { id: { in: [...new Set(ids)] } },
+      select: { id: true, fullName: true, avatarUrl: true },
+    });
+  }
 
   /**
    * `active` chỉ nghĩa là user đang active; KHÔNG chứng minh tài khoản ngân hàng đã được ngân hàng xác minh.
@@ -297,14 +304,14 @@ export class UserTrustServiceService {
       const user = existingUser
         ? existingUser
         : await tx.user.create({
-            data: {
-              id: data.userId,
-              fullName: data.fullName,
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
+          data: {
+            id: data.userId,
+            fullName: data.fullName,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
       if (isVersion3) {
         // Unified account: upsert both CustomerProfile and WorkerProfile in same transaction
@@ -803,11 +810,11 @@ export class UserTrustServiceService {
       ],
       customerProfile: u.customerProfile
         ? {
-            id: u.customerProfile.id,
-            bio: u.customerProfile.bio,
-            createdAt: u.customerProfile.createdAt,
-            updatedAt: u.customerProfile.updatedAt,
-          }
+          id: u.customerProfile.id,
+          bio: u.customerProfile.bio,
+          createdAt: u.customerProfile.createdAt,
+          updatedAt: u.customerProfile.updatedAt,
+        }
         : null,
       workerProfile: u.workerProfile,
       bankAccounts: u.bankAccounts,
@@ -1315,21 +1322,49 @@ export class UserTrustServiceService {
       }
 
       const now = new Date();
-      let worker = await tx.workerProfile.findUnique({
+      const worker = await tx.workerProfile.findUnique({
         where: { userId },
       });
 
-      if (worker) {
-        await tx.workerProfile.update({
-          where: { id: worker.id },
-          data: {
-            status: 'verified',
-            verifiedAt: now,
-            approvedAt: now,
-            updatedAt: now,
-          },
+      if (!worker) {
+        this.logger.warn(`Worker profile not found for user ${userId} in ${eventType}`);
+        return;
+      }
+
+      let caseToUpdate: any = null;
+
+      if (payload?.kycCaseId) {
+        // [P2] Event đã chỉ rõ kycCaseId -> chỉ kiểm tra đúng case đó, tuyệt đối không fallback sang active case
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
         });
 
+        if (!targetCase) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} not found for user ${userId}. Ignoring event.`,
+          );
+          return;
+        }
+
+        if (targetCase.workerProfileId !== worker.id) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} belongs to worker ${targetCase.workerProfileId}, not ${worker.id}. Ignoring.`,
+          );
+          return;
+        }
+
+        // [P1] Chặn sự kiện kyc.completed đến muộn ghi đè quyết định KYC:
+        // Cả hai trạng thái cuối (approved, rejected) đều không được cập nhật lại, và không đổi WorkerProfile!
+        if (targetCase.status === 'approved' || targetCase.status === 'rejected') {
+          this.logger.log(
+            `[${eventType}] KycCase ${targetCase.id} is already in final state '${targetCase.status}'. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = targetCase;
+      } else {
+        // Chỉ fallback tìm active case khi event KHÔNG có kycCaseId (legacy event)
         const activeCase = await tx.kycCase.findFirst({
           where: {
             workerProfileId: worker.id,
@@ -1338,17 +1373,47 @@ export class UserTrustServiceService {
           orderBy: { createdAt: 'desc' },
         });
 
-        if (activeCase) {
-          await tx.kycCase.update({
-            where: { id: activeCase.id },
-            data: {
-              status: 'approved',
-              reviewedAt: now,
-              updatedAt: now,
-            },
-          });
+        if (!activeCase) {
+          this.logger.log(
+            `[${eventType}] No active KYC case in draft/submitted/reviewing for worker ${worker.id}. Skipping.`,
+          );
+          return;
         }
+
+        caseToUpdate = activeCase;
       }
+
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseToUpdate.id,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
+        },
+        data: {
+          status: 'approved',
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
+      }
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: {
+          status: 'verified',
+          verifiedAt: now,
+          approvedAt: now,
+          updatedAt: now,
+        },
+      });
     });
 
     this.logger.log(`KYC completed (approved) processed for user ${userId}`);
@@ -1389,79 +1454,99 @@ export class UserTrustServiceService {
       }
 
       const now = new Date();
-      let worker = await tx.workerProfile.findUnique({
+      const worker = await tx.workerProfile.findUnique({
         where: { userId },
       });
 
       if (!worker) {
-        let user = await tx.user.findUnique({ where: { id: userId } });
-        if (!user) {
-          user = await tx.user.create({
-            data: {
-              id: userId,
-              fullName: 'HandyGo Worker',
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
-        }
-        worker = await tx.workerProfile.create({
-          data: {
-            id: crypto.randomUUID(),
-            userId,
-            status: 'rejected',
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
-      } else {
-        await tx.workerProfile.update({
-          where: { id: worker.id },
-          data: { status: 'rejected', updatedAt: now },
-        });
+        this.logger.warn(`Worker profile not found for user ${userId} in ${eventType}`);
+        return;
       }
 
-      const reason = payload?.reason || payload?.message || 'Xác minh AI không thành công';
+      const reason = payload?.reason || payload?.note || payload?.message || 'Xác minh AI không thành công';
       const similarity = payload?.similarity ? Number(payload.similarity) : null;
+      let caseToUpdate: any = null;
 
-      const activeCase = await tx.kycCase.findFirst({
+      // 1. Nếu payload có kycCaseId cụ thể, kiểm tra đúng hồ sơ đó
+      if (payload?.kycCaseId) {
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
+        });
+
+        if (!targetCase) {
+          // [P2] Event đã chỉ rõ kycCaseId nhưng không tìm thấy -> log cảnh báo và bỏ qua, tuyệt đối không fallback sang case khác!
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} not found for user ${userId}. Ignoring event.`,
+          );
+          return;
+        }
+
+        // Đảm bảo case thuộc đúng worker
+        if (targetCase.workerProfileId !== worker.id) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} belongs to worker ${targetCase.workerProfileId}, not ${worker.id}. Ignoring.`,
+          );
+          return;
+        }
+
+        // [P1] Nếu case đã ở trạng thái kết thúc (rejected hoặc approved), không cập nhật lại
+        // và [P1] KHÔNG được chuyển trạng thái WorkerProfile (ví dụ: hồ sơ cũ rejected không được làm thợ đã verified bị rejected)!
+        if (targetCase.status === 'rejected' || targetCase.status === 'approved') {
+          this.logger.log(
+            `[${eventType}] KycCase ${targetCase.id} is already in final state '${targetCase.status}'. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = targetCase;
+      } else {
+        // Chỉ fallback tìm active case khi event thực sự KHÔNG có kycCaseId (legacy event)
+        const activeCase = await tx.kycCase.findFirst({
+          where: {
+            workerProfileId: worker.id,
+            status: { in: ['draft', 'submitted', 'reviewing'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (!activeCase) {
+          this.logger.log(
+            `[${eventType}] No active KYC case in draft/submitted/reviewing for worker ${worker.id}. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = activeCase;
+      }
+
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
         where: {
-          workerProfileId: worker.id,
+          id: caseToUpdate.id,
           status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
         },
-        orderBy: { createdAt: 'desc' },
+        data: {
+          status: 'rejected',
+          reviewNote: reason,
+          aiSimilarityScore: similarity ?? caseToUpdate.aiSimilarityScore,
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
       });
 
-      if (activeCase) {
-        await tx.kycCase.update({
-          where: { id: activeCase.id },
-          data: {
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity ?? activeCase.aiSimilarityScore,
-            reviewedAt: now,
-            updatedAt: now,
-          },
-        });
-      } else {
-        await tx.kycCase.create({
-          data: {
-            id: crypto.randomUUID(),
-            workerProfileId: worker.id,
-            idDocumentType: 'CCCD',
-            documentFrontRef: '',
-            selfieRef: '',
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity,
-            submittedAt: now,
-            reviewedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
       }
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: { status: 'rejected', updatedAt: now },
+      });
     });
 
     this.logger.log(`KYC failed processed for user ${userId}: ${payload?.reason || 'unspecified'}`);
@@ -1545,20 +1630,42 @@ export class UserTrustServiceService {
       throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
     }
 
+    if (kycCase.status !== 'reviewing') {
+      throw new BadRequestException(
+        `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
+      );
+    }
+
     const now = new Date();
     const isApproved = decision === 'approved';
 
     const updated = await this.db.$transaction(async (tx: any) => {
-      const updatedCase = await tx.kycCase.update({
-        where: { id: kycCaseId },
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: kycCaseId,
+          status: 'reviewing',
+          version: kycCase.version,
+        },
         data: {
           status: isApproved ? 'approved' : 'rejected',
           reviewedByUserId: adminUserId,
           reviewedAt: now,
           reviewNote: note || null,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException(
+          'Hồ sơ KYC đã được xử lý bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.',
+        );
+      }
+
+      const updatedCase = (await tx.kycCase.findUnique({
+        where: { id: kycCaseId },
+        include: { workerProfile: true },
+      }))!;
 
       await tx.workerProfile.update({
         where: { id: kycCase.workerProfileId },
@@ -1660,9 +1767,9 @@ export class UserTrustServiceService {
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(latitude * (Math.PI / 180)) *
-            Math.cos(areaLat * (Math.PI / 180)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
+          Math.cos(areaLat * (Math.PI / 180)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const dist = R * c;
 
@@ -2274,13 +2381,13 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      // P1-02: Conditional update với status: pending và version để đảm bảo tính nguyên tử, chống lost update
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
-          updatedAt: registration.updatedAt,
+          version: registration.version,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2288,6 +2395,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
@@ -2442,11 +2550,12 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+        version: { increment: 1 },
         updatedAt: new Date(),
       },
     });
@@ -2599,6 +2708,7 @@ export class UserTrustServiceService {
       serviceArea: item.serviceArea,
       evidenceFiles: item.evidenceFiles,
       status: item.status,
+      version: item.version,
       rejectionReason: item.rejectionReason,
       reviewedAt: item.reviewedAt,
       reviewer: item.reviewer,
@@ -2671,6 +2781,7 @@ export class UserTrustServiceService {
         serviceArea: registration.serviceArea,
         evidenceFiles: registration.evidenceFiles,
         status: registration.status,
+        version: registration.version,
         rejectionReason: registration.rejectionReason,
         reviewedAt: registration.reviewedAt,
         reviewer: registration.reviewer,
@@ -2707,6 +2818,25 @@ export class UserTrustServiceService {
       );
     }
 
+    // [P1] Bắt buộc expectedVersion để ngăn duyệt dữ liệu đã bị sửa sau khi Admin mở trang chi tiết
+    if (
+      dto.expectedVersion === undefined ||
+      dto.expectedVersion === null ||
+      typeof dto.expectedVersion !== 'number'
+    ) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp expectedVersion hợp lệ của đơn đăng ký',
+      );
+    }
+
+    if (registration.version !== dto.expectedVersion) {
+      throw new ConflictException(
+        'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+      );
+    }
+
+    const targetVersion = dto.expectedVersion;
+
     const now = new Date();
 
     let reviewerId: string | null = null;
@@ -2726,18 +2856,19 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending và version (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
-            updatedAt: registration.updatedAt,
+            version: targetVersion,
           },
           data: {
             status: 'approved',
             rejectionReason: null,
             reviewedByUserId: reviewerId,
             reviewedAt: now,
+            version: { increment: 1 },
             updatedAt: now,
           },
         });
@@ -2843,13 +2974,14 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: targetVersion,
       },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
         reviewedByUserId: reviewerId,
         reviewedAt: now,
+        version: { increment: 1 },
         updatedAt: now,
       },
     });

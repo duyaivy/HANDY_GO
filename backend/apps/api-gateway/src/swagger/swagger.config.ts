@@ -93,6 +93,10 @@ export function setupSwagger(app: INestApplication): void {
           url: '/docs/specs/tracking-service',
         },
         {
+          name: 'Message Service',
+          url: '/docs/specs/message-service',
+        },
+        {
           name: 'Gateway Root & Health',
           url: '/docs-json',
         },

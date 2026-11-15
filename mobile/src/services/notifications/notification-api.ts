@@ -3,7 +3,7 @@ import { ApiClient } from '@/services/api/api-client';
 // Verified against docs/contracts/notification-service.openapi.json.
 export type NotificationRecord = {
   id: string;
-  category: 'request' | 'matching' | 'bidding' | 'proposal' | 'order' | 'payment' | 'wallet' | 'system';
+  category: 'request' | 'matching' | 'bidding' | 'proposal' | 'order' | 'payment' | 'wallet' | 'system' | 'chat';
   title: string;
   body: string;
   payload: Record<string, unknown> | null;

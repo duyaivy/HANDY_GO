@@ -46,6 +46,24 @@ describe('TrackingEventsConsumer', () => {
     expect(channelMock.ack).toHaveBeenCalledTimes(1);
   });
 
+  it('ACKs an unresolvable event only after durable quarantine', async () => {
+    let persist!: (value: any) => void;
+    eventsServiceMock.recordDomainEvent.mockReturnValue(new Promise(resolve => { persist = resolve; }));
+    const delivery = consumer.handleOrderStatusChanged({ eventId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    persist({ recorded: false, reason: 'QUARANTINED_UNRESOLVABLE_FLOW' });
+    await delivery;
+    expect(channelMock.ack).toHaveBeenCalledOnce();
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('requeues when PostgreSQL cannot persist the quarantine record', async () => {
+    eventsServiceMock.recordDomainEvent.mockRejectedValue(new Error('QUARANTINE_PERSIST_FAILED'));
+    await consumer.handleOrderStatusChanged({ eventId: randomUUID() }, contextMock);
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+  });
+
   it('should acknowledge message upon successful event recording', async () => {
     eventsServiceMock.recordDomainEvent.mockResolvedValue({ recorded: true });
 
@@ -61,6 +79,24 @@ describe('TrackingEventsConsumer', () => {
       'service_request.published',
     );
     expect(channelMock.ack).toHaveBeenCalled();
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('routes bidding-close events to tracking and ACKs duplicate delivery', async () => {
+    const payload = { eventId: randomUUID(), serviceRequestId: randomUUID() };
+    eventsServiceMock.recordDomainEvent
+      .mockResolvedValueOnce({ recorded: true })
+      .mockResolvedValueOnce({ recorded: false, reason: 'ALREADY_CONSUMED' });
+
+    await consumer.handleServiceRequestBiddingClosed(payload, contextMock);
+    await consumer.handleServiceRequestBiddingClosed(payload, contextMock);
+
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenCalledTimes(2);
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenCalledWith(
+      payload,
+      'service_request.bidding_closed',
+    );
+    expect(channelMock.ack).toHaveBeenCalledTimes(2);
     expect(channelMock.nack).not.toHaveBeenCalled();
   });
 

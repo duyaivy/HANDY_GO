@@ -2,9 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import type { ApiResponseEnvelope } from '@app/common';
 
 export class InitVideoUploadResponseDto {
+  type?: 'authenticated';
+  context?: string;
+  overwrite?: false;
 
   @ApiProperty({
-    description: 'Mã UUID duy nhất đại diện cho phiên upload chunk (sử dụng trong header X-Unique-Upload-Id)',
+    description:
+      'Mã UUID duy nhất đại diện cho phiên upload chunk (sử dụng trong header X-Unique-Upload-Id)',
     example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
   })
   uploadId!: string;
@@ -52,13 +56,15 @@ export class InitVideoUploadResponseDto {
   resourceType!: string;
 
   @ApiProperty({
-    description: 'Đường dẫn URL trực tiếp đến endpoint upload video của Cloudinary',
+    description:
+      'Đường dẫn URL trực tiếp đến endpoint upload video của Cloudinary',
     example: 'https://api.cloudinary.com/v1_1/my-cloud-name/video/upload',
   })
   uploadUrl!: string;
 
   @ApiProperty({
-    description: 'Dung lượng khuyến nghị cho mỗi chunk (tính bằng bytes, ví dụ 20MB = 20971520 bytes)',
+    description:
+      'Dung lượng khuyến nghị cho mỗi chunk (tính bằng bytes, ví dụ 20MB = 20971520 bytes)',
     example: 20971520,
   })
   chunkSize!: number;
@@ -83,4 +89,3 @@ export class InitVideoUploadApiResponseDto implements ApiResponseEnvelope<InitVi
   })
   data!: InitVideoUploadResponseDto;
 }
-

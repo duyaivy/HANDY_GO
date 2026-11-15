@@ -1,6 +1,8 @@
 import { isISO8601, isUUID } from 'class-validator';
+import type { MessageCreatedEvent } from '../../../../libs/common/src/message-contracts/types.js';
 
 export const NOTIFICATION_EVENTS = [
+  'message.created',
   'matching.eligible_workers.ready',
   'matching.completed',
   'bid.submitted',
@@ -39,6 +41,7 @@ type WalletData = {
 };
 
 export interface EventDataMap {
+  'message.created': MessageCreatedEvent['data'];
   'matching.eligible_workers.ready': {
     requestId: string;
     matchingRunId: string;
@@ -97,6 +100,16 @@ const proposal = ['proposalId', 'requestId', 'customerId', 'workerId'];
 const order = ['orderId', 'customerId', 'workerId'];
 const wallet = ['walletOwnerId', 'transactionId'];
 export const EVENT_CONTRACTS = {
+  'message.created': {
+    source: 'message-service',
+    ids: [
+      'messageId',
+      'conversationId',
+      'requestId',
+      'senderId',
+      'recipientId',
+    ],
+  },
   'matching.eligible_workers.ready': {
     source: 'matching-service',
     ids: ['requestId', 'matchingRunId', 'chunkId'],
@@ -168,11 +181,15 @@ export function validateNotificationEvent(
   const contract = EVENT_CONTRACTS[type as NotificationEventType];
   const source =
     envelope.source === undefined
-      ? (envelope.sourceService === undefined ? envelope.producer : envelope.sourceService)
+      ? envelope.sourceService === undefined
+        ? envelope.producer
+        : envelope.sourceService
       : envelope.source;
   const version =
     envelope.eventVersion === undefined
-      ? (envelope.version === undefined ? 1 : envelope.version)
+      ? envelope.version === undefined
+        ? 1
+        : envelope.version
       : envelope.eventVersion;
   const rawData =
     envelope.data !== undefined ? envelope.data : envelope.payload;
@@ -188,7 +205,8 @@ export function validateNotificationEvent(
     !isUUID(envelope.eventId) ||
     source !== contract.source ||
     (envelope.producer !== undefined && envelope.producer !== source) ||
-    (envelope.sourceService !== undefined && envelope.sourceService !== source) ||
+    (envelope.sourceService !== undefined &&
+      envelope.sourceService !== source) ||
     typeof envelope.occurredAt !== 'string' ||
     !isISO8601(envelope.occurredAt, { strict: true, strictSeparator: true }) ||
     !/(Z|[+-]\d{2}:\d{2})$/.test(envelope.occurredAt) ||
@@ -241,6 +259,25 @@ export function validateNotificationEvent(
       ...new Set(ids.map((id: string) => id.toLowerCase())),
     ];
   }
+  if (type === 'message.created') {
+    if (
+      data.senderId === data.recipientId ||
+      typeof rawData.sequence !== 'string' ||
+      !/^[1-9][0-9]{0,18}$/.test(rawData.sequence) ||
+      BigInt(rawData.sequence) > 9223372036854775807n ||
+      typeof rawData.messageType !== 'string' ||
+      !['TEXT', 'IMAGE', 'VIDEO'].includes(rawData.messageType) ||
+      (rawData.orderId !== null &&
+        (typeof rawData.orderId !== 'string' || !isUUID(rawData.orderId)))
+    )
+      throw new PermanentEventError('INVALID_MESSAGE_METADATA');
+    data.orderId =
+      rawData.orderId === null
+        ? null
+        : (rawData.orderId as string).toLowerCase();
+    data.sequence = rawData.sequence;
+    data.messageType = rawData.messageType;
+  }
   if (type === 'order.status.changed') {
     for (const field of ['previousStatus', 'nextStatus']) {
       const status = rawData[field];
@@ -262,7 +299,8 @@ export function validateNotificationEvent(
   }
   if (type.startsWith('wallet.')) {
     if (typeof rawData.reason === 'string') data.reason = rawData.reason;
-    if (typeof rawData.paymentId === 'string') data.paymentId = rawData.paymentId;
+    if (typeof rawData.paymentId === 'string')
+      data.paymentId = rawData.paymentId;
     if (typeof rawData.orderId === 'string') data.orderId = rawData.orderId;
     if (typeof rawData.referenceType === 'string')
       data.referenceType = rawData.referenceType;

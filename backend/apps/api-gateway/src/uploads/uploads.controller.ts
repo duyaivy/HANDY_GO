@@ -1,6 +1,9 @@
 /// <reference types="multer" />
 import {
   Body,
+  Req,
+  BadRequestException,
+  UnauthorizedException,
   Controller,
   HttpCode,
   HttpStatus,
@@ -8,7 +11,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { ImageUploadInterceptor } from './image-upload.interceptor.js';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -35,10 +38,11 @@ export class UploadsController {
 
   @Post('image')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(ImageUploadInterceptor)
   @ApiConsumes('multipart/form-data')
   @ApiOperation({
-    summary: 'Upload file hình ảnh (JPEG, PNG, WebP) truyền qua API Gateway lên Cloudinary',
+    summary:
+      'Upload file hình ảnh (JPEG, PNG, WebP) truyền qua API Gateway lên Cloudinary',
     description:
       'Gửi file hình ảnh qua multipart/form-data (trường `file`). Backend truyền luồng stream dữ liệu trực tiếp tới Cloudinary và trả về metadata asset chuẩn hóa.',
   })
@@ -63,7 +67,8 @@ export class UploadsController {
   })
   @ApiResponse({
     status: 400,
-    description: 'File không hợp lệ / không đúng định dạng / vượt quá dung lượng',
+    description:
+      'File không hợp lệ / không đúng định dạng / vượt quá dung lượng',
   })
   @ApiResponse({
     status: 500,
@@ -71,8 +76,18 @@ export class UploadsController {
   })
   async uploadImage(
     @UploadedFile() file: Express.Multer.File,
+    @Body('intent') intent?: string,
+    @Req() req?: { user?: { userId?: string } },
   ): Promise<ApiResponseEnvelope<UploadImageResponseDto>> {
-    const data = await this.cloudinaryService.uploadImage(file);
+    if (intent !== undefined && intent !== 'chat')
+      throw new BadRequestException('Invalid upload intent');
+    const ownerId = intent === 'chat' ? req?.user?.userId : undefined;
+    if (intent === 'chat' && !ownerId) throw new UnauthorizedException();
+    if (intent === 'chat' && file?.size > 10 * 1024 * 1024)
+      throw new BadRequestException('Chat image too large');
+    const data = await (ownerId
+      ? this.cloudinaryService.uploadImage(file, ownerId)
+      : this.cloudinaryService.uploadImage(file));
     return buildSuccessResponse(
       data,
       'Upload hình ảnh thành công',
@@ -106,7 +121,8 @@ export class UploadsController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Metadata video không hợp lệ (MIME type không hỗ trợ hoặc kích thước vượt quá giới hạn)',
+    description:
+      'Metadata video không hợp lệ (MIME type không hỗ trợ hoặc kích thước vượt quá giới hạn)',
   })
   @ApiResponse({
     status: 500,
@@ -114,8 +130,14 @@ export class UploadsController {
   })
   async initVideoUpload(
     @Body() dto: InitVideoUploadDto,
+    @Req() req?: { user?: { userId?: string } },
   ): Promise<ApiResponseEnvelope<InitVideoUploadResponseDto>> {
-    const data = await this.cloudinaryService.createVideoUploadSignature(dto);
+    const data = await (dto.intent === 'chat'
+      ? this.cloudinaryService.createVideoUploadSignature(
+          dto,
+          req?.user?.userId,
+        )
+      : this.cloudinaryService.createVideoUploadSignature(dto));
     return buildSuccessResponse(
       data,
       'Khởi tạo chữ ký upload video thành công',
@@ -123,4 +145,3 @@ export class UploadsController {
     );
   }
 }
-

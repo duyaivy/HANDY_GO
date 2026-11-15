@@ -1,0 +1,383 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/payment-client"
+}
+
+enum PaymentMethod {
+  cash
+  point
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  pending
+  processing
+  succeeded
+  failed
+  cancelled
+  partially_refunded
+  refunded
+  @@map("payment_status")
+}
+
+enum AttemptStatus {
+  pending
+  processing
+  succeeded
+  failed
+  cancelled
+  @@map("attempt_status")
+}
+
+enum SettlementStatus {
+  pending
+  processing
+  settled
+  receivable
+  failed
+  @@map("settlement_status")
+}
+
+enum CommissionReceivableStatus {
+  due
+  partially_collected
+  collected
+  waived
+  @@map("commission_receivable_status")
+}
+
+enum TopupStatus {
+  pending
+  awaiting_payment
+  paid
+  credit_pending
+  completed
+  failed
+  cancelled
+  expired
+  needs_review
+  @@map("topup_status")
+}
+
+enum PayoutStatus {
+  pending
+  processing
+  completed
+  failed
+  cancelled
+  needs_review
+  @@map("payout_status")
+}
+
+enum RefundStatus {
+  pending
+  processing
+  completed
+  failed
+  cancelled
+  needs_review
+  @@map("refund_status")
+}
+
+model CommissionRule {
+  id              String    @id @default(uuid()) @db.Uuid
+  ratePercent     Decimal   @map("rate_percent") @db.Decimal(5, 2)
+  effectiveFrom   DateTime  @map("effective_from") @db.Timestamptz(6)
+  effectiveTo     DateTime? @map("effective_to") @db.Timestamptz(6)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  description     String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  payments        Payment[]
+
+  @@index([isActive, effectiveFrom])
+  @@map("commission_rules")
+}
+
+model Payment {
+  id                    String          @id @default(uuid()) @db.Uuid
+  orderId               String          @unique @map("order_id") @db.Uuid
+  customerUserId        String          @map("customer_user_id") @db.Uuid
+  workerUserId          String          @map("worker_user_id") @db.Uuid
+  amount                BigInt
+  currency              String          @default("VND") @db.VarChar(10)
+  method                PaymentMethod?
+  status                PaymentStatus   @default(pending)
+  commissionRuleId      String          @map("commission_rule_id") @db.Uuid
+  commissionRatePercent Decimal         @map("commission_rate_percent") @db.Decimal(5, 2)
+  platformFee           BigInt          @map("platform_fee")
+  workerEarning         BigInt          @map("worker_earning")
+  orderCompletedAt      DateTime?       @map("order_completed_at") @db.Timestamptz(6)
+  paidAt                DateTime?       @map("paid_at") @db.Timestamptz(6)
+  cashConfirmedByUserId String?         @map("cash_confirmed_by_user_id") @db.Uuid
+  failureReason         String?         @map("failure_reason")
+  idempotencyKey        String?         @unique @map("idempotency_key") @db.VarChar(150)
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  commissionRule        CommissionRule  @relation(fields: [commissionRuleId], references: [id])
+  attempts              PaymentAttempt[]
+  settlement            PaymentSettlement?
+  receivable            CommissionReceivable?
+  refunds               Refund[]
+
+  @@index([customerUserId, status, createdAt])
+  @@index([workerUserId, status, createdAt])
+  @@map("payments")
+}
+
+model PaymentAttempt {
+  id                String        @id @default(uuid()) @db.Uuid
+  paymentId         String        @map("payment_id") @db.Uuid
+  attemptNo         Int           @map("attempt_no")
+  method            PaymentMethod
+  provider          String        @db.VarChar(50)
+  providerReference String?       @map("provider_reference") @db.VarChar(150)
+  status            AttemptStatus @default(pending)
+  failureReason     String?       @map("failure_reason")
+  attemptedAt       DateTime      @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  completedAt       DateTime?     @map("completed_at") @db.Timestamptz(6)
+  payment           Payment       @relation(fields: [paymentId], references: [id])
+
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
+  @@unique([paymentId, attemptNo])
+  @@map("payment_attempts")
+  @@index([status, nextRetryAt, id])
+}
+
+model PaymentSettlement {
+  id               String           @id @default(uuid()) @db.Uuid
+  paymentId        String           @unique @map("payment_id") @db.Uuid
+  status           SettlementStatus @default(pending)
+  grossAmount      BigInt           @map("gross_amount")
+  platformFee      BigInt           @map("platform_fee")
+  workerEarning    BigInt           @map("worker_earning")
+  walletTransferId String?          @unique @map("wallet_transfer_id") @db.Uuid
+  settledAt        DateTime?        @map("settled_at") @db.Timestamptz(6)
+  failureReason    String?          @map("failure_reason")
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment          Payment          @relation(fields: [paymentId], references: [id])
+
+  @@map("payment_settlements")
+}
+
+model CommissionReceivable {
+  id                     String                     @id @default(uuid()) @db.Uuid
+  paymentId              String                     @unique @map("payment_id") @db.Uuid
+  workerUserId           String                     @map("worker_user_id") @db.Uuid
+  amountDue              BigInt                     @map("amount_due")
+  amountCollected        BigInt                     @default(0) @map("amount_collected")
+  status                 CommissionReceivableStatus @default(due)
+  latestWalletTransferId String?                    @map("latest_wallet_transfer_id") @db.Uuid
+  waivedByUserId         String?                    @map("waived_by_user_id") @db.Uuid
+  waivedReason           String?                    @map("waived_reason")
+  createdAt              DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment                Payment                    @relation(fields: [paymentId], references: [id])
+
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
+  @@index([workerUserId, status, createdAt])
+  @@map("commission_receivables")
+  @@index([status, nextRetryAt, id])
+}
+
+model TopupRequest {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  userId                 String                 @map("user_id") @db.Uuid
+  amountVnd              BigInt                 @map("amount_vnd")
+  pointsToCredit         BigInt                 @map("points_to_credit")
+  provider               String                 @db.VarChar(50)
+  status                 TopupStatus            @default(pending)
+  idempotencyKey         String                 @unique @map("idempotency_key") @db.VarChar(150)
+  providerTransactionRef String?                @unique @map("provider_transaction_ref") @db.VarChar(150)
+  providerPaymentRef     String?                @map("provider_payment_ref") @db.VarChar(150)
+  checkoutUrl            String?                @map("checkout_url")
+  providerPaidAt         DateTime?              @map("provider_paid_at") @db.Timestamptz(6)
+  walletCreditedAt       DateTime?              @map("wallet_credited_at") @db.Timestamptz(6)
+  expiresAt              DateTime?              @map("expires_at") @db.Timestamptz(6)
+  failureReason          String?                @map("failure_reason")
+  createdAt              DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  attempts               TopupAttempt[]
+  notifications          ProviderNotification[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("topup_requests")
+}
+
+model TopupAttempt {
+  id                     String        @id @default(uuid()) @db.Uuid
+  topupId                String        @map("topup_id") @db.Uuid
+  attemptNo              Int           @map("attempt_no")
+  provider               String        @db.VarChar(50)
+  providerTransactionRef String        @unique @map("provider_transaction_ref") @db.VarChar(150)
+  status                 AttemptStatus @default(pending)
+  checkoutUrl            String?       @map("checkout_url")
+  failureReason          String?       @map("failure_reason")
+  attemptedAt            DateTime      @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  finishedAt             DateTime?     @map("finished_at") @db.Timestamptz(6)
+  topup                  TopupRequest  @relation(fields: [topupId], references: [id])
+
+  @@unique([topupId, attemptNo])
+  @@map("topup_attempts")
+}
+
+model ProviderNotification {
+  id               String        @id @default(uuid()) @db.Uuid
+  provider         String        @db.VarChar(50)
+  eventKey         String        @map("event_key") @db.VarChar(200)
+  notificationType String        @map("notification_type") @db.VarChar(50)
+  signatureValid   Boolean       @default(false) @map("signature_valid")
+  payload          Json
+  relatedTopupId   String?       @map("related_topup_id") @db.Uuid
+  processedAt      DateTime?     @map("processed_at") @db.Timestamptz(6)
+  processingError  String?       @map("processing_error")
+  receivedAt       DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+  topup            TopupRequest? @relation(fields: [relatedTopupId], references: [id])
+
+  @@unique([provider, eventKey])
+  @@index([receivedAt])
+  @@map("provider_notifications")
+}
+
+model Payout {
+  id                  String          @id @default(uuid()) @db.Uuid
+  withdrawalId        String          @unique @map("withdrawal_id") @db.Uuid
+  payoutOperationId   String?         @map("payout_operation_id") @db.Uuid
+  userId              String          @map("user_id") @db.Uuid
+  bankAccountId       String          @map("bank_account_id") @db.Uuid
+  bankAccountSnapshot Json            @map("bank_account_snapshot")
+  amountVnd           BigInt          @map("amount_vnd")
+  provider            String          @default("mock") @db.VarChar(50)
+  isSimulated         Boolean         @default(true) @map("is_simulated")
+  status              PayoutStatus    @default(pending)
+  idempotencyKey      String          @unique @map("idempotency_key") @db.VarChar(150)
+  providerReference   String?         @unique @map("provider_reference") @db.VarChar(150)
+  failureReason       String?         @map("failure_reason")
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  processingAt        DateTime?       @map("processing_at") @db.Timestamptz(6)
+  completedAt         DateTime?       @map("completed_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  attempts            PayoutAttempt[]
+
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+
+  @@index([userId, status, createdAt])
+  @@map("payouts")
+  @@index([status, nextRetryAt, id])
+}
+
+model PayoutAttempt {
+  id                String        @id @default(uuid()) @db.Uuid
+  payoutId          String        @map("payout_id") @db.Uuid
+  attemptNo         Int           @map("attempt_no")
+  provider          String        @db.VarChar(50)
+  status            AttemptStatus @default(pending)
+  providerReference String?       @map("provider_reference") @db.VarChar(150)
+  failureReason     String?       @map("failure_reason")
+  attemptedAt       DateTime      @default(now()) @map("attempted_at") @db.Timestamptz(6)
+  completedAt       DateTime?     @map("completed_at") @db.Timestamptz(6)
+  payout            Payout        @relation(fields: [payoutId], references: [id])
+
+  @@unique([payoutId, attemptNo])
+  @@map("payout_attempts")
+}
+
+model Refund {
+  id                String       @id @default(uuid()) @db.Uuid
+  paymentId         String       @map("payment_id") @db.Uuid
+  requestedByUserId String?      @map("requested_by_user_id") @db.Uuid
+  amountVnd         BigInt       @map("amount_vnd")
+  status            RefundStatus @default(pending)
+  reason            String
+  idempotencyKey    String       @unique @map("idempotency_key") @db.VarChar(150)
+  walletTransferId  String?      @map("wallet_transfer_id") @db.Uuid
+  providerRefundId  String?      @map("provider_refund_id") @db.VarChar(150)
+  failureReason     String?      @map("failure_reason")
+  approvedByUserId  String?      @map("approved_by_user_id") @db.Uuid
+  approvedAt        DateTime?    @map("approved_at") @db.Timestamptz(6)
+  rejectedByUserId  String?      @map("rejected_by_user_id") @db.Uuid
+  rejectedAt        DateTime?    @map("rejected_at") @db.Timestamptz(6)
+  decisionNote      String?      @map("decision_note")
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  refundedAt        DateTime?    @map("refunded_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  payment           Payment      @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId, createdAt])
+  @@index([status, createdAt])
+  @@map("refunds")
+}
+
+model AdminAuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorUserId String   @map("actor_user_id") @db.Uuid
+  action      String   @db.VarChar(80)
+  entityType  String   @map("entity_type") @db.VarChar(40)
+  entityId    String   @map("entity_id") @db.VarChar(200)
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  reason      String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([entityType, entityId, createdAt], map: "admin_audit_logs_entity_idx")
+  @@index([actorUserId, createdAt], map: "admin_audit_logs_actor_idx")
+  @@map("admin_audit_logs")
+}
+
+model DailyReconciliationReport {
+  reportDate       DateTime @id @map("report_date") @db.Date
+  summary          Json
+  discrepancyCount Int      @default(0) @map("discrepancy_count")
+  generatedAt      DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  @@map("daily_reconciliation_reports")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String    @map("aggregate_type") @db.VarChar(60)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(120)
+  eventVersion  Int       @default(1) @map("event_version")
+  payload       Json
+  status        String    @default("pending") @db.VarChar(20)
+  retryCount    Int       @default(0) @map("retry_count")
+  nextRetryAt   DateTime  @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@index([status, nextRetryAt, createdAt])
+  @@map("outbox_events")
+}
+
+model FailedInboundEvent {
+  eventId     String   @id @map("event_id") @db.VarChar(200)
+  eventType   String   @map("event_type") @db.VarChar(120)
+  payload     Json
+  status      String   @default("retrying") @db.VarChar(20)
+  attempts    Int      @default(0)
+  nextRetryAt DateTime @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  lastError   String?  @map("last_error")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, nextRetryAt])
+  @@map("failed_inbound_events")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.VarChar(200)
+  eventType  String   @map("event_type") @db.VarChar(120)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+}

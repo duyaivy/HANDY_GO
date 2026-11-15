@@ -64,6 +64,7 @@ describe('UserTrustServiceService', () => {
         count: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       workerServiceRegistration: {
         findUnique: vi.fn(),
@@ -1055,11 +1056,13 @@ describe('UserTrustServiceService', () => {
             id: 'reg-to-cancel',
             workerProfileId,
             status: 'pending',
+            version: 1,
           })
           .mockResolvedValueOnce({
             id: 'reg-to-cancel',
             workerProfileId,
             status: 'rejected',
+            version: 2,
             rejectionReason: '[Thợ chủ động hủy yêu cầu]',
           });
 
@@ -1077,10 +1080,12 @@ describe('UserTrustServiceService', () => {
             id: 'reg-to-cancel',
             workerProfileId,
             status: 'pending',
+            version: 1,
           },
           data: expect.objectContaining({
             status: 'rejected',
             rejectionReason: '[Thợ chủ động hủy yêu cầu]',
+            version: { increment: 1 },
           }),
         });
       });
@@ -1158,6 +1163,7 @@ describe('UserTrustServiceService', () => {
           serviceArea: {},
           evidenceFiles: [],
           status: 'pending',
+          version: 1,
           rejectionReason: null,
           reviewedAt: null,
           createdAt: new Date(),
@@ -1174,6 +1180,7 @@ describe('UserTrustServiceService', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.data).toHaveLength(1);
+      expect(res.data[0].version).toBe(1);
       expect(res.pagination.total).toBe(1);
     });
 
@@ -1196,6 +1203,7 @@ describe('UserTrustServiceService', () => {
         serviceArea: {},
         evidenceFiles: [],
         status: 'pending',
+        version: 1,
         rejectionReason: null,
         reviewedAt: null,
         createdAt: new Date(),
@@ -1205,6 +1213,7 @@ describe('UserTrustServiceService', () => {
       const res = await service.getAdminServiceRegistrationDetail('reg-1');
       expect(res.statusCode).toBe(200);
       expect(res.data.id).toBe('reg-1');
+      expect(res.data.version).toBe(1);
       expect(res.data.worker.fullName).toBe('Nguyễn Thợ');
     });
 
@@ -1213,6 +1222,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [
           { serviceId, serviceName: 'Vệ sinh máy lạnh', title: 'Vệ sinh máy lạnh' },
         ],
@@ -1235,6 +1245,7 @@ describe('UserTrustServiceService', () => {
 
       const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'approved',
+        expectedVersion: 1,
       });
 
       expect(res.statusCode).toBe(200);
@@ -1249,6 +1260,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [{ serviceId, serviceName: 'Vệ sinh máy lạnh' }],
         serviceArea: null,
         workerProfile: {
@@ -1262,6 +1274,7 @@ describe('UserTrustServiceService', () => {
 
       await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'approved',
+        expectedVersion: 1,
       });
 
       expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
@@ -1272,6 +1285,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         workerProfile: { status: 'draft' },
       });
 
@@ -1280,6 +1294,7 @@ describe('UserTrustServiceService', () => {
       const res = await service.reviewServiceRegistration('admin-1', 'reg-1', {
         decision: 'rejected',
         reason: 'Ảnh mờ',
+        expectedVersion: 1,
       });
 
       expect(res.statusCode).toBe(200);
@@ -1292,12 +1307,14 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'approved',
+        version: 1,
         workerProfile: { status: 'verified' },
       });
 
       await expect(
         service.reviewServiceRegistration('admin-1', 'reg-1', {
           decision: 'approved',
+          expectedVersion: 1,
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -1307,6 +1324,7 @@ describe('UserTrustServiceService', () => {
         id: 'reg-1',
         workerProfileId,
         status: 'pending',
+        version: 1,
         services: [],
         serviceArea: null,
         workerProfile: { status: 'draft' },
@@ -1317,6 +1335,7 @@ describe('UserTrustServiceService', () => {
       await expect(
         service.reviewServiceRegistration('admin-1', 'reg-1', {
           decision: 'approved',
+          expectedVersion: 1,
         }),
       ).rejects.toThrow(ConflictException);
     });
@@ -1379,12 +1398,14 @@ describe('UserTrustServiceService', () => {
             id: 'reg-pending',
             workerProfileId,
             status: 'pending',
+            version: 1,
             updatedAt: new Date(),
           })
           .mockResolvedValueOnce({
             id: 'reg-pending',
             workerProfileId,
             status: 'pending',
+            version: 2,
           });
 
         catalogClientMock.getServices.mockResolvedValue([
@@ -1407,7 +1428,17 @@ describe('UserTrustServiceService', () => {
         );
 
         expect(res.statusCode).toBe(200);
-        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalled();
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: 'reg-pending',
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+          },
+          data: expect.objectContaining({
+            version: { increment: 1 },
+          }),
+        });
       });
 
       it('throws ConflictException if concurrent update or admin review occurs during worker PUT (updateMany count 0) (P1-02)', async () => {
@@ -1962,6 +1993,402 @@ describe('UserTrustServiceService', () => {
         expect(res.data.id).toBe('reg-race-winner');
       });
     });
+
+    describe('reviewServiceRegistration & concurrency', () => {
+      const adminUserId = 'admin-user-1';
+      const regId = 'reg-review-1';
+
+      it('Admin approves pending registration successfully with matching version', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            services: [
+              {
+                serviceId,
+                title: 'Vệ sinh máy lạnh',
+                description: 'Kinh nghiệm 5 năm',
+                experienceYears: 5,
+              },
+            ],
+            serviceArea: {
+              address: 'Đà Nẵng',
+              latitude: 16.0544,
+              longitude: 108.2022,
+              radiusKm: 15,
+            },
+          });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+        dbMock.workerServiceOffering.upsert.mockResolvedValue({});
+        dbMock.workerServiceArea.updateMany.mockResolvedValue({ count: 1 });
+        dbMock.workerServiceArea.create.mockResolvedValue({});
+
+        const res = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'approved',
+          expectedVersion: 1,
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.data.status).toBe('approved');
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: regId,
+            status: 'pending',
+            version: 1,
+          },
+          data: expect.objectContaining({
+            status: 'approved',
+            reviewedByUserId: adminUserId,
+            version: { increment: 1 },
+          }),
+        });
+      });
+
+      it('Admin rejects pending registration successfully with matching version', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 2,
+          workerProfile: { id: workerProfileId },
+        });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+
+        const res = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'rejected',
+          reason: 'Hồ sơ chưa đạt tiêu chuẩn kinh nghiệm',
+          expectedVersion: 2,
+        });
+
+        expect(res.statusCode).toBe(200);
+        expect(res.data.status).toBe('rejected');
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith({
+          where: {
+            id: regId,
+            status: 'pending',
+            version: 2,
+          },
+          data: expect.objectContaining({
+            status: 'rejected',
+            rejectionReason: 'Hồ sơ chưa đạt tiêu chuẩn kinh nghiệm',
+            reviewedByUserId: adminUserId,
+            version: { increment: 1 },
+          }),
+        });
+      });
+
+      it('throws ConflictException if registration is already not pending', async () => {
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'approved',
+          version: 2,
+          workerProfile: { id: workerProfileId },
+        });
+
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(ConflictException);
+      });
+
+      it('throws BadRequestException when expectedVersion is missing or invalid', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 1,
+          workerProfile: { id: workerProfileId },
+        });
+
+        // Missing expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+
+        // Null expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'rejected',
+            reason: 'Lý do',
+            expectedVersion: null,
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+
+        // Non-number expectedVersion
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: '1',
+          } as any),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('throws ConflictException if worker updated registration while Admin was reviewing (version mismatch on approval)', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 1,
+          workerProfile: { id: workerProfileId },
+        });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      });
+
+      it('throws ConflictException if worker updated registration while Admin was reviewing (version mismatch on rejection)', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 1,
+          workerProfile: { id: workerProfileId },
+        });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'rejected',
+            reason: 'Ảnh chưa hợp lệ',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      });
+
+      it('throws ConflictException when Admin expectedVersion does not match current registration version (stale screen approval and rejection)', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        // Current registration in DB has progressed to version 2 (worker edited it)
+        dbMock.workerServiceRegistration.findUnique.mockResolvedValue({
+          id: regId,
+          workerProfileId,
+          status: 'pending',
+          version: 2,
+          workerProfile: { id: workerProfileId },
+        });
+
+        // Admin was viewing the page with version 1
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+        );
+
+        // Also for rejection
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'rejected',
+            reason: 'Ảnh mờ',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow(
+          'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+        );
+      });
+
+      it('passes expectedVersion to atomic CAS updateMany condition when expectedVersion matches (for both approve and reject)', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            services: [],
+            serviceArea: {},
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+
+        // Approve with matching expectedVersion 1 -> 200 OK
+        const resApprove = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'approved',
+          expectedVersion: 1,
+        });
+
+        expect(resApprove.statusCode).toBe(200);
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: regId,
+              status: 'pending',
+              version: 1,
+            },
+          }),
+        );
+
+        // Reject with matching expectedVersion 1 -> 200 OK
+        const resReject = await service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'rejected',
+          reason: 'Lý do hợp lệ',
+          expectedVersion: 1,
+        });
+
+        expect(resReject.statusCode).toBe(200);
+        expect(dbMock.workerServiceRegistration.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: regId,
+              status: 'pending',
+              version: 1,
+            },
+          }),
+        );
+      });
+
+      it('simulates 2 concurrent Admin reviews: only 1 succeeds, other throws ConflictException', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            services: [],
+            serviceArea: {},
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          });
+
+        dbMock.workerServiceRegistration.updateMany
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 0 });
+
+        const admin1Promise = service.reviewServiceRegistration(adminUserId, regId, {
+          decision: 'approved',
+          expectedVersion: 1,
+        });
+        const admin2Promise = service.reviewServiceRegistration('admin-user-2', regId, {
+          decision: 'rejected',
+          reason: 'Trùng lặp',
+          expectedVersion: 1,
+        });
+
+        const res1 = await admin1Promise;
+        expect(res1.statusCode).toBe(200);
+        expect(res1.data.status).toBe('approved');
+
+        await expect(admin2Promise).rejects.toThrow(ConflictException);
+      });
+
+      it('simulates 2 concurrent worker updates: only 1 succeeds, other throws ConflictException', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 2,
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+          });
+
+        catalogClientMock.getServices.mockResolvedValue([
+          {
+            id: serviceId,
+            name: 'Vệ sinh máy lạnh',
+            categoryId,
+            categoryName: 'Điện lạnh',
+            categoryIsActive: true,
+            isActive: true,
+          },
+        ]);
+
+        dbMock.workerServiceRegistration.updateMany
+          .mockResolvedValueOnce({ count: 1 })
+          .mockResolvedValueOnce({ count: 0 });
+
+        const worker1Promise = service.updateWorkerServiceRegistration(
+          workerUserId,
+          regId,
+          validDto,
+        );
+        const worker2Promise = service.updateWorkerServiceRegistration(
+          workerUserId,
+          regId,
+          validDto,
+        );
+
+        const res1 = await worker1Promise;
+        expect(res1.statusCode).toBe(200);
+
+        await expect(worker2Promise).rejects.toThrow(ConflictException);
+      });
+    });
   });
 
   describe('updateServiceOffering', () => {
@@ -2048,5 +2475,454 @@ describe('UserTrustServiceService', () => {
         }),
       );
     });
+  });
+
+  describe('handleKycCompleted & handleKycFailed & reviewKycCase', () => {
+    const userId = 'u-worker-1';
+    const workerId = 'wp-1';
+    const caseId = 'case-1';
+    const oldCaseId = 'case-old-rejected';
+
+    describe('handleKycCompleted', () => {
+      it('[P1] blocks late kyc.completed from overriding already rejected KYC case', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-completed-late',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        // Case rejected must NOT be overwritten to approved
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        // WorkerProfile must NOT be modified
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P1] skips late kyc.completed if case is already approved', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'approved' });
+
+        const event = {
+          eventId: 'evt-completed-dup',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P2] does NOT fallback to active case when kycCaseId is specified but not found', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-completed-missing-id',
+          data: {
+            userId,
+            kycCaseId: 'non-existent-case-uuid',
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        // Must NOT fallback to findFirst active case
+        expect(dbMock.kycCase.findFirst).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('ignores kyc.completed if kycCase belongs to another worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: 'other-worker', status: 'reviewing' });
+
+        const event = {
+          eventId: 'evt-completed-wrong-worker',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('successfully processes kyc.completed for reviewing case and marks worker verified', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'reviewing', version: 1 });
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 1 });
+
+        const event = {
+          eventId: 'evt-completed-valid',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: caseId,
+              status: { in: ['draft', 'submitted', 'reviewing'] },
+              version: 1,
+            },
+            data: expect.objectContaining({
+              status: 'approved',
+              version: { increment: 1 },
+            }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'verified' }),
+          }),
+        );
+      });
+
+      it('[P1] aborts worker profile transition if kycCase was concurrently finalized or reviewed by Admin during handleKycCompleted (count 0)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'reviewing', version: 1 });
+        // Admin reviewed the case in parallel, so conditional update with version: 1 returns count 0
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 0 });
+
+        const event = {
+          eventId: 'evt-completed-race',
+          data: {
+            userId,
+            kycCaseId: caseId,
+          },
+        };
+
+        const result = await service.handleKycCompleted(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalled();
+        // Crucial: WorkerProfile MUST NOT be overwritten to 'verified' because case update count was 0!
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('handleKycFailed', () => {
+      it('[P1] blocks old rejected case event from mutating already verified worker (old vs new case)', async () => {
+        // Worker was approved on a newer KYC case and is verified
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        // Event arrives with new eventId for an older case that was rejected
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: oldCaseId, workerProfileId: workerId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-failed-retry-new-event-id',
+          data: {
+            userId,
+            kycCaseId: oldCaseId,
+            reason: 'Ảnh CMND cũ bị mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        // Old case is not modified
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        // Crucial [P1]: workerProfile MUST NOT be updated to 'rejected'
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P1] blocks kyc.failed from mutating case and worker when case is already approved', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'approved' });
+
+        const event = {
+          eventId: 'evt-failed-late',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Phân tích AI thất bại',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('[P2] does NOT fallback to active case when kycCaseId is specified but not found', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-failed-missing-id',
+          data: {
+            userId,
+            kycCaseId: 'non-existent-case-id',
+            reason: 'Lỗi',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        // Must NOT fallback to findFirst active case
+        expect(dbMock.kycCase.findFirst).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('ignores kyc.failed if kycCase belongs to another worker', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: 'other-worker', status: 'reviewing' });
+
+        const event = {
+          eventId: 'evt-failed-wrong-worker',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Ảnh mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('should NOT create duplicate kycCase when target case is already rejected (after admin review)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
+        dbMock.kycCase.findUnique.mockResolvedValue({ id: caseId, workerProfileId: workerId, status: 'rejected' });
+
+        const event = {
+          eventId: 'evt-1',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Ảnh mờ',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+        expect(dbMock.kycCase.update).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('should NOT create a new kycCase when no active case is found for legacy event', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'rejected' });
+        dbMock.kycCase.findFirst.mockResolvedValue(null);
+
+        const event = {
+          eventId: 'evt-2',
+          data: {
+            userId,
+            reason: 'Lý do từ chối',
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+
+      it('should update active kycCase and workerProfile when transitioning from reviewing', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'under_review' });
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          workerProfileId: workerId,
+          status: 'reviewing',
+          aiSimilarityScore: 0.85,
+          version: 1,
+        });
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 1 });
+
+        const event = {
+          eventId: 'evt-3',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Ảnh CMND bị mờ',
+            similarity: 0.7,
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: caseId,
+              status: { in: ['draft', 'submitted', 'reviewing'] },
+              version: 1,
+            },
+            data: expect.objectContaining({
+              status: 'rejected',
+              reviewNote: 'Ảnh CMND bị mờ',
+              aiSimilarityScore: 0.7,
+              version: { increment: 1 },
+            }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'rejected' }),
+          }),
+        );
+        expect(dbMock.kycCase.create).not.toHaveBeenCalled();
+      });
+
+      it('[P1] aborts worker profile transition if kycCase was concurrently finalized or reviewed by Admin during handleKycFailed (count 0)', async () => {
+        dbMock.workerProfile.findUnique.mockResolvedValue({ id: workerId, userId, status: 'verified' });
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          workerProfileId: workerId,
+          status: 'reviewing',
+          aiSimilarityScore: 0.85,
+          version: 1,
+        });
+        // Admin approved the case in parallel, so conditional update with version: 1 returns count 0
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 0 });
+
+        const event = {
+          eventId: 'evt-failed-race-admin',
+          data: {
+            userId,
+            kycCaseId: caseId,
+            reason: 'Trùng lặp khuôn mặt',
+            similarity: 0.4,
+          },
+        };
+
+        const result = await service.handleKycFailed(event as any);
+        expect(result).toEqual({ processed: true });
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalled();
+        // Crucial: WorkerProfile MUST NOT be overwritten to 'rejected' because case update count was 0!
+        expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('reviewKycCase', () => {
+      it('throws BadRequestException if KYC case is not in reviewing status', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          status: 'submitted',
+          version: 1,
+          workerProfile: { id: workerId, userId },
+        });
+
+        await expect(
+          service.reviewKycCase('admin-1', caseId, 'approved', 'Hồ sơ tốt'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('throws BadRequestException if KYC case is already approved or rejected', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValue({
+          id: caseId,
+          status: 'approved',
+          version: 2,
+          workerProfile: { id: workerId, userId },
+        });
+
+        await expect(
+          service.reviewKycCase('admin-1', caseId, 'rejected', 'Không hợp lệ'),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('[P1] throws ConflictException if concurrent review by another admin occurred (updateMany count 0)', async () => {
+        dbMock.kycCase.findUnique.mockResolvedValueOnce({
+          id: caseId,
+          status: 'reviewing',
+          version: 1,
+          workerProfileId: workerId,
+          workerProfile: { id: workerId, userId },
+        });
+        // Concurrent update won race, updateMany matches 0 rows
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 0 });
+
+        await expect(
+          service.reviewKycCase('admin-2', caseId, 'rejected', 'Từ chối đồng thời'),
+        ).rejects.toThrow(ConflictException);
+
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: caseId,
+              status: 'reviewing',
+              version: 1,
+            },
+          }),
+        );
+      });
+
+      it('successfully reviews KYC case atomically when status is reviewing and count is 1', async () => {
+        dbMock.kycCase.findUnique
+          .mockResolvedValueOnce({
+            id: caseId,
+            status: 'reviewing',
+            version: 1,
+            workerProfileId: workerId,
+            workerProfile: { id: workerId, userId },
+          })
+          .mockResolvedValueOnce({
+            id: caseId,
+            status: 'approved',
+            version: 2,
+            workerProfile: { id: workerId, userId },
+          });
+
+        dbMock.kycCase.updateMany.mockResolvedValue({ count: 1 });
+        dbMock.workerProfile.update.mockResolvedValue({
+          id: workerId,
+          status: 'verified',
+        });
+
+        const res = await service.reviewKycCase('admin-1', caseId, 'approved', 'Duyệt thành công');
+        expect(res.statusCode).toBe(200);
+        expect(dbMock.kycCase.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              id: caseId,
+              status: 'reviewing',
+              version: 1,
+            },
+            data: expect.objectContaining({
+              status: 'approved',
+              reviewedByUserId: 'admin-1',
+              version: { increment: 1 },
+            }),
+          }),
+        );
+        expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: workerId },
+            data: expect.objectContaining({ status: 'verified' }),
+          }),
+        );
+      });
+    });
+  });
+});
+
+describe('minimal chat participant names', () => {
+  it('selects only public names for unique IDs', async () => {
+    const findMany = vi.fn().mockResolvedValue([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    const service = new UserTrustServiceService({user: {findMany}} as any);
+    expect(await service.getDisplayNames(['u', 'u'])).toEqual([{id: 'u', fullName: 'Khách An', avatarUrl: null}]);
+    expect(findMany).toHaveBeenCalledWith({where: {id: {in: ['u']}}, select: {id: true, fullName: true, avatarUrl: true}});
   });
 });

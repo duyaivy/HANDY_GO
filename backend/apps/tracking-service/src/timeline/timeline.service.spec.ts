@@ -417,6 +417,40 @@ describe('TimelineService', () => {
   });
 
   describe('Redis Caching', () => {
+    it('uses a new cache version after an event is committed even when old cache survives', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = { userId: randomUUID(), roles: ['Admin'], isAdmin: true, isCustomer: false, isWorker: false };
+      let eventSequence = 2;
+      let eventCount = 2;
+      prismaMock.trackingFlow.findUnique.mockImplementation(async () => ({ id: randomUUID(), serviceRequestId, eventSequence }));
+      prismaMock.trackingEvent.count.mockImplementation(async () => eventCount);
+      prismaMock.trackingEvent.findMany.mockResolvedValue([]);
+      prismaMock.trackingEvent.findFirst.mockResolvedValue({ id: randomUUID() });
+      const cache = new Map<string, any>();
+      const redisMock: any = {
+        get: vi.fn(async (key: string) => cache.get(key) ?? null),
+        set: vi.fn(async (key: string, value: any) => { cache.set(key, value); }),
+        delByPattern: vi.fn(async () => { /* Redis outage leaves old key behind. */ }),
+      };
+      const cachedService = new TimelineService(prismaMock, redisMock);
+      expect((await cachedService.getRequestTimeline(serviceRequestId, {}, user)).total).toBe(2);
+      eventSequence = 3;
+      eventCount = 3;
+      await redisMock.delByPattern(`tracking:*:${serviceRequestId}:*`);
+      expect((await cachedService.getRequestTimeline(serviceRequestId, {}, user)).total).toBe(3);
+      expect(cache.has(`tracking:timeline:${serviceRequestId}:admin:p1:l20:sasc:tall:v2`)).toBe(true);
+      expect(redisMock.get).toHaveBeenLastCalledWith(`tracking:timeline:${serviceRequestId}:admin:p1:l20:sasc:tall:v3`);
+    });
+
+    it('checks ownership before returning a cached timeline', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = { userId: randomUUID(), roles: ['Customer'], isAdmin: false, isCustomer: true, isWorker: false };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({ id: randomUUID(), serviceRequestId, customerId: randomUUID(), eventSequence: 2 });
+      const redisMock: any = { get: vi.fn().mockResolvedValue({ total: 2 }) };
+      await expect(new TimelineService(prismaMock, redisMock).getRequestTimeline(serviceRequestId, {}, user)).rejects.toThrow(ForbiddenException);
+      expect(redisMock.get).not.toHaveBeenCalled();
+    });
+
     it('should return cached timeline immediately when key exists in Redis', async () => {
       const serviceRequestId = randomUUID();
       const user: GatewayUser = {
@@ -439,6 +473,9 @@ describe('TimelineService', () => {
         get: vi.fn().mockResolvedValue(cachedTimeline),
         set: vi.fn(),
       };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(), serviceRequestId, eventSequence: 3,
+      });
 
       const cachedService = new TimelineService(prismaMock, redisMock);
       const result = await cachedService.getRequestTimeline(
@@ -449,10 +486,9 @@ describe('TimelineService', () => {
 
       expect(result).toBe(cachedTimeline);
       expect(redisMock.get).toHaveBeenCalledWith(
-        `tracking:timeline:${serviceRequestId}:admin:p1:l20:sasc:tall`,
+        `tracking:timeline:${serviceRequestId}:admin:p1:l20:sasc:tall:v3`,
       );
-      // DB should not be hit on cache hit
-      expect(prismaMock.trackingFlow.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.trackingFlow.findUnique).toHaveBeenCalledOnce();
     });
 
     it('should cache timeline in Redis when flow contains terminal event (COMPLETED)', async () => {
@@ -492,7 +528,7 @@ describe('TimelineService', () => {
 
       expect(result.total).toBe(2);
       expect(redisMock.set).toHaveBeenCalledWith(
-        `tracking:timeline:${serviceRequestId}:cust:${customerId}:p1:l10:sasc:tall`,
+        `tracking:timeline:${serviceRequestId}:cust:${customerId}:p1:l10:sasc:tall:v0`,
         expect.objectContaining({ total: 2 }),
         7 * 24 * 3600,
       );

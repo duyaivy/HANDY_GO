@@ -18,6 +18,7 @@ try {
     'auth-service': [process.env.DATABASE_URL_AUTH?.trim() || process.env.DATABASE_URL, 'SELECT count(*) FROM auth_service.roles'],
     'user-trust-service': [process.env.DATABASE_URL_USER_TRUST?.trim() || process.env.DATABASE_URL, 'SELECT 1 FROM user_trust_service.users LIMIT 1'],
     'catalog-service': [process.env.DATABASE_URL_CATALOG?.trim() || process.env.DATABASE_URL, 'SELECT 1 FROM catalog_service.outbox_events LIMIT 1'],
+    'message-service': [process.env.DATABASE_URL_MESSAGE?.trim() || process.env.DATABASE_URL, 'SELECT 1 FROM message.conversations LIMIT 1'],
   }[service];
   if (database) {
     probe = 'database SQL';

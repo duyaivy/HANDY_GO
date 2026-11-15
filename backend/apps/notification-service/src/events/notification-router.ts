@@ -29,6 +29,12 @@ const customerOrder = (data: {
   { userId: data.workerId, role: 'worker' },
 ];
 const strategies: StrategyMap = {
+  'message.created': ({ data }) => ({
+    category: 'chat',
+    entityId: data.conversationId,
+    requestId: data.requestId,
+    recipients: [{ userId: data.recipientId, role: 'recipient' }],
+  }),
   'matching.eligible_workers.ready': ({ data }) => ({
     category: 'matching',
     entityId: data.requestId,

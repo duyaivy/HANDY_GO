@@ -135,9 +135,12 @@ export class EventProcessorService {
 
           // Business deduplication: for matching events, key on request and worker to prevent duplicate alerts across runs
           const dedupeKey =
-            event.eventType === 'matching.eligible_workers.ready' && route.requestId
-              ? `new-request:${route.requestId}:${userId}`
-              : `${event.eventId}:${userId}`;
+            event.eventType === 'message.created'
+              ? `message.created:${event.data.messageId}:${userId}`
+              : event.eventType === 'matching.eligible_workers.ready' &&
+                  route.requestId
+                ? `new-request:${route.requestId}:${userId}`
+                : `${event.eventId}:${userId}`;
 
           rows.push({
             id: notifId,
@@ -160,6 +163,9 @@ export class EventProcessorService {
               recipientRole: role,
               inAppVisible: inAppEligible,
               ...(route.requestId ? { requestId: route.requestId } : {}),
+              ...(event.eventType === 'message.created'
+                ? { conversationId: event.data.conversationId }
+                : {}),
             },
             status: 'sent',
             readAt: null,
@@ -196,7 +202,9 @@ export class EventProcessorService {
           );
           const attempts = activeDevices
             .map((device) => {
-              const notificationId = activeUserToNotificationId.get(device.userId);
+              const notificationId = activeUserToNotificationId.get(
+                device.userId,
+              );
               return notificationId
                 ? { notificationId, deviceTokenId: device.id }
                 : null;

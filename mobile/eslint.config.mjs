@@ -129,6 +129,8 @@ export default antfu(
     plugins: { 'testing-library': testingLibrary },
     rules: {
       ...testingLibrary.configs.react.rules,
+      // Hook mocks intentionally keep the exported use* names without calling real hooks.
+      'react/no-unnecessary-use-prefix': 'off',
       'no-restricted-globals': 'off',
     },
   },

@@ -8,13 +8,15 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PROD = ROOT / 'deploy/production'
 registry = json.loads((PROD / 'services.json').read_text())['services']
+example = dict(line.split('=', 1) for line in (PROD / 'env/production.env.example').read_text(encoding='utf-8').splitlines()
+               if line and not line.startswith('#'))
 env = {**os.environ, 'APP_IMAGE': 'ghcr.io/example/backend@sha256:' + 'a' * 64,
        'NGINX_IMAGE': 'nginx@sha256:' + 'b' * 64,
        'APP_ENV_FILE': str(PROD / 'env/production.env.example'),
        'PRIVATE_IP': '10.77.0.1', 'COMPOSE_PROFILES': ''}
 command = ['docker', 'compose', '--env-file', '/dev/null', '-f', str(PROD / 'compose.production.yml')]
-for role in ('vps1', 'vps2', 'vps3'):
-    env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]
+for role in ('vps1', 'vps2', 'vps3', 'vps4'):
+    env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]
     output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
     services = json.loads(output)['services']
     expected = {n for n, item in registry.items() if item['host'] == role and item['deploy']}
@@ -23,12 +25,20 @@ for role in ('vps1', 'vps2', 'vps3'):
     assert set(services) == expected, (role, set(services), expected)
     for name in expected - {'nginx'}:
         assert services[name]['environment']['NODE_ENV'] == 'production'
-        assert services[name]['environment']['SMTP_FROM'] == 'HANDY GO <your-email@gmail.com>'
+        assert services[name]['environment']['SMTP_FROM'] == example['SMTP_FROM']
         assert services[name]['environment']['PORT'] == str(registry[name]['port'])
+    if role == 'vps1':
+        gateway_env = services['api-gateway']['environment']
+        assert gateway_env['AUTH_SERVICE_URL'] == 'http://auth-service:3001'
+        assert gateway_env['USER_TRUST_SERVICE_URL'] == 'http://user-trust-service:3002'
+        assert gateway_env['NOTIFICATION_SERVICE_URL'] == 'http://notification-service:3008'
+    elif role == 'vps4':
+        message_env = services['message-service']['environment']
+        assert message_env['AUTH_SERVICE_URL'] == 'http://10.77.0.1:3001'
+        assert message_env['USER_TRUST_SERVICE_URL'] == 'http://10.77.0.1:3002'
+        assert message_env['NOTIFICATION_SERVICE_URL'] == 'http://10.77.0.1:3008'
     for name in expected - {'nginx'}:
-        if name == 'user-trust-service':
-            assert services[name]['ports'] == [{'mode': 'ingress', 'host_ip': '10.77.0.1', 'target': 3002, 'published': '3002', 'protocol': 'tcp'}]
-        elif role == 'vps1':
+        if role == 'vps1' and not registry[name].get('wireguard_http'):
             assert 'ports' not in services[name]
         else:
             port = services[name]['ports'][0]
@@ -45,21 +55,39 @@ required_keys = ('NODE_ENV', 'DATABASE_URL', 'RABBITMQ_URL', 'REDIS_URL', 'OTP_S
                  'INTERNAL_SERVICE_SECRET', 'JWT_PUBLIC_KEY', 'JWT_PRIVATE_KEY',
                  'SMTP_USER', 'SMTP_PASS', 'CLOUDINARY_CLOUD_NAME',
                  'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET')
-example = dict(line.split('=', 1) for line in (PROD / 'env/production.env.example').read_text().splitlines()
-               if line and not line.startswith('#'))
 with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
     snapshot = Path(temporary) / 'shared.env'
     snapshot.write_text(''.join(f'{key}={example[key]}\n' for key in required_keys))
     snapshot.chmod(0o600)
     env['APP_ENV_FILE'] = str(snapshot)
-    for role in ('vps1', 'vps2', 'vps3'):
-        env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3'}[role]
+    for role in ('vps1', 'vps2', 'vps3', 'vps4'):
+        env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]
         output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
         services = json.loads(output)['services']
+        same_host_overrides = {
+            ('vps1', 'api-gateway'): {
+                'AUTH_SERVICE_URL': 'http://auth-service:3001',
+                'USER_TRUST_SERVICE_URL': 'http://user-trust-service:3002',
+                'NOTIFICATION_SERVICE_URL': 'http://notification-service:3008',
+            },
+            ('vps2', 'order-service'): {
+                'BIDDING_SERVICE_URL': 'http://bidding-service:3005',
+                'MATCHING_SERVICE_URL': 'http://matching-service:3006',
+            },
+            ('vps2', 'bidding-service'): {
+                'ORDER_SERVICE_URL': 'http://order-service:3004',
+            },
+            ('vps3', 'payment-service'): {
+                'WALLET_SERVICE_URL': 'http://wallet-service:3009',
+            },
+        }
         for name, service in services.items():
             if name == 'nginx':
                 continue
-            assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'}
+            overrides = same_host_overrides.get((role, name), {})
+            assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'} | set(overrides)
+            for key, expected_url in overrides.items():
+                assert service['environment'][key] == expected_url
         print(f'{role}: Compose resolves with every optional ENV absent')
     # Infrastructure interpolation remains mandatory.
     for required in ('APP_IMAGE', 'APP_ENV_FILE', 'PRIVATE_IP', 'NGINX_IMAGE'):

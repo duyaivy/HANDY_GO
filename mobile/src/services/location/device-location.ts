@@ -113,9 +113,63 @@ export const DeviceLocationService = {
     }
 
     try {
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      // 1. Thử lấy nhanh vị trí gần nhất từ bộ nhớ đệm hệ điều hành (Fused/Cell/Wi-Fi cache)
+      // Phản hồi tức thì (< 50ms), cực kỳ hữu ích khi thiết bị ở trong nhà không có sóng vệ tinh GPS.
+      let position: LocationType.LocationObject | null = null;
+      try {
+        position = await Location.getLastKnownPositionAsync();
+        if (position) {
+          console.log('[DEBUG][DeviceLocationService] Đã lấy thành công vị trí đệm (lastKnownPosition):', position.coords.latitude, position.coords.longitude);
+        }
+      }
+      catch (cacheErr) {
+        console.log('[DEBUG][DeviceLocationService] Không có vị trí đệm trong cache hệ thống:', cacheErr);
+      }
+
+      // 2. Cố gắng lấy vị trí hiện tại tươi mới (fresh) với timeout 5 giây
+      // Tránh việc treo đơ giao diện 30 giây khi thiết bị ở trong phòng kín không bắt được vệ tinh GPS.
+      try {
+        const freshPromise = Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        const timeoutPromise = new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), 5000);
+        });
+
+        const freshPosition = await Promise.race([freshPromise, timeoutPromise]);
+        if (freshPosition) {
+          position = freshPosition;
+          console.log('[DEBUG][DeviceLocationService] Đã lấy thành công vị trí mới nhất (freshPosition):', position.coords.latitude, position.coords.longitude);
+        }
+      }
+      catch (freshErr) {
+        console.log('[DEBUG][DeviceLocationService] Lỗi hoặc timeout khi lấy freshPosition:', freshErr);
+      }
+
+      // 3. Nếu vẫn chưa có vị trí (cả fresh lẫn cache đều null), thử lần cuối bằng trạm phát sóng di động/Wi-Fi (Lowest accuracy)
+      if (!position) {
+        try {
+          const coarsePromise = Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Lowest,
+          });
+          const quickTimeout = new Promise<null>((resolve) => {
+            setTimeout(() => resolve(null), 3000);
+          });
+          const coarsePosition = await Promise.race([coarsePromise, quickTimeout]);
+          if (coarsePosition) {
+            position = coarsePosition;
+            console.log('[DEBUG][DeviceLocationService] Đã lấy thành công vị trí coarse lowest accuracy:', position.coords.latitude, position.coords.longitude);
+          }
+        }
+        catch (coarseErr) {
+          console.log('[DEBUG][DeviceLocationService] Coarse lowest accuracy failed:', coarseErr);
+        }
+      }
+
+      if (!position) {
+        console.warn('[DEBUG][DeviceLocationService] Không lấy được tọa độ nào từ thiết bị sau cả 3 bước.');
+        throw new Error('Không thể nhận diện tọa độ GPS từ thiết bị (tín hiệu GPS trong nhà yếu hoặc chưa bật độ chính xác vị trí Google).');
+      }
 
       const { latitude, longitude } = position.coords;
       let addressText = '';
@@ -125,6 +179,7 @@ export const DeviceLocationService = {
         const mapboxAddress = await MapboxService.reverseGeocode(latitude, longitude);
         if (mapboxAddress) {
           addressText = mapboxAddress;
+          console.log('[DEBUG][DeviceLocationService] Mapbox Reverse Geocoding thành công:', addressText);
         }
       }
       catch {

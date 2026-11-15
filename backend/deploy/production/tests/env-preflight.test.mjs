@@ -58,6 +58,94 @@ test('valid candidate authenticates dependencies without business writes or emai
   }
 });
 
+test('VPS4 validates its explicit Message database and shared dependencies', async () => {
+  const { calls, load } = fixture();
+  const messageEnv = {
+    ...env,
+    DATABASE_URL_MESSAGE: 'postgresql://message:private-value@message-db/message',
+    MESSAGE_CURSOR_SECRET: 'c'.repeat(48),
+    INTERNAL_SERVICE_SECRET: 'i'.repeat(48),
+    BIDDING_SERVICE_URL: 'http://10.77.0.2:3005',
+    ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
+    AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+    MEDIA_SERVICE_URL: 'http://10.77.0.1:3002',
+  };
+  await checkEnv('vps4', messageEnv, load, () => {});
+  assert.deepEqual(calls.filter(call => Array.isArray(call) && call[0] === 'database'), [
+    ['database', messageEnv.DATABASE_URL_MESSAGE],
+  ]);
+  assert.ok(calls.includes('redis-ping'));
+  assert.ok(calls.includes('rabbit-connect'));
+  assert.ok(!calls.includes('smtp-verify'));
+});
+
+test('VPS4 does not fall back to the shared database URL', async () => {
+  const { calls, load } = fixture();
+  const { DATABASE_URL_MESSAGE, ...withoutMessageDatabase } = {
+    ...env,
+    MESSAGE_CURSOR_SECRET: 'c'.repeat(48),
+    INTERNAL_SERVICE_SECRET: 'i'.repeat(48),
+    BIDDING_SERVICE_URL: 'http://10.77.0.2:3005',
+    ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
+    AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+    MEDIA_SERVICE_URL: 'http://10.77.0.1:3002',
+  };
+  await assert.rejects(checkEnv('vps4', withoutMessageDatabase, load, () => {}), /Message Service configuration/);
+  assert.equal(calls.length, 0);
+});
+
+test('VPS4 rejects missing Message Service configuration without revealing values', async () => {
+  const { load } = fixture();
+  const messageEnv = {
+    ...env,
+    DATABASE_URL_MESSAGE: 'postgresql://message:private-value@message-db/message',
+    MESSAGE_CURSOR_SECRET: 'c'.repeat(48),
+    INTERNAL_SERVICE_SECRET: 'i'.repeat(48),
+    BIDDING_SERVICE_URL: 'http://10.77.0.2:3005',
+    ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
+    AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+    MEDIA_SERVICE_URL: 'http://10.77.0.1:3002',
+  };
+  for (const key of ['MESSAGE_CURSOR_SECRET', 'INTERNAL_SERVICE_SECRET', 'JWT_PUBLIC_KEY',
+    'RABBITMQ_URL', 'BIDDING_SERVICE_URL', 'ORDER_SERVICE_URL', 'AUTH_SERVICE_URL', 'MEDIA_SERVICE_URL']) {
+    const invalid = { ...messageEnv };
+    delete invalid[key];
+    await assert.rejects(checkEnv('vps4', invalid, load, () => {}), error => {
+      assert.match(error.message, /Message Service configuration/);
+      assert.ok(!error.message.includes('private-value'));
+      return true;
+    }, key);
+  }
+});
+
+for (const [failure, expected] of [
+  ['postgres-connect', 'PostgreSQL'],
+  ['postgres-query', 'PostgreSQL'],
+  ['rabbit-connect', 'RabbitMQ'],
+  ['redis-ping', 'Redis'],
+]) {
+  test(`VPS4 ${failure} failure rejects before release with sanitized diagnostics`, async () => {
+    const { calls, load } = fixture(failure);
+    const messageEnv = {
+      ...env,
+      DATABASE_URL_MESSAGE: 'postgresql://message:private-value@message-db/message',
+      MESSAGE_CURSOR_SECRET: 'c'.repeat(48),
+      INTERNAL_SERVICE_SECRET: 'i'.repeat(48),
+      BIDDING_SERVICE_URL: 'http://10.77.0.2:3005',
+      ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
+      AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+      MEDIA_SERVICE_URL: 'http://10.77.0.1:3000',
+    };
+    await assert.rejects(checkEnv('vps4', messageEnv, load, () => {}), error => {
+      assert.match(error.message, new RegExp(expected));
+      assert.ok(!error.message.includes('private-value'));
+      assert.ok(!error.message.includes('postgresql:'));
+      return true;
+    });
+    assert.ok(!calls.includes('smtp-verify'));
+  });
+}
+
 for (const [failure, expected, closed] of [
   ['postgres-connect', 'PostgreSQL', 'postgres-close'],
   ['postgres-query', 'PostgreSQL', 'postgres-close'],
@@ -115,5 +203,18 @@ for (const blank of [undefined, '', '   ']) {
     const options = calls.find(call => Array.isArray(call) && call[0] === 'smtp-options')[1];
     assert.equal(options.host, 'smtp.gmail.com');
     assert.equal(options.port, 465);
+  });
+}
+
+for (const role of ['vps2', 'vps3']) {
+  test(`${role} retains shared dependency checks and rejects dependency failure`, async () => {
+    const healthy = fixture();
+    await checkEnv(role, env, healthy.load, () => {});
+    for (const probe of ['postgres-query', 'redis-ping', 'rabbit-connect']) {
+      assert.ok(healthy.calls.includes(probe));
+      const failing = fixture(probe);
+      await assert.rejects(checkEnv(role, env, failing.load, () => {}));
+    }
+    assert.ok(!healthy.calls.includes('smtp-verify'));
   });
 }

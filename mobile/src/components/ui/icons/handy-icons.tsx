@@ -64,6 +64,41 @@ export function ChatIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & 
   );
 }
 
+export function SendIcon({ color = '#FFFFFF', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="m22 2-7 20-4-9L2 9 22 2Z" />
+      <Path d="M22 2 11 13" />
+    </Svg>
+  );
+}
+
+export function GalleryIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Rect x="3" y="3" width="18" height="18" rx="4" />
+      <Circle cx="8" cy="8" r="1.5" />
+      <Path d="m3 17 5-5 4 4 4-6 5 7" />
+    </Svg>
+  );
+}
+
+export function RetryIcon({ color = '#2563EB', size = 22, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <Path d="M3 10a9 9 0 1 1 2 8M3 4v6h6" />
+    </Svg>
+  );
+}
+
+export function PlayIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill={color} {...props}>
+      <Path d="M8 5v14l11-7-11-7Z" />
+    </Svg>
+  );
+}
+
 export function WalletIcon({ color = '#2563EB', size = 24, ...props }: SvgProps & { size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

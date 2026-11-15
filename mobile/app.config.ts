@@ -56,6 +56,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundler: 'metro',
   },
   plugins: [
+    'react-native-compressor',
     [
       'expo-splash-screen',
       {

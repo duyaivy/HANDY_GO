@@ -78,7 +78,7 @@ export function calculateBackoffDelay(attempt: number, maxBackoffMs = DEFAULT_MA
 export class SseStreamParser {
   private buffer = '';
 
-  public onEvent?: (eventName: string, data: string) => void;
+  public onEvent?: (eventName: string, data: string, id?: string) => void;
 
   public onComment?: (comment: string) => void;
 
@@ -101,6 +101,7 @@ export class SseStreamParser {
   private parseBlock(block: string): void {
     const lines = block.split('\n');
     let eventName = 'message';
+    let eventId: string | undefined;
     const dataLines: string[] = [];
 
     for (const line of lines) {
@@ -114,13 +115,21 @@ export class SseStreamParser {
       if (line.startsWith('event:')) {
         eventName = line.slice(6).trim();
       }
+      else if (line.startsWith('id:')) {
+        eventId = line.slice(3).trim();
+      }
       else if (line.startsWith('data:')) {
         dataLines.push(line.slice(5).trim());
       }
     }
 
     if (dataLines.length > 0) {
-      this.onEvent?.(eventName, dataLines.join('\n'));
+      if (eventId !== undefined) {
+        this.onEvent?.(eventName, dataLines.join('\n'), eventId);
+      }
+      else {
+        this.onEvent?.(eventName, dataLines.join('\n'));
+      }
     }
   }
 

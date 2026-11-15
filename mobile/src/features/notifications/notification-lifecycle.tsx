@@ -40,10 +40,16 @@ export function NotificationLifecycle() {
     const fallbackRequestId = String(pendingData?.requestId || pendingData?.serviceRequestId || pendingData?.entityId || '');
     const fallbackCategory = String(pendingData?.category || '');
 
-    const handleDeepLink = (eventType: string, requestId: string, category?: string) => {
+    const handleDeepLink = (eventType: string, requestId: string, details?: { category?: string; conversationId?: string }) => {
       try {
+        const { category, conversationId } = details ?? {};
         const mode = useAuthStore.getState().activeMode;
         const userRoles = useAuthStore.getState().user?.roles || [];
+
+        if (eventType === 'message.created' && conversationId && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(conversationId)) {
+          router.push(`/chat/${conversationId}` as Href);
+          return;
+        }
 
         // Route bid notifications to Customer Radar
         if (
@@ -89,12 +95,12 @@ export function NotificationLifecycle() {
       const requestId = String(record?.payload?.requestId || record?.payload?.serviceRequestId || record?.payload?.entityId || fallbackRequestId);
       const category = String(record?.category || fallbackCategory);
 
-      handleDeepLink(eventType, requestId, category);
+      handleDeepLink(eventType, requestId, { category, conversationId: String(record?.payload?.conversationId || '') });
       void refreshNotifications(userId);
     }).catch((_err) => {
       // Safe fallback for cold-start or offline/failed detail fetch: navigate using notification payload
       if (sessionUser() === userId && (fallbackEventType || fallbackRequestId)) {
-        handleDeepLink(fallbackEventType, fallbackRequestId, fallbackCategory);
+        handleDeepLink(fallbackEventType, fallbackRequestId, { category: fallbackCategory });
       }
     }).finally(() => {
       if (!controller.signal.aborted)
@@ -168,6 +174,7 @@ export function NotificationLifecycle() {
         if (id) {
           void refreshNotifications(id);
           void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+          void queryClient.invalidateQueries({ queryKey: ['chat', id, 'list'] });
         }
       }));
       subscriptions.push(Notifications.addNotificationResponseReceivedListener(handleResponse));

@@ -120,6 +120,10 @@ export class ConfigService {
     return this.config.getOrThrow<string>(key);
   }
 
+  get messageServiceUrl(): string {
+    return this.getUrl('MESSAGE_SERVICE_URL');
+  }
+
   get(key: string): string | undefined {
     return optionalValue(this.config.get<string>(key));
   }

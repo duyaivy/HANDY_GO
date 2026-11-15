@@ -1,0 +1,140 @@
+datasource db {
+  provider = "postgresql"
+  schemas  = ["message"]
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../../node_modules/@prisma/message-client"
+}
+
+enum ConversationStatus {
+  OPEN
+  READ_ONLY
+
+  @@map("conversation_status")
+  @@schema("message")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+
+  @@map("message_type")
+  @@schema("message")
+}
+
+enum AttachmentType {
+  IMAGE
+  VIDEO
+
+  @@map("attachment_type")
+  @@schema("message")
+}
+
+model Conversation {
+  id            String                  @id @default(uuid()) @db.Uuid
+  requestId     String                  @map("request_id") @db.Uuid
+  orderId       String?                 @map("order_id") @db.Uuid
+  customerId    String                  @map("customer_id") @db.Uuid
+  workerId      String                  @map("worker_id") @db.Uuid
+  status        ConversationStatus      @default(OPEN)
+  lastSequence  BigInt                  @default(0) @map("last_sequence")
+  lastMessageAt DateTime?               @map("last_message_at") @db.Timestamptz(6)
+  createdAt     DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  messages      Message[]
+  readStates    ConversationReadState[]
+
+  @@unique([requestId, customerId, workerId])
+  @@index([customerId, lastMessageAt(sort: Desc), id(sort: Desc)])
+  @@index([workerId, lastMessageAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+  @@map("conversations")
+  @@schema("message")
+}
+
+model Message {
+  id              String              @id @default(uuid()) @db.Uuid
+  conversationId  String              @map("conversation_id") @db.Uuid
+  senderId        String              @map("sender_id") @db.Uuid
+  clientMessageId String              @map("client_message_id") @db.Uuid
+  messageType     MessageType         @map("message_type")
+  content         String?             @db.Text
+  replyToId       String?             @map("reply_to_id") @db.Uuid
+  // SQL trigger overwrites any default/client value using a locked conversation counter.
+  sequence        BigInt              @default(0)
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  conversation    Conversation        @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  replyTo         Message?            @relation("MessageReply", fields: [conversationId, replyToId], references: [conversationId, id], onDelete: Restrict, onUpdate: NoAction)
+  replies         Message[]           @relation("MessageReply")
+  attachments     MessageAttachment[]
+
+  @@unique([senderId, clientMessageId])
+  @@unique([conversationId, sequence])
+  @@unique([conversationId, id])
+  @@index([conversationId, replyToId])
+  @@map("messages")
+  @@schema("message")
+}
+
+model MessageAttachment {
+  id         String         @id @default(uuid()) @db.Uuid
+  messageId  String         @map("message_id") @db.Uuid
+  storageKey String         @map("storage_key") @db.VarChar(512)
+  mediaType  AttachmentType @map("media_type")
+  mimeType   String         @map("mime_type") @db.VarChar(100)
+  sizeBytes  BigInt         @map("size_bytes")
+  position   Int
+  width      Int?
+  height     Int?
+  durationMs Int?           @map("duration_ms")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  message    Message        @relation(fields: [messageId], references: [id], onDelete: Restrict)
+
+  @@unique([messageId, position])
+  @@unique([messageId, storageKey])
+  @@map("message_attachments")
+  @@schema("message")
+}
+
+model ConversationReadState {
+  conversationId   String       @map("conversation_id") @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  lastReadSequence BigInt       @default(0) @map("last_read_sequence")
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+
+  @@id([conversationId, userId])
+  @@map("conversation_read_states")
+  @@schema("message")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String    @default("message") @map("aggregate_type") @db.VarChar(50)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(100)
+  eventVersion  Int       @default(1) @map("event_version")
+  payload       Json
+  status        String    @default("pending") @db.VarChar(30)
+  retryCount    Int       @default(0) @map("retry_count")
+  lastError     String?   @map("last_error") @db.Text
+  nextRetryAt   DateTime  @default(now()) @map("next_retry_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt   DateTime? @map("published_at") @db.Timestamptz(6)
+
+  @@index([status, nextRetryAt])
+  @@map("outbox_events")
+  @@schema("message")
+}
+
+model ConsumedEvent {
+  eventId    String   @id @map("event_id") @db.VarChar(128)
+  eventType  String   @map("event_type") @db.VarChar(100)
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("consumed_events")
+  @@schema("message")
+}

@@ -38,16 +38,6 @@ export class SummaryService {
     serviceRequestId: string,
     user: GatewayUser,
   ): Promise<TrackingSummaryResponseDto> {
-    const cacheKey = this.buildSummaryCacheKey(serviceRequestId, user);
-
-    if (this.redis) {
-      const cached = await this.redis.get<TrackingSummaryResponseDto>(cacheKey);
-      if (cached) {
-        this.logger.debug(`Cache hit for summary: ${cacheKey}`);
-        return cached;
-      }
-    }
-
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
       include: {
@@ -67,11 +57,10 @@ export class SummaryService {
       );
     }
 
+    const isOwner = Boolean(user.isCustomer && flow.customerId === user.userId);
+
     // Role-based authorization: fail-closed if ownership or participation cannot be confirmed
     if (!user.isAdmin) {
-      const isOwner =
-        user.isCustomer && flow.customerId && flow.customerId === user.userId;
-
       let isParticipatingWorker = false;
       if (user.isWorker) {
         isParticipatingWorker = flow.events.some(
@@ -89,6 +78,19 @@ export class SummaryService {
       }
     }
 
+    const cacheKey = this.buildSummaryCacheKey(
+      serviceRequestId,
+      user,
+      flow.eventSequence ?? 0,
+    );
+    if (this.redis) {
+      const cached = await this.redis.get<TrackingSummaryResponseDto>(cacheKey);
+      if (cached) {
+        this.logger.debug(`Cache hit for summary: ${cacheKey}`);
+        return cached;
+      }
+    }
+
     const events = flow.events;
 
     // 1. Service Request Milestone
@@ -103,6 +105,16 @@ export class SummaryService {
       } else if (evt.eventType === 'service_request.published') {
         reqMilestone.publishedAt = evt.occurredAt;
         reqMilestone.status = 'open_for_bidding';
+      } else if (evt.eventType === 'service_request.bidding_closed') {
+        const closedAt = (evt.metadata as Record<string, unknown> | null)
+          ?.biddingClosedAt;
+        const parsedClosedAt =
+          typeof closedAt === 'string' ? new Date(closedAt) : null;
+        reqMilestone.biddingClosedAt =
+          parsedClosedAt && !Number.isNaN(parsedClosedAt.getTime())
+            ? parsedClosedAt
+            : evt.occurredAt;
+        reqMilestone.status = 'bidding_closed';
       } else if (evt.eventType === 'service_request.cancelled') {
         reqMilestone.cancelledAt = evt.occurredAt;
         reqMilestone.status = 'cancelled';
@@ -189,12 +201,13 @@ export class SummaryService {
 
     if (latestProposalEvent) {
       const meta = latestProposalEvent.metadata as any;
-      const proposalWorkerId = meta?.workerId || latestProposalEvent.actorUserId;
+      const proposalWorkerId =
+        meta?.workerId || latestProposalEvent.actorUserId;
 
-      // Privacy: If user is Worker, only expose proposal details if they are the designated worker
+      // Only the request owner, admin, or proposal worker can see proposal details.
       const isAuthorizedForProposal =
         user.isAdmin ||
-        user.isCustomer ||
+        isOwner ||
         (user.isWorker && proposalWorkerId === user.userId);
 
       if (isAuthorizedForProposal) {
@@ -204,9 +217,11 @@ export class SummaryService {
               ? 'finalized'
               : latestProposalEvent.eventType === 'booking_proposal.rejected'
                 ? 'rejected'
-                : latestProposalEvent.eventType === 'booking_proposal.changes_requested'
+                : latestProposalEvent.eventType ===
+                    'booking_proposal.changes_requested'
                   ? 'changes_requested'
-                  : latestProposalEvent.eventType === 'booking_proposal.withdrawn'
+                  : latestProposalEvent.eventType ===
+                      'booking_proposal.withdrawn'
                     ? 'withdrawn'
                     : 'proposed',
           proposalId: latestProposalEvent.entityId,
@@ -244,7 +259,7 @@ export class SummaryService {
       assignedWorkerId && assignedWorkerId === user.userId,
     );
     const isAuthorizedForOrderAndPayment =
-      user.isAdmin || user.isCustomer || (user.isWorker && isAssignedWorker);
+      user.isAdmin || isOwner || (user.isWorker && isAssignedWorker);
 
     if ((orderCreatedEvent || flow.orderId) && isAuthorizedForOrderAndPayment) {
       const orderCancelled = [...events]
@@ -253,6 +268,15 @@ export class SummaryService {
       const orderCompleted = [...events]
         .reverse()
         .find((e) => e.eventType === 'order.completed');
+      const orderFinished = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.status.changed' &&
+            (e.toStatus === 'awaiting_customer_confirmation' ||
+              (e.metadata as any)?.nextStatus ===
+                'awaiting_customer_confirmation'),
+        );
 
       let orderStatus = 'created';
       if (latestOrderEvent) {
@@ -268,10 +292,24 @@ export class SummaryService {
           orderStatus = 'cancelled';
         } else if (latestOrderEvent.eventType === 'order.completed') {
           orderStatus = 'completed';
+        } else if (
+          latestOrderEvent.eventType === 'order.disputed' ||
+          targetStatus === 'disputed'
+        ) {
+          orderStatus = 'disputed';
+        } else if (
+          latestOrderEvent.eventType === 'order.rework_requested' ||
+          meta?.notificationKind === 'rework_requested' ||
+          (targetStatus === 'in_progress' &&
+            (latestOrderEvent.fromStatus === 'finished' ||
+              latestOrderEvent.fromStatus ===
+                'awaiting_customer_confirmation' ||
+              meta?.previousStatus === 'finished' ||
+              meta?.previousStatus === 'awaiting_customer_confirmation'))
+        ) {
+          orderStatus = 'in_progress';
         } else if (targetStatus) {
           orderStatus = targetStatus;
-        } else if (latestOrderEvent.eventType === 'order.started') {
-          orderStatus = 'in_progress';
         } else if (latestOrderEvent.eventType === 'order.accepted') {
           orderStatus = 'confirmed';
         } else {
@@ -279,12 +317,52 @@ export class SummaryService {
         }
       }
 
+      const latestRework = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.rework_requested' ||
+            (e.metadata as any)?.notificationKind === 'rework_requested' ||
+            Boolean((e.metadata as any)?.reworkReason) ||
+            ((e.toStatus === 'in_progress' ||
+              (e.metadata as any)?.nextStatus === 'in_progress') &&
+              (e.fromStatus === 'finished' ||
+                e.fromStatus === 'awaiting_customer_confirmation' ||
+                (e.metadata as any)?.previousStatus === 'finished' ||
+                (e.metadata as any)?.previousStatus ===
+                  'awaiting_customer_confirmation') &&
+              Boolean(e.reason)),
+        );
+
+      const latestDispute = [...events]
+        .reverse()
+        .find(
+          (e) =>
+            e.eventType === 'order.disputed' ||
+            e.toStatus === 'disputed' ||
+            (e.metadata as any)?.nextStatus === 'disputed' ||
+            Boolean((e.metadata as any)?.disputeReason),
+        );
+
+      const reworkReason =
+        latestRework?.reason ||
+        (latestRework?.metadata as any)?.reworkReason ||
+        (latestRework?.metadata as any)?.reason;
+
+      const disputeReason =
+        latestDispute?.reason ||
+        (latestDispute?.metadata as any)?.disputeReason ||
+        (latestDispute?.metadata as any)?.reason;
+
       orderMilestone = {
         orderId: flow.orderId || orderCreatedEvent?.entityId,
         status: orderStatus,
         createdAt: orderCreatedEvent?.occurredAt || flow.updatedAt,
+        finishedAt: orderFinished?.occurredAt,
         completedAt: orderCompleted?.occurredAt,
         cancelledAt: orderCancelled?.occurredAt,
+        ...(reworkReason ? { reworkReason } : {}),
+        ...(disputeReason ? { disputeReason } : {}),
       };
     }
 
@@ -316,7 +394,7 @@ export class SummaryService {
     const result: TrackingSummaryResponseDto = {
       flowId: flow.id,
       serviceRequestId: flow.serviceRequestId,
-      orderId: flow.orderId,
+      orderId: isAuthorizedForOrderAndPayment ? flow.orderId : undefined,
       customerId: flow.customerId,
       currentPhase,
       serviceRequest: reqMilestone,
@@ -331,9 +409,15 @@ export class SummaryService {
       updatedAt: flow.updatedAt,
     };
 
-    const isImmutable = ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(currentPhase);
+    const isImmutable = ['COMPLETED', 'CANCELLED', 'EXPIRED'].includes(
+      currentPhase,
+    );
     if (isImmutable && this.redis) {
-      await this.redis.set(cacheKey, result, SummaryService.IMMUTABLE_TTL_SECONDS);
+      await this.redis.set(
+        cacheKey,
+        result,
+        SummaryService.IMMUTABLE_TTL_SECONDS,
+      );
       this.logger.debug(
         `Cached immutable summary for ${cacheKey} (TTL: ${SummaryService.IMMUTABLE_TTL_SECONDS}s)`,
       );
@@ -345,6 +429,7 @@ export class SummaryService {
   private buildSummaryCacheKey(
     serviceRequestId: string,
     user: GatewayUser,
+    version: number,
   ): string {
     let userScope = 'admin';
     if (user.isCustomer) {
@@ -352,7 +437,7 @@ export class SummaryService {
     } else if (user.isWorker) {
       userScope = `wrk:${user.userId}`;
     }
-    return `tracking:summary:${serviceRequestId}:${userScope}`;
+    return `tracking:summary-auth3:${serviceRequestId}:${userScope}:v${version}`;
   }
 
   private computeCurrentPhase(
@@ -394,14 +479,23 @@ export class SummaryService {
     if (order?.orderId) {
       return 'ORDER_CREATED';
     }
-    if (proposal?.status === 'finalized' || req.status === 'converted_to_order') {
+    if (
+      proposal?.status === 'finalized' ||
+      req.status === 'converted_to_order'
+    ) {
       return 'CONVERTED_TO_ORDER';
     }
-    if (proposal?.status === 'proposed' || proposal?.status === 'changes_requested') {
+    if (
+      proposal?.status === 'proposed' ||
+      proposal?.status === 'changes_requested'
+    ) {
       return 'PROPOSAL_NEGOTIATION';
     }
     if (bidding.status === 'finalized') {
       return 'BIDDING_FINALIZED';
+    }
+    if (req.status === 'bidding_closed') {
+      return 'BIDDING_CLOSED';
     }
     if (bidding.status === 'closed') {
       return 'BIDDING_CLOSED';
