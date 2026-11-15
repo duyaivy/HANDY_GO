@@ -291,7 +291,7 @@ describe('UserTrustServiceController', () => {
         roles: ['admin'],
         permissions: ['user:manage'],
       };
-      const dto = { decision: 'approved' as const };
+      const dto = { decision: 'approved' as const, expectedVersion: 1 };
       const res = await controller.reviewServiceRegistration(adminUser, 'reg-1', dto);
       expect(res).toEqual({ statusCode: 200, data: { status: 'approved' } });
       expect(serviceMock.reviewServiceRegistration).toHaveBeenCalledWith('admin-1', 'reg-1', dto);
