@@ -10,6 +10,12 @@ describe('production service topology', () => {
     CATALOG_SERVICE_URL: 'http://10.77.0.3:3003',
     ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
   };
+  const orderConfig = {
+    ...config,
+    AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+    BIDDING_SERVICE_URL: 'http://bidding-service:3005',
+    MATCHING_SERVICE_URL: 'http://matching-service:3006',
+  };
 
   it('enforces same VPS -> Docker DNS and different VPS -> WireGuard IP', () => {
     // Cross-host callers must use WireGuard IP and reject Docker DNS
@@ -60,21 +66,19 @@ describe('production service topology', () => {
   });
 
   it('prevents missing Order URLs and wrong Matching ports from activating local fallbacks', () => {
-    const withoutOrder = { ...config };
-    delete (withoutOrder as Record<string, unknown>).ORDER_SERVICE_URL;
-    expect(() => validateProductionServiceEndpoints(withoutOrder, 'order-service')).toThrow('BIDDING_SERVICE_URL');
-    expect(() => validateProductionServiceEndpoints({ ...withoutOrder,
-      BIDDING_SERVICE_URL: 'http://10.77.0.2:3005', MATCHING_SERVICE_URL: 'http://10.77.0.2:3004',
+    expect(() => validateProductionServiceEndpoints(orderConfig, 'order-service')).not.toThrow();
+    for (const key of ['AUTH_SERVICE_URL', 'USER_TRUST_SERVICE_URL', 'CATALOG_SERVICE_URL',
+      'BIDDING_SERVICE_URL', 'MATCHING_SERVICE_URL']) {
+      const missingUrl: Record<string, unknown> = { ...orderConfig };
+      delete missingUrl[key];
+      expect(() => validateProductionServiceEndpoints(missingUrl, 'order-service')).toThrow(key);
+    }
+    expect(() => validateProductionServiceEndpoints({ ...orderConfig,
+      MATCHING_SERVICE_URL: 'http://matching-service:3004',
     }, 'order-service')).toThrow('MATCHING_SERVICE_URL');
   });
 
   it('requires Order Service to reach Catalog over the VPS3 WireGuard address', () => {
-    const orderConfig = {
-      ...config,
-      AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
-      BIDDING_SERVICE_URL: 'http://bidding-service:3005',
-      MATCHING_SERVICE_URL: 'http://matching-service:3006',
-    };
     expect(() =>
       validateProductionServiceEndpoints(orderConfig, 'order-service'),
     ).not.toThrow();
