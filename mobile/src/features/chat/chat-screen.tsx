@@ -28,6 +28,7 @@ import { useAuthStore } from '@/stores/use-auth-store';
 import { ChatApi, chatErrorMessage } from './chat-api';
 import { uploadChatMedia } from './chat-media';
 import { ChatMediaCard } from './chat-media-card';
+import { ChatDealBar } from './chat-deal-bar';
 import { useChat } from './use-chat';
 import { useChatKeyboard } from './use-chat-keyboard';
 
@@ -300,6 +301,21 @@ function ParticipantChatScreen() {
               </Pressable>
             )}
           </View>
+          {conversation && (
+            <ChatDealBar
+              conversation={conversation}
+              userId={userId}
+              onSendMessage={async (text) => {
+                const input: MessageSendInput = {
+                  conversationId: id,
+                  clientMessageId: Crypto.randomUUID(),
+                  messageType: 'TEXT',
+                  content: text,
+                };
+                await send(input);
+              }}
+            />
+          )}
           {chat.history.isPending
             ? (
                 <ActivityIndicator style={{ flex: 1 }} />

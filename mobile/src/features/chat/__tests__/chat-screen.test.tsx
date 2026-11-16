@@ -40,6 +40,16 @@ jest.mock('../use-chat', () => ({
   }),
 }));
 jest.mock('../chat-media', () => ({ uploadChatMedia: jest.fn() }));
+jest.mock('../chat-deal-bar', () => ({
+  ChatDealBar: ({ conversation, userId }: any) => {
+    const { Text, View } = require('react-native');
+    return (
+      <View testID="mock-chat-deal-bar">
+        <Text>DealBar: {userId}</Text>
+      </View>
+    );
+  },
+}));
 jest.mock('../chat-api', () => ({ ChatApi: { history: jest.fn() }, chatErrorMessage: () => 'Không gửi được tệp.' }));
 jest.mock('../use-chat-keyboard', () => ({
   useChatKeyboard: () => ({ containerRef: { current: null }, bottomInset: 180, keyboardVisible: true, onLayout: jest.fn() }),
@@ -174,3 +184,10 @@ it('shows preparation separately from uploading and lets the user cancel compres
   expect(uploadSignal?.aborted).toBe(true);
   expect(mockSend).not.toHaveBeenCalled();
 });
+
+it('renders ChatDealBar negotiation banner when conversation data is available', () => {
+  render(<ChatScreen />);
+  expect(screen.getByTestId('mock-chat-deal-bar')).toBeTruthy();
+  expect(screen.getByText('DealBar: worker')).toBeTruthy();
+});
+
