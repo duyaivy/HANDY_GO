@@ -25,6 +25,13 @@ describe('AI identity proxy route', () => {
     expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/kyc-cases');
     expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/worker-registrations');
     expect(userTrustRoute?.prefixes).toContain('/api/v1/workers');
+    expect(userTrustRoute?.prefixes).toContain('/api/v1/reviews');
+    expect(
+      userTrustRoute?.customMatch?.('/api/v1/orders/a0000000-0000-4000-8000-000000000001/reviews'),
+    ).toBe(true);
+    expect(
+      userTrustRoute?.customMatch?.('/api/v1/orders/a0000000-0000-4000-8000-000000000001/review'),
+    ).toBe(true);
   });
 
   it('correctly isolates bidding subroutes and general request CRUD routes', () => {
