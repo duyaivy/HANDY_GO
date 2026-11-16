@@ -250,6 +250,8 @@ model WorkerReview {
   speedRating       String        @default("good") @map("speed_rating")
   comment           String?
   status            ReviewStatus  @default(published)
+  isEdited          Boolean       @default(false) @map("is_edited")
+  editedAt          DateTime?     @map("edited_at") @db.Timestamp(6)
   moderatedByUserId String?       @map("moderated_by_user_id") @db.Uuid
   moderationNote    String?       @map("moderation_note")
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamp(6)

@@ -63,7 +63,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
 import { ListWorkerReviewsDto } from './dto/list-worker-reviews.dto.js';
-import { CreateReviewDto } from './dto/create-review.dto.js';
+import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dto.js';
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
@@ -907,6 +907,138 @@ export class UserTrustServiceController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ): Promise<unknown> {
     return this.userTrustService.getReviewById(id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Put('reviews/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'images', maxCount: 5 },
+      { name: 'videos', maxCount: 2 },
+      { name: 'file', maxCount: 5 },
+    ]),
+  )
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Chỉnh sửa đánh giá (cho phép sửa 1 lần duy nhất trong vòng 48h)',
+    description:
+      'Khách hàng có thể cập nhật số sao, nhận xét hoặc hình ảnh/video của đánh giá trong vòng 48 giờ kể từ khi tạo. Chỉ được sửa 1 lần duy nhất.',
+  })
+  @ApiResponse({ status: 200, description: 'Chỉnh sửa đánh giá thành công' })
+  @ApiResponse({
+    status: 400,
+    description: 'Đã quá hạn 48h hoặc đánh giá đã được chỉnh sửa trước đó',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Không có quyền chỉnh sửa đánh giá này',
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy đánh giá' })
+  async updateReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateReviewDto,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    return this.userTrustService.updateReview(user.userId, id, dto, files);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Patch('reviews/:id')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'images', maxCount: 5 },
+      { name: 'videos', maxCount: 2 },
+      { name: 'file', maxCount: 5 },
+    ]),
+  )
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Chỉnh sửa đánh giá theo reviewId (PATCH alias)',
+  })
+  async patchReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() dto: UpdateReviewDto,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    return this.userTrustService.updateReview(user.userId, id, dto, files);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Put('orders/:orderId/reviews')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'images', maxCount: 5 },
+      { name: 'videos', maxCount: 2 },
+      { name: 'file', maxCount: 5 },
+    ]),
+  )
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Chỉnh sửa đánh giá theo orderId',
+  })
+  async updateOrderReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderId', new ParseUUIDPipe({ version: '4' })) orderId: string,
+    @Body() dto: UpdateReviewDto,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    return this.userTrustService.updateReview(user.userId, orderId, dto, files);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions(StandardPermissions.PROFILE_UPDATE)
+  @Patch('orders/:orderId/reviews')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileFieldsInterceptor([
+      { name: 'images', maxCount: 5 },
+      { name: 'videos', maxCount: 2 },
+      { name: 'file', maxCount: 5 },
+    ]),
+  )
+  @ApiConsumes('application/json', 'multipart/form-data')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Chỉnh sửa đánh giá theo orderId (PATCH alias)',
+  })
+  async patchOrderReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderId', new ParseUUIDPipe({ version: '4' })) orderId: string,
+    @Body() dto: UpdateReviewDto,
+    @UploadedFiles()
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ): Promise<unknown> {
+    return this.userTrustService.updateReview(user.userId, orderId, dto, files);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
