@@ -379,6 +379,73 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       expect(result.statusCode).toBe(200);
       expect(result.worker.fullName).toBe('Lê Thu Hà');
     });
+
+    it('Lọc đánh giá chỉ có hình ảnh/video thực tế (hasMedia=true)', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+        ratingCount: 16,
+        averageRating: 4.95,
+        user: { fullName: 'Lê Thu Hà', avatarUrl: null },
+      });
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      dbMock.workerReview.count.mockResolvedValue(0);
+
+      await controller.getWorkerReviews(workerUserId, { hasMedia: true }, customerUser);
+
+      expect(dbMock.workerReview.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId,
+            status: 'published',
+            media: { some: {} },
+          }),
+        }),
+      );
+    });
+
+    it('Sắp xếp đánh giá theo sao cao nhất (sortBy=highest_rating)', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+        ratingCount: 16,
+        averageRating: 4.95,
+        user: { fullName: 'Lê Thu Hà', avatarUrl: null },
+      });
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      dbMock.workerReview.count.mockResolvedValue(0);
+
+      await controller.getWorkerReviews(workerUserId, { sortBy: 'highest_rating' }, customerUser);
+
+      expect(dbMock.workerReview.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ rating: 'desc' }, { createdAt: 'desc' }],
+        }),
+      );
+    });
+
+    it('Sắp xếp đánh giá theo sao thấp nhất (sortBy=lowest_rating)', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+        ratingCount: 16,
+        averageRating: 4.95,
+        user: { fullName: 'Lê Thu Hà', avatarUrl: null },
+      });
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      dbMock.workerReview.count.mockResolvedValue(0);
+
+      await controller.getWorkerReviews(workerUserId, { sortBy: 'lowest_rating' }, customerUser);
+
+      expect(dbMock.workerReview.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: [{ rating: 'asc' }, { createdAt: 'desc' }],
+        }),
+      );
+    });
   });
 
   describe('3. Thợ tự xem tất cả đánh giá của chính mình (Worker self-views reviews)', () => {
