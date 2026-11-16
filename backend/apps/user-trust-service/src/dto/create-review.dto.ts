@@ -18,14 +18,14 @@ import {
 export class CreateReviewMediaDto {
   @ApiProperty({
     description: 'Loại media: image (hình ảnh) hoặc video',
-    enum: ['image', 'video', 'IMAGE', 'VIDEO'],
+    enum: ['image', 'video'],
     example: 'image',
   })
   @IsNotEmpty({ message: 'mediaType không được để trống' })
   @IsIn(['image', 'video', 'IMAGE', 'VIDEO'], {
     message: 'mediaType phải là image hoặc video',
   })
-  mediaType: 'image' | 'video' | string;
+  mediaType: 'image' | 'video' | 'IMAGE' | 'VIDEO';
 
   @ApiProperty({
     description: 'URL của file media (Cloudinary hoặc link trực tiếp)',
