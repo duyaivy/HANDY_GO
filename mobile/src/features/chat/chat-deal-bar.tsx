@@ -131,7 +131,7 @@ export function ChatDealBar({
             const notice = `[Báo giá mới] Tôi đã điều chỉnh giá dịch vụ thành ${formatCurrency(newAmount)}.${
               note ? ` Ghi chú: ${note}` : ''
             }`;
-            void onSendMessage?.(notice);
+            void onSendMessage?.(notice)?.catch?.(() => {});
           }}
         />
       </>
@@ -213,7 +213,7 @@ export function ChatDealBar({
       const handleSelectWorker = () => {
         Alert.alert(
           'Xác nhận chọn thợ',
-          `Bạn có đồng ý chọn thợ ${conversation.workerName || ''} với mức giá ${formatCurrency(
+          `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formatCurrency(
             workerBid.amount,
           )} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`,
           [
@@ -225,7 +225,7 @@ export function ChatDealBar({
                 try {
                   await OrdersApi.createProposal({
                     serviceRequestId: conversation.requestId,
-                    workerUserId: conversation.workerId,
+                    workerUserId: workerBid.workerUserId || conversation.workerId,
                     selectionSource: 'bid',
                     sourceBidId: workerBid.sourceBidId || workerBid.id,
                     agreedPrice: workerBid.amount,
@@ -248,7 +248,7 @@ export function ChatDealBar({
                     `Tôi đã gửi đề xuất chọn bạn với mức giá ${formatCurrency(
                       workerBid.amount,
                     )}. Vui lòng xác nhận đề xuất nhé!`,
-                  );
+                  )?.catch?.(() => {});
                 } catch (err: any) {
                   Alert.alert(
                     'Không thể gửi đề xuất',

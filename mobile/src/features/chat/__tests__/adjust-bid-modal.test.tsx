@@ -143,4 +143,69 @@ describe('AdjustBidModal', () => {
     const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
     expect(submitBtn.props.accessibilityState?.disabled).toBe(true);
   });
+
+  it('handles 409 Conflict with retry prompt and query invalidation', async () => {
+    const invalidateSpy = jest.spyOn(queryClient, 'invalidateQueries');
+    mockMutateAsync.mockRejectedValueOnce({ statusCode: 409 });
+
+    let reloadAction: (() => void) | undefined;
+    (Alert.alert as jest.Mock).mockImplementation((title, _message, buttons) => {
+      if (title === 'Xung đột phiên bản') {
+        const reloadBtn = buttons?.find((b: any) => b.text === 'Tải lại');
+        reloadAction = reloadBtn?.onPress;
+      }
+    });
+
+    render(
+      <AdjustBidModal
+        visible={true}
+        onClose={jest.fn()}
+        bid={mockBid}
+        requestId="req-456"
+      />,
+      { wrapper },
+    );
+
+    const priceInput = screen.getByPlaceholderText('Nhập số tiền (VNĐ)');
+    fireEvent.changeText(priceInput, '320000');
+
+    const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
+    fireEvent.press(submitBtn);
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Xung đột phiên bản',
+        expect.stringContaining('Bạn có muốn tải lại'),
+        expect.any(Array),
+      );
+    });
+
+    expect(invalidateSpy).toHaveBeenCalled();
+
+    const refetchSpy = jest.spyOn(queryClient, 'refetchQueries');
+    await reloadAction?.();
+    expect(refetchSpy).toHaveBeenCalled();
+  });
+
+  it('renders cooldown countdown and disables submit when cooldown is active', () => {
+    const recentBid: BidDetail = {
+      ...mockBid,
+      submittedAt: new Date(Date.now() - 30000).toISOString(), // 30s ago -> 90s remaining
+    };
+
+    render(
+      <AdjustBidModal
+        visible={true}
+        onClose={jest.fn()}
+        bid={recentBid}
+        requestId="req-456"
+        cooldownCheck={true}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByText(/Chờ \d+s để sửa tiếp/)).toBeTruthy();
+    const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
+    expect(submitBtn.props.accessibilityState?.disabled).toBe(true);
+  });
 });

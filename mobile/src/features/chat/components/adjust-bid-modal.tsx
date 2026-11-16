@@ -1,4 +1,5 @@
 import type { BidDetail } from '@/features/bidding/api/worker-bidding.api';
+import { useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import {
   Alert,
@@ -14,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { CloseIcon } from '@/components/ui/icons/handy-icons';
 import { useReviseBid } from '@/features/bidding/hooks/use-worker-bidding';
+import { workerBiddingKeys } from '@/features/candidates/hooks/candidate-query-keys';
 
 export type AdjustBidModalProps = {
   visible: boolean;
@@ -21,6 +23,7 @@ export type AdjustBidModalProps = {
   bid: BidDetail;
   requestId: string;
   onSuccess?: (newAmount: number, message?: string) => void;
+  cooldownCheck?: boolean;
 };
 
 const MAX_REVISIONS = 5;
@@ -38,7 +41,9 @@ export function AdjustBidModal({
   bid,
   requestId,
   onSuccess,
+  cooldownCheck,
 }: AdjustBidModalProps) {
+  const queryClient = useQueryClient();
   const reviseBidMutation = useReviseBid(requestId);
   const [amountStr, setAmountStr] = React.useState('');
   const [message, setMessage] = React.useState('');
@@ -67,7 +72,7 @@ export function AdjustBidModal({
   }, [bid]);
 
   const [cooldownNow, setCooldownNow] = React.useState(() => Date.now());
-  const cooldownEnabled = visible && lastUpdateTimestamp !== null && process.env.NODE_ENV !== 'test';
+  const cooldownEnabled = visible && lastUpdateTimestamp !== null && (cooldownCheck ?? (process.env.NODE_ENV !== 'test'));
   const cooldownRemainingSec = cooldownEnabled
     ? Math.max(0, Math.ceil((lastUpdateTimestamp + COOLDOWN_MS - cooldownNow) / 1000))
     : 0;
@@ -115,9 +120,23 @@ export function AdjustBidModal({
     } catch (err: any) {
       const isConflict = err?.statusCode === 409 || err?.response?.status === 409;
       if (isConflict) {
+        void queryClient.invalidateQueries({
+          queryKey: workerBiddingKeys.myBidForRequest(bid.workerId, requestId),
+        });
         Alert.alert(
           'Xung đột phiên bản',
-          'Báo giá đã thay đổi trên hệ thống, vui lòng thử lại sau khi dữ liệu cập nhật.',
+          'Báo giá đã thay đổi trên hệ thống. Bạn có muốn tải lại dữ liệu mới nhất không?',
+          [
+            { text: 'Hủy', style: 'cancel', onPress: onClose },
+            {
+              text: 'Tải lại',
+              onPress: async () => {
+                await queryClient.refetchQueries({
+                  queryKey: workerBiddingKeys.myBidForRequest(bid.workerId, requestId),
+                });
+              },
+            },
+          ],
         );
       } else {
         Alert.alert(
