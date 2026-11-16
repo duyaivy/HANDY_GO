@@ -8,6 +8,7 @@ import {
   type DashboardGranularity,
   type OrderTrendRow,
 } from './dashboard-trend.js';
+import { buildOrderStatus } from './dashboard-status.js';
 
 @Injectable()
 export class DashboardService {
@@ -76,6 +77,15 @@ export class DashboardService {
       ORDER BY 1
     `;
     return buildOrderTrend(period, granularity, rows);
+  }
+
+  async orderStatus(period: DashboardPeriod) {
+    const rows = await this.prisma.order.groupBy({
+      by: ['status'],
+      where: { createdAt: { gte: period.start, lt: period.endExclusive } },
+      _count: { id: true },
+    });
+    return buildOrderStatus(rows);
   }
 
   private async internalGet<T>(

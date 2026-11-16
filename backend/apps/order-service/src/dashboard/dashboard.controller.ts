@@ -73,4 +73,34 @@ export class DashboardController {
       await this.dashboard.orderTrend(period, granularity),
     );
   }
+
+  @Get('order-status')
+  @ApiOperation({
+    summary: 'Current order status and completion/cancellation rates (HG-74)',
+    description:
+      'Counts orders created in the selected Vietnam-time period by their current status. Each order belongs to exactly one of completed, processing, cancelled, or disputed. Rates use totalOrders as denominator and are rounded to one decimal place.',
+  })
+  @ApiOkResponse({
+    description: 'Four status groups and order performance percentages',
+    schema: {
+      example: {
+        statusCode: 200,
+        message: 'Thao tác thành công',
+        data: {
+          totalOrders: 100,
+          groups: {
+            completed: { count: 60, percentage: 60 },
+            processing: { count: 20, percentage: 20 },
+            cancelled: { count: 10, percentage: 10 },
+            disputed: { count: 10, percentage: 10 },
+          },
+          performance: { completionRate: 60, cancellationRate: 10 },
+        },
+      },
+    },
+  })
+  async orderStatus(@Query() query: DashboardPeriodQueryDto) {
+    const period = resolveDashboardPeriod(query);
+    return buildSuccessResponse(await this.dashboard.orderStatus(period));
+  }
 }

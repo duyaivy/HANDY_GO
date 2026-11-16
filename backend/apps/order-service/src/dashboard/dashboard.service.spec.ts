@@ -116,3 +116,29 @@ describe('dashboard order trend query', () => {
     expect(queryRaw.mock.calls[0]).toContain(period.endExclusive);
   });
 });
+
+describe('dashboard order status query', () => {
+  it('groups current status only for orders created in the selected period', async () => {
+    const groupBy = vi.fn().mockResolvedValue([
+      { status: 'completed', _count: { id: 2 } },
+      { status: 'disputed', _count: { id: 1 } },
+    ]);
+    const service = new DashboardService(
+      { order: { groupBy } } as never,
+      {} as never,
+    );
+    const period = {
+      start: new Date('2026-11-14T17:00:00Z'),
+      endExclusive: new Date('2026-11-15T08:00:00Z'),
+    };
+    const result = await service.orderStatus(period);
+    expect(groupBy).toHaveBeenCalledWith({
+      by: ['status'],
+      where: { createdAt: { gte: period.start, lt: period.endExclusive } },
+      _count: { id: true },
+    });
+    expect(result.totalOrders).toBe(3);
+    expect(result.groups.disputed.count).toBe(1);
+    expect(result.groups.processing.count).toBe(0);
+  });
+});

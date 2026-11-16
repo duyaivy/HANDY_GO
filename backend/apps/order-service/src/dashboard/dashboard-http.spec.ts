@@ -22,6 +22,17 @@ describe('dashboard HTTP contract', () => {
     timeline: [{ bucket: '2026-11-15', orderCount: 0 }],
   };
   const orderTrend = vi.fn().mockResolvedValue(trendData);
+  const statusData = {
+    totalOrders: 0,
+    groups: {
+      completed: { count: 0, percentage: 0 },
+      processing: { count: 0, percentage: 0 },
+      cancelled: { count: 0, percentage: 0 },
+      disputed: { count: 0, percentage: 0 },
+    },
+    performance: { completionRate: 0, cancellationRate: 0 },
+  };
+  const orderStatus = vi.fn().mockResolvedValue(statusData);
   const userId = '11111111-1111-4111-8111-111111111111';
 
   beforeAll(async () => {
@@ -34,7 +45,10 @@ describe('dashboard HTTP contract', () => {
           provide: ConfigService,
           useValue: { internalServiceSecret: 'shared-secret' },
         },
-        { provide: DashboardService, useValue: { overview, orderTrend } },
+        {
+          provide: DashboardService,
+          useValue: { overview, orderTrend, orderStatus },
+        },
       ],
     }).compile();
     app = module.createNestApplication();
@@ -116,6 +130,48 @@ describe('dashboard HTTP contract', () => {
         period: 'custom',
         startDate: '2026-02-30',
         endDate: '2026-03-01',
+      })
+      .expect(400);
+  });
+
+  it('protects order-status and reuses the dashboard date filter', async () => {
+    const path = '/api/v1/admin/dashboard/order-status';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(statusData);
+    expect(orderStatus.mock.calls.at(-1)?.[0]).toMatchObject({
+      start: expect.any(Date),
+      endExclusive: expect.any(Date),
+    });
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
       })
       .expect(400);
   });
