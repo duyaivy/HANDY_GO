@@ -3348,7 +3348,11 @@ export class UserTrustServiceService {
       mediaType: 'image' | 'video';
       mediaUrl: string;
       thumbnailUrl?: string;
-    }> = [...(dto.media || [])];
+    }> = (dto.media || []).map((m) => ({
+      mediaType: m.mediaType.toLowerCase() === 'video' ? 'video' : 'image',
+      mediaUrl: m.mediaUrl,
+      thumbnailUrl: m.thumbnailUrl,
+    }));
 
     const uploadedImages = [...(files?.images || []), ...(files?.file || [])];
     if (uploadedImages.length > 0 && this.cloudinaryService) {
@@ -3561,7 +3565,11 @@ export class UserTrustServiceService {
         mediaType: 'image' | 'video';
         mediaUrl: string;
         thumbnailUrl?: string;
-      }> = [...(dto.media || [])];
+      }> = (dto.media || []).map((m) => ({
+        mediaType: m.mediaType.toLowerCase() === 'video' ? 'video' : 'image',
+        mediaUrl: m.mediaUrl,
+        thumbnailUrl: m.thumbnailUrl,
+      }));
 
       const uploadedImages = [
         ...(files?.images || []),
