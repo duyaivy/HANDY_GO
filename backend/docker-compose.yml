@@ -163,6 +163,7 @@ services:
       BIDDING_SERVICE_URL: http://bidding-service:3005
       MATCHING_SERVICE_URL: http://matching-service:3006
       AUTH_SERVICE_URL: http://auth-service:3001
+      USER_TRUST_SERVICE_URL: http://user-trust-service:3002
     ports:
       - '3004:3004'
 

@@ -25,6 +25,16 @@ describe('Worker summaries HTTP contract', () => {
             getSummaries: vi
               .fn()
               .mockResolvedValue([{ workerId: id, fullName: 'Nguyễn Văn An' }]),
+            getDashboardSummaries: vi
+              .fn()
+              .mockResolvedValue([
+                {
+                  workerUserId: id,
+                  fullName: 'Nguyễn Văn An',
+                  avatarUrl: null,
+                  averageRating: 4.8,
+                },
+              ]),
           },
         },
       ],
@@ -60,6 +70,22 @@ describe('Worker summaries HTTP contract', () => {
       .expect((res) => {
         if (res.body.data[0].fullName !== 'Nguyễn Văn An')
           throw new Error('Missing worker name');
+      });
+  });
+  it('protects and validates the dashboard summary route', async () => {
+    const path = `/api/v1/internal/workers/dashboard-summaries?ids=${id}`;
+    await request(app.getHttpServer()).get(path).expect(403);
+    await request(app.getHttpServer())
+      .get('/api/v1/internal/workers/dashboard-summaries?ids=invalid')
+      .set('x-internal-secret', 'test-secret')
+      .expect(400);
+    await request(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'test-secret')
+      .expect(200)
+      .expect((res) => {
+        if (res.body.data[0].averageRating !== 4.8)
+          throw new Error('Missing current rating');
       });
   });
 });

@@ -103,4 +103,34 @@ export class DashboardController {
     const period = resolveDashboardPeriod(query);
     return buildSuccessResponse(await this.dashboard.orderStatus(period));
   }
+
+  @Get('top-workers')
+  @ApiOperation({
+    summary:
+      'Top five workers by orders completed in the selected period (HG-74)',
+    description:
+      'Counts completed orders by completedAt in Asia/Ho_Chi_Minh. Ties use the current WorkerProfile.averageRating, then workerUserId. Missing worker profiles retain their order count with a placeholder name and null rating.',
+  })
+  @ApiOkResponse({
+    description: 'Up to five ranked workers, or an empty array',
+    schema: {
+      example: {
+        statusCode: 200,
+        message: 'Thao tác thành công',
+        data: [
+          {
+            workerUserId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+            fullName: 'Nguyễn Văn An',
+            avatarUrl: null,
+            completedOrderCount: 58,
+            averageRating: 4.9,
+          },
+        ],
+      },
+    },
+  })
+  async topWorkers(@Query() query: DashboardPeriodQueryDto) {
+    const period = resolveDashboardPeriod(query);
+    return buildSuccessResponse(await this.dashboard.topWorkers(period));
+  }
 }

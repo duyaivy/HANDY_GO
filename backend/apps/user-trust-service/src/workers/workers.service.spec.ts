@@ -32,4 +32,35 @@ describe('WorkersService', () => {
       }),
     );
   });
+
+  it('returns current dashboard rating and profile even for inactive users', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        userId: 'worker-1',
+        user: { fullName: 'Nguyễn Văn An', avatarUrl: null },
+        averageRating: '0',
+      },
+    ]);
+    const service = new WorkersService({
+      workerProfile: { findMany },
+    } as unknown as UserTrustPrismaService);
+    expect(
+      await service.getDashboardSummaries(['worker-1', 'worker-1']),
+    ).toEqual([
+      {
+        workerUserId: 'worker-1',
+        fullName: 'Nguyễn Văn An',
+        avatarUrl: null,
+        averageRating: 0,
+      },
+    ]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: { userId: { in: ['worker-1'] } },
+      select: {
+        userId: true,
+        averageRating: true,
+        user: { select: { fullName: true, avatarUrl: true } },
+      },
+    });
+  });
 });

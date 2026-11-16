@@ -9,6 +9,11 @@ import {
   type OrderTrendRow,
 } from './dashboard-trend.js';
 import { buildOrderStatus } from './dashboard-status.js';
+import {
+  rankTopWorkers,
+  topWorkerCandidates,
+  type DashboardWorkerSummary,
+} from './dashboard-workers.js';
 
 @Injectable()
 export class DashboardService {
@@ -86,6 +91,79 @@ export class DashboardService {
       _count: { id: true },
     });
     return buildOrderStatus(rows);
+  }
+
+  async topWorkers(period: DashboardPeriod) {
+    const rows = await this.prisma.order.groupBy({
+      by: ['workerUserId'],
+      where: {
+        status: 'completed',
+        completedAt: { gte: period.start, lt: period.endExclusive },
+      },
+      _count: { id: true },
+    });
+    const candidates = topWorkerCandidates(rows);
+    if (candidates.length === 0) return [];
+
+    const ids = candidates.map((row) => row.workerUserId);
+    const batches: string[][] = [];
+    for (let i = 0; i < ids.length; i += 100)
+      batches.push(ids.slice(i, i + 100));
+    const summaries: DashboardWorkerSummary[] = [];
+    for (let i = 0; i < batches.length; i += 3) {
+      const pages = await Promise.all(
+        batches
+          .slice(i, i + 3)
+          .map((batch) => this.getWorkerSummaryBatch(batch)),
+      );
+      summaries.push(...pages.flat());
+    }
+    return rankTopWorkers(candidates, summaries);
+  }
+
+  private async getWorkerSummaryBatch(
+    ids: string[],
+  ): Promise<DashboardWorkerSummary[]> {
+    const baseUrl = this.config.get('USER_TRUST_SERVICE_URL');
+    const secret = this.config.internalServiceSecret;
+    if (!baseUrl || !secret) {
+      throw new ServiceUnavailableException(
+        'USER_TRUST_SERVICE_URL is not configured',
+      );
+    }
+    try {
+      const url = new URL(
+        '/api/v1/internal/workers/dashboard-summaries',
+        baseUrl,
+      );
+      url.searchParams.set('ids', ids.join(','));
+      const response = await fetch(url, {
+        headers: { [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+      const body = (await response.json()) as { data?: unknown };
+      if (
+        !Array.isArray(body.data) ||
+        !body.data.every(
+          (row): row is DashboardWorkerSummary =>
+            typeof row === 'object' &&
+            row !== null &&
+            typeof row.workerUserId === 'string' &&
+            typeof row.fullName === 'string' &&
+            (row.avatarUrl === null || typeof row.avatarUrl === 'string') &&
+            typeof row.averageRating === 'number' &&
+            Number.isFinite(row.averageRating),
+        )
+      ) {
+        throw new Error('Invalid worker summary response');
+      }
+      return body.data;
+    } catch {
+      throw new ServiceUnavailableException(
+        'USER_TRUST_SERVICE_URL dashboard data unavailable',
+      );
+    }
   }
 
   private async internalGet<T>(

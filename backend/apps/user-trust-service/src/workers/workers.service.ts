@@ -26,4 +26,21 @@ export class WorkersService {
       completedOrderCount: worker.completedOrderCount,
     }));
   }
+
+  async getDashboardSummaries(ids: string[]) {
+    const workers = await this.db.workerProfile.findMany({
+      where: { userId: { in: [...new Set(ids)] } },
+      select: {
+        userId: true,
+        averageRating: true,
+        user: { select: { fullName: true, avatarUrl: true } },
+      },
+    });
+    return workers.map((worker) => ({
+      workerUserId: worker.userId,
+      fullName: worker.user.fullName,
+      avatarUrl: worker.user.avatarUrl,
+      averageRating: Number(worker.averageRating),
+    }));
+  }
 }

@@ -18,4 +18,12 @@ export class WorkersController {
       'Worker summaries retrieved',
     );
   }
+
+  @Get('dashboard-summaries')
+  async getDashboardSummaries(@Query() query: WorkerSummariesQueryDto) {
+    return buildSuccessResponse(
+      await this.workers.getDashboardSummaries(query.ids),
+      'Dashboard worker summaries retrieved',
+    );
+  }
 }

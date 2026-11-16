@@ -33,6 +33,16 @@ describe('dashboard HTTP contract', () => {
     performance: { completionRate: 0, cancellationRate: 0 },
   };
   const orderStatus = vi.fn().mockResolvedValue(statusData);
+  const topWorkerData = [
+    {
+      workerUserId: '00000000-0000-4000-8000-000000000001',
+      fullName: 'Nguyễn Văn An',
+      avatarUrl: null,
+      completedOrderCount: 3,
+      averageRating: 4.8,
+    },
+  ];
+  const topWorkers = vi.fn().mockResolvedValue(topWorkerData);
   const userId = '11111111-1111-4111-8111-111111111111';
 
   beforeAll(async () => {
@@ -47,7 +57,7 @@ describe('dashboard HTTP contract', () => {
         },
         {
           provide: DashboardService,
-          useValue: { overview, orderTrend, orderStatus },
+          useValue: { overview, orderTrend, orderStatus, topWorkers },
         },
       ],
     }).compile();
@@ -157,6 +167,48 @@ describe('dashboard HTTP contract', () => {
     const response = await admin().query({ period: '7days' }).expect(200);
     expect(response.body.data).toEqual(statusData);
     expect(orderStatus.mock.calls.at(-1)?.[0]).toMatchObject({
+      start: expect.any(Date),
+      endExclusive: expect.any(Date),
+    });
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
+      })
+      .expect(400);
+  });
+
+  it('protects top-workers and uses the shared period validation', async () => {
+    const path = '/api/v1/admin/dashboard/top-workers';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(topWorkerData);
+    expect(topWorkers.mock.calls.at(-1)?.[0]).toMatchObject({
       start: expect.any(Date),
       endExclusive: expect.any(Date),
     });

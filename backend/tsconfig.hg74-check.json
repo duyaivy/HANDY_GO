@@ -13,6 +13,9 @@
     "apps/bidding-service/src/bidding-service.module.ts",
     "apps/auth-service/src/internal/dashboard-customers.controller.ts",
     "apps/auth-service/src/auth-service.module.ts",
-    "apps/api-gateway/src/proxy/proxy.constants.ts"
+    "apps/api-gateway/src/proxy/proxy.constants.ts",
+    "apps/user-trust-service/src/workers/workers.controller.ts",
+    "apps/user-trust-service/src/workers/workers.service.ts",
+    "apps/user-trust-service/src/workers/workers.module.ts"
   ]
 }
