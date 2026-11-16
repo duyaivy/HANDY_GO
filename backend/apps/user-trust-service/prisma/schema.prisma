@@ -245,16 +245,16 @@ model WorkerReview {
   customerUserId    String        @map("customer_user_id") @db.Uuid
   workerUserId      String        @map("worker_user_id") @db.Uuid
   rating            Int
-  attitudeRating    String        @default("good") @map("attitude_rating")
-  qualityRating     String        @default("good") @map("quality_rating")
-  speedRating       String        @default("good") @map("speed_rating")
+  attitudeRating    String        @map("attitude_rating")
+  qualityRating     String        @map("quality_rating")
+  speedRating       String        @map("speed_rating")
   comment           String?
   status            ReviewStatus  @default(published)
   isEdited          Boolean       @default(false) @map("is_edited")
   editedAt          DateTime?     @map("edited_at") @db.Timestamp(6)
   moderatedByUserId String?       @map("moderated_by_user_id") @db.Uuid
   moderationNote    String?       @map("moderation_note")
-  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamp(6)
+  createdAt         DateTime      @map("created_at") @db.Timestamp(6)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamp(6)
   customer          User          @relation("ReviewCustomer", fields: [customerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   worker            User          @relation("ReviewWorker", fields: [workerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)

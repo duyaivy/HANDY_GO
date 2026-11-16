@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "review_media" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "review_id" UUID NOT NULL,
     "media_type" VARCHAR(30) NOT NULL,
     "media_url" TEXT NOT NULL,
