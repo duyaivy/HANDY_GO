@@ -397,10 +397,17 @@ class OnboardingMigrationProofTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            dashboard_migrations = {
+                "apps/order-service/prisma/migrations/20261115000000_dashboard_overview_indexes/migration.sql",
+                "apps/bidding-service/prisma/migrations/20261115000000_dashboard_bid_activity_indexes/migration.sql",
+            }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
             ):
-                destination = root / source.relative_to(PROD.parents[1])
+                relative = source.relative_to(PROD.parents[1])
+                if relative.as_posix() in dashboard_migrations:
+                    continue  # Reconstruct the historical three-host release baseline.
+                destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
@@ -421,6 +428,17 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "migration_hash": proof["baseline_hash"],
             }
             self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            for relative in dashboard_migrations:
+                source = PROD.parents[1] / relative
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(
+                migration_hash=changed["inventory_hash"],
+                migration_compatibility=changed,
+            )
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
             extra = (
                 root
                 / "apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql"
