@@ -68,6 +68,26 @@ describe('production service topology', () => {
     }, 'order-service')).toThrow('MATCHING_SERVICE_URL');
   });
 
+  it('requires Order Service to reach Catalog over the VPS3 WireGuard address', () => {
+    const orderConfig = {
+      ...config,
+      AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
+      BIDDING_SERVICE_URL: 'http://bidding-service:3005',
+      MATCHING_SERVICE_URL: 'http://matching-service:3006',
+    };
+    expect(() =>
+      validateProductionServiceEndpoints(orderConfig, 'order-service'),
+    ).not.toThrow();
+    for (const value of ['', 'http://catalog-service:3003', 'http://localhost:3003']) {
+      expect(() =>
+        validateProductionServiceEndpoints(
+          { ...orderConfig, CATALOG_SERVICE_URL: value },
+          'order-service',
+        ),
+      ).toThrow(/CATALOG_SERVICE_URL/);
+    }
+  });
+
   it('rejects credential/path/query origins and missing AI configuration', () => {
     for (const value of ['http://secret@10.77.0.1:3002', 'http://10.77.0.1:3002/api/v1', 'http://10.77.0.1:3002?q=x']) {
       expect(() => validateProductionServiceEndpoints({ ...config, USER_TRUST_SERVICE_URL: value }, 'wallet-service')).toThrow();

@@ -16,6 +16,9 @@
     "apps/api-gateway/src/proxy/proxy.constants.ts",
     "apps/user-trust-service/src/workers/workers.controller.ts",
     "apps/user-trust-service/src/workers/workers.service.ts",
-    "apps/user-trust-service/src/workers/workers.module.ts"
+    "apps/user-trust-service/src/workers/workers.module.ts",
+    "apps/catalog-service/src/services/dashboard-services.controller.ts",
+    "apps/catalog-service/src/services/services.service.ts",
+    "apps/catalog-service/src/services/services.module.ts"
   ]
 }

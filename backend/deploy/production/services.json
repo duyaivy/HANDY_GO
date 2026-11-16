@@ -177,6 +177,7 @@
       "http_callers": [
         "api-gateway",
         "user-trust-service",
+        "order-service",
         "message-service"
       ],
       "wireguard_http": true

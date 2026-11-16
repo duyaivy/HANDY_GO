@@ -121,6 +121,78 @@ export class DashboardService {
     return rankTopWorkers(candidates, summaries);
   }
 
+  async topServices(period: DashboardPeriod) {
+    const rows = await this.prisma.order.groupBy({
+      by: ['serviceId'],
+      where: {
+        status: 'completed',
+        completedAt: { gte: period.start, lt: period.endExclusive },
+      },
+      _count: { id: true },
+      orderBy: [{ _count: { id: 'desc' } }, { serviceId: 'asc' }],
+      take: 5,
+    });
+    if (rows.length === 0) return [];
+
+    const summaries = await this.getServiceSummaries(
+      rows.map((row) => row.serviceId),
+    );
+    const byId = new Map(summaries.map((summary) => [summary.id, summary]));
+    return rows.map((row) => {
+      const summary = byId.get(row.serviceId);
+      return {
+        serviceId: row.serviceId,
+        name: summary?.name ?? 'Dịch vụ không còn hồ sơ',
+        iconUrl: summary?.iconUrl ?? null,
+        completedOrderCount: row._count.id,
+      };
+    });
+  }
+
+  private async getServiceSummaries(ids: string[]) {
+    const baseUrl = this.config.get('CATALOG_SERVICE_URL');
+    const secret = this.config.internalServiceSecret;
+    if (!baseUrl || !secret) {
+      throw new ServiceUnavailableException(
+        'CATALOG_SERVICE_URL is not configured',
+      );
+    }
+    try {
+      const url = new URL(
+        '/api/v1/internal/services/dashboard-summaries',
+        baseUrl,
+      );
+      url.searchParams.set('ids', ids.join(','));
+      const response = await fetch(url, {
+        headers: { [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+      const body = (await response.json()) as { data?: unknown };
+      const requested = new Set(ids);
+      if (
+        !Array.isArray(body.data) ||
+        !body.data.every(
+          (row): row is { id: string; name: string; iconUrl: string | null } =>
+            typeof row === 'object' &&
+            row !== null &&
+            typeof row.id === 'string' &&
+            requested.has(row.id) &&
+            typeof row.name === 'string' &&
+            (row.iconUrl === null || typeof row.iconUrl === 'string'),
+        ) ||
+        new Set(body.data.map((row) => row.id)).size !== body.data.length
+      ) {
+        throw new Error('Invalid service summary response');
+      }
+      return body.data;
+    } catch {
+      throw new ServiceUnavailableException(
+        'CATALOG_SERVICE_URL dashboard data unavailable',
+      );
+    }
+  }
+
   private async getWorkerSummaryBatch(
     ids: string[],
   ): Promise<DashboardWorkerSummary[]> {

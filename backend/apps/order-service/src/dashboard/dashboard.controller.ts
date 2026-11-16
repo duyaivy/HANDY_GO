@@ -133,4 +133,33 @@ export class DashboardController {
     const period = resolveDashboardPeriod(query);
     return buildSuccessResponse(await this.dashboard.topWorkers(period));
   }
+
+  @Get('top-services')
+  @ApiOperation({
+    summary:
+      'Top five services by orders completed in the selected period (HG-74)',
+    description:
+      'Counts completed orders by completedAt in Asia/Ho_Chi_Minh. Ties use serviceId as a stable secondary key. Inactive services remain eligible; missing catalog records keep their order count with a placeholder name.',
+  })
+  @ApiOkResponse({
+    description: 'Up to five ranked services, or an empty array',
+    schema: {
+      example: {
+        statusCode: 200,
+        message: 'Thao tác thành công',
+        data: [
+          {
+            serviceId: '3fa85f64-5717-4562-b3fc-2c963f66afa6',
+            name: 'Vệ sinh nhà cửa',
+            iconUrl: null,
+            completedOrderCount: 58,
+          },
+        ],
+      },
+    },
+  })
+  async topServices(@Query() query: DashboardPeriodQueryDto) {
+    const period = resolveDashboardPeriod(query);
+    return buildSuccessResponse(await this.dashboard.topServices(period));
+  }
 }
