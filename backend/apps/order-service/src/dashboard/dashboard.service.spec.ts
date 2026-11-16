@@ -89,3 +89,30 @@ describe('dashboard overview', () => {
     );
   });
 });
+
+describe('dashboard order trend query', () => {
+  it('groups all created orders within the exact selected range in Vietnam time', async () => {
+    const queryRaw = vi
+      .fn()
+      .mockResolvedValue([
+        { bucketStart: new Date('2026-11-14T17:00:00Z'), orderCount: 2n },
+      ]);
+    const service = new DashboardService(
+      { $queryRaw: queryRaw } as never,
+      {} as never,
+    );
+    const period = {
+      start: new Date('2026-11-14T17:00:00Z'),
+      endExclusive: new Date('2026-11-15T08:00:00Z'),
+    };
+    const result = await service.orderTrend(period, 'day');
+    expect(result.timeline).toEqual([{ bucket: '2026-11-15', orderCount: 2 }]);
+    const sql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join(' ');
+    expect(sql).toContain("created_at AT TIME ZONE 'Asia/Ho_Chi_Minh'");
+    expect(sql).toContain('created_at >=');
+    expect(sql).toContain('created_at <');
+    expect(sql).not.toContain('status');
+    expect(queryRaw.mock.calls[0]).toContain(period.start);
+    expect(queryRaw.mock.calls[0]).toContain(period.endExclusive);
+  });
+});

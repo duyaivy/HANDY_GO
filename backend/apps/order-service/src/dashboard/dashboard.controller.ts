@@ -13,6 +13,7 @@ import {
   resolveDashboardPeriod,
 } from './dashboard-period.js';
 import { DashboardService } from './dashboard.service.js';
+import { selectDashboardGranularity } from './dashboard-trend.js';
 
 @ApiTags('Admin Dashboard')
 @ApiBearerAuth()
@@ -41,5 +42,35 @@ export class DashboardController {
   async overview(@Query() query: DashboardPeriodQueryDto) {
     const period = resolveDashboardPeriod(query);
     return buildSuccessResponse(await this.dashboard.overview(period));
+  }
+
+  @Get('order-trend')
+  @ApiOperation({
+    summary: 'Created order trend for the selected Vietnam-time period (HG-74)',
+    description:
+      'Buckets use Asia/Ho_Chi_Minh: hour YYYY-MM-DDTHH:00+07:00, day YYYY-MM-DD, week Monday YYYY-MM-DD, month YYYY-MM. Today uses hours; 7/30 days use days; custom uses hours (1 day), days (2-31), weeks (32-90), or months (91-365). Missing buckets have count 0; future buckets are omitted.',
+  })
+  @ApiOkResponse({
+    description: 'Chronological buckets; missing buckets have orderCount 0',
+    schema: {
+      example: {
+        statusCode: 200,
+        message: 'Thao tác thành công',
+        data: {
+          granularity: 'day',
+          timeline: [
+            { bucket: '2026-11-14', orderCount: 4 },
+            { bucket: '2026-11-15', orderCount: 0 },
+          ],
+        },
+      },
+    },
+  })
+  async orderTrend(@Query() query: DashboardPeriodQueryDto) {
+    const period = resolveDashboardPeriod(query);
+    const granularity = selectDashboardGranularity(query);
+    return buildSuccessResponse(
+      await this.dashboard.orderTrend(period, granularity),
+    );
   }
 }

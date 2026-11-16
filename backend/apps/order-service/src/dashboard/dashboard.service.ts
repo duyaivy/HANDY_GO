@@ -3,6 +3,11 @@ import { ConfigService } from '@app/config';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 import type { DashboardPeriod } from './dashboard-period.js';
+import {
+  buildOrderTrend,
+  type DashboardGranularity,
+  type OrderTrendRow,
+} from './dashboard-trend.js';
 
 @Injectable()
 export class DashboardService {
@@ -56,6 +61,21 @@ export class DashboardService {
       workers: { activeInPeriod: workerIds.size },
       customers: { totalCumulative: customers },
     };
+  }
+
+  async orderTrend(period: DashboardPeriod, granularity: DashboardGranularity) {
+    const rows = await this.prisma.$queryRaw<OrderTrendRow[]>`
+      SELECT
+        date_trunc(${granularity}::text, created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')
+          AT TIME ZONE 'Asia/Ho_Chi_Minh' AS "bucketStart",
+        COUNT(*) AS "orderCount"
+      FROM order_service.orders
+      WHERE created_at >= ${period.start}
+        AND created_at < ${period.endExclusive}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    return buildOrderTrend(period, granularity, rows);
   }
 
   private async internalGet<T>(
