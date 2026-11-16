@@ -23,7 +23,7 @@ import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dt
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
 import { Prisma } from '@prisma/user-trust-client';
-import { CreateReviewDto } from './dto/create-review.dto.js';
+import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 
@@ -2181,6 +2181,8 @@ export class UserTrustServiceService {
         qualityRating: r.qualityRating,
         speedRating: r.speedRating,
         comment: r.comment,
+        isEdited: r.isEdited,
+        editedAt: r.editedAt,
         createdAt: r.createdAt,
         customer: {
           id: r.customer.id,
@@ -3239,9 +3241,43 @@ export class UserTrustServiceService {
       if (order.customerUserId !== currentUserId) {
         throw new ForbiddenException('Bạn không có quyền đánh giá đơn hàng này');
       }
+
+      // Kiểm tra trạng thái tranh chấp / hủy đơn
+      if (order.status === 'disputed') {
+        throw new BadRequestException(
+          'Không thể đánh giá đơn hàng đang trong trạng thái khiếu nại hoặc tranh chấp',
+        );
+      }
+      if (order.status === 'cancelled') {
+        throw new BadRequestException('Không thể đánh giá đơn hàng đã bị hủy');
+      }
       if (order.status !== 'completed') {
         throw new BadRequestException('Chỉ có thể đánh giá đơn hàng khi đã hoàn thành');
       }
+
+      // Kiểm tra trạng thái thanh toán hoàn tiền / tranh chấp
+      if (order.paymentState === 'refunded') {
+        throw new BadRequestException('Không thể đánh giá đơn hàng đã được hoàn tiền');
+      }
+      if (order.paymentState === 'disputed') {
+        throw new BadRequestException(
+          'Không thể đánh giá đơn hàng đang có khiếu nại về thanh toán',
+        );
+      }
+
+      // Giới hạn thời gian đánh giá (Review Window: tối đa 14 ngày kể từ khi hoàn thành)
+      if (order.completedAt) {
+        const completedDate = new Date(order.completedAt);
+        const maxReviewDays = 14;
+        const diffMs = Date.now() - completedDate.getTime();
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        if (diffDays > maxReviewDays) {
+          throw new BadRequestException(
+            'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)',
+          );
+        }
+      }
+
       workerUserId = order.workerUserId;
     } else {
       throw new ServiceUnavailableException('Order Service client chưa được cấu hình');
@@ -3260,7 +3296,33 @@ export class UserTrustServiceService {
       throw new NotFoundException('Không tìm thấy thông tin thợ của đơn hàng');
     }
 
-    // 4. Xử lý upload media trực tiếp nếu có multipart files
+    // 4. Kiểm tra giới hạn số lượng media và xử lý upload media trực tiếp nếu có multipart files
+    const imgFromDto = (dto.media || []).filter(
+      (m) => (m.mediaType || '').toLowerCase() === 'image',
+    ).length;
+    const vidFromDto = (dto.media || []).filter(
+      (m) => (m.mediaType || '').toLowerCase() === 'video',
+    ).length;
+    const uploadedImgCount =
+      (files?.images?.length || 0) + (files?.file?.length || 0);
+    const uploadedVidCount = files?.videos?.length || 0;
+
+    const totalImages = imgFromDto + uploadedImgCount;
+    const totalVideos = vidFromDto + uploadedVidCount;
+    const totalMedia = totalImages + totalVideos;
+
+    if (totalMedia > 6) {
+      throw new BadRequestException(
+        'Chỉ được đính kèm tối đa 6 hình ảnh hoặc video',
+      );
+    }
+    if (totalImages > 5) {
+      throw new BadRequestException('Chỉ được đính kèm tối đa 5 hình ảnh');
+    }
+    if (totalVideos > 1) {
+      throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+    }
+
     const mediaItems: Array<{
       mediaType: 'image' | 'video';
       mediaUrl: string;
@@ -3386,10 +3448,271 @@ export class UserTrustServiceService {
         speedRating: review.speedRating,
         comment: review.comment,
         status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
         createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
         customer: review.customer,
         worker: review.worker,
         media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Chỉnh sửa đánh giá đơn hàng (cho phép khách hàng chỉnh sửa 1 lần duy nhất trong vòng 48 giờ kể từ khi tạo)
+   */
+  async updateReview(
+    currentUserId: string,
+    idOrOrderId: string,
+    dto: UpdateReviewDto,
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ) {
+    if (!idOrOrderId) {
+      throw new BadRequestException('Mã đánh giá hoặc đơn hàng không được để trống');
+    }
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrOrderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException(
+        'Mã đánh giá hoặc đơn hàng không đúng định dạng UUID',
+      );
+    }
+
+    const review = await this.db.workerReview.findFirst({
+      where: {
+        OR: [{ id: idOrOrderId }, { orderId: idOrOrderId }],
+      },
+      include: {
+        media: true,
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Không tìm thấy đánh giá');
+    }
+
+    if (review.customerUserId !== currentUserId) {
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa đánh giá này');
+    }
+
+    if (review.isEdited) {
+      throw new BadRequestException('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất');
+    }
+
+    const editWindowHours = 48;
+    const diffHours =
+      (Date.now() - new Date(review.createdAt).getTime()) / (1000 * 60 * 60);
+    if (diffHours > editWindowHours) {
+      throw new BadRequestException(
+        `Đã quá thời hạn chỉnh sửa đánh giá (tối đa ${editWindowHours} giờ kể từ khi tạo)`,
+      );
+    }
+
+    // Xử lý media nếu có cập nhật dto.media hoặc upload files
+    let updatedMediaItems: Array<{
+      mediaType: 'image' | 'video';
+      mediaUrl: string;
+      thumbnailUrl?: string;
+    }> | null = null;
+
+    const hasNewFiles = Boolean(
+      (files?.images && files.images.length > 0) ||
+        (files?.videos && files.videos.length > 0) ||
+        (files?.file && files.file.length > 0),
+    );
+
+    if (dto.media !== undefined || hasNewFiles) {
+      const mediaList: Array<{
+        mediaType: 'image' | 'video';
+        mediaUrl: string;
+        thumbnailUrl?: string;
+      }> = [...(dto.media || [])];
+
+      const uploadedImages = [
+        ...(files?.images || []),
+        ...(files?.file || []),
+      ];
+      if (uploadedImages.length > 0 && this.cloudinaryService) {
+        for (const img of uploadedImages) {
+          const res = await this.cloudinaryService.uploadImage(img);
+          mediaList.push({
+            mediaType: 'image',
+            mediaUrl: res.url,
+          });
+        }
+      }
+
+      const imgCount = mediaList.filter(
+        (m) => (m.mediaType || '').toLowerCase() === 'image',
+      ).length;
+      const vidCount = mediaList.filter(
+        (m) => (m.mediaType || '').toLowerCase() === 'video',
+      ).length;
+
+      if (mediaList.length > 6) {
+        throw new BadRequestException(
+          'Chỉ được đính kèm tối đa 6 hình ảnh hoặc video',
+        );
+      }
+      if (imgCount > 5) {
+        throw new BadRequestException('Chỉ được đính kèm tối đa 5 hình ảnh');
+      }
+      if (vidCount > 1) {
+        throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+      }
+
+      updatedMediaItems = mediaList;
+    }
+
+    const newRating = dto.rating !== undefined ? dto.rating : review.rating;
+    const defaultSub =
+      newRating >= 4 ? 'good' : newRating === 3 ? 'neutral' : 'bad';
+    const attitudeRating =
+      dto.attitudeRating !== undefined
+        ? dto.attitudeRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.attitudeRating;
+    const qualityRating =
+      dto.qualityRating !== undefined
+        ? dto.qualityRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.qualityRating;
+    const speedRating =
+      dto.speedRating !== undefined
+        ? dto.speedRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.speedRating;
+    const comment =
+      dto.comment !== undefined ? dto.comment.trim() || null : review.comment;
+
+    const now = new Date();
+    const updatedReview = await this.db.$transaction(async (tx) => {
+      if (updatedMediaItems !== null) {
+        await tx.reviewMedia.deleteMany({
+          where: { reviewId: review.id },
+        });
+      }
+
+      const updated = await tx.workerReview.update({
+        where: { id: review.id },
+        data: {
+          rating: newRating,
+          attitudeRating,
+          qualityRating,
+          speedRating,
+          comment,
+          isEdited: true,
+          editedAt: now,
+          updatedAt: now,
+          media:
+            updatedMediaItems !== null && updatedMediaItems.length > 0
+              ? {
+                  create: updatedMediaItems.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                    thumbnailUrl: m.thumbnailUrl || null,
+                  })),
+                }
+              : undefined,
+        },
+        include: {
+          media: true,
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+          worker: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      });
+
+      // Nếu số sao thay đổi, cập nhật lại thống kê trung bình của thợ
+      if (dto.rating !== undefined && dto.rating !== review.rating) {
+        const agg = await tx.workerReview.aggregate({
+          where: {
+            workerUserId: review.workerUserId,
+            status: 'published',
+          },
+          _avg: { rating: true },
+          _count: { rating: true },
+        });
+
+        const ratingCount = agg._count.rating;
+        const avgScore = Number(agg._avg.rating || 0);
+
+        await tx.workerProfile.updateMany({
+          where: { userId: review.workerUserId },
+          data: {
+            ratingCount,
+            averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
+          },
+        });
+      }
+
+      // Lưu outbox event cho notification / event streaming
+      await tx.outboxEvent.create({
+        data: {
+          eventType: 'review.updated',
+          payload: {
+            reviewId: updated.id,
+            orderId: updated.orderId,
+            customerUserId: currentUserId,
+            workerUserId: review.workerUserId,
+            oldRating: review.rating,
+            newRating: updated.rating,
+            comment: updated.comment,
+            editedAt: now.toISOString(),
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Chỉnh sửa đánh giá thành công',
+      data: {
+        id: updatedReview.id,
+        orderId: updatedReview.orderId,
+        rating: updatedReview.rating,
+        attitudeRating: updatedReview.attitudeRating,
+        qualityRating: updatedReview.qualityRating,
+        speedRating: updatedReview.speedRating,
+        comment: updatedReview.comment,
+        status: updatedReview.status,
+        isEdited: updatedReview.isEdited,
+        editedAt: updatedReview.editedAt,
+        createdAt: updatedReview.createdAt,
+        updatedAt: updatedReview.updatedAt,
+        customer: updatedReview.customer,
+        worker: updatedReview.worker,
+        media: (updatedReview.media || []).map((m: any) => ({
           id: m.id,
           mediaType: m.mediaType,
           mediaUrl: m.mediaUrl,
@@ -3448,7 +3771,10 @@ export class UserTrustServiceService {
         speedRating: review.speedRating,
         comment: review.comment,
         status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
         createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
         customer: review.customer,
         worker: review.worker,
         media: (review.media || []).map((m: any) => ({
@@ -3510,7 +3836,10 @@ export class UserTrustServiceService {
         speedRating: review.speedRating,
         comment: review.comment,
         status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
         createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
         customer: review.customer,
         worker: review.worker,
         media: (review.media || []).map((m: any) => ({

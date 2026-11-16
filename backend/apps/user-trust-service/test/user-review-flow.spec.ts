@@ -20,11 +20,16 @@ describe('User Review Flow Test Suite (HG-68)', () => {
     dbMock = {
       workerReview: {
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
         findMany: vi.fn(),
         create: vi.fn(),
+        update: vi.fn(),
         count: vi.fn(),
         groupBy: vi.fn(),
         aggregate: vi.fn(),
+      },
+      reviewMedia: {
+        deleteMany: vi.fn(),
       },
       workerProfile: {
         findFirst: vi.fn(),
@@ -202,6 +207,110 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         service.createReview(customerUserId, { orderId, rating: 5 }),
       ).rejects.toThrow(ForbiddenException);
     });
+
+    it('Chặn đánh giá nếu đơn hàng đã hoàn thành quá 14 ngày (Review window limit)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString();
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        completedAt: fifteenDaysAgo,
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)');
+    });
+
+    it('Chặn đánh giá nếu đơn hàng đang trong trạng thái khiếu nại hoặc tranh chấp (status = disputed)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'disputed',
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Không thể đánh giá đơn hàng đang trong trạng thái khiếu nại hoặc tranh chấp');
+    });
+
+    it('Chặn đánh giá nếu đơn hàng đã bị hủy (status = cancelled)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'cancelled',
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Không thể đánh giá đơn hàng đã bị hủy');
+    });
+
+    it('Chặn đánh giá nếu đơn hàng đã hoàn tiền (paymentState = refunded)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        paymentState: 'refunded',
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Không thể đánh giá đơn hàng đã được hoàn tiền');
+    });
+
+    it('Chặn đính kèm quá 6 media, quá 5 ảnh hoặc quá 1 video', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      // 6 ảnh + 1 video = 7 media items (> 6)
+      const tooManyMediaDto = {
+        orderId,
+        rating: 5,
+        media: [
+          { mediaType: 'image' as const, mediaUrl: 'https://img1.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://img2.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://img3.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://img4.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://img5.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://img6.jpg' },
+          { mediaType: 'video' as const, mediaUrl: 'https://vid1.mp4' },
+        ],
+      };
+      await expect(
+        service.createReview(customerUserId, tooManyMediaDto),
+      ).rejects.toThrow('Chỉ được đính kèm tối đa 6 hình ảnh hoặc video');
+
+      // 2 videos (> 1 video)
+      const twoVideosDto = {
+        orderId,
+        rating: 5,
+        media: [
+          { mediaType: 'video' as const, mediaUrl: 'https://vid1.mp4' },
+          { mediaType: 'video' as const, mediaUrl: 'https://vid2.mp4' },
+        ],
+      };
+      await expect(
+        service.createReview(customerUserId, twoVideosDto),
+      ).rejects.toThrow('Chỉ được đính kèm tối đa 1 video');
+    });
   });
 
   describe('2. Khách hàng xem danh sách đánh giá của thợ qua đấu giá / profile (Customer views worker reviews)', () => {
@@ -353,6 +462,137 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.data.signature).toBe('mock-sig-123');
+    });
+  });
+
+  describe('5. Khách hàng chỉnh sửa đánh giá (Customer edits review)', () => {
+    const reviewId = 'a1111111-2222-4333-8444-555555555555';
+    const existingReview = {
+      id: reviewId,
+      orderId,
+      customerUserId,
+      workerUserId,
+      rating: 5,
+      attitudeRating: 'good',
+      qualityRating: 'good',
+      speedRating: 'good',
+      comment: 'Ban đầu thấy rất tốt!',
+      status: 'published',
+      isEdited: false,
+      editedAt: null,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000), // Tạo 2 giờ trước (trong 48h)
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      media: [
+        {
+          id: 'med-img-1',
+          mediaType: 'image',
+          mediaUrl: 'https://img.jpg',
+          thumbnailUrl: null,
+          createdAt: new Date(),
+        },
+      ],
+      customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+      worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+    };
+
+    it('Chỉnh sửa đánh giá thành công trong vòng 48h (cập nhật rating 5 -> 4, recalculate rating, set isEdited)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      dbMock.workerReview.update.mockResolvedValue({
+        ...existingReview,
+        rating: 4,
+        comment: 'Đã sửa nhận xét: Dùng thử vài giờ thấy có chút vấn đề nhỏ nhưng thợ vẫn nhiệt tình.',
+        isEdited: true,
+        editedAt: new Date(),
+      });
+      dbMock.workerReview.aggregate.mockResolvedValue({
+        _avg: { rating: 4.88 },
+        _count: { rating: 16 },
+      });
+
+      const updateDto = {
+        rating: 4,
+        comment: 'Đã sửa nhận xét: Dùng thử vài giờ thấy có chút vấn đề nhỏ nhưng thợ vẫn nhiệt tình.',
+      };
+
+      const result: any = await controller.updateReview(customerUser, reviewId, updateDto);
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.rating).toBe(4);
+      expect(result.data.isEdited).toBe(true);
+      expect(result.data.editedAt).toBeDefined();
+      expect(dbMock.workerReview.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: reviewId },
+          data: expect.objectContaining({
+            rating: 4,
+            isEdited: true,
+          }),
+        }),
+      );
+      expect(dbMock.workerProfile.updateMany).toHaveBeenCalledWith({
+        where: { userId: workerUserId },
+        data: expect.objectContaining({ ratingCount: 16 }),
+      });
+      expect(dbMock.outboxEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'review.updated',
+            payload: expect.objectContaining({
+              oldRating: 5,
+              newRating: 4,
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('Hoạt động thành công qua PATCH endpoint theo orderId (PATCH /orders/:orderId/reviews)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      dbMock.workerReview.update.mockResolvedValue({
+        ...existingReview,
+        comment: 'Sửa nhận xét qua orderId',
+        isEdited: true,
+        editedAt: new Date(),
+      });
+
+      const result: any = await controller.patchOrderReview(customerUser, orderId, {
+        comment: 'Sửa nhận xét qua orderId',
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.isEdited).toBe(true);
+    });
+
+    it('Chặn chỉnh sửa nếu người gọi không phải khách hàng đã tạo đánh giá (ForbiddenException 403)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+
+      await expect(
+        service.updateReview('a0000000-0000-4000-8000-000000000099', reviewId, { rating: 1 }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('Chặn chỉnh sửa lần 2 nếu đánh giá đã từng được chỉnh sửa (isEdited = true)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue({
+        ...existingReview,
+        isEdited: true,
+        editedAt: new Date(),
+      });
+
+      await expect(
+        service.updateReview(customerUserId, reviewId, { rating: 3 }),
+      ).rejects.toThrow('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất');
+    });
+
+    it('Chặn chỉnh sửa nếu đã quá 48 giờ kể từ khi tạo', async () => {
+      const fiftyHoursAgo = new Date(Date.now() - 50 * 60 * 60 * 1000);
+      dbMock.workerReview.findFirst.mockResolvedValue({
+        ...existingReview,
+        createdAt: fiftyHoursAgo,
+      });
+
+      await expect(
+        service.updateReview(customerUserId, reviewId, { rating: 4 }),
+      ).rejects.toThrow('Đã quá thời hạn chỉnh sửa đánh giá (tối đa 48 giờ kể từ khi tạo)');
     });
   });
 });
