@@ -2103,6 +2103,27 @@ export class UserTrustServiceService {
       where.rating = Number(query.rating);
     }
 
+    if (query.hasMedia === true || (query.hasMedia as any) === 'true') {
+      where.media = {
+        some: {},
+      };
+    } else if (query.hasMedia === false || (query.hasMedia as any) === 'false') {
+      where.media = {
+        none: {},
+      };
+    }
+
+    let orderBy: any;
+    if (query.sortBy === 'highest_rating') {
+      orderBy = [{ rating: 'desc' }, { createdAt: 'desc' }];
+    } else if (query.sortBy === 'lowest_rating') {
+      orderBy = [{ rating: 'asc' }, { createdAt: 'desc' }];
+    } else if (query.sortBy === 'oldest') {
+      orderBy = [{ createdAt: 'asc' }];
+    } else {
+      orderBy = [{ createdAt: 'desc' }];
+    }
+
     // Lấy phân bố số sao (1-5 sao)
     const ratingGroups =
       typeof this.db.workerReview?.groupBy === 'function'
@@ -2138,7 +2159,7 @@ export class UserTrustServiceService {
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           media: {
             orderBy: { createdAt: 'asc' },
