@@ -23,6 +23,8 @@ import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dt
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
 import { Prisma } from '@prisma/user-trust-client';
+import { CreateReviewDto } from './dto/create-review.dto.js';
+import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
@@ -210,6 +212,8 @@ export class UserTrustServiceService {
     private readonly cloudinaryService?: CloudinaryService,
     @Optional()
     private readonly catalogClient?: CatalogClient,
+    @Optional()
+    private readonly orderClient?: OrderClient,
   ) { }
 
   async getDisplayNames(ids: string[]) {
@@ -1878,20 +1882,32 @@ export class UserTrustServiceService {
    * Lấy hồ sơ công khai của thợ (Public Profile) dành cho khách hàng
    * xem khi nhận gợi ý từ AI Matching hoặc nhận báo giá từ Bidding.
    */
-  async getWorkerPublicProfile(workerIdentifier: string): Promise<unknown> {
-    const isUuid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        workerIdentifier,
-      );
+  async getWorkerPublicProfile(
+    workerIdentifier: string,
+    currentUserId?: string,
+  ): Promise<unknown> {
+    let workerWhere: any;
+    if (workerIdentifier === 'me') {
+      if (!currentUserId) {
+        throw new BadRequestException('Bạn cần đăng nhập để xem hồ sơ của mình');
+      }
+      workerWhere = { userId: currentUserId };
+    } else {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          workerIdentifier,
+        );
 
-    if (!isUuid) {
-      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      if (!isUuid) {
+        throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      }
+      workerWhere = {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      };
     }
 
     const worker = await this.db.workerProfile.findFirst({
-      where: {
-        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
-      },
+      where: workerWhere,
       include: {
         user: {
           include: {
@@ -1937,7 +1953,7 @@ export class UserTrustServiceService {
       }
     }
 
-    // Lấy 5 nhận xét gần nhất đã được phê duyệt (status: published)
+    // Lấy 5 nhận xét gần nhất đã được phê duyệt (status: published) kèm media
     const recentReviews = await this.db.workerReview.findMany({
       where: {
         workerUserId: worker.userId,
@@ -1946,6 +1962,9 @@ export class UserTrustServiceService {
       orderBy: { createdAt: 'desc' },
       take: 5,
       include: {
+        media: {
+          orderBy: { createdAt: 'asc' },
+        },
         customer: {
           select: {
             id: true,
@@ -2010,6 +2029,13 @@ export class UserTrustServiceService {
             fullName: r.customer.fullName,
             avatarUrl: r.customer.avatarUrl,
           },
+          media: (r.media || []).map((m: any) => ({
+            id: m.id,
+            mediaType: m.mediaType,
+            mediaUrl: m.mediaUrl,
+            thumbnailUrl: m.thumbnailUrl,
+            createdAt: m.createdAt,
+          })),
         })),
       },
     };
@@ -2017,27 +2043,47 @@ export class UserTrustServiceService {
 
   /**
    * Lấy danh sách đánh giá nhận xét của thợ có hỗ trợ phân trang và lọc theo số sao
+   * Hỗ trợ khi khách xem hồ sơ thợ qua đấu giá hoặc thợ tự xem của chính mình.
    */
   async getWorkerReviews(
     workerIdentifier: string,
     query: ListWorkerReviewsDto,
+    currentUserId?: string,
   ): Promise<unknown> {
-    const isUuid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        workerIdentifier,
-      );
+    let workerWhere: any;
+    if (workerIdentifier === 'me') {
+      if (!currentUserId) {
+        throw new BadRequestException('Bạn cần đăng nhập để xem đánh giá của mình');
+      }
+      workerWhere = { userId: currentUserId };
+    } else {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          workerIdentifier,
+        );
 
-    if (!isUuid) {
-      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      if (!isUuid) {
+        throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      }
+      workerWhere = {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      };
     }
 
     const worker = await this.db.workerProfile.findFirst({
-      where: {
-        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
-      },
+      where: workerWhere,
       select: {
         id: true,
         userId: true,
+        averageRating: true,
+        ratingCount: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
       },
     });
 
@@ -2057,6 +2103,36 @@ export class UserTrustServiceService {
       where.rating = Number(query.rating);
     }
 
+    // Lấy phân bố số sao (1-5 sao)
+    const ratingGroups =
+      typeof this.db.workerReview?.groupBy === 'function'
+        ? (await this.db.workerReview.groupBy({
+            by: ['rating'],
+            where: {
+              workerUserId: worker.userId,
+              status: 'published',
+            },
+            _count: {
+              rating: true,
+            },
+          })) || []
+        : [];
+
+    const ratingDistribution: Record<number, number> = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+      5: 0,
+    };
+    if (Array.isArray(ratingGroups)) {
+      for (const g of ratingGroups) {
+        if (g && g.rating >= 1 && g.rating <= 5) {
+          ratingDistribution[g.rating] = g._count?.rating || 0;
+        }
+      }
+    }
+
     const [reviews, total] = await Promise.all([
       this.db.workerReview.findMany({
         where,
@@ -2064,6 +2140,9 @@ export class UserTrustServiceService {
         take,
         orderBy: { createdAt: 'desc' },
         include: {
+          media: {
+            orderBy: { createdAt: 'asc' },
+          },
           customer: {
             select: {
               id: true,
@@ -2076,8 +2155,24 @@ export class UserTrustServiceService {
       this.db.workerReview.count({ where }),
     ]);
 
+    const averageRatingNum =
+      worker.ratingCount && worker.ratingCount > 0
+        ? Number(Number(worker.averageRating).toFixed(2))
+        : 0;
+
     return {
       statusCode: 200,
+      worker: {
+        id: worker.id,
+        userId: worker.userId,
+        fullName: worker.user?.fullName || '',
+        avatarUrl: worker.user?.avatarUrl || null,
+      },
+      stats: {
+        averageRating: averageRatingNum,
+        ratingCount: worker.ratingCount || 0,
+        ratingDistribution,
+      },
       data: reviews.map((r) => ({
         id: r.id,
         orderId: r.orderId,
@@ -2092,6 +2187,13 @@ export class UserTrustServiceService {
           fullName: r.customer.fullName,
           avatarUrl: r.customer.avatarUrl,
         },
+        media: (r.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
       })),
       pagination: {
         page: Number(query.page) || 1,
@@ -3092,6 +3194,357 @@ export class UserTrustServiceService {
     return {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký tải lên video thành công',
+      data: signature,
+    };
+  }
+
+  /**
+   * Tạo đánh giá cho đơn hàng đã hoàn thành (số sao, nhận xét, hình ảnh, video)
+   */
+  async createReview(
+    currentUserId: string,
+    dto: CreateReviewDto,
+    orderIdParam?: string,
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ) {
+    const orderId = orderIdParam || dto.orderId;
+    if (!orderId) {
+      throw new BadRequestException('Mã đơn hàng không được để trống');
+    }
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        orderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đơn hàng không đúng định dạng UUID');
+    }
+
+    // 1. Kiểm tra đơn hàng đã được đánh giá trước đó chưa
+    const existing = await this.db.workerReview.findUnique({
+      where: { orderId },
+    });
+    if (existing) {
+      throw new ConflictException('Đơn hàng này đã được đánh giá trước đó');
+    }
+
+    // 2. Xác thực đơn hàng thông qua OrderClient
+    let workerUserId: string;
+    if (this.orderClient) {
+      const order = await this.orderClient.getOrder(orderId);
+      if (order.customerUserId !== currentUserId) {
+        throw new ForbiddenException('Bạn không có quyền đánh giá đơn hàng này');
+      }
+      if (order.status !== 'completed') {
+        throw new BadRequestException('Chỉ có thể đánh giá đơn hàng khi đã hoàn thành');
+      }
+      workerUserId = order.workerUserId;
+    } else {
+      throw new ServiceUnavailableException('Order Service client chưa được cấu hình');
+    }
+
+    // 3. Kiểm tra thợ có tồn tại
+    const worker = await this.db.workerProfile.findFirst({
+      where: {
+        OR: [{ id: workerUserId }, { userId: workerUserId }],
+      },
+      include: {
+        user: { select: { id: true, fullName: true, avatarUrl: true } },
+      },
+    });
+    if (!worker) {
+      throw new NotFoundException('Không tìm thấy thông tin thợ của đơn hàng');
+    }
+
+    // 4. Xử lý upload media trực tiếp nếu có multipart files
+    const mediaItems: Array<{
+      mediaType: 'image' | 'video';
+      mediaUrl: string;
+      thumbnailUrl?: string;
+    }> = [...(dto.media || [])];
+
+    const uploadedImages = [...(files?.images || []), ...(files?.file || [])];
+    if (uploadedImages.length > 0 && this.cloudinaryService) {
+      for (const img of uploadedImages) {
+        const res = await this.cloudinaryService.uploadImage(img);
+        mediaItems.push({
+          mediaType: 'image',
+          mediaUrl: res.url,
+        });
+      }
+    }
+
+    // 5. Chuẩn hóa đánh giá phụ (attitude, quality, speed)
+    const defaultSub = dto.rating >= 4 ? 'good' : dto.rating === 3 ? 'neutral' : 'bad';
+    const attitudeRating = dto.attitudeRating || defaultSub;
+    const qualityRating = dto.qualityRating || defaultSub;
+    const speedRating = dto.speedRating || defaultSub;
+
+    const reviewId = crypto.randomUUID();
+    const now = new Date();
+
+    // 6. Thực hiện giao dịch lưu đánh giá và cập nhật thống kê thợ
+    const review = await this.db.$transaction(async (tx) => {
+      const createdReview = await tx.workerReview.create({
+        data: {
+          id: reviewId,
+          orderId,
+          customerUserId: currentUserId,
+          workerUserId: worker.userId,
+          rating: dto.rating,
+          attitudeRating,
+          qualityRating,
+          speedRating,
+          comment: dto.comment?.trim() || null,
+          status: 'published',
+          createdAt: now,
+          updatedAt: now,
+          media:
+            mediaItems.length > 0
+              ? {
+                  create: mediaItems.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                    thumbnailUrl: m.thumbnailUrl || null,
+                  })),
+                }
+              : undefined,
+        },
+        include: {
+          media: true,
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+          worker: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      });
+
+      // Tính toán lại rating trung bình và tổng số lượng đánh giá của thợ
+      const agg = await tx.workerReview.aggregate({
+        where: {
+          workerUserId: worker.userId,
+          status: 'published',
+        },
+        _avg: { rating: true },
+        _count: { rating: true },
+      });
+
+      const ratingCount = agg._count.rating;
+      const avgScore = Number(agg._avg.rating || 0);
+
+      await tx.workerProfile.updateMany({
+        where: { userId: worker.userId },
+        data: {
+          ratingCount,
+          averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
+        },
+      });
+
+      // Lưu outbox event cho notification / event streaming
+      await tx.outboxEvent.create({
+        data: {
+          eventType: 'review.created',
+          payload: {
+            reviewId: createdReview.id,
+            orderId,
+            customerUserId: currentUserId,
+            workerUserId: worker.userId,
+            rating: createdReview.rating,
+            comment: createdReview.comment,
+            mediaCount: mediaItems.length,
+            createdAt: now.toISOString(),
+          },
+        },
+      });
+
+      return createdReview;
+    });
+
+    return {
+      statusCode: HttpStatus.CREATED,
+      message: 'Đánh giá đơn hàng thành công',
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        createdAt: review.createdAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Lấy thông tin đánh giá theo mã đơn hàng
+   */
+  async getReviewByOrderId(orderId: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        orderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đơn hàng không đúng định dạng UUID');
+    }
+
+    const review = await this.db.workerReview.findUnique({
+      where: { orderId },
+      include: {
+        media: true,
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+        worker: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Đơn hàng này chưa có đánh giá');
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        createdAt: review.createdAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Lấy chi tiết một đánh giá theo reviewId
+   */
+  async getReviewById(reviewId: string) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        reviewId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đánh giá không đúng định dạng UUID');
+    }
+
+    const review = await this.db.workerReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        media: true,
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+        worker: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Không tìm thấy đánh giá');
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        createdAt: review.createdAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Khởi tạo chữ ký direct upload video nhận xét đánh giá lên Cloudinary
+   */
+  async createReviewVideoSignature(
+    userId: string,
+    dto: { fileName?: string; mimeType: string; fileSize?: number },
+  ) {
+    if (!this.cloudinaryService) {
+      throw new BadRequestException('Dịch vụ Cloudinary chưa sẵn sàng');
+    }
+    const signature = await this.cloudinaryService.createVideoUploadSignature(
+      {
+        fileName: dto.fileName || `review-video-${Date.now()}.mp4`,
+        mimeType: dto.mimeType,
+        fileSize: dto.fileSize || 10 * 1024 * 1024,
+      },
+      userId,
+    );
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Khởi tạo chữ ký upload video đánh giá thành công',
       data: signature,
     };
   }
