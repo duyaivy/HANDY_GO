@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UserTrustServiceService } from '../src/user-trust-service.service.js';
 import { UserTrustServiceController } from '../src/user-trust-service.controller.js';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { RegisterRole } from '@app/auth';
+import { RegisterRole, StandardPermissions } from '@app/auth';
 
 describe('User Review Flow Test Suite (HG-68)', () => {
   const customerUserId = '4bb6e3d4-6b59-4ee7-b28a-a4f436234328'; // Trần Quốc Bảo
@@ -77,6 +77,22 @@ describe('User Review Flow Test Suite (HG-68)', () => {
     sessionId: 'sess-2',
     roles: [RegisterRole.WORKER],
     permissions: ['profile:read', 'profile:update'],
+  };
+
+  const adminUser = {
+    accountId: 'acc-admin-1',
+    userId: '88888888-8888-4888-8888-888888888888',
+    sessionId: 'sess-admin',
+    roles: ['admin'],
+    permissions: [StandardPermissions.USER_MANAGE, StandardPermissions.PROFILE_READ],
+  };
+
+  const strangerUser = {
+    accountId: 'acc-stranger-1',
+    userId: '99999999-9999-4999-9999-999999999999',
+    sessionId: 'sess-stranger',
+    roles: [RegisterRole.CUSTOMER],
+    permissions: [StandardPermissions.PROFILE_READ],
   };
 
   describe('1. Khách hàng tạo đánh giá đơn hàng (Customer creates review)', () => {
@@ -900,6 +916,442 @@ describe('User Review Flow Test Suite (HG-68)', () => {
           { videos: [fakeVideoFile] },
         ),
       ).rejects.toThrow('Video đánh giá không hỗ trợ tải trực tiếp qua multipart');
+    });
+  });
+
+  describe('6. Kiểm thử toàn diện: Vai trò (Roles), Trạng thái (Statuses), Media & Concurrency', () => {
+    const matrixReviewId = 'cccc1111-aaaa-4bbb-8ccc-ddddeeee0001';
+    const sampleOrder = {
+      orderId,
+      orderCode: 'ORD-99999999',
+      status: 'completed',
+      customerUserId,
+      workerUserId,
+      completedAt: new Date().toISOString(),
+    };
+
+    describe('6.1 Ma trận phân quyền theo vai trò (Roles & Permissions)', () => {
+      it('Worker không thể tự đánh giá đơn hàng mà chính mình nhận làm việc (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(null);
+        orderClientMock.getOrder.mockResolvedValue(sampleOrder);
+
+        await expect(
+          service.createReview(workerUserId, { orderId, rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Admin không thể tự ý tạo đánh giá cho đơn hàng của người khác (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(null);
+        orderClientMock.getOrder.mockResolvedValue(sampleOrder);
+
+        await expect(
+          service.createReview(adminUser.userId, { orderId, rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Người dùng lạ không thể tạo đánh giá cho đơn hàng không thuộc về mình (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(null);
+        orderClientMock.getOrder.mockResolvedValue(sampleOrder);
+
+        await expect(
+          service.createReview(strangerUser.userId, { orderId, rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Worker không thể chỉnh sửa đánh giá của khách hàng (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findFirst.mockResolvedValue({
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          isEdited: false,
+          createdAt: new Date(),
+        });
+
+        await expect(
+          service.updateReview(workerUserId, matrixReviewId, { rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Admin không thể trực tiếp chỉnh sửa nội dung đánh giá của khách hàng (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findFirst.mockResolvedValue({
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          isEdited: false,
+          createdAt: new Date(),
+        });
+
+        await expect(
+          service.updateReview(adminUser.userId, matrixReviewId, { rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('Người dùng lạ không thể chỉnh sửa đánh giá của người khác (ForbiddenException 403)', async () => {
+        dbMock.workerReview.findFirst.mockResolvedValue({
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          isEdited: false,
+          createdAt: new Date(),
+        });
+
+        await expect(
+          service.updateReview(strangerUser.userId, matrixReviewId, { rating: 5 }),
+        ).rejects.toThrow(ForbiddenException);
+      });
+    });
+
+    describe('6.2 Ma trận trạng thái x Vai trò (Review Statuses: published, hidden, flagged, removed)', () => {
+      const createStatusReview = (status: string) => ({
+        id: matrixReviewId,
+        orderId,
+        customerUserId,
+        workerUserId,
+        status,
+        rating: 5,
+        attitudeRating: 'good',
+        qualityRating: 'good',
+        speedRating: 'good',
+        comment: `Đánh giá đang ở trạng thái ${status}`,
+        isEdited: false,
+        editedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+        worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+        media: [],
+      });
+
+      it('Trạng thái published: customer, worker, admin, stranger đều xem được', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(createStatusReview('published'));
+
+        const resCust = await service.getReviewByOrderId(orderId, customerUser);
+        const resWork = await service.getReviewByOrderId(orderId, workerUser);
+        const resAdmin = await service.getReviewByOrderId(orderId, adminUser);
+        const resStranger = await service.getReviewByOrderId(orderId, strangerUser);
+        const resPublic = await service.getReviewByOrderId(orderId, undefined);
+
+        expect(resCust.statusCode).toBe(200);
+        expect(resWork.statusCode).toBe(200);
+        expect(resAdmin.statusCode).toBe(200);
+        expect(resStranger.statusCode).toBe(200);
+        expect(resPublic.statusCode).toBe(200);
+      });
+
+      it('Trạng thái hidden: chỉ customer tác giả, worker được đánh giá và admin xem được; stranger và anonymous bị 404', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(createStatusReview('hidden'));
+
+        await expect(service.getReviewByOrderId(orderId, customerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewByOrderId(orderId, workerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewByOrderId(orderId, adminUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewByOrderId(orderId, strangerUser)).rejects.toThrow(NotFoundException);
+        await expect(service.getReviewByOrderId(orderId, undefined)).rejects.toThrow(NotFoundException);
+      });
+
+      it('Trạng thái flagged: chỉ customer tác giả, worker và admin xem được; stranger bị 404', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(createStatusReview('flagged'));
+
+        await expect(service.getReviewById(matrixReviewId, customerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, workerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, adminUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, strangerUser)).rejects.toThrow(NotFoundException);
+      });
+
+      it('Trạng thái removed: chỉ customer tác giả, worker và admin xem được; stranger bị 404', async () => {
+        dbMock.workerReview.findUnique.mockResolvedValue(createStatusReview('removed'));
+
+        await expect(service.getReviewById(matrixReviewId, customerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, workerUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, adminUser)).resolves.toMatchObject({ statusCode: 200 });
+        await expect(service.getReviewById(matrixReviewId, strangerUser)).rejects.toThrow(NotFoundException);
+      });
+
+      it('Danh sách đánh giá thợ (getWorkerReviews) luôn chỉ truy vấn review có status = published', async () => {
+        dbMock.workerProfile.findFirst.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+        dbMock.workerReview.findMany.mockResolvedValue([]);
+        dbMock.workerReview.count.mockResolvedValue(0);
+
+        await service.getWorkerReviews(workerUserId, {});
+
+        expect(dbMock.workerReview.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              workerUserId,
+              status: 'published',
+            }),
+          }),
+        );
+      });
+    });
+
+    describe('6.3 Kiểm thử toàn diện Media (Cloudinary HTTPS, Mismatched Types, Thumbnails, Multipart)', () => {
+      beforeEach(() => {
+        dbMock.workerReview.findUnique.mockResolvedValue(null);
+        orderClientMock.getOrder.mockResolvedValue(sampleOrder);
+        dbMock.workerProfile.findFirst.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+      });
+
+      it('Chặn URL sử dụng HTTP không an toàn thay vì HTTPS', async () => {
+        const insecureHttpDto = {
+          orderId,
+          rating: 5,
+          media: [
+            { mediaType: 'image' as const, mediaUrl: 'http://res.cloudinary.com/handygo/image/upload/img.jpg' },
+          ],
+        };
+
+        await expect(
+          service.createReview(customerUserId, insecureHttpDto),
+        ).rejects.toThrow('Đường dẫn media phải sử dụng giao thức HTTPS');
+      });
+
+      it('Chặn URL có hostname không phải res.cloudinary.com', async () => {
+        const foreignDomainDto = {
+          orderId,
+          rating: 5,
+          media: [
+            { mediaType: 'image' as const, mediaUrl: 'https://cdn.other-site.com/image/upload/img.jpg' },
+          ],
+        };
+
+        await expect(
+          service.createReview(customerUserId, foreignDomainDto),
+        ).rejects.toThrow('Đường dẫn media phải thuộc hệ thống lưu trữ Cloudinary của HandyGo');
+      });
+
+      it('Chặn video có mediaUrl là đường dẫn ảnh Cloudinary (/image/upload/)', async () => {
+        const videoMismatchedDto = {
+          orderId,
+          rating: 5,
+          media: [
+            { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/not_a_video.mp4' },
+          ],
+        };
+
+        await expect(
+          service.createReview(customerUserId, videoMismatchedDto),
+        ).rejects.toThrow('Tệp video không đúng loại tài nguyên Cloudinary video');
+      });
+
+      it('Chặn video có thumbnailUrl không trỏ tới tài nguyên ảnh Cloudinary', async () => {
+        const invalidThumbDto = {
+          orderId,
+          rating: 5,
+          media: [
+            {
+              mediaType: 'video' as const,
+              mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/valid_clip.mp4',
+              thumbnailUrl: 'https://res.cloudinary.com/handygo/video/upload/fake_thumb.mp4',
+            },
+          ],
+        };
+
+        await expect(
+          service.createReview(customerUserId, invalidThumbDto),
+        ).rejects.toThrow('Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary');
+      });
+
+      it('Chấp nhận upload ảnh qua multipart và tự động lưu vào danh sách media', async () => {
+        cloudinaryMock.uploadImage.mockResolvedValue({
+          url: 'https://res.cloudinary.com/handygo/image/upload/uploaded_photo.jpg',
+        });
+        dbMock.workerReview.create.mockResolvedValue({
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          rating: 5,
+          status: 'published',
+          media: [
+            {
+              id: 'med-new',
+              mediaType: 'image',
+              mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/uploaded_photo.jpg',
+              thumbnailUrl: null,
+            },
+          ],
+          customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+          worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+        });
+
+        const fakeImageFile = {
+          fieldname: 'images',
+          originalname: 'my-job.jpg',
+          mimetype: 'image/jpeg',
+          buffer: Buffer.from('fake-image-bytes'),
+          size: 2048,
+        } as Express.Multer.File;
+
+        const result: any = await service.createReview(
+          customerUserId,
+          { orderId, rating: 5, comment: 'Đính kèm ảnh thực tế qua multipart' },
+          undefined,
+          { images: [fakeImageFile] },
+        );
+
+        expect(cloudinaryMock.uploadImage).toHaveBeenCalledWith(fakeImageFile);
+        expect(result.statusCode).toBe(201);
+      });
+
+      it('Chỉnh sửa đánh giá: từ chối nếu media mới chứa URL ngoài hệ thống', async () => {
+        dbMock.workerReview.findFirst.mockResolvedValue({
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          rating: 5,
+          isEdited: false,
+          createdAt: new Date(),
+        });
+
+        const updateWithBadMediaDto = {
+          rating: 4,
+          media: [
+            { mediaType: 'image' as const, mediaUrl: 'https://evil-server.org/pic.png' },
+          ],
+        };
+
+        await expect(
+          service.updateReview(customerUserId, matrixReviewId, updateWithBadMediaDto),
+        ).rejects.toThrow('Đường dẫn media phải thuộc hệ thống lưu trữ Cloudinary của HandyGo');
+      });
+    });
+
+    describe('6.4 Kiểm thử Concurrency: Concurrent Create & Concurrent Update', () => {
+      it('Concurrent Create: 2 request tạo đánh giá đồng thời cho cùng 1 đơn hàng -> chỉ 1 thành công (201), 1 nhận HTTP 409 Conflict', async () => {
+        orderClientMock.getOrder.mockResolvedValue(sampleOrder);
+        dbMock.workerProfile.findFirst.mockResolvedValue({
+          id: workerProfileId,
+          userId: workerUserId,
+        });
+
+        // Cả 2 request ban đầu đều thấy chưa có review (null)
+        dbMock.workerReview.findUnique.mockResolvedValue(null);
+
+        // Giả lập DB race condition:
+        // Request 1 insert thành công
+        // Request 2 bị trùng unique constraint orderId (Prisma P2002)
+        let createCallCount = 0;
+        dbMock.workerReview.create.mockImplementation(async (args: any) => {
+          createCallCount++;
+          if (createCallCount === 1) {
+            return {
+              id: 'rev-race-1',
+              orderId,
+              customerUserId,
+              workerUserId,
+              rating: args.data.rating,
+              status: 'published',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+              worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+              media: [],
+            };
+          }
+          throw {
+            code: 'P2002',
+            message: 'Unique constraint failed on the fields: (`order_id`)',
+          };
+        });
+
+        const call1 = service.createReview(customerUserId, { orderId, rating: 5, comment: 'Request 1' });
+        const call2 = service.createReview(customerUserId, { orderId, rating: 5, comment: 'Request 2' });
+
+        const results = await Promise.allSettled([call1, call2]);
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled');
+        const rejected = results.filter((r) => r.status === 'rejected');
+
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+
+        const okResult = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+        expect(okResult.statusCode).toBe(201);
+
+        const errorResult = (rejected[0] as PromiseRejectedResult).reason;
+        expect(errorResult).toBeInstanceOf(ConflictException);
+        expect(errorResult.message).toBe('Đơn hàng này đã được đánh giá');
+
+        // Chỉ có đúng 1 outbox event được tạo và 1 lần cập nhật workerProfile
+        expect(dbMock.outboxEvent.create).toHaveBeenCalledTimes(1);
+        expect(dbMock.workerProfile.updateMany).toHaveBeenCalledTimes(1);
+      });
+
+      it('Concurrent Update: 2 request cập nhật đánh giá đồng thời -> chỉ 1 thành công (200), 1 nhận HTTP 400 BadRequest', async () => {
+        const baseReview = {
+          id: matrixReviewId,
+          orderId,
+          customerUserId,
+          workerUserId,
+          rating: 5,
+          attitudeRating: 'good',
+          qualityRating: 'good',
+          speedRating: 'good',
+          comment: 'Nhận xét ban đầu',
+          status: 'published',
+          isEdited: false,
+          editedAt: null,
+          createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 phút trước
+          updatedAt: new Date(Date.now() - 1000 * 60 * 30),
+          customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+          worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+          media: [],
+        };
+
+        // Cả 2 request ban đầu đều đọc được review chưa sửa (isEdited = false)
+        dbMock.workerReview.findFirst.mockResolvedValue(baseReview);
+
+        // Giả lập atomic conditional update trong DB:
+        // Request 1 đến trước: updateMany khớp isEdited: false -> count = 1
+        // Request 2 đến sau: isEdited đã là true -> count = 0
+        let updateCount = 0;
+        dbMock.workerReview.updateMany.mockImplementation(async () => {
+          updateCount++;
+          if (updateCount === 1) {
+            return { count: 1 };
+          }
+          return { count: 0 };
+        });
+
+        dbMock.workerReview.findUnique.mockResolvedValue({
+          ...baseReview,
+          rating: 4,
+          isEdited: true,
+          editedAt: new Date(),
+        });
+
+        const patch1 = service.updateReview(customerUserId, matrixReviewId, { rating: 4, comment: 'Sửa lần 1' });
+        const patch2 = service.updateReview(customerUserId, matrixReviewId, { rating: 3, comment: 'Sửa lần 2' });
+
+        const results = await Promise.allSettled([patch1, patch2]);
+
+        const fulfilled = results.filter((r) => r.status === 'fulfilled');
+        const rejected = results.filter((r) => r.status === 'rejected');
+
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+
+        const okResult = (fulfilled[0] as PromiseFulfilledResult<any>).value;
+        expect(okResult.statusCode).toBe(200);
+        expect(okResult.data.isEdited).toBe(true);
+
+        const errorResult = (rejected[0] as PromiseRejectedResult).reason;
+        expect(errorResult).toBeInstanceOf(BadRequestException);
+        expect(errorResult.message).toBe('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất');
+
+        // Chỉ có đúng 1 outbox event review.updated được tạo
+        expect(dbMock.outboxEvent.create).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });
