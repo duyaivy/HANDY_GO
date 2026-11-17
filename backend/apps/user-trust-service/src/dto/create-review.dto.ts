@@ -10,6 +10,7 @@ import {
   IsString,
   IsUrl,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateNested,
@@ -28,11 +29,18 @@ export class CreateReviewMediaDto {
   mediaType: 'image' | 'video' | 'IMAGE' | 'VIDEO';
 
   @ApiProperty({
-    description: 'URL của file media (Cloudinary hoặc link trực tiếp)',
+    description: 'URL của file media (Cloudinary HandyGo)',
     example: 'https://res.cloudinary.com/handygo/image/upload/v1/reviews/review1.jpg',
   })
   @IsNotEmpty({ message: 'mediaUrl không được để trống' })
   @IsUrl({}, { message: 'mediaUrl phải là URL hợp lệ' })
+  @Matches(
+    /^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/(image|video)\/upload\/.+/i,
+    {
+      message:
+        'mediaUrl phải là đường dẫn tài nguyên Cloudinary hợp lệ (https://res.cloudinary.com/<cloud>/image|video/upload/...)',
+    },
+  )
   mediaUrl: string;
 
   @ApiPropertyOptional({
@@ -41,6 +49,13 @@ export class CreateReviewMediaDto {
   })
   @IsOptional()
   @IsUrl({}, { message: 'thumbnailUrl phải là URL hợp lệ' })
+  @Matches(
+    /^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/image\/upload\/.+/i,
+    {
+      message:
+        'thumbnailUrl phải là đường dẫn hình ảnh Cloudinary hợp lệ (https://res.cloudinary.com/<cloud>/image/upload/...)',
+    },
+  )
   thumbnailUrl?: string;
 }
 
