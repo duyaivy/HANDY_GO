@@ -3461,6 +3461,24 @@ export class UserTrustServiceService {
     let review: any;
     try {
       review = await this.db.$transaction(async (tx) => {
+        // P1-HG-68: Khóa dòng worker_profiles bằng FOR UPDATE để serialize các request đánh giá đồng thời cho cùng một worker,
+        // ngăn ngừa race condition đọc cũ / ghi đè thống kê ratingCount và averageRating.
+        if (typeof tx.$queryRaw === 'function') {
+          try {
+            await tx.$queryRaw`SELECT id FROM user_trust_service.worker_profiles WHERE user_id = ${worker.userId}::uuid FOR UPDATE`;
+          } catch (err: any) {
+            if (
+              err?.code === '42P01' ||
+              (typeof err?.message === 'string' &&
+                err.message.includes('user_trust_service'))
+            ) {
+              await tx.$queryRaw`SELECT id FROM worker_profiles WHERE user_id = ${worker.userId}::uuid FOR UPDATE`;
+            } else {
+              throw err;
+            }
+          }
+        }
+
         const createdReview = await tx.workerReview.create({
           data: {
             id: reviewId,
@@ -3738,7 +3756,27 @@ export class UserTrustServiceService {
       dto.comment !== undefined ? dto.comment.trim() || null : review.comment;
 
     const now = new Date();
+    const isRatingChanged =
+      dto.rating !== undefined && dto.rating !== review.rating;
+
     const updatedReview = await this.db.$transaction(async (tx) => {
+      // P1-HG-68: Khóa dòng worker_profiles nếu rating thay đổi để serialize tính toán thống kê đánh giá
+      if (isRatingChanged && typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`SELECT id FROM user_trust_service.worker_profiles WHERE user_id = ${review.workerUserId}::uuid FOR UPDATE`;
+        } catch (err: any) {
+          if (
+            err?.code === '42P01' ||
+            (typeof err?.message === 'string' &&
+              err.message.includes('user_trust_service'))
+          ) {
+            await tx.$queryRaw`SELECT id FROM worker_profiles WHERE user_id = ${review.workerUserId}::uuid FOR UPDATE`;
+          } else {
+            throw err;
+          }
+        }
+      }
+
       // 1. Atomic conditional update: check isEdited: false directly in DB to prevent race condition
       const updateResult = await tx.workerReview.updateMany({
         where: {
