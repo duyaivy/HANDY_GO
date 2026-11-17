@@ -1097,7 +1097,7 @@ describe('UserTrustServiceService', () => {
         media: [
           {
             mediaType: 'image' as const,
-            mediaUrl: 'https://cloudinary.com/img1.jpg',
+            mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img1.jpg',
           },
         ],
       };
