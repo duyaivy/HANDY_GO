@@ -2128,15 +2128,15 @@ export class UserTrustServiceService {
     const ratingGroups =
       typeof this.db.workerReview?.groupBy === 'function'
         ? (await this.db.workerReview.groupBy({
-            by: ['rating'],
-            where: {
-              workerUserId: worker.userId,
-              status: 'published',
-            },
-            _count: {
-              rating: true,
-            },
-          })) || []
+          by: ['rating'],
+          where: {
+            workerUserId: worker.userId,
+            status: 'published',
+          },
+          _count: {
+            rating: true,
+          },
+        })) || []
         : [];
 
     const ratingDistribution: Record<number, number> = {
@@ -3398,12 +3398,12 @@ export class UserTrustServiceService {
           media:
             mediaItems.length > 0
               ? {
-                  create: mediaItems.map((m) => ({
-                    mediaType: m.mediaType,
-                    mediaUrl: m.mediaUrl,
-                    thumbnailUrl: m.thumbnailUrl || null,
-                  })),
-                }
+                create: mediaItems.map((m) => ({
+                  mediaType: m.mediaType,
+                  mediaUrl: m.mediaUrl,
+                  thumbnailUrl: m.thumbnailUrl || null,
+                })),
+              }
               : undefined,
         },
         include: {
@@ -3567,7 +3567,7 @@ export class UserTrustServiceService {
 
     const hasNewFiles = Boolean(
       (files?.images && files.images.length > 0) ||
-        (files?.file && files.file.length > 0),
+      (files?.file && files.file.length > 0),
     );
 
     if (dto.media !== undefined || hasNewFiles) {
@@ -3785,9 +3785,35 @@ export class UserTrustServiceService {
   }
 
   /**
+   * Kiểm tra xem caller có quyền xem review không (helper dùng chung cho getReviewByOrderId và getReviewById)
+   * - Published: ai cũng thấy
+   * - Hidden/flagged/removed: chỉ customer sở hữu, worker, hoặc admin mới thấy
+   */
+  private canViewNonPublishedReview(
+    review: { customerUserId: string; workerUserId: string },
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ): boolean {
+    if (!caller) return false;
+    if (caller.userId === review.customerUserId) return true;
+    if (caller.userId === review.workerUserId) return true;
+    const roles = (caller.roles || []).map((r) => r.toLowerCase());
+    if (roles.includes('admin')) return true;
+    if (
+      (caller.permissions || []).includes(
+        StandardPermissions.USER_MANAGE,
+      )
+    )
+      return true;
+    return false;
+  }
+
+  /**
    * Lấy thông tin đánh giá theo mã đơn hàng
    */
-  async getReviewByOrderId(orderId: string) {
+  async getReviewByOrderId(
+    orderId: string,
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ) {
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         orderId,
@@ -3821,6 +3847,13 @@ export class UserTrustServiceService {
       throw new NotFoundException('Đơn hàng này chưa có đánh giá');
     }
 
+    // P1-03: Kiểm tra visibility — nếu review không ở trạng thái published, chỉ cho phép người có quyền xem
+    if (review.status !== 'published') {
+      if (!this.canViewNonPublishedReview(review, caller)) {
+        throw new NotFoundException('Đơn hàng này chưa có đánh giá');
+      }
+    }
+
     return {
       statusCode: HttpStatus.OK,
       data: {
@@ -3852,7 +3885,10 @@ export class UserTrustServiceService {
   /**
    * Lấy chi tiết một đánh giá theo reviewId
    */
-  async getReviewById(reviewId: string) {
+  async getReviewById(
+    reviewId: string,
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ) {
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         reviewId,
@@ -3884,6 +3920,13 @@ export class UserTrustServiceService {
 
     if (!review) {
       throw new NotFoundException('Không tìm thấy đánh giá');
+    }
+
+    // P1-03: Kiểm tra visibility — nếu review không ở trạng thái published, chỉ cho phép người có quyền xem
+    if (review.status !== 'published') {
+      if (!this.canViewNonPublishedReview(review, caller)) {
+        throw new NotFoundException('Không tìm thấy đánh giá');
+      }
     }
 
     return {

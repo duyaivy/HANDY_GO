@@ -298,26 +298,32 @@ describe('UserTrustServiceController', () => {
     });
 
     it('getReviewByOrderId delegates to service', async () => {
-      const res = await controller.getReviewByOrderId('a0000000-0000-4000-8000-000000000001');
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getReviewByOrderId(mockUser, 'a0000000-0000-4000-8000-000000000001');
       expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
       expect(serviceMock.getReviewByOrderId).toHaveBeenCalledWith(
         'a0000000-0000-4000-8000-000000000001',
+        mockUser,
       );
     });
 
     it('getOrderReviewAlias delegates to service getReviewByOrderId', async () => {
-      const res = await controller.getOrderReviewAlias('a0000000-0000-4000-8000-000000000001');
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getOrderReviewAlias(mockUser, 'a0000000-0000-4000-8000-000000000001');
       expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
       expect(serviceMock.getReviewByOrderId).toHaveBeenCalledWith(
         'a0000000-0000-4000-8000-000000000001',
+        mockUser,
       );
     });
 
     it('getReviewById delegates to service', async () => {
-      const res = await controller.getReviewById('b0000000-0000-4000-8000-000000000001');
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getReviewById(mockUser, 'b0000000-0000-4000-8000-000000000001');
       expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
       expect(serviceMock.getReviewById).toHaveBeenCalledWith(
         'b0000000-0000-4000-8000-000000000001',
+        mockUser,
       );
     });
 
