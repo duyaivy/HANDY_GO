@@ -151,7 +151,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         comment: 'Thợ Lê Thu Hà làm việc rất chuyên nghiệp, xử lý sự cố nhanh và chu đáo!',
         media: [
           { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/dcf78vkol/image/upload/sample.jpg' },
-          { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/dcf78vkol/video/upload/sample.mp4', thumbnailUrl: 'https://res.cloudinary.com/dcf78vkol/video/upload/sample.jpg' },
+          { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/dcf78vkol/video/upload/sample.mp4', thumbnailUrl: 'https://res.cloudinary.com/dcf78vkol/image/upload/sample_thumb.jpg' },
         ],
       };
 
@@ -312,13 +312,13 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         orderId,
         rating: 5,
         media: [
-          { mediaType: 'image' as const, mediaUrl: 'https://img1.jpg' },
-          { mediaType: 'image' as const, mediaUrl: 'https://img2.jpg' },
-          { mediaType: 'image' as const, mediaUrl: 'https://img3.jpg' },
-          { mediaType: 'image' as const, mediaUrl: 'https://img4.jpg' },
-          { mediaType: 'image' as const, mediaUrl: 'https://img5.jpg' },
-          { mediaType: 'image' as const, mediaUrl: 'https://img6.jpg' },
-          { mediaType: 'video' as const, mediaUrl: 'https://vid1.mp4' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img1.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img2.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img3.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img4.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img5.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img6.jpg' },
+          { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/vid1.mp4' },
         ],
       };
       await expect(
@@ -330,13 +330,65 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         orderId,
         rating: 5,
         media: [
-          { mediaType: 'video' as const, mediaUrl: 'https://vid1.mp4' },
-          { mediaType: 'video' as const, mediaUrl: 'https://vid2.mp4' },
+          { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/vid1.mp4' },
+          { mediaType: 'video' as const, mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/vid2.mp4' },
         ],
       };
       await expect(
         service.createReview(customerUserId, twoVideosDto),
       ).rejects.toThrow('Chỉ được đính kèm tối đa 1 video');
+    });
+
+    it('[P2-02] Từ chối URL media ngoài hệ thống Cloudinary (untrusted domain)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      const untrustedMediaDto = {
+        orderId,
+        rating: 5,
+        media: [
+          { mediaType: 'image' as const, mediaUrl: 'https://attacker.com/malicious.jpg' },
+        ],
+      };
+
+      await expect(
+        service.createReview(customerUserId, untrustedMediaDto),
+      ).rejects.toThrow('Đường dẫn media phải thuộc hệ thống lưu trữ Cloudinary của HandyGo');
+    });
+
+    it('[P2-02] Từ chối media sai loại tài nguyên (mediaType = image nhưng URL video/upload)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      const mismatchMediaDto = {
+        orderId,
+        rating: 5,
+        media: [
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/clip.mp4' },
+        ],
+      };
+
+      await expect(
+        service.createReview(customerUserId, mismatchMediaDto),
+      ).rejects.toThrow('Tệp hình ảnh không đúng loại tài nguyên Cloudinary image');
     });
 
     it('Chặn upload video trực tiếp qua multipart form data và yêu cầu dùng signature (P1-01)', async () => {
@@ -681,7 +733,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         {
           id: 'med-img-1',
           mediaType: 'image',
-          mediaUrl: 'https://img.jpg',
+          mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/med-img-1.jpg',
           thumbnailUrl: null,
           createdAt: new Date(),
         },

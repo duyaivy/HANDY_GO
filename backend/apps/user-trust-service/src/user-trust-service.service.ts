@@ -3222,6 +3222,80 @@ export class UserTrustServiceService {
   }
 
   /**
+   * P2-02: Xác thực media do client cung cấp phải thuộc Cloudinary của hệ thống,
+   * đúng giao thức HTTPS, và khớp loại resource (image/video).
+   */
+  private validateReviewMedia(
+    mediaItems?: Array<{
+      mediaType: string;
+      mediaUrl: string;
+      thumbnailUrl?: string;
+    }>,
+  ) {
+    if (!mediaItems || mediaItems.length === 0) return;
+
+    for (const item of mediaItems) {
+      const type = (item.mediaType || '').toLowerCase();
+      if (type !== 'image' && type !== 'video') {
+        throw new BadRequestException(
+          'Loại media không hợp lệ. Chỉ chấp nhận image hoặc video',
+        );
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(item.mediaUrl);
+      } catch {
+        throw new BadRequestException('Đường dẫn media không hợp lệ');
+      }
+
+      if (parsed.protocol !== 'https:') {
+        throw new BadRequestException(
+          'Đường dẫn media phải sử dụng giao thức HTTPS',
+        );
+      }
+
+      if (parsed.hostname !== 'res.cloudinary.com') {
+        throw new BadRequestException(
+          'Đường dẫn media phải thuộc hệ thống lưu trữ Cloudinary của HandyGo (https://res.cloudinary.com/...)',
+        );
+      }
+
+      const path = parsed.pathname;
+      if (type === 'image' && !path.includes('/image/upload/')) {
+        throw new BadRequestException(
+          'Tệp hình ảnh không đúng loại tài nguyên Cloudinary image (/image/upload/...)',
+        );
+      }
+      if (type === 'video' && !path.includes('/video/upload/')) {
+        throw new BadRequestException(
+          'Tệp video không đúng loại tài nguyên Cloudinary video (/video/upload/...)',
+        );
+      }
+
+      if (item.thumbnailUrl) {
+        let thumbParsed: URL;
+        try {
+          thumbParsed = new URL(item.thumbnailUrl);
+        } catch {
+          throw new BadRequestException(
+            'Đường dẫn ảnh thu nhỏ (thumbnailUrl) không hợp lệ',
+          );
+        }
+        if (
+          thumbParsed.protocol !== 'https:' ||
+          thumbParsed.hostname !== 'res.cloudinary.com' ||
+          !thumbParsed.pathname.includes('/image/upload/')
+        ) {
+          throw new BadRequestException(
+            'Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary (/image/upload/...)',
+          );
+        }
+      }
+    }
+  }
+
+  /**
    * Tạo đánh giá cho đơn hàng đã hoàn thành (số sao, nhận xét, hình ảnh, video)
    */
   async createReview(
@@ -3322,6 +3396,10 @@ export class UserTrustServiceService {
       throw new BadRequestException(
         'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
       );
+    }
+
+    if (dto.media && dto.media.length > 0) {
+      this.validateReviewMedia(dto.media);
     }
 
     const imgFromDto = (dto.media || []).filter(
@@ -3571,6 +3649,10 @@ export class UserTrustServiceService {
       throw new BadRequestException(
         'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
       );
+    }
+
+    if (dto.media && dto.media.length > 0) {
+      this.validateReviewMedia(dto.media);
     }
 
     let updatedMediaItems: Array<{
