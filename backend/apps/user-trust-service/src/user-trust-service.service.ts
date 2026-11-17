@@ -3380,91 +3380,105 @@ export class UserTrustServiceService {
     const now = new Date();
 
     // 6. Thực hiện giao dịch lưu đánh giá và cập nhật thống kê thợ
-    const review = await this.db.$transaction(async (tx) => {
-      const createdReview = await tx.workerReview.create({
-        data: {
-          id: reviewId,
-          orderId,
-          customerUserId: currentUserId,
-          workerUserId: worker.userId,
-          rating: dto.rating,
-          attitudeRating,
-          qualityRating,
-          speedRating,
-          comment: dto.comment?.trim() || null,
-          status: 'published',
-          createdAt: now,
-          updatedAt: now,
-          media:
-            mediaItems.length > 0
-              ? {
-                create: mediaItems.map((m) => ({
-                  mediaType: m.mediaType,
-                  mediaUrl: m.mediaUrl,
-                  thumbnailUrl: m.thumbnailUrl || null,
-                })),
-              }
-              : undefined,
-        },
-        include: {
-          media: true,
-          customer: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-            },
-          },
-          worker: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      });
-
-      // Tính toán lại rating trung bình và tổng số lượng đánh giá của thợ
-      const agg = await tx.workerReview.aggregate({
-        where: {
-          workerUserId: worker.userId,
-          status: 'published',
-        },
-        _avg: { rating: true },
-        _count: { rating: true },
-      });
-
-      const ratingCount = agg._count.rating;
-      const avgScore = Number(agg._avg.rating || 0);
-
-      await tx.workerProfile.updateMany({
-        where: { userId: worker.userId },
-        data: {
-          ratingCount,
-          averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
-        },
-      });
-
-      // Lưu outbox event cho notification / event streaming
-      await tx.outboxEvent.create({
-        data: {
-          eventType: 'review.created',
-          payload: {
-            reviewId: createdReview.id,
+    let review: any;
+    try {
+      review = await this.db.$transaction(async (tx) => {
+        const createdReview = await tx.workerReview.create({
+          data: {
+            id: reviewId,
             orderId,
             customerUserId: currentUserId,
             workerUserId: worker.userId,
-            rating: createdReview.rating,
-            comment: createdReview.comment,
-            mediaCount: mediaItems.length,
-            createdAt: now.toISOString(),
+            rating: dto.rating,
+            attitudeRating,
+            qualityRating,
+            speedRating,
+            comment: dto.comment?.trim() || null,
+            status: 'published',
+            createdAt: now,
+            updatedAt: now,
+            media:
+              mediaItems.length > 0
+                ? {
+                  create: mediaItems.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                    thumbnailUrl: m.thumbnailUrl || null,
+                  })),
+                }
+                : undefined,
           },
-        },
-      });
+          include: {
+            media: true,
+            customer: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+              },
+            },
+            worker: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        });
 
-      return createdReview;
-    });
+        // Tính toán lại rating trung bình và tổng số lượng đánh giá của thợ
+        const agg = await tx.workerReview.aggregate({
+          where: {
+            workerUserId: worker.userId,
+            status: 'published',
+          },
+          _avg: { rating: true },
+          _count: { rating: true },
+        });
+
+        const ratingCount = agg._count.rating;
+        const avgScore = Number(agg._avg.rating || 0);
+
+        await tx.workerProfile.updateMany({
+          where: { userId: worker.userId },
+          data: {
+            ratingCount,
+            averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
+          },
+        });
+
+        // Lưu outbox event cho notification / event streaming
+        await tx.outboxEvent.create({
+          data: {
+            eventType: 'review.created',
+            payload: {
+              reviewId: createdReview.id,
+              orderId,
+              customerUserId: currentUserId,
+              workerUserId: worker.userId,
+              rating: createdReview.rating,
+              comment: createdReview.comment,
+              mediaCount: mediaItems.length,
+              createdAt: now.toISOString(),
+            },
+          },
+        });
+
+        return createdReview;
+      });
+    } catch (err: any) {
+      if (
+        err?.code === 'P2002' ||
+        (typeof err?.message === 'string' &&
+          (err.message.includes('Unique constraint failed') ||
+            err.message.includes('worker_reviews_order_id_idx') ||
+            err.message.includes('orderId')))
+      ) {
+        throw new ConflictException('Đơn hàng này đã được đánh giá');
+      }
+      throw err;
+    }
 
     return {
       statusCode: HttpStatus.CREATED,

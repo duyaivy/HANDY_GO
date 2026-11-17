@@ -182,6 +182,31 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       ).rejects.toThrow(ConflictException);
     });
 
+    it('[P2-01] Bắt lỗi Prisma P2002 khi 2 request createReview đồng thời và trả HTTP 409 ConflictException', async () => {
+      // Giả lập check findUnique ban đầu đều null (race condition)
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      // Trong transaction, create ném lỗi P2002 unique constraint
+      dbMock.workerReview.create.mockRejectedValue({
+        code: 'P2002',
+        message: 'Unique constraint failed on the fields: (`order_id`)',
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow(ConflictException);
+    });
+
     it('Chặn đánh giá nếu đơn hàng chưa hoàn thành (BadRequestException khi status != completed)', async () => {
       dbMock.workerReview.findUnique.mockResolvedValue(null);
       orderClientMock.getOrder.mockResolvedValue({
