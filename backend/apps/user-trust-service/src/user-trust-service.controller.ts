@@ -813,7 +813,7 @@ export class UserTrustServiceController {
   @ApiOperation({
     summary: 'Đánh giá đơn hàng (số sao, nhận xét mô tả, hình ảnh video)',
     description:
-      'Khách hàng đánh giá thợ sau khi đơn hàng hoàn thành. Hỗ trợ số sao (1-5), nhận xét, danh sách media URL hoặc upload trực tiếp qua multipart file.',
+      'Khách hàng đánh giá thợ sau khi đơn hàng hoàn thành. Hỗ trợ số sao (1-5), nhận xét, danh sách media URL hoặc upload ảnh trực tiếp qua multipart file. Lưu ý: Video không tải trực tiếp qua multipart mà cần dùng POST /reviews/video-upload-signature và gửi URL qua mảng media.',
   })
   @ApiResponse({ status: 201, description: 'Đánh giá đơn hàng thành công' })
   @ApiResponse({ status: 400, description: 'Dữ liệu không hợp lệ hoặc đơn hàng chưa hoàn thành' })
@@ -925,7 +925,7 @@ export class UserTrustServiceController {
   @ApiOperation({
     summary: 'Chỉnh sửa đánh giá (cho phép sửa 1 lần duy nhất trong vòng 48h)',
     description:
-      'Khách hàng có thể cập nhật số sao, nhận xét hoặc hình ảnh/video của đánh giá trong vòng 48 giờ kể từ khi tạo. Chỉ được sửa 1 lần duy nhất.',
+      'Khách hàng có thể cập nhật số sao, nhận xét hoặc hình ảnh/video của đánh giá trong vòng 48 giờ kể từ khi tạo. Chỉ được sửa 1 lần duy nhất. Hỗ trợ upload ảnh qua multipart, video phải dùng direct upload signature và truyền URL qua mảng media.',
   })
   @ApiResponse({ status: 200, description: 'Chỉnh sửa đánh giá thành công' })
   @ApiResponse({

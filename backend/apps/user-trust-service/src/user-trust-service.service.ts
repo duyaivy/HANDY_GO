@@ -3318,6 +3318,12 @@ export class UserTrustServiceService {
     }
 
     // 4. Kiểm tra giới hạn số lượng media và xử lý upload media trực tiếp nếu có multipart files
+    if (files?.videos && files.videos.length > 0) {
+      throw new BadRequestException(
+        'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
+      );
+    }
+
     const imgFromDto = (dto.media || []).filter(
       (m) => (m.mediaType || '').toLowerCase() === 'image',
     ).length;
@@ -3326,10 +3332,9 @@ export class UserTrustServiceService {
     ).length;
     const uploadedImgCount =
       (files?.images?.length || 0) + (files?.file?.length || 0);
-    const uploadedVidCount = files?.videos?.length || 0;
 
     const totalImages = imgFromDto + uploadedImgCount;
-    const totalVideos = vidFromDto + uploadedVidCount;
+    const totalVideos = vidFromDto;
     const totalMedia = totalImages + totalVideos;
 
     if (totalMedia > 6) {
@@ -3548,6 +3553,12 @@ export class UserTrustServiceService {
     }
 
     // Xử lý media nếu có cập nhật dto.media hoặc upload files
+    if (files?.videos && files.videos.length > 0) {
+      throw new BadRequestException(
+        'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
+      );
+    }
+
     let updatedMediaItems: Array<{
       mediaType: 'image' | 'video';
       mediaUrl: string;
@@ -3556,7 +3567,6 @@ export class UserTrustServiceService {
 
     const hasNewFiles = Boolean(
       (files?.images && files.images.length > 0) ||
-        (files?.videos && files.videos.length > 0) ||
         (files?.file && files.file.length > 0),
     );
 
