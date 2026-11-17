@@ -29,9 +29,20 @@ export class OrderClient {
   constructor(private readonly config: ConfigService) {}
 
   private getBaseUrl(): string {
-    const raw = (
-      this.config.get('ORDER_SERVICE_URL') || 'http://localhost:3004'
-    ).replace(/\/+$/, '');
+    const url = this.config.get('ORDER_SERVICE_URL');
+    if (!url) {
+      const isProduction = this.config.get('NODE_ENV') === 'production';
+      if (isProduction) {
+        throw new ServiceUnavailableException(
+          'ORDER_SERVICE_URL chưa được cấu hình trên môi trường production. Liên hệ DevOps để kiểm tra biến môi trường.',
+        );
+      }
+      this.logger.warn(
+        'ORDER_SERVICE_URL is not set. Falling back to http://localhost:3004 (development only). ' +
+        'Set ORDER_SERVICE_URL in docker-compose.yml or .env to avoid this fallback.',
+      );
+    }
+    const raw = (url || 'http://localhost:3004').replace(/\/+$/, '');
     return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
   }
 
