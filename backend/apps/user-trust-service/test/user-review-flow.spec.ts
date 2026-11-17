@@ -40,6 +40,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       outboxEvent: {
         create: vi.fn(),
       },
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn(async (cb) => cb(dbMock)),
     };
 
@@ -916,6 +917,61 @@ describe('User Review Flow Test Suite (HG-68)', () => {
           { videos: [fakeVideoFile] },
         ),
       ).rejects.toThrow('Video đánh giá không hỗ trợ tải trực tiếp qua multipart');
+    });
+
+    it('Khóa dòng worker_profiles bằng FOR UPDATE khi tạo review để serialize concurrency (P1)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+        completedAt: new Date().toISOString(),
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: '22222222-2222-2222-2222-222222222222',
+        userId: workerUserId,
+        user: { id: workerUserId, fullName: 'Worker A' },
+      });
+      dbMock.workerReview.create.mockResolvedValue({
+        id: reviewId,
+        orderId,
+        rating: 5,
+        status: 'published',
+      });
+
+      await service.createReview(customerUserId, { orderId, rating: 5 });
+
+      expect(dbMock.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('Khóa dòng worker_profiles khi chỉnh sửa review có thay đổi số sao rating (P1)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      dbMock.workerReview.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...existingReview,
+        rating: 4,
+        isEdited: true,
+      });
+
+      await service.updateReview(customerUserId, reviewId, { rating: 4 });
+
+      expect(dbMock.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('Không khóa dòng worker_profiles khi chỉnh sửa review nhưng số sao không thay đổi (P1)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      dbMock.workerReview.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...existingReview,
+        comment: 'Nội dung cập nhật mới',
+        isEdited: true,
+      });
+
+      dbMock.$queryRaw.mockClear();
+      await service.updateReview(customerUserId, reviewId, { comment: 'Nội dung cập nhật mới' });
+
+      expect(dbMock.$queryRaw).not.toHaveBeenCalled();
     });
   });
 
