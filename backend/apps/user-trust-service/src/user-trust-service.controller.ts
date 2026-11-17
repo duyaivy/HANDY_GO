@@ -870,13 +870,15 @@ export class UserTrustServiceController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Lấy thông tin đánh giá theo mã đơn hàng',
+    description: 'Trả về đánh giá published cho mọi người dùng có quyền. Đánh giá bị ẩn/gỡ chỉ hiển thị cho khách hàng sở hữu, thợ, hoặc admin.',
   })
   @ApiResponse({ status: 200, description: 'Lấy đánh giá thành công' })
   @ApiResponse({ status: 404, description: 'Đơn hàng chưa có đánh giá' })
   async getReviewByOrderId(
+    @CurrentUser() caller: AuthenticatedUser,
     @Param('orderId', new ParseUUIDPipe({ version: '4' })) orderId: string,
   ): Promise<unknown> {
-    return this.userTrustService.getReviewByOrderId(orderId);
+    return this.userTrustService.getReviewByOrderId(orderId, caller);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -888,9 +890,10 @@ export class UserTrustServiceController {
     summary: 'Lấy thông tin đánh giá theo mã đơn hàng (alias)',
   })
   async getOrderReviewAlias(
+    @CurrentUser() caller: AuthenticatedUser,
     @Param('orderId', new ParseUUIDPipe({ version: '4' })) orderId: string,
   ): Promise<unknown> {
-    return this.userTrustService.getReviewByOrderId(orderId);
+    return this.userTrustService.getReviewByOrderId(orderId, caller);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -900,13 +903,15 @@ export class UserTrustServiceController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Lấy chi tiết đánh giá theo ID nhận xét',
+    description: 'Trả về đánh giá published cho mọi người dùng có quyền. Đánh giá bị ẩn/gỡ chỉ hiển thị cho khách hàng sở hữu, thợ, hoặc admin.',
   })
   @ApiResponse({ status: 200, description: 'Lấy chi tiết đánh giá thành công' })
   @ApiResponse({ status: 404, description: 'Không tìm thấy đánh giá' })
   async getReviewById(
+    @CurrentUser() caller: AuthenticatedUser,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
   ): Promise<unknown> {
-    return this.userTrustService.getReviewById(id);
+    return this.userTrustService.getReviewById(id, caller);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)

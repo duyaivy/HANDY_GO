@@ -524,18 +524,24 @@ describe('User Review Flow Test Suite (HG-68)', () => {
   });
 
   describe('4. Chi tiết đánh giá & Chữ ký video (Review Detail & Signature)', () => {
-    it('Lấy đánh giá theo orderId thành công', async () => {
-      dbMock.workerReview.findUnique.mockResolvedValue({
-        id: 'rev-uuid-001',
-        orderId,
-        rating: 5,
-        comment: 'Tuyệt vời',
-        customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
-        worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
-        media: [],
-      });
+    const reviewDetailId = 'cccc1111-aaaa-4bbb-8ccc-ddddeeee0001';
+    const publishedReview = {
+      id: reviewDetailId,
+      orderId,
+      status: 'published',
+      rating: 5,
+      comment: 'Tuyệt vời',
+      customerUserId,
+      workerUserId,
+      customer: { id: customerUserId, fullName: 'Trần Quốc Bảo', avatarUrl: null },
+      worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
+      media: [],
+    };
 
-      const result: any = await controller.getReviewByOrderId(orderId);
+    it('Lấy đánh giá theo orderId thành công (published)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(publishedReview);
+
+      const result: any = await controller.getReviewByOrderId(customerUser, orderId);
       expect(result.statusCode).toBe(200);
       expect(result.data.orderId).toBe(orderId);
       expect(result.data.customer.fullName).toBe('Trần Quốc Bảo');
@@ -543,7 +549,71 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
     it('Ném NotFoundException 404 khi đơn hàng chưa có đánh giá', async () => {
       dbMock.workerReview.findUnique.mockResolvedValue(null);
-      await expect(controller.getReviewByOrderId(orderId)).rejects.toThrow(NotFoundException);
+      await expect(controller.getReviewByOrderId(customerUser, orderId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('[P1-03] Review bị hidden: người lạ nhận NotFoundException', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...publishedReview,
+        status: 'hidden',
+      });
+
+      const stranger = {
+        accountId: 'acc-stranger',
+        userId: '00000000-0000-4000-8000-000000000099',
+        sessionId: 'sess-99',
+        roles: ['customer' as any],
+        permissions: ['profile:read'],
+      };
+
+      await expect(
+        service.getReviewByOrderId(orderId, stranger),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('[P1-03] Review bị hidden: customer sở hữu vẫn thấy được', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...publishedReview,
+        status: 'hidden',
+      });
+
+      const result: any = await service.getReviewByOrderId(orderId, {
+        userId: customerUserId,
+        roles: ['customer'],
+        permissions: ['profile:read'],
+      });
+      expect(result.statusCode).toBe(200);
+    });
+
+    it('[P1-03] Review bị flagged: worker vẫn thấy được', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...publishedReview,
+        status: 'flagged',
+      });
+
+      const result: any = await service.getReviewById('aabbccdd-1234-4000-8000-aabbccddeeff', {
+        userId: workerUserId,
+        roles: ['worker'],
+        permissions: ['profile:read'],
+      });
+      expect(result.statusCode).toBe(200);
+    });
+
+    it('[P1-03] Review bị removed: admin vẫn thấy được', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...publishedReview,
+        id: 'aabbccdd-1234-4000-8000-aabbccddeeff',
+        status: 'removed',
+      });
+
+      const admin = {
+        userId: 'aabb0000-0000-4000-8000-aabbccddeeff',
+        roles: ['admin'],
+        permissions: ['user:manage'],
+      };
+
+      const result: any = await service.getReviewById('aabbccdd-1234-4000-8000-aabbccddeeff', admin);
+      expect(result.statusCode).toBe(200);
     });
 
     it('Khởi tạo chữ ký direct upload video lên Cloudinary thành công', async () => {
