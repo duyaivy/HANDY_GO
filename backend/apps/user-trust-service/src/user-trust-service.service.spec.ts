@@ -1036,6 +1036,7 @@ describe('UserTrustServiceService', () => {
         customerUserId,
         workerUserId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
       });
       dbMock.workerProfile.findFirst.mockResolvedValue(null);
 
@@ -1051,6 +1052,7 @@ describe('UserTrustServiceService', () => {
         customerUserId,
         workerUserId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
       });
       dbMock.workerProfile.findFirst.mockResolvedValue({
         id: 'wp-1',
@@ -1132,6 +1134,7 @@ describe('UserTrustServiceService', () => {
         customerUserId,
         workerUserId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
       });
       dbMock.workerProfile.findFirst.mockResolvedValue({
         id: 'wp-1',

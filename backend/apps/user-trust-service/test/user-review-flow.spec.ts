@@ -103,6 +103,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         orderId,
         orderCode: 'ORD-47099855',
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
@@ -205,6 +206,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       orderClientMock.getOrder.mockResolvedValue({
         orderId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
@@ -268,6 +270,52 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       ).rejects.toThrow('Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)');
     });
 
+    it('Chặn đánh giá nếu đơn hàng completed nhưng thiếu completedAt (P2)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        completedAt: null,
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Đơn hàng thiếu thông tin thời điểm hoàn thành (completedAt)');
+    });
+
+    it('Chặn đánh giá nếu completedAt không phải chuỗi timestamp hợp lệ (P2)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        completedAt: 'invalid-date-not-a-timestamp',
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Thời điểm hoàn thành đơn hàng không hợp lệ (invalid timestamp)');
+    });
+
+    it('Chặn đánh giá nếu completedAt nằm trong tương lai (P2)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 1 ngày sau
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        completedAt: futureDate,
+        customerUserId,
+        workerUserId,
+      });
+
+      await expect(
+        service.createReview(customerUserId, { orderId, rating: 5 }),
+      ).rejects.toThrow('Thời điểm hoàn thành đơn hàng không hợp lệ (nằm trong tương lai)');
+    });
+
     it('Chặn đánh giá nếu đơn hàng đang trong trạng thái khiếu nại hoặc tranh chấp (status = disputed)', async () => {
       dbMock.workerReview.findUnique.mockResolvedValue(null);
       orderClientMock.getOrder.mockResolvedValue({
@@ -316,6 +364,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       orderClientMock.getOrder.mockResolvedValue({
         orderId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
@@ -361,6 +410,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       orderClientMock.getOrder.mockResolvedValue({
         orderId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
@@ -387,6 +437,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       orderClientMock.getOrder.mockResolvedValue({
         orderId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
@@ -413,6 +464,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       orderClientMock.getOrder.mockResolvedValue({
         orderId,
         status: 'completed',
+        completedAt: new Date().toISOString(),
         customerUserId,
         workerUserId,
       });
