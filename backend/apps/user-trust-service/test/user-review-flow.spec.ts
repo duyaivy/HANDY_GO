@@ -311,6 +311,37 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         service.createReview(customerUserId, twoVideosDto),
       ).rejects.toThrow('Chỉ được đính kèm tối đa 1 video');
     });
+
+    it('Chặn upload video trực tiếp qua multipart form data và yêu cầu dùng signature (P1-01)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        status: 'completed',
+        customerUserId,
+        workerUserId,
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: workerProfileId,
+        userId: workerUserId,
+      });
+
+      const fakeVideoFile = {
+        fieldname: 'videos',
+        originalname: 'demo.mp4',
+        mimetype: 'video/mp4',
+        buffer: Buffer.from('fake-video-content'),
+        size: 1024,
+      } as Express.Multer.File;
+
+      await expect(
+        service.createReview(
+          customerUserId,
+          { orderId, rating: 5, comment: 'Test video' },
+          undefined,
+          { videos: [fakeVideoFile] },
+        ),
+      ).rejects.toThrow('Video đánh giá không hỗ trợ tải trực tiếp qua multipart');
+    });
   });
 
   describe('2. Khách hàng xem danh sách đánh giá của thợ qua đấu giá / profile (Customer views worker reviews)', () => {
@@ -660,6 +691,27 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       await expect(
         service.updateReview(customerUserId, reviewId, { rating: 4 }),
       ).rejects.toThrow('Đã quá thời hạn chỉnh sửa đánh giá (tối đa 48 giờ kể từ khi tạo)');
+    });
+
+    it('Chặn upload video trực tiếp qua multipart khi chỉnh sửa đánh giá (P1-01)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+
+      const fakeVideoFile = {
+        fieldname: 'videos',
+        originalname: 'update.mp4',
+        mimetype: 'video/mp4',
+        buffer: Buffer.from('fake-video-content'),
+        size: 1024,
+      } as Express.Multer.File;
+
+      await expect(
+        service.updateReview(
+          customerUserId,
+          reviewId,
+          { rating: 4 },
+          { videos: [fakeVideoFile] },
+        ),
+      ).rejects.toThrow('Video đánh giá không hỗ trợ tải trực tiếp qua multipart');
     });
   });
 });
