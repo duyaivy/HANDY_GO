@@ -24,12 +24,14 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         count: vi.fn(),
         groupBy: vi.fn(),
-        aggregate: vi.fn(),
+        aggregate: vi.fn().mockResolvedValue({ _avg: { rating: 5.0 }, _count: { rating: 10 } }),
       },
       reviewMedia: {
         deleteMany: vi.fn(),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       workerProfile: {
         findFirst: vi.fn(),
@@ -595,7 +597,8 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
     it('Chỉnh sửa đánh giá thành công trong vòng 48h (cập nhật rating 5 -> 4, recalculate rating, set isEdited)', async () => {
       dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
-      dbMock.workerReview.update.mockResolvedValue({
+      dbMock.workerReview.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerReview.findUnique.mockResolvedValue({
         ...existingReview,
         rating: 4,
         comment: 'Đã sửa nhận xét: Dùng thử vài giờ thấy có chút vấn đề nhỏ nhưng thợ vẫn nhiệt tình.',
@@ -618,9 +621,9 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       expect(result.data.rating).toBe(4);
       expect(result.data.isEdited).toBe(true);
       expect(result.data.editedAt).toBeDefined();
-      expect(dbMock.workerReview.update).toHaveBeenCalledWith(
+      expect(dbMock.workerReview.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: reviewId },
+          where: { id: reviewId, isEdited: false },
           data: expect.objectContaining({
             rating: 4,
             isEdited: true,
@@ -646,7 +649,8 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
     it('Hoạt động thành công qua PATCH endpoint theo orderId (PATCH /orders/:orderId/reviews)', async () => {
       dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
-      dbMock.workerReview.update.mockResolvedValue({
+      dbMock.workerReview.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.workerReview.findUnique.mockResolvedValue({
         ...existingReview,
         comment: 'Sửa nhận xét qua orderId',
         isEdited: true,
@@ -659,6 +663,43 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
       expect(result.statusCode).toBe(200);
       expect(result.data.isEdited).toBe(true);
+    });
+
+    it('Chặn race condition khi 2 request chỉnh sửa review gửi đồng thời (chính xác 1 request thành công) (P1-02)', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+
+      let updateCallCount = 0;
+      dbMock.workerReview.updateMany.mockImplementation(async () => {
+        updateCallCount++;
+        if (updateCallCount === 1) {
+          return { count: 1 };
+        }
+        return { count: 0 };
+      });
+
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        ...existingReview,
+        rating: 4,
+        isEdited: true,
+        editedAt: new Date(),
+      });
+
+      const req1 = service.updateReview(customerUserId, reviewId, { rating: 4, comment: 'Edit 1' });
+      const req2 = service.updateReview(customerUserId, reviewId, { rating: 3, comment: 'Edit 2' });
+
+      const results = await Promise.allSettled([req1, req2]);
+
+      const fulfilled = results.filter((r) => r.status === 'fulfilled');
+      const rejected = results.filter((r) => r.status === 'rejected');
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+
+      const rejectedError = (rejected[0] as PromiseRejectedResult).reason;
+      expect(rejectedError).toBeInstanceOf(BadRequestException);
+      expect(rejectedError.message).toBe('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất');
+
+      expect(dbMock.outboxEvent.create).toHaveBeenCalledTimes(1);
     });
 
     it('Chặn chỉnh sửa nếu người gọi không phải khách hàng đã tạo đánh giá (ForbiddenException 403)', async () => {

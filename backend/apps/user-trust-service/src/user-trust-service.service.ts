@@ -3643,14 +3643,12 @@ export class UserTrustServiceService {
 
     const now = new Date();
     const updatedReview = await this.db.$transaction(async (tx) => {
-      if (updatedMediaItems !== null) {
-        await tx.reviewMedia.deleteMany({
-          where: { reviewId: review.id },
-        });
-      }
-
-      const updated = await tx.workerReview.update({
-        where: { id: review.id },
+      // 1. Atomic conditional update: check isEdited: false directly in DB to prevent race condition
+      const updateResult = await tx.workerReview.updateMany({
+        where: {
+          id: review.id,
+          isEdited: false,
+        },
         data: {
           rating: newRating,
           attitudeRating,
@@ -3660,17 +3658,37 @@ export class UserTrustServiceService {
           isEdited: true,
           editedAt: now,
           updatedAt: now,
-          media:
-            updatedMediaItems !== null && updatedMediaItems.length > 0
-              ? {
-                  create: updatedMediaItems.map((m) => ({
-                    mediaType: m.mediaType,
-                    mediaUrl: m.mediaUrl,
-                    thumbnailUrl: m.thumbnailUrl || null,
-                  })),
-                }
-              : undefined,
         },
+      });
+
+      if (updateResult.count === 0) {
+        throw new BadRequestException(
+          'Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất',
+        );
+      }
+
+      // 2. Cập nhật media nếu có thay đổi
+      if (updatedMediaItems !== null) {
+        await tx.reviewMedia.deleteMany({
+          where: { reviewId: review.id },
+        });
+
+        if (updatedMediaItems.length > 0) {
+          await tx.reviewMedia.createMany({
+            data: updatedMediaItems.map((m) => ({
+              id: crypto.randomUUID(),
+              reviewId: review.id,
+              mediaType: m.mediaType,
+              mediaUrl: m.mediaUrl,
+              thumbnailUrl: m.thumbnailUrl || null,
+            })),
+          });
+        }
+      }
+
+      // 3. Đọc lại review sau khi cập nhật cùng quan hệ
+      const updated = await tx.workerReview.findUnique({
+        where: { id: review.id },
         include: {
           media: true,
           customer: {
@@ -3689,6 +3707,10 @@ export class UserTrustServiceService {
           },
         },
       });
+
+      if (!updated) {
+        throw new NotFoundException('Không tìm thấy đánh giá sau khi cập nhật');
+      }
 
       // Nếu số sao thay đổi, cập nhật lại thống kê trung bình của thợ
       if (dto.rating !== undefined && dto.rating !== review.rating) {
