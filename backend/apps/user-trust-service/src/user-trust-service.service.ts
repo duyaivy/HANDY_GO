@@ -3360,17 +3360,32 @@ export class UserTrustServiceService {
         );
       }
 
-      // Giới hạn thời gian đánh giá (Review Window: tối đa 14 ngày kể từ khi hoàn thành)
-      if (order.completedAt) {
-        const completedDate = new Date(order.completedAt);
-        const maxReviewDays = 14;
-        const diffMs = Date.now() - completedDate.getTime();
-        const diffDays = diffMs / (1000 * 60 * 60 * 24);
-        if (diffDays > maxReviewDays) {
-          throw new BadRequestException(
-            'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)',
-          );
-        }
+      // P2-HG-68: Giới hạn thời gian đánh giá (Review Window: bắt buộc completedAt hợp lệ, tối đa 14 ngày kể từ khi hoàn thành)
+      if (!order.completedAt) {
+        throw new BadRequestException(
+          'Đơn hàng thiếu thông tin thời điểm hoàn thành (completedAt)',
+        );
+      }
+      const completedTime = new Date(order.completedAt).getTime();
+      if (Number.isNaN(completedTime)) {
+        throw new BadRequestException(
+          'Thời điểm hoàn thành đơn hàng không hợp lệ (invalid timestamp)',
+        );
+      }
+      const now = Date.now();
+      // Chống timestamp gian lận trong tương lai (cho phép sai số đồng hồ tối đa 5 phút)
+      if (completedTime > now + 5 * 60 * 1000) {
+        throw new BadRequestException(
+          'Thời điểm hoàn thành đơn hàng không hợp lệ (nằm trong tương lai)',
+        );
+      }
+      const maxReviewDays = 14;
+      const diffMs = now - completedTime;
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (diffDays > maxReviewDays) {
+        throw new BadRequestException(
+          'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)',
+        );
       }
 
       workerUserId = order.workerUserId;
