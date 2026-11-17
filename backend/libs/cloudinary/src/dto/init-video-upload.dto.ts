@@ -11,8 +11,8 @@ import {
 
 export class InitVideoUploadDto {
   @IsOptional()
-  @IsIn(['chat'])
-  intent?: 'chat';
+  @IsIn(['chat', 'review'])
+  intent?: 'chat' | 'review';
 
   @ApiProperty({
     description: 'Tên file video gốc',
