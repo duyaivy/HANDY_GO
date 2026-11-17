@@ -57,14 +57,16 @@ Response dùng envelope `{ statusCode, message, data }`; ví dụ `data`:
 ```
 
 - `completedOrderCount` đếm từ `order-service.Order`, lọc `status = completed` và `completedAt` trong khoảng `[start, endExclusive)`. Không dùng số đơn hoàn thành tích lũy trong hồ sơ thợ.
-- Họ tên, ảnh và `WorkerProfile.averageRating` hiện tại lấy từ `user-trust-service` qua endpoint nội bộ `GET /api/v1/internal/workers/dashboard-summaries?ids=...`, yêu cầu `x-internal-secret`. Endpoint này nhận tối đa 100 ID/lần và không lọc thợ theo trạng thái active hiện tại, vì thợ không còn active vẫn có thể có đơn hoàn thành trong kỳ. Endpoint `batch-summary` cũ giữ nguyên hành vi.
-- Order Service lấy đủ các thợ có số đơn **bằng hoặc cao hơn vị trí thứ năm**, tải hồ sơ theo lô tối đa 100 ID với tối đa 3 lô đồng thời, rồi mới xếp số đơn giảm dần, điểm hiện tại giảm dần và `workerUserId` tăng dần. Điều này xử lý đúng trường hợp nhiều thợ hòa ở ranh giới Top 5.
+- Order Service gom số đơn trong PostgreSQL rồi dùng `ORDER BY COUNT(*) DESC FETCH FIRST 5 ROWS WITH TIES` để chỉ trả các thợ có số đơn **bằng hoặc cao hơn vị trí thứ năm**. Những nhóm thấp hơn không được tải về ứng dụng.
+- Order Service gửi toàn bộ ứng viên trong **một** lần `POST /api/v1/internal/workers/dashboard-ranking`, body `{ "candidates": [{ "workerUserId": "<UUID>", "completedOrderCount": 2 }] }`, yêu cầu `x-internal-secret`. User Trust dùng một tham số JSON trong truy vấn PostgreSQL, ghép hồ sơ của chính service, xếp số đơn giảm dần, điểm hiện tại giảm dần (`NULLS LAST`) rồi `workerUserId` tăng dần, và chỉ trả tối đa 5 hồ sơ. Không lọc trạng thái active hiện tại. Các endpoint summary cũ giữ nguyên hành vi.
+- Không còn vòng lặp HTTP theo từng 100 ID. Số lượt gọi User Trust là một, kể cả khi có nhiều thợ đồng hạng; timeout upstream là 5 giây. JSON parser của User Trust cho phép tối đa 16 MiB để tiếp nhận tập ứng viên lớn; vượt giới hạn hoặc lỗi upstream sẽ trả 503 tại Dashboard, không cắt bớt ứng viên để đoán thứ hạng. Chi phí payload vẫn tăng theo số ứng viên hòa hạng.
 - Nếu một thợ có đơn nhưng hồ sơ không còn trong User Trust, vẫn giữ số đơn: `fullName = "Thợ không còn hồ sơ"`, `avatarUrl = null`, `averageRating = null`; điểm `null` xếp sau mọi điểm có giá trị khi số đơn bằng nhau. Thợ chưa có đánh giá nhưng vẫn có hồ sơ dùng trực tiếp `WorkerProfile.averageRating = 0`.
 - Nếu User Trust không khả dụng hoặc trả dữ liệu sai contract, API trả lỗi thay vì công bố thứ hạng với điểm đoán. Không trả `ratingCount`.
 
 ## Kiểm chứng
 
-- Unit tests kiểm tra ngày hoàn thành, số đơn, hòa ở vị trí thứ năm, điểm và ID khi hòa tiếp, hồ sơ thiếu, kỳ rỗng, chia lô hơn 100 ID và lỗi upstream.
+- Tests kiểm tra ngày hoàn thành, giữ hòa ở vị trí thứ năm tại PostgreSQL, một lần gọi với 10.000 ứng viên đồng hạng, hồ sơ thiếu, kỳ rỗng và lỗi upstream/response sai.
+- Test PostgreSQL dùng dữ liệu CTE giả lập để kiểm tra xếp hạng 10.000 ứng viên, ưu tiên số đơn trước điểm, điểm 0 trước hồ sơ thiếu và thứ tự ID. Test chỉ chạy khi có `DATABASE_URL_USER_TRUST`, không đọc hay ghi bản ghi nghiệp vụ.
 - HTTP tests kiểm tra quyền Admin, bộ lọc ngày và bảo vệ endpoint nội bộ bằng secret.
 - TypeScript check riêng HG-74, build Order Service và User Trust Service, và kiểm tra cú pháp Compose đã chạy thành công.
-- Chưa kiểm thử tích hợp với PostgreSQL thật vì Docker daemon không hoạt động trong môi trường làm việc hiện tại.
+- Bộ kiểm tra xếp hạng đã chạy trên PostgreSQL thật qua kết nối cấu hình local; Docker daemon chưa hoạt động nên chưa chạy lại toàn bộ môi trường Compose.

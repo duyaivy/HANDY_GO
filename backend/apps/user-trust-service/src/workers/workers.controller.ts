@@ -1,9 +1,18 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { Public } from '@app/auth';
 import { buildSuccessResponse } from '@app/common';
 import { InternalServiceGuard } from '../common/guards/internal-service.guard.js';
 import { WorkerSummariesQueryDto } from './dto/worker-summaries-query.dto.js';
 import { WorkersService } from './workers.service.js';
+import { DashboardWorkerRankingDto } from './dto/dashboard-worker-ranking.dto.js';
 
 @Public()
 @UseGuards(InternalServiceGuard)
@@ -24,6 +33,15 @@ export class WorkersController {
     return buildSuccessResponse(
       await this.workers.getDashboardSummaries(query.ids),
       'Dashboard worker summaries retrieved',
+    );
+  }
+
+  @Post('dashboard-ranking')
+  @HttpCode(200)
+  async rankDashboardWorkers(@Body() body: DashboardWorkerRankingDto) {
+    return buildSuccessResponse(
+      await this.workers.rankDashboardWorkers(body.candidates),
+      'Dashboard workers ranked',
     );
   }
 }

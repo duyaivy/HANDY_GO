@@ -9,11 +9,17 @@ import {
   type OrderTrendRow,
 } from './dashboard-trend.js';
 import { buildOrderStatus } from './dashboard-status.js';
-import {
-  rankTopWorkers,
-  topWorkerCandidates,
-  type DashboardWorkerSummary,
-} from './dashboard-workers.js';
+
+interface DashboardWorkerCandidate {
+  workerUserId: string;
+  completedOrderCount: number;
+}
+
+export interface DashboardRankedWorker extends DashboardWorkerCandidate {
+  fullName: string;
+  avatarUrl: string | null;
+  averageRating: number | null;
+}
 
 @Injectable()
 export class DashboardService {
@@ -94,31 +100,19 @@ export class DashboardService {
   }
 
   async topWorkers(period: DashboardPeriod) {
-    const rows = await this.prisma.order.groupBy({
-      by: ['workerUserId'],
-      where: {
-        status: 'completed',
-        completedAt: { gte: period.start, lt: period.endExclusive },
-      },
-      _count: { id: true },
-    });
-    const candidates = topWorkerCandidates(rows);
+    // PostgreSQL discards lower counts before materializing results. WITH TIES
+    // retains every possible fifth-place winner for the current-rating sort.
+    const candidates = await this.prisma.$queryRaw<DashboardWorkerCandidate[]>`
+      SELECT worker_user_id AS "workerUserId", COUNT(*)::int AS "completedOrderCount"
+      FROM order_service.orders
+      WHERE status = 'completed'
+        AND completed_at >= ${period.start} AND completed_at < ${period.endExclusive}
+      GROUP BY worker_user_id
+      ORDER BY COUNT(*) DESC
+      FETCH FIRST 5 ROWS WITH TIES
+    `;
     if (candidates.length === 0) return [];
-
-    const ids = candidates.map((row) => row.workerUserId);
-    const batches: string[][] = [];
-    for (let i = 0; i < ids.length; i += 100)
-      batches.push(ids.slice(i, i + 100));
-    const summaries: DashboardWorkerSummary[] = [];
-    for (let i = 0; i < batches.length; i += 3) {
-      const pages = await Promise.all(
-        batches
-          .slice(i, i + 3)
-          .map((batch) => this.getWorkerSummaryBatch(batch)),
-      );
-      summaries.push(...pages.flat());
-    }
-    return rankTopWorkers(candidates, summaries);
+    return this.getRankedWorkers(candidates);
   }
 
   async topServices(period: DashboardPeriod) {
@@ -193,9 +187,9 @@ export class DashboardService {
     }
   }
 
-  private async getWorkerSummaryBatch(
-    ids: string[],
-  ): Promise<DashboardWorkerSummary[]> {
+  private async getRankedWorkers(
+    candidates: DashboardWorkerCandidate[],
+  ): Promise<DashboardRankedWorker[]> {
     const baseUrl = this.config.get('USER_TRUST_SERVICE_URL');
     const secret = this.config.internalServiceSecret;
     if (!baseUrl || !secret) {
@@ -205,27 +199,42 @@ export class DashboardService {
     }
     try {
       const url = new URL(
-        '/api/v1/internal/workers/dashboard-summaries',
+        '/api/v1/internal/workers/dashboard-ranking',
         baseUrl,
       );
-      url.searchParams.set('ids', ids.join(','));
       const response = await fetch(url, {
-        headers: { [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret },
+        method: 'POST',
+        headers: {
+          [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ candidates }),
         signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
       const body = (await response.json()) as { data?: unknown };
+      const counts = new Map(
+        candidates.map((row) => [row.workerUserId, row.completedOrderCount]),
+      );
       if (
         !Array.isArray(body.data) ||
+        body.data.length !== Math.min(5, candidates.length) ||
+        new Set(body.data.map((row) => row?.workerUserId)).size !==
+          body.data.length ||
         !body.data.every(
-          (row): row is DashboardWorkerSummary =>
+          (row): row is DashboardRankedWorker =>
             typeof row === 'object' &&
             row !== null &&
             typeof row.workerUserId === 'string' &&
+            counts.has(row.workerUserId) &&
+            row.completedOrderCount === counts.get(row.workerUserId) &&
             typeof row.fullName === 'string' &&
             (row.avatarUrl === null || typeof row.avatarUrl === 'string') &&
-            typeof row.averageRating === 'number' &&
-            Number.isFinite(row.averageRating),
+            (row.averageRating === null ||
+              (typeof row.averageRating === 'number' &&
+                Number.isFinite(row.averageRating) &&
+                row.averageRating >= 0 &&
+                row.averageRating <= 5)),
         )
       ) {
         throw new Error('Invalid worker summary response');

@@ -3,6 +3,19 @@ import { UserTrustPrismaService } from '@app/database';
 import { WorkersService } from './workers.service.js';
 
 describe('WorkersService', () => {
+  it('rejects duplicate ranking IDs before querying PostgreSQL', async () => {
+    const queryRaw = vi.fn();
+    const service = new WorkersService({ $queryRaw: queryRaw } as never);
+    const workerUserId = '00000000-0000-4000-8000-000000000001';
+    await expect(
+      service.rankDashboardWorkers([
+        { workerUserId, completedOrderCount: 2 },
+        { workerUserId, completedOrderCount: 1 },
+      ]),
+    ).rejects.toThrow('Duplicate dashboard worker IDs');
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
   it('returns only public worker fields using one query and unique user IDs', async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
