@@ -11,7 +11,7 @@
     "apps/order-service/src/order-service.module.ts",
     "apps/bidding-service/src/bids/dashboard-bids.controller.ts",
     "apps/bidding-service/src/bidding-service.module.ts",
-    "apps/auth-service/src/internal/dashboard-customers.controller.ts",
+    "apps/auth-service/src/internal/dashboard-customers*.ts",
     "apps/auth-service/src/auth-service.module.ts",
     "apps/api-gateway/src/proxy/proxy.constants.ts",
     "apps/user-trust-service/src/workers/workers.controller.ts",
@@ -19,6 +19,7 @@
     "apps/user-trust-service/src/workers/workers.module.ts",
     "apps/catalog-service/src/services/dashboard-services.controller.ts",
     "apps/catalog-service/src/services/services.service.ts",
-    "apps/catalog-service/src/services/services.module.ts"
+    "apps/catalog-service/src/services/services.module.ts",
+    "scripts/tests/dashboard-workers.benchmark.spec.ts"
   ]
 }

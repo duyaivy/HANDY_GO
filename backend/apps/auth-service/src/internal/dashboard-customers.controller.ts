@@ -38,12 +38,9 @@ export class DashboardCustomersController {
     if (!Number.isFinite(end.getTime())) {
       throw new BadRequestException('Invalid dashboard period');
     }
-    const count = await this.db.account.count({
+    const count = await this.db.customerRegistration.count({
       where: {
-        createdAt: { lt: end },
-        roles: {
-          some: { assignedAt: { lt: end }, role: { code: 'CUSTOMER' } },
-        },
+        registeredAt: { lt: end },
       },
     });
     return buildSuccessResponse(count);

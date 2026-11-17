@@ -392,7 +392,6 @@ class DatabaseIncidentTests(unittest.TestCase):
 class OnboardingMigrationProofTests(unittest.TestCase):
     def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
         import tempfile
-        import shutil
         from database_plan import onboarding_migration_proof
 
         with tempfile.TemporaryDirectory() as directory:
@@ -400,6 +399,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             dashboard_migrations = {
                 "apps/order-service/prisma/migrations/20261115000000_dashboard_overview_indexes/migration.sql",
                 "apps/bidding-service/prisma/migrations/20261115000000_dashboard_bid_activity_indexes/migration.sql",
+                "apps/auth-service/prisma/migrations/20261118000000_preserve_customer_registration_history/migration.sql",
             }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
@@ -409,7 +409,8 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                     continue  # Reconstruct the historical three-host release baseline.
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
+                # Release archives use Git's LF bytes, including on Windows checkouts.
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
             self.assertEqual(proof["policy"], "vps4-additive-v3")
             self.assertEqual(
@@ -432,7 +433,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 source = PROD.parents[1] / relative
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
             changed = onboarding_migration_proof(root, host.MIGRATIONS)
             current.update(
                 migration_hash=changed["inventory_hash"],

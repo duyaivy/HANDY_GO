@@ -72,7 +72,9 @@ Response dùng envelope `{ statusCode, message, data }` hiện hành. `data` có
 
 - `order-service.Order`: `agreedPrice`/`completedAt` của đơn `completed` cho doanh thu; `createdAt` cho số đơn và thợ đã nhận đơn. Trong luồng hiện tại, Order được tạo khi thợ **chấp nhận BookingProposal**, nên `Order.createdAt` là mốc thợ nhận đơn.
 - `bidding-service.Bid.submittedAt` và `BidRevision.revisedAt`: hai mốc thợ gửi báo giá lần đầu hoặc báo giá lại. Endpoint nội bộ trả ID thợ duy nhất trong kỳ; Order Service hợp nhất với ID thợ nhận đơn rồi khử trùng lặp.
-- `auth-service.Account.createdAt` cùng role `CUSTOMER` đã được gán trước điểm cuối kỳ: nguồn đăng ký tài khoản gốc. Đếm một Account một lần, không dùng ngày đồng bộ `CustomerProfile` của User Trust.
+- `auth-service.CustomerRegistration.registeredAt` là nguồn đếm khách tích lũy, với điều kiện `< endExclusive`. Mỗi Account chỉ có một sự kiện đăng ký khách hàng; không phụ thuộc role, trạng thái tài khoản hay ngày đồng bộ hồ sơ hiện tại.
+- Bảng `customer_registrations` chỉ cho phép thêm. Trigger ghi nhận lần đầu gán `CUSTOMER` trong cùng giao dịch, dùng mốc muộn hơn giữa ngày tạo tài khoản và ngày gán role. Thu hồi/cấp lại role, sửa `assignedAt` hoặc xóa tài khoản không thay đổi sự kiện đã ghi. Không cần giả định rằng CUSTOMER không bao giờ bị thu hồi.
+- Migration `20261118000000_preserve_customer_registration_history` khôi phục mốc cũ từ role CUSTOMER còn tồn tại và các event `user.registered` còn lưu trong Auth outbox (hỗ trợ cả `role` cũ và `roles` mới). Event gốc giúp khôi phục ngày đăng ký khi role hiện tại đã bị thu hồi/cấp lại. Nếu bằng chứng đã bị xóa khỏi cả hai nguồn trước migration, không thể suy ra lịch sử đã mất; cần bổ sung từ bản sao lưu/audit đã xác minh, không đoán ngày.
 - Hai endpoint nội bộ `/api/v1/internal/admin/dashboard/workers-with-bids` và `/api/v1/internal/admin/dashboard/registered-customers` yêu cầu `x-internal-secret`. Nếu một nguồn không khả dụng, API trả lỗi thay vì hiển thị số 0 sai.
 - Order Service cần `BIDDING_SERVICE_URL`, `AUTH_SERVICE_URL` và `INTERNAL_SERVICE_SECRET`. Compose phát triển đã cấu hình URL Auth; môi trường triển khai phải cung cấp URL nội bộ của hai service.
 
@@ -81,5 +83,5 @@ Response dùng envelope `{ statusCode, message, data }` hiện hành. `data` có
 - Bộ lọc ngày, cộng số liệu và khử trùng lặp: unit tests trong `backend/apps/order-service/src/dashboard/`.
 - Route HTTP, quyền Admin và response envelope: `dashboard-http.spec.ts`.
 - Endpoint nội bộ Auth/Bidding: test controller tương ứng.
-- TypeScript check riêng cho source HG-74 và build ba service đã chạy thành công. Prisma schema Order/Bidding đã được validate; migration thêm index cho các mốc thời gian được truy vấn.
-- Chưa chạy kiểm thử tích hợp với PostgreSQL thật vì Docker daemon không hoạt động trong môi trường làm việc hiện tại.
+- Test PostgreSQL chạy toàn bộ migration Auth trong schema tạm và rollback sau mỗi ca; kiểm tra backfill, thu hồi/cấp lại role, xóa tài khoản, giới hạn ngày, rollback đăng ký và ngăn sửa/xóa lịch sử.
+- Khi triển khai, chạy migration Auth trước phiên bản ứng dụng dùng nguồn đếm mới. Migration tạo bảng/index/trigger và khóa ghi role trong thời gian backfill. Rollback ứng dụng giữ nguyên bảng lịch sử để không làm mất dữ liệu.

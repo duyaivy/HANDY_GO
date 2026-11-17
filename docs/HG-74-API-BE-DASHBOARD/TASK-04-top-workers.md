@@ -70,3 +70,11 @@ Response dùng envelope `{ statusCode, message, data }`; ví dụ `data`:
 - HTTP tests kiểm tra quyền Admin, bộ lọc ngày và bảo vệ endpoint nội bộ bằng secret.
 - TypeScript check riêng HG-74, build Order Service và User Trust Service, và kiểm tra cú pháp Compose đã chạy thành công.
 - Bộ kiểm tra xếp hạng đã chạy trên PostgreSQL thật qua kết nối cấu hình local; Docker daemon chưa hoạt động nên chưa chạy lại toàn bộ môi trường Compose.
+
+### Benchmark cho kỳ 365 ngày — 2026-11-18
+
+- Harness: `backend/scripts/tests/dashboard-workers.benchmark.spec.ts`, dùng bộ lọc custom `2025-11-18` đến `2026-11-17` theo giờ Việt Nam.
+- 10.000 thợ, mỗi thợ có 365 đơn hoàn thành: tổng 3.650.000 đơn và toàn bộ thợ hòa ở ranh giới Top 5.
+- Chạy truy vấn gom nhóm thực tế, gửi HTTP thật qua controller/guard/validation User Trust, rồi chạy truy vấn xếp hạng trên PostgreSQL. Dữ liệu bảng được thay bằng CTE giả lập; không đọc/ghi đơn hay hồ sơ nghiệp vụ.
+- Một lần đo: **5.734 ms**, **1 request HTTP**, **1 truy vấn hồ sơ**, payload **820.016 byte**, kết quả đúng 5 thợ theo điểm hiện tại và ID. Thời gian đo bao gồm hai truy vấn SQL và HTTP, không gồm khởi động ứng dụng test.
+- Đây là số đo workload giả lập tại môi trường kiểm thử, không phải cam kết độ trễ production hoặc benchmark I/O trên bảng đơn đã lưu. Chi phí payload vẫn tăng theo số thợ hòa hạng; giới hạn JSON 16 MiB và phản hồi lỗi 503 được mô tả ở contract bên trên.

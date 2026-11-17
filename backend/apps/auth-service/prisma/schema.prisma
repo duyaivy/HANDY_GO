@@ -78,6 +78,15 @@ model AccountRole {
   @@map("account_roles")
 }
 
+// Historical registration fact, retained independently of account/role lifecycle.
+model CustomerRegistration {
+  accountId    String   @id @map("account_id") @db.Uuid
+  registeredAt DateTime @map("registered_at") @db.Timestamp(6)
+
+  @@index([registeredAt])
+  @@map("customer_registrations")
+}
+
 model PermissionRole {
   permissionId String     @map("permission_id") @db.Uuid
   roleId       String     @map("role_id") @db.Uuid
