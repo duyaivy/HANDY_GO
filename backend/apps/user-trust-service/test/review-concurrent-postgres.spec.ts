@@ -226,3 +226,4 @@ describe('Review Concurrent Rating Aggregate PostgreSQL Integration', () => {
     expect(Number(profileAfterUpdate?.averageRating)).toBe(2.0);
   });
 });
+

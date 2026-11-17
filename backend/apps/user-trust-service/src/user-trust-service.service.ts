@@ -26,6 +26,7 @@ import { Prisma } from '@prisma/user-trust-client';
 import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
+import { ConfigService } from '@app/config';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -214,6 +215,8 @@ export class UserTrustServiceService {
     private readonly catalogClient?: CatalogClient,
     @Optional()
     private readonly orderClient?: OrderClient,
+    @Optional()
+    private readonly configService?: ConfigService,
   ) { }
 
   async getDisplayNames(ids: string[]) {
@@ -3222,17 +3225,27 @@ export class UserTrustServiceService {
   }
 
   /**
-   * P2-02: Xác thực media do client cung cấp phải thuộc Cloudinary của hệ thống,
-   * đúng giao thức HTTPS, và khớp loại resource (image/video).
+   * P2-02 & P2-HG-68: Xác thực media do client cung cấp:
+   * 1. Ràng buộc đúng CLOUDINARY_CLOUD_NAME.
+   * 2. Giao thức HTTPS và đúng loại resource (image/video).
+   * 3. Xác thực quyền sở hữu của caller (chặn URL tài nguyên của người dùng khác hoặc giả mạo).
+   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (thuộc user-scoped path hoặc uploadReceipt hợp lệ).
    */
-  private validateReviewMedia(
-    mediaItems?: Array<{
+  private async validateReviewMedia(
+    mediaItems: Array<{
       mediaType: string;
       mediaUrl: string;
       thumbnailUrl?: string;
-    }>,
+      uploadReceipt?: string;
+    }> | undefined,
+    currentUserId: string,
   ) {
     if (!mediaItems || mediaItems.length === 0) return;
+
+    const configuredCloudName =
+      this.configService?.cloudinaryCloudName ||
+      process.env.CLOUDINARY_CLOUD_NAME ||
+      'handygo';
 
     for (const item of mediaItems) {
       const type = (item.mediaType || '').toLowerCase();
@@ -3261,6 +3274,15 @@ export class UserTrustServiceService {
         );
       }
 
+      const pathSegments = parsed.pathname.split('/').filter(Boolean);
+      // Format: /<cloud_name>/<resource_type>/upload/...
+      const urlCloudName = pathSegments[0];
+      if (urlCloudName !== configuredCloudName) {
+        throw new BadRequestException(
+          `Đường dẫn media không thuộc tài khoản Cloudinary của HandyGo (sai cloud_name: mong đợi '${configuredCloudName}', nhận '${urlCloudName}')`,
+        );
+      }
+
       const path = parsed.pathname;
       if (type === 'image' && !path.includes('/image/upload/')) {
         throw new BadRequestException(
@@ -3273,6 +3295,66 @@ export class UserTrustServiceService {
         );
       }
 
+      // Trích xuất publicId từ URL (sau /upload/, bỏ qua version v123... nếu có)
+      const uploadIdx = pathSegments.indexOf('upload');
+      const afterUpload = uploadIdx !== -1 ? pathSegments.slice(uploadIdx + 1) : [];
+      const assetSegments =
+        afterUpload.length > 0 && /^v\d+$/i.test(afterUpload[0])
+          ? afterUpload.slice(1)
+          : afterUpload;
+      const publicIdWithExt = assetSegments.join('/');
+      const publicId = publicIdWithExt.replace(/\.[^/.]+$/, '');
+
+      // 1. Kiểm tra nếu đường dẫn asset chứa ID của người dùng khác (không thuộc caller)
+      const userPattern =
+        /(?:users|user|reviews|videos|chat|evidence)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+      const match = publicIdWithExt.match(userPattern);
+      if (
+        match &&
+        match[1] &&
+        match[1].toLowerCase() !== currentUserId.toLowerCase()
+      ) {
+        throw new BadRequestException(
+          'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
+        );
+      }
+
+      // 2. Đối với video: bắt buộc phải có chứng thực quyền sở hữu từ direct upload signature
+      if (type === 'video') {
+        const secret =
+          this.configService?.cloudinaryApiSecret ||
+          process.env.CLOUDINARY_API_SECRET ||
+          'handygo-review-secret';
+
+        let isReceiptValid = false;
+        if (item.uploadReceipt) {
+          const expectedProof = crypto
+            .createHmac('sha256', secret)
+            .update(`${currentUserId}:${publicId}`)
+            .digest('hex');
+          isReceiptValid = item.uploadReceipt === expectedProof;
+          if (!isReceiptValid) {
+            throw new BadRequestException(
+              'Mã xác thực upload (uploadReceipt) của video không hợp lệ hoặc không thuộc caller',
+            );
+          }
+        }
+
+        const isUserScopedPath =
+          publicIdWithExt.includes(`/videos/${currentUserId}`) ||
+          publicIdWithExt.includes(`/reviews/${currentUserId}`) ||
+          publicIdWithExt.startsWith(`reviews/videos/${currentUserId}`) ||
+          publicIdWithExt.startsWith(`handy-go/reviews/videos/${currentUserId}`) ||
+          publicIdWithExt.startsWith(`handygo/reviews/videos/${currentUserId}`);
+
+        if (!isUserScopedPath && !isReceiptValid) {
+          throw new BadRequestException(
+            'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller hoặc thiếu xác thực direct upload)',
+          );
+        }
+      }
+
+      // 3. Kiểm tra thumbnail nếu có
       if (item.thumbnailUrl) {
         let thumbParsed: URL;
         try {
@@ -3289,6 +3371,23 @@ export class UserTrustServiceService {
         ) {
           throw new BadRequestException(
             'Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary (/image/upload/...)',
+          );
+        }
+        const thumbSegments = thumbParsed.pathname.split('/').filter(Boolean);
+        if (thumbSegments[0] !== configuredCloudName) {
+          throw new BadRequestException(
+            'Đường dẫn ảnh thu nhỏ (thumbnailUrl) không thuộc tài khoản Cloudinary của HandyGo (sai cloud_name)',
+          );
+        }
+
+        const thumbMatch = thumbParsed.pathname.match(userPattern);
+        if (
+          thumbMatch &&
+          thumbMatch[1] &&
+          thumbMatch[1].toLowerCase() !== currentUserId.toLowerCase()
+        ) {
+          throw new BadRequestException(
+            'Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng (không thuộc caller)',
           );
         }
       }
@@ -3414,7 +3513,7 @@ export class UserTrustServiceService {
     }
 
     if (dto.media && dto.media.length > 0) {
-      this.validateReviewMedia(dto.media);
+      await this.validateReviewMedia(dto.media, currentUserId);
     }
 
     const imgFromDto = (dto.media || []).filter(
@@ -3685,7 +3784,7 @@ export class UserTrustServiceService {
     }
 
     if (dto.media && dto.media.length > 0) {
-      this.validateReviewMedia(dto.media);
+      await this.validateReviewMedia(dto.media, currentUserId);
     }
 
     let updatedMediaItems: Array<{
@@ -4121,13 +4220,32 @@ export class UserTrustServiceService {
         fileName: dto.fileName || `review-video-${Date.now()}.mp4`,
         mimeType: dto.mimeType,
         fileSize: dto.fileSize || 10 * 1024 * 1024,
+        intent: 'review',
       },
       userId,
     );
+    const secret =
+      this.configService?.cloudinaryApiSecret ||
+      process.env.CLOUDINARY_API_SECRET ||
+      'handygo-review-secret';
+    const publicId =
+      signature?.publicId ||
+      `handy-go/reviews/videos/${userId}/${crypto.randomUUID()}`;
+    const uploadReceipt =
+      signature?.uploadReceipt ||
+      crypto
+        .createHmac('sha256', secret)
+        .update(`${userId}:${publicId}`)
+        .digest('hex');
+
     return {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký upload video đánh giá thành công',
-      data: signature,
+      data: {
+        ...(signature || {}),
+        publicId,
+        uploadReceipt,
+      },
     };
   }
 }

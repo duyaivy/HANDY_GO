@@ -68,6 +68,12 @@ export class InitVideoUploadResponseDto {
     example: 20971520,
   })
   chunkSize!: number;
+
+  @ApiProperty({
+    description: 'Mã xác thực biên nhận upload (upload receipt) cho video trực tiếp',
+    required: false,
+  })
+  uploadReceipt?: string;
 }
 
 export class InitVideoUploadApiResponseDto implements ApiResponseEnvelope<InitVideoUploadResponseDto> {

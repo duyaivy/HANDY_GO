@@ -57,6 +57,14 @@ export class CreateReviewMediaDto {
     },
   )
   thumbnailUrl?: string;
+
+  @ApiPropertyOptional({
+    description: 'Mã xác thực biên nhận upload (upload receipt) cho video trực tiếp từ API video-upload-signature',
+    example: 'a1b2c3d4e5f6...',
+  })
+  @IsOptional()
+  @IsString({ message: 'uploadReceipt phải là chuỗi ký tự' })
+  uploadReceipt?: string;
 }
 
 export class CreateReviewDto {
