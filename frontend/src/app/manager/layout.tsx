@@ -185,6 +185,14 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
                   <span>└</span>
                   <span>Xác minh thợ</span>
                 </button>
+                {/* <button
+                  type="button"
+                  onClick={() => navigateTo("/manager/worker-applications")}
+                  className={subMenuClass(activeItem === "worker-applications")}
+                >
+                  <span>└</span>
+                  <span>Duyệt hồ sơ thợ</span>
+                </button> */}
               </div>
             )}
           </div>
@@ -252,6 +260,14 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
             <AlertTriangle size={17} />
             <span>Khiếu nại</span>
           </button>
+          <button
+            type="button"
+            onClick={() => navigateTo("/manager/worker-applications")}
+            className={menuClass(activeItem === "worker-applications")}
+          >
+            <BarChart3 size={17} />
+            <span>Duyệt hồ sơ thợ</span>
+          </button>
 
           <button
             type="button"
@@ -269,15 +285,6 @@ export default function ManageLayout({ children }: ManageLayoutProps) {
           >
             <CreditCard size={17} />
             <span>Thanh toán</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigateTo("/manager/analytics")}
-            className={menuClass(activeItem === "analytics")}
-          >
-            <BarChart3 size={17} />
-            <span>Thống kê</span>
           </button>
         </nav>
       </div>

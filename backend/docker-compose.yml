@@ -133,6 +133,7 @@ services:
       PORT: '3002'
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
       CATALOG_SERVICE_URL: http://catalog-service:3003
+      ORDER_SERVICE_URL: http://order-service:3004
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
       AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
     extra_hosts:

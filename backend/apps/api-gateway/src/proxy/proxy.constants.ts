@@ -26,7 +26,10 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/admin/kyc-cases',
       '/api/v1/admin/worker-registrations',
       '/api/v1/workers',
+      '/api/v1/reviews',
     ],
+    customMatch: (pathname: string) =>
+      /^\/api\/v1\/orders\/[^/?#]+\/reviews?(\/.*)?(\?.*)?$/.test(pathname),
   },
   {
     upstreamName: 'ai-service',
@@ -72,7 +75,8 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/requests',
     ],
     excludeMatch: (pathname: string) =>
-      /^\/api\/v1\/requests\/[^/?#]+\/candidates(\/.*)?(\?.*)?$/.test(pathname),
+      /^\/api\/v1\/requests\/[^/?#]+\/candidates(\/.*)?(\?.*)?$/.test(pathname) ||
+      /^\/api\/v1\/orders\/[^/?#]+\/reviews?(\/.*)?(\?.*)?$/.test(pathname),
   },
   {
     upstreamName: 'matching-service',
