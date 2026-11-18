@@ -1,5 +1,6 @@
-import PaymentManagement from "@/feature/payments/components/payment-management";
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/shared/constants/route";
 
 export default function PaymentPage() {
-  return <PaymentManagement />;
+  redirect(ROUTES.manageR.PAYMENTS.TRANSACTIONS);
 }

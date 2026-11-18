@@ -19,3 +19,50 @@ export const usePaymentDetailQuery = (id: string | null) =>
       : skipToken,
     retry: false,
   });
+export const usePaymentStatisticsQuery = () =>
+  useQuery({
+    queryKey: [...PAYMENT_QUERY_KEY, "statistics"],
+    queryFn: async () => {
+      const baseQuery = {
+        page: 1,
+        limit: 1,
+      };
+
+      const [
+        allResponse,
+        succeededResponse,
+        pendingResponse,
+        processingResponse,
+        failedResponse,
+      ] = await Promise.all([
+        paymentsApiRequest.list(baseQuery),
+        paymentsApiRequest.list({
+          ...baseQuery,
+          status: "succeeded",
+        }),
+        paymentsApiRequest.list({
+          ...baseQuery,
+          status: "pending",
+        }),
+        paymentsApiRequest.list({
+          ...baseQuery,
+          status: "processing",
+        }),
+        paymentsApiRequest.list({
+          ...baseQuery,
+          status: "failed",
+        }),
+      ]);
+
+      return {
+        total: allResponse.payload.data.total,
+        succeeded: succeededResponse.payload.data.total,
+        processing:
+          pendingResponse.payload.data.total +
+          processingResponse.payload.data.total,
+        failed: failedResponse.payload.data.total,
+      };
+    },
+    staleTime: 60 * 1000,
+    retry: false,
+  });
