@@ -6,7 +6,7 @@ import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { OrdersApi } from '@/features/orders/api/orders.api';
-import { ChatDealBar } from '../chat-deal-bar';
+import { ChatDealBar, resolveLatestProposal } from '../chat-deal-bar';
 
 const mockWorkerBid = {
   id: 'bid-111',
@@ -402,6 +402,236 @@ describe('ChatDealBar', () => {
       const selectBtn = screen.getByTestId('deal-bar-select-worker-btn');
       expect(selectBtn).toBeTruthy();
       expect(selectBtn.props.accessibilityState?.disabled).toBe(false);
+    });
+
+    describe('Booking proposal selection & revision handling (P2)', () => {
+      // 1. Revision 2 bị rejected, proposal mới revision 1 đang proposed → phải chọn proposal mới
+      it('selects new proposed proposal (rev 1) over an older rejected revision (rev 2)', async () => {
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [
+            {
+              id: 'prop-old-1',
+              workerUserId: 'worker-1',
+              status: 'superseded',
+              revisionNo: 1,
+              createdAt: '2026-11-16T08:00:00Z',
+            },
+            {
+              id: 'prop-old-2',
+              workerUserId: 'worker-1',
+              status: 'worker_rejected',
+              supersedesProposalId: 'prop-old-1',
+              revisionNo: 2,
+              createdAt: '2026-11-16T08:30:00Z',
+            },
+            {
+              id: 'prop-new-1',
+              workerUserId: 'worker-1',
+              status: 'proposed',
+              revisionNo: 1,
+              agreedPrice: 250000,
+              createdAt: '2026-11-16T09:00:00Z',
+            },
+          ],
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        // UI must show "Đã gửi đề xuất" for prop-new-1, NOT "Chọn thợ này"
+        expect(await screen.findByText(/Đã gửi đề xuất/)).toBeTruthy();
+        expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+      });
+
+      // 2. Revision 1 superseded, revision 2 changes_requested → gửi revision 3 với đúng supersedesProposalId
+      it('creates revision 3 with supersedesProposalId pointing to revision 2 when changes_requested', async () => {
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [
+            {
+              id: 'prop-rev-1',
+              serviceRequestId: 'req-001',
+              workerUserId: 'worker-1',
+              status: 'superseded',
+              revisionNo: 1,
+              createdAt: '2026-11-16T08:00:00Z',
+            },
+            {
+              id: 'prop-rev-2',
+              serviceRequestId: 'req-001',
+              workerUserId: 'worker-1',
+              status: 'changes_requested',
+              supersedesProposalId: 'prop-rev-1',
+              revisionNo: 2,
+              agreedPrice: 200000,
+              responseNote: 'Cần thương lượng lại giá',
+              createdAt: '2026-11-16T09:00:00Z',
+            },
+          ],
+        });
+
+        let alertConfirmHandler: (() => void) | undefined;
+        (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
+          const confirmBtn = buttons?.find((b: any) => b.text === 'Đồng ý');
+          alertConfirmHandler = confirmBtn?.onPress;
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        expect(await screen.findByText(/Thợ yêu cầu sửa đề xuất/)).toBeTruthy();
+        expect(screen.getByText(/: "Cần thương lượng lại giá"/)).toBeTruthy();
+        expect(screen.getByText('Gửi lại đề xuất')).toBeTruthy();
+
+        fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+
+        await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+          'Xác nhận gửi lại đề xuất',
+          expect.stringContaining('250.000'),
+          expect.any(Array),
+        ));
+
+        await act(async () => {
+          await alertConfirmHandler?.();
+        });
+
+        await waitFor(() => {
+          expect(OrdersApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
+            serviceRequestId: 'req-001',
+            workerUserId: 'worker-1',
+            supersedesProposalId: 'prop-rev-2',
+          }));
+        });
+      });
+
+      // 3. Proposal mới đang proposed → không cho gửi trùng
+      it('disallows duplicate submission when an active proposal is proposed', async () => {
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [
+            {
+              id: 'prop-current',
+              workerUserId: 'worker-1',
+              status: 'proposed',
+              agreedPrice: 250000,
+              revisionNo: 1,
+              createdAt: '2026-11-16T10:00:00Z',
+            },
+          ],
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        expect(await screen.findByText(/Đã gửi đề xuất/)).toBeTruthy();
+        expect(screen.getByText(/Đang chờ thợ xác nhận nhận việc/)).toBeTruthy();
+        expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+      });
+
+      // 4. Proposal đã finalized → không cho tạo proposal mới
+      it('shows "Đã chốt đơn hàng" and blocks proposal creation when proposal is finalized', async () => {
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [
+            {
+              id: 'prop-final',
+              workerUserId: 'worker-1',
+              status: 'finalized',
+              agreedPrice: 250000,
+              revisionNo: 2,
+              finalizedAt: '2026-11-16T11:00:00Z',
+              createdAt: '2026-11-16T10:00:00Z',
+            },
+          ],
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        expect(await screen.findByText('Đã chốt đơn hàng')).toBeTruthy();
+        expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+        expect(screen.queryByText(/Đã gửi đề xuất/)).toBeNull();
+      });
+
+      // 5. Các proposal cũ có revisionNo lớn hơn proposal mới → không chọn nhầm
+      it('does not pick an older proposal with higher revisionNo over a newer active proposal', async () => {
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [
+            {
+              id: 'prop-old-chain-rev5',
+              workerUserId: 'worker-1',
+              status: 'withdrawn',
+              revisionNo: 5,
+              createdAt: '2026-11-15T10:00:00Z',
+            },
+            {
+              id: 'prop-new-chain-rev1',
+              workerUserId: 'worker-1',
+              status: 'proposed',
+              revisionNo: 1,
+              agreedPrice: 250000,
+              createdAt: '2026-11-16T10:00:00Z',
+            },
+          ],
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        // Must pick prop-new-chain-rev1 ('proposed'), NOT prop-old-chain-rev5 ('withdrawn')
+        expect(await screen.findByText(/Đã gửi đề xuất/)).toBeTruthy();
+        expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+      });
+
+      // 6. Trường hợp nhiều proposal có createdAt gần nhau → xử lý ổn định, không phụ thuộc thứ tự API
+      it('resolves deterministically regardless of API response order for proposals with identical/close createdAt', async () => {
+        const propA: any = {
+          id: 'prop-A',
+          workerUserId: 'worker-1',
+          status: 'proposed',
+          revisionNo: 1,
+          createdAt: '2026-11-16T10:00:00.000Z',
+          updatedAt: '2026-11-16T10:00:00.000Z',
+        };
+        const propB: any = {
+          id: 'prop-B',
+          workerUserId: 'worker-1',
+          status: 'changes_requested',
+          revisionNo: 1,
+          createdAt: '2026-11-16T10:00:00.000Z',
+          updatedAt: '2026-11-16T10:00:00.000Z',
+        };
+
+        const resultOrder1 = resolveLatestProposal([propA, propB], 'worker-1');
+        const resultOrder2 = resolveLatestProposal([propB, propA], 'worker-1');
+
+        expect(resultOrder1).toBeDefined();
+        expect(resultOrder2).toBeDefined();
+        // Since propA has status 'proposed' (priority 3) and propB has status 'changes_requested' (priority 2),
+        // propA must win in both ordering permutations
+        expect(resultOrder1?.id).toBe('prop-A');
+        expect(resultOrder2?.id).toBe('prop-A');
+
+        // Also verify in ChatDealBar component: API returning propB before propA still renders proposed UI
+        (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+          data: [propB, propA],
+        });
+
+        render(
+          <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+          { wrapper },
+        );
+
+        expect(await screen.findByText(/Đã gửi đề xuất/)).toBeTruthy();
+        expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+      });
     });
   });
 
