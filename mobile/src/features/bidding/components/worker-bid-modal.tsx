@@ -21,6 +21,7 @@ import {
   useSubmitBid,
   useWithdrawBid,
 } from '../hooks/use-worker-bidding';
+import { PriceSuggestions } from './price-suggestions';
 
 export type WorkerBidModalProps = {
   visible: boolean;
@@ -240,7 +241,7 @@ function WorkerBidModalForm({
             </Pressable>
           </View>
 
-          <ScrollView className="mt-3" showsVerticalScrollIndicator={false}>
+          <ScrollView className="mt-3" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             {/* Round Status Info */}
             <View className="mb-4 rounded-xl bg-blue-50 p-3 dark:bg-blue-950/40">
               <View className="flex-row items-center justify-between">
@@ -363,6 +364,12 @@ function WorkerBidModalForm({
                     </Text>
                   )
                 : null}
+              <PriceSuggestions
+                value={amountStr}
+                maxAmount={9999999999}
+                disabled={!canEdit || isSubmitting || Boolean(effectiveBid && !canRevise)}
+                onSelect={handleFormatAmount}
+              />
             </View>
 
             {/* Message Input */}

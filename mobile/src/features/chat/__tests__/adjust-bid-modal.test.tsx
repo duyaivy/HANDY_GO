@@ -127,6 +127,21 @@ describe('AdjustBidModal', () => {
     expect(screen.getByText('Số tiền tối thiểu là 1.000 đ')).toBeTruthy();
   });
 
+  it('fills and submits a suggested price from a short amount', async () => {
+    mockMutateAsync.mockResolvedValueOnce({ ...mockBid, amount: 230000 });
+    render(<AdjustBidModal visible onClose={jest.fn()} bid={mockBid} requestId="req-456" />, { wrapper });
+    fireEvent.changeText(screen.getByPlaceholderText('Nhập số tiền (VNĐ)'), '23');
+    expect(screen.getByRole('button', { name: 'Chọn giá 23.000 đ' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Chọn giá 2.300.000 đ' })).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Chọn giá 230.000 đ' }));
+    expect(screen.getByPlaceholderText('Nhập số tiền (VNĐ)')).toHaveDisplayValue('230000');
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('submit-adjust-bid-btn'));
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ amount: 230000 }),
+    })));
+  });
+
   it('disables adjusting when revisions limit is reached', () => {
     const maxedBid = { ...mockBid, revisionsCount: 5 };
     render(

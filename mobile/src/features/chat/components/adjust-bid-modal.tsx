@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Button } from '@/components/ui/button';
 import { CloseIcon } from '@/components/ui/icons/handy-icons';
+import { PriceSuggestions } from '@/features/bidding/components/price-suggestions';
 import { useReviseBid } from '@/features/bidding/hooks/use-worker-bidding';
 import { workerBiddingKeys } from '@/features/candidates/hooks/candidate-query-keys';
 
@@ -199,7 +200,7 @@ export function AdjustBidModal({
             </Pressable>
           </View>
 
-          <ScrollView style={{ padding: 20 }}>
+          <ScrollView keyboardShouldPersistTaps="handled" style={{ padding: 20 }}>
             {/* Revision Limit & Cooldown Notices */}
             {isMaxRevisions ? (
               <View style={{ backgroundColor: '#FEF2F2', padding: 12, borderRadius: 12, marginBottom: 16 }}>
@@ -251,6 +252,12 @@ export function AdjustBidModal({
                   = {formatCurrency(Number(amountStr))}
                 </Text>
               ) : null}
+              <PriceSuggestions
+                value={amountStr}
+                maxAmount={MAX_AMOUNT}
+                disabled={submitDisabled}
+                onSelect={handleAmountChange}
+              />
             </View>
 
             {/* Note / Message Input */}
