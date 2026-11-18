@@ -1,0 +1,616 @@
+import type { ChatConversation } from './types';
+import type { BookingProposal, BookingProposalStatus } from '@/features/orders/types/order.types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as React from 'react';
+import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
+import { useMyBidForRequest, useRoundStatus } from '@/features/bidding/hooks/use-worker-bidding';
+import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
+import { fetchConversationBid, useConversationBid } from '@/features/candidates/hooks/use-conversation-bid';
+import { OrdersApi } from '@/features/orders/api/orders.api';
+import { useBiddingEvents } from '@/services/sse/use-bidding-events';
+import { AdjustBidModal } from './components/adjust-bid-modal';
+
+export type ChatDealBarProps = {
+  conversation: ChatConversation;
+  userId: string;
+  onSendMessage?: (content: string) => Promise<void>;
+};
+
+function formatCurrency(num: number): string {
+  return `${num.toLocaleString('vi-VN')} đ`;
+}
+
+/**
+ * Resolves the currently active / most relevant proposal for a given worker.
+ *
+ * Rules:
+ * 1. If any proposal is finalized (order created), it takes absolute precedence.
+ * 2. Ancestor proposals superseded by a newer revision in the same chain are never active leaves.
+ * 3. In the same revision chain, descendant proposals supersede ancestor proposals.
+ * 4. Active proposals ('proposed', 'changes_requested') take precedence over dead / terminal
+ *    proposals ('worker_rejected', 'withdrawn', 'expired', 'superseded') from older chains.
+ * 5. Between proposals of the same activity tier, the more recently created one (createdAt) wins.
+ * 6. Revision number is NOT used as a global sorting key across unrelated proposal chains.
+ * 7. Deterministic tie-breakers ensure consistent behavior regardless of API response order.
+ */
+export function resolveLatestProposal(
+  proposals: BookingProposal[] | undefined | null,
+  workerUserId: string,
+): BookingProposal | null {
+  if (!proposals || proposals.length === 0) {
+    return null;
+  }
+
+  const workerProposals = proposals.filter(p => p.workerUserId === workerUserId);
+  if (workerProposals.length === 0) {
+    return null;
+  }
+  if (workerProposals.length === 1) {
+    return workerProposals[0];
+  }
+
+  // 1. Finalized proposal always wins (deal was sealed)
+  const finalizedList = workerProposals.filter(p => p.status === 'finalized');
+  if (finalizedList.length > 0) {
+    if (finalizedList.length === 1) {
+      return finalizedList[0];
+    }
+    return [...finalizedList].sort((a, b) => {
+      const timeA = new Date(a.finalizedAt || a.createdAt).getTime();
+      const timeB = new Date(b.finalizedAt || b.createdAt).getTime();
+      return timeB - timeA;
+    })[0];
+  }
+
+  // 2. Build supersession ancestry map
+  const supersededIds = new Set<string>();
+  const parentMap = new Map<string, string>();
+
+  for (const p of workerProposals) {
+    if (p.supersedesProposalId) {
+      supersededIds.add(p.supersedesProposalId);
+      parentMap.set(p.id, p.supersedesProposalId);
+    }
+    if (p.status === 'superseded') {
+      supersededIds.add(p.id);
+    }
+  }
+
+  const isDescendantOf = (descendantId: string, ancestorId: string): boolean => {
+    let curr: string | undefined = descendantId;
+    const visited = new Set<string>();
+    while (curr && !visited.has(curr)) {
+      visited.add(curr);
+      const parent = parentMap.get(curr);
+      if (!parent) {
+        return false;
+      }
+      if (parent === ancestorId) {
+        return true;
+      }
+      curr = parent;
+    }
+    return false;
+  };
+
+  // Filter out superseded proposals to find active chain leaves
+  const leaves = workerProposals.filter(p => !supersededIds.has(p.id));
+  const candidates = leaves.length > 0 ? leaves : workerProposals;
+
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const isLiveStatus = (status: BookingProposalStatus): boolean => {
+    return status === 'proposed' || status === 'changes_requested';
+  };
+
+  const getStatusPriority = (status: BookingProposalStatus): number => {
+    switch (status) {
+      case 'finalized':
+        return 4;
+      case 'proposed':
+        return 3;
+      case 'changes_requested':
+        return 2;
+      default:
+        return 1;
+    }
+  };
+
+  const sorted = [...candidates].sort((a, b) => {
+    // A. Same chain: descendant always beats ancestor
+    if (isDescendantOf(a.id, b.id)) {
+      return -1;
+    }
+    if (isDescendantOf(b.id, a.id)) {
+      return 1;
+    }
+
+    // B. Live negotiation proposals beat dead / terminal proposals
+    const liveA = isLiveStatus(a.status) ? 1 : 0;
+    const liveB = isLiveStatus(b.status) ? 1 : 0;
+    if (liveA !== liveB) {
+      return liveB - liveA;
+    }
+
+    // C. Timestamp: newer createdAt wins
+    const timeA = new Date(a.createdAt).getTime();
+    const timeB = new Date(b.createdAt).getTime();
+    if (!Number.isNaN(timeA) && !Number.isNaN(timeB) && timeA !== timeB) {
+      return timeB - timeA;
+    }
+
+    // D. Specific status priority (proposed > changes_requested)
+    const prioA = getStatusPriority(a.status);
+    const prioB = getStatusPriority(b.status);
+    if (prioA !== prioB) {
+      return prioB - prioA;
+    }
+
+    // E. updatedAt timestamp
+    const updateA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const updateB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    if (!Number.isNaN(updateA) && !Number.isNaN(updateB) && updateA !== updateB) {
+      return updateB - updateA;
+    }
+
+    // F. revisionNo within same tier
+    if (b.revisionNo !== a.revisionNo) {
+      return b.revisionNo - a.revisionNo;
+    }
+
+    // G. Deterministic ID tie-breaker
+    return b.id.localeCompare(a.id);
+  });
+
+  return sorted[0];
+}
+
+export function ChatDealBar({
+  conversation,
+  userId,
+  onSendMessage,
+}: ChatDealBarProps) {
+  const queryClient = useQueryClient();
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = React.useState(false);
+  const [isSubmittingProposal, setIsSubmittingProposal] = React.useState(false);
+
+  const isWorker = userId === conversation.workerId;
+  const isCustomer = userId === conversation.customerId;
+  const hasOrder = Boolean(conversation.orderId);
+
+  // Worker bid query
+  const myBidQuery = useMyBidForRequest(
+    conversation.requestId || '',
+    !hasOrder && isWorker && Boolean(conversation.requestId),
+  );
+  const workerBidData = myBidQuery.data;
+
+  // Worker round status query
+  const roundStatusQuery = useRoundStatus(
+    conversation.requestId || '',
+    !hasOrder && isWorker && Boolean(conversation.requestId),
+  );
+  const roundStatus = roundStatusQuery.data;
+
+  // Fail-closed verification:
+  // Only enable adjust bid button if bidding round is open, not expired, and round status verified
+  const isRoundOpen = Boolean(
+    !roundStatusQuery.isLoading
+    && !roundStatusQuery.isError
+    && roundStatus
+    && roundStatus.status === 'open'
+    && !roundStatus.isExpired
+    && (!roundStatus.closesAt || new Date(roundStatus.closesAt).getTime() > Date.now()),
+  );
+  const canAdjustBid = Boolean(workerBidData && workerBidData.status === 'active' && isRoundOpen);
+
+  // Customer candidates query
+  const customerBidEnabled = !hasOrder && isCustomer && Boolean(conversation.requestId);
+  const customerBidQuery = useConversationBid(
+    conversation.requestId || '',
+    conversation.workerId,
+    customerBidEnabled,
+  );
+  useBiddingEvents(conversation.requestId, { enabled: customerBidEnabled });
+  const selecting = React.useRef(false);
+  const verification = React.useRef<AbortController | null>(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      verification.current?.abort();
+    };
+  }, []);
+
+  // Customer proposals query
+  const { data: requestProposals } = useQuery({
+    queryKey: ['orders', 'request-proposals', conversation.requestId],
+    queryFn: async () => {
+      if (!conversation.requestId) {
+        return [];
+      }
+      const res = await OrdersApi.getProposalsForRequest(conversation.requestId);
+      return res?.data || [];
+    },
+    enabled: !hasOrder && isCustomer && Boolean(conversation.requestId),
+  });
+
+  // Check finalized order status
+  if (hasOrder) {
+    return (
+      <View
+        style={{
+          backgroundColor: '#F0FDF4',
+          borderBottomWidth: 1,
+          borderBottomColor: '#BBF7D0',
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A', marginRight: 8 }} />
+        <Text style={{ fontSize: 13, fontWeight: '600', color: '#166534' }}>
+          Đã chốt đơn hàng
+        </Text>
+      </View>
+    );
+  }
+
+  // Worker view
+  if (isWorker) {
+    if (!workerBidData || workerBidData.status !== 'active') {
+      return null;
+    }
+
+    return (
+      <>
+        <View
+          style={{
+            backgroundColor: '#EFF6FF',
+            borderBottomWidth: 1,
+            borderBottomColor: '#DBEAFE',
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={{ fontSize: 12, color: '#475569' }}>Báo giá của bạn:</Text>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E40AF' }}>
+              {formatCurrency(workerBidData.amount)}
+            </Text>
+            {!isRoundOpen && (
+              <Text style={{ fontSize: 11, color: '#DC2626', marginTop: 2 }}>
+                Phiên báo giá đã kết thúc hoặc không thể điều chỉnh
+              </Text>
+            )}
+          </View>
+          <Pressable
+            testID="deal-bar-adjust-bid-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Điều chỉnh giá báo"
+            disabled={!canAdjustBid}
+            onPress={() => {
+              if (canAdjustBid) {
+                setIsAdjustModalOpen(true);
+              }
+            }}
+            style={{
+              backgroundColor: canAdjustBid ? '#2563EB' : '#94A3B8',
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
+              Điều chỉnh giá
+            </Text>
+          </Pressable>
+        </View>
+
+        <AdjustBidModal
+          visible={isAdjustModalOpen}
+          onClose={() => setIsAdjustModalOpen(false)}
+          bid={workerBidData}
+          requestId={conversation.requestId}
+          onSuccess={(newAmount, note) => {
+            const notice = `[Báo giá mới] Tôi đã điều chỉnh giá dịch vụ thành ${formatCurrency(newAmount)}.${
+              note ? ` Ghi chú: ${note}` : ''
+            }`;
+            void onSendMessage?.(notice)?.catch?.(() => {});
+          }}
+        />
+      </>
+    );
+  }
+
+  // Customer view
+  if (isCustomer) {
+    const workerBid = customerBidQuery.data;
+
+    const latestProposal = resolveLatestProposal(
+      requestProposals,
+      conversation.workerId,
+    );
+
+    if (latestProposal?.status === 'finalized') {
+      return (
+        <View
+          style={{
+            backgroundColor: '#F0FDF4',
+            borderBottomWidth: 1,
+            borderBottomColor: '#BBF7D0',
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#16A34A', marginRight: 8 }} />
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#166534' }}>
+            Đã chốt đơn hàng
+          </Text>
+        </View>
+      );
+    }
+
+    if (latestProposal?.status === 'proposed') {
+      const agreedAmount = Number(latestProposal.agreedPrice) || workerBid?.amount || 0;
+      return (
+        <View
+          style={{
+            backgroundColor: '#FFFBEB',
+            borderBottomWidth: 1,
+            borderBottomColor: '#FDE68A',
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <View>
+            <Text style={{ fontSize: 12, color: '#92400E' }}>
+              Đã gửi đề xuất:
+              {' '}
+              <Text style={{ fontWeight: '700' }}>{formatCurrency(agreedAmount)}</Text>
+            </Text>
+            <Text style={{ fontSize: 11, color: '#B45309', marginTop: 1 }}>
+              Đang chờ thợ xác nhận nhận việc
+            </Text>
+          </View>
+          <View
+            style={{
+              backgroundColor: '#FEF3C7',
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 6,
+            }}
+          >
+            <Text style={{ fontSize: 12, color: '#B45309', fontWeight: '500' }}>
+              Chờ xác nhận
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    const isChangesRequested = latestProposal?.status === 'changes_requested';
+    const supersedesProposalId = isChangesRequested ? latestProposal.id : undefined;
+
+    if (isChangesRequested || (workerBid && workerBid.status === 'active')) {
+      const displayAmount = workerBid?.amount ?? (Number(latestProposal?.agreedPrice) || 0);
+
+      const handleSelectWorker = () => {
+        const confirmTitle = isChangesRequested ? 'Xác nhận gửi lại đề xuất' : 'Xác nhận chọn thợ';
+        const formattedAmount = formatCurrency(displayAmount);
+        const confirmMessage = isChangesRequested
+          ? `Bạn có đồng ý gửi lại đề xuất cho thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`
+          : `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`;
+
+        Alert.alert(
+          confirmTitle,
+          confirmMessage,
+          [
+            { text: 'Hủy', style: 'cancel' },
+            {
+              text: 'Đồng ý',
+              onPress: async () => {
+                if (selecting.current || !mounted.current) {
+                  return;
+                }
+                selecting.current = true;
+                setIsSubmittingProposal(true);
+                const controller = new AbortController();
+                verification.current = controller;
+                try {
+                  const currentBid = await fetchConversationBid(conversation.requestId, conversation.workerId, controller.signal);
+                  if (controller.signal.aborted) {
+                    return;
+                  }
+                  queryClient.setQueryData(candidateQueryKeys.conversationBid(conversation.requestId, conversation.workerId), currentBid);
+                  if (!currentBid || currentBid.status !== 'active') {
+                    Alert.alert('Báo giá không còn hiệu lực', 'Vui lòng tải lại và chọn báo giá còn hiệu lực.');
+                    return;
+                  }
+                  if (currentBid.isMasked || !Number.isFinite(currentBid.amount) || currentBid.amount < 1000) {
+                    throw new Error('Báo giá không hợp lệ. Vui lòng tải lại.');
+                  }
+                  if (!workerBid || currentBid.id !== workerBid.id || currentBid.amount !== workerBid.amount || currentBid.version !== workerBid.version) {
+                    Alert.alert('Báo giá đã thay đổi', `Mức giá hiện tại là ${formatCurrency(currentBid.amount)}. Vui lòng kiểm tra và chọn thợ lại để xác nhận.`);
+                    return;
+                  }
+                  await OrdersApi.createProposal({
+                    serviceRequestId: conversation.requestId,
+                    workerUserId: currentBid.workerUserId || conversation.workerId,
+                    selectionSource: 'bid',
+                    sourceBidId: currentBid.sourceBidId || currentBid.id,
+                    agreedPrice: currentBid.amount,
+                    agreedScope: conversation.serviceName || 'Dịch vụ đã trao đổi',
+                    supersedesProposalId,
+                  });
+
+                  await queryClient.invalidateQueries({
+                    queryKey: ['orders', 'request-proposals', conversation.requestId],
+                  });
+                  await queryClient.invalidateQueries({
+                    queryKey: candidateQueryKeys.byRequest(conversation.requestId),
+                  });
+
+                  Alert.alert(
+                    isChangesRequested ? 'Đã gửi lại đề xuất' : 'Đã gửi đề xuất',
+                    isChangesRequested
+                      ? 'Đề xuất sửa đổi đã được gửi thành công đến thợ. Vui lòng chờ thợ xác nhận nhận việc.'
+                      : 'Đề xuất đã được gửi thành công đến thợ. Vui lòng chờ thợ xác nhận nhận việc.',
+                  );
+
+                  const formattedCurrentAmount = formatCurrency(currentBid.amount);
+                  const chatMsg = isChangesRequested
+                    ? `Tôi đã gửi lại đề xuất mới với mức giá ${formattedCurrentAmount}. Vui lòng xác nhận nhé!`
+                    : `Tôi đã gửi đề xuất chọn bạn với mức giá ${formattedCurrentAmount}. Vui lòng xác nhận đề xuất nhé!`;
+
+                  void onSendMessage?.(chatMsg)?.catch?.(() => {});
+                }
+                catch (err: any) {
+                  if (controller.signal.aborted) {
+                    return;
+                  }
+                  Alert.alert(
+                    'Không thể gửi đề xuất',
+                    err?.message || 'Có lỗi xảy ra khi gửi đề xuất chọn thợ.',
+                  );
+                }
+                finally {
+                  selecting.current = false;
+                  if (!controller.signal.aborted) {
+                    setIsSubmittingProposal(false);
+                  }
+                }
+              },
+            },
+          ],
+        );
+      };
+
+      const selectDisabled = isSubmittingProposal || customerBidQuery.isError || customerBidQuery.isFetching;
+
+      if (isChangesRequested) {
+        const responseNote = latestProposal?.responseNote?.trim();
+        return (
+          <View
+            style={{
+              backgroundColor: '#FFFBEB',
+              borderBottomWidth: 1,
+              borderBottomColor: '#FDE68A',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E' }}>
+                Thợ yêu cầu sửa đề xuất
+                {Boolean(responseNote) && (
+                  <Text style={{ fontWeight: '400' }}>
+                    {`: "${responseNote}"`}
+                  </Text>
+                )}
+              </Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#B45309', marginTop: 2 }}>
+                {`Giá báo: ${formatCurrency(displayAmount)}`}
+              </Text>
+            </View>
+            <Pressable
+              testID="deal-bar-select-worker-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Gửi lại đề xuất"
+              disabled={selectDisabled}
+              onPress={handleSelectWorker}
+              style={{
+                backgroundColor: selectDisabled ? '#94A3B8' : '#D97706',
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 8,
+                minWidth: 100,
+                alignItems: 'center',
+              }}
+            >
+              {isSubmittingProposal
+                ? (
+                    <ActivityIndicator size="small" color="white" />
+                  )
+                : (
+                    <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
+                      Gửi lại đề xuất
+                    </Text>
+                  )}
+            </Pressable>
+          </View>
+        );
+      }
+
+      if (!workerBid) {
+        return null;
+      }
+
+      return (
+        <View
+          style={{
+            backgroundColor: '#F0FDF4',
+            borderBottomWidth: 1,
+            borderBottomColor: '#DCFCE7',
+            paddingHorizontal: 16,
+            paddingVertical: 10,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={{ fontSize: 12, color: '#166534' }}>Báo giá thợ:</Text>
+            <Text style={{ fontSize: 15, fontWeight: '700', color: '#15803D' }}>
+              {formatCurrency(workerBid.amount)}
+            </Text>
+          </View>
+          <Pressable
+            testID="deal-bar-select-worker-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Chọn thợ này"
+            disabled={selectDisabled}
+            onPress={handleSelectWorker}
+            style={{
+              backgroundColor: selectDisabled ? '#94A3B8' : '#16A34A',
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 8,
+              minWidth: 100,
+              alignItems: 'center',
+            }}
+          >
+            {isSubmittingProposal
+              ? (
+                  <ActivityIndicator size="small" color="white" />
+                )
+              : (
+                  <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
+                    Chọn thợ này
+                  </Text>
+                )}
+          </Pressable>
+        </View>
+      );
+    }
+  }
+
+  return null;
+}

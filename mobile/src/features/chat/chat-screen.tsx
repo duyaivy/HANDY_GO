@@ -15,8 +15,10 @@ import {
   Keyboard,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
+  RefreshControl,
   Text,
   TextInput,
   View,
@@ -26,6 +28,7 @@ import { CameraIcon, CloseIcon, GalleryIcon, PlayIcon, RetryIcon, SendIcon } fro
 import { Logger } from '@/services/logger/logger';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { ChatApi, chatErrorMessage } from './chat-api';
+import { ChatDealBar } from './chat-deal-bar';
 import { uploadChatMedia } from './chat-media';
 import { ChatMediaCard } from './chat-media-card';
 import { useChat } from './use-chat';
@@ -55,9 +58,57 @@ function ParticipantChatScreen() {
   const [preparation, setPreparation] = useState<MediaPreparationProgress | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [olderBusy, setOlderBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const scrollOffsetY = useRef(0);
+  const [pullDistance, setPullDistance] = useState(0);
+  const PULL_THRESHOLD = 60;
   const busy = useRef(false);
   const mounted = useRef(true);
   const upload = useRef<AbortController | null>(null);
+
+  const handleRefresh = async () => {
+    if (refreshing)
+      return;
+    setRefreshing(true);
+    try {
+      await Promise.allSettled([
+        chat.detail.refetch(),
+        chat.history.refetch(),
+        chat.refresh(),
+      ]);
+    }
+    finally {
+      if (mounted.current) {
+        setRefreshing(false);
+      }
+    }
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gestureState) => {
+        if (gestureState.dy <= 10)
+          return false;
+        if (Math.abs(gestureState.dx) > gestureState.dy)
+          return false;
+        return scrollOffsetY.current <= 5;
+      },
+      onPanResponderMove: (_evt, gestureState) => {
+        if (gestureState.dy > 0 && scrollOffsetY.current <= 5) {
+          setPullDistance(Math.min(gestureState.dy * 0.5, 100));
+        }
+      },
+      onPanResponderRelease: (_evt, gestureState) => {
+        if (gestureState.dy >= PULL_THRESHOLD && scrollOffsetY.current <= 5) {
+          void handleRefresh();
+        }
+        setPullDistance(0);
+      },
+      onPanResponderTerminate: () => {
+        setPullDistance(0);
+      },
+    }),
+  ).current;
   useEffect(() => {
     mounted.current = true;
     const sub = AppState.addEventListener('change', state =>
@@ -286,193 +337,262 @@ function ParticipantChatScreen() {
                 tin.
               </Text>
             )}
-            {(chat.detail.isError || chat.history.isError || chat.syncError) && (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  void chat.detail.refetch();
-                  void chat.history.refetch();
-                }}
-              >
-                <Text style={{ color: '#B91C1C' }}>
-                  Không tải được trò chuyện. Chạm để thử lại.
-                </Text>
-              </Pressable>
-            )}
           </View>
-          {chat.history.isPending
-            ? (
-                <ActivityIndicator style={{ flex: 1 }} />
-              )
-            : (
-                <FlatList
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
-                  inverted
-                  data={[...messages].reverse()}
-                  keyExtractor={item => item.id}
-                  contentContainerStyle={{ padding: 14 }}
-                  onEndReachedThreshold={0.2}
-                  onEndReached={() => {
-                    if (!olderBusy && chat.history.data?.before) {
-                      setOlderBusy(true);
-                      void chat
-                        .older()
-                        .catch(() =>
-                          Alert.alert('Không tải được tin cũ', 'Vui lòng thử lại.'),
-                        )
-                        .finally(() => setOlderBusy(false));
-                    }
-                  }}
-                  ListEmptyComponent={(
-                    <Text
-                      style={{
-                        textAlign: 'center',
-                        padding: 24,
-                        transform: [{ scaleY: -1 }],
-                      }}
-                    >
-                      Hãy bắt đầu trao đổi về yêu cầu dịch vụ.
-                    </Text>
-                  )}
-                  ListFooterComponent={olderBusy ? <ActivityIndicator /> : null}
-                  ListHeaderComponent={(
-                    <View>
-                      {failed.map(item => (
-                        <View
-                          key={item.input.clientMessageId}
+          {conversation && (
+            <ChatDealBar
+              conversation={conversation}
+              userId={userId}
+              onSendMessage={async (text) => {
+                const input: MessageSendInput = {
+                  conversationId: id,
+                  clientMessageId: Crypto.randomUUID(),
+                  messageType: 'TEXT',
+                  content: text,
+                };
+                await send(input);
+              }}
+            />
+          )}
+          {(chat.detail.isError || chat.history.isError || chat.syncError) && (
+            <Pressable
+              testID="chat-error-banner"
+              accessibilityRole="button"
+              accessibilityLabel="Không tải được trò chuyện. Chạm để thử lại."
+              onPress={() => {
+                void handleRefresh();
+              }}
+              style={{
+                backgroundColor: '#FEF2F2',
+                borderBottomWidth: 1,
+                borderBottomColor: '#FECACA',
+                paddingVertical: 10,
+                paddingHorizontal: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: '#B91C1C', fontSize: 13, fontWeight: '500', textAlign: 'center' }}>
+                Không tải được trò chuyện. Chạm để thử lại.
+              </Text>
+            </Pressable>
+          )}
+          {(pullDistance > 0 || refreshing) && (
+            <View
+              testID="chat-pull-refresh-indicator"
+              style={{
+                paddingVertical: 8,
+                backgroundColor: '#F8FAFC',
+                borderBottomWidth: 1,
+                borderBottomColor: '#E2E8F0',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                gap: 8,
+              }}
+            >
+              <ActivityIndicator size="small" color="#2563EB" />
+              <Text style={{ fontSize: 13, color: '#64748B' }}>
+                {refreshing
+                  ? 'Đang tải lại…'
+                  : pullDistance >= PULL_THRESHOLD
+                    ? 'Thả ra để tải lại'
+                    : 'Kéo xuống để tải lại'}
+              </Text>
+            </View>
+          )}
+          <View testID="chat-messages-container" style={{ flex: 1 }} {...panResponder.panHandlers}>
+            {chat.history.isPending && !chat.history.data
+              ? (
+                  <ActivityIndicator style={{ flex: 1 }} />
+                )
+              : (
+                  <FlatList
+                    testID="chat-messages-list"
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag"
+                    inverted
+                    data={[...messages].reverse()}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={{ padding: 14 }}
+                    onScroll={(e) => {
+                      scrollOffsetY.current = e.nativeEvent.contentOffset.y;
+                    }}
+                    scrollEventThrottle={16}
+                    refreshing={refreshing}
+                    onRefresh={handleRefresh}
+                    refreshControl={(
+                      <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={handleRefresh}
+                        tintColor="#2563EB"
+                        colors={['#2563EB']}
+                      />
+                    )}
+                    onEndReachedThreshold={0.2}
+                    onEndReached={() => {
+                      if (!olderBusy && chat.history.data?.before) {
+                        setOlderBusy(true);
+                        void chat
+                          .older()
+                          .catch(() =>
+                            Alert.alert('Không tải được tin cũ', 'Vui lòng thử lại.'),
+                          )
+                          .finally(() => setOlderBusy(false));
+                      }
+                    }}
+                    ListEmptyComponent={(
+                      <View testID="chat-empty-placeholder-container">
+                        <Text
                           style={{
-                            alignSelf: 'flex-end',
-                            maxWidth: '85%',
-                            marginBottom: 10,
-                            padding: item.preview ? 0 : 12,
-                            borderRadius: 16,
-                            backgroundColor: item.preview ? 'transparent' : '#DBEAFE',
+                            textAlign: 'center',
+                            padding: 24,
+                            color: '#64748B',
+                            fontSize: 14,
                           }}
                         >
-                          {item.preview && item.preview.type !== 'video' && (
-                            <ChatMediaCard
-                              attachment={{ id: item.input.clientMessageId, mediaType: 'IMAGE', url: item.preview.uri, width: item.preview.width, height: item.preview.height }}
-                              onOpen={() => setPhoto(item.preview!.uri)}
-                            />
-                          )}
-                          {item.preview?.type === 'video' && (
-                            <View style={{ width: 210, minHeight: 90, borderRadius: 12, padding: 16, backgroundColor: '#BFDBFE', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                              <PlayIcon size={32} />
-                              <Text numberOfLines={1} style={{ color: '#1E40AF' }}>{item.preview.fileName || 'Video đã chọn'}</Text>
+                          Hãy bắt đầu trao đổi về yêu cầu dịch vụ.
+                        </Text>
+                      </View>
+                    )}
+                    ListFooterComponent={olderBusy ? <ActivityIndicator /> : null}
+                    ListHeaderComponent={(
+                      <View>
+                        {failed.map(item => (
+                          <View
+                            key={item.input.clientMessageId}
+                            style={{
+                              alignSelf: 'flex-end',
+                              maxWidth: '85%',
+                              marginBottom: 10,
+                              padding: item.preview ? 0 : 12,
+                              borderRadius: 16,
+                              backgroundColor: item.preview ? 'transparent' : '#DBEAFE',
+                            }}
+                          >
+                            {item.preview && item.preview.type !== 'video' && (
+                              <ChatMediaCard
+                                attachment={{ id: item.input.clientMessageId, mediaType: 'IMAGE', url: item.preview.uri, width: item.preview.width, height: item.preview.height }}
+                                onOpen={() => setPhoto(item.preview!.uri)}
+                              />
+                            )}
+                            {item.preview?.type === 'video' && (
+                              <View style={{ width: 210, minHeight: 90, borderRadius: 12, padding: 16, backgroundColor: '#BFDBFE', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                                <PlayIcon size={32} />
+                                <Text numberOfLines={1} style={{ color: '#1E40AF' }}>{item.preview.fileName || 'Video đã chọn'}</Text>
+                              </View>
+                            )}
+                            {Boolean(item.input.content) && <Text>{item.input.content}</Text>}
+                            <Text
+                              style={{
+                                fontSize: 11,
+                                color: item.error ? '#B91C1C' : '#64748B',
+                              }}
+                            >
+                              {item.pending ? 'Đang gửi…' : item.error}
+                            </Text>
+                            {!item.pending && (
+                              <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel="Gửi lại tin nhắn"
+                                disabled={!canSend || !chat.connected}
+                                onPress={() => { void send(item.input, item.preview); }}
+                                style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, opacity: canSend && chat.connected ? 1 : 0.45 }}
+                              >
+                                <RetryIcon />
+                                <Text style={{ color: '#2563EB', fontWeight: '600' }}>Gửi lại</Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    renderItem={({ item }) => {
+                      const mine = item.senderId === userId;
+                      const isMedia = item.attachments.length > 0;
+                      const peerRead
+                        = chat.detail.data?.readStates.find(
+                          state => state.userId !== userId,
+                        )?.lastReadSequence || '0';
+                      const sentAt = new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+                      const delivery = mine ? BigInt(peerRead) >= BigInt(item.sequence) ? ' · Đã đọc' : ' · Đã gửi' : '';
+                      return (
+                        <Pressable
+                          testID={isMedia ? `chat-media-message-${item.id}` : undefined}
+                          accessibilityHint="Nhấn giữ để trả lời"
+                          onLongPress={() => {
+                            if (canSend)
+                              setReply(item);
+                          }}
+                          style={{
+                            alignSelf: mine ? 'flex-end' : 'flex-start',
+                            maxWidth: '85%',
+                            backgroundColor: isMedia ? 'transparent' : mine ? '#DBEAFE' : 'white',
+                            padding: isMedia ? 0 : 12,
+                            borderRadius: 16,
+                            marginBottom: 10,
+                          }}
+                        >
+                          {item.reply && (
+                            <View
+                              style={{
+                                borderLeftWidth: 3,
+                                borderLeftColor: '#2563EB',
+                                paddingLeft: 8,
+                                marginBottom: 6,
+                              }}
+                            >
+                              <Text
+                                numberOfLines={2}
+                                style={{ color: '#64748B', fontSize: 12 }}
+                              >
+                                {item.reply.unavailable
+                                  ? 'Tin nhắn không còn khả dụng'
+                                  : item.reply.content
+                                    || (item.reply.messageType === 'VIDEO'
+                                      ? 'Video'
+                                      : 'Ảnh')}
+                              </Text>
                             </View>
                           )}
-                          {Boolean(item.input.content) && <Text>{item.input.content}</Text>}
-                          <Text
-                            style={{
-                              fontSize: 11,
-                              color: item.error ? '#B91C1C' : '#64748B',
-                            }}
-                          >
-                            {item.pending ? 'Đang gửi…' : item.error}
-                          </Text>
-                          {!item.pending && (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel="Gửi lại tin nhắn"
-                              disabled={!canSend || !chat.connected}
-                              onPress={() => { void send(item.input, item.preview); }}
-                              style={{ minHeight: 44, minWidth: 44, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, opacity: canSend && chat.connected ? 1 : 0.45 }}
-                            >
-                              <RetryIcon />
-                              <Text style={{ color: '#2563EB', fontWeight: '600' }}>Gửi lại</Text>
-                            </Pressable>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                  renderItem={({ item }) => {
-                    const mine = item.senderId === userId;
-                    const isMedia = item.attachments.length > 0;
-                    const peerRead
-                      = chat.detail.data?.readStates.find(
-                        state => state.userId !== userId,
-                      )?.lastReadSequence || '0';
-                    const sentAt = new Date(item.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-                    const delivery = mine ? BigInt(peerRead) >= BigInt(item.sequence) ? ' · Đã đọc' : ' · Đã gửi' : '';
-                    return (
-                      <Pressable
-                        testID={isMedia ? `chat-media-message-${item.id}` : undefined}
-                        accessibilityHint="Nhấn giữ để trả lời"
-                        onLongPress={() => {
-                          if (canSend)
-                            setReply(item);
-                        }}
-                        style={{
-                          alignSelf: mine ? 'flex-end' : 'flex-start',
-                          maxWidth: '85%',
-                          backgroundColor: isMedia ? 'transparent' : mine ? '#DBEAFE' : 'white',
-                          padding: isMedia ? 0 : 12,
-                          borderRadius: 16,
-                          marginBottom: 10,
-                        }}
-                      >
-                        {item.reply && (
-                          <View
-                            style={{
-                              borderLeftWidth: 3,
-                              borderLeftColor: '#2563EB',
-                              paddingLeft: 8,
-                              marginBottom: 6,
-                            }}
-                          >
-                            <Text
-                              numberOfLines={2}
-                              style={{ color: '#64748B', fontSize: 12 }}
-                            >
-                              {item.reply.unavailable
-                                ? 'Tin nhắn không còn khả dụng'
-                                : item.reply.content
-                                  || (item.reply.messageType === 'VIDEO'
-                                    ? 'Video'
-                                    : 'Ảnh')}
+                          {item.content && !isMedia && (
+                            <Text style={{ color: '#0F172A', fontSize: 15 }}>
+                              {item.content}
                             </Text>
-                          </View>
-                        )}
-                        {item.content && !isMedia && (
-                          <Text style={{ color: '#0F172A', fontSize: 15 }}>
-                            {item.content}
-                          </Text>
-                        )}
-                        {item.attachments.map((attachment, index) => (
-                          <ChatMediaCard
-                            key={attachment.id}
-                            attachment={attachment}
-                            onOpen={() => {
-                              void openMedia(item, attachment.id);
-                            }}
-                            onRefresh={async () => (await resolveMedia(item, attachment.id)).url}
-                            footer={!item.content && index === item.attachments.length - 1
-                              ? (
-                                  <Text
-                                    testID={`chat-media-meta-${item.id}`}
-                                    style={{ position: 'absolute', right: 8, bottom: 8, backgroundColor: '#0F172AB3', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, color: 'white' }}
-                                  >
-                                    {sentAt}
-                                    {delivery}
-                                  </Text>
-                                )
-                              : null}
-                          />
-                        ))}
-                        {isMedia && item.content && <Text style={{ padding: 10, backgroundColor: mine ? '#DBEAFE' : 'white', borderRadius: 12, color: '#0F172A', fontSize: 15 }}>{item.content}</Text>}
-                        {(!isMedia || Boolean(item.content)) && (
-                          <Text style={{ fontSize: 10, color: '#64748B', marginTop: 5 }}>
-                            {sentAt}
-                            {delivery}
-                          </Text>
-                        )}
-                      </Pressable>
-                    );
-                  }}
-                />
-              )}
+                          )}
+                          {item.attachments.map((attachment, index) => (
+                            <ChatMediaCard
+                              key={attachment.id}
+                              attachment={attachment}
+                              onOpen={() => {
+                                void openMedia(item, attachment.id);
+                              }}
+                              onRefresh={async () => (await resolveMedia(item, attachment.id)).url}
+                              footer={!item.content && index === item.attachments.length - 1
+                                ? (
+                                    <Text
+                                      testID={`chat-media-meta-${item.id}`}
+                                      style={{ position: 'absolute', right: 8, bottom: 8, backgroundColor: '#0F172AB3', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4, fontSize: 10, color: 'white' }}
+                                    >
+                                      {sentAt}
+                                      {delivery}
+                                    </Text>
+                                  )
+                                : null}
+                            />
+                          ))}
+                          {isMedia && item.content && <Text style={{ padding: 10, backgroundColor: mine ? '#DBEAFE' : 'white', borderRadius: 12, color: '#0F172A', fontSize: 15 }}>{item.content}</Text>}
+                          {(!isMedia || Boolean(item.content)) && (
+                            <Text style={{ fontSize: 10, color: '#64748B', marginTop: 5 }}>
+                              {sentAt}
+                              {delivery}
+                            </Text>
+                          )}
+                        </Pressable>
+                      );
+                    }}
+                  />
+                )}
+          </View>
           {chat.typing && (
             <Text
               style={{ paddingHorizontal: 16, color: '#64748B', fontSize: 12 }}
