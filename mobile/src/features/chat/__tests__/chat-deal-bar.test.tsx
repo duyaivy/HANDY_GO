@@ -22,6 +22,14 @@ const mockWorkerBid = {
 };
 
 let mockMyBid: any = mockWorkerBid;
+let mockRoundStatus: any = {
+  status: 'open',
+  isExpired: false,
+  closesAt: new Date(Date.now() + 3600000).toISOString(),
+};
+let mockRoundStatusLoading = false;
+let mockRoundStatusError = false;
+
 jest.mock('@/features/bidding/hooks/use-worker-bidding', () => ({
   useMyBidForRequest: () => ({
     data: mockMyBid,
@@ -30,6 +38,16 @@ jest.mock('@/features/bidding/hooks/use-worker-bidding', () => ({
   useReviseBid: () => ({
     mutateAsync: jest.fn(),
     isPending: false,
+  }),
+  useRoundStatus: () => ({
+    data: mockRoundStatus,
+    isLoading: mockRoundStatusLoading,
+    isError: mockRoundStatusError,
+  }),
+  useBidDetail: () => ({
+    data: undefined,
+    isLoading: false,
+    isError: false,
   }),
 }));
 
@@ -74,6 +92,13 @@ describe('ChatDealBar', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockMyBid = mockWorkerBid;
+    mockRoundStatus = {
+      status: 'open',
+      isExpired: false,
+      closesAt: new Date(Date.now() + 3600000).toISOString(),
+    };
+    mockRoundStatusLoading = false;
+    mockRoundStatusError = false;
     mockCandidatesBids = [
       {
         id: 'bid-111',
@@ -114,7 +139,7 @@ describe('ChatDealBar', () => {
   });
 
   describe('Worker perspective', () => {
-    it('renders current bid amount and "Điều chỉnh giá" button', () => {
+    it('renders current bid amount and enabled "Điều chỉnh giá" button when round is open', () => {
       render(
         <ChatDealBar conversation={mockConversation} userId="worker-1" />,
         { wrapper },
@@ -122,7 +147,9 @@ describe('ChatDealBar', () => {
 
       expect(screen.getByText(/Báo giá của bạn:/)).toBeTruthy();
       expect(screen.getByText(/250\.000/)).toBeTruthy();
-      expect(screen.getByTestId('deal-bar-adjust-bid-btn')).toBeTruthy();
+      const adjustBtn = screen.getByTestId('deal-bar-adjust-bid-btn');
+      expect(adjustBtn).toBeTruthy();
+      expect(adjustBtn.props.accessibilityState?.disabled).toBe(false);
       expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
     });
 
@@ -134,6 +161,43 @@ describe('ChatDealBar', () => {
 
       fireEvent.press(screen.getByTestId('deal-bar-adjust-bid-btn'));
       expect(screen.getByText('Điều chỉnh báo giá')).toBeTruthy();
+    });
+
+    it('disables "Điều chỉnh giá" button when bidding round is closed', () => {
+      mockRoundStatus = { status: 'closed', isExpired: false };
+      render(
+        <ChatDealBar conversation={mockConversation} userId="worker-1" />,
+        { wrapper },
+      );
+
+      const adjustBtn = screen.getByTestId('deal-bar-adjust-bid-btn');
+      expect(adjustBtn.props.accessibilityState?.disabled).toBe(true);
+      expect(screen.getByText(/Phiên báo giá đã kết thúc/)).toBeTruthy();
+
+      fireEvent.press(adjustBtn);
+      expect(screen.queryByText('Điều chỉnh báo giá')).toBeNull();
+    });
+
+    it('disables "Điều chỉnh giá" button when bidding round is expired', () => {
+      mockRoundStatus = { status: 'open', isExpired: true };
+      render(
+        <ChatDealBar conversation={mockConversation} userId="worker-1" />,
+        { wrapper },
+      );
+
+      const adjustBtn = screen.getByTestId('deal-bar-adjust-bid-btn');
+      expect(adjustBtn.props.accessibilityState?.disabled).toBe(true);
+    });
+
+    it('disables "Điều chỉnh giá" button when round status fails to verify (fail-closed)', () => {
+      mockRoundStatusError = true;
+      render(
+        <ChatDealBar conversation={mockConversation} userId="worker-1" />,
+        { wrapper },
+      );
+
+      const adjustBtn = screen.getByTestId('deal-bar-adjust-bid-btn');
+      expect(adjustBtn.props.accessibilityState?.disabled).toBe(true);
     });
   });
 
@@ -189,6 +253,7 @@ describe('ChatDealBar', () => {
           sourceBidId: 'bid-111',
           agreedPrice: 250000,
           agreedScope: 'Sửa điện gia dụng',
+          supersedesProposalId: undefined,
         });
       });
 
@@ -218,6 +283,125 @@ describe('ChatDealBar', () => {
         expect(screen.getByText(/Đã gửi đề xuất/)).toBeTruthy();
       });
       expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
+    });
+
+    it('handles changes_requested proposal revision and includes supersedesProposalId', async () => {
+      (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+        data: [
+          {
+            id: 'prop-rev-1',
+            serviceRequestId: 'req-001',
+            workerUserId: 'worker-1',
+            status: 'changes_requested',
+            revisionNo: 1,
+            agreedPrice: 200000,
+            responseNote: 'Vui lòng tăng phụ phí vật tư',
+            createdAt: '2026-11-16T10:00:00Z',
+          },
+        ],
+      });
+
+      let alertConfirmHandler: (() => void) | undefined;
+      (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
+        const confirmBtn = buttons?.find((b: any) => b.text === 'Đồng ý');
+        alertConfirmHandler = confirmBtn?.onPress;
+      });
+
+      render(
+        <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+        { wrapper },
+      );
+
+      expect(await screen.findByText(/Thợ yêu cầu sửa đề xuất/)).toBeTruthy();
+      expect(screen.getByText(/: "Vui lòng tăng phụ phí vật tư"/)).toBeTruthy();
+      expect(screen.getByText('Gửi lại đề xuất')).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+
+      await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Xác nhận gửi lại đề xuất',
+        expect.stringContaining('250.000'),
+        expect.any(Array),
+      );
+
+      await act(async () => {
+        await alertConfirmHandler?.();
+      });
+
+      await waitFor(() => {
+        expect(OrdersApi.createProposal).toHaveBeenCalledWith({
+          serviceRequestId: 'req-001',
+          workerUserId: 'worker-1',
+          selectionSource: 'bid',
+          sourceBidId: 'bid-111',
+          agreedPrice: 250000,
+          agreedScope: 'Sửa điện gia dụng',
+          supersedesProposalId: 'prop-rev-1',
+        });
+      });
+    });
+
+    it('selects the latest revision when multiple revisions exist', async () => {
+      (OrdersApi.getProposalsForRequest as jest.Mock).mockResolvedValueOnce({
+        data: [
+          {
+            id: 'prop-rev-1',
+            workerUserId: 'worker-1',
+            status: 'superseded',
+            revisionNo: 1,
+            createdAt: '2026-11-16T09:00:00Z',
+          },
+          {
+            id: 'prop-rev-2',
+            workerUserId: 'worker-1',
+            status: 'changes_requested',
+            revisionNo: 2,
+            responseNote: 'Sửa lần 2',
+            createdAt: '2026-11-16T10:00:00Z',
+          },
+        ],
+      });
+
+      let alertConfirmHandler: (() => void) | undefined;
+      (Alert.alert as jest.Mock).mockImplementation((_title, _message, buttons) => {
+        const confirmBtn = buttons?.find((b: any) => b.text === 'Đồng ý');
+        alertConfirmHandler = confirmBtn?.onPress;
+      });
+
+      render(
+        <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+        { wrapper },
+      );
+
+      expect(await screen.findByText(/Thợ yêu cầu sửa đề xuất/)).toBeTruthy();
+      expect(screen.getByText(/: "Sửa lần 2"/)).toBeTruthy();
+
+      fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+      await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+
+      await act(async () => {
+        await alertConfirmHandler?.();
+      });
+
+      await waitFor(() => {
+        expect(OrdersApi.createProposal).toHaveBeenCalledWith(expect.objectContaining({
+          supersedesProposalId: 'prop-rev-2',
+        }));
+      });
+    });
+
+    it('does not block customer selection when bidding round is closed during valid selection window', async () => {
+      mockRoundStatus = { status: 'closed', isExpired: true };
+      render(
+        <ChatDealBar conversation={mockConversation} userId="customer-1" />,
+        { wrapper },
+      );
+
+      expect(await screen.findByText(/Báo giá thợ:/)).toBeTruthy();
+      const selectBtn = screen.getByTestId('deal-bar-select-worker-btn');
+      expect(selectBtn).toBeTruthy();
+      expect(selectBtn.props.accessibilityState?.disabled).toBe(false);
     });
   });
 
@@ -257,10 +441,12 @@ describe('ChatDealBar', () => {
     expect(await screen.findByTestId('deal-bar-select-worker-btn')).toBeTruthy();
     fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
     await waitFor(() => expect(confirm).toBeDefined());
-    if (status === 'unavailable')
+    if (status === 'unavailable') {
       jest.mocked(CandidatesApi.getCandidatesData).mockRejectedValue(new Error('offline'));
-    else
+    }
+    else {
       mockCandidatesBids = [{ ...mockCandidatesBids[0], status }];
+    }
     await act(async () => {
       await confirm?.();
     });

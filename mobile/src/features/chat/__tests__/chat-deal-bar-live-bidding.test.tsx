@@ -32,6 +32,7 @@ jest.mock('@/features/orders/api/orders.api', () => ({
 jest.mock('@/features/bidding/hooks/use-worker-bidding', () => ({
   useMyBidForRequest: () => ({ data: undefined }),
   useReviseBid: () => ({ isPending: false }),
+  useRoundStatus: () => ({ data: { status: 'open', isExpired: false } }),
 }));
 
 const conversation: ChatConversation = {

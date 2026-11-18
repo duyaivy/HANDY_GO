@@ -441,16 +441,18 @@ function ParticipantChatScreen() {
                       }
                     }}
                     ListEmptyComponent={(
-                      <Text
-                        style={{
-                          textAlign: 'center',
-                          padding: 24,
-                          color: '#64748B',
-                          fontSize: 14,
-                        }}
-                      >
-                        Hãy bắt đầu trao đổi về yêu cầu dịch vụ.
-                      </Text>
+                      <View testID="chat-empty-placeholder-container">
+                        <Text
+                          style={{
+                            textAlign: 'center',
+                            padding: 24,
+                            color: '#64748B',
+                            fontSize: 14,
+                          }}
+                        >
+                          Hãy bắt đầu trao đổi về yêu cầu dịch vụ.
+                        </Text>
+                      </View>
                     )}
                     ListFooterComponent={olderBusy ? <ActivityIndicator /> : null}
                     ListHeaderComponent={(

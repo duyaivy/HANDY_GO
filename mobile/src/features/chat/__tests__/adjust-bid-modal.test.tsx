@@ -1,15 +1,26 @@
 import type { BidDetail } from '@/features/bidding/api/worker-bidding.api';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { AdjustBidModal } from '../components/adjust-bid-modal';
 
 const mockMutateAsync = jest.fn();
+let mockBidDetailData: any;
+let mockBidDetailLoading = false;
+let mockBidDetailError = false;
+const mockRefetchBidDetail = jest.fn();
+
 jest.mock('@/features/bidding/hooks/use-worker-bidding', () => ({
   useReviseBid: () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
+  }),
+  useBidDetail: (_bidId: string, enabled: boolean) => ({
+    data: enabled ? mockBidDetailData : undefined,
+    isLoading: enabled && mockBidDetailLoading,
+    isError: enabled && mockBidDetailError,
+    refetch: mockRefetchBidDetail,
   }),
 }));
 
@@ -24,16 +35,28 @@ const mockBid: BidDetail = {
   version: 2,
   submittedAt: '2026-11-16T10:00:00Z',
   revisionsCount: 1,
+  revisions: [
+    {
+      id: 'rev-1',
+      revisionNo: 1,
+      previousAmount: 200000,
+      newAmount: 250000,
+      revisedAt: '2026-11-16T10:05:00Z',
+    },
+  ],
 };
 
 let queryClient: QueryClient;
-const wrapper = ({ children }: { children: React.ReactNode }) => (
-  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-);
+function wrapper({ children }: { children: React.ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 describe('AdjustBidModal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBidDetailData = undefined;
+    mockBidDetailLoading = false;
+    mockBidDetailError = false;
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -198,14 +221,25 @@ describe('AdjustBidModal', () => {
     expect(invalidateSpy).toHaveBeenCalled();
 
     const refetchSpy = jest.spyOn(queryClient, 'refetchQueries');
-    await reloadAction?.();
+    await act(async () => {
+      await reloadAction?.();
+    });
     expect(refetchSpy).toHaveBeenCalled();
   });
 
-  it('renders cooldown countdown and disables submit when cooldown is active', () => {
+  it('renders cooldown countdown and disables submit when cooldown is active from latest revision', () => {
     const recentBid: BidDetail = {
       ...mockBid,
-      submittedAt: new Date(Date.now() - 30000).toISOString(), // 30s ago -> 90s remaining
+      revisionsCount: 1,
+      revisions: [
+        {
+          id: 'rev-1',
+          revisionNo: 1,
+          previousAmount: 200000,
+          newAmount: 250000,
+          revisedAt: new Date(Date.now() - 30000).toISOString(), // 30s ago -> 90s remaining
+        },
+      ],
     };
 
     render(
@@ -222,5 +256,79 @@ describe('AdjustBidModal', () => {
     expect(screen.getByText(/Chờ \d+s để sửa tiếp/)).toBeTruthy();
     const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
     expect(submitBtn.props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('does NOT enforce cooldown on 1st revision even if submitted recently', () => {
+    const firstBid: BidDetail = {
+      ...mockBid,
+      revisionsCount: 0,
+      revisions: [],
+      submittedAt: new Date(Date.now() - 30000).toISOString(), // 30s ago
+    };
+
+    render(
+      <AdjustBidModal
+        visible={true}
+        onClose={jest.fn()}
+        bid={firstBid}
+        requestId="req-456"
+        cooldownCheck={true}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.queryByText(/Chờ \d+s để sửa tiếp/)).toBeNull();
+    const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
+    expect(submitBtn.props.accessibilityState?.disabled).toBe(false);
+  });
+
+  it('fetches bid detail when revisionsCount > 0 but revisions list is missing', () => {
+    const bidWithoutRevisions: BidDetail = {
+      ...mockBid,
+      revisionsCount: 1,
+      revisions: undefined,
+    };
+    mockBidDetailLoading = true;
+
+    render(
+      <AdjustBidModal
+        visible={true}
+        onClose={jest.fn()}
+        bid={bidWithoutRevisions}
+        requestId="req-456"
+        cooldownCheck={true}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByText('Đang tải lịch sử điều chỉnh...')).toBeTruthy();
+    const submitBtn = screen.getByTestId('submit-adjust-bid-btn');
+    expect(submitBtn.props.accessibilityState?.disabled).toBe(true);
+  });
+
+  it('shows error banner and allows retry when bid detail query fails', () => {
+    const bidWithoutRevisions: BidDetail = {
+      ...mockBid,
+      revisionsCount: 1,
+      revisions: undefined,
+    };
+    mockBidDetailError = true;
+
+    render(
+      <AdjustBidModal
+        visible={true}
+        onClose={jest.fn()}
+        bid={bidWithoutRevisions}
+        requestId="req-456"
+        cooldownCheck={true}
+      />,
+      { wrapper },
+    );
+
+    expect(screen.getByText('Không thể tải lịch sử điều chỉnh báo giá.')).toBeTruthy();
+    const retryBtn = screen.getByText('Thử lại');
+    expect(retryBtn).toBeTruthy();
+    fireEvent.press(retryBtn);
+    expect(mockRefetchBidDetail).toHaveBeenCalled();
   });
 });

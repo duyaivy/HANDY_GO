@@ -2,7 +2,7 @@ import type { ChatConversation } from './types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
-import { useMyBidForRequest } from '@/features/bidding/hooks/use-worker-bidding';
+import { useMyBidForRequest, useRoundStatus } from '@/features/bidding/hooks/use-worker-bidding';
 import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { fetchConversationBid, useConversationBid } from '@/features/candidates/hooks/use-conversation-bid';
 import { OrdersApi } from '@/features/orders/api/orders.api';
@@ -39,6 +39,25 @@ export function ChatDealBar({
   );
   const workerBidData = myBidQuery.data;
 
+  // Worker round status query
+  const roundStatusQuery = useRoundStatus(
+    conversation.requestId || '',
+    !hasOrder && isWorker && Boolean(conversation.requestId),
+  );
+  const roundStatus = roundStatusQuery.data;
+
+  // Fail-closed verification:
+  // Only enable adjust bid button if bidding round is open, not expired, and round status verified
+  const isRoundOpen = Boolean(
+    !roundStatusQuery.isLoading
+    && !roundStatusQuery.isError
+    && roundStatus
+    && roundStatus.status === 'open'
+    && !roundStatus.isExpired
+    && (!roundStatus.closesAt || new Date(roundStatus.closesAt).getTime() > Date.now()),
+  );
+  const canAdjustBid = Boolean(workerBidData && workerBidData.status === 'active' && isRoundOpen);
+
   // Customer candidates query
   const customerBidEnabled = !hasOrder && isCustomer && Boolean(conversation.requestId);
   const customerBidQuery = useConversationBid(
@@ -62,8 +81,9 @@ export function ChatDealBar({
   const { data: requestProposals } = useQuery({
     queryKey: ['orders', 'request-proposals', conversation.requestId],
     queryFn: async () => {
-      if (!conversation.requestId)
+      if (!conversation.requestId) {
         return [];
+      }
       const res = await OrdersApi.getProposalsForRequest(conversation.requestId);
       return res?.data || [];
     },
@@ -118,14 +138,24 @@ export function ChatDealBar({
             <Text style={{ fontSize: 15, fontWeight: '700', color: '#1E40AF' }}>
               {formatCurrency(workerBidData.amount)}
             </Text>
+            {!isRoundOpen && (
+              <Text style={{ fontSize: 11, color: '#DC2626', marginTop: 2 }}>
+                Phiên báo giá đã kết thúc hoặc không thể điều chỉnh
+              </Text>
+            )}
           </View>
           <Pressable
             testID="deal-bar-adjust-bid-btn"
             accessibilityRole="button"
             accessibilityLabel="Điều chỉnh giá báo"
-            onPress={() => setIsAdjustModalOpen(true)}
+            disabled={!canAdjustBid}
+            onPress={() => {
+              if (canAdjustBid) {
+                setIsAdjustModalOpen(true);
+              }
+            }}
             style={{
-              backgroundColor: '#2563EB',
+              backgroundColor: canAdjustBid ? '#2563EB' : '#94A3B8',
               paddingHorizontal: 14,
               paddingVertical: 8,
               borderRadius: 8,
@@ -157,11 +187,21 @@ export function ChatDealBar({
   if (isCustomer) {
     const workerBid = customerBidQuery.data;
 
-    const activeProposal = requestProposals?.find(
-      p => p.workerUserId === conversation.workerId && ['proposed', 'finalized'].includes(p.status),
+    const workerProposals = (requestProposals || []).filter(
+      p => p.workerUserId === conversation.workerId,
     );
 
-    if (activeProposal?.status === 'finalized') {
+    // Select latest revision by revisionNo descending, then createdAt descending
+    const latestProposal = workerProposals.length > 0
+      ? [...workerProposals].sort((a, b) => {
+          if (b.revisionNo !== a.revisionNo) {
+            return b.revisionNo - a.revisionNo;
+          }
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        })[0]
+      : null;
+
+    if (latestProposal?.status === 'finalized') {
       return (
         <View
           style={{
@@ -183,8 +223,8 @@ export function ChatDealBar({
       );
     }
 
-    if (activeProposal?.status === 'proposed') {
-      const agreedAmount = Number(activeProposal.agreedPrice) || workerBid?.amount || 0;
+    if (latestProposal?.status === 'proposed') {
+      const agreedAmount = Number(latestProposal.agreedPrice) || workerBid?.amount || 0;
       return (
         <View
           style={{
@@ -224,36 +264,48 @@ export function ChatDealBar({
       );
     }
 
-    if (workerBid && workerBid.status === 'active') {
+    const isChangesRequested = latestProposal?.status === 'changes_requested';
+    const supersedesProposalId = isChangesRequested ? latestProposal.id : undefined;
+
+    if (isChangesRequested || (workerBid && workerBid.status === 'active')) {
+      const displayAmount = workerBid?.amount ?? (Number(latestProposal?.agreedPrice) || 0);
+
       const handleSelectWorker = () => {
+        const confirmTitle = isChangesRequested ? 'Xác nhận gửi lại đề xuất' : 'Xác nhận chọn thợ';
+        const formattedAmount = formatCurrency(displayAmount);
+        const confirmMessage = isChangesRequested
+          ? `Bạn có đồng ý gửi lại đề xuất cho thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`
+          : `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`;
+
         Alert.alert(
-          'Xác nhận chọn thợ',
-          `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formatCurrency(
-            workerBid.amount,
-          )} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`,
+          confirmTitle,
+          confirmMessage,
           [
             { text: 'Hủy', style: 'cancel' },
             {
               text: 'Đồng ý',
               onPress: async () => {
-                if (selecting.current || !mounted.current)
+                if (selecting.current || !mounted.current) {
                   return;
+                }
                 selecting.current = true;
                 setIsSubmittingProposal(true);
                 const controller = new AbortController();
                 verification.current = controller;
                 try {
                   const currentBid = await fetchConversationBid(conversation.requestId, conversation.workerId, controller.signal);
-                  if (controller.signal.aborted)
+                  if (controller.signal.aborted) {
                     return;
+                  }
                   queryClient.setQueryData(candidateQueryKeys.conversationBid(conversation.requestId, conversation.workerId), currentBid);
                   if (!currentBid || currentBid.status !== 'active') {
                     Alert.alert('Báo giá không còn hiệu lực', 'Vui lòng tải lại và chọn báo giá còn hiệu lực.');
                     return;
                   }
-                  if (currentBid.isMasked || !Number.isFinite(currentBid.amount) || currentBid.amount < 1000)
+                  if (currentBid.isMasked || !Number.isFinite(currentBid.amount) || currentBid.amount < 1000) {
                     throw new Error('Báo giá không hợp lệ. Vui lòng tải lại.');
-                  if (currentBid.id !== workerBid.id || currentBid.amount !== workerBid.amount || currentBid.version !== workerBid.version) {
+                  }
+                  if (!workerBid || currentBid.id !== workerBid.id || currentBid.amount !== workerBid.amount || currentBid.version !== workerBid.version) {
                     Alert.alert('Báo giá đã thay đổi', `Mức giá hiện tại là ${formatCurrency(currentBid.amount)}. Vui lòng kiểm tra và chọn thợ lại để xác nhận.`);
                     return;
                   }
@@ -264,6 +316,7 @@ export function ChatDealBar({
                     sourceBidId: currentBid.sourceBidId || currentBid.id,
                     agreedPrice: currentBid.amount,
                     agreedScope: conversation.serviceName || 'Dịch vụ đã trao đổi',
+                    supersedesProposalId,
                   });
 
                   await queryClient.invalidateQueries({
@@ -274,19 +327,23 @@ export function ChatDealBar({
                   });
 
                   Alert.alert(
-                    'Đã gửi đề xuất',
-                    'Đề xuất đã được gửi thành công đến thợ. Vui lòng chờ thợ xác nhận nhận việc.',
+                    isChangesRequested ? 'Đã gửi lại đề xuất' : 'Đã gửi đề xuất',
+                    isChangesRequested
+                      ? 'Đề xuất sửa đổi đã được gửi thành công đến thợ. Vui lòng chờ thợ xác nhận nhận việc.'
+                      : 'Đề xuất đã được gửi thành công đến thợ. Vui lòng chờ thợ xác nhận nhận việc.',
                   );
 
-                  void onSendMessage?.(
-                    `Tôi đã gửi đề xuất chọn bạn với mức giá ${formatCurrency(
-                      currentBid.amount,
-                    )}. Vui lòng xác nhận đề xuất nhé!`,
-                  )?.catch?.(() => {});
+                  const formattedCurrentAmount = formatCurrency(currentBid.amount);
+                  const chatMsg = isChangesRequested
+                    ? `Tôi đã gửi lại đề xuất mới với mức giá ${formattedCurrentAmount}. Vui lòng xác nhận nhé!`
+                    : `Tôi đã gửi đề xuất chọn bạn với mức giá ${formattedCurrentAmount}. Vui lòng xác nhận đề xuất nhé!`;
+
+                  void onSendMessage?.(chatMsg)?.catch?.(() => {});
                 }
                 catch (err: any) {
-                  if (controller.signal.aborted)
+                  if (controller.signal.aborted) {
                     return;
+                  }
                   Alert.alert(
                     'Không thể gửi đề xuất',
                     err?.message || 'Có lỗi xảy ra khi gửi đề xuất chọn thợ.',
@@ -294,14 +351,78 @@ export function ChatDealBar({
                 }
                 finally {
                   selecting.current = false;
-                  if (!controller.signal.aborted)
+                  if (!controller.signal.aborted) {
                     setIsSubmittingProposal(false);
+                  }
                 }
               },
             },
           ],
         );
       };
+
+      const selectDisabled = isSubmittingProposal || customerBidQuery.isError || customerBidQuery.isFetching;
+
+      if (isChangesRequested) {
+        const responseNote = latestProposal?.responseNote?.trim();
+        return (
+          <View
+            style={{
+              backgroundColor: '#FFFBEB',
+              borderBottomWidth: 1,
+              borderBottomColor: '#FDE68A',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E' }}>
+                Thợ yêu cầu sửa đề xuất
+                {Boolean(responseNote) && (
+                  <Text style={{ fontWeight: '400' }}>
+                    {`: "${responseNote}"`}
+                  </Text>
+                )}
+              </Text>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: '#B45309', marginTop: 2 }}>
+                {`Giá báo: ${formatCurrency(displayAmount)}`}
+              </Text>
+            </View>
+            <Pressable
+              testID="deal-bar-select-worker-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Gửi lại đề xuất"
+              disabled={selectDisabled}
+              onPress={handleSelectWorker}
+              style={{
+                backgroundColor: selectDisabled ? '#94A3B8' : '#D97706',
+                paddingHorizontal: 14,
+                paddingVertical: 8,
+                borderRadius: 8,
+                minWidth: 100,
+                alignItems: 'center',
+              }}
+            >
+              {isSubmittingProposal
+                ? (
+                    <ActivityIndicator size="small" color="white" />
+                  )
+                : (
+                    <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
+                      Gửi lại đề xuất
+                    </Text>
+                  )}
+            </Pressable>
+          </View>
+        );
+      }
+
+      if (!workerBid) {
+        return null;
+      }
 
       return (
         <View
@@ -326,10 +447,10 @@ export function ChatDealBar({
             testID="deal-bar-select-worker-btn"
             accessibilityRole="button"
             accessibilityLabel="Chọn thợ này"
-            disabled={isSubmittingProposal || customerBidQuery.isError || customerBidQuery.isFetching}
+            disabled={selectDisabled}
             onPress={handleSelectWorker}
             style={{
-              backgroundColor: isSubmittingProposal ? '#94A3B8' : '#16A34A',
+              backgroundColor: selectDisabled ? '#94A3B8' : '#16A34A',
               paddingHorizontal: 14,
               paddingVertical: 8,
               borderRadius: 8,

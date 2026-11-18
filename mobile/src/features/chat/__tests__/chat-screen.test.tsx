@@ -260,3 +260,14 @@ it('renders empty chat placeholder right-side up without an inverted transform',
     }),
   );
 });
+
+it('ensures empty container receives inversion transform so placeholder displays right-side up in inverted FlatList', () => {
+  mockMessages = [];
+  render(<ChatScreen />);
+  const emptyContainer = screen.getByTestId('chat-empty-placeholder-container');
+  expect(emptyContainer.props.style).toEqual(
+    expect.objectContaining({
+      transform: [{ scaleY: -1 }],
+    }),
+  );
+});
