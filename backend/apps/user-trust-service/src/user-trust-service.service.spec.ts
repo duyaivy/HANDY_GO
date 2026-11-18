@@ -11,11 +11,15 @@ import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import { UserTrustServiceService } from './user-trust-service.service.js';
 import { CatalogClient } from './clients/catalog.client.js';
+import { OrderClient } from './clients/order.client.js';
+import { CloudinaryService } from '@app/cloudinary';
 
 describe('UserTrustServiceService', () => {
   let service: UserTrustServiceService;
   let dbMock: any;
   let catalogClientMock: any;
+  let orderClientMock: any;
+  let cloudinaryMock: any;
 
   beforeEach(async () => {
     dbMock = {
@@ -51,11 +55,18 @@ describe('UserTrustServiceService', () => {
         upsert: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       workerReview: {
         groupBy: vi.fn(),
         findMany: vi.fn(),
+        findUnique: vi.fn(),
+        create: vi.fn(),
         count: vi.fn(),
+        aggregate: vi.fn(),
+      },
+      outboxEvent: {
+        create: vi.fn(),
       },
       kycCase: {
         findUnique: vi.fn(),
@@ -93,11 +104,22 @@ describe('UserTrustServiceService', () => {
       getServices: vi.fn(),
     };
 
+    orderClientMock = {
+      getOrder: vi.fn(),
+    };
+
+    cloudinaryMock = {
+      uploadImage: vi.fn(),
+      createVideoUploadSignature: vi.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UserTrustServiceService,
         { provide: UserTrustPrismaService, useValue: dbMock },
         { provide: CatalogClient, useValue: catalogClientMock },
+        { provide: OrderClient, useValue: orderClientMock },
+        { provide: CloudinaryService, useValue: cloudinaryMock },
       ],
     }).compile();
 
@@ -902,6 +924,330 @@ describe('UserTrustServiceService', () => {
           },
         }),
       );
+    });
+
+    it('should return worker reviews when self-viewing with "me" and currentUserId', async () => {
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: validWorkerId,
+        userId: 'user-w1',
+        ratingCount: 1,
+        averageRating: 5,
+        user: { fullName: 'Thợ Giỏi', avatarUrl: 'https://avatar.png' },
+      });
+      dbMock.workerReview.groupBy.mockResolvedValue([
+        { rating: 5, _count: { rating: 1 } },
+      ]);
+      dbMock.workerReview.findMany.mockResolvedValue([
+        {
+          id: 'rev-1',
+          orderId: 'order-1',
+          rating: 5,
+          attitudeRating: 'good',
+          qualityRating: 'good',
+          speedRating: 'good',
+          comment: 'Rất tốt',
+          createdAt: new Date(),
+          customer: { id: 'c1', fullName: 'Khách A', avatarUrl: null },
+          media: [
+            {
+              id: 'med-1',
+              mediaType: 'image',
+              mediaUrl: 'https://img.jpg',
+              thumbnailUrl: null,
+              createdAt: new Date(),
+            },
+          ],
+        },
+      ]);
+      dbMock.workerReview.count.mockResolvedValue(1);
+
+      const result: any = await service.getWorkerReviews('me', {}, 'user-w1');
+      expect(result.statusCode).toBe(200);
+      expect(result.worker.fullName).toBe('Thợ Giỏi');
+      expect(result.stats.ratingDistribution[5]).toBe(1);
+      expect(result.data[0].media).toHaveLength(1);
+      expect(result.data[0].media[0].mediaUrl).toBe('https://img.jpg');
+    });
+
+    it('should throw BadRequestException if self-viewing "me" without currentUserId', async () => {
+      await expect(service.getWorkerReviews('me', {})).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('Order Reviews (Customer reviews worker)', () => {
+    const customerUserId = '00000000-0000-4000-8000-000000000001';
+    const workerUserId = '00000000-0000-4000-8000-000000000002';
+    const orderId = 'a0000000-0000-4000-8000-000000000001';
+
+    it('rejects createReview if orderId is missing', async () => {
+      await expect(
+        service.createReview(customerUserId, { rating: 5 }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects createReview if orderId is not a valid UUID', async () => {
+      await expect(
+        service.createReview(customerUserId, { rating: 5 }, 'invalid-id'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects createReview if order was already reviewed (ConflictException)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({ id: 'rev-existing', orderId });
+
+      await expect(
+        service.createReview(customerUserId, { rating: 5, orderId }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('rejects createReview if current user is not customer of the order (ForbiddenException)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        customerUserId: 'someone-else',
+        workerUserId,
+        status: 'completed',
+      });
+
+      await expect(
+        service.createReview(customerUserId, { rating: 5, orderId }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects createReview if order status is not completed (BadRequestException)', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        customerUserId,
+        workerUserId,
+        status: 'in_progress',
+      });
+
+      await expect(
+        service.createReview(customerUserId, { rating: 5, orderId }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects createReview if worker profile is not found', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        customerUserId,
+        workerUserId,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createReview(customerUserId, { rating: 5, orderId }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('successfully creates review with stars, comment, media and updates worker stats', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        customerUserId,
+        workerUserId,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        user: { id: workerUserId, fullName: 'Thợ Giỏi', avatarUrl: null },
+      });
+
+      const mockCreated = {
+        id: 'rev-new',
+        orderId,
+        customerUserId,
+        workerUserId,
+        rating: 5,
+        attitudeRating: 'good',
+        qualityRating: 'good',
+        speedRating: 'good',
+        comment: 'Dịch vụ rất tốt!',
+        status: 'published',
+        createdAt: new Date(),
+        customer: { id: customerUserId, fullName: 'Khách Hàng', avatarUrl: null },
+        worker: { id: workerUserId, fullName: 'Thợ Giỏi', avatarUrl: null },
+        media: [
+          {
+            id: 'med-1',
+            mediaType: 'image',
+            mediaUrl: 'https://cloudinary.com/img1.jpg',
+            thumbnailUrl: null,
+            createdAt: new Date(),
+          },
+        ],
+      };
+
+      dbMock.workerReview.create.mockResolvedValue(mockCreated);
+      dbMock.workerReview.aggregate.mockResolvedValue({
+        _avg: { rating: 4.8 },
+        _count: { rating: 10 },
+      });
+      dbMock.workerProfile.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.outboxEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+      const dto = {
+        rating: 5,
+        comment: 'Dịch vụ rất tốt!',
+        media: [
+          {
+            mediaType: 'image' as const,
+            mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img1.jpg',
+          },
+        ],
+      };
+
+      const result = await service.createReview(customerUserId, dto, orderId);
+
+      expect(result.statusCode).toBe(201);
+      expect(result.data.id).toBe('rev-new');
+      expect(result.data.rating).toBe(5);
+      expect(result.data.media).toHaveLength(1);
+      expect(dbMock.workerReview.create).toHaveBeenCalled();
+      expect(dbMock.workerProfile.updateMany).toHaveBeenCalledWith({
+        where: { userId: workerUserId },
+        data: {
+          ratingCount: 10,
+          averageRating: expect.any(Object),
+        },
+      });
+      expect(dbMock.outboxEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'review.created',
+          }),
+        }),
+      );
+    });
+
+    it('uploads multipart image files and appends them to review media', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+      orderClientMock.getOrder.mockResolvedValue({
+        orderId,
+        customerUserId,
+        workerUserId,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      });
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        user: { id: workerUserId, fullName: 'Thợ Giỏi', avatarUrl: null },
+      });
+
+      cloudinaryMock.uploadImage.mockResolvedValue({
+        url: 'https://cloudinary.com/uploaded.jpg',
+      });
+
+      dbMock.workerReview.create.mockImplementation(({ data }: any) => ({
+        id: 'rev-upload',
+        ...data,
+        customer: { id: customerUserId, fullName: 'Khách Hàng', avatarUrl: null },
+        worker: { id: workerUserId, fullName: 'Thợ Giỏi', avatarUrl: null },
+        media: [
+          {
+            id: 'med-upload',
+            mediaType: 'image',
+            mediaUrl: 'https://cloudinary.com/uploaded.jpg',
+            thumbnailUrl: null,
+            createdAt: new Date(),
+          },
+        ],
+      }));
+      dbMock.workerReview.aggregate.mockResolvedValue({
+        _avg: { rating: 5 },
+        _count: { rating: 1 },
+      });
+      dbMock.workerProfile.updateMany.mockResolvedValue({ count: 1 });
+      dbMock.outboxEvent.create.mockResolvedValue({ id: 'evt-1' });
+
+      const fakeFile = {
+        buffer: Buffer.from('fake image'),
+        originalname: 'img.jpg',
+        mimetype: 'image/jpeg',
+      } as Express.Multer.File;
+
+      const result = await service.createReview(
+        customerUserId,
+        { rating: 5, comment: 'Đẹp' },
+        orderId,
+        { images: [fakeFile] },
+      );
+
+      expect(result.statusCode).toBe(201);
+      expect(cloudinaryMock.uploadImage).toHaveBeenCalledWith(fakeFile);
+    });
+
+    it('getReviewByOrderId returns review if found', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        id: 'rev-1',
+        orderId,
+        rating: 5,
+        attitudeRating: 'good',
+        qualityRating: 'good',
+        speedRating: 'good',
+        comment: 'Great',
+        status: 'published',
+        createdAt: new Date(),
+        customer: { id: customerUserId, fullName: 'Khách', avatarUrl: null },
+        worker: { id: workerUserId, fullName: 'Thợ', avatarUrl: null },
+        media: [],
+      });
+
+      const result = await service.getReviewByOrderId(orderId);
+      expect(result.statusCode).toBe(200);
+      expect(result.data.orderId).toBe(orderId);
+    });
+
+    it('getReviewByOrderId throws NotFoundException if review does not exist', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue(null);
+
+      await expect(service.getReviewByOrderId(orderId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('getReviewById returns review if found', async () => {
+      dbMock.workerReview.findUnique.mockResolvedValue({
+        id: 'rev-1',
+        orderId,
+        rating: 5,
+        attitudeRating: 'good',
+        qualityRating: 'good',
+        speedRating: 'good',
+        comment: 'Great',
+        status: 'published',
+        createdAt: new Date(),
+        customer: { id: customerUserId, fullName: 'Khách', avatarUrl: null },
+        worker: { id: workerUserId, fullName: 'Thợ', avatarUrl: null },
+        media: [],
+      });
+
+      const result = await service.getReviewById('b0000000-0000-4000-8000-000000000001');
+      expect(result.statusCode).toBe(200);
+      expect(result.data.id).toBe('rev-1');
+    });
+
+    it('createReviewVideoSignature returns signature from cloudinaryService', async () => {
+      cloudinaryMock.createVideoUploadSignature.mockResolvedValue({
+        uploadUrl: 'https://api.cloudinary.com/...',
+        signature: 'sig123',
+      });
+
+      const result = await service.createReviewVideoSignature(customerUserId, {
+        fileName: 'review.mp4',
+        mimeType: 'video/mp4',
+      });
+
+      expect(result.statusCode).toBe(200);
+      expect(result.data.signature).toBe('sig123');
     });
   });
 

@@ -1,4 +1,5 @@
 import { Test, type TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserTrustServiceController } from './user-trust-service.controller.js';
 import { UserTrustServiceService } from './user-trust-service.service.js';
@@ -31,6 +32,10 @@ describe('UserTrustServiceController', () => {
       reviewServiceRegistration: vi.fn().mockResolvedValue({ statusCode: 200, data: { status: 'approved' } }),
       geocodeAddress: vi.fn().mockResolvedValue({ statusCode: 200, data: { latitude: 16.0544, longitude: 108.2022 } }),
       updateServiceOffering: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'offering-1', isActive: true } }),
+      createReview: vi.fn().mockResolvedValue({ statusCode: 201, data: { id: 'rev-1' } }),
+      getReviewByOrderId: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'rev-1' } }),
+      getReviewById: vi.fn().mockResolvedValue({ statusCode: 200, data: { id: 'rev-1' } }),
+      createReviewVideoSignature: vi.fn().mockResolvedValue({ statusCode: 200, data: { signature: 'sig' } }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -223,6 +228,127 @@ describe('UserTrustServiceController', () => {
     expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('worker-1', query);
   });
 
+  it('should call service.getWorkerReviews for getMyWorkerReviews with "me" and user.userId', async () => {
+    const mockWorkerUser = {
+      accountId: 'acc-w',
+      userId: 'user-w1',
+      sessionId: 'sess-w',
+      roles: [RegisterRole.WORKER],
+      permissions: ['profile:read'],
+    };
+    const query = { page: 1, limit: 10 };
+    await controller.getMyWorkerReviews(mockWorkerUser, query);
+    expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('me', query, 'user-w1');
+  });
+
+  it('should call service.getWorkerPublicProfile for getMyWorkerProfile with "me" and user.userId', async () => {
+    const mockWorkerUser = {
+      accountId: 'acc-w',
+      userId: 'user-w1',
+      sessionId: 'sess-w',
+      roles: [RegisterRole.WORKER],
+      permissions: ['profile:read'],
+    };
+    await controller.getMyWorkerProfile(mockWorkerUser);
+    expect(serviceMock.getWorkerPublicProfile).toHaveBeenCalledWith('me', 'user-w1');
+  });
+
+  it('should call service.getWorkerReviews for getWorkerReviewsAlias', async () => {
+    const query = { page: 1, limit: 10 };
+    await controller.getWorkerReviewsAlias('worker-1', query);
+    expect(serviceMock.getWorkerReviews).toHaveBeenCalledWith('worker-1', query);
+  });
+
+  describe('Order Reviews Controller Tests', () => {
+    const mockUser = {
+      accountId: 'acc-1',
+      userId: 'user-c1',
+      sessionId: 'sess-1',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:update', 'profile:read'],
+    };
+
+    it('createReview delegates to service with body and files', async () => {
+      const dto = { rating: 5, comment: 'Tốt' };
+      const res = await controller.createReview(mockUser, dto as any, undefined);
+      expect(res).toEqual({ statusCode: 201, data: { id: 'rev-1' } });
+      expect(serviceMock.createReview).toHaveBeenCalledWith(
+        'user-c1',
+        dto,
+        undefined,
+        undefined,
+      );
+    });
+
+    it('createOrderReview delegates to service with orderId parameter', async () => {
+      const dto = { rating: 5 };
+      const res = await controller.createOrderReview(
+        mockUser,
+        'a0000000-0000-4000-8000-000000000001',
+        dto as any,
+        undefined,
+      );
+      expect(res).toEqual({ statusCode: 201, data: { id: 'rev-1' } });
+      expect(serviceMock.createReview).toHaveBeenCalledWith(
+        'user-c1',
+        dto,
+        'a0000000-0000-4000-8000-000000000001',
+        undefined,
+      );
+    });
+
+    it('getReviewByOrderId delegates to service', async () => {
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getReviewByOrderId(mockUser, 'a0000000-0000-4000-8000-000000000001');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
+      expect(serviceMock.getReviewByOrderId).toHaveBeenCalledWith(
+        'a0000000-0000-4000-8000-000000000001',
+        mockUser,
+      );
+    });
+
+    it('getOrderReviewAlias delegates to service getReviewByOrderId', async () => {
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getOrderReviewAlias(mockUser, 'a0000000-0000-4000-8000-000000000001');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
+      expect(serviceMock.getReviewByOrderId).toHaveBeenCalledWith(
+        'a0000000-0000-4000-8000-000000000001',
+        mockUser,
+      );
+    });
+
+    it('getReviewById delegates to service', async () => {
+      const mockUser = { userId: 'user-c1', roles: ['customer'], permissions: ['profile:read'] } as any;
+      const res = await controller.getReviewById(mockUser, 'b0000000-0000-4000-8000-000000000001');
+      expect(res).toEqual({ statusCode: 200, data: { id: 'rev-1' } });
+      expect(serviceMock.getReviewById).toHaveBeenCalledWith(
+        'b0000000-0000-4000-8000-000000000001',
+        mockUser,
+      );
+    });
+
+    it('createReviewVideoSignature delegates to service', async () => {
+      const res = await controller.createReviewVideoSignature(mockUser, {
+        fileName: 'rev.mp4',
+        mimeType: 'video/mp4',
+      });
+      expect(res).toEqual({ statusCode: 200, data: { signature: 'sig' } });
+      expect(serviceMock.createReviewVideoSignature).toHaveBeenCalledWith('user-c1', {
+        fileName: 'rev.mp4',
+        mimeType: 'video/mp4',
+      });
+    });
+
+    it('createReviewVideoSignature throws BadRequestException if mimeType is not video', async () => {
+      await expect(
+        controller.createReviewVideoSignature(mockUser, {
+          fileName: 'rev.txt',
+          mimeType: 'text/plain',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('Worker Service Registration Controller Tests', () => {
     const mockUser = {
       accountId: 'acc-1',
@@ -306,7 +432,7 @@ describe('UserTrustServiceController', () => {
         permissions: ['profile:update'],
       };
       const dto = { isActive: false };
-      const res = await controller.updateServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001', dto);
+      await controller.updateServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001', dto);
       expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
         'user-w1',
         '00000000-0000-0000-0000-000000000001',
@@ -322,7 +448,7 @@ describe('UserTrustServiceController', () => {
         roles: ['worker'],
         permissions: ['profile:update'],
       };
-      const res = await controller.toggleServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001');
+      await controller.toggleServiceOffering(workerUser, '00000000-0000-0000-0000-000000000001');
       expect(serviceMock.updateServiceOffering).toHaveBeenCalledWith(
         'user-w1',
         '00000000-0000-0000-0000-000000000001',

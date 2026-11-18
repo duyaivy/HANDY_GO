@@ -196,12 +196,26 @@ export class CloudinaryService {
 
     const uploadId = crypto.randomUUID();
     const folder =
-      dto.intent === 'chat' ? '' : this.configService.cloudinaryVideoFolder;
+      dto.intent === 'chat'
+        ? ''
+        : dto.intent === 'review' && chatOwnerId
+          ? `handy-go/reviews/videos/${chatOwnerId}`
+          : this.configService.cloudinaryVideoFolder;
     const publicId =
       dto.intent === 'chat'
         ? `handy-go/chat/videos/${crypto.randomUUID()}`
-        : `${folder}/${crypto.randomUUID()}`;
+        : dto.intent === 'review' && chatOwnerId
+          ? `${folder}/${crypto.randomUUID()}`
+          : `${folder}/${crypto.randomUUID()}`;
     const timestamp = Math.floor(Date.now() / 1000);
+
+    const uploadReceipt =
+      chatOwnerId && (dto.intent === 'review' || !dto.intent)
+        ? crypto
+            .createHmac('sha256', apiSecret)
+            .update(`${chatOwnerId}:${publicId}`)
+            .digest('hex')
+        : undefined;
 
     const privateOptions =
       dto.intent === 'chat'
@@ -240,7 +254,29 @@ export class CloudinaryService {
       resourceType: 'video',
       uploadUrl,
       chunkSize,
+      uploadReceipt,
     };
+  }
+
+  /** Xác thực media review: kiểm tra hash receipt hoặc publicId gắn đúng ownerId */
+  async verifyReviewMedia(input: {
+    publicId: string;
+    ownerId: string;
+    mediaType: 'image' | 'video';
+    uploadReceipt?: string;
+  }): Promise<boolean> {
+    const secret = this.configService.cloudinaryApiSecret;
+    if (input.uploadReceipt && secret) {
+      const expectedReceipt = crypto
+        .createHmac('sha256', secret)
+        .update(`${input.ownerId}:${input.publicId}`)
+        .digest('hex');
+      if (input.uploadReceipt !== expectedReceipt) {
+        return false;
+      }
+      return true;
+    }
+    return input.publicId.includes(input.ownerId);
   }
   private chatContext(
     ownerId: string,

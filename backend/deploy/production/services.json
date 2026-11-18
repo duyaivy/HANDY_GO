@@ -81,7 +81,8 @@
         "api-gateway",
         "bidding-service",
         "message-service",
-        "payment-service"
+        "payment-service",
+        "user-trust-service"
       ],
       "wireguard_http": true
     },
