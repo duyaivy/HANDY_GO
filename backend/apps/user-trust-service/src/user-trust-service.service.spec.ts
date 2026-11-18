@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
@@ -108,7 +109,9 @@ describe('UserTrustServiceService', () => {
       getOrder: vi.fn(),
     };
 
+    const verifier = new CloudinaryService({} as any, { cloudinaryApiSecret: 'test-secret' } as any);
     cloudinaryMock = {
+      verifyReviewMedia: verifier.verifyReviewMedia.bind(verifier),
       uploadImage: vi.fn(),
       createVideoUploadSignature: vi.fn(),
     };
@@ -1100,6 +1103,7 @@ describe('UserTrustServiceService', () => {
           {
             mediaType: 'image' as const,
             mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img1.jpg',
+            uploadReceipt: crypto.createHmac('sha256', 'test-secret').update(`${customerUserId}:image:img1`).digest('hex'),
           },
         ],
       };

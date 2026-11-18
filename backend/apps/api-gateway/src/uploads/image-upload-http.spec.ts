@@ -84,7 +84,11 @@ describe('image multipart admission', () => {
         contentType: 'image/png',
       });
     expect(response.status).toBe(200);
-    expect(media.uploadImage).toHaveBeenCalledTimes(1);
+    expect(media.uploadImage).toHaveBeenCalledWith(
+      expect.objectContaining({ mimetype: 'image/png' }),
+      undefined,
+      '11111111-1111-4111-8111-111111111111',
+    );
   });
   it.each([true, false])(
     'accepts chat uploads with intent first=%s',

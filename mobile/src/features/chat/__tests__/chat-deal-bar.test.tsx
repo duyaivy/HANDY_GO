@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
 import { Alert } from 'react-native';
+import { CandidatesApi } from '@/features/candidates/api/candidates.api';
+import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ChatDealBar } from '../chat-deal-bar';
 
@@ -32,12 +34,11 @@ jest.mock('@/features/bidding/hooks/use-worker-bidding', () => ({
 }));
 
 let mockCandidatesBids: any[] = [];
-jest.mock('@/features/candidates/hooks/use-candidates', () => ({
-  useCandidates: () => ({
-    bids: mockCandidatesBids,
-    isLoading: false,
-  }),
+
+jest.mock('@/features/candidates/api/candidates.api', () => ({
+  CandidatesApi: { getCandidatesData: jest.fn() },
 }));
+jest.mock('@/services/sse/use-bidding-events', () => ({ useBiddingEvents: jest.fn() }));
 
 jest.mock('@/features/orders/api/orders.api', () => ({
   OrdersApi: {
@@ -65,9 +66,9 @@ const mockConversation: ChatConversation = {
 };
 
 let queryClient: QueryClient;
-const wrapper = ({ children }: { children: React.ReactNode }) => (
-  <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-);
+function wrapper({ children }: { children: React.ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 describe('ChatDealBar', () => {
   beforeEach(() => {
@@ -83,6 +84,13 @@ describe('ChatDealBar', () => {
         status: 'active',
       },
     ];
+    jest.mocked(CandidatesApi.getCandidatesData).mockImplementation(async () => ({
+      requestId: 'req-001',
+      requestStatus: 'open_for_bidding',
+      bidding: { status: 'open', total: mockCandidatesBids.length, page: 1, limit: 20, items: mockCandidatesBids },
+      matching: { status: 'completed', displayLimit: 5, recommendations: [] },
+      partial: false,
+    }));
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -136,7 +144,7 @@ describe('ChatDealBar', () => {
         { wrapper },
       );
 
-      expect(screen.getByText(/Báo giá thợ:/)).toBeTruthy();
+      expect(await screen.findByText(/Báo giá thợ:/)).toBeTruthy();
       expect(screen.getByText(/250\.000/)).toBeTruthy();
       expect(screen.getByTestId('deal-bar-select-worker-btn')).toBeTruthy();
       expect(screen.queryByTestId('deal-bar-adjust-bid-btn')).toBeNull();
@@ -159,7 +167,9 @@ describe('ChatDealBar', () => {
         { wrapper },
       );
 
+      expect(await screen.findByTestId('deal-bar-select-worker-btn')).toBeTruthy();
       fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+      await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
       expect(Alert.alert).toHaveBeenCalledWith(
         'Xác nhận chọn thợ',
         expect.stringContaining('250.000'),
@@ -209,5 +219,74 @@ describe('ChatDealBar', () => {
       });
       expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull();
     });
+  });
+
+  it('refreshes the displayed quote when bidding data is invalidated', async () => {
+    render(<ChatDealBar conversation={mockConversation} userId="customer-1" />, { wrapper });
+    expect(await screen.findByText('250.000 đ')).toBeTruthy();
+    mockCandidatesBids = [{ ...mockCandidatesBids[0], amount: 300000, version: 2 }];
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: candidateQueryKeys.byRequest('req-001') });
+    });
+    expect(await screen.findByText('300.000 đ')).toBeTruthy();
+  });
+
+  it('requires a new confirmation if the quote changes while the confirmation is open', async () => {
+    let confirm: (() => Promise<void>) | undefined;
+    jest.mocked(Alert.alert).mockImplementation((_title, _message, buttons) => {
+      confirm = buttons?.find(button => button.text === 'Đồng ý')?.onPress as typeof confirm;
+    });
+    render(<ChatDealBar conversation={mockConversation} userId="customer-1" />, { wrapper });
+    expect(await screen.findByTestId('deal-bar-select-worker-btn')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+    await waitFor(() => expect(confirm).toBeDefined());
+    mockCandidatesBids = [{ ...mockCandidatesBids[0], amount: 300000, version: 2 }];
+    await act(async () => {
+      await confirm?.();
+    });
+    expect(OrdersApi.createProposal).not.toHaveBeenCalled();
+    expect(Alert.alert).toHaveBeenLastCalledWith('Báo giá đã thay đổi', expect.stringContaining('300.000'));
+  });
+
+  it.each(['withdrawn', 'unavailable'])('does not submit stale quotes when bidding becomes %s', async (status) => {
+    let confirm: (() => Promise<void>) | undefined;
+    jest.mocked(Alert.alert).mockImplementation((_title, _message, buttons) => {
+      confirm = buttons?.find(button => button.text === 'Đồng ý')?.onPress as typeof confirm;
+    });
+    render(<ChatDealBar conversation={mockConversation} userId="customer-1" />, { wrapper });
+    expect(await screen.findByTestId('deal-bar-select-worker-btn')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+    await waitFor(() => expect(confirm).toBeDefined());
+    if (status === 'unavailable')
+      jest.mocked(CandidatesApi.getCandidatesData).mockRejectedValue(new Error('offline'));
+    else
+      mockCandidatesBids = [{ ...mockCandidatesBids[0], status }];
+    await act(async () => {
+      await confirm?.();
+    });
+    expect(OrdersApi.createProposal).not.toHaveBeenCalled();
+  });
+
+  it('does not create a proposal when the customer leaves during price verification', async () => {
+    let confirm: (() => Promise<void>) | undefined;
+    jest.mocked(Alert.alert).mockImplementation((_title, _message, buttons) => {
+      confirm = buttons?.find(button => button.text === 'Đồng ý')?.onPress as typeof confirm;
+    });
+    const view = render(<ChatDealBar conversation={mockConversation} userId="customer-1" />, { wrapper });
+    expect(await screen.findByTestId('deal-bar-select-worker-btn')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('deal-bar-select-worker-btn'));
+    jest.mocked(CandidatesApi.getCandidatesData).mockImplementation((_id, _params, signal) => new Promise((_resolve, reject) => {
+      signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    }));
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = confirm?.();
+    });
+    await waitFor(() => expect(CandidatesApi.getCandidatesData).toHaveBeenCalledTimes(2));
+    view.unmount();
+    await act(async () => {
+      await pending;
+    });
+    expect(OrdersApi.createProposal).not.toHaveBeenCalled();
   });
 });

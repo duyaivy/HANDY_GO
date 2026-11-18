@@ -4,8 +4,9 @@ import * as React from 'react';
 import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
 import { useMyBidForRequest } from '@/features/bidding/hooks/use-worker-bidding';
 import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
-import { useCandidates } from '@/features/candidates/hooks/use-candidates';
+import { fetchConversationBid, useConversationBid } from '@/features/candidates/hooks/use-conversation-bid';
 import { OrdersApi } from '@/features/orders/api/orders.api';
+import { useBiddingEvents } from '@/services/sse/use-bidding-events';
 import { AdjustBidModal } from './components/adjust-bid-modal';
 
 export type ChatDealBarProps = {
@@ -39,16 +40,30 @@ export function ChatDealBar({
   const workerBidData = myBidQuery.data;
 
   // Customer candidates query
-  const { bids: candidateBids } = useCandidates(
+  const customerBidEnabled = !hasOrder && isCustomer && Boolean(conversation.requestId);
+  const customerBidQuery = useConversationBid(
     conversation.requestId || '',
-    { enabled: !hasOrder && isCustomer && Boolean(conversation.requestId) },
+    conversation.workerId,
+    customerBidEnabled,
   );
+  useBiddingEvents(conversation.requestId, { enabled: customerBidEnabled });
+  const selecting = React.useRef(false);
+  const verification = React.useRef<AbortController | null>(null);
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      verification.current?.abort();
+    };
+  }, []);
 
   // Customer proposals query
   const { data: requestProposals } = useQuery({
     queryKey: ['orders', 'request-proposals', conversation.requestId],
     queryFn: async () => {
-      if (!conversation.requestId) return [];
+      if (!conversation.requestId)
+        return [];
       const res = await OrdersApi.getProposalsForRequest(conversation.requestId);
       return res?.data || [];
     },
@@ -140,9 +155,7 @@ export function ChatDealBar({
 
   // Customer view
   if (isCustomer) {
-    const workerBid = candidateBids.find(
-      b => b.workerUserId === conversation.workerId || b.workerId === conversation.workerId,
-    );
+    const workerBid = customerBidQuery.data;
 
     const activeProposal = requestProposals?.find(
       p => p.workerUserId === conversation.workerId && ['proposed', 'finalized'].includes(p.status),
@@ -187,7 +200,9 @@ export function ChatDealBar({
         >
           <View>
             <Text style={{ fontSize: 12, color: '#92400E' }}>
-              Đã gửi đề xuất: <Text style={{ fontWeight: '700' }}>{formatCurrency(agreedAmount)}</Text>
+              Đã gửi đề xuất:
+              {' '}
+              <Text style={{ fontWeight: '700' }}>{formatCurrency(agreedAmount)}</Text>
             </Text>
             <Text style={{ fontSize: 11, color: '#B45309', marginTop: 1 }}>
               Đang chờ thợ xác nhận nhận việc
@@ -221,14 +236,33 @@ export function ChatDealBar({
             {
               text: 'Đồng ý',
               onPress: async () => {
+                if (selecting.current || !mounted.current)
+                  return;
+                selecting.current = true;
                 setIsSubmittingProposal(true);
+                const controller = new AbortController();
+                verification.current = controller;
                 try {
+                  const currentBid = await fetchConversationBid(conversation.requestId, conversation.workerId, controller.signal);
+                  if (controller.signal.aborted)
+                    return;
+                  queryClient.setQueryData(candidateQueryKeys.conversationBid(conversation.requestId, conversation.workerId), currentBid);
+                  if (!currentBid || currentBid.status !== 'active') {
+                    Alert.alert('Báo giá không còn hiệu lực', 'Vui lòng tải lại và chọn báo giá còn hiệu lực.');
+                    return;
+                  }
+                  if (currentBid.isMasked || !Number.isFinite(currentBid.amount) || currentBid.amount < 1000)
+                    throw new Error('Báo giá không hợp lệ. Vui lòng tải lại.');
+                  if (currentBid.id !== workerBid.id || currentBid.amount !== workerBid.amount || currentBid.version !== workerBid.version) {
+                    Alert.alert('Báo giá đã thay đổi', `Mức giá hiện tại là ${formatCurrency(currentBid.amount)}. Vui lòng kiểm tra và chọn thợ lại để xác nhận.`);
+                    return;
+                  }
                   await OrdersApi.createProposal({
                     serviceRequestId: conversation.requestId,
-                    workerUserId: workerBid.workerUserId || conversation.workerId,
+                    workerUserId: currentBid.workerUserId || conversation.workerId,
                     selectionSource: 'bid',
-                    sourceBidId: workerBid.sourceBidId || workerBid.id,
-                    agreedPrice: workerBid.amount,
+                    sourceBidId: currentBid.sourceBidId || currentBid.id,
+                    agreedPrice: currentBid.amount,
                     agreedScope: conversation.serviceName || 'Dịch vụ đã trao đổi',
                   });
 
@@ -246,16 +280,22 @@ export function ChatDealBar({
 
                   void onSendMessage?.(
                     `Tôi đã gửi đề xuất chọn bạn với mức giá ${formatCurrency(
-                      workerBid.amount,
+                      currentBid.amount,
                     )}. Vui lòng xác nhận đề xuất nhé!`,
                   )?.catch?.(() => {});
-                } catch (err: any) {
+                }
+                catch (err: any) {
+                  if (controller.signal.aborted)
+                    return;
                   Alert.alert(
                     'Không thể gửi đề xuất',
                     err?.message || 'Có lỗi xảy ra khi gửi đề xuất chọn thợ.',
                   );
-                } finally {
-                  setIsSubmittingProposal(false);
+                }
+                finally {
+                  selecting.current = false;
+                  if (!controller.signal.aborted)
+                    setIsSubmittingProposal(false);
                 }
               },
             },
@@ -286,7 +326,7 @@ export function ChatDealBar({
             testID="deal-bar-select-worker-btn"
             accessibilityRole="button"
             accessibilityLabel="Chọn thợ này"
-            disabled={isSubmittingProposal}
+            disabled={isSubmittingProposal || customerBidQuery.isError || customerBidQuery.isFetching}
             onPress={handleSelectWorker}
             style={{
               backgroundColor: isSubmittingProposal ? '#94A3B8' : '#16A34A',
@@ -297,13 +337,15 @@ export function ChatDealBar({
               alignItems: 'center',
             }}
           >
-            {isSubmittingProposal ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
-                Chọn thợ này
-              </Text>
-            )}
+            {isSubmittingProposal
+              ? (
+                  <ActivityIndicator size="small" color="white" />
+                )
+              : (
+                  <Text style={{ color: 'white', fontSize: 13, fontWeight: '600' }}>
+                    Chọn thợ này
+                  </Text>
+                )}
           </Pressable>
         </View>
       );
