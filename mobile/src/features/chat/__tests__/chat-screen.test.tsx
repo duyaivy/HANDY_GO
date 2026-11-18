@@ -8,8 +8,13 @@ import { ChatScreen } from '../chat-screen';
 const mockHeader = jest.fn();
 const mockSend = jest.fn();
 const mockType = jest.fn();
+const mockDetailRefetch = jest.fn();
+const mockHistoryRefetch = jest.fn();
+const mockChatRefresh = jest.fn();
 let mockConnected = true;
 let mockCustomer = false;
+let mockChatError = false;
+let mockChatPending = false;
 let mockMessages: ChatMessage[] = [];
 jest.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 jest.mock('@react-navigation/elements', () => ({ useHeaderHeight: () => 72 }));
@@ -31,21 +36,32 @@ jest.mock('@/stores/use-auth-store', () => ({
 }));
 jest.mock('../use-chat', () => ({
   useChat: () => ({
-    detail: { data: { customerId: 'customer', workerId: 'worker', customerName: 'Nguyễn Thị Mai', workerName: 'Trần Văn An', serviceName: 'Sửa máy lạnh', requestId: 'raw-request-id', permissions: { send: true }, readStates: [] }, refetch: jest.fn() },
-    history: { data: { items: mockMessages }, refetch: jest.fn() },
+    detail: {
+      data: { customerId: 'customer', workerId: 'worker', customerName: 'Nguyễn Thị Mai', workerName: 'Trần Văn An', serviceName: 'Sửa máy lạnh', requestId: 'raw-request-id', permissions: { send: true }, readStates: [] },
+      refetch: mockDetailRefetch,
+      isError: mockChatError,
+    },
+    history: {
+      data: { items: mockMessages },
+      refetch: mockHistoryRefetch,
+      isError: false,
+      isPending: mockChatPending,
+    },
     connected: mockConnected,
     send: mockSend,
     type: mockType,
     stopTyping: jest.fn(),
+    refresh: mockChatRefresh,
+    syncError: false,
   }),
 }));
 jest.mock('../chat-media', () => ({ uploadChatMedia: jest.fn() }));
 jest.mock('../chat-deal-bar', () => ({
-  ChatDealBar: ({ conversation, userId }: any) => {
+  ChatDealBar: ({ _conversation, userId }: any) => {
     const { Text, View } = require('react-native');
     return (
       <View testID="mock-chat-deal-bar">
-        <Text>DealBar: {userId}</Text>
+        <Text>{`DealBar: ${userId}`}</Text>
       </View>
     );
   },
@@ -59,7 +75,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCustomer = false;
   mockConnected = true;
+  mockChatError = false;
+  mockChatPending = false;
   mockMessages = [];
+  mockDetailRefetch.mockResolvedValue({});
+  mockHistoryRefetch.mockResolvedValue({});
+  mockChatRefresh.mockResolvedValue({});
   Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
@@ -191,3 +212,51 @@ it('renders ChatDealBar negotiation banner when conversation data is available',
   expect(screen.getByText('DealBar: worker')).toBeTruthy();
 });
 
+it('renders error banner above chat messages (below deal bar), not inside service title container', async () => {
+  mockChatError = true;
+  render(<ChatScreen />);
+
+  const errorBanner = screen.getByTestId('chat-error-banner');
+  expect(errorBanner).toBeTruthy();
+  expect(screen.getByText('Không tải được trò chuyện. Chạm để thử lại.')).toBeTruthy();
+
+  fireEvent.press(errorBanner);
+  await waitFor(() => {
+    expect(mockDetailRefetch).toHaveBeenCalled();
+    expect(mockHistoryRefetch).toHaveBeenCalled();
+    expect(mockChatRefresh).toHaveBeenCalled();
+  });
+});
+
+it('supports pull-to-refresh to reload chat and conversation details', async () => {
+  render(<ChatScreen />);
+
+  const flatList = screen.getByTestId('chat-messages-list');
+  expect(flatList.props.refreshControl).toBeDefined();
+
+  fireEvent(flatList, 'onRefresh');
+  await waitFor(() => {
+    expect(mockDetailRefetch).toHaveBeenCalled();
+    expect(mockHistoryRefetch).toHaveBeenCalled();
+    expect(mockChatRefresh).toHaveBeenCalled();
+  });
+});
+
+it('supports downward swipe gesture to refresh conversation', async () => {
+  render(<ChatScreen />);
+  const container = screen.getByTestId('chat-messages-container');
+  expect(container.props.onMoveShouldSetResponder).toBeDefined();
+  expect(container.props.onResponderRelease).toBeDefined();
+});
+
+it('renders empty chat placeholder right-side up without an inverted transform', () => {
+  mockMessages = [];
+  render(<ChatScreen />);
+  const emptyText = screen.getByText('Hãy bắt đầu trao đổi về yêu cầu dịch vụ.');
+  expect(emptyText).toBeTruthy();
+  expect(emptyText.props.style).not.toEqual(
+    expect.objectContaining({
+      transform: [{ scaleY: -1 }],
+    }),
+  );
+});
