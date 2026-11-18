@@ -1,3 +1,5 @@
+import PaymentManagement from "@/feature/payments/components/payment-management";
+
 export default function PaymentPage() {
-  return <h1>Quản lý thanh toán</h1>;
+  return <PaymentManagement />;
 }
