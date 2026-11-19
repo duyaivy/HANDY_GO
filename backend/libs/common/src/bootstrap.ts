@@ -31,7 +31,9 @@ export async function bootstrapApplication(
   rootModule: Type<unknown>,
   optionsOrSetup?: BootstrapOptions | SetupAppCallback,
 ): Promise<void> {
-  const app = await NestFactory.create(rootModule, { bufferLogs: true });
+  const app = await NestFactory.create(rootModule, {
+    bufferLogs: true,
+  });
   const config = app.get(ConfigService);
   const logger = app.get(Logger);
 
@@ -101,6 +103,11 @@ export async function bootstrapApplication(
     ],
   });
 
+  // Configure middleware before Nest installs its default body parsers at init.
+  if (typeof optionsOrSetup === 'object' && optionsOrSetup.configure) {
+    await optionsOrSetup.configure(app);
+  }
+
   const hasCustomSetup =
     typeof optionsOrSetup === 'function' ||
     (typeof optionsOrSetup === 'object' && optionsOrSetup?.setupApp != null);
@@ -131,7 +138,10 @@ export async function bootstrapApplication(
   await app.listen(config.port);
   logger.log(`${config.serviceName} listening on port ${config.port}`);
 
-  if (typeof optionsOrSetup === 'object' && optionsOrSetup?.connectMicroservices) {
+  if (
+    typeof optionsOrSetup === 'object' &&
+    optionsOrSetup?.connectMicroservices
+  ) {
     app
       .startAllMicroservices()
       .then(() => {

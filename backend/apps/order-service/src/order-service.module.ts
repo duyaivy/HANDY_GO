@@ -12,6 +12,7 @@ import { BookingProposalsModule } from './booking-proposals/booking-proposals.mo
 import { OrdersModule } from './orders/orders.module.js';
 import { InternalOrderModule } from './internal/internal.module.js';
 import { PaymentEventsConsumer } from './consumers/payment-events.consumer.js';
+import { DashboardModule } from './dashboard/dashboard.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { PaymentEventsConsumer } from './consumers/payment-events.consumer.js';
     BookingProposalsModule,
     OrdersModule,
     InternalOrderModule,
+    DashboardModule,
   ],
   controllers: [OrderServiceController, PaymentEventsConsumer],
   providers: [OrderServiceService],

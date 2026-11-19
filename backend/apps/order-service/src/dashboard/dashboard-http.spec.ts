@@ -1,0 +1,287 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import supertest from 'supertest';
+import { ConfigService } from '@app/config';
+import { AdminGuard } from '../common/guards/admin.guard.js';
+import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
+import { DashboardController } from './dashboard.controller.js';
+import { DashboardService } from './dashboard.service.js';
+
+describe('dashboard HTTP contract', () => {
+  let app: INestApplication;
+  const expectedData = {
+    revenue: { total: 0, currency: 'VND' },
+    orders: { total: 0 },
+    workers: { activeInPeriod: 0 },
+    customers: { totalCumulative: 0 },
+  };
+  const overview = vi.fn().mockResolvedValue(expectedData);
+  const trendData = {
+    granularity: 'day',
+    timeline: [{ bucket: '2026-11-15', orderCount: 0 }],
+  };
+  const orderTrend = vi.fn().mockResolvedValue(trendData);
+  const statusData = {
+    totalOrders: 0,
+    groups: {
+      completed: { count: 0, percentage: 0 },
+      processing: { count: 0, percentage: 0 },
+      cancelled: { count: 0, percentage: 0 },
+      disputed: { count: 0, percentage: 0 },
+    },
+    performance: { completionRate: 0, cancellationRate: 0 },
+  };
+  const orderStatus = vi.fn().mockResolvedValue(statusData);
+  const topWorkerData = [
+    {
+      workerUserId: '00000000-0000-4000-8000-000000000001',
+      fullName: 'Nguyễn Văn An',
+      avatarUrl: null,
+      completedOrderCount: 3,
+      averageRating: 4.8,
+    },
+  ];
+  const topWorkers = vi.fn().mockResolvedValue(topWorkerData);
+  const topServiceData = [
+    {
+      serviceId: '00000000-0000-4000-8000-000000000001',
+      name: 'Vệ sinh nhà cửa',
+      iconUrl: null,
+      completedOrderCount: 3,
+    },
+  ];
+  const topServices = vi.fn().mockResolvedValue(topServiceData);
+  const userId = '11111111-1111-4111-8111-111111111111';
+
+  beforeAll(async () => {
+    const module = await Test.createTestingModule({
+      controllers: [DashboardController],
+      providers: [
+        TrustedGatewayGuard,
+        AdminGuard,
+        {
+          provide: ConfigService,
+          useValue: { internalServiceSecret: 'shared-secret' },
+        },
+        {
+          provide: DashboardService,
+          useValue: {
+            overview,
+            orderTrend,
+            orderStatus,
+            topWorkers,
+            topServices,
+          },
+        },
+      ],
+    }).compile();
+    app = module.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+    app.useGlobalPipes(
+      new ValidationPipe({ transform: true, whitelist: true }),
+    );
+    await app.init();
+  });
+
+  afterAll(async () => app?.close());
+
+  it('rejects calls without gateway secret or Admin role', async () => {
+    await supertest(app.getHttpServer())
+      .get('/api/v1/admin/dashboard/overview')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get('/api/v1/admin/dashboard/overview')
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+  });
+
+  it('returns the envelope for an Admin and rejects malformed custom dates', async () => {
+    const request = () =>
+      supertest(app.getHttpServer())
+        .get('/api/v1/admin/dashboard/overview')
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await request().expect(200);
+    expect(response.body.statusCode).toBe(200);
+    expect(response.body.message).toBe('Thao tác thành công');
+    expect(response.body.data).toEqual(expectedData);
+    await request()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+  });
+
+  it('protects order-trend and applies the shared query validation', async () => {
+    const path = '/api/v1/admin/dashboard/order-trend';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(trendData);
+    expect(orderTrend.mock.calls.at(-1)?.[1]).toBe('day');
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+  });
+
+  it('protects order-status and reuses the dashboard date filter', async () => {
+    const path = '/api/v1/admin/dashboard/order-status';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(statusData);
+    expect(orderStatus.mock.calls.at(-1)?.[0]).toMatchObject({
+      start: expect.any(Date),
+      endExclusive: expect.any(Date),
+    });
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
+      })
+      .expect(400);
+  });
+
+  it('protects top-workers and uses the shared period validation', async () => {
+    const path = '/api/v1/admin/dashboard/top-workers';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(topWorkerData);
+    expect(topWorkers.mock.calls.at(-1)?.[0]).toMatchObject({
+      start: expect.any(Date),
+      endExclusive: expect.any(Date),
+    });
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
+      })
+      .expect(400);
+  });
+
+  it('protects top-services and uses the shared Vietnam-time period filter', async () => {
+    const path = '/api/v1/admin/dashboard/top-services';
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'ADMIN')
+      .expect(403);
+    await supertest(app.getHttpServer())
+      .get(path)
+      .set('x-internal-secret', 'shared-secret')
+      .set('x-user-id', userId)
+      .set('x-user-roles', 'CUSTOMER')
+      .expect(403);
+
+    const admin = () =>
+      supertest(app.getHttpServer())
+        .get(path)
+        .set('x-internal-secret', 'shared-secret')
+        .set('x-user-id', userId)
+        .set('x-user-roles', 'ADMIN');
+    const response = await admin().query({ period: '7days' }).expect(200);
+    expect(response.body.data).toEqual(topServiceData);
+    expect(topServices.mock.calls.at(-1)?.[0]).toMatchObject({
+      start: expect.any(Date),
+      endExclusive: expect.any(Date),
+    });
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2026-02-30',
+        endDate: '2026-03-01',
+      })
+      .expect(400);
+    await admin()
+      .query({
+        period: 'custom',
+        startDate: '2025-01-01',
+        endDate: '2026-11-15',
+      })
+      .expect(400);
+  });
+});

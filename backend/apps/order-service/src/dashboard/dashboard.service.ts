@@ -1,0 +1,304 @@
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { ConfigService } from '@app/config';
+import { DASHBOARD_MAX_WORKER_CANDIDATES } from '@app/common';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
+import type { DashboardPeriod } from './dashboard-period.js';
+import {
+  buildOrderTrend,
+  type DashboardGranularity,
+  type OrderTrendRow,
+} from './dashboard-trend.js';
+import { buildOrderStatus } from './dashboard-status.js';
+
+interface DashboardWorkerCandidate {
+  workerUserId: string;
+  completedOrderCount: number;
+}
+
+export interface DashboardRankedWorker extends DashboardWorkerCandidate {
+  fullName: string;
+  avatarUrl: string | null;
+  averageRating: number | null;
+}
+
+@Injectable()
+export class DashboardService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  async overview(period: DashboardPeriod) {
+    const createdAt = { gte: period.start, lt: period.endExclusive };
+    const [revenue, orderCount, acceptedWorkers, quotedWorkers, customers] =
+      await Promise.all([
+        this.prisma.order.aggregate({
+          where: { status: 'completed', completedAt: createdAt },
+          _sum: { agreedPrice: true },
+        }),
+        this.prisma.order.count({ where: { createdAt } }),
+        this.prisma.order.groupBy({
+          by: ['workerUserId'],
+          where: { createdAt },
+        }),
+        this.internalGet<string[]>(
+          'BIDDING_SERVICE_URL',
+          'workers-with-bids',
+          period,
+        ),
+        this.internalGet<number>(
+          'AUTH_SERVICE_URL',
+          'registered-customers',
+          period,
+        ),
+      ]);
+
+    const workerIds = new Set<string>([
+      ...acceptedWorkers.map((row) => row.workerUserId),
+      ...quotedWorkers,
+    ]);
+    const total = revenue._sum.agreedPrice?.toNumber() ?? 0;
+    if (
+      !Number.isFinite(total) ||
+      !Number.isSafeInteger(Math.round(total * 100))
+    ) {
+      throw new ServiceUnavailableException(
+        'Dashboard revenue exceeds numeric response range',
+      );
+    }
+
+    return {
+      revenue: { total, currency: 'VND' as const },
+      orders: { total: orderCount },
+      workers: { activeInPeriod: workerIds.size },
+      customers: { totalCumulative: customers },
+    };
+  }
+
+  async orderTrend(period: DashboardPeriod, granularity: DashboardGranularity) {
+    const rows = await this.prisma.$queryRaw<OrderTrendRow[]>`
+      SELECT
+        date_trunc(${granularity}::text, created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')
+          AT TIME ZONE 'Asia/Ho_Chi_Minh' AS "bucketStart",
+        COUNT(*) AS "orderCount"
+      FROM order_service.orders
+      WHERE created_at >= ${period.start}
+        AND created_at < ${period.endExclusive}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    return buildOrderTrend(period, granularity, rows);
+  }
+
+  async orderStatus(period: DashboardPeriod) {
+    const rows = await this.prisma.order.groupBy({
+      by: ['status'],
+      where: { createdAt: { gte: period.start, lt: period.endExclusive } },
+      _count: { id: true },
+    });
+    return buildOrderStatus(rows);
+  }
+
+  async topWorkers(period: DashboardPeriod) {
+    // PostgreSQL discards lower counts before materializing results. WITH TIES
+    // retains every possible fifth-place winner for the current-rating sort.
+    const candidates = await this.prisma.$queryRaw<DashboardWorkerCandidate[]>`
+      SELECT * FROM (
+        SELECT worker_user_id AS "workerUserId", COUNT(*)::int AS "completedOrderCount"
+        FROM order_service.orders
+        WHERE status = 'completed'
+          AND completed_at >= ${period.start} AND completed_at < ${period.endExclusive}
+        GROUP BY worker_user_id
+        ORDER BY COUNT(*) DESC
+        FETCH FIRST 5 ROWS WITH TIES
+      ) candidates
+      LIMIT ${DASHBOARD_MAX_WORKER_CANDIDATES + 1}
+    `;
+    if (candidates.length > DASHBOARD_MAX_WORKER_CANDIDATES) {
+      throw new ServiceUnavailableException(
+        'Dashboard worker candidate limit exceeded; select a shorter period',
+      );
+    }
+    if (candidates.length === 0) return [];
+    return this.getRankedWorkers(candidates);
+  }
+
+  async topServices(period: DashboardPeriod) {
+    const rows = await this.prisma.order.groupBy({
+      by: ['serviceId'],
+      where: {
+        status: 'completed',
+        completedAt: { gte: period.start, lt: period.endExclusive },
+      },
+      _count: { id: true },
+      orderBy: [{ _count: { id: 'desc' } }, { serviceId: 'asc' }],
+      take: 5,
+    });
+    if (rows.length === 0) return [];
+
+    const summaries = await this.getServiceSummaries(
+      rows.map((row) => row.serviceId),
+    );
+    const byId = new Map(summaries.map((summary) => [summary.id, summary]));
+    return rows.map((row) => {
+      const summary = byId.get(row.serviceId);
+      return {
+        serviceId: row.serviceId,
+        name: summary?.name ?? 'Dịch vụ không còn hồ sơ',
+        iconUrl: summary?.iconUrl ?? null,
+        completedOrderCount: row._count.id,
+      };
+    });
+  }
+
+  private async getServiceSummaries(ids: string[]) {
+    const baseUrl = this.config.get('CATALOG_SERVICE_URL');
+    const secret = this.config.internalServiceSecret;
+    if (!baseUrl || !secret) {
+      throw new ServiceUnavailableException(
+        'CATALOG_SERVICE_URL is not configured',
+      );
+    }
+    try {
+      const url = new URL(
+        '/api/v1/internal/services/dashboard-summaries',
+        baseUrl,
+      );
+      url.searchParams.set('ids', ids.join(','));
+      const response = await fetch(url, {
+        headers: { [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+      const body = (await response.json()) as { data?: unknown };
+      const requested = new Set(ids);
+      if (
+        !Array.isArray(body.data) ||
+        !body.data.every(
+          (row): row is { id: string; name: string; iconUrl: string | null } =>
+            typeof row === 'object' &&
+            row !== null &&
+            typeof row.id === 'string' &&
+            requested.has(row.id) &&
+            typeof row.name === 'string' &&
+            (row.iconUrl === null || typeof row.iconUrl === 'string'),
+        ) ||
+        new Set(body.data.map((row) => row.id)).size !== body.data.length
+      ) {
+        throw new Error('Invalid service summary response');
+      }
+      return body.data;
+    } catch {
+      throw new ServiceUnavailableException(
+        'CATALOG_SERVICE_URL dashboard data unavailable',
+      );
+    }
+  }
+
+  private async getRankedWorkers(
+    candidates: DashboardWorkerCandidate[],
+  ): Promise<DashboardRankedWorker[]> {
+    const baseUrl = this.config.get('USER_TRUST_SERVICE_URL');
+    const secret = this.config.internalServiceSecret;
+    if (!baseUrl || !secret) {
+      throw new ServiceUnavailableException(
+        'USER_TRUST_SERVICE_URL is not configured',
+      );
+    }
+    try {
+      const url = new URL(
+        '/api/v1/internal/workers/dashboard-ranking',
+        baseUrl,
+      );
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ candidates }),
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+      const body = (await response.json()) as { data?: unknown };
+      const counts = new Map(
+        candidates.map((row) => [row.workerUserId, row.completedOrderCount]),
+      );
+      if (
+        !Array.isArray(body.data) ||
+        body.data.length !== Math.min(5, candidates.length) ||
+        new Set(body.data.map((row) => row?.workerUserId)).size !==
+          body.data.length ||
+        !body.data.every(
+          (row): row is DashboardRankedWorker =>
+            typeof row === 'object' &&
+            row !== null &&
+            typeof row.workerUserId === 'string' &&
+            counts.has(row.workerUserId) &&
+            row.completedOrderCount === counts.get(row.workerUserId) &&
+            typeof row.fullName === 'string' &&
+            (row.avatarUrl === null || typeof row.avatarUrl === 'string') &&
+            (row.averageRating === null ||
+              (typeof row.averageRating === 'number' &&
+                Number.isFinite(row.averageRating) &&
+                row.averageRating >= 0 &&
+                row.averageRating <= 5)),
+        )
+      ) {
+        throw new Error('Invalid worker summary response');
+      }
+      return body.data;
+    } catch {
+      throw new ServiceUnavailableException(
+        'USER_TRUST_SERVICE_URL dashboard data unavailable',
+      );
+    }
+  }
+
+  private async internalGet<T>(
+    envKey: 'BIDDING_SERVICE_URL' | 'AUTH_SERVICE_URL',
+    resource: string,
+    period: DashboardPeriod,
+  ): Promise<T> {
+    const baseUrl = this.config.get(envKey);
+    const secret = this.config.internalServiceSecret;
+    if (!baseUrl || !secret) {
+      throw new ServiceUnavailableException(`${envKey} is not configured`);
+    }
+    const url = new URL(
+      `/api/v1/internal/admin/dashboard/${resource}`,
+      baseUrl,
+    );
+    url.searchParams.set('start', period.start.toISOString());
+    url.searchParams.set('endExclusive', period.endExclusive.toISOString());
+    try {
+      const response = await fetch(url, {
+        headers: { [ORDER_CONSTANTS.HEADER_INTERNAL_SECRET]: secret },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Upstream returned ${response.status}`);
+      const body = (await response.json()) as { data?: T };
+      if (body.data === undefined)
+        throw new Error('Upstream response has no data');
+      if (
+        resource === 'registered-customers' &&
+        (!Number.isSafeInteger(body.data) || Number(body.data) < 0)
+      ) {
+        throw new Error('Invalid customer count');
+      }
+      if (
+        resource === 'workers-with-bids' &&
+        (!Array.isArray(body.data) ||
+          !body.data.every((id) => typeof id === 'string'))
+      ) {
+        throw new Error('Invalid worker IDs');
+      }
+      return body.data;
+    } catch {
+      throw new ServiceUnavailableException(
+        `${envKey} dashboard data unavailable`,
+      );
+    }
+  }
+}
