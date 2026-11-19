@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 concurrency:
   group: pr-ci-${{ github.event.pull_request.number }}
@@ -423,3 +427,42 @@ jobs:
             echo "CI Gate failed"
             exit 1
           fi
+
+  ai-review:
+    name: Owlet Lens AI Code Review
+    runs-on: ubuntu-latest
+    needs:
+      - ci-gate
+    if: >-
+      needs.ci-gate.result == 'success' &&
+      vars.AI_REVIEW_ENABLED != 'false' &&
+      !contains(github.event.pull_request.body, '[skip-ai-review]')
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Run Owlet Lens Review
+        uses: openwt-vn/owlet-lens@v1
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          subcommand: review
+          config-path: ai-review.config.yaml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          resolve-token: ${{ secrets.AI_REVIEW_RESOLVE_TOKEN }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          gemini-api-key: ${{ secrets.GEMINI_API_KEY }}
+          deepseek-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          modelstack-api-key: ${{ secrets.MODELSTACK_API_KEY }}
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          review-provider: ${{ vars.AI_REVIEW_LLM_PROVIDER }}
+          review-model: ${{ vars.AI_REVIEW_MODEL }}
+          reply-model: ${{ vars.AI_REVIEW_REPLY_MODEL }}
+          allowed-hosts: ${{ vars.AI_REVIEW_ALLOWED_HOSTS }}
+          strict: 'false'
+        continue-on-error: true

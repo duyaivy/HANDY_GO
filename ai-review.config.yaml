@@ -1,0 +1,40 @@
+# Owlet Lens Configuration for HANDY_GO Monorepo
+# Documentation: docs/ai-review/SETUP.md
+
+review:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  fallbackModels:
+    - gemini:gemini-2.5-pro
+    - deepseek:deepseek-chat
+  severityThreshold: medium
+  testFileSeverityThreshold: high
+  noiseCategories:
+    - style
+    - naming
+  skipGeneratedFiles: true
+  skipUnchanged: true
+  reflection: true
+  detectBreakingChanges: true
+  tokenBudget: 512000
+
+  # Context paths injected into LLM system prompt
+  codingStandardsPath: ./docs/ai-review/REVIEW_GUIDELINES.md
+  contextPaths:
+    - ./docs/ai-review/ARCHITECTURE.md
+    - ./docs/ai-review/SERVICE_BOUNDARIES.md
+    - ./docs/ai-review/BUSINESS_INVARIANTS.md
+    - ./docs/ai-review/EVENT_CONTRACTS.md
+    - ./docs/ai-review/SECURITY_RULES.md
+
+reply:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  fallbackModels:
+    - gemini:gemini-2.5-flash
+
+auth:
+  anthropicKey: ${ANTHROPIC_API_KEY}
+  geminiKey: ${GEMINI_API_KEY}
+  deepseekKey: ${DEEPSEEK_API_KEY}
+  openaiKey: ${OPENAI_API_KEY}
