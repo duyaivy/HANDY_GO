@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import pg from 'pg';
 import { DashboardService } from './dashboard.service.js';
+import { DASHBOARD_MAX_WORKER_CANDIDATES } from '@app/common';
 
 const databaseUrl =
   process.env.DATABASE_URL_ORDER ?? process.env.DATABASE_URL_USER_TRUST;
@@ -27,6 +28,45 @@ describe.skipIf(!databaseUrl)('dashboard worker candidates PostgreSQL', () => {
     await client?.end();
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it('loads at most one over the candidate limit and rejects an oversized tie before HTTP', async () => {
+    let loadedCount = 0;
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new DashboardService(
+      {
+        $queryRaw: async (
+          strings: TemplateStringsArray,
+          ...values: unknown[]
+        ) => {
+          const query = strings
+            .reduce((text, part, i) => text + (i ? `$${i}` : '') + part, '')
+            .replace('order_service.orders', 'orders');
+          const rows = (
+            await client.query(
+              `WITH orders AS (
+          SELECT ('00000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid AS worker_user_id,
+            'completed'::text AS status, $1::timestamptz AS completed_at
+          FROM generate_series(1, ${DASHBOARD_MAX_WORKER_CANDIDATES + 5}) i
+        ) ${query}`,
+              values,
+            )
+          ).rows;
+          loadedCount = rows.length;
+          return rows;
+        },
+      } as never,
+      {} as never,
+    );
+    await expect(
+      service.topWorkers({
+        start: new Date('2026-01-01'),
+        endExclusive: new Date('2026-01-02'),
+      }),
+    ).rejects.toThrow('candidate limit exceeded');
+    expect(loadedCount).toBe(DASHBOARD_MAX_WORKER_CANDIDATES + 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
   it('returns all fifth-place ties, prunes lower counts and filters completion time and status', async () => {
     const id = (i: number) =>
@@ -77,7 +117,7 @@ describe.skipIf(!databaseUrl)('dashboard worker candidates PostgreSQL', () => {
           const result = await client.query(
             `WITH orders AS (
           SELECT entry."workerId" AS worker_user_id, entry.status, entry."completedAt" AS completed_at
-          FROM jsonb_to_recordset($3::jsonb) AS entry("workerId" uuid, count integer, status text, "completedAt" timestamptz)
+          FROM jsonb_to_recordset($${values.length + 1}::jsonb) AS entry("workerId" uuid, count integer, status text, "completedAt" timestamptz)
           CROSS JOIN LATERAL generate_series(1, entry.count)
         ) ${query}`,
             [...values, JSON.stringify(fixtures)],

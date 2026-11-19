@@ -1,6 +1,7 @@
 export * from './common.module.js';
 export * from './common.service.js';
 export * from './bootstrap.js';
+export * from './dashboard-contracts.js';
 export * from './dto/api-response.dto.js';
 export * from './events/event-patterns.js';
 export * from './events/order-tracking-payloads.js';

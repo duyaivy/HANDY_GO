@@ -22,7 +22,9 @@ describe.skipIf(!process.env.DATABASE_URL_USER_TRUST)(
 
     const id = (i: number) =>
       `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
-    function setup(profiles: { userId: string; rating: number }[]) {
+    function setup(
+      profiles: { userId: string; rating: number; ratingCount?: number }[],
+    ) {
       return new WorkersService({
         schema: 'ranking_fixture',
         $queryRaw: async (query: Prisma.Sql) => {
@@ -31,7 +33,7 @@ describe.skipIf(!process.env.DATABASE_URL_USER_TRUST)(
               'WITH candidates AS (',
               `WITH
             profiles AS (SELECT * FROM jsonb_to_recordset($2::jsonb)
-              AS p(user_id uuid, average_rating numeric)),
+              AS p(user_id uuid, average_rating numeric, rating_count integer)),
             users AS (SELECT user_id AS id, 'Worker'::text AS full_name,
               NULL::text AS avatar_url FROM profiles),
             candidates AS (`,
@@ -44,6 +46,7 @@ describe.skipIf(!process.env.DATABASE_URL_USER_TRUST)(
               profiles.map((row) => ({
                 user_id: row.userId,
                 average_rating: row.rating,
+                rating_count: row.ratingCount ?? 1,
               })),
             ),
           ]);
@@ -112,6 +115,35 @@ describe.skipIf(!process.env.DATABASE_URL_USER_TRUST)(
         id(2),
         id(3),
       ]);
+    });
+
+    it('returns null for unrated profiles and ignores stale averages when breaking ties', async () => {
+      const service = setup([
+        { userId: id(1), rating: 5, ratingCount: 0 },
+        { userId: id(2), rating: 1, ratingCount: 3 },
+        { userId: id(4), rating: 0, ratingCount: 1 },
+      ]);
+      const rows = await service.rankDashboardWorkers(
+        [1, 2, 3, 4].map((i) => ({
+          workerUserId: id(i),
+          completedOrderCount: 2,
+        })),
+      );
+      expect(rows.map((row) => row.workerUserId)).toEqual([
+        id(2),
+        id(4),
+        id(1),
+        id(3),
+      ]);
+      expect(
+        rows.find((row) => row.workerUserId === id(1))?.averageRating,
+      ).toBeNull();
+      expect(rows.find((row) => row.workerUserId === id(1))?.fullName).toBe(
+        'Worker',
+      );
+      expect(
+        rows.find((row) => row.workerUserId === id(3))?.averageRating,
+      ).toBeNull();
     });
   },
 );

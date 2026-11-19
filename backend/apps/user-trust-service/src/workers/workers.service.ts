@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { UserTrustPrismaService } from '@app/database';
 import { Prisma } from '@prisma/user-trust-client';
 import type { DashboardWorkerCandidateDto } from './dto/dashboard-worker-ranking.dto.js';
+import { DASHBOARD_MAX_WORKER_CANDIDATES } from '@app/common';
 
 @Injectable()
 export class WorkersService {
@@ -35,6 +36,7 @@ export class WorkersService {
       select: {
         userId: true,
         averageRating: true,
+        ratingCount: true,
         user: { select: { fullName: true, avatarUrl: true } },
       },
     });
@@ -42,11 +44,17 @@ export class WorkersService {
       workerUserId: worker.userId,
       fullName: worker.user.fullName,
       avatarUrl: worker.user.avatarUrl,
-      averageRating: Number(worker.averageRating),
+      averageRating:
+        worker.ratingCount > 0 ? Number(worker.averageRating) : null,
     }));
   }
 
   async rankDashboardWorkers(candidates: DashboardWorkerCandidateDto[]) {
+    if (candidates.length > DASHBOARD_MAX_WORKER_CANDIDATES) {
+      throw new BadRequestException(
+        'Dashboard worker candidate limit exceeded',
+      );
+    }
     if (
       new Set(candidates.map((row) => row.workerUserId.toLowerCase())).size !==
       candidates.length
@@ -71,11 +79,12 @@ export class WorkersService {
       )
       SELECT c."workerUserId", c."completedOrderCount",
         COALESCE(u.full_name, 'Thợ không còn hồ sơ') AS "fullName",
-        u.avatar_url AS "avatarUrl", w.average_rating::float8 AS "averageRating"
+        u.avatar_url AS "avatarUrl",
+        CASE WHEN w.rating_count > 0 THEN w.average_rating::float8 ELSE NULL END AS "averageRating"
       FROM candidates c
       LEFT JOIN ${Prisma.raw(`${schema}."worker_profiles"`)} w ON w.user_id = c."workerUserId"
       LEFT JOIN ${Prisma.raw(`${schema}."users"`)} u ON u.id = w.user_id
-      ORDER BY c."completedOrderCount" DESC, w.average_rating DESC NULLS LAST,
+      ORDER BY c."completedOrderCount" DESC, "averageRating" DESC NULLS LAST,
         c."workerUserId" ASC
       LIMIT 5
     `);

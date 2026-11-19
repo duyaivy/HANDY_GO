@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@app/config';
+import { DASHBOARD_MAX_WORKER_CANDIDATES } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 import type { DashboardPeriod } from './dashboard-period.js';
@@ -103,14 +104,22 @@ export class DashboardService {
     // PostgreSQL discards lower counts before materializing results. WITH TIES
     // retains every possible fifth-place winner for the current-rating sort.
     const candidates = await this.prisma.$queryRaw<DashboardWorkerCandidate[]>`
-      SELECT worker_user_id AS "workerUserId", COUNT(*)::int AS "completedOrderCount"
-      FROM order_service.orders
-      WHERE status = 'completed'
-        AND completed_at >= ${period.start} AND completed_at < ${period.endExclusive}
-      GROUP BY worker_user_id
-      ORDER BY COUNT(*) DESC
-      FETCH FIRST 5 ROWS WITH TIES
+      SELECT * FROM (
+        SELECT worker_user_id AS "workerUserId", COUNT(*)::int AS "completedOrderCount"
+        FROM order_service.orders
+        WHERE status = 'completed'
+          AND completed_at >= ${period.start} AND completed_at < ${period.endExclusive}
+        GROUP BY worker_user_id
+        ORDER BY COUNT(*) DESC
+        FETCH FIRST 5 ROWS WITH TIES
+      ) candidates
+      LIMIT ${DASHBOARD_MAX_WORKER_CANDIDATES + 1}
     `;
+    if (candidates.length > DASHBOARD_MAX_WORKER_CANDIDATES) {
+      throw new ServiceUnavailableException(
+        'Dashboard worker candidate limit exceeded; select a shorter period',
+      );
+    }
     if (candidates.length === 0) return [];
     return this.getRankedWorkers(candidates);
   }

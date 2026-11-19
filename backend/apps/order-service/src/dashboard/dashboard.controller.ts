@@ -109,7 +109,7 @@ export class DashboardController {
     summary:
       'Top five workers by orders completed in the selected period (HG-74)',
     description:
-      'Counts completed orders by completedAt in Asia/Ho_Chi_Minh. Ties use the current WorkerProfile.averageRating, then workerUserId. Missing worker profiles retain their order count with a placeholder name and null rating.',
+      'Counts completed orders by completedAt in Asia/Ho_Chi_Minh. Ties use the current rating when ratingCount > 0, with null ratings last, then workerUserId. Missing profiles retain their count with a placeholder name. More than 10,000 candidates returns 503; select a shorter period.',
   })
   @ApiOkResponse({
     description: 'Up to five ranked workers, or an empty array',

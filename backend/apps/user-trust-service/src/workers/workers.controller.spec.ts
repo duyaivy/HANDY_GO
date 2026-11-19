@@ -1,5 +1,11 @@
 import { Test } from '@nestjs/testing';
-import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Post,
+  ValidationPipe,
+  type INestApplication,
+} from '@nestjs/common';
 import { ConfigService } from '@app/config';
 import { beforeAll, afterAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
@@ -7,6 +13,19 @@ import { WorkersController } from './workers.controller.js';
 import { WorkersService } from './workers.service.js';
 import { InternalServiceGuard } from '../common/guards/internal-service.guard.js';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import {
+  DASHBOARD_MAX_WORKER_CANDIDATES,
+  HttpExceptionFilter,
+} from '@app/common';
+import { configureDashboardRankingBodyParser } from './dashboard-ranking-body-parser.js';
+
+@Controller('internal/users')
+class OrdinaryBodyProbeController {
+  @Post('body-limit-probe')
+  accept(@Body() _body: unknown) {
+    return { accepted: true };
+  }
+}
 
 describe('Worker summaries HTTP contract', () => {
   let app: INestApplication;
@@ -14,7 +33,7 @@ describe('Worker summaries HTTP contract', () => {
   const rankDashboardWorkers = vi.fn().mockResolvedValue([]);
   beforeAll(async () => {
     const module = await Test.createTestingModule({
-      controllers: [WorkersController],
+      controllers: [WorkersController, OrdinaryBodyProbeController],
       providers: [
         InternalServiceGuard,
         {
@@ -41,8 +60,9 @@ describe('Worker summaries HTTP contract', () => {
       ],
     }).compile();
     const expressApp = module.createNestApplication<NestExpressApplication>();
-    expressApp.useBodyParser('json', { limit: '16mb' });
+    configureDashboardRankingBodyParser(expressApp, 'api/v1');
     app = expressApp;
+    app.useGlobalFilters(new HttpExceptionFilter());
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
       new ValidationPipe({ transform: true, whitelist: true }),
@@ -127,15 +147,81 @@ describe('Worker summaries HTTP contract', () => {
   });
 
   it('accepts a tied candidate set larger than the default JSON body limit', async () => {
-    const candidates = Array.from({ length: 10_000 }, (_, i) => ({
-      workerUserId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
-      completedOrderCount: 1,
-    }));
+    const candidates = Array.from(
+      { length: DASHBOARD_MAX_WORKER_CANDIDATES },
+      (_, i) => ({
+        workerUserId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        completedOrderCount: 1,
+      }),
+    );
     await request(app.getHttpServer())
       .post('/api/v1/internal/workers/dashboard-ranking')
       .set('x-internal-secret', 'test-secret')
       .send({ candidates })
       .expect(200);
     expect(rankDashboardWorkers.mock.calls.at(-1)?.[0]).toHaveLength(10_000);
+  });
+
+  it('rejects a candidate set over the limit before invoking the service', async () => {
+    rankDashboardWorkers.mockClear();
+    const candidates = Array.from(
+      { length: DASHBOARD_MAX_WORKER_CANDIDATES + 1 },
+      (_, i) => ({
+        workerUserId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+        completedOrderCount: 1,
+      }),
+    );
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/workers/dashboard-ranking')
+      .set('x-internal-secret', 'test-secret')
+      .send({ candidates })
+      .expect(400);
+    expect(rankDashboardWorkers).not.toHaveBeenCalled();
+  });
+
+  it('rejects ranking JSON over 1 MiB with 413 before invoking the service', async () => {
+    rankDashboardWorkers.mockClear();
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/workers/dashboard-ranking')
+      .set('x-internal-secret', 'test-secret')
+      .send({
+        candidates: [{ workerUserId: id, completedOrderCount: 1 }],
+        padding: 'x'.repeat(1024 * 1024),
+      })
+      .expect(413);
+    expect(rankDashboardWorkers).not.toHaveBeenCalled();
+  });
+
+  it('keeps the default 100 KiB JSON limit on ordinary APIs', async () => {
+    const path = '/api/v1/internal/users/body-limit-probe';
+    await request(app.getHttpServer())
+      .post(path)
+      .send({ value: 'small' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(path)
+      .send({ value: 'x'.repeat(110 * 1024) })
+      .expect(413);
+  });
+
+  it('recognizes query strings, case and trailing slash on the ranking route', async () => {
+    const candidates = Array.from({ length: 1500 }, (_, i) => ({
+      workerUserId: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      completedOrderCount: 1,
+    }));
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/workers/DASHBOARD-RANKING/?trace=1')
+      .set('x-internal-secret', 'test-secret')
+      .send({ candidates })
+      .expect(200);
+  });
+
+  it('preserves invalid-JSON errors through the body parser and shared exception filter', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/internal/workers/dashboard-ranking')
+      .set('content-type', 'application/json')
+      .set('x-internal-secret', 'test-secret')
+      .send('{"candidates":')
+      .expect(400);
   });
 });

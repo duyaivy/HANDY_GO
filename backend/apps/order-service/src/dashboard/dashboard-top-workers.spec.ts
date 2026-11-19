@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DashboardService } from './dashboard.service.js';
+import { DASHBOARD_MAX_WORKER_CANDIDATES } from '@app/common';
 
 const period = {
   start: new Date('2026-11-14T17:00:00Z'),
@@ -61,6 +62,7 @@ describe('dashboard top workers query', () => {
     expect(queryRaw.mock.calls[0].slice(1)).toEqual([
       period.start,
       period.endExclusive,
+      DASHBOARD_MAX_WORKER_CANDIDATES + 1,
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, options] = fetchMock.mock.calls[0];
@@ -96,6 +98,18 @@ describe('dashboard top workers query', () => {
   it('skips User Trust for an empty period', async () => {
     const { service, fetchMock } = setup([], []);
     expect(await service.topWorkers(period)).toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized tie sets instead of sending or truncating them', async () => {
+    const candidates = Array.from(
+      { length: DASHBOARD_MAX_WORKER_CANDIDATES + 1 },
+      (_, i) => candidate(i + 1),
+    );
+    const { service, fetchMock } = setup(candidates, []);
+    await expect(service.topWorkers(period)).rejects.toThrow(
+      'candidate limit exceeded',
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -5,7 +5,6 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@app/config';
 import { Logger } from 'nestjs-pino';
@@ -15,7 +14,6 @@ import { AppException, ERROR_CODES } from './errors/app-error.js';
 export interface BootstrapOptions {
   connectMicroservices?: (app: INestApplication) => void | Promise<void>;
   setupApp?: (app: INestApplication) => void | Promise<void>;
-  jsonBodyLimit?: string;
 }
 
 export type SetupAppCallback = (app: INestApplication) => Promise<void> | void;
@@ -33,12 +31,9 @@ export async function bootstrapApplication(
   rootModule: Type<unknown>,
   optionsOrSetup?: BootstrapOptions | SetupAppCallback,
 ): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(rootModule, {
+  const app = await NestFactory.create(rootModule, {
     bufferLogs: true,
   });
-  if (typeof optionsOrSetup === 'object' && optionsOrSetup.jsonBodyLimit) {
-    app.useBodyParser('json', { limit: optionsOrSetup.jsonBodyLimit });
-  }
   const config = app.get(ConfigService);
   const logger = app.get(Logger);
 
@@ -107,6 +102,11 @@ export async function bootstrapApplication(
       { path: 'dev/(.*)', method: RequestMethod.GET },
     ],
   });
+
+  // Configure middleware before Nest installs its default body parsers at init.
+  if (typeof optionsOrSetup === 'object' && optionsOrSetup.configure) {
+    await optionsOrSetup.configure(app);
+  }
 
   const hasCustomSetup =
     typeof optionsOrSetup === 'function' ||

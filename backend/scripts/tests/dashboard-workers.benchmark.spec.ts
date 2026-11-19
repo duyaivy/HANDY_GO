@@ -12,6 +12,7 @@ import { resolveDashboardPeriod } from '../../apps/order-service/src/dashboard/d
 import { WorkersService } from '../../apps/user-trust-service/src/workers/workers.service.js';
 import { WorkersController } from '../../apps/user-trust-service/src/workers/workers.controller.js';
 import { InternalServiceGuard } from '../../apps/user-trust-service/src/common/guards/internal-service.guard.js';
+import { configureDashboardRankingBodyParser } from '../../apps/user-trust-service/src/workers/dashboard-ranking-body-parser.js';
 
 const databaseUrl = process.env.DATABASE_URL_USER_TRUST;
 
@@ -40,7 +41,8 @@ describe.skipIf(!databaseUrl)('dashboard workers 365-day benchmark', () => {
               'WITH candidates AS (',
               `WITH
             profiles AS (SELECT ('00000000-0000-4000-8000-' || lpad(i::text, 12, '0'))::uuid AS user_id,
-              CASE WHEN i = 10000 THEN 4.9 ELSE 4.0 END AS average_rating FROM generate_series(1, 10000) i),
+              CASE WHEN i = 10000 THEN 4.9 ELSE 4.0 END AS average_rating,
+              1 AS rating_count FROM generate_series(1, 10000) i),
             users AS (SELECT user_id AS id, 'Worker'::text AS full_name, NULL::text AS avatar_url FROM profiles),
             candidates AS (`,
             )
@@ -61,7 +63,7 @@ describe.skipIf(!databaseUrl)('dashboard workers 365-day benchmark', () => {
         ],
       }).compile();
       app = module.createNestApplication<NestExpressApplication>();
-      app.useBodyParser('json', { limit: '16mb' });
+      configureDashboardRankingBodyParser(app, 'api/v1');
       app.setGlobalPrefix('api/v1');
       app.useGlobalPipes(
         new ValidationPipe({ transform: true, whitelist: true }),

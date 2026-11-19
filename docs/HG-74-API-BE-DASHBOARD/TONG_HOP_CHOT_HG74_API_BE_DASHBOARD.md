@@ -66,7 +66,7 @@ Thống kê các đơn được tạo trong khoảng lọc, phân nhóm theo **t
 
 - Chỉ tính đơn hoàn thành có `completedAt` trong khoảng lọc, nhóm theo thợ.
 - Xếp số đơn hoàn thành từ cao xuống thấp; nếu bằng nhau, thợ có điểm đánh giá trung bình cao hơn xếp trước.
-- Điểm đánh giá lấy từ điểm trung bình hiện tại trong hồ sơ thợ (`WorkerProfile.averageRating`), không tính lại theo kỳ lọc.
+- Điểm đánh giá lấy từ điểm trung bình hiện tại trong hồ sơ thợ (`WorkerProfile.averageRating`), không tính lại theo kỳ lọc. Khi `ratingCount = 0`, trả điểm `null` và xếp sau thợ có điểm khi số đơn bằng nhau.
 - Trả tối đa 5 thợ. Mỗi thợ gồm định danh, họ tên, ảnh đại diện nếu có, số đơn hoàn thành và điểm đánh giá trung bình. Không cần trả số lượt đánh giá.
 
 ### 3.5. Top 5 dịch vụ
