@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import { CloudinaryService } from '@app/cloudinary';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { UserTrustServiceService } from '../src/user-trust-service.service.js';
 import { UserTrustServiceController } from '../src/user-trust-service.controller.js';
@@ -10,6 +12,8 @@ describe('User Review Flow Test Suite (HG-68)', () => {
   const workerProfileId = '754f46bb-e7ca-4a9a-86be-79851fdf77b2';
   const orderId = '5db02c75-3712-48a2-9a98-ba84a0feb207';
 
+  const receipt = (publicId: string, mediaType = 'image') => crypto.createHmac('sha256', 'test-secret').update(`${customerUserId}:${mediaType}:${publicId}`).digest('hex');
+  const verifier = new CloudinaryService({} as any, { cloudinaryApiSecret: 'test-secret' } as any);
   let service: UserTrustServiceService;
   let controller: UserTrustServiceController;
   let dbMock: any;
@@ -49,6 +53,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
     };
 
     cloudinaryMock = {
+      verifyReviewMedia: verifier.verifyReviewMedia.bind(verifier),
       uploadImage: vi.fn(),
       createVideoUploadSignature: vi.fn().mockImplementation(async (dto: any, userId?: string) => ({
         uploadId: 'upload-uuid-1',
@@ -57,6 +62,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         timestamp: Math.floor(Date.now() / 1000),
         signature: 'fake-sig-12345',
         publicId: `handy-go/reviews/videos/${userId || 'default-user'}/video-uuid-1`,
+        uploadReceipt: receipt(`handy-go/reviews/videos/${userId || 'default-user'}/video-uuid-1`, 'video'),
         folder: `handy-go/reviews/videos/${userId || 'default-user'}`,
         resourceType: 'video',
         uploadUrl: 'https://api.cloudinary.com/v1_1/handygo/video/upload',
@@ -179,8 +185,8 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         speedRating: 'good',
         comment: 'Thợ Lê Thu Hà làm việc rất chuyên nghiệp, xử lý sự cố nhanh và chu đáo!',
         media: [
-          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/sample.jpg' },
-          { mediaType: 'video' as const, mediaUrl: `https://res.cloudinary.com/handygo/video/upload/reviews/videos/${customerUserId}/sample.mp4`, thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/sample_thumb.jpg' },
+          { mediaType: 'image' as const, mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/sample.jpg', uploadReceipt: receipt('sample') },
+          { mediaType: 'video' as const, mediaUrl: `https://res.cloudinary.com/handygo/video/upload/reviews/videos/${customerUserId}/sample.mp4`, uploadReceipt: receipt(`reviews/videos/${customerUserId}/sample`, 'video'), thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/sample_thumb.jpg', thumbnailUploadReceipt: receipt('sample_thumb') },
         ],
       };
 
@@ -822,6 +828,16 @@ describe('User Review Flow Test Suite (HG-68)', () => {
       worker: { id: workerUserId, fullName: 'Lê Thu Hà', avatarUrl: null },
     };
 
+    it('retains an existing multipart photo on its authorized review without a receipt', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      dbMock.workerReview.findUnique.mockResolvedValue({ ...existingReview, isEdited: true });
+      expect((await service.updateReview(customerUserId, reviewId, { rating: 4, media: [{ mediaType: 'image', mediaUrl: existingReview.media[0].mediaUrl }] })).statusCode).toBe(200);
+    });
+    it('requires new proof when an existing photo thumbnail changes', async () => {
+      dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
+      await expect(service.updateReview(customerUserId, reviewId, { rating: 4, media: [{ mediaType: 'image', mediaUrl: existingReview.media[0].mediaUrl, thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/other.jpg' }] })).rejects.toThrow('Tài nguyên media không thuộc quyền sở hữu');
+    });
+
     it('Chỉnh sửa đánh giá thành công trong vòng 48h (cập nhật rating 5 -> 4, recalculate rating, set isEdited)', async () => {
       dbMock.workerReview.findFirst.mockResolvedValue(existingReview);
       dbMock.workerReview.updateMany.mockResolvedValue({ count: 1 });
@@ -1269,6 +1285,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
             {
               mediaType: 'video' as const,
               mediaUrl: `https://res.cloudinary.com/handygo/video/upload/reviews/videos/${customerUserId}/valid_clip.mp4`,
+              uploadReceipt: receipt(`reviews/videos/${customerUserId}/valid_clip`, 'video'),
               thumbnailUrl: 'https://res.cloudinary.com/handygo/video/upload/fake_thumb.mp4',
             },
           ],
@@ -1304,6 +1321,7 @@ describe('User Review Flow Test Suite (HG-68)', () => {
             {
               mediaType: 'video' as const,
               mediaUrl: `https://res.cloudinary.com/handygo/video/upload/reviews/videos/${customerUserId}/valid_clip.mp4`,
+              uploadReceipt: receipt(`reviews/videos/${customerUserId}/valid_clip`, 'video'),
               thumbnailUrl: 'https://res.cloudinary.com/wrong-cloud/image/upload/thumb.jpg',
             },
           ],
@@ -1423,7 +1441,38 @@ describe('User Review Flow Test Suite (HG-68)', () => {
         ).rejects.toThrow('Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)');
       });
 
-      it('Chấp nhận upload ảnh qua multipart và tự động lưu vào danh sách media', async () => {
+      it.each(['image', 'video'])('rejects unproven %s URLs even when paths look owned', async (mediaType) => {
+      dbMock.workerReview.create.mockResolvedValue({ id: matrixReviewId });
+      await expect(service.createReview(customerUserId, {
+        orderId, rating: 5,
+        media: [{ mediaType, mediaUrl: `https://res.cloudinary.com/handygo/${mediaType}/upload/reviews/videos/${customerUserId}/invented.jpg` }],
+      })).rejects.toThrow('Tài nguyên media không thuộc quyền sở hữu');
+    });
+
+    it('rejects auto-generated image URLs without ownership evidence on create and edit', async () => {
+      dbMock.workerReview.create.mockResolvedValue({ id: matrixReviewId });
+      const dto = { orderId, rating: 5, media: [{ mediaType: 'image', mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/images/random-id.jpg' }] };
+      await expect(service.createReview(customerUserId, dto)).rejects.toThrow('Tài nguyên media không thuộc quyền sở hữu');
+      dbMock.workerReview.findFirst.mockResolvedValue({ id: matrixReviewId, orderId, customerUserId, workerUserId, rating: 5, createdAt: new Date(), status: 'published' });
+      await expect(service.updateReview(customerUserId, matrixReviewId, dto)).rejects.toThrow('Tài nguyên media không thuộc quyền sở hữu');
+    });
+
+    it.each(['forged', receipt('images/different-id'), crypto.createHmac('sha256', 'test-secret').update(`other-owner:images/random-id`).digest('hex')])('rejects image receipts that do not prove owner and exact asset', async (uploadReceipt) => {
+      await expect(service.createReview(customerUserId, { orderId, rating: 5,
+        media: [{ mediaType: 'image', mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/images/random-id.jpg', uploadReceipt }],
+      })).rejects.toThrow('Mã xác thực upload');
+    });
+
+    it('rejects unrelated thumbnails without their own receipt', async () => {
+      dbMock.workerReview.create.mockResolvedValue({ id: matrixReviewId });
+      await expect(service.createReview(customerUserId, { orderId, rating: 5, media: [{ mediaType: 'video', mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/clip.mp4', uploadReceipt: receipt('clip', 'video'), thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/images/other.jpg' }] })).rejects.toThrow('Ảnh thu nhỏ');
+    });
+    it('accepts thumbnails derived from the verified video public ID', async () => {
+      dbMock.workerReview.create.mockResolvedValue({ id: matrixReviewId });
+      expect((await service.createReview(customerUserId, { orderId, rating: 5, media: [{ mediaType: 'video', mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/clip.mp4', uploadReceipt: receipt('clip', 'video'), thumbnailUrl: 'https://res.cloudinary.com/handygo/video/upload/clip.jpg' }] })).statusCode).toBe(201);
+    });
+
+    it('Chấp nhận upload ảnh qua multipart và tự động lưu vào danh sách media', async () => {
         cloudinaryMock.uploadImage.mockResolvedValue({
           url: 'https://res.cloudinary.com/handygo/image/upload/uploaded_photo.jpg',
         });
@@ -1463,6 +1512,12 @@ describe('User Review Flow Test Suite (HG-68)', () => {
 
         expect(cloudinaryMock.uploadImage).toHaveBeenCalledWith(fakeImageFile);
         expect(result.statusCode).toBe(201);
+        const persisted = { ...result.data, customerUserId, createdAt: new Date(), isEdited: false };
+        dbMock.workerReview.findFirst.mockResolvedValue(persisted);
+        dbMock.workerReview.findUnique.mockResolvedValue(persisted);
+        expect((await service.updateReview(customerUserId, matrixReviewId, {
+          rating: 4, media: result.data.media.map((item: any) => ({ mediaType: item.mediaType, mediaUrl: item.mediaUrl })),
+        })).statusCode).toBe(200);
       });
 
       it('Chỉnh sửa đánh giá: từ chối nếu media mới chứa URL ngoài hệ thống', async () => {
