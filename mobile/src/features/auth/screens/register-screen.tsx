@@ -8,9 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { AuthApi } from '@/services/auth/auth-api';
-import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 
 export function RegisterScreen() {
   const router = useRouter();

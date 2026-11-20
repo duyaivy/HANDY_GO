@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cleanup, render, screen } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { CustomerOrdersScreen } from '../screens/customer-orders-screen';
 
@@ -177,9 +177,9 @@ describe('CustomerOrdersScreen - Service Title Resolution & Defensive Shielding'
     ];
 
     // Select "Đang làm" tab
-    const { getByTestId } = render(<CustomerOrdersScreen />);
-    const inProcessTab = getByTestId('activity-filter-tab-in-process');
-    require('@/lib/test-utils').fireEvent.press(inProcessTab);
+    render(<CustomerOrdersScreen />);
+    const inProcessTab = screen.getByTestId('activity-filter-tab-in-process');
+    fireEvent.press(inProcessTab);
 
     expect(screen.getByText('Chăm sóc mẹ và em bé')).toBeOnTheScreen();
     expect(screen.queryByText('Dịch vụ đã trao đổi')).toBeNull();

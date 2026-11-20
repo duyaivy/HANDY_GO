@@ -9,11 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { syncPushRegistration } from '@/services/notifications/push-registration';
 import { useAuthStore } from '@/stores/use-auth-store';
-import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { usePasswordResetStore } from '../use-password-reset-store';
 
 export function LoginScreen() {
