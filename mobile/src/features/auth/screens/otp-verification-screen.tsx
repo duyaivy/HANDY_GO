@@ -9,14 +9,31 @@ import { LockIcon } from '@/components/ui/icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { AuthApi } from '@/services/auth/auth-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { useAuthFlowStore } from '../use-auth-flow-store';
 
-const OTP_LENGTH = 5;
+const OTP_LENGTH = 6;
+const DEFAULT_RESEND_COOLDOWN_SECONDS = 60;
 const CIRCLE_RADIUS = 24;
 const CIRCUMFERENCE = 2 * Math.PI * CIRCLE_RADIUS; // ~150.796
+
+function getResendTimestamp(resendAvailableAt?: string, deliveryFailed = false): number {
+  if (deliveryFailed) {
+    return Date.now();
+  }
+
+  const parsedTimestamp = resendAvailableAt ? Date.parse(resendAvailableAt) : Number.NaN;
+  return Number.isFinite(parsedTimestamp)
+    ? parsedTimestamp
+    : Date.now() + DEFAULT_RESEND_COOLDOWN_SECONDS * 1000;
+}
+
+function getSecondsUntil(timestamp: number): number {
+  return Math.max(0, Math.ceil((timestamp - Date.now()) / 1000));
+}
 
 export function OtpVerificationScreen() {
   const router = useRouter();
@@ -30,8 +47,6 @@ export function OtpVerificationScreen() {
   }>();
 
   const flowPhone = useAuthFlowStore(state => state.phone);
-  const setOtpInFlow = useAuthFlowStore(state => state.setOtp);
-
   const phone = params.phone || flowPhone || '';
   const email = params.email;
   const emailMasked = params.emailMasked;
@@ -46,38 +61,53 @@ export function OtpVerificationScreen() {
   const [successNotice, setSuccessNotice] = React.useState<string | null>(null);
   const [isResending, setIsResending] = React.useState(false);
 
-  // 30-second countdown timer for resend
-  const [cooldown, setCooldown] = React.useState<number>(30);
+  const targetResendTimestamp = React.useRef(
+    getResendTimestamp(params.resendAvailableAt, params.deliveryFailed === 'true'),
+  );
+  const [cooldownDuration, setCooldownDuration] = React.useState(() =>
+    getSecondsUntil(targetResendTimestamp.current) || DEFAULT_RESEND_COOLDOWN_SECONDS,
+  );
+  const [cooldown, setCooldown] = React.useState(() =>
+    getSecondsUntil(targetResendTimestamp.current),
+  );
   const inputRef = React.useRef<TextInput | null>(null);
 
-  // Countdown timer effect
+  const calculateRemainingSeconds = React.useCallback(() => {
+    const remaining = getSecondsUntil(targetResendTimestamp.current);
+    setCooldown(remaining);
+    return remaining;
+  }, []);
+
+  const updateResendCooldown = React.useCallback((resendAvailableAt?: string) => {
+    const targetTimestamp = getResendTimestamp(resendAvailableAt);
+    targetResendTimestamp.current = targetTimestamp;
+    const remaining = getSecondsUntil(targetTimestamp);
+    const duration = remaining || DEFAULT_RESEND_COOLDOWN_SECONDS;
+    setCooldownDuration(duration);
+    setCooldown(remaining);
+  }, []);
+
+  // Recalculate from the server's absolute timestamp to avoid drift.
   React.useEffect(() => {
-    if (cooldown <= 0) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setCooldown(prev => Math.max(0, prev - 1));
-    }, 1000);
-
+    const interval = setInterval(calculateRemainingSeconds, 1000);
     return () => clearInterval(interval);
-  }, [cooldown]);
+  }, [calculateRemainingSeconds]);
 
-  // AppState foreground synchronization
+  // Recalculate after backgrounding, when JS timers may have been paused.
   React.useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active' && cooldown > 0) {
-        // keep active
+      if (nextAppState === 'active') {
+        calculateRemainingSeconds();
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription.remove();
-  }, [cooldown]);
+  }, [calculateRemainingSeconds]);
 
   const handleVerify = async () => {
     const cleanOtp = otp.replace(/\D/g, '');
-    if (cleanOtp.length < OTP_LENGTH) {
+    if (cleanOtp.length !== OTP_LENGTH) {
       setError(`Vui lòng nhập đúng ${OTP_LENGTH} chữ số mã OTP`);
       return;
     }
@@ -94,25 +124,22 @@ export function OtpVerificationScreen() {
     setError(null);
     setSuccessNotice(null);
 
-    // Save OTP to flow store
-    setOtpInFlow(cleanOtp);
-
-    // Attempt backend verify if available, then navigate to Step 3 (create-pin)
     try {
-      if (email || challengeId) {
-        await verifyOtp({
-          challengeId,
-          email,
-          phone,
-          otp: cleanOtp,
-        });
-      }
+      const session = await verifyOtp({
+        challengeId,
+        email,
+        phone,
+        otp: cleanOtp,
+      });
+      const activeMode = useAuthStore.getState().activeMode;
+      const destination = getDestinationByRoles(session.user.roles, activeMode);
 
-      // Step 3 in 4-step flow: Navigate to Create PIN screen
-      router.push({
-        pathname: RouteNames.AUTH_CREATE_PIN,
-        params: { phone, verified: 'true' },
-      } as any);
+      if (destination.type === 'ROUTE') {
+        router.replace(destination.path as any);
+      }
+      else {
+        router.replace(RouteNames.ROOT as any);
+      }
     }
     catch (err: any) {
       const code = err?.code;
@@ -147,15 +174,6 @@ export function OtpVerificationScreen() {
         return;
       }
 
-      // If backend is not available / test environment: smoothly advance to Step 3
-      if (!code && !err?.statusCode) {
-        router.push({
-          pathname: RouteNames.AUTH_CREATE_PIN,
-          params: { phone, verified: 'true' },
-        } as any);
-        return;
-      }
-
       setError(err?.message || 'Xác thực OTP không thành công. Vui lòng thử lại.');
     }
   };
@@ -178,20 +196,26 @@ export function OtpVerificationScreen() {
         setChallengeId(response.data.challengeId);
       }
 
-      setCooldown(30);
+      updateResendCooldown(response?.data?.resendAvailableAt);
     }
     catch (err: any) {
       const code = err?.code;
       if (code === ERROR_CODES.RATE_LIMITED) {
+        const retryAfterSeconds = Number(err?.details?.retryAfterSeconds);
+        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+          const resendAvailableAt = new Date(Date.now() + retryAfterSeconds * 1000).toISOString();
+          updateResendCooldown(resendAvailableAt);
+        }
         setError('Bạn đã gửi lại mã quá số lần cho phép. Vui lòng thử lại sau.');
       }
       else if (code === ERROR_CODES.OTP_DELIVERY_FAILED) {
-        setError('Không thể gửi tin nhắn OTP lúc này. Vui lòng thử lại sau giây lát.');
+        setIsDeliveryFailed(true);
+        targetResendTimestamp.current = Date.now();
+        setCooldown(0);
+        setError('Không thể gửi mã OTP đến email của bạn. Vui lòng bấm "Gửi lại mã OTP" bên dưới.');
       }
       else {
-        // Fallback for simulation / mock: reset timer and show success
-        setCooldown(30);
-        setSuccessNotice('Mã OTP mới đã được gửi thành công.');
+        setError(err?.message || 'Không thể gửi mã OTP đến email của bạn. Vui lòng thử lại.');
       }
     }
     finally {
@@ -199,8 +223,8 @@ export function OtpVerificationScreen() {
     }
   };
 
-  // Stroke offset calculation for 30s countdown circle
-  const strokeDashoffset = CIRCUMFERENCE * (1 - cooldown / 30);
+  const progress = cooldownDuration > 0 ? cooldown / cooldownDuration : 0;
+  const strokeDashoffset = CIRCUMFERENCE * (1 - progress);
 
   const handleBack = React.useCallback(() => {
     if (router.canGoBack ? router.canGoBack() : true) {
@@ -238,11 +262,11 @@ export function OtpVerificationScreen() {
               Nhập mã xác thực
             </Text>
             <Text className="mt-2 text-center text-sm text-neutral-500 dark:text-neutral-400">
-              Mã xác thực gồm 5 chữ số đã được gửi đến:
+              Mã xác thực gồm 6 chữ số đã được gửi đến Gmail:
             </Text>
             <View className="mt-1.5 rounded-full border border-amber-200 bg-amber-50 px-3.5 py-1 dark:border-amber-900 dark:bg-amber-950/30">
               <Text className="text-center text-sm font-bold text-amber-900 dark:text-amber-200">
-                {phone || emailMasked || email || 'số điện thoại của bạn'}
+                {emailMasked || email || 'Gmail của bạn'}
               </Text>
             </View>
           </View>
@@ -252,7 +276,7 @@ export function OtpVerificationScreen() {
             {isDeliveryFailed && (
               <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/50">
                 <Text className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                  Không thể gửi mã OTP đến thông tin của bạn. Vui lòng bấm &quot;Gửi lại mã OTP&quot; bên dưới.
+                  Không thể gửi mã OTP đến email của bạn. Vui lòng bấm &quot;Gửi lại mã OTP&quot; bên dưới.
                 </Text>
               </View>
             )}
@@ -273,19 +297,19 @@ export function OtpVerificationScreen() {
               </View>
             )}
 
-            {/* 5 OTP Discrete Input Boxes (Ảnh 5) */}
+            {/* 6 OTP discrete input boxes */}
             <Pressable
               onPress={() => inputRef.current?.focus()}
               className="my-3 flex-row justify-between"
             >
-              {(['otp-0', 'otp-1', 'otp-2', 'otp-3', 'otp-4'] as const).map((boxId, index) => {
+              {Array.from({ length: OTP_LENGTH }, (_, index) => `otp-${index}`).map((boxId, index) => {
                 const char = otp[index] || '';
                 const isFocused = index === Math.min(otp.length, OTP_LENGTH - 1);
                 return (
                   <View
                     key={boxId}
                     testID={`otp-box-${index}`}
-                    className={`h-15 w-13 items-center justify-center rounded-2xl border-2 shadow-xs dark:bg-neutral-800 ${
+                    className={`h-14 w-10 items-center justify-center rounded-xl border-2 shadow-xs dark:bg-neutral-800 ${
                       isFocused
                         ? 'border-[#F5A524] bg-white'
                         : char
@@ -317,7 +341,7 @@ export function OtpVerificationScreen() {
               style={{ position: 'absolute', opacity: 0.01, height: 1, width: 1 }}
             />
 
-            {/* Circular Countdown Timer (30s) */}
+            {/* Server-synchronized resend countdown */}
             <View className="my-4 items-center justify-center">
               <View testID="otp-countdown-circle" className="relative size-16 items-center justify-center">
                 <Svg width={60} height={60} viewBox="0 0 60 60">
@@ -354,7 +378,7 @@ export function OtpVerificationScreen() {
 
               <Text className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
                 {cooldown > 0
-                  ? `Mã sẽ hết hạn sau ${cooldown} giây`
+                  ? `Có thể gửi lại mã sau ${cooldown} giây`
                   : 'Bạn chưa nhận được mã?'}
               </Text>
             </View>
