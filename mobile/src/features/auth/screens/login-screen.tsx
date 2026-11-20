@@ -19,7 +19,13 @@ import { usePasswordResetStore } from '../use-password-reset-store';
 export function LoginScreen() {
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
-  const params = useLocalSearchParams<{ phone?: string; verified?: string; reset?: string }>();
+  const params = useLocalSearchParams<{ phone?: string; verified?: string; reset?: string; role?: string }>();
+
+  React.useEffect(() => {
+    if (params?.role === 'Worker' || params?.role === 'Customer') {
+      useAuthStore.getState().setGuestRole(params.role);
+    }
+  }, [params?.role]);
   const login = useAuthStore.use.login();
   const isLoading = useAuthStore.use.isLoading();
   const isAuthenticated = useAuthStore.use.isAuthenticated();
