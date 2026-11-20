@@ -1,0 +1,19 @@
+appId: ${APP_ID}
+name: Worker cancels a requested withdrawal
+---
+- runFlow: bootstrap.yaml
+- tapOn:
+    id: worker-wallet-withdraw-btn
+- scrollUntilVisible:
+    element:
+      id: 'cancel-withdrawal-.*'
+    direction: DOWN
+    centerElement: true
+- takeScreenshot: before-cancel
+- tapOn:
+    id: 'cancel-withdrawal-.*'
+    index: 0
+- extendedWaitUntil:
+    visible: Đã hủy
+    timeout: 30000
+- takeScreenshot: after-cancel

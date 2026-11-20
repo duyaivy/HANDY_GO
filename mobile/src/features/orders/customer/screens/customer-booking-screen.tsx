@@ -9,6 +9,7 @@ import {
   Alert,
   BackHandler,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -480,6 +481,12 @@ export function CustomerBookingScreen({
 
   React.useEffect(() => {
     const onHardwareBack = () => {
+      const input = TextInput.State.currentlyFocusedInput();
+      if (input || Keyboard.isVisible()) {
+        input?.blur();
+        Keyboard.dismiss();
+        return true;
+      }
       handleBack();
       return true;
     };

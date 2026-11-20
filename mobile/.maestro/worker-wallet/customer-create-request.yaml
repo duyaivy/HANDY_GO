@@ -1,0 +1,50 @@
+appId: ${APP_ID}
+name: Customer creates HG71 sandbox service request
+---
+- launchApp:
+    stopApp: false
+- openLink: handygo://customer
+- tapOn: 'Dịch vụ: Bão dưỡng máy in'
+- scrollUntilVisible:
+    element:
+      id: booking-description-input
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: booking-description-input
+- eraseText
+- inputText: ${DESCRIPTION}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: booking-next-btn
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: booking-next-btn
+- extendedWaitUntil:
+    visible:
+      id: booking-select-address-screen
+    timeout: 30000
+- tapOn:
+    id: booking-address-input
+- eraseText
+- inputText: 123 Nguyen Luong Bang, Da Nang
+- hideKeyboard
+- tapOn:
+    id: select-address-confirm-btn
+- extendedWaitUntil:
+    visible:
+      id: booking-select-time-screen
+    timeout: 30000
+- tapOn:
+    id: select-time-confirm-btn
+- assertVisible:
+    id: booking-summary-screen
+- tapOn:
+    id: booking-start-finding-btn
+- extendedWaitUntil:
+    visible:
+      id: booking-radar-screen
+    timeout: 30000
+- takeScreenshot: customer-request-published

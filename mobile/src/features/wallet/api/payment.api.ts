@@ -36,4 +36,6 @@ export const PaymentApi = {
 
   getPaymentByOrder: (orderId: string) =>
     ApiClient.get<ApiResponse<OrderPaymentRecord>>(`/payments/order/${encodeURIComponent(orderId)}`),
+  confirmCash: (paymentId: string) => ApiClient.post<ApiResponse<OrderPaymentRecord>>(`/payments/${encodeURIComponent(paymentId)}/confirm-cash`),
+  getMyPayments: (params?: { page?: number; limit?: number }, signal?: AbortSignal) => ApiClient.get<ApiResponse<{ items: OrderPaymentRecord[]; page: number; limit: number; total: number; totalPages: number }>>('/payments/me', { params, ...(signal ? { signal } : {}) }),
 };

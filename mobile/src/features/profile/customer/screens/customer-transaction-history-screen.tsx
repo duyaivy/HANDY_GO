@@ -18,10 +18,18 @@ const FILTERS: { label: string; type?: WalletTransactionType }[] = [
   { label: 'Thanh toán', type: 'payment_debit' },
   { label: 'Hoàn tiền', type: 'refund_credit' },
 ];
+const WORKER_FILTERS: { label: string; type?: WalletTransactionType }[] = [
+  { label: 'Tất cả' },
+  { label: 'Nạp tiền', type: 'topup' },
+  { label: 'Thu nhập', type: 'worker_earning' },
+  { label: 'Hoa hồng', type: 'commission_debit' },
+  { label: 'Rút tiền', type: 'withdrawal' },
+  { label: 'Thu hồi hoàn tiền', type: 'refund_recovery' },
+];
 const keyExtractor = (item: WalletTransaction) => item.id;
-export type CustomerTransactionHistoryScreenProps = { onBack?: () => void };
+export type CustomerTransactionHistoryScreenProps = { onBack?: () => void; worker?: boolean };
 
-export function CustomerTransactionHistoryScreen({ onBack }: CustomerTransactionHistoryScreenProps = {}) {
+export function CustomerTransactionHistoryScreen({ onBack, worker = false }: CustomerTransactionHistoryScreenProps = {}) {
   const router = useRouter();
   const [selectedType, setSelectedType] = useState<WalletTransactionType>();
   const [selected, setSelected] = useState<WalletTransaction | null>(null);
@@ -52,11 +60,11 @@ export function CustomerTransactionHistoryScreen({ onBack }: CustomerTransaction
   return (
     <Screen safeArea className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar mode="stack" title="Lịch sử giao dịch" subtitle="Transaction history" onBack={onBack ?? router.back} testID="transaction-history-app-bar" />
-      <View testID="customer-transaction-history-screen" className="flex-1">
+      <View testID={worker ? 'worker-transaction-history-screen' : 'customer-transaction-history-screen'} className="flex-1">
         <View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentInsetAdjustmentBehavior="automatic">
             <View className="flex-row gap-2 p-4">
-              {FILTERS.map(filter => (
+              {(worker ? WORKER_FILTERS : FILTERS).map(filter => (
                 <Pressable
                   key={filter.type ?? 'all'}
                   testID={`transaction-filter-${filter.type ?? 'all'}`}
@@ -108,7 +116,7 @@ export function CustomerTransactionHistoryScreen({ onBack }: CustomerTransaction
                 : null}
         />
       </View>
-      <TransactionDetailModal transaction={selected} onClose={closeDetail} onSupport={support} />
+      <TransactionDetailModal transaction={selected} onClose={closeDetail} onSupport={worker ? undefined : support} />
     </Screen>
   );
 }

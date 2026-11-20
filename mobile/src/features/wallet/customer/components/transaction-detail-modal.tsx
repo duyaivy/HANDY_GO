@@ -1,9 +1,10 @@
 import type { WalletTransaction } from '../../types/wallet.types';
 import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { Text } from '@/components/ui/text';
+import { formatPointsToVND } from '../../utils/formatters';
 import { TRANSACTION_STATUSES, transactionAmount, transactionTime, transactionTitle } from '../../utils/transaction-display';
 
-type Props = { transaction: WalletTransaction | null; onClose: () => void; onSupport: () => void };
+type Props = { transaction: WalletTransaction | null; onClose: () => void; onSupport?: () => void };
 export function TransactionDetailModal({ transaction, onClose, onSupport }: Props) {
   if (!transaction)
     return null;
@@ -19,10 +20,11 @@ export function TransactionDetailModal({ transaction, onClose, onSupport }: Prop
             <Text selectable className="mt-4 text-neutral-700 dark:text-neutral-300">{`Mã giao dịch: ${transaction.id}`}</Text>
             <Text selectable className="mt-3 text-neutral-700 dark:text-neutral-300">{`Mã tham chiếu: ${transaction.referenceId ?? 'Không có'}`}</Text>
             <Text className="mt-3 text-neutral-700 dark:text-neutral-300">{`Thời gian: ${transactionTime(transaction.createdAt)}`}</Text>
-            <Text className="mt-3 text-neutral-700 dark:text-neutral-300">Số dư trước giao dịch: Chưa được cung cấp</Text>
-            <Text className="mt-3 text-neutral-700 dark:text-neutral-300">Số dư sau giao dịch: Chưa được cung cấp</Text>
+            <Text testID="transaction-balance-before" className="mt-3 text-neutral-700 dark:text-neutral-300">{`Số dư trước giao dịch: ${transaction.balanceBefore == null ? 'Chưa được cung cấp' : formatPointsToVND(transaction.balanceBefore)}`}</Text>
+            <Text testID="transaction-balance-after" className="mt-3 text-neutral-700 dark:text-neutral-300">{`Số dư sau giao dịch: ${transaction.balanceAfter == null ? 'Chưa được cung cấp' : formatPointsToVND(transaction.balanceAfter)}`}</Text>
+            {transaction.balanceBefore != null && transaction.balanceAfter != null ? <Text className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">Số dư tổng của ví tại thời điểm ghi sổ; khoản tạm giữ được quản lý riêng.</Text> : null}
             <Text className="mt-3 text-neutral-700 dark:text-neutral-300">{`Nội dung: ${transaction.description || 'Không có nội dung'}`}</Text>
-            <Pressable testID="transaction-support-btn" accessibilityRole="button" onPress={onSupport} className="mt-5 rounded-xl bg-emerald-700 p-3"><Text className="text-center font-semibold text-white">Cần trợ giúp về giao dịch này</Text></Pressable>
+            {onSupport ? <Pressable testID="transaction-support-btn" accessibilityRole="button" onPress={onSupport} className="mt-5 rounded-xl bg-emerald-700 p-3"><Text className="text-center font-semibold text-white">Cần trợ giúp về giao dịch này</Text></Pressable> : null}
             <Pressable testID="transaction-detail-close-btn" accessibilityRole="button" onPress={onClose} className="mt-3 p-3"><Text className="text-center font-semibold text-neutral-800 dark:text-white">Đóng</Text></Pressable>
           </ScrollView>
         </View>

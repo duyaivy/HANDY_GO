@@ -1,0 +1,22 @@
+appId: ${APP_ID}
+name: Verify persisted transaction balances
+---
+- tapOn:
+    id: transaction-detail-close-btn
+    optional: true
+- openLink: ${HISTORY_LINK}
+- extendedWaitUntil:
+    visible:
+      id: transaction-item-${TRANSACTION_ID}
+    timeout: 30000
+- tapOn:
+    id: transaction-item-${TRANSACTION_ID}
+- assertVisible:
+    id: transaction-balance-before
+    text: 'Số dư trước giao dịch: ${BALANCE_BEFORE} đ'
+- assertVisible:
+    id: transaction-balance-after
+    text: 'Số dư sau giao dịch: ${BALANCE_AFTER} đ'
+- takeScreenshot: transaction-balance-snapshots
+- tapOn:
+    id: transaction-detail-close-btn

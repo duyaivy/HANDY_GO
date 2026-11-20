@@ -1,8 +1,14 @@
 # HG-71: Mobile Payment & Wallet
 
-Phạm vi: giao diện Customer, dữ liệu qua API Gateway và kiểm thử mobile. Không sửa mã backend.
+Phạm vi: giao diện Customer và Worker, dữ liệu qua API Gateway và kiểm thử mobile. Không sửa mã backend.
 
-| Phần | Nội dung | Commit triển khai | Bằng chứng |
+## 📑 Danh mục Tài liệu Kế hoạch & Nghiệm thu
+
+- 🌟 [Quy tắc nghiệp vụ chung (PO Approved)](./BUSINESS-RULES.md)
+- 👷‍♂️ [**Kế hoạch triển khai phía THỢ (Worker Wallet & Payment Plan)**](./WORKER-WALLET-PAYMENT-PLAN.md)
+- 🚀 [Báo cáo nghiệm thu & Walkthrough](./WALKTHROUGH.md) | [Bằng chứng quality-gates.json](./evidence/quality-gates.json)
+
+| Phần (Customer) | Nội dung | Commit triển khai | Bằng chứng |
 | --- | --- | --- | --- |
 | [1](./PHAN-1-DATA-AND-API-CONTRACTS.md) | DTO, API, tiền tệ chính xác | `eff84c9` | API/formatter tests |
 | [2](./PHAN-2-HOOKS-AND-STATE-MANAGEMENT.md) | Query, polling, retry/idempotency | `767ed6f` | Hook tests |

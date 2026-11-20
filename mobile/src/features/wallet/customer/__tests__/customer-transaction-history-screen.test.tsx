@@ -48,6 +48,16 @@ it('queries each backend filter and replaces the previous list', async () => {
   expect(screen.queryByTestId('transaction-item-refund_credit')).toBeNull();
 });
 
+it('offers worker earning, commission and withdrawal filters for the worker route', async () => {
+  render(<CustomerTransactionHistoryScreen worker />);
+  await screen.findByTestId('transaction-empty');
+  for (const type of ['worker_earning', 'commission_debit', 'withdrawal', 'refund_recovery'] as const) {
+    fireEvent.press(screen.getByTestId(`transaction-filter-${type}`));
+    await waitFor(() => expect(WalletApi.getMyTransactions).toHaveBeenLastCalledWith({ page: 1, limit: 15, type }));
+  }
+  expect(screen.queryByTestId('transaction-filter-payment_debit')).toBeNull();
+});
+
 it('loads the next page without duplicates and refreshes', async () => {
   jest.mocked(WalletApi.getMyTransactions).mockImplementation(async params => params?.page === 2
     ? response([tx('tx-1'), tx('tx-2')], 2, 2)

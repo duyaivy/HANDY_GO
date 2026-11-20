@@ -1,0 +1,14 @@
+appId: ${APP_ID}
+---
+- launchApp:
+    stopApp: false
+- runFlow:
+    when:
+      visible: App Thợ ⇄
+    commands:
+      - tapOn: App Thợ ⇄
+- openLink: 'handygo://worker/wallet'
+- extendedWaitUntil:
+    visible:
+      id: worker-wallet-screen
+    timeout: 30000

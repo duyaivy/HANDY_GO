@@ -2,6 +2,9 @@ import type { WalletTransactionQuery } from '../types/wallet.types';
 
 export const walletQueryKeys = {
   all: ['wallet'] as const,
+  withdrawals: () => [...walletQueryKeys.all, 'withdrawals'] as const,
+  banks: () => [...walletQueryKeys.all, 'bank-accounts'] as const,
+  workerFinancials: (userId: string | null) => [...walletQueryKeys.all, 'worker-financials', userId] as const,
   me: () => [...walletQueryKeys.all, 'me'] as const,
   paymentByOrder: (orderId: string) => [...walletQueryKeys.all, 'payment-by-order', orderId] as const,
   preferredPaymentMethod: (userId: string | null) => [...walletQueryKeys.all, 'preferred-payment-method', userId] as const,
