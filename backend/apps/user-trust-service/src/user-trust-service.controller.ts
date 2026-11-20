@@ -94,6 +94,7 @@ export class UserTrustServiceController {
 
   private readonly logger = new Logger(UserTrustServiceController.name);
 
+  @Public()
   @Post('internal/users/verify-bank-account')
   @HttpCode(HttpStatus.OK)
   async verifyBankAccount(
