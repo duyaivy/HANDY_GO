@@ -41,6 +41,17 @@ jest.mock('@/features/wallet/hooks/use-wallet', () => ({
   }),
 }));
 
+jest.mock('@/features/wallet/hooks/use-wallet-transactions', () => ({
+  useWalletTransactions: () => ({
+    data: { pages: [] },
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    hasNextPage: false,
+    refetch: jest.fn(),
+  }),
+}));
+
 afterEach(() => {
   cleanup();
   jest.clearAllMocks();
@@ -124,12 +135,12 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
       expect(mockPush).toHaveBeenCalledWith('/customer/payment/transaction-history');
     });
 
-    it('renders Transaction history skeleton and navigates back to Quản lý thanh toán on Back press', () => {
+    it('renders Transaction history and navigates back to Quản lý thanh toán on Back press', () => {
       render(<CustomerTransactionHistoryScreen />);
 
       expect(screen.getByText('Transaction history')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-transaction-history-screen')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByTestId('transaction-filter-all')).toBeOnTheScreen();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);
