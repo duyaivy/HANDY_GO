@@ -1,0 +1,38 @@
+appId: ${APP_ID}
+name: Customer settles the completed November sandbox order
+---
+- launchApp:
+    stopApp: false
+- runFlow:
+    when:
+      visible:
+        id: order-payment-close-btn
+    commands:
+      - tapOn:
+          id: order-payment-close-btn
+- openLink: handygo://customer/orders/${ORDER_ID}
+- extendedWaitUntil:
+    visible:
+      id: customer-retry-payment-btn
+    timeout: 30000
+- tapOn:
+    id: customer-retry-payment-btn
+- tapOn:
+    id: order-payment-point
+- assertVisible: 'Tổng chi phí: 555.555 đ'
+- takeScreenshot: customer-before-payment
+- tapOn:
+    id: order-payment-confirm-btn
+- extendedWaitUntil:
+    visible: Thanh toán thành công! Đơn hàng đã hoàn tất.
+    timeout: 40000
+- takeScreenshot: customer-payment-success
+- tapOn: OK
+- scrollUntilVisible:
+    element:
+      text: Đã thanh toán
+    direction: UP
+    centerElement: true
+- assertVisible: Đã thanh toán
+- assertNotVisible:
+    id: customer-retry-payment-btn
