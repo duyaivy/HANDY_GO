@@ -23,6 +23,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
 import {
@@ -76,6 +77,9 @@ export function CustomerBookingScreen({
   onBack,
 }: CustomerBookingScreenProps = {}) {
   const router = useRouter();
+  const keyboard = useAndroidKeyboardInset();
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const descriptionInputRef = React.useRef<TextInput>(null);
   const searchParams = useLocalSearchParams<{ serviceId?: string; serviceName?: string }>();
 
   const targetServiceId = React.useMemo(() => {
@@ -111,7 +115,7 @@ export function CustomerBookingScreen({
   } = useBookingDraftStore();
 
   const isAuthenticated = useAuthStore.use.isAuthenticated();
-  const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(false);
+  const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(true);
 
   // Selected chips state (mặc định chưa chọn để tránh mang data cũ)
   const [selectedIssueType, setSelectedIssueType] = React.useState<string>('');
@@ -441,17 +445,26 @@ export function CustomerBookingScreen({
     }
     // Also remove any existing chip pattern if present
     baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|$)/gi, '');
-    baseText = baseText.trim().replace(/\s*\.\s*$/, '').trim();
+    baseText = baseText.trim().replace(/\s*[:.\-]\s*$/, '').trim();
+
+    const currentServiceName = (serviceName || targetServiceName || '').trim();
+    const defaultPrefix = currentServiceName ? `Tôi cần người ${currentServiceName}` : '';
+
+    // If baseText is just the defaultPrefix, treat it as prefix
+    const isBaseOnlyPrefix = Boolean(defaultPrefix && (baseText === defaultPrefix || baseText.toLowerCase() === defaultPrefix.toLowerCase()));
 
     let combined = '';
-    if (baseText && newChipText) {
+    if (baseText && !isBaseOnlyPrefix && newChipText) {
       combined = `${baseText}. ${newChipText}`;
     }
-    else if (baseText) {
+    else if (baseText && !isBaseOnlyPrefix) {
       combined = baseText;
     }
+    else if (newChipText) {
+      combined = defaultPrefix ? `${defaultPrefix}: ${newChipText}` : newChipText;
+    }
     else {
-      combined = newChipText;
+      combined = isBaseOnlyPrefix ? '' : baseText;
     }
 
     prevChipTextRef.current = newChipText;
@@ -687,7 +700,7 @@ export function CustomerBookingScreen({
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen safeArea scrollable={false} className="bg-neutral-50 dark:bg-neutral-950">
       {/* 1. Thanh điều hướng trên cùng: Nút Quay lại & Tiêu đề quy trình */}
       <View className="flex-row items-center justify-between border-b border-neutral-100 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Pressable
@@ -710,12 +723,20 @@ export function CustomerBookingScreen({
         <View className="w-16" />
       </View>
 
-      <ScrollView
-        testID="customer-booking-screen"
-        className="flex-1 p-4"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <View
+        ref={keyboard.containerRef}
+        onLayout={keyboard.onLayout}
+        style={{ flex: 1, paddingBottom: keyboard.bottomInset }}
       >
+        <ScrollView
+          ref={scrollViewRef}
+          testID="customer-booking-screen"
+          className="flex-1 p-4"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: Math.max(32, keyboard.keyboardVisible ? 24 : 0) }}
+        >
         {/* Khối tương thích ngầm cho test suite */}
         <View className="sr-only h-0 overflow-hidden opacity-0" accessible={false} pointerEvents="none">
           <Text>Đặt lịch thợ</Text>
@@ -751,6 +772,7 @@ export function CustomerBookingScreen({
         {/* 3. Thẻ gợi ý: Gợi ý cho dịch vụ này (Thu gọn / Mở rộng) */}
         <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <Pressable
+            testID="booking-suggestions-toggle-btn"
             onPress={() => setIsSuggestionsCollapsed(!isSuggestionsCollapsed)}
             className="flex-row items-center justify-between active:opacity-70"
           >
@@ -889,11 +911,17 @@ export function CustomerBookingScreen({
           </Text>
 
           <TextInput
+            ref={descriptionInputRef}
             testID="booking-description-input"
             multiline
             numberOfLines={4}
             value={description}
             onChangeText={setDescription}
+            onFocus={() => {
+              setTimeout(() => {
+                scrollViewRef.current?.scrollToEnd({ animated: true });
+              }, 150);
+            }}
             placeholder="Mô tả chi tiết sự cố bạn đang gặp phải..."
             placeholderTextColor="#9CA3AF"
             className="min-h-[110px] rounded-2xl bg-neutral-100 p-4 text-sm text-neutral-900 dark:bg-neutral-800 dark:text-white"
@@ -976,6 +1004,7 @@ export function CustomerBookingScreen({
           onPress={handleNext}
         />
       </ScrollView>
+    </View>
 
       {/* 7. Modal Máy ảnh In-App chụp ảnh thật hiện trường */}
       <Modal

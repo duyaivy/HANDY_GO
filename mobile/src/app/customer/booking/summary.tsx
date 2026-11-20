@@ -41,6 +41,9 @@ function resolveValidServiceId(id?: string, name?: string): string {
   if (lower.includes('dọn')) {
     return '4c441301-efeb-43d1-ae58-a51a4eb90997'; // Dọn dẹp nhà cửa
   }
+  if (lower.includes('bốc xếp') || lower.includes('khuân vác') || lower.includes('vận chuyển')) {
+    return '4c441301-efeb-43d1-ae58-a51a4eb90997'; // Dọn dẹp nhà cửa / bốc xếp
+  }
   return 'b1026b8e-dd6c-478b-aeab-1afb582bcfd0'; // Sửa ống nước
 }
 
@@ -97,9 +100,23 @@ export default function CustomerBookingSummaryRoute() {
 
       const validServiceId = resolveValidServiceId(serviceId, serviceName);
 
+      let finalDescription = (description || '').trim();
+      if (!finalDescription) {
+        finalDescription = serviceName ? `Tôi cần người ${serviceName}` : 'Tôi cần người hỗ trợ';
+      }
+      else if (
+        serviceName
+        && serviceName.trim()
+        && serviceName.trim() !== 'Dịch vụ tiện ích'
+        && !finalDescription.toLowerCase().includes(serviceName.trim().toLowerCase())
+        && (finalDescription.toLowerCase().startsWith('sự cố:') || finalDescription.toLowerCase().startsWith('vị trí:'))
+      ) {
+        finalDescription = `Tôi cần người ${serviceName.trim()}: ${finalDescription}`;
+      }
+
       const createRes = await OrdersApi.createRequest({
         serviceId: validServiceId,
-        description: description || (serviceName ? `Tôi cần người ${serviceName}` : 'Tôi cần người hỗ trợ'),
+        description: finalDescription,
         addressText: addressText || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
         latitude: typeof latitude === 'number' && !Number.isNaN(latitude) ? latitude : 16.0748,
         longitude: typeof longitude === 'number' && !Number.isNaN(longitude) ? longitude : 108.1499,

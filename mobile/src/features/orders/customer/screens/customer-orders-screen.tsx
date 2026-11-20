@@ -141,20 +141,61 @@ function getRequestServiceTitle(req: ServiceRequest): string {
     return KNOWN_SERVICES_BY_ID[req.serviceId];
   }
 
+  const fromServiceId = req.serviceId ? resolveServiceName(req.serviceId) : undefined;
+  if (isSpecificServiceName(fromServiceId)) {
+    return fromServiceId!;
+  }
+
   const desc = (req.description || '').trim();
   if (!desc) {
     return 'Dịch vụ tiện ích';
   }
 
-  const match = desc.match(/Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i);
+  const match = desc.match(
+    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*Sự cố|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
+  );
   if (match && match[1]) {
     const extracted = match[1].trim();
-    if (extracted && !extracted.toLowerCase().includes('hỗ trợ')) {
+    const extractedLower = extracted.toLowerCase();
+    if (
+      extracted
+      && !extractedLower.includes('hỗ trợ')
+      && !extractedLower.includes('kiểm tra')
+      && !extractedLower.includes('xử lý')
+      && !extractedLower.includes('khắc phục')
+      && !extractedLower.includes('báo giá')
+      && extracted.length < 50
+    ) {
       return extracted.replace(/bão dưỡng/i, 'Bảo dưỡng');
     }
   }
 
+  const bracketMatch = desc.match(/^\[(.*?)\]/);
+  if (bracketMatch && bracketMatch[1] && bracketMatch[1].trim() && bracketMatch[1].trim().length < 50) {
+    return bracketMatch[1].trim();
+  }
+
+  const cleanDesc = desc.replace(/Cần thợ kiểm tra và xử lý sớm\.?/gi, '').trim();
+  const resolved = resolveServiceName(req.serviceId, undefined, cleanDesc);
+  if (isSpecificServiceName(resolved)) {
+    return resolved;
+  }
+
+  const descLower = desc.toLowerCase();
+  if (
+    descLower.startsWith('sự cố:')
+    || descLower.startsWith('vị trí:')
+    || descLower.startsWith('mức độ:')
+    || desc.includes('Cần thợ kiểm tra')
+  ) {
+    return 'Dịch vụ sửa chữa tại nhà';
+  }
+
   if (desc.includes('Tôi cần thợ') || desc.includes('Tôi cần người') || desc.includes('Tôi cần dịch vụ')) {
+    return 'Dịch vụ tiện ích';
+  }
+
+  if (desc.length > 40) {
     return 'Dịch vụ tiện ích';
   }
 
@@ -172,16 +213,33 @@ function getOrderServiceTitle(ord: Order): string {
   }
 
   const scope = (ord.agreedScope || '').trim();
-  if (!scope || scope.toLowerCase().startsWith('khách hàng chọn thợ')) {
+  const scopeLower = scope.toLowerCase();
+  if (
+    !scope
+    || scopeLower.startsWith('khách hàng chọn thợ')
+    || scopeLower === 'dịch vụ đã trao đổi'
+    || scopeLower === 'dịch vụ trao đổi'
+  ) {
     return 'Dịch vụ tiện ích';
   }
 
-  const match = scope.match(/Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i);
+  const match = scope.match(
+    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*Sự cố|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
+  );
   if (match && match[1]) {
     const extracted = match[1].trim();
-    if (extracted && !extracted.toLowerCase().includes('hỗ trợ')) {
+    if (extracted && !extracted.toLowerCase().includes('hỗ trợ') && extracted.length < 50) {
       return extracted.replace(/bão dưỡng/i, 'Bảo dưỡng');
     }
+  }
+
+  const resolved = resolveServiceName(ord.serviceId, undefined, scope);
+  if (isSpecificServiceName(resolved)) {
+    return resolved;
+  }
+
+  if (scope.length > 40) {
+    return 'Dịch vụ tiện ích';
   }
 
   return scope;
