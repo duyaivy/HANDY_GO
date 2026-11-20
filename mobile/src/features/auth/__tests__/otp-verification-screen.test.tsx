@@ -29,6 +29,7 @@ afterEach(() => {
   jest.clearAllTimers();
   jest.clearAllMocks();
   jest.restoreAllMocks();
+  jest.useRealTimers();
   useAuthStore.setState({
     isLoading: false,
     error: null,
@@ -67,7 +68,7 @@ describe('otpVerificationScreen (Phase 4 Step 2 - Ảnh 5)', () => {
   });
 
   it('initializes the cooldown from resendAvailableAt', () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     const now = Date.now();
     jest.setSystemTime(now);
     mockParams = {
@@ -81,7 +82,7 @@ describe('otpVerificationScreen (Phase 4 Step 2 - Ảnh 5)', () => {
   });
 
   it('recalculates the cooldown when the app returns to foreground', () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     const now = Date.now();
     jest.setSystemTime(now);
     mockParams = { resendAvailableAt: new Date(now + 50000).toISOString() };
