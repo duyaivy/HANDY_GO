@@ -24,7 +24,7 @@ export async function repairNovember(client, options, env = process.env) {
       UNION
       SELECT COALESCE(payload->'data', payload->'payload', payload)->>'customerUserId' AS customer_id
       FROM payment_service.failed_inbound_events
-      WHERE COALESCE(payload->'data', payload->'payload', payload)->>'orderId' = $1`, [TARGET_ORDER]);
+      WHERE COALESCE(payload->'data', payload->'payload', payload)->>'orderId' = $1::text`, [TARGET_ORDER]);
     if (!owner.rows.length || owner.rows.some(row => row.customer_id !== actorId))
       throw new Error('Requesting account does not match the affected test order');
     const overlapping = await client.query(`
@@ -109,7 +109,7 @@ if (process.env.HG71_REPAIR_RUN === '1') {
       runId: process.env.HG71_REPAIR_RUN_ID,
     })));
   } catch (error) {
-    console.error('November sandbox repair failed:', error.code || error.name, error.message?.startsWith('Requesting') || error.message?.startsWith('An existing') || error.message?.startsWith('The reviewed') ? error.message : 'transaction rolled back');
+    console.error('November sandbox repair failed:', error.code || error.name, error.position || '', error.routine || '', error.message?.startsWith('Requesting') || error.message?.startsWith('An existing') || error.message?.startsWith('The reviewed') ? error.message : 'transaction rolled back');
     process.exitCode = 1;
   } finally {
     await client.end();
