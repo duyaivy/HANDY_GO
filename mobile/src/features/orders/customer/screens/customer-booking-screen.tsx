@@ -434,7 +434,7 @@ export function CustomerBookingScreen({
       parts.push(`Mức độ: ${sev}`);
 
     const newChipText = parts.length > 0
-      ? `${parts.join(' - ')}. Cần thợ kiểm tra và xử lý sớm.`
+      ? parts.join(' - ')
       : '';
 
     // Extract user custom text by stripping previous chip suggestions
@@ -444,7 +444,7 @@ export function CustomerBookingScreen({
       baseText = baseText.replace(prevChipTextRef.current, '');
     }
     // Also remove any existing chip pattern if present
-    baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|$)/gi, '');
+    baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|\.|$)/gi, '');
     baseText = baseText.trim().replace(/\s*[:.\-]\s*$/, '').trim();
 
     const currentServiceName = (serviceName || targetServiceName || '').trim();

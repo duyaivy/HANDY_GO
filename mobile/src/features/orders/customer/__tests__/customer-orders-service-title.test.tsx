@@ -98,6 +98,26 @@ describe('CustomerOrdersScreen - Service Title Resolution & Defensive Shielding'
     expect(screen.queryByText(/Sự cố: Rò rỉ nước/)).toBeNull();
   });
 
+  it('extracts service name from prefixed description with clean chip details (no trailing suffix)', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+    mockRequestsData = [
+      {
+        id: 'req-clean-chips',
+        requestCode: 'REQ-20261119-CLEAN',
+        serviceId: 'dynamic-unmapped-uuid',
+        description: 'Tôi cần người Bốc xếp hàng hoá: Sự cố: Rò rỉ nước - Vị trí: Nhà tắm',
+        status: 'open_for_bidding',
+        addressText: '992 Hà Huy Tập',
+        createdAt: '2026-11-19T08:00:00Z',
+      },
+    ];
+
+    render(<CustomerOrdersScreen />);
+
+    expect(screen.getByText('Bốc xếp hàng hoá')).toBeOnTheScreen();
+    expect(screen.queryByText(/Sự cố: Rò rỉ nước/)).toBeNull();
+  });
+
   it('shields card title against raw incident description leakage and infers service from keywords', () => {
     useAuthStore.setState({ isAuthenticated: true });
     mockRequestsData = [

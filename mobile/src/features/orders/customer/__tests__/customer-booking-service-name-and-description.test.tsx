@@ -144,8 +144,8 @@ describe('customerBookingScreen - Service Name Preservation and Non-destructive 
     fireEvent.press(screen.getByText('Nhà tắm'));
 
     const desc = useBookingDraftStore.getState().description;
-    expect(desc).toContain('Tôi cần người Sửa máy giặt:');
-    expect(desc).toContain('Vị trí: Nhà tắm');
+    expect(desc).toBe('Tôi cần người Sửa máy giặt: Vị trí: Nhà tắm');
+    expect(desc).not.toContain('Cần thợ kiểm tra');
 
     // Unselect chip -> clears description back to empty
     fireEvent.press(screen.getByText('Nhà tắm'));
