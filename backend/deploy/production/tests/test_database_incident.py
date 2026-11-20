@@ -401,11 +401,14 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "apps/bidding-service/prisma/migrations/20261115000000_dashboard_bid_activity_indexes/migration.sql",
                 "apps/auth-service/prisma/migrations/20261118000000_preserve_customer_registration_history/migration.sql",
             }
+            later_migrations = {
+                "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
+            }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
             ):
                 relative = source.relative_to(PROD.parents[1])
-                if relative.as_posix() in dashboard_migrations:
+                if relative.as_posix() in dashboard_migrations | later_migrations:
                     continue  # Reconstruct the historical three-host release baseline.
                 destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
