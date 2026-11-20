@@ -31,6 +31,16 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+jest.mock('@/features/wallet/hooks/use-wallet', () => ({
+  useWallet: () => ({
+    wallet: undefined,
+    isLoading: false,
+    isWalletNotFound: true,
+    isError: false,
+    refetch: jest.fn(),
+  }),
+}));
+
 afterEach(() => {
   cleanup();
   jest.clearAllMocks();
@@ -58,13 +68,14 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
       expect(mockPush).toHaveBeenCalledWith('/customer/payment');
     });
 
-    it('renders Quản lý thanh toán skeleton with title and placeholder', () => {
+    it('renders Quản lý thanh toán with a wallet state', () => {
       render(<CustomerPaymentScreen />);
 
       expect(screen.getByText('Quản lý thanh toán')).toBeOnTheScreen();
       expect(screen.getByText('Payment')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-payment-screen')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByTestId('wallet-balance-card')).toBeOnTheScreen();
+      expect(screen.getByText('Ví của bạn chưa sẵn sàng')).toBeOnTheScreen();
     });
 
     it('navigates back to Tài khoản / Cá nhân when pressing back button in Quản lý thanh toán', () => {

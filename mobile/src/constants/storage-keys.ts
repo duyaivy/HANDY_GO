@@ -14,6 +14,7 @@ export const StorageKeys = {
   SAVED_FAVORITE_WORKERS: 'handy_go_favorite_workers',
   GUEST_SELECTED_ROLE: 'handy_go_guest_selected_role',
   PENDING_TOPUP: (userId: string) => `handy_go_pending_topup_${userId}` as const,
+  WALLET_BALANCE_HIDDEN: 'handy_go_wallet_balance_hidden',
 } as const;
 
 export type StorageKey = typeof StorageKeys[keyof typeof StorageKeys];
