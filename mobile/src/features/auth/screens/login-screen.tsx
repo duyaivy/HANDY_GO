@@ -13,6 +13,7 @@ import { getDestinationByRoles } from '@/lib/auth/navigation';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { syncPushRegistration } from '@/services/notifications/push-registration';
 import { useAuthStore } from '@/stores/use-auth-store';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { usePasswordResetStore } from '../use-password-reset-store';
 
 export function LoginScreen() {
@@ -25,6 +26,8 @@ export function LoginScreen() {
   const user = useAuthStore.use.user();
   const clearError = useAuthStore.use.clearError();
   const clearPasswordReset = usePasswordResetStore(state => state.clear);
+  const keyboard = useAndroidKeyboardInset();
+  const passwordInputRef = React.useRef<any>(null);
 
   const [phone, setPhone] = React.useState(params?.phone || '');
   const [password, setPassword] = React.useState('');
@@ -198,166 +201,178 @@ export function LoginScreen() {
         testID="login-app-bar"
       />
 
-      <View testID="auth-login-screen" className="flex-1 justify-between p-6">
-        <View>
-          {/* Header / Brand */}
-          <View className="mb-6 items-center">
-            <View className="mb-3 rounded-3xl bg-amber-50 p-2 dark:bg-neutral-900">
-              <BrandLogo size={84} />
-            </View>
-            <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
-              Chào mừng bạn đến với HandyGo
-            </Text>
-            <Text className="mt-2 text-center text-sm text-neutral-500 dark:text-neutral-400">
-              Nhập số điện thoại và mật khẩu để tiếp tục
-            </Text>
-          </View>
-
-          {/* Form Card */}
-          <View className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-            {successMessage && (
-              <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
-                <Text className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                  {successMessage}
-                </Text>
+      <View
+        ref={keyboard.containerRef}
+        onLayout={keyboard.onLayout}
+        style={{ flex: 1, paddingBottom: keyboard.bottomInset }}
+      >
+        <View testID="auth-login-screen" className="flex-1 justify-between p-6">
+          <View>
+            {/* Header / Brand */}
+            <View className="mb-6 items-center">
+              <View className="mb-3 rounded-3xl bg-amber-50 p-2 dark:bg-neutral-900">
+                <BrandLogo size={84} />
               </View>
-            )}
-
-            {errorMessage && (
-              <View testID="auth-login-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
-                <Text className="text-xs font-medium text-red-700 dark:text-red-300">
-                  {errorMessage}
-                </Text>
-              </View>
-            )}
-
-            {/* Phone Number Field */}
-            <View className="mb-3">
-              <Text className="mb-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-                Số điện thoại
+              <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+                Chào mừng bạn đến với HandyGo
               </Text>
-              <View className="flex-row items-center rounded-2xl border border-neutral-300 bg-neutral-100 px-4 py-1 dark:border-neutral-700 dark:bg-neutral-800">
-                {/* Phone Input */}
-                <TextInput
-                  testID="login-phone-input"
-                  placeholder="0912 345 678"
-                  placeholderTextColor="#9CA3AF"
-                  keyboardType="phone-pad"
-                  value={phone}
+              <Text className="mt-2 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                Nhập số điện thoại và mật khẩu để tiếp tục
+              </Text>
+            </View>
+
+            {/* Form Card */}
+            <View className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+              {successMessage && (
+                <View testID="auth-login-success" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950/50">
+                  <Text className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                    {successMessage}
+                  </Text>
+                </View>
+              )}
+
+              {errorMessage && (
+                <View testID="auth-login-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
+                  <Text className="text-xs font-medium text-red-700 dark:text-red-300">
+                    {errorMessage}
+                  </Text>
+                </View>
+              )}
+
+              {/* Phone Number Field */}
+              <View className="mb-3">
+                <Text className="mb-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  Số điện thoại
+                </Text>
+                <View className="flex-row items-center rounded-2xl border border-neutral-300 bg-neutral-100 px-4 py-1 dark:border-neutral-700 dark:bg-neutral-800">
+                  {/* Phone Input */}
+                  <TextInput
+                    testID="login-phone-input"
+                    placeholder="0912 345 678"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="phone-pad"
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordInputRef.current?.focus()}
+                    value={phone}
+                    onChangeText={(text) => {
+                      setPhone(text);
+                      if (localErrors.phone) {
+                        setLocalErrors(prev => ({ ...prev, phone: undefined }));
+                      }
+                      if (errorMessage) {
+                        setErrorMessage(null);
+                      }
+                    }}
+                    className="flex-1 py-2.5 text-base font-semibold text-neutral-900 dark:text-white"
+                  />
+
+                  {/* Clear Button ✕ */}
+                  {phone.length > 0 && (
+                    <Pressable
+                      testID="login-clear-phone-btn"
+                      accessibilityRole="button"
+                      accessibilityLabel="Xóa số điện thoại"
+                      onPress={() => {
+                        setPhone('');
+                        if (localErrors.phone) {
+                          setLocalErrors(prev => ({ ...prev, phone: undefined }));
+                        }
+                      }}
+                      className="size-7 items-center justify-center rounded-full bg-neutral-200 active:bg-neutral-300 dark:bg-neutral-700 dark:active:bg-neutral-600"
+                    >
+                      <CloseIcon size={14} color="#6B7280" />
+                    </Pressable>
+                  )}
+                </View>
+
+                {localErrors.phone && (
+                  <Text testID="login-phone-error" className="mt-1 text-xs font-medium text-red-500">
+                    {localErrors.phone}
+                  </Text>
+                )}
+              </View>
+
+              {/* Password Section */}
+              <View className="mt-2">
+                <Input
+                  ref={passwordInputRef}
+                  testID="login-password-input"
+                  label="Mật khẩu"
+                  placeholder="Nhập mật khẩu"
+                  secureTextEntry={!showPassword}
+                  returnKeyType="go"
+                  onSubmitEditing={handleSubmit}
+                  value={password}
                   onChangeText={(text) => {
-                    setPhone(text);
-                    if (localErrors.phone) {
-                      setLocalErrors(prev => ({ ...prev, phone: undefined }));
+                    setPassword(text);
+                    if (localErrors.password) {
+                      setLocalErrors(prev => ({ ...prev, password: undefined }));
                     }
                     if (errorMessage) {
                       setErrorMessage(null);
                     }
                   }}
-                  className="flex-1 py-2.5 text-base font-semibold text-neutral-900 dark:text-white"
+                  error={localErrors.password}
+                  rightAccessory={(
+                    <Pressable
+                      testID="login-toggle-password-btn"
+                      onPress={() => setShowPassword(!showPassword)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      className="py-1"
+                    >
+                      <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                        {showPassword ? 'Ẩn' : 'Hiện'}
+                      </Text>
+                    </Pressable>
+                  )}
                 />
 
-                {/* Clear Button ✕ */}
-                {phone.length > 0 && (
+                <View className="mt-1 items-end">
                   <Pressable
-                    testID="login-clear-phone-btn"
+                    testID="login-forgot-password-btn"
                     accessibilityRole="button"
-                    accessibilityLabel="Xóa số điện thoại"
-                    onPress={() => {
-                      setPhone('');
-                      if (localErrors.phone) {
-                        setLocalErrors(prev => ({ ...prev, phone: undefined }));
-                      }
-                    }}
-                    className="size-7 items-center justify-center rounded-full bg-neutral-200 active:bg-neutral-300 dark:bg-neutral-700 dark:active:bg-neutral-600"
-                  >
-                    <CloseIcon size={14} color="#6B7280" />
-                  </Pressable>
-                )}
-              </View>
-
-              {localErrors.phone && (
-                <Text testID="login-phone-error" className="mt-1 text-xs font-medium text-red-500">
-                  {localErrors.phone}
-                </Text>
-              )}
-            </View>
-
-            {/* Password Section */}
-            <View className="mt-2">
-              <Input
-                testID="login-password-input"
-                label="Mật khẩu"
-                placeholder="Nhập mật khẩu"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  if (localErrors.password) {
-                    setLocalErrors(prev => ({ ...prev, password: undefined }));
-                  }
-                  if (errorMessage) {
-                    setErrorMessage(null);
-                  }
-                }}
-                error={localErrors.password}
-                rightAccessory={(
-                  <Pressable
-                    testID="login-toggle-password-btn"
-                    onPress={() => setShowPassword(!showPassword)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    onPress={() => router.push(RouteNames.AUTH_FORGOT_PASSWORD as any)}
                     className="py-1"
                   >
-                    <Text className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                      {showPassword ? 'Ẩn' : 'Hiện'}
+                    <Text className="text-xs font-semibold text-primary-700 dark:text-primary-300">
+                      Quên mật khẩu?
                     </Text>
                   </Pressable>
-                )}
-              />
+                </View>
+              </View>
 
-              <View className="mt-1 items-end">
-                <Pressable
-                  testID="login-forgot-password-btn"
-                  accessibilityRole="button"
-                  onPress={() => router.push(RouteNames.AUTH_FORGOT_PASSWORD as any)}
-                  className="py-1"
-                >
-                  <Text className="text-xs font-semibold text-primary-700 dark:text-primary-300">
-                    Quên mật khẩu?
-                  </Text>
-                </Pressable>
+              {/* Submit Button */}
+              <View className="mt-4">
+                <Button
+                  testID="login-submit-button"
+                  label="Đăng nhập"
+                  variant="default"
+                  loading={isLoading}
+                  disabled={isLoading}
+                  className="h-12 rounded-2xl bg-[#F5A524]"
+                  onPress={handleSubmit}
+                />
               </View>
             </View>
-
-            {/* Submit Button */}
-            <View className="mt-4">
-              <Button
-                testID="login-submit-button"
-                label="Đăng nhập"
-                variant="default"
-                loading={isLoading}
-                disabled={isLoading}
-                className="h-12 rounded-2xl bg-[#F5A524]"
-                onPress={handleSubmit}
-              />
-            </View>
           </View>
-        </View>
 
-        {/* Footer Actions */}
-        <View className="mt-6 items-center">
-          <View className="flex-row items-center justify-center">
-            <Text className="text-sm text-neutral-600 dark:text-neutral-400">
-              Chưa có tài khoản?
-              {' '}
-            </Text>
-            <Pressable
-              testID="login-to-register-btn"
-              onPress={() => router.push(RouteNames.AUTH_REGISTER as any)}
-            >
-              <Text className="text-sm font-semibold text-primary-700 dark:text-primary-300">
-                Đăng ký ngay
+          {/* Footer Actions */}
+          <View className="mt-6 items-center">
+            <View className="flex-row items-center justify-center">
+              <Text className="text-sm text-neutral-600 dark:text-neutral-400">
+                Chưa có tài khoản?
+                {' '}
               </Text>
-            </Pressable>
+              <Pressable
+                testID="login-to-register-btn"
+                onPress={() => router.push(RouteNames.AUTH_REGISTER as any)}
+              >
+                <Text className="text-sm font-semibold text-primary-700 dark:text-primary-300">
+                  Đăng ký ngay
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>
