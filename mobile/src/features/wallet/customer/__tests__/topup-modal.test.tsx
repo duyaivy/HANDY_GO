@@ -82,3 +82,22 @@ it('shows a clear error if sandbox is unavailable on the backend', async () => {
   expect(await screen.findByText('Backend hiện chưa bật chế độ nạp thử.')).toBeOnTheScreen();
   expect(simulateTopup).not.toHaveBeenCalled();
 });
+
+it('does not display an old success message for a newly selected amount', () => {
+  jest.mocked(useTopup).mockReturnValue({
+    createTopup,
+    startVnpayCheckout,
+    simulateTopup,
+    activeTopup: { ...record, status: 'completed' },
+    isCreating: false,
+    isPolling: false,
+    isSimulating: false,
+    hasPollingTimedOut: false,
+    cancelPolling: jest.fn(),
+  });
+  render(<TopupModal visible onClose={jest.fn()} />);
+  fireEvent.press(screen.getByTestId('topup-amount-100000'));
+  expect(screen.getByText('Nạp tiền thành công. Số dư ví đã được cập nhật.')).toBeOnTheScreen();
+  fireEvent.press(screen.getByTestId('topup-amount-50000'));
+  expect(screen.queryByTestId('topup-status')).toBeNull();
+});

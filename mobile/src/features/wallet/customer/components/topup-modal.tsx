@@ -35,6 +35,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
   const amount = digits ? Number(digits) : 0;
   const validAmount = Number.isSafeInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
   const busy = isSubmitting || isCreating || isSimulating || isPolling;
+  const displayedTopup = activeTopup?.amountVnd === String(amount) ? activeTopup : null;
 
   const onAmountChange = (text: string) => {
     const onlyDigits = text.replace(/\D/g, '').slice(0, 9);
@@ -136,16 +137,16 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
           </View>
 
           {error ? <Text testID="topup-error" className="mt-3 text-sm text-red-600">{error}</Text> : null}
-          {activeTopup
+          {displayedTopup
             ? (
                 <Text testID="topup-status" className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
-                  {activeTopup.status === 'completed'
+                  {displayedTopup.status === 'completed'
                     ? 'Nạp tiền thành công. Số dư ví đã được cập nhật.'
-                    : activeTopup.status === 'credit_pending'
+                    : displayedTopup.status === 'credit_pending'
                       ? 'Đã thanh toán, đang chờ cộng điểm vào ví...'
-                      : activeTopup.status === 'awaiting_payment'
+                      : displayedTopup.status === 'awaiting_payment'
                         ? 'Đang chờ xác nhận thanh toán...'
-                        : `Trạng thái nạp tiền: ${activeTopup.status}`}
+                        : `Trạng thái nạp tiền: ${displayedTopup.status}`}
                 </Text>
               )
             : null}
