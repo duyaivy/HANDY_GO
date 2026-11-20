@@ -7,7 +7,7 @@ on:
         description: 'Refresh ENV or retry recovery of an earlier ENV refresh'
         required: true
         type: choice
-        options: [refresh, recover]
+        options: [refresh, recover, sandbox-enable, sandbox-disable]
         default: refresh
       recovery_run_id:
         description: 'Original failed ENV refresh run ID (recover mode only)'
@@ -18,9 +18,14 @@ on:
         required: false
         type: string
       confirm:
-        description: 'Type REFRESH_ALL for refresh, or RECOVER_ENV for recovery'
+        description: 'REFRESH_ALL, RECOVER_ENV, or SANDBOX_ONLY for payment/wallet sandbox'
         required: true
         type: string
+      sandbox_outcome:
+        description: 'Simulated payout outcome (sandbox-enable only)'
+        type: choice
+        options: [succeeded, failed]
+        default: succeeded
 
 permissions:
   contents: read
@@ -31,6 +36,104 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  wallet-sandbox:
+    if: inputs.mode == 'sandbox-enable' || inputs.mode == 'sandbox-disable'
+    name: Toggle payment and wallet sandbox on VPS3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: Apply reversible sandbox override to the accepted images
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+          OUTCOME: ${{ inputs.sandbox_outcome }}
+          VPS3_HOST: ${{ secrets.VPS3_HOST }}
+          VPS3_SSH_KEY: ${{ secrets.VPS3_SSH_KEY }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/release
+          test "$CONFIRM" = SANDBOX_ONLY
+          python3 - <<'PY'
+          import json, os, re, shlex, subprocess, tempfile
+          from pathlib import Path
+          mode, outcome = os.environ['MODE'], os.environ.get('OUTCOME') or 'succeeded'
+          if mode not in ('sandbox-enable', 'sandbox-disable') or outcome not in ('succeeded', 'failed'):
+              raise SystemExit('Invalid sandbox operation')
+          destination = os.environ['VPS3_HOST']
+          if not re.fullmatch(r'[A-Za-z0-9.-]+', destination):
+              raise SystemExit('Invalid VPS3 destination')
+          directory = Path('backend/deploy/production')
+          sources = {name: (directory / name).read_text() for name in ('host.py', 'release_log.py', 'services.json')}
+          operation = r'''
+          import fcntl, time
+          targets = ('payment-service', 'wallet-service')
+          with (ROOT / 'deploy.lock').open('a') as lock:
+              fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+              if (ROOT / 'pending.json').exists():
+                  raise RuntimeError('Recover the pending deployment before changing sandbox mode')
+              stable = read(ROOT / 'stable.json')
+              if not stable:
+                  raise RuntimeError('Accepted deployment required')
+              host = Host('vps3', stable['release_id'])
+              host.validate_bundle()
+              if not set(targets).issubset(host.names):
+                  raise RuntimeError('Payment/wallet are not on VPS3')
+              state_path = ROOT / 'wallet-sandbox.json'
+              previous = read(state_path)
+              if previous and previous.get('release_id') != stable['release_id']:
+                  raise RuntimeError('Sandbox receipt belongs to another deployment; inspect it first')
+              override = ROOT / 'wallet-sandbox.override.json'
+              before = override.read_bytes() if override.exists() else None
+              settings = {'services': {
+                  'payment-service': {'environment': {'NODE_ENV': 'test', 'PAYOUT_MOCK_ENABLED': 'true', 'PAYOUT_MOCK_OUTCOME': outcome}},
+                  'wallet-service': {'environment': {'WALLET_WITHDRAWALS_ENABLED': 'true'}},
+              }}
+              if mode == 'sandbox-enable':
+                  write(override, settings)
+              def recreate(use_override):
+                  extra = ['-f', str(override)] if use_override else []
+                  host.compose(*extra, 'up', '-d', '--no-build', '--no-deps', '--pull', 'never', '--force-recreate', *targets)
+                  deadline = time.monotonic() + 240
+                  while time.monotonic() < deadline:
+                      snapshots = [host._container_snapshot(name) for name in targets]
+                      if all(s and s.get('running') and s.get('health') == 'healthy' and not s.get('oom_killed') for s in snapshots):
+                          return
+                      time.sleep(5)
+                  raise RuntimeError('Payment/wallet health check timed out')
+              try:
+                  recreate(mode == 'sandbox-enable')
+                  if mode == 'sandbox-enable':
+                      write(state_path, {'release_id': stable['release_id'], 'outcome': outcome, 'mode': 'sandbox', 'image': host.manifest['app_image']})
+                  else:
+                      state_path.unlink(missing_ok=True)
+                      override.unlink(missing_ok=True)
+              except BaseException:
+                  if before is not None:
+                      override.write_bytes(before)
+                  else:
+                      override.unlink(missing_ok=True)
+                  recreate(previous is not None)
+                  raise
+              print(json.dumps({'mode': mode, 'outcome': outcome if mode == 'sandbox-enable' else None, 'services': targets, 'healthy': True}))
+          '''
+          bootstrap = (
+              'import json,sys,types; p=json.load(sys.stdin); '
+              'm=types.ModuleType("release_log"); exec(p["sources"]["release_log.py"],m.__dict__); sys.modules["release_log"]=m; '
+              'd=types.ModuleType("deployment_services"); d.REGISTRY=json.loads(p["sources"]["services.json"])["services"]; sys.modules["deployment_services"]=d; '
+              'n={"__name__":"sandbox_host","__file__":"trusted-sandbox-host.py","mode":p["mode"],"outcome":p["outcome"]}; '
+              'exec(compile(p["sources"]["host.py"],"trusted-sandbox-host.py","exec"),n); exec(compile(p["operation"],"sandbox-operation.py","exec"),n)'
+          )
+          with tempfile.TemporaryDirectory() as temporary:
+              key = Path(temporary) / 'vps3'
+              key.touch(mode=0o600)
+              key.write_text(os.environ['VPS3_SSH_KEY'] + '\n')
+              command = ['ssh', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=15',
+                  '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=' + str(Path(temporary) / 'known_hosts'),
+                  'azureuser@' + destination, 'python3 -c ' + shlex.quote(bootstrap)]
+              subprocess.run(command, input=json.dumps({'sources': sources, 'operation': operation, 'mode': mode, 'outcome': outcome}), text=True, check=True, timeout=650)
+          PY
+
   refresh:
     if: inputs.mode == 'refresh'
     name: Refresh production ENV on all 4 VPS
