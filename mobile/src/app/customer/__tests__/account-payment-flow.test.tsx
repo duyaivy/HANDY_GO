@@ -110,12 +110,12 @@ describe('account, Payment, and Switch to Worker App Navigation Flow', () => {
       expect(mockPush).toHaveBeenCalledWith('/customer/payment/link-account');
     });
 
-    it('renders Link account skeleton and navigates back to Quản lý thanh toán on Back press', () => {
+    it('renders payment methods and navigates back to Quản lý thanh toán on Back press', () => {
       render(<CustomerLinkAccountScreen />);
 
-      expect(screen.getByText('Link account')).toBeOnTheScreen();
+      expect(screen.getByText('Phương thức thanh toán')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-link-account-screen')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByTestId('payment-method-vnpay')).toBeOnTheScreen();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);
