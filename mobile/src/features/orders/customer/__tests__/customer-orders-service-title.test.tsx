@@ -118,6 +118,61 @@ describe('CustomerOrdersScreen - Service Title Resolution & Defensive Shielding'
     expect(screen.queryByText(/Sự cố: Rò rỉ nước/)).toBeNull();
   });
 
+  it.each(['Sự cố: Không chạy', 'Vị trí: Nhà tắm', 'Mức độ: Nặng'])(
+    'excludes the %s chip from request card titles',
+    (chip) => {
+      useAuthStore.setState({ isAuthenticated: true });
+      mockRequestsData = [{
+        id: 'req-chip',
+        serviceId: 'unknown-service',
+        description: `Tôi cần người Sửa máy giặt: ${chip}`,
+        status: 'open_for_bidding',
+        createdAt: '2026-11-19T08:00:00Z',
+      }];
+
+      render(<CustomerOrdersScreen />);
+
+      expect(screen.getByText('Sửa máy giặt')).toBeOnTheScreen();
+      expect(screen.queryByText(new RegExp(chip))).toBeNull();
+    },
+  );
+
+  it.each(['Sự cố: Không in', 'Vị trí: Văn phòng', 'Mức độ: Nặng'])(
+    'excludes the %s chip from order card titles',
+    (chip) => {
+      useAuthStore.setState({ isAuthenticated: true });
+      mockOrdersData = [{
+        id: 'ord-chip',
+        serviceId: 'unknown-service',
+        agreedScope: `Tôi cần người Bảo dưỡng máy in: ${chip}`,
+        status: 'in_progress',
+        createdAt: '2026-11-19T08:00:00Z',
+      }];
+
+      render(<CustomerOrdersScreen />);
+      fireEvent.press(screen.getByTestId('activity-filter-tab-in-process'));
+
+      expect(screen.getByText('Bảo dưỡng máy in')).toBeOnTheScreen();
+      expect(screen.queryByText(new RegExp(chip))).toBeNull();
+    },
+  );
+
+  it('uses the request description for an unknown UUID containing ac', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+    mockRequestsData = [{
+      id: 'req-unknown-uuid',
+      serviceId: 'acabcdef-1234-4567-89ab-123456789abc',
+      description: 'Tôi cần người Bảo dưỡng máy in: Vị trí: Văn phòng',
+      status: 'open_for_bidding',
+      createdAt: '2026-11-19T08:00:00Z',
+    }];
+
+    render(<CustomerOrdersScreen />);
+
+    expect(screen.getByText('Bảo dưỡng máy in')).toBeOnTheScreen();
+    expect(screen.queryByText('Sửa máy lạnh')).toBeNull();
+  });
+
   it('shields card title against raw incident description leakage and infers service from keywords', () => {
     useAuthStore.setState({ isAuthenticated: true });
     mockRequestsData = [

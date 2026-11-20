@@ -1,3 +1,5 @@
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const KNOWN_SERVICES_BY_ID: Record<string, string> = {
   // UUIDs from Catalog Service & Database
   'a26e3c78-f202-4ec0-a2f9-2462371d05a4': 'Vệ sinh máy lạnh',
@@ -99,10 +101,12 @@ export function resolveServiceName(
     return fallbackName.trim();
   }
 
-  if (serviceId) {
-    if (KNOWN_SERVICES_BY_ID[serviceId]) {
-      return KNOWN_SERVICES_BY_ID[serviceId];
-    }
+  if (serviceId && KNOWN_SERVICES_BY_ID[serviceId.toLowerCase()]) {
+    return KNOWN_SERVICES_BY_ID[serviceId.toLowerCase()];
+  }
+
+  // UUIDs are opaque identifiers; only readable slugs can carry service keywords.
+  if (serviceId && !UUID_REGEX.test(serviceId) && /^[a-z]+(?:-[a-z0-9]+)+$/i.test(serviceId)) {
     const idLower = serviceId.toLowerCase();
     // 1. Chăm sóc gia đình & Mẹ và bé
     if (
@@ -228,7 +232,7 @@ export function resolveServiceName(
     }
 
     const match = desc.match(
-      /(?:Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*|Cần\s+(?:thợ|người)?\s*)(.*?)(?:\s*[:\-–]\s*Sự cố|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$|,)/i,
+      /(?:Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*|Cần\s+(?:thợ|người)?\s*)(.*?)(?:\s*[:\-–]\s*(?:Sự cố|Vị trí|Mức độ)|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$|,)/i,
     );
     if (match && match[1]) {
       const extracted = match[1].trim();

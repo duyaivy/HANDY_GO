@@ -10,41 +10,29 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { isSpecificServiceName } from '@/constants/services';
+import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function resolveValidServiceId(id?: string, name?: string): string {
+async function resolveValidServiceId(id?: string, name?: string): Promise<string | undefined> {
   if (id && UUID_REGEX.test(id)) {
     return id;
   }
-  const lower = (name || '').toLowerCase();
-  if (lower.includes('giặt')) {
-    return 'cbb1b85c-32f9-4041-a0fd-df5cde04784f'; // Sửa máy giặt
+  const serviceName = name?.trim();
+  if (!isSpecificServiceName(serviceName)) {
+    return undefined;
   }
-  if (lower.includes('tivi')) {
-    return '2f77c5e1-f653-4de8-b0b7-8ce969394d2e'; // Sửa tivi
-  }
-  if (lower.includes('điện')) {
-    return 'a34626a6-fbe8-44fe-9ceb-33e85285b0e8'; // Sửa điện
-  }
-  if (lower.includes('lạnh') || lower.includes('điều hòa')) {
-    return 'a26e3c78-f202-4ec0-a2f9-2462371d05a4'; // Vệ sinh máy lạnh
-  }
-  if (lower.includes('cống')) {
-    return '0ae3c4ef-005f-43c2-a995-c36d0a85da1c'; // Thông cống
-  }
-  if (lower.includes('sơn')) {
-    return '3c049147-4803-40e6-9ebb-37a313fad5e9'; // Sơn nhà
-  }
-  if (lower.includes('dọn')) {
-    return '4c441301-efeb-43d1-ae58-a51a4eb90997'; // Dọn dẹp nhà cửa
-  }
-  if (lower.includes('bốc xếp') || lower.includes('khuân vác') || lower.includes('vận chuyển')) {
-    return '4c441301-efeb-43d1-ae58-a51a4eb90997'; // Dọn dẹp nhà cửa / bốc xếp
-  }
-  return 'b1026b8e-dd6c-478b-aeab-1afb582bcfd0'; // Sửa ống nước
+
+  const response = await CatalogApi.getServices({ search: serviceName, isActive: true, limit: 100 });
+  const matches = response.data.data.filter(service =>
+    service.isActive
+    && UUID_REGEX.test(service.id)
+    && service.name.trim().localeCompare(serviceName, 'vi', { sensitivity: 'base' }) === 0,
+  );
+  return matches.length === 1 ? matches[0].id : undefined;
 }
 
 export default function CustomerBookingSummaryRoute() {
@@ -67,6 +55,7 @@ export default function CustomerBookingSummaryRoute() {
 
   const [isOptionalExpanded, setIsOptionalExpanded] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const [submissionError, setSubmissionError] = React.useState<string | null>(null);
 
   // Format thời gian hiển thị: 12:53 - 25/10/2026
   const formattedTime = React.useMemo(() => {
@@ -88,7 +77,14 @@ export default function CustomerBookingSummaryRoute() {
 
   const handleStartFinding = async () => {
     setIsSubmitting(true);
+    setSubmissionError(null);
     try {
+      const validServiceId = await resolveValidServiceId(serviceId, serviceName);
+      if (!validServiceId) {
+        setSubmissionError('Dịch vụ này hiện chưa được hỗ trợ. Vui lòng chọn lại dịch vụ từ danh mục.');
+        return;
+      }
+
       // Đảm bảo scheduledAt luôn ở tương lai (tối thiểu +15 đến +30 phút)
       const parsedTime = new Date(scheduledAt).getTime();
       const effectiveScheduledAt = (!parsedTime || parsedTime <= Date.now() + 5 * 60 * 1000)
@@ -97,8 +93,6 @@ export default function CustomerBookingSummaryRoute() {
       if (effectiveScheduledAt !== scheduledAt) {
         setScheduledAt(effectiveScheduledAt);
       }
-
-      const validServiceId = resolveValidServiceId(serviceId, serviceName);
 
       let finalDescription = (description || '').trim();
       if (!finalDescription) {
@@ -149,7 +143,7 @@ export default function CustomerBookingSummaryRoute() {
     }
     catch (error) {
       console.log('[BOOKING_SUMMARY] Request creation error:', error);
-      router.push(RouteNames.CUSTOMER_BOOKING_RADAR as any);
+      setSubmissionError('Không thể tạo yêu cầu. Vui lòng thử lại sau.');
     }
     finally {
       setIsSubmitting(false);
@@ -195,7 +189,7 @@ export default function CustomerBookingSummaryRoute() {
       <ScrollView
         testID="booking-summary-screen"
         className="flex-1 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: submissionError ? 180 : 120 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Thẻ 1: Mô tả sự cố (Your issues *) */}
@@ -400,6 +394,11 @@ export default function CustomerBookingSummaryRoute() {
 
       {/* 3. Thanh nút hành động đáy màn hình */}
       <View className="absolute inset-x-0 bottom-0 border-t border-neutral-100 bg-white/95 px-4 pt-3 pb-6 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/95">
+        {submissionError && (
+          <Text accessibilityRole="alert" className="mb-3 text-sm text-red-600 dark:text-red-400">
+            {submissionError}
+          </Text>
+        )}
         <Pressable
           testID="booking-start-finding-btn"
           onPress={handleStartFinding}

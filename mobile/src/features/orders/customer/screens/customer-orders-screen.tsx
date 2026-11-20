@@ -152,7 +152,7 @@ function getRequestServiceTitle(req: ServiceRequest): string {
   }
 
   const match = desc.match(
-    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*Sự cố|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
+    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*(?:Sự cố|Vị trí|Mức độ)|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
   );
   if (match && match[1]) {
     const extracted = match[1].trim();
@@ -224,7 +224,7 @@ function getOrderServiceTitle(ord: Order): string {
   }
 
   const match = scope.match(
-    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*Sự cố|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
+    /Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*(.*?)(?:\s*[:\-–]\s*(?:Sự cố|Vị trí|Mức độ)|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$)/i,
   );
   if (match && match[1]) {
     const extracted = match[1].trim();
