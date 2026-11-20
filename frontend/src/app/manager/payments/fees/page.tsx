@@ -1,5 +1,5 @@
-import PaymentPlaceholder from "@/feature/payments/components/payment-placeholder";
+import CommissionRules from "@/feature/payments/components/commission-rules";
 
 export default function PaymentFeesPage() {
-  return <PaymentPlaceholder title="Hoa hồng" />;
+  return <CommissionRules />;
 }
