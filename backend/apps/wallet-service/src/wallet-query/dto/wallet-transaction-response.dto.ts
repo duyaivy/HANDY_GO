@@ -10,6 +10,12 @@ export class WalletTransactionResponseDto {
   @ApiProperty({ example: '25000' })
   amount!: string;
 
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'Total wallet balance immediately before this posting; null for legacy entries without a recorded snapshot' })
+  balanceBefore!: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'Total wallet balance immediately after this posting; reserved amounts are tracked separately' })
+  balanceAfter!: string | null;
+
   @ApiProperty({ example: 'completed' })
   status!: string;
 
