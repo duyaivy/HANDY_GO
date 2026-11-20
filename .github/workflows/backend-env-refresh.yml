@@ -7,7 +7,7 @@ on:
         description: 'Refresh ENV or retry recovery of an earlier ENV refresh'
         required: true
         type: choice
-        options: [refresh, recover, sandbox-enable, sandbox-disable]
+        options: [refresh, recover, sandbox-enable, sandbox-disable, sandbox-diagnose]
         default: refresh
       recovery_run_id:
         description: 'Original failed ENV refresh run ID (recover mode only)'
@@ -37,7 +37,7 @@ concurrency:
 
 jobs:
   wallet-sandbox:
-    if: inputs.mode == 'sandbox-enable' || inputs.mode == 'sandbox-disable'
+    if: startsWith(inputs.mode, 'sandbox-')
     name: Toggle payment and wallet sandbox on VPS3
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -58,7 +58,7 @@ jobs:
           import json, os, re, shlex, subprocess, tempfile
           from pathlib import Path
           mode, outcome = os.environ['MODE'], os.environ.get('OUTCOME') or 'succeeded'
-          if mode not in ('sandbox-enable', 'sandbox-disable') or outcome not in ('succeeded', 'failed'):
+          if mode not in ('sandbox-enable', 'sandbox-disable', 'sandbox-diagnose') or outcome not in ('succeeded', 'failed'):
               raise SystemExit('Invalid sandbox operation')
           destination = os.environ['VPS3_HOST']
           if not re.fullmatch(r'[A-Za-z0-9.-]+', destination):
@@ -77,6 +77,24 @@ jobs:
                   raise RuntimeError('Accepted deployment required')
               host = Host('vps3', stable['release_id'])
               host.validate_bundle()
+              if mode == 'sandbox-diagnose':
+                  container = host.compose('ps', '-q', 'payment-service')
+                  probe = """
+          const {Client} = require('pg');
+          const db = new Client({connectionString: process.env.PAYMENT_DATABASE_URL || process.env.DATABASE_URL});
+          (async () => {
+            await db.connect();
+            console.log(JSON.stringify({nodeEnv:process.env.NODE_ENV, inboundRetry:process.env.PAYMENT_INBOUND_RETRY_ENABLED, reconciler:process.env.PAYMENT_RECONCILER_ENABLED, outbox:process.env.PAYMENT_OUTBOX_ENABLED}));
+            for (const sql of [
+              'select count(*)::text as payments from payment_service.payments',
+              'select rate_percent::text,effective_from,effective_to,is_active from payment_service.commission_rules',
+              'select event_type,status,attempts,last_error,count(*)::text as count from payment_service.failed_inbound_events group by event_type,status,attempts,last_error limit 12',
+              'select event_type,count(*)::text as count from payment_service.consumed_events group by event_type'
+            ]) console.log(JSON.stringify((await db.query(sql)).rows));
+          })().catch(e => {console.error(e.name,e.code);process.exitCode=1}).finally(() => db.end());
+          """
+                  emit('sandbox-diagnostics', run(['docker', 'exec', container, 'node', '-e', probe], label='Read payment diagnostics'))
+                  raise SystemExit(0)
               if not set(targets).issubset(host.names):
                   raise RuntimeError('Payment/wallet are not on VPS3')
               state_path = ROOT / 'wallet-sandbox.json'
@@ -86,7 +104,7 @@ jobs:
               override = ROOT / 'wallet-sandbox.override.json'
               before = override.read_bytes() if override.exists() else None
               settings = {'services': {
-                  'payment-service': {'environment': {'NODE_ENV': 'test', 'PAYOUT_MOCK_ENABLED': 'true', 'PAYOUT_MOCK_OUTCOME': outcome}},
+                  'payment-service': {'environment': {'NODE_ENV': 'development', 'PAYOUT_MOCK_ENABLED': 'true', 'PAYOUT_MOCK_OUTCOME': outcome}},
                   'wallet-service': {'environment': {'WALLET_WITHDRAWALS_ENABLED': 'true'}},
               }}
               if mode == 'sandbox-enable':
