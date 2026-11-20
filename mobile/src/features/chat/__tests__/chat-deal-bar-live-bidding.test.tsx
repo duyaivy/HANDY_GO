@@ -94,9 +94,13 @@ it('updates a later-page worker quote from a real bidding subscription and hides
   render(<QueryClientProvider client={client}><ChatDealBar conversation={conversation} userId="customer" /></QueryClientProvider>);
   expect(await screen.findByText('230.000 đ')).toBeTruthy();
   targetBid = { ...targetBid, amount: 300000, version: 2 };
-  act(() => mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' })));
+  await act(async () => {
+    mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' }));
+  });
   expect(await screen.findByText('300.000 đ')).toBeTruthy();
   targetBid = { ...targetBid, status: 'withdrawn' };
-  act(() => mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' })));
+  await act(async () => {
+    mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' }));
+  });
   await waitFor(() => expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull());
 });
