@@ -7,7 +7,7 @@ on:
         description: 'Refresh ENV or retry recovery of an earlier ENV refresh'
         required: true
         type: choice
-        options: [refresh, recover, sandbox-enable, sandbox-disable, sandbox-diagnose]
+        options: [refresh, recover, sandbox-enable, sandbox-disable, sandbox-diagnose, sandbox-november-plan, sandbox-november-apply]
         default: refresh
       recovery_run_id:
         description: 'Original failed ENV refresh run ID (recover mode only)'
@@ -58,13 +58,14 @@ jobs:
           import json, os, re, shlex, subprocess, tempfile
           from pathlib import Path
           mode, outcome = os.environ['MODE'], os.environ.get('OUTCOME') or 'succeeded'
-          if mode not in ('sandbox-enable', 'sandbox-disable', 'sandbox-diagnose') or outcome not in ('succeeded', 'failed'):
+          if mode not in ('sandbox-enable', 'sandbox-disable', 'sandbox-diagnose', 'sandbox-november-plan', 'sandbox-november-apply') or outcome not in ('succeeded', 'failed'):
               raise SystemExit('Invalid sandbox operation')
           destination = os.environ['VPS3_HOST']
           if not re.fullmatch(r'[A-Za-z0-9.-]+', destination):
               raise SystemExit('Invalid VPS3 destination')
           directory = Path('backend/deploy/production')
           sources = {name: (directory / name).read_text() for name in ('host.py', 'release_log.py', 'services.json')}
+          repair_source = Path('.github/scripts/hg71-november-payment-repair.mjs').read_text()
           operation = r'''
           import fcntl, time
           targets = ('payment-service', 'wallet-service')
@@ -77,11 +78,24 @@ jobs:
                   raise RuntimeError('Accepted deployment required')
               host = Host('vps3', stable['release_id'])
               host.validate_bundle()
+              if mode in ('sandbox-november-plan', 'sandbox-november-apply'):
+                  container = host.compose('ps', '-q', 'payment-service')
+                  command = ['docker', 'exec', '-i',
+                      '-e', 'HG71_REPAIR_RUN=1', '-e', 'HG71_REPAIR_APPLY=' + ('1' if mode.endswith('apply') else '0'),
+                      '-e', 'HG71_REPAIR_ACTOR=d0d78b4a-afc9-4877-aad4-47a249b93a55',
+                      '-e', 'HG71_REPAIR_OPERATOR=' + repair_operator, '-e', 'HG71_REPAIR_RUN_ID=' + repair_run_id,
+                      container, 'node', '--input-type=module']
+                  result = subprocess.run(command, input=repair_source, text=True, capture_output=True, timeout=90)
+                  emit('november-repair', result.stdout)
+                  if result.returncode:
+                      emit('november-repair', result.stderr)
+                      raise RuntimeError('November repair refused or rolled back')
+                  raise SystemExit(0)
               if mode == 'sandbox-diagnose':
                   container = host.compose('ps', '-q', 'payment-service')
                   probe = """
           const {Client} = require('pg');
-          const db = new Client({connectionString: process.env.PAYMENT_DATABASE_URL || process.env.DATABASE_URL});
+          const db = new Client({connectionString: process.env.DATABASE_URL_PAYMENT || process.env.DATABASE_URL});
           (async () => {
             await db.connect();
             console.log(JSON.stringify({nodeEnv:process.env.NODE_ENV, inboundRetry:process.env.PAYMENT_INBOUND_RETRY_ENABLED, reconciler:process.env.PAYMENT_RECONCILER_ENABLED, outbox:process.env.PAYMENT_OUTBOX_ENABLED}));
@@ -139,7 +153,7 @@ jobs:
               'import json,sys,types; p=json.load(sys.stdin); '
               'm=types.ModuleType("release_log"); exec(p["sources"]["release_log.py"],m.__dict__); sys.modules["release_log"]=m; '
               'd=types.ModuleType("deployment_services"); d.REGISTRY=json.loads(p["sources"]["services.json"])["services"]; sys.modules["deployment_services"]=d; '
-              'n={"__name__":"sandbox_host","__file__":"trusted-sandbox-host.py","mode":p["mode"],"outcome":p["outcome"]}; '
+              'n={"__name__":"sandbox_host","__file__":"trusted-sandbox-host.py","mode":p["mode"],"outcome":p["outcome"],"repair_source":p["repair_source"],"repair_operator":p["repair_operator"],"repair_run_id":p["repair_run_id"]}; '
               'exec(compile(p["sources"]["host.py"],"trusted-sandbox-host.py","exec"),n); exec(compile(p["operation"],"sandbox-operation.py","exec"),n)'
           )
           with tempfile.TemporaryDirectory() as temporary:
@@ -149,7 +163,7 @@ jobs:
               command = ['ssh', '-i', str(key), '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'ConnectTimeout=15',
                   '-o', 'StrictHostKeyChecking=accept-new', '-o', 'UserKnownHostsFile=' + str(Path(temporary) / 'known_hosts'),
                   'azureuser@' + destination, 'python3 -c ' + shlex.quote(bootstrap)]
-              subprocess.run(command, input=json.dumps({'sources': sources, 'operation': operation, 'mode': mode, 'outcome': outcome}), text=True, check=True, timeout=650)
+              subprocess.run(command, input=json.dumps({'sources': sources, 'operation': operation, 'mode': mode, 'outcome': outcome, 'repair_source': repair_source, 'repair_operator': os.environ['GITHUB_ACTOR'], 'repair_run_id': os.environ['GITHUB_RUN_ID']}), text=True, check=True, timeout=650)
           PY
 
   refresh:
