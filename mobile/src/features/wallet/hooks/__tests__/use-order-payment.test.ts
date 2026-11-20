@@ -3,6 +3,7 @@ import type { WalletData } from '../../types/wallet.types';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { createElement } from 'react';
+import { ApiError } from '@/services/api/api-error';
 import { PaymentApi } from '../../api/payment.api';
 import { WalletApi } from '../../api/wallet.api';
 import { InsufficientWalletBalanceError, useOrderPayment } from '../use-order-payment';
@@ -142,6 +143,30 @@ it('rejects a frozen wallet before sending a charge', async () => {
   const { result } = setup();
   await act(async () => {
     await expect(result.current.processPayment('point')).rejects.toThrow('Ví hiện không hoạt động');
+  });
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+});
+
+it('explains an uninitialized payment without reading or charging the wallet, then permits a safe retry', async () => {
+  jest.mocked(PaymentApi.openPayment).mockRejectedValueOnce(new ApiError('VALIDATION_ERROR', 'Payment is not ready for this order yet', { statusCode: 409, code: 'CONFLICT' }));
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.processPayment('point')).rejects.toThrow('Lần thử này chưa trừ tiền ví');
+  });
+  expect(WalletApi.getMyWallet).not.toHaveBeenCalled();
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+  await act(async () => {
+    await expect(result.current.processPayment('point')).resolves.toMatchObject({ status: 'succeeded' });
+  });
+  expect(PaymentApi.payWithPoints).toHaveBeenCalledTimes(1);
+});
+
+it('preserves other payment conflict errors instead of describing them as delayed initialization', async () => {
+  const conflict = new ApiError('VALIDATION_ERROR', 'Order data does not match the payment snapshot', { statusCode: 409 });
+  jest.mocked(PaymentApi.openPayment).mockRejectedValueOnce(conflict);
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.processPayment('point')).rejects.toBe(conflict);
   });
   expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
 });

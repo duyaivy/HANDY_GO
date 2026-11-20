@@ -1,6 +1,7 @@
 import type { OrderPaymentRecord, TopupRecord } from '../../types/payment.types';
 import type { WalletData } from '../../types/wallet.types';
 import { fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { ApiError } from '@/services/api/api-error';
 import { PaymentApi } from '../../api/payment.api';
 import { WalletApi } from '../../api/wallet.api';
 import { OrderPaymentModal } from '../components/order-payment-modal';
@@ -150,4 +151,19 @@ it('does not report success for a failed point charge', async () => {
   fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
   await screen.findByText('Thanh toán chưa thành công. Vui lòng kiểm tra và thử lại.');
   expect(onResult).not.toHaveBeenCalled();
+});
+
+it('keeps completion confirmed while a missing backend payment is retried without double charging', async () => {
+  jest.mocked(PaymentApi.openPayment).mockRejectedValueOnce(new ApiError('VALIDATION_ERROR', 'Payment is not ready for this order yet', { statusCode: 409 }));
+  mount();
+  await screen.findByText('Số dư sau thanh toán: 300.000 đ');
+  fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
+  expect(await screen.findByTestId('order-payment-error')).toHaveTextContent('Đơn đã được nghiệm thu nhưng hệ thống chưa sẵn sàng thanh toán. Lần thử này chưa trừ tiền ví. Vui lòng thử lại sau.');
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+  expect(onResult).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
+  await waitFor(() => expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ status: 'succeeded' })));
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(PaymentApi.payWithPoints).toHaveBeenCalledTimes(1);
 });
