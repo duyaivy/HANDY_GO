@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Text } from 'react-native';
+import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { cleanup, render, screen } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
@@ -120,6 +121,8 @@ describe('secure Token Storage & Auth Store', () => {
   });
 
   it('clears session on logout', async () => {
+    queryClient.setQueryData(walletQueryKeys.me(), { balance: '50000' });
+    queryClient.setQueryData(walletQueryKeys.topupDetail('topup-1'), { status: 'completed' });
     await setToken({ access: 'access', refresh: 'refresh' });
     useAuthStore.setState({
       isAuthenticated: true,
@@ -142,6 +145,8 @@ describe('secure Token Storage & Auth Store', () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
     expect(getToken()).toBeNull();
+    expect(queryClient.getQueryData(walletQueryKeys.me())).toBeUndefined();
+    expect(queryClient.getQueryData(walletQueryKeys.topupDetail('topup-1'))).toBeUndefined();
   });
 
   it('does not store tokens in RAM if SecureStore write fails', async () => {
