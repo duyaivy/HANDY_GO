@@ -13,9 +13,11 @@ const MAX_TOPUP = 50_000_000;
 type Props = {
   visible: boolean;
   onClose: () => void;
+  initialAmount?: number;
+  embedded?: boolean;
 };
 
-export function TopupModal({ visible, onClose }: Props) {
+export function TopupModal({ visible, onClose, initialAmount, embedded = false }: Props) {
   const {
     createTopup,
     startVnpayCheckout,
@@ -26,7 +28,7 @@ export function TopupModal({ visible, onClose }: Props) {
     isSimulating,
     hasPollingTimedOut,
   } = useTopup();
-  const [digits, setDigits] = useState('');
+  const [digits, setDigits] = useState(() => initialAmount == null ? '' : String(Math.min(MAX_TOPUP, Math.max(MIN_TOPUP, Math.ceil(initialAmount)))));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLock = useRef(false);
@@ -81,115 +83,116 @@ export function TopupModal({ visible, onClose }: Props) {
       : 'Số tiền nạp tối đa là 50.000.000 đ.'
     : null;
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View className="flex-1 justify-end bg-black/60">
-        <View className="max-h-[90%] rounded-t-3xl bg-white px-5 pt-5 pb-12 dark:bg-neutral-900">
-          <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View className="flex-row items-start justify-between">
-              <View className="flex-1 pr-4">
-                <Text className="text-xl font-bold text-neutral-900 dark:text-white">Nạp điểm vào Ví HandyGo</Text>
-                <Text className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">1 VND = 1 Point</Text>
-              </View>
-              <Pressable testID="topup-close-btn" accessibilityRole="button" accessibilityLabel="Đóng nạp tiền" onPress={onClose} className="px-2 py-1">
-                <Text className="text-xl text-neutral-600 dark:text-neutral-200">×</Text>
-              </Pressable>
+  const content = (
+    <View className="flex-1 justify-end bg-black/60">
+      <View className="max-h-[90%] rounded-t-3xl bg-white px-5 pt-5 pb-12 dark:bg-neutral-900">
+        <ScrollView contentInsetAdjustmentBehavior="automatic" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View className="flex-row items-start justify-between">
+            <View className="flex-1 pr-4">
+              <Text className="text-xl font-bold text-neutral-900 dark:text-white">Nạp điểm vào Ví HandyGo</Text>
+              <Text className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">1 VND = 1 Point</Text>
             </View>
-
-            <Text className="mt-6 mb-3 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Chọn nhanh số tiền</Text>
-            <View className="flex-row flex-wrap gap-2">
-              {QUICK_AMOUNTS.map(value => (
-                <Pressable
-                  key={value}
-                  testID={`topup-amount-${value}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Chọn ${formatPointsToVND(value)}`}
-                  accessibilityState={{ selected: amount === value }}
-                  disabled={busy}
-                  onPress={() => onAmountChange(String(value))}
-                  className={`rounded-xl border px-3 py-2 ${amount === value ? 'border-emerald-700 bg-emerald-50 dark:bg-emerald-950' : 'border-neutral-200 dark:border-neutral-700'}`}
-                >
-                  <Text className="text-sm font-semibold text-neutral-800 dark:text-white">{formatPointsToVND(value)}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <View className="mt-5">
-              <Input
-                testID="topup-amount-input"
-                label="Số tiền nạp (VND)"
-                keyboardType="number-pad"
-                placeholder="Từ 10.000 đến 50.000.000"
-                value={digits ? formatPointsToVND(digits).replace(' đ', '') : ''}
-                onChangeText={onAmountChange}
-                disabled={busy}
-                error={validationMessage ?? undefined}
-              />
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                Điểm nhận được:
-                {' '}
-                {validAmount ? formatPointsToVND(amount).replace(' đ', '') : '0'}
-                {' '}
-                Point
-              </Text>
-            </View>
-
-            {error ? <Text testID="topup-error" className="mt-3 text-sm text-red-600">{error}</Text> : null}
-            {activeTopup
-              ? (
-                  <Text testID="topup-status" className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
-                    {activeTopup.status === 'completed'
-                      ? 'Nạp tiền thành công. Số dư ví đã được cập nhật.'
-                      : activeTopup.status === 'credit_pending'
-                        ? 'Đã thanh toán, đang chờ cộng điểm vào ví...'
-                        : activeTopup.status === 'awaiting_payment'
-                          ? 'Đang chờ xác nhận thanh toán...'
-                          : `Trạng thái nạp tiền: ${activeTopup.status}`}
-                  </Text>
-                )
-              : null}
-            {hasPollingTimedOut
-              ? <Text className="mt-2 text-sm text-amber-700">Chưa nhận được xác nhận. Hãy kiểm tra lại lịch sử nạp tiền sau ít phút.</Text>
-              : null}
-            {busy
-              ? (
-                  <View className="mt-3 flex-row items-center gap-2">
-                    <ActivityIndicator color="#047857" />
-                    <Text className="text-sm text-neutral-600 dark:text-neutral-300">{isPolling ? 'Đang xác nhận nạp tiền...' : 'Đang xử lý...'}</Text>
-                  </View>
-                )
-              : null}
-
-            <Pressable
-              testID="topup-vnpay-btn"
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !validAmount || busy }}
-              disabled={!validAmount || busy}
-              onPress={() => { void submit(false); }}
-              className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy ? 'bg-emerald-700' : 'bg-neutral-300'}`}
-            >
-              <Text className="text-base font-bold text-white">Thanh toán qua Cổng</Text>
-              <Text className="text-base font-black text-white">VNPAY</Text>
-              <ShieldCheckIcon color="#FFFFFF" size={18} />
+            <Pressable testID="topup-close-btn" accessibilityRole="button" accessibilityLabel="Đóng nạp tiền" onPress={onClose} className="px-2 py-1">
+              <Text className="text-xl text-neutral-600 dark:text-neutral-200">×</Text>
             </Pressable>
+          </View>
 
-            {__DEV__
-              ? (
-                  <Pressable
-                    testID="topup-simulate-btn"
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: !validAmount || busy }}
-                    disabled={!validAmount || busy}
-                    onPress={() => { void submit(true); }}
-                    className="mt-3 items-center rounded-xl border border-dashed border-emerald-600 px-4 py-3"
-                  >
-                    <Text className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">⚡ [Sandbox] Giả lập nạp thành công</Text>
-                  </Pressable>
-                )
-              : null}
-          </ScrollView>
-        </View>
+          <Text className="mt-6 mb-3 text-sm font-semibold text-neutral-800 dark:text-neutral-100">Chọn nhanh số tiền</Text>
+          <View className="flex-row flex-wrap gap-2">
+            {QUICK_AMOUNTS.map(value => (
+              <Pressable
+                key={value}
+                testID={`topup-amount-${value}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Chọn ${formatPointsToVND(value)}`}
+                accessibilityState={{ selected: amount === value }}
+                disabled={busy}
+                onPress={() => onAmountChange(String(value))}
+                className={`rounded-xl border px-3 py-2 ${amount === value ? 'border-emerald-700 bg-emerald-50 dark:bg-emerald-950' : 'border-neutral-200 dark:border-neutral-700'}`}
+              >
+                <Text className="text-sm font-semibold text-neutral-800 dark:text-white">{formatPointsToVND(value)}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View className="mt-5">
+            <Input
+              testID="topup-amount-input"
+              label="Số tiền nạp (VND)"
+              keyboardType="number-pad"
+              placeholder="Từ 10.000 đến 50.000.000"
+              value={digits ? formatPointsToVND(digits).replace(' đ', '') : ''}
+              onChangeText={onAmountChange}
+              disabled={busy}
+              error={validationMessage ?? undefined}
+            />
+            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+              Điểm nhận được:
+              {' '}
+              {validAmount ? formatPointsToVND(amount).replace(' đ', '') : '0'}
+              {' '}
+              Point
+            </Text>
+          </View>
+
+          {error ? <Text testID="topup-error" className="mt-3 text-sm text-red-600">{error}</Text> : null}
+          {activeTopup
+            ? (
+                <Text testID="topup-status" className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
+                  {activeTopup.status === 'completed'
+                    ? 'Nạp tiền thành công. Số dư ví đã được cập nhật.'
+                    : activeTopup.status === 'credit_pending'
+                      ? 'Đã thanh toán, đang chờ cộng điểm vào ví...'
+                      : activeTopup.status === 'awaiting_payment'
+                        ? 'Đang chờ xác nhận thanh toán...'
+                        : `Trạng thái nạp tiền: ${activeTopup.status}`}
+                </Text>
+              )
+            : null}
+          {hasPollingTimedOut
+            ? <Text className="mt-2 text-sm text-amber-700">Chưa nhận được xác nhận. Hãy kiểm tra lại lịch sử nạp tiền sau ít phút.</Text>
+            : null}
+          {busy
+            ? (
+                <View className="mt-3 flex-row items-center gap-2">
+                  <ActivityIndicator color="#047857" />
+                  <Text className="text-sm text-neutral-600 dark:text-neutral-300">{isPolling ? 'Đang xác nhận nạp tiền...' : 'Đang xử lý...'}</Text>
+                </View>
+              )
+            : null}
+
+          <Pressable
+            testID="topup-vnpay-btn"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !validAmount || busy }}
+            disabled={!validAmount || busy}
+            onPress={() => { void submit(false); }}
+            className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy ? 'bg-emerald-700' : 'bg-neutral-300'}`}
+          >
+            <Text className="text-base font-bold text-white">Thanh toán qua Cổng</Text>
+            <Text className="text-base font-black text-white">VNPAY</Text>
+            <ShieldCheckIcon color="#FFFFFF" size={18} />
+          </Pressable>
+
+          {__DEV__
+            ? (
+                <Pressable
+                  testID="topup-simulate-btn"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !validAmount || busy }}
+                  disabled={!validAmount || busy}
+                  onPress={() => { void submit(true); }}
+                  className="mt-3 items-center rounded-xl border border-dashed border-emerald-600 px-4 py-3"
+                >
+                  <Text className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">⚡ [Sandbox] Giả lập nạp thành công</Text>
+                </Pressable>
+              )
+            : null}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
+  return embedded
+    ? visible ? content : null
+    : <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>{content}</Modal>;
 }

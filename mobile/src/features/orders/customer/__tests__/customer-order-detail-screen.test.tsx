@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Alert, Linking } from 'react-native';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
+import { PaymentApi } from '@/features/wallet/api/payment.api';
+import { WalletApi } from '@/features/wallet/api/wallet.api';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
@@ -34,8 +36,13 @@ jest.mock('@/features/tracking', () => {
 });
 
 const initialAuthState = useAuthStore.getState();
+const testPayment = { id: 'payment-1', orderId: 'ord-test-001', amount: '450000', method: 'point', status: 'pending' };
 
 beforeEach(() => {
+  jest.spyOn(WalletApi, 'getMyWallet').mockResolvedValue({ data: { availableBalance: '500000', status: 'active' }, statusCode: 200, message: 'OK' } as any);
+  jest.spyOn(PaymentApi, 'openPayment').mockResolvedValue({ data: testPayment, statusCode: 200, message: 'OK' } as any);
+  jest.spyOn(PaymentApi, 'payWithPoints').mockResolvedValue({ data: { ...testPayment, status: 'succeeded' }, statusCode: 200, message: 'OK' } as any);
+  jest.spyOn(PaymentApi, 'getPaymentByOrder').mockResolvedValue({ data: { ...testPayment, status: 'succeeded' }, statusCode: 200, message: 'OK' } as any);
   jest.spyOn(OrdersApi, 'getStatusHistory').mockResolvedValue({
     data: [],
     statusCode: 200,
@@ -159,7 +166,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
 
       // 4. Invoice & Payment Card
       expect(screen.getByText('Chi phí & Thanh toán')).toBeOnTheScreen();
-      expect(screen.getAllByText('450.000đ').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('450.000 đ').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('TỔNG THANH TOÁN')).toBeOnTheScreen();
 
       // 5. Evidence Gallery
@@ -254,7 +261,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     expect(screen.queryByText('Ảnh 1 / 2')).toBeNull();
   });
 
-  it('renders awaiting_customer_confirmation status and handles Confirm Completion & Request Rework', async () => {
+  it('opens payment confirmation, settles points, refreshes the order and shows rating', async () => {
     const awaitingOrder = {
       ...baseOrder,
       status: 'awaiting_customer_confirmation',
@@ -266,11 +273,11 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       message: 'OK',
     } as any);
 
-    const confirmCompletionSpy = jest.spyOn(OrdersApi, 'confirmCompletion').mockResolvedValue({
-      data: { ...awaitingOrder, status: 'completed' },
-      statusCode: 200,
-      message: 'OK',
-    } as any);
+    const confirmCompletionSpy = jest.spyOn(OrdersApi, 'confirmCompletion').mockImplementation(async () => {
+      const updated = { ...awaitingOrder, status: 'completed' };
+      jest.mocked(OrdersApi.getOrderDetail).mockResolvedValue({ data: updated, statusCode: 200, message: 'OK' } as any);
+      return { data: updated, statusCode: 200, message: 'OK' } as any;
+    });
 
     const requestReworkSpy = jest.spyOn(OrdersApi, 'requestRework').mockResolvedValue({
       data: { ...awaitingOrder, status: 'in_progress' },
@@ -291,22 +298,53 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     // Press Confirm Completion
     const confirmBtn = screen.getByTestId('customer-confirm-completion-btn');
     fireEvent.press(confirmBtn);
+    expect(confirmCompletionSpy).not.toHaveBeenCalled();
+    await screen.findByText('Số dư sau thanh toán: 50.000 đ');
+    fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
 
     await waitFor(() => {
       expect(confirmCompletionSpy).toHaveBeenCalledWith('ord-test-001');
-      expect(alertSpy).toHaveBeenCalledWith('Thành công', 'Đã nghiệm thu hoàn tất đơn hàng!');
+      expect(alertSpy).toHaveBeenCalledWith('Thành công', 'Thanh toán thành công! Đơn hàng đã hoàn tất.');
+      expect(PaymentApi.payWithPoints).toHaveBeenCalledWith('payment-1');
+      expect(screen.getByText('⭐ Đánh Giá Thợ')).toBeOnTheScreen();
+      expect(screen.getByText('Điểm ví HandyGo')).toBeOnTheScreen();
     });
 
-    // Press Request Rework
-    const reworkBtn = screen.getByTestId('customer-request-rework-btn');
-    fireEvent.press(reworkBtn);
+    expect(requestReworkSpy).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() => {
-      expect(requestReworkSpy).toHaveBeenCalledWith(
-        'ord-test-001',
-        'Cần thợ kiểm tra lại phần mối nối còn rò rỉ nước.',
-      );
+  it('records cash as pending and does not display a paid badge', async () => {
+    const awaiting = { ...baseOrder, status: 'awaiting_customer_confirmation' };
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({ data: awaiting, statusCode: 200, message: 'OK' } as any);
+    jest.spyOn(OrdersApi, 'confirmCompletion').mockImplementation(async () => {
+      const completed = { ...awaiting, status: 'completed' };
+      jest.mocked(OrdersApi.getOrderDetail).mockResolvedValue({ data: completed, statusCode: 200, message: 'OK' } as any);
+      return { data: completed, statusCode: 200, message: 'OK' } as any;
     });
+    jest.mocked(PaymentApi.openPayment).mockResolvedValue({ data: { ...testPayment, method: 'cash' }, statusCode: 200, message: 'OK' } as any);
+    jest.mocked(PaymentApi.getPaymentByOrder).mockResolvedValue({ data: { ...testPayment, method: 'cash' }, statusCode: 200, message: 'OK' } as any);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+    fireEvent.press(await screen.findByTestId('customer-confirm-completion-btn'));
+    fireEvent.press(screen.getByTestId('order-payment-cash'));
+    fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Chờ xác nhận', 'Đã ghi nhận phương thức tiền mặt. Vui lòng gửi tiền cho thợ.'));
+    expect(screen.queryByText('Đã thanh toán')).toBeNull();
+    expect(screen.getByText('Tiền mặt')).toBeOnTheScreen();
+    expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+  });
+
+  it('reopens payment for an already completed unpaid order without repeating completion', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({ data: { ...baseOrder, status: 'completed' }, statusCode: 200, message: 'OK' } as any);
+    const confirmSpy = jest.spyOn(OrdersApi, 'confirmCompletion');
+    jest.mocked(PaymentApi.getPaymentByOrder).mockResolvedValue({ data: testPayment, statusCode: 200, message: 'OK' } as any);
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+    fireEvent.press(await screen.findByTestId('customer-retry-payment-btn'));
+    await screen.findByText('Số dư sau thanh toán: 50.000 đ');
+    fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Thành công', 'Thanh toán thành công! Đơn hàng đã hoàn tất.'));
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it('handles Cancel Order when order is in created status', async () => {
@@ -510,14 +548,18 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
 
     // Press Confirm Completion -> API fails
     fireEvent.press(screen.getByTestId('customer-confirm-completion-btn'));
+    await screen.findByText('Số dư sau thanh toán: 50.000 đ');
+    fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
 
     await waitFor(() => {
       expect(confirmCompletionSpy).toHaveBeenCalledWith('ord-test-001');
-      expect(alertSpy).toHaveBeenCalledWith('Lỗi nghiệm thu', 'Lỗi máy chủ 500 khi nghiệm thu');
+      expect(screen.getByText('Lỗi máy chủ 500 khi nghiệm thu')).toBeOnTheScreen();
+      expect(PaymentApi.openPayment).not.toHaveBeenCalled();
       expect(alertSpy).not.toHaveBeenCalledWith('Thành công', expect.anything());
     });
 
     // Press Request Rework -> API fails
+    fireEvent.press(screen.getByTestId('order-payment-close-btn'));
     fireEvent.press(screen.getByTestId('customer-request-rework-btn'));
 
     await waitFor(() => {

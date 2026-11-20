@@ -2,6 +2,16 @@ import type { WalletTransactionType } from '../types/wallet.types';
 
 type PointAmount = string | number | null | undefined;
 
+/** Order Service uses Decimal; accept whole VND (including .00) without rounding. */
+export function parseOrderVnd(value: PointAmount): bigint | null {
+  if (value == null || (typeof value === 'number' && !Number.isSafeInteger(value)))
+    return null;
+  const text = String(value);
+  if (!/^\d+(?:\.0+)?$/.test(text))
+    return null;
+  return BigInt(text.split('.')[0]!);
+}
+
 function toPointsBigInt(points: PointAmount): bigint {
   if (points == null || points === '')
     return 0n;

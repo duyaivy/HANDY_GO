@@ -117,3 +117,31 @@ it('coalesces rapid duplicate submits into one payment request', async () => {
     await Promise.all([first, second]);
   });
 });
+
+it('rejects a changed snapshot amount before charging', async () => {
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.processPayment('point', '40000')).rejects.toThrow('Chi phí đơn hàng đã thay đổi');
+  });
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+});
+
+it('returns an already settled payment even when the remaining wallet balance is low', async () => {
+  jest.mocked(PaymentApi.openPayment).mockResolvedValue(response({ ...payment, status: 'succeeded' }));
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response({ ...wallet, availableBalance: '0' }));
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.processPayment('point')).resolves.toMatchObject({ status: 'succeeded' });
+  });
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+  expect(WalletApi.getMyWallet).not.toHaveBeenCalled();
+});
+
+it('rejects a frozen wallet before sending a charge', async () => {
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response({ ...wallet, status: 'frozen' }));
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.processPayment('point')).rejects.toThrow('Ví hiện không hoạt động');
+  });
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+});
