@@ -33,10 +33,11 @@ export class PricingEstimatorService {
       process.env.AI_SERVICE_URL?.replace(/\/+$/, '') ||
       'http://localhost:8000';
 
-    const rawTimeout = process.env.AI_PRICING_TIMEOUT_MS
-      ? parseInt(process.env.AI_PRICING_TIMEOUT_MS, 10)
-      : 2500;
-    this.timeoutMs = !isNaN(rawTimeout) && rawTimeout > 0 ? rawTimeout : 2500;
+    const rawTimeout =
+      process.env.AI_PRICING_TIMEOUT_MS || process.env.AI_SERVICE_TIMEOUT_MS;
+    const parsedTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 15000;
+    this.timeoutMs =
+      !isNaN(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 15000;
 
     this.internalServiceSecret =
       process.env.INTERNAL_SERVICE_SECRET ||
