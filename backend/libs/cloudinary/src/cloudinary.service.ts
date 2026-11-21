@@ -37,6 +37,7 @@ export class CloudinaryService {
   async uploadImage(
     file: Express.Multer.File,
     chatOwnerId?: string,
+    publicOwnerId?: string,
   ): Promise<UploadImageResponseDto> {
     if (!file || !file.buffer || file.buffer.length === 0) {
       throw new AppException(
@@ -123,6 +124,14 @@ export class CloudinaryService {
             width: result.width,
             height: result.height,
             bytes: result.bytes,
+            ...(publicOwnerId && !chatOwnerId
+              ? {
+                  uploadReceipt: crypto
+                    .createHmac('sha256', apiSecret)
+                    .update(`${publicOwnerId}:image:${result.public_id}`)
+                    .digest('hex'),
+                }
+              : {}),
           });
         },
       );
@@ -213,7 +222,7 @@ export class CloudinaryService {
       chatOwnerId && (dto.intent === 'review' || !dto.intent)
         ? crypto
             .createHmac('sha256', apiSecret)
-            .update(`${chatOwnerId}:${publicId}`)
+            .update(`${chatOwnerId}:video:${publicId}`)
             .digest('hex')
         : undefined;
 
@@ -227,7 +236,7 @@ export class CloudinaryService {
         : {};
     const paramsToSign = {
       ...privateOptions,
-      folder,
+      folder: '',
       public_id: publicId,
       timestamp,
     };
@@ -250,7 +259,7 @@ export class CloudinaryService {
       timestamp,
       signature,
       publicId,
-      folder,
+      folder: '',
       resourceType: 'video',
       uploadUrl,
       chunkSize,
@@ -258,7 +267,7 @@ export class CloudinaryService {
     };
   }
 
-  /** Xác thực media review: kiểm tra hash receipt hoặc publicId gắn đúng ownerId */
+  /** Verify positive ownership evidence; a path containing an owner ID is not proof. */
   async verifyReviewMedia(input: {
     publicId: string;
     ownerId: string;
@@ -266,18 +275,21 @@ export class CloudinaryService {
     uploadReceipt?: string;
   }): Promise<boolean> {
     const secret = this.configService.cloudinaryApiSecret;
-    if (input.uploadReceipt && secret) {
-      const expectedReceipt = crypto
-        .createHmac('sha256', secret)
-        .update(`${input.ownerId}:${input.publicId}`)
-        .digest('hex');
-      if (input.uploadReceipt !== expectedReceipt) {
-        return false;
-      }
-      return true;
-    }
-    return input.publicId.includes(input.ownerId);
+    if (!secret || !/^[a-f0-9]{64}$/.test(input.uploadReceipt || ''))
+      return false;
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${input.ownerId}:${input.mediaType}:${input.publicId}`)
+      .digest('hex');
+    return (
+      input.uploadReceipt!.length === expected.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(input.uploadReceipt!),
+        Buffer.from(expected),
+      )
+    );
   }
+
   private chatContext(
     ownerId: string,
     key: string,

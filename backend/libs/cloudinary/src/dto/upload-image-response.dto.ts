@@ -1,13 +1,17 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { ApiResponseEnvelope } from '@app/common';
 
 export class UploadImageResponseDto {
-
   @ApiProperty({
     description: 'Cloudinary Asset ID',
     example: 'd84b2fa816e4564c78168270564ef729',
   })
   assetId!: string;
+
+  @ApiPropertyOptional({
+    description: 'Owner-bound receipt for public review media',
+  })
+  uploadReceipt?: string;
 
   @ApiProperty({
     description: 'Cloudinary Public ID',
@@ -72,4 +76,3 @@ export class UploadImageApiResponseDto implements ApiResponseEnvelope<UploadImag
   })
   data!: UploadImageResponseDto;
 }
-

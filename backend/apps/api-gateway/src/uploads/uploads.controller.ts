@@ -87,7 +87,9 @@ export class UploadsController {
       throw new BadRequestException('Chat image too large');
     const data = await (ownerId
       ? this.cloudinaryService.uploadImage(file, ownerId)
-      : this.cloudinaryService.uploadImage(file));
+      : req?.user?.userId
+        ? this.cloudinaryService.uploadImage(file, undefined, req.user.userId)
+        : this.cloudinaryService.uploadImage(file));
     return buildSuccessResponse(
       data,
       'Upload hình ảnh thành công',
