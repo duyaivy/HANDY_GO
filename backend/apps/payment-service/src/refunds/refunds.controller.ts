@@ -31,6 +31,20 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 export class RefundsController {
   constructor(private readonly service: RefundsService) {}
 
+  @Get('admin/refunds')
+  async adminListAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: AdminRefundQueryDto,
+  ) {
+    return buildSuccessResponse(
+      await this.service.listAll(
+        requireAdminPermission(user, PAYMENT_PERMISSIONS.refundReadAll),
+        query,
+      ),
+      'Refunds retrieved',
+    );
+  }
+
   @Post(':id/refunds')
   async create(
     @CurrentUser() user: AuthenticatedUser,
@@ -69,20 +83,6 @@ export class RefundsController {
         true,
       ),
       'Refund requested',
-    );
-  }
-
-  @Get('admin/refunds')
-  async adminListAll(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query() query: AdminRefundQueryDto,
-  ) {
-    return buildSuccessResponse(
-      await this.service.listAll(
-        requireAdminPermission(user, PAYMENT_PERMISSIONS.refundReadAll),
-        query,
-      ),
-      'Refunds retrieved',
     );
   }
 
