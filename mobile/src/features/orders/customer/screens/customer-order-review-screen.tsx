@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { CameraIcon, CheckCircleIcon, GalleryIcon, PlayIcon, SparklesIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
+import { CameraIcon, CheckCircleIcon, PlayIcon, SparklesIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
@@ -95,6 +95,7 @@ export function CustomerOrderReviewScreen({
   const [hasInitializedData, setHasInitializedData] = React.useState<boolean>(false);
 
   // Khởi tạo dữ liệu nếu đang ở chế độ xem / chỉnh sửa đánh giá đã có
+  /* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
   React.useEffect(() => {
     if (review && !hasInitializedData) {
       setRating(review.rating || 5);
@@ -123,6 +124,7 @@ export function CustomerOrderReviewScreen({
       setHasInitializedData(true);
     }
   }, [review, hasInitializedData]);
+  /* eslint-enable react-hooks-extra/no-direct-set-state-in-use-effect */
 
   // Worker Info Resolution
   const realWorker = worker || (order as any)?.worker;
@@ -538,16 +540,18 @@ export function CustomerOrderReviewScreen({
         {/* 1. Worker & Order Summary Card */}
         <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <View className="flex-row items-center gap-3">
-            {displayWorkerAvatar ? (
-              <Image
-                source={{ uri: displayWorkerAvatar }}
-                className="size-14 rounded-full border border-neutral-200 dark:border-neutral-700"
-              />
-            ) : (
-              <View className="size-14 items-center justify-center rounded-full bg-primary/10">
-                <UserIcon size={28} color={PRIMARY_COLOR} />
-              </View>
-            )}
+            {displayWorkerAvatar
+              ? (
+                  <Image
+                    source={{ uri: displayWorkerAvatar }}
+                    className="size-14 rounded-full border border-neutral-200 dark:border-neutral-700"
+                  />
+                )
+              : (
+                  <View className="size-14 items-center justify-center rounded-full bg-primary/10">
+                    <UserIcon size={28} color={PRIMARY_COLOR} />
+                  </View>
+                )}
 
             <View className="flex-1">
               <View className="flex-row items-center gap-1.5">
@@ -630,7 +634,7 @@ export function CustomerOrderReviewScreen({
                   key={opt.value}
                   testID={`criteria-attitude-${opt.value}`}
                   onPress={() => setAttitudeRating(opt.value)}
-                  className={`flex-1 items-center justify-center rounded-xl border py-2 px-1 ${
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     attitudeRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
                       : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
@@ -667,7 +671,7 @@ export function CustomerOrderReviewScreen({
                   key={opt.value}
                   testID={`criteria-quality-${opt.value}`}
                   onPress={() => setQualityRating(opt.value)}
-                  className={`flex-1 items-center justify-center rounded-xl border py-2 px-1 ${
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     qualityRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
                       : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
@@ -704,7 +708,7 @@ export function CustomerOrderReviewScreen({
                   key={opt.value}
                   testID={`criteria-speed-${opt.value}`}
                   onPress={() => setSpeedRating(opt.value)}
-                  className={`flex-1 items-center justify-center rounded-xl border py-2 px-1 ${
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     speedRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
                       : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
@@ -818,7 +822,7 @@ export function CustomerOrderReviewScreen({
                     >
                       <PlayIcon size={24} color="#FFFFFF" />
                     </View>
-                    <View className="absolute bottom-1 left-1 rounded bg-black/70 px-1 py-0.5">
+                    <View className="absolute bottom-1 left-1 rounded-sm bg-black/70 px-1 py-0.5">
                       <Text className="text-[9px] font-bold text-white">VIDEO</Text>
                     </View>
                   </>
@@ -892,4 +896,3 @@ export function CustomerOrderReviewScreen({
     </Screen>
   );
 }
-

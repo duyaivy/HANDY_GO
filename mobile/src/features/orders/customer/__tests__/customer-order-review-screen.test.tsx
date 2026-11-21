@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Alert } from 'react-native';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';

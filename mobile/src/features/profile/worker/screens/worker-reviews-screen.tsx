@@ -1,4 +1,4 @@
-import type { WorkerPublicProfileData, WorkerReviewItem, WorkerReviewMediaItem } from '@/services/workers/workers-api';
+import type { WorkerPublicProfileData, WorkerReviewMediaItem } from '@/services/workers/workers-api';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
@@ -66,7 +66,9 @@ function StarRatingRow({ rating, size = 14 }: { rating: number; size?: number })
 }
 
 function formatCriteriaValue(type: 'quality' | 'attitude' | 'speed', value?: string | number | null): string {
-  if (!value) return '';
+  if (!value) {
+    return '';
+  }
   const raw = String(value).toLowerCase().trim();
   if (raw === 'good') {
     return type === 'speed' ? 'Nhanh' : 'Tốt';
@@ -478,7 +480,7 @@ export function WorkerReviewsScreen() {
                                 key={mediaItem.id || mediaItem.mediaUrl || imgIndex}
                                 testID={`review-media-item-${review.id}-${imgIndex}`}
                                 onPress={() => setSelectedMedia(mediaItem)}
-                                className="relative size-16 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 active:opacity-80"
+                                className="relative size-16 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 active:opacity-80 dark:border-neutral-800 dark:bg-neutral-800"
                               >
                                 <Image
                                   source={{ uri: displayUri }}
@@ -634,44 +636,46 @@ export function WorkerReviewsScreen() {
           onPress={() => setSelectedMedia(null)}
         >
           {selectedMedia && (
-            (selectedMedia.mediaType || '').toLowerCase() === 'video' ? (
-              <View className="w-full items-center justify-center">
-                <View className="relative h-72 w-full overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-900">
+            (selectedMedia.mediaType || '').toLowerCase() === 'video'
+              ? (
+                  <View className="w-full items-center justify-center">
+                    <View className="relative h-72 w-full overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-900">
+                      <Image
+                        source={{ uri: selectedMedia.thumbnailUrl || selectedMedia.mediaUrl }}
+                        className="size-full"
+                        contentFit="contain"
+                      />
+                      <View className="absolute inset-0 items-center justify-center bg-black/40">
+                        <PlayIcon size={56} color="#FFFFFF" />
+                      </View>
+                      <View className="absolute top-3 left-3 rounded-md bg-black/70 px-2 py-1">
+                        <Text className="text-[10px] font-bold text-white">VIDEO ĐÁNH GIÁ</Text>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      testID="lightbox-play-video-btn"
+                      onPress={() => {
+                        if (selectedMedia.mediaUrl) {
+                          void Linking.openURL(selectedMedia.mediaUrl);
+                        }
+                      }}
+                      className="mt-5 flex-row items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 active:bg-blue-700"
+                    >
+                      <PlayIcon size={18} color="#FFFFFF" />
+                      <Text className="text-sm font-bold text-white">
+                        Phát video toàn màn hình
+                      </Text>
+                    </Pressable>
+                  </View>
+                )
+              : (
                   <Image
-                    source={{ uri: selectedMedia.thumbnailUrl || selectedMedia.mediaUrl }}
-                    className="size-full"
+                    source={{ uri: selectedMedia.mediaUrl }}
+                    className="h-3/4 w-full"
                     contentFit="contain"
                   />
-                  <View className="absolute inset-0 items-center justify-center bg-black/40">
-                    <PlayIcon size={56} color="#FFFFFF" />
-                  </View>
-                  <View className="absolute top-3 left-3 rounded-md bg-black/70 px-2 py-1">
-                    <Text className="text-[10px] font-bold text-white">VIDEO ĐÁNH GIÁ</Text>
-                  </View>
-                </View>
-
-                <Pressable
-                  testID="lightbox-play-video-btn"
-                  onPress={() => {
-                    if (selectedMedia.mediaUrl) {
-                      void Linking.openURL(selectedMedia.mediaUrl);
-                    }
-                  }}
-                  className="mt-5 flex-row items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 active:bg-blue-700"
-                >
-                  <PlayIcon size={18} color="#FFFFFF" />
-                  <Text className="text-sm font-bold text-white">
-                    Phát video toàn màn hình
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <Image
-                source={{ uri: selectedMedia.mediaUrl }}
-                className="h-3/4 w-full"
-                contentFit="contain"
-              />
-            )
+                )
           )}
           <Text className="mt-4 text-xs font-semibold text-white/80">
             Nhấn ra ngoài để đóng

@@ -85,4 +85,3 @@ export const ReviewsApi = {
     return response?.data || (response as unknown as VideoUploadSignatureResponse);
   },
 };
-

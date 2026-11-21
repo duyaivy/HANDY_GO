@@ -7,7 +7,7 @@ import {
   View,
 } from 'react-native';
 import { Button } from '@/components/ui/button';
-import { EditIcon, StarIcon } from '@/components/ui/icons/handy-icons';
+import { StarIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 
 export type OrderReviewCardProps = {
@@ -201,13 +201,15 @@ export function OrderReviewCard({
       </View>
 
       {/* Review Comment */}
-      {review.comment ? (
-        <View className="mt-3 rounded-xl bg-white/80 p-3 dark:bg-neutral-900/80">
-          <Text className="text-xs leading-relaxed text-neutral-800 dark:text-neutral-200">
-            {review.comment}
-          </Text>
-        </View>
-      ) : null}
+      {review.comment
+        ? (
+            <View className="mt-3 rounded-xl bg-white/80 p-3 dark:bg-neutral-900/80">
+              <Text className="text-xs/relaxed text-neutral-800 dark:text-neutral-200">
+                {review.comment}
+              </Text>
+            </View>
+          )
+        : null}
 
       {/* Photos Grid */}
       {images.length > 0 && (
@@ -295,4 +297,3 @@ export function OrderReviewCard({
     </View>
   );
 }
-

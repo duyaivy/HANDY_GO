@@ -2,8 +2,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
-import { useAuthStore } from '@/stores/use-auth-store';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
 import { CustomerBookingScreen } from '../screens/customer-booking-screen';
@@ -285,15 +285,15 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     // 1. Unreviewed order shows "⭐ Đánh giá"
     await waitFor(() => {
       expect(screen.getByTestId('order-card-review-btn-ord-comp-unreviewed')).toBeOnTheScreen();
-      expect(screen.getByTestId('order-card-review-btn-ord-comp-unreviewed')).toHaveTextContent('⭐ Đánh giá');
     });
+    expect(screen.getByTestId('order-card-review-btn-ord-comp-unreviewed')).toHaveTextContent('⭐ Đánh giá');
 
     // 2. Reviewed order within 48h shows "Sửa đánh giá" and NOT "⭐ Đánh giá"
     await waitFor(() => {
       expect(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed')).toBeOnTheScreen();
-      expect(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed')).toHaveTextContent('Sửa đánh giá');
-      expect(screen.queryByTestId('order-card-review-btn-ord-comp-reviewed')).toBeNull();
     });
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-reviewed')).toBeNull();
+    expect(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed')).toHaveTextContent('Sửa đánh giá');
 
     // Pressing "Sửa đánh giá" routes to review with mode: 'edit'
     fireEvent.press(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed'));

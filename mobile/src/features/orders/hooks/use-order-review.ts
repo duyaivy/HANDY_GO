@@ -57,6 +57,7 @@ export function useOrderReview(orderId?: string | null) {
   });
 
   const review = reviewQuery.data;
+  const [currentTime] = React.useState(() => Date.now());
 
   // Tính toán quyền chỉnh sửa đánh giá (trong 48h và chưa từng sửa trước đó)
   const canEdit = React.useMemo(() => {
@@ -70,18 +71,18 @@ export function useOrderReview(orderId?: string | null) {
     if (Number.isNaN(createdTime)) {
       return false;
     }
-    const elapsed = Date.now() - createdTime;
-    return elapsed >= 0 && elapsed <= FORTY_EIGHT_HOURS_MS;
-  }, [review]);
+    const elapsed = currentTime - createdTime;
+    return elapsed >= -60_000 && elapsed <= FORTY_EIGHT_HOURS_MS;
+  }, [review, currentTime]);
 
   const hoursRemainingToEdit = React.useMemo(() => {
     if (!canEdit || !review?.createdAt) {
       return 0;
     }
     const createdTime = new Date(review.createdAt).getTime();
-    const remainingMs = FORTY_EIGHT_HOURS_MS - (Date.now() - createdTime);
+    const remainingMs = FORTY_EIGHT_HOURS_MS - Math.max(0, currentTime - createdTime);
     return Math.max(0, Math.ceil(remainingMs / (60 * 60 * 1000)));
-  }, [canEdit, review?.createdAt]);
+  }, [canEdit, review, currentTime]);
 
   return {
     review,
@@ -104,4 +105,3 @@ export function useOrderReview(orderId?: string | null) {
     updateError: updateReviewMutation.error,
   };
 }
-
