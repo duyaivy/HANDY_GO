@@ -111,6 +111,9 @@ export class OrderResponseDto {
   @ApiPropertyOptional({ description: 'Timestamp customer confirmed completion' })
   completedAt?: Date | null;
 
+  @ApiPropertyOptional({ description: 'First accepted completion, preserved across warranty cycles' })
+  firstCompletedAt?: Date | null;
+
   @ApiPropertyOptional({ description: 'Timestamp order was cancelled' })
   cancelledAt?: Date | null;
 

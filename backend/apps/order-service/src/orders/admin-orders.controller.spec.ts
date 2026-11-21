@@ -15,6 +15,7 @@ describe('AdminOrdersController', () => {
     adminFindAll: ReturnType<typeof vi.fn>;
     adminFindDisputes: ReturnType<typeof vi.fn>;
     resolveDispute: ReturnType<typeof vi.fn>;
+    resolveCompletedDispute: ReturnType<typeof vi.fn>;
   };
 
   const mockAdminId = '99999999-9999-9999-9999-999999999999';
@@ -25,6 +26,7 @@ describe('AdminOrdersController', () => {
       adminFindAll: vi.fn(),
       adminFindDisputes: vi.fn(),
       resolveDispute: vi.fn(),
+      resolveCompletedDispute: vi.fn(),
     };
 
     controller = new AdminOrdersController(
@@ -90,6 +92,17 @@ describe('AdminOrdersController', () => {
   });
 
   describe('resolveDispute', () => {
+    it('returns HTTP 202 while a new refund decision is pending', async () => {
+      const decision = { id: mockOrderId, status: 'disputed', resolutionId: '77777777-7777-7777-7777-777777777777', state: 'refund_pending' };
+      serviceMock.resolveCompletedDispute.mockResolvedValue(decision);
+      const response = { status: vi.fn() };
+      const user = { userId: mockAdminId, roles: ['Admin'], permissions: [] };
+      const dto: ResolveDisputeDto = { action: 'refund', resolutionNote: 'Hoàn tiền cho khách hàng', idempotencyKey: 'hg82-1' };
+      const result = await controller.resolveDispute(mockOrderId, user, dto, response);
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.ACCEPTED);
+      expect(result.statusCode).toBe(HttpStatus.ACCEPTED);
+      expect(result.data).toEqual(decision);
+    });
     it('should resolve dispute and return 200 wrapped response', async () => {
       const order = { id: mockOrderId, status: 'completed' };
       serviceMock.resolveDispute.mockResolvedValue(order);

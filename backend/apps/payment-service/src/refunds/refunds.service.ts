@@ -8,6 +8,7 @@ import type { PaymentTx } from '../common/outbox/payment-events.js';
 import { paymentRefundedEvent } from '../common/outbox/payment-events.js';
 import { PaymentOutboxService } from '../common/outbox/payment-outbox.service.js';
 import { WalletClient } from '../common/clients/wallet.client.js';
+import { EVENT_PATTERNS } from '@app/common';
 import type { PaymentPaginationDto } from '../payment-query/dto/payment-query.dto.js';
 import type { CreateRefundDto, DecideRefundDto } from './dto/refunds.dto.js';
 
@@ -306,6 +307,17 @@ export class RefundsService {
         },
       });
       await this.outbox.enqueue(tx, paymentRefundedEvent(updated, completed));
+      if (current.disputeResolutionId) {
+        await this.outbox.enqueue(tx, {
+          aggregateType: 'refund', aggregateId: id,
+          eventType: EVENT_PATTERNS.PAYMENT_DISPUTE_REFUND_COMPLETED,
+          payload: {
+            resolutionId: current.disputeResolutionId, orderId: payment.orderId,
+            paymentId: payment.id, refundId: id, refundAmountVnd: completed.amountVnd.toString(),
+            paymentStatus: updated.status,
+          },
+        });
+      }
       await this.audit.record(tx, {
         actorUserId: current.approvedByUserId!,
         action: 'refund.completed',

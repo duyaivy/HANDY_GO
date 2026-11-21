@@ -8,6 +8,8 @@ export const ORDER_ERROR_CODES = {
   REWORK_REASON_REQUIRED: 'REWORK_REASON_REQUIRED',
   CANCEL_REASON_REQUIRED: 'CANCEL_REASON_REQUIRED',
   RESOLUTION_REASON_REQUIRED: 'RESOLUTION_REASON_REQUIRED',
+  LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION: 'LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION',
+  REFUND_AMOUNT_EXCEEDS_REFUNDABLE: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE',
   TOO_EARLY_TO_START: 'TOO_EARLY_TO_START',
 
   // 403 Forbidden
@@ -17,6 +19,7 @@ export const ORDER_ERROR_CODES = {
   NOT_REQUEST_OWNER: 'NOT_REQUEST_OWNER',
   NOT_PROPOSAL_PARTICIPANT: 'NOT_PROPOSAL_PARTICIPANT',
   FORBIDDEN_ROLE: 'FORBIDDEN_ROLE',
+  REFUND_SELF_APPROVAL_FORBIDDEN: 'REFUND_SELF_APPROVAL_FORBIDDEN',
 
   // 404 Not Found
   SERVICE_REQUEST_NOT_FOUND: 'SERVICE_REQUEST_NOT_FOUND',
@@ -33,6 +36,8 @@ export const ORDER_ERROR_CODES = {
   WORKER_CAPACITY_EXCEEDED: 'WORKER_CAPACITY_EXCEEDED',
   SCHEDULE_CONFLICT: 'SCHEDULE_CONFLICT',
   WORKER_ALREADY_BUSY: 'WORKER_ALREADY_BUSY',
+  DISPUTE_ALREADY_DECIDED: 'DISPUTE_ALREADY_DECIDED',
+  PAYMENT_NOT_REFUNDABLE: 'PAYMENT_NOT_REFUNDABLE',
 
   // 422 Unprocessable Entity
   INCOMPLETE_PUBLISH_PAYLOAD: 'INCOMPLETE_PUBLISH_PAYLOAD',
@@ -61,6 +66,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'A reason is required when cancelling the order',
   RESOLUTION_REASON_REQUIRED:
     'An admin resolution reason is required to resolve a dispute',
+  LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION: 'Legacy actions cannot resolve a completed-order dispute',
+  REFUND_AMOUNT_EXCEEDS_REFUNDABLE: 'Refund amount exceeds the remaining refundable amount',
   TOO_EARLY_TO_START:
     'Chưa tới giờ hẹn! Bạn chỉ có thể bấm bắt đầu trước giờ hẹn tối đa 30 phút.',
 
@@ -74,6 +81,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'You are not a participant in this booking proposal',
   FORBIDDEN_ROLE:
     'You do not have the required role to perform this action',
+  REFUND_SELF_APPROVAL_FORBIDDEN:
+    'An Admin cannot approve a refund for their own payment',
 
   SERVICE_REQUEST_NOT_FOUND:
     'The requested service request could not be found',
@@ -100,6 +109,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'Lịch hẹn bị trùng hoặc khoảng cách giữa các đơn nhỏ hơn 60 phút.',
   WORKER_ALREADY_BUSY:
     'Bạn đang thi công một đơn khác. Vui lòng hoàn thành đơn hiện tại trước khi bắt đầu đơn mới!',
+  DISPUTE_ALREADY_DECIDED: 'This dispute already has an Admin decision',
+  PAYMENT_NOT_REFUNDABLE: 'Payment is not settled or has no refundable balance',
 
   INCOMPLETE_PUBLISH_PAYLOAD:
     'Service request must include serviceId, addressText, coordinates, description, and future scheduledAt to be published',

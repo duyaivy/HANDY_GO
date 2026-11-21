@@ -71,6 +71,16 @@ export class AdminDisputeItemDto {
   @ApiPropertyOptional({ description: 'When the order was completed' })
   completedAt: Date | null;
 
+  @ApiPropertyOptional({ description: 'Decision for the current dispute cycle, if any' })
+  resolution: {
+    resolutionId: string;
+    action: string;
+    state: string;
+    refundAmountVnd: string | null;
+    decidedAt: Date;
+    failureCode: string | null;
+  } | null;
+
   @ApiProperty({ type: [AdminDisputeEvidenceDto] })
   evidences: AdminDisputeEvidenceDto[];
 

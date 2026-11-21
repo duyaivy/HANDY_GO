@@ -54,6 +54,7 @@ enum PaymentState {
   unpaid
   pending
   paid
+  partially_refunded
   refunded
   failed
 
@@ -161,6 +162,7 @@ model Order {
   startedAt             DateTime?             @map("started_at") @db.Timestamptz(6)
   workerFinishedAt      DateTime?             @map("worker_finished_at") @db.Timestamptz(6)
   completedAt           DateTime?             @map("completed_at") @db.Timestamptz(6)
+  firstCompletedAt      DateTime?             @map("first_completed_at") @db.Timestamptz(6)
   cancelledAt           DateTime?             @map("cancelled_at") @db.Timestamptz(6)
   cancelReason          String?               @map("cancel_reason") @db.Text
   disputedAt            DateTime?             @map("disputed_at") @db.Timestamptz(6)
@@ -176,6 +178,7 @@ model Order {
   bookingProposal  BookingProposal      @relation(fields: [bookingProposalId], references: [id], onDelete: Restrict)
   statusHistory    OrderStatusHistory[]
   evidences        OrderEvidence[]
+  disputeResolutions OrderDisputeResolution[]
 
   @@index([customerUserId, status, createdAt])
   @@index([workerUserId, status, createdAt])
@@ -183,6 +186,33 @@ model Order {
   @@index([status, completedAt])
   @@index([status, disputedAt])
   @@map("orders")
+  @@schema("order_service")
+}
+
+model OrderDisputeResolution {
+  id                       String   @id @default(uuid()) @db.Uuid
+  orderId                  String   @map("order_id") @db.Uuid
+  disputedAt               DateTime @map("disputed_at") @db.Timestamptz(6)
+  idempotencyKey           String   @unique @map("idempotency_key") @db.VarChar(150)
+  requestHash              String   @map("request_hash") @db.VarChar(64)
+  adminUserId              String   @map("admin_user_id") @db.Uuid
+  action                   String   @db.VarChar(30)
+  resolutionNote           String   @map("resolution_note") @db.Text
+  state                    String   @db.VarChar(30)
+  refundAmountVnd          BigInt?  @map("refund_amount_vnd")
+  paymentId                String?  @map("payment_id") @db.Uuid
+  refundId                 String?  @map("refund_id") @db.Uuid
+  previousCompletedAt      DateTime? @map("previous_completed_at") @db.Timestamptz(6)
+  previousWorkerFinishedAt DateTime? @map("previous_worker_finished_at") @db.Timestamptz(6)
+  failureCode              String?  @map("failure_code") @db.VarChar(100)
+  decidedAt                DateTime @default(now()) @map("decided_at") @db.Timestamptz(6)
+  resolvedAt               DateTime? @map("resolved_at") @db.Timestamptz(6)
+  updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  order                    Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, disputedAt])
+  @@index([state, decidedAt])
+  @@map("order_dispute_resolutions")
   @@schema("order_service")
 }
 

@@ -1620,6 +1620,7 @@ describe('OrdersService', () => {
             disputeReason: 'Rò rỉ nước sau sửa chữa',
             disputedAt,
             completedAt: new Date('2026-11-18T09:00:00.000Z'),
+            resolution: null,
             evidences: [evidence],
             createdAt: validBaseOrder.createdAt,
           },
