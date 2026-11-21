@@ -1,5 +1,7 @@
 # Walkthrough nghiệm thu HG-71
 
+> Bằng chứng lịch sử ngày 20/11/2026. Kết quả Android/local, backend và phạm vi bàn giao cập nhật nằm trong [báo cáo ngày 21/11](./BAO-CAO-TIEN-DO-VA-LOI-CON-LAI-2026-11-21.md); các nhận định và checklist bên dưới chỉ phản ánh thời điểm ghi nhận.
+
 Ngày kiểm tra: 20/11/2026 (Asia/Bangkok). Nhánh: `feature/HG-71-mobile-app-payment-wallet`.
 
 ## Kết quả và cách tái lập

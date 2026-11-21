@@ -245,14 +245,13 @@ Với ví test ban đầu `balance = available = B`, `reserved = 0`, không có 
 
 Giá trị cuối cùng luôn đối chiếu response thực tế; nếu có giao dịch song song phải đối chiếu theo ID/ledger, không khẳng định sai lệch từ phép trừ số dư tổng.
 
-### 5.5. Thiết lập và bằng chứng Maestro
+### 5.5. Bằng chứng native và công cụ cá nhân
 
 - Xác định serial emulator Worker và appId từ build thực tế; đăng nhập đúng tài khoản test hiện có. Không ghi token/mật khẩu vào YAML, log hoặc commit.
-- Tạo flows tại `mobile/.maestro/worker-wallet/`: smoke/navigation, topup, withdrawal, cancel/conflict và cash; giữ testID ổn định, chờ trạng thái quan sát được thay vì sleep cố định.
+- Maestro chỉ dùng trên máy cá nhân; flow nằm ở `mobile/.maestro-local/`, không có trong bản clone chung và không được thêm vào dependency, package scripts hoặc CI. Đồng đội có thể kiểm thử thủ công trên app; không cần cài Maestro.
 - Chạy trên APK mới nhất nối Gateway deploy. VNPAY dùng sandbox; ca thao tác tài chính dùng dữ liệu/tài khoản test. Các trạng thái terminal/race dùng dữ liệu test phù hợp, không gọi API nội bộ để sửa trạng thái từ mobile.
 - Xuất report của mỗi flow, screenshot ở các mốc số dư/trạng thái và ID liên quan. Nếu cổng thanh toán có bước xác thực cần người thao tác, ghi rõ bước can thiệp; không ghi nhận là tự động toàn bộ.
-- Lưu hướng dẫn chạy lại và báo cáo tại `docs/HG-71-mobile-app-payment-wallet/WORKER-WALLET-PAYMENT-ACCEPTANCE.md`; ghi rõ SHA/build, thiết bị, Gateway, thời gian, expected/actual, PASS/FAIL. Report nặng đặt ngoài Git, tài liệu ghi đường dẫn artifact.
-- Tham khảo cài đặt/CLI chính thức: [Maestro CLI](https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli), [chạy trên Android](https://docs.maestro.dev/get-started/supported-platform/android). Chọn cách cài phù hợp môi trường Windows thực tế khi thực hiện.
+- Kết quả thực tế, thiết bị, môi trường, expected/actual và giới hạn nằm trong [báo cáo ngày 21/11](./BAO-CAO-TIEN-DO-VA-LOI-CON-LAI-2026-11-21.md). Artifact và hướng dẫn chạy flow cá nhân giữ local; không coi chúng là file đi kèm repository.
 
 ### 5.6. Definition of Done — chỉ đánh dấu 100% khi tất cả đạt
 

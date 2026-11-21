@@ -1,5 +1,8 @@
 {
   "feature": "HG-71",
+  "historical": true,
+  "latestReport": "../BAO-CAO-TIEN-DO-VA-LOI-CON-LAI-2026-11-21.md",
+  "note": "Historical evidence at testedWorkingTreeBase; backendUnchanged and nativeValidation describe that run only, not the current branch.",
   "verifiedAt": "2026-11-20T16:50:33.6752693+07:00",
   "timezone": "Asia/Bangkok",
   "testedWorkingTreeBase": "95408457b943119ac312702d3c22d8682e23234b",

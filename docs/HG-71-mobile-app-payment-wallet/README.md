@@ -1,6 +1,8 @@
 # HG-71: Mobile Payment & Wallet
 
-Phạm vi: giao diện Customer và Worker, dữ liệu qua API Gateway và kiểm thử mobile. Không sửa mã backend.
+Phạm vi: ví và thanh toán Customer/Worker, dữ liệu qua API Gateway và kiểm thử mobile; gồm xác minh ngân hàng nội bộ cho rút tiền và snapshot số dư trước/sau giao dịch ở backend. Snapshot đã có trên `main` qua PR #92; giữ nguyên nội dung đó trên HG-71.
+
+Trạng thái và giới hạn mới nhất: [Báo cáo ngày 21/11/2026](./BAO-CAO-TIEN-DO-VA-LOI-CON-LAI-2026-11-21.md). Walkthrough và quality-gates ngày 20/11 là bằng chứng tại thời điểm ghi nhận. Maestro, bộ Docker/seed cá nhân và công cụ sửa dữ liệu sandbox không thuộc phần mã bàn giao; không yêu cầu đồng đội cài Maestro.
 
 ## 📑 Danh mục Tài liệu Kế hoạch & Nghiệm thu
 

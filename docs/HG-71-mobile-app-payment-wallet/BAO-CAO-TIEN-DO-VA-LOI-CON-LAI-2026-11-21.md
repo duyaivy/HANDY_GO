@@ -8,7 +8,7 @@
 
 **Commit nền trước đợt bàn giao:** `bd6f292b782127134838d7e7059bb1c4e25b495e`.
 
-**Trạng thái bàn giao:** commit local trên nhánh HG-71, chưa push. Tra SHA hiện tại bằng `git log -1`; không ghi SHA tự tham chiếu vào nội dung commit. Công cụ Docker/seed và Maestro cá nhân nằm ngoài commit.
+**Trạng thái bàn giao:** phần làm sạch toàn nhánh được ghi trong commit local chứa bản cập nhật báo cáo này, sau `37f7f2c`; chưa push. Tra SHA bằng `git log -1`. Công cụ Docker/seed và Maestro cá nhân nằm ngoài phần bàn giao. Phạm vi toàn nhánh cập nhật ở mục 12; inventory 28 file ở mục 9 là của commit bàn giao trước đợt làm sạch.
 
 ## 1. Kết quả hiện tại
 
@@ -178,7 +178,7 @@ Các lỗi thất bại được phát hiện trong các vòng kiểm tra trư�
 - Flow xác nhận cash đóng thông báo nghiệm thu cũ nếu có, kiểm tra nhánh “Chưa nhận”, rồi mới xác nhận nhận đủ tiền.
 - Dùng flow lịch sử để kiểm tra số dư trước/sau được lưu theo từng giao dịch.
 - Ảnh, XML, log và JSON bằng chứng nằm ở `mobile/coverage/`, đang bị Git bỏ qua.
-- Sau khi chốt chính sách local: đã sao chép và kiểm tra SHA-256 đủ **19 flow** sang `mobile/.maestro-local/`. Bảy flow mới và ba flow đã chỉnh chỉ được giữ ở bản local; 12 flow đã track từ commit cũ ở `mobile/.maestro/` trở về đúng HEAD. Không sửa lịch sử commit, không đặt cờ giấu file tracked. Quy tắc ignore nằm trong `.git/info/exclude`, không sửa `.gitignore` chung.
+- Sau khi chốt chính sách local: đã sao chép và kiểm tra SHA-256 đủ **19 flow** sang `mobile/.maestro-local/`. Đợt làm sạch toàn nhánh tiếp theo bỏ tracking cả 12 flow cũ ở `mobile/.maestro/`, giữ nguyên file trên máy. Không sửa lịch sử commit, không đặt cờ giấu file tracked. Quy tắc ignore nằm trong `.git/info/exclude`, không sửa `.gitignore` chung.
 
 ## 4. Kết quả kiểm thử tài chính
 
@@ -357,9 +357,9 @@ Các mục này không được đánh dấu PASS chỉ vì unit test hoặc moc
 
 **Không phải lỗi trong phạm vi thiết kế hiện tại:** app khách không có nút rút tiền. Kế hoạch ví HG-71 chỉ cung cấp UI rút cho thợ; app khách nạp điểm, thanh toán và nhận hoàn điểm. Việc thêm rút tiền cho khách là thay đổi phạm vi/nghiệp vụ.
 
-## 9. Danh mục file đang thay đổi
+## 9. Inventory lịch sử của commit bàn giao `37f7f2c`
 
-Phạm vi commit sau khi tách công cụ cá nhân còn **28 file so với commit nền**: 26 file sửa và 2 tài liệu mới, đã gồm báo cáo này. Không tính năm file Docker/seed cá nhân, flow Maestro, artifact, `AGENTS.md` root hoặc quy tắc Git local vào phần bàn giao. Danh sách gồm các lượt sửa trước; không gán tất cả là code mới của riêng lượt lập báo cáo.
+Commit `37f7f2c` có **28 file so với commit nền `bd6f292`**: 26 file sửa và 2 tài liệu mới, đã gồm báo cáo này. Đây không phải số file chênh lệch của toàn nhánh HG-71 với `main`. Không tính năm file Docker/seed cá nhân, flow Maestro, artifact, `AGENTS.md` root hoặc quy tắc Git local vào inventory này. Phạm vi toàn nhánh sau làm sạch nằm ở mục 12.
 
 ### 9.1. Docker build context — 1 file
 
@@ -415,7 +415,7 @@ Tổng inventory: **1 backend + 10 runtime mobile + 14 tests + 3 tài liệu = 2
 
 - Bộ flow cá nhân: `mobile/.maestro-local/worker-wallet/`, gồm 19 file YAML được giữ trên máy này.
 - Hướng dẫn chạy cá nhân: `mobile/.maestro-local/README.local.md`; manifest SHA-256: `mobile/.maestro-local/preserved-files.json`.
-- 12 file đã track từ commit cũ trong `mobile/.maestro/` không thay đổi so với HEAD; đợt này không xóa chúng khỏi lịch sử hoặc tạo thay đổi để xóa tracking.
+- 12 file đã track từ commit cũ trong `mobile/.maestro/` được bỏ tracking trong đợt làm sạch toàn nhánh, vẫn tồn tại trên máy và bị ignore local. Các commit cũ không bị viết lại; phần diff bàn giao sau khi commit đợt làm sạch sẽ không còn thêm các flow này.
 - Ignore và quy tắc cho Codex chỉ nằm ở `.git/info/exclude` và `AGENTS.md` root đã được Git bỏ qua. Không bắt đồng đội áp dụng môi trường cá nhân.
 
 ### 9.6. Docker/seed cá nhân — 5 file ngoài phạm vi commit
@@ -448,3 +448,49 @@ Các file vẫn tồn tại tại chỗ để Docker Desktop và việc test tr�
 - Các flow cá nhân trong `mobile/.maestro-local/worker-wallet/`, gồm `verify-transaction-balances.yaml` và `verify-settled-payment.yaml`, chỉ dùng trên máy này để kiểm tra lại giao dịch/đơn đã có. Truyền ID và số dư snapshot của chính giao dịch đó; không thêm chúng vào commit.
 - Không tạo lại thanh toán chỉ vì một assertion Maestro hoặc URL Return không hiện đúng; trước tiên đọc Payment, Wallet và ledger để xác định tiền đã được xử lý hay chưa.
 - Báo cáo này là snapshot của kết quả đã quan sát trên local, không phải xác nhận phát hành hoặc bằng chứng môi trường deploy đã sẵn sàng.
+
+## 12. Làm sạch phạm vi toàn nhánh — 21/11/2026
+
+### 12.1. Mốc đối chiếu và trạng thái Git
+
+- Đối chiếu với `main` remote tại SHA `3e5fb284fccda515d4d13dbaa9ce0b25ed966250`; merge-base với HG-71 là `70f5ee2aa26a6d4c1d218dfc900e3bfe9b7ff927`.
+- Chỉ tải Git objects để đọc; không cập nhật ref, chuyển nhánh, merge hoặc rebase. `main`, `release` và HEAD HG-71 giữ nguyên.
+- Đợt làm sạch được commit local trên HG-71 theo yêu cầu người dùng; chưa push hoặc tạo PR. Phần diff toàn nhánh sau commit phản ánh phạm vi đã làm sạch. Các commit cũ vẫn chứa file lịch sử; không viết lại lịch sử để xóa chúng.
+
+### 12.2. Nội dung đã đưa ra khỏi phần bàn giao
+
+| Nhóm | Số đường dẫn | Cách xử lý |
+| --- | ---: | --- |
+| Flow cũ trong `mobile/.maestro/worker-wallet/` | 12 | Bỏ tracking; giữ nguyên nội dung trên máy, ignore local |
+| Script và tests `.github/scripts/hg71-november-payment-repair*`, `hg71-transaction-snapshot-repair*` | 4 | Bỏ tracking; giữ nguyên bản local |
+| `NOVEMBER-PAYMENT-RECOVERY.md` | 1 | Bỏ tracking tài liệu vận hành/sửa dữ liệu sandbox, giữ local |
+| `.github/workflows/backend-env-refresh.yml` | 1 | Trả nội dung trên HG-71 về đúng `main`, bỏ các chế độ bật/tắt/diagnose/repair sandbox bổ sung |
+| **Tổng** | **18** | Không chạy workflow hoặc thao tác dữ liệu deploy |
+
+Đã sao lưu 18 bản file trước khi xử lý tại `.git/hg71-scope-backup-2026-11-21/`, kèm manifest SHA-256. Đã kiểm tra 17 file bỏ tracking vẫn nguyên nội dung trên máy. Bộ 19 flow cập nhật ở `.maestro-local/` và năm file Docker/seed cá nhân vẫn tồn tại, không được track. Không sửa `.gitignore` chung.
+
+### 12.3. Phạm vi được giữ lại và lý do
+
+Phần chênh lệch dự kiến từ merge-base đến working tree sau làm sạch giảm từ **141 xuống 123 file**:
+
+| Phạm vi | Số file | Nội dung |
+| --- | ---: | --- |
+| Mobile | 95 | Wallet/payment khách và thợ, routes, cache theo tài khoản, thông báo nghiệm thu, header và tests hồi quy |
+| Backend | 14 | Xác minh ngân hàng nội bộ, snapshot ledger/DTO/migration/tests và loại khóa/cấu hình nhạy cảm khỏi Docker build context |
+| Tài liệu | 14 | Contract, kế hoạch, cách kiểm thử, kết quả và giới hạn thực tế |
+
+Trong 14 file backend, **11 file snapshot/migration/tests đã trùng nội dung với `main` qua PR #92**; đây là nội dung chung cần giữ, không phải 11 thay đổi backend mới phải triển khai lần nữa. Hai file xác minh ngân hàng là dependency của luồng rút tiền: kiểm thử vẫn yêu cầu secret nội bộ hợp lệ, không mở endpoint tài chính cho request không xác thực.
+
+Giữ phần tách resolver proposal để đáp ứng lint trong Phần 7, cùng sửa test bất đồng bộ và fixture hồi quy; không thay thuật toán proposal. Giữ sửa Back trên màn hình đặt đơn đã được kiểm thử trong quá trình chạy vòng đời đơn hàng. Không thay runtime mobile, mã nghiệp vụ backend hoặc unit/component tests trong riêng đợt làm sạch này.
+
+Đã sửa README để mô tả đúng phạm vi backend, đánh dấu walkthrough/quality-gates ngày 20/11 là bằng chứng lịch sử và bỏ hướng dẫn đưa flow/cài Maestro vào bộ công cụ chung. Tài liệu Docker local vẫn ghi nhận môi trường đã dùng; không yêu cầu đồng đội sử dụng bộ script cá nhân.
+
+### 12.4. Kiểm tra đợt làm sạch
+
+- Không còn đường dẫn `.github/` hoặc `.maestro*` trong phần chênh lệch dự kiến từ merge-base đến working tree.
+- Workflow trả về đúng byte nội dung `main`; tất cả file bỏ tracking được ignore local và có checksum khớp bản sao lưu.
+- Mã runtime và tests so với HEAD không đổi. Kết quả mobile **125 suites / 930 tests PASS** ở mục 5 là lần chạy trước đợt làm sạch; không nhận là đã chạy lại toàn bộ mobile ở đợt này.
+- Chạy lại kiểm thử xác minh ngân hàng: **1 suite / 5 tests PASS** (`pnpm exec vitest run apps/user-trust-service/src/common/guards/internal-bank-account-auth.spec.ts`, từ `backend/`).
+- `git diff --check` và `git diff --cached --check`: PASS. Các giới hạn nghiệm thu và lỗi còn lại ở mục 7–8 vẫn giữ nguyên.
+
+Số 123 là diff từ merge-base của HG-71; không phải so sánh trực tiếp hai ngọn nhánh. `main` có thay đổi mới về auth/keyboard không thuộc HG-71; đợt này không nhập các thay đổi đó vào nhánh hoặc tác động đến chúng trên `main`.

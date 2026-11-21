@@ -102,7 +102,7 @@ pnpm run lint
 
 ## 4. Tiêu chí Bàn giao (Sign-off Criteria)
 - [x] 7 phần có triển khai và bằng chứng automated độc lập; commit Phần 1–6 được liệt kê trong [README](./README.md).
-- [x] Không sửa backend: đối chiếu toàn bộ nhánh HG-71 từ baseline `70f5ee2`, `git diff 70f5ee2 --name-only -- backend` không có đường dẫn thay đổi.
+- [x] Tại lần nghiệm thu ngày 20/11, backend chưa thay đổi. Phạm vi bổ sung ngày 21/11 có xác minh ngân hàng và snapshot số dư; xem báo cáo hiện tại. Không dùng kết quả cũ này để khẳng định toàn nhánh không sửa backend.
 - [x] Toàn bộ automated tests đạt; TypeScript và lint toàn ứng dụng đạt. Báo cáo máy đọc được ở [quality-gates.json](./evidence/quality-gates.json).
 - [x] Có [Walkthrough](./WALKTHROUGH.md) với kịch bản, assertion, ma trận từng phần, bằng chứng test và giới hạn native.
 
