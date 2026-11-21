@@ -50,19 +50,19 @@
   - `base_price_max`: `Decimal? @map("base_price_max") @db.Decimal(12, 2)`
 - Script: `node backend/scripts/seed-catalog-base-prices.mjs` updates default base prices for known services (e.g. Sửa máy lạnh: 150,000 - 400,000; Sửa ống nước: 100,000 - 300,000).
 
-- [ ] **Step 1: Write failing test for catalog base prices**
+- [x] **Step 1: Write failing test for catalog base prices**
 Create `backend/apps/catalog-service/test/catalog-base-prices.spec.ts` testing that `Service` entity can store and return `basePriceMin` and `basePriceMax`.
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `cd backend && pnpm --filter catalog-service test test/catalog-base-prices.spec.ts`
 Expected: FAIL (field `basePriceMin` does not exist on Prisma Service model)
-- [ ] **Step 3: Update schema and add migration**
+- [x] **Step 3: Update schema and add migration**
 Edit `backend/apps/catalog-service/prisma/schema.prisma` adding `basePriceMin` and `basePriceMax`. Generate migration SQL:
 `ALTER TABLE "catalog_service"."services" ADD COLUMN IF NOT EXISTS "base_price_min" DECIMAL(12,2), ADD COLUMN IF NOT EXISTS "base_price_max" DECIMAL(12,2);`
 Create `backend/scripts/seed-catalog-base-prices.mjs` to update known services with clean baseline prices.
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `cd backend && pnpm --filter catalog-service test test/catalog-base-prices.spec.ts`
 Expected: PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add backend/apps/catalog-service/prisma backend/scripts/seed-catalog-base-prices.mjs backend/apps/catalog-service/test/catalog-base-prices.spec.ts
 git commit -m "feat(catalog): add base price range columns to services with seed migration"
@@ -91,19 +91,19 @@ git commit -m "feat(catalog): add base price range columns to services with seed
       """Clamps and enforces min_price < max_price with at least one step spread."""
   ```
 
-- [ ] **Step 1: Write failing unit test for clean currency rounding**
+- [x] **Step 1: Write failing unit test for clean currency rounding**
 Create `ai/tests/domains/pricing/test_rounding.py` testing rounding cases:
 `153250 -> 150000`, `278000 -> 280000`, `540000 -> 550000`, `2340000 -> 2300000`, and ensuring `min < max`.
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `cd ai && pytest tests/domains/pricing/test_rounding.py -v`
 Expected: FAIL (module not found)
-- [ ] **Step 3: Implement `rounding.py` and create `pricing_benchmarks.json`**
+- [x] **Step 3: Implement `rounding.py` and create `pricing_benchmarks.json`**
 Implement rounding logic in `ai/app/domains/pricing/utils/rounding.py`.
 Create `pricing_benchmarks.json` containing typical Vietnamese repair situations mapped by service keyword (e.g. Sửa máy lạnh: chảy nước, không lạnh, nghẹt gas, hư bo mạch; Sửa ống nước: rò rỉ van, vỡ ống âm tường, thay vòi sen).
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `cd ai && pytest tests/domains/pricing/test_rounding.py -v`
 Expected: PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add ai/app/domains/pricing/utils/rounding.py ai/app/domains/pricing/data/pricing_benchmarks.json ai/tests/domains/pricing/test_rounding.py
 git commit -m "feat(ai-pricing): add clean currency rounding utility and seed benchmarks"
@@ -128,21 +128,21 @@ git commit -m "feat(ai-pricing): add clean currency rounding utility and seed be
   - Request: `{ "service_name": str, "description": str, "base_price_min": Optional[float], "base_price_max": Optional[float] }`
   - Response: `{ "status": "success", "ai_ref_price_min": int, "ai_ref_price_max": int, "matched_case": Optional[str], "confidence": float, "is_fallback": bool }`
 
-- [ ] **Step 1: Write failing unit and integration tests**
+- [x] **Step 1: Write failing unit and integration tests**
 Create `ai/tests/domains/pricing/test_pricing_engine.py` and `ai/tests/domains/pricing/test_pricing_api.py` testing:
 1. Normal description matching a specific benchmark case (e.g. "máy lạnh bị chảy nước ngập sàn") -> returns high confidence and clean rounded range.
 2. Short/unrelated description -> returns fallback using base_price_min/max.
 3. Auth header `x-internal-secret` validation (403 if invalid).
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `cd ai && pytest tests/domains/pricing/test_pricing_api.py -v`
 Expected: FAIL (endpoint 404 or module not found)
-- [ ] **Step 3: Implement `pricing_engine.py` and FastAPI router**
+- [x] **Step 3: Implement `pricing_engine.py` and FastAPI router**
 Implement `PricingEngineService` calculating cosine similarity against service benchmark embeddings.
 Include router in `ai/app/main.py` under tag `Internal AI Pricing`.
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `cd ai && pytest tests/domains/pricing/test_pricing_engine.py tests/domains/pricing/test_pricing_api.py -v`
 Expected: PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add ai/app/domains/pricing ai/app/main.py ai/tests/domains/pricing
 git commit -m "feat(ai-pricing): implement vector similarity pricing estimation endpoint"
@@ -167,17 +167,17 @@ git commit -m "feat(ai-pricing): implement vector similarity pricing estimation 
   - Response: `{ statusCode: number; message: string; data: { aiRefPriceMin: number; aiRefPriceMax: number; matchedReason?: string; isFallback: boolean } }`
 - Fallback: If AI Service call throws or exceeds 2500ms timeout, query `catalog_service.services` for `base_price_min` and `base_price_max` (or default to 150000 - 350000 VND).
 
-- [ ] **Step 1: Write failing unit test for `PricingEstimatorService`**
+- [x] **Step 1: Write failing unit test for `PricingEstimatorService`**
 Create `pricing-estimator.service.spec.ts` mocking AI Service HTTP responses (success, 500 error, and timeout) and asserting correct rounded prices and graceful fallback.
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `cd backend && pnpm --filter order-service test src/service-requests/services/pricing-estimator.service.spec.ts`
 Expected: FAIL
-- [ ] **Step 3: Implement `PricingEstimatorService` and add endpoint**
+- [x] **Step 3: Implement `PricingEstimatorService` and add endpoint**
 Implement service with 2500ms timeout controller, catalog baseline query, and controller route `POST /estimate-price` in `service-requests.controller.ts`.
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `cd backend && pnpm --filter order-service test src/service-requests/services/pricing-estimator.service.spec.ts`
 Expected: PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add backend/apps/order-service/src/service-requests backend/apps/order-service/test
 git commit -m "feat(order-service): add pricing estimate endpoint with AI service integration and catalog fallback"
@@ -206,22 +206,22 @@ git commit -m "feat(order-service): add pricing estimate endpoint with AI servic
   - In `CustomerBookingScreen`: fires `fetchEstimatedPrice` in background when customer taps "Tiếp tục" or pauses typing description (debounce 800ms).
   - In `CustomerBookingSummaryRoute`: renders estimated price range with optional `priceEstimateReason` tag, without blocking the submit button.
 
-- [ ] **Step 1: Write failing unit test for `useBookingDraftStore` price estimation**
+- [x] **Step 1: Write failing unit test for `useBookingDraftStore` price estimation**
 Create `mobile/src/features/orders/__tests__/pricing-estimation-store.test.ts` testing:
 1. `fetchEstimatedPrice` calls `OrdersApi.estimatePrice` and updates `aiRefPriceMin` and `aiRefPriceMax`.
 2. Safe fallback when API throws (preserves valid min/max).
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `cd mobile && pnpm test src/features/orders/__tests__/pricing-estimation-store.test.ts`
 Expected: FAIL
-- [ ] **Step 3: Implement mobile store action and UI integration**
+- [x] **Step 3: Implement mobile store action and UI integration**
 Add `fetchEstimatedPrice` in `useBookingDraftStore`.
 Call `fetchEstimatedPrice` on step transitions in `customer-booking-screen.tsx`.
 Update `summary.tsx` to display formatted clean numbers and reason pill.
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `cd mobile && pnpm test src/features/orders/__tests__/pricing-estimation-store.test.ts`
 Run: `cd mobile && pnpm test src/app/customer/booking/__tests__/customer-booking-summary.test.tsx`
 Expected: PASS
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add mobile/src/features/orders mobile/src/app/customer/booking
 git commit -m "feat(mobile): integrate dynamic AI pricing estimation into booking draft flow"
@@ -235,12 +235,12 @@ git commit -m "feat(mobile): integrate dynamic AI pricing estimation into bookin
 - Test: `backend/scripts/test-order-service-e2e.mjs`
 - Test: `ai/tests/domains/pricing/test_pricing_api.py`
 
-- [ ] **Step 1: Run AI service test suite**
+- [x] **Step 1: Run AI service test suite**
 Run: `cd ai && pytest tests/domains/pricing/ -v`
 Expected: All pricing tests PASS.
-- [ ] **Step 2: Run backend order-service test suite**
+- [x] **Step 2: Run backend order-service test suite**
 Run: `cd backend && pnpm --filter order-service test`
 Expected: All order-service tests PASS.
-- [ ] **Step 3: Run mobile test suite**
+- [x] **Step 3: Run mobile test suite**
 Run: `cd mobile && pnpm test src/features/orders/`
 Expected: All mobile orders and booking tests PASS.
