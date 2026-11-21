@@ -8,7 +8,21 @@ import * as React from 'react';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { ordersQueryKeys } from './orders-query-keys';
 
-const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
+export const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
+export const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+export function isWithinReviewWindow(completedAt?: string | null): boolean {
+  if (!completedAt) {
+    return false;
+  }
+  const completedTime = new Date(completedAt).getTime();
+  if (Number.isNaN(completedTime)) {
+    return false;
+  }
+  const diffMs = Date.now() - completedTime;
+  // Cho phép sai số đồng hồ tối đa 5 phút trong tương lai, và tối đa 14 ngày
+  return diffMs >= -5 * 60 * 1000 && diffMs <= FOURTEEN_DAYS_MS;
+}
 
 export function useOrderReview(orderId?: string | null) {
   const queryClient = useQueryClient();

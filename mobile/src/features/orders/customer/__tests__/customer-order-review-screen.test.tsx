@@ -71,8 +71,8 @@ describe('CustomerOrderReviewScreen', () => {
     agreedPrice: 350000,
     status: 'completed',
     paymentState: 'paid',
-    completedAt: '2026-11-18T10:00:00Z',
-    createdAt: '2026-11-18T08:00:00Z',
+    completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
   };
 
   beforeEach(() => {
@@ -516,8 +516,8 @@ describe('CustomerOrderDetailScreen review integration', () => {
     agreedPrice: 250000,
     status: 'completed',
     paymentState: 'paid',
-    completedAt: '2026-11-18T10:00:00Z',
-    createdAt: '2026-11-18T08:00:00Z',
+    completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
     evidences: [],
   };
 
@@ -617,6 +617,28 @@ describe('CustomerOrderDetailScreen review integration', () => {
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/customer/orders/ord-completed-456/review',
       params: { mode: 'view' },
+    });
+  });
+
+  it('hides review invite banner and review button when order completed > 14 days ago and unreviewed', async () => {
+    const expiredOrder = {
+      ...completedOrder,
+      id: 'ord-expired-14d',
+      completedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      statusCode: 200,
+      data: expiredOrder,
+      message: 'OK',
+    } as any);
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(null);
+
+    render(<CustomerOrderDetailScreen orderId="ord-expired-14d" />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
+      expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
     });
   });
 });

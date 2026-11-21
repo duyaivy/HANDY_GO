@@ -21,7 +21,7 @@ import { KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { OrdersApi } from '../../api/orders.api';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
-import { useOrderReview } from '../../hooks/use-order-review';
+import { isWithinReviewWindow, useOrderReview } from '../../hooks/use-order-review';
 
 const SAMPLE_REVIEW_PHOTOS = [
   'https://res.cloudinary.com/handygo/image/upload/v1/reviews/sample1.jpg',
@@ -83,11 +83,16 @@ export function CustomerOrderReviewScreen({
     updateReview,
   } = useOrderReview(orderId);
 
+  const is14DaysExpired = !hasReviewed && Boolean(order?.completedAt) && !isWithinReviewWindow(order?.completedAt);
+
   // 3 explicit screen modes:
-  // 1. 'view': Đã có review nhưng không còn quyền sửa (hết 48h hoặc đã sửa rồi), hoặc route yêu cầu mode=view
+  // 1. 'view': Đã có review nhưng không còn quyền sửa, hoặc đơn chưa review nhưng đã quá hạn 14 ngày, hoặc route yêu cầu mode=view
   // 2. 'edit': Đã có review và còn quyền sửa trong 48h
-  // 3. 'create': Chưa có review nào
+  // 3. 'create': Chưa có review nào và trong thời hạn 14 ngày
   const screenMode: 'create' | 'edit' | 'view' = React.useMemo(() => {
+    if (is14DaysExpired) {
+      return 'view';
+    }
     if (hasReviewed) {
       if (isRequestedView) {
         return 'view';
@@ -98,7 +103,7 @@ export function CustomerOrderReviewScreen({
       return 'view';
     }
     return 'create';
-  }, [hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
+  }, [is14DaysExpired, hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
 
   const isEditMode = screenMode === 'edit';
   const isViewMode = screenMode === 'view';
@@ -941,19 +946,21 @@ export function CustomerOrderReviewScreen({
           </View>
         </View>
 
-        {/* 7. Notice Banner (Quy định 48h) */}
+        {/* 7. Notice Banner (Quy định 14 ngày & 48h) */}
         <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-            {isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
+            {is14DaysExpired ? '⚠️ Hết hạn đánh giá:' : isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
           </Text>
           <Text className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-            {isViewMode
-              ? (review?.isEdited
-                  ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
-                  : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
-              : isEditMode
-                ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
-                : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
+            {is14DaysExpired
+              ? 'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn tất). Bạn không thể gửi đánh giá cho đơn hàng này.'
+              : isViewMode
+                ? (review?.isEdited
+                    ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
+                    : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
+                : isEditMode
+                  ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
+                  : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
           </Text>
           {isEditMode && hoursRemainingToEdit > 0 && (
             <Text className="mt-1 text-[11px] font-bold text-amber-800 dark:text-amber-300">

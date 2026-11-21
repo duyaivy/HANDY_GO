@@ -16,7 +16,7 @@ import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { useCustomerOrders } from '../../hooks/use-customer-orders';
-import { useOrderReview } from '../../hooks/use-order-review';
+import { isWithinReviewWindow, useOrderReview } from '../../hooks/use-order-review';
 
 export const ACTIVITY_FILTER_TABS = [
   'Searching',
@@ -246,7 +246,13 @@ function getOrderServiceTitle(ord: Order): string {
   return scope;
 }
 
-function OrderCardReviewAction({ orderId }: { orderId: string }) {
+function OrderCardReviewAction({
+  orderId,
+  completedAt,
+}: {
+  orderId: string;
+  completedAt?: string | null;
+}) {
   const router = useRouter();
   const { canEdit, hasReviewed } = useOrderReview(orderId);
 
@@ -272,7 +278,12 @@ function OrderCardReviewAction({ orderId }: { orderId: string }) {
     return null;
   }
 
-  // Chưa đánh giá: hiển thị nút đánh giá
+  // Chưa đánh giá: kiểm tra thời hạn đánh giá 14 ngày kể từ khi hoàn tất đơn
+  if (completedAt && !isWithinReviewWindow(completedAt)) {
+    return null;
+  }
+
+  // Chưa đánh giá và còn trong thời hạn 14 ngày: hiển thị nút đánh giá
   return (
     <Button
       testID={`order-card-review-btn-${orderId}`}
@@ -587,7 +598,7 @@ export function CustomerOrdersScreen({
                     </Text>
                     <View className="flex-row items-center gap-1.5">
                       {ord.status === 'completed' && (
-                        <OrderCardReviewAction orderId={ord.id} />
+                        <OrderCardReviewAction orderId={ord.id} completedAt={ord.completedAt} />
                       )}
                       <Button
                         testID={`order-card-detail-btn-${ord.id}`}

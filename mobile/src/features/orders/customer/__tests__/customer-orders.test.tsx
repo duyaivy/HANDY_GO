@@ -206,8 +206,8 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
             addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
             status: 'completed',
             paymentState: 'paid',
-            completedAt: '2026-11-20T10:00:00Z',
-            createdAt: '2026-11-20T08:00:00Z',
+            completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
           },
           {
             id: 'ord-comp-reviewed',
@@ -220,8 +220,8 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
             addressText: '456 Hải Phòng, Đà Nẵng',
             status: 'completed',
             paymentState: 'paid',
-            completedAt: '2026-11-21T09:00:00Z',
-            createdAt: '2026-11-21T07:00:00Z',
+            completedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+            createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
           },
           {
             id: 'ord-comp-expired',
@@ -234,11 +234,25 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
             addressText: '789 Trần Phú, Đà Nẵng',
             status: 'completed',
             paymentState: 'paid',
-            completedAt: '2026-10-01T09:00:00Z',
-            createdAt: '2026-10-01T07:00:00Z',
+            completedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+            createdAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            id: 'ord-comp-over-14d',
+            orderCode: 'ORD-COMP-04',
+            serviceRequestId: 'req-04',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 150000,
+            agreedScope: 'Thay công tắc điện',
+            addressText: '12 Lê Duẩn, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: new Date(Date.now() - 16 * 24 * 60 * 60 * 1000).toISOString(), // > 14 days unreviewed
+            createdAt: new Date(Date.now() - 17 * 24 * 60 * 60 * 1000).toISOString(),
           },
         ],
-        total: 3,
+        total: 4,
         page: 1,
         limit: 10,
         totalPages: 1,
@@ -305,6 +319,9 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     // 3. Reviewed order with expired edit window hides both review and edit-review buttons
     expect(screen.queryByTestId('order-card-review-btn-ord-comp-expired')).toBeNull();
     expect(screen.queryByTestId('order-card-edit-review-btn-ord-comp-expired')).toBeNull();
+
+    // 4. Unreviewed order completed > 14 days hides "⭐ Đánh giá" button
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-over-14d')).toBeNull();
   });
 });
 

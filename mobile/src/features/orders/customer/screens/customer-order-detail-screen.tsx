@@ -30,7 +30,7 @@ import {
   OrderWorkerCard,
 } from '../../components';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
-import { useOrderReview } from '../../hooks/use-order-review';
+import { isWithinReviewWindow, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderDetailScreenProps = {
@@ -382,31 +382,33 @@ export function CustomerOrderDetailScreen({
                   } as any)}
                 />
               )
-            : (
-                <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
-                  <View className="flex-row items-center gap-3">
-                    <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
-                      <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+            : isWithinReviewWindow(order?.completedAt)
+              ? (
+                  <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
+                    <View className="flex-row items-center gap-3">
+                      <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
+                        <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                          Đơn hàng đã hoàn thành!
+                        </Text>
+                        <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+                          Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
+                        </Text>
+                      </View>
                     </View>
-                    <View className="flex-1">
-                      <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                        Đơn hàng đã hoàn thành!
-                      </Text>
-                      <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
-                        Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
-                      </Text>
-                    </View>
+                    <Button
+                      testID="cta-review-banner-btn"
+                      label="⭐ Đánh giá ngay"
+                      variant="default"
+                      className="mt-3 h-9 w-full rounded-xl bg-primary"
+                      textClassName="text-xs font-bold text-white"
+                      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+                    />
                   </View>
-                  <Button
-                    testID="cta-review-banner-btn"
-                    label="⭐ Đánh giá ngay"
-                    variant="default"
-                    className="mt-3 h-9 w-full rounded-xl bg-primary"
-                    textClassName="text-xs font-bold text-white"
-                    onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
-                  />
-                </View>
-              )
+                )
+              : null
         )}
 
         {/* 5. Evidence Gallery with Lightbox Viewer */}
@@ -531,34 +533,38 @@ export function CustomerOrderDetailScreen({
 
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
-            <Button
-              testID="customer-review-order-btn"
-              label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
-              variant="default"
-              className="h-11 flex-1 rounded-2xl bg-primary"
-              textClassName="text-xs font-bold text-white"
-              onPress={() => {
-                if (hasReviewed && canEditReview) {
-                  router.push({
-                    pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                    params: { mode: 'edit' },
-                  } as any);
-                }
-                else if (hasReviewed) {
-                  router.push({
-                    pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                    params: { mode: 'view' },
-                  } as any);
-                }
-                else {
-                  router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
-                }
-              }}
-            />
+            {(hasReviewed || isWithinReviewWindow(order?.completedAt)) && (
+              <Button
+                testID="customer-review-order-btn"
+                label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
+                variant="default"
+                className="h-11 flex-1 rounded-2xl bg-primary"
+                textClassName="text-xs font-bold text-white"
+                onPress={() => {
+                  if (hasReviewed && canEditReview) {
+                    router.push({
+                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                      params: { mode: 'edit' },
+                    } as any);
+                  }
+                  else if (hasReviewed) {
+                    router.push({
+                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                      params: { mode: 'view' },
+                    } as any);
+                  }
+                  else {
+                    router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
+                  }
+                }}
+              />
+            )}
             <Button
               label="Đặt Lại Dịch Vụ"
               variant="outline"
-              className="h-11 flex-1 rounded-2xl border-primary"
+              className={`h-11 rounded-2xl border-primary ${
+                hasReviewed || isWithinReviewWindow(order?.completedAt) ? 'flex-1' : 'w-full'
+              }`}
               textClassName="text-xs font-bold text-primary"
               onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
             />
