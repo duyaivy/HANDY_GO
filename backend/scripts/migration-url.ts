@@ -2,9 +2,14 @@ import { optionalValue } from '../libs/config/src/optional-env.js';
 
 export function migrationUrl(service: string, schema: string): string {
   const suffix = service.toUpperCase().replaceAll('-', '_');
-  const direct = optionalValue(process.env[`DIRECT_URL_${suffix}`])?.trim() || optionalValue(process.env.DIRECT_URL)?.trim();
+  const directSuffix = optionalValue(process.env[`DIRECT_URL_${suffix}`])?.trim();
+  const dbSuffix = optionalValue(process.env[`DATABASE_URL_${suffix}`])?.trim();
+  const directGlobal = optionalValue(process.env.DIRECT_URL)?.trim();
+  const dbGlobal = optionalValue(process.env.DATABASE_URL)?.trim();
+
+  const direct = directSuffix || (!dbSuffix ? directGlobal : undefined);
+  const effective = directSuffix || dbSuffix || directGlobal || dbGlobal;
   const migrating = process.env.HANDYGO_MIGRATION === '1' || process.argv.includes('migrate');
-  const effective = direct || optionalValue(process.env[`DATABASE_URL_${suffix}`])?.trim() || optionalValue(process.env.DATABASE_URL)?.trim();
   if (!effective && process.env.NODE_ENV === 'production') {
     throw new Error(`DATABASE_URL_${suffix} or DATABASE_URL is required`);
   }
