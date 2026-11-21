@@ -396,15 +396,13 @@ export function WorkerReviewsScreen() {
                     key={chip.label}
                     testID={`filter-chip-${chip.value ?? 'all'}`}
                     onPress={() => setSelectedRating(chip.value)}
-                    className={`mr-2 flex-row items-center rounded-full border px-3 py-1.5 ${
-                      isActive
-                        ? 'border-blue-600 bg-blue-600'
-                        : 'border-neutral-200 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900'
+                    className={`mr-2 flex-row items-center rounded-full border px-3 py-1.5 ${isActive
+                      ? 'border-blue-600 bg-blue-600'
+                      : 'border-neutral-200 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900'
                     }`}
                   >
                     <Text
-                      className={`text-xs font-semibold ${
-                        isActive ? 'text-white' : 'text-neutral-700 dark:text-neutral-300'
+                      className={`text-xs font-semibold ${isActive ? 'text-white' : 'text-neutral-700 dark:text-neutral-300'
                       }`}
                     >
                       {chip.label}
@@ -498,68 +496,66 @@ export function WorkerReviewsScreen() {
                         </View>
                       )}
 
-                      {/* Detail criteria badges: always on 1 row and equal font size on 1 line */}
-                      {(review.qualityRating || review.attitudeRating || review.speedRating) && (
-                        <View
-                          testID={`review-criteria-row-${review.id}`}
-                          className="mt-2.5 flex-row items-center gap-1 border-t border-neutral-100 pt-2 dark:border-neutral-800"
-                        >
-                          {review.qualityRating && (() => {
-                            const style = getCriteriaBadgeStyle(review.qualityRating);
-                            return (
-                              <View
-                                testID={`review-criteria-quality-${review.id}`}
-                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
-                              >
-                                <Text
-                                  numberOfLines={1}
-                                  className={`text-center text-[9px] font-semibold ${style.text}`}
+                      {/* Detail criteria card: 3 structured columns on 1 row with clean label & status badge */}
+                      {(() => {
+                        const criteriaItems = [
+                          review.qualityRating && {
+                            testID: `review-criteria-quality-${review.id}`,
+                            label: 'Chất lượng',
+                            value: formatCriteriaValue('quality', review.qualityRating),
+                            style: getCriteriaBadgeStyle(review.qualityRating),
+                          },
+                          review.attitudeRating && {
+                            testID: `review-criteria-attitude-${review.id}`,
+                            label: 'Thái độ',
+                            value: formatCriteriaValue('attitude', review.attitudeRating),
+                            style: getCriteriaBadgeStyle(review.attitudeRating),
+                          },
+                          review.speedRating && {
+                            testID: `review-criteria-speed-${review.id}`,
+                            label: 'Tốc độ',
+                            value: formatCriteriaValue('speed', review.speedRating),
+                            style: getCriteriaBadgeStyle(review.speedRating),
+                          },
+                        ].filter(Boolean) as Array<{
+                          testID: string;
+                          label: string;
+                          value: string;
+                          style: { bg: string; text: string };
+                        }>;
+
+                        if (criteriaItems.length === 0) {
+                          return null;
+                        }
+
+                        return (
+                          <View
+                            testID={`review-criteria-row-${review.id}`}
+                            className="mt-3 flex-row items-center justify-between rounded-xl border border-neutral-100 bg-neutral-50/90 p-2 dark:border-neutral-800 dark:bg-neutral-800/50"
+                          >
+                            {criteriaItems.map((item, index) => (
+                              <React.Fragment key={item.label}>
+                                {index > 0 && (
+                                  <View className="h-6 w-px bg-neutral-200 dark:bg-neutral-700" />
+                                )}
+                                <View
+                                  testID={item.testID}
+                                  className="flex-1 items-center justify-center px-1"
                                 >
-                                  Chất lượng:
-                                  {' '}
-                                  {formatCriteriaValue('quality', review.qualityRating)}
-                                </Text>
-                              </View>
-                            );
-                          })()}
-                          {review.attitudeRating && (() => {
-                            const style = getCriteriaBadgeStyle(review.attitudeRating);
-                            return (
-                              <View
-                                testID={`review-criteria-attitude-${review.id}`}
-                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
-                              >
-                                <Text
-                                  numberOfLines={1}
-                                  className={`text-center text-[9px] font-semibold ${style.text}`}
-                                >
-                                  Thái độ:
-                                  {' '}
-                                  {formatCriteriaValue('attitude', review.attitudeRating)}
-                                </Text>
-                              </View>
-                            );
-                          })()}
-                          {review.speedRating && (() => {
-                            const style = getCriteriaBadgeStyle(review.speedRating);
-                            return (
-                              <View
-                                testID={`review-criteria-speed-${review.id}`}
-                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
-                              >
-                                <Text
-                                  numberOfLines={1}
-                                  className={`text-center text-[9px] font-semibold ${style.text}`}
-                                >
-                                  Tốc độ:
-                                  {' '}
-                                  {formatCriteriaValue('speed', review.speedRating)}
-                                </Text>
-                              </View>
-                            );
-                          })()}
-                        </View>
-                      )}
+                                  <Text className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+                                    {item.label}
+                                  </Text>
+                                  <View className={`mt-1 items-center justify-center rounded-md px-2 py-0.5 ${item.style.bg}`}>
+                                    <Text className={`text-[11px] font-bold ${item.style.text}`}>
+                                      {item.value}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </React.Fragment>
+                            ))}
+                          </View>
+                        );
+                      })()}
                     </View>
                   );
                 })}

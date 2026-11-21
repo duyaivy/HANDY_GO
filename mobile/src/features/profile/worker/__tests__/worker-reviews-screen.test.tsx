@@ -602,9 +602,9 @@ describe('workerReviewsScreen', () => {
     });
 
     expect(screen.getByTestId('review-criteria-row-rev-crit-1')).toBeOnTheScreen();
-    expect(screen.getByTestId('review-criteria-quality-rev-crit-1')).toHaveTextContent('Chất lượng: Tốt');
-    expect(screen.getByTestId('review-criteria-attitude-rev-crit-1')).toHaveTextContent('Thái độ: Bình thường');
-    expect(screen.getByTestId('review-criteria-speed-rev-crit-1')).toHaveTextContent('Tốc độ: Chậm');
+    expect(screen.getByTestId('review-criteria-quality-rev-crit-1')).toHaveTextContent(/Chất lượng.*Tốt/);
+    expect(screen.getByTestId('review-criteria-attitude-rev-crit-1')).toHaveTextContent(/Thái độ.*Bình thường/);
+    expect(screen.getByTestId('review-criteria-speed-rev-crit-1')).toHaveTextContent(/Tốc độ.*Chậm/);
 
     expect(screen.queryByText(/good/i)).toBeNull();
     expect(screen.queryByText(/neutral/i)).toBeNull();
