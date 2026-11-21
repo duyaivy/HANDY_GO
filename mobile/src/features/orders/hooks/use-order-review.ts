@@ -11,7 +11,10 @@ import { ordersQueryKeys } from './orders-query-keys';
 export const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
 export const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
 
-export function isWithinReviewWindow(completedAt?: string | null): boolean {
+export function isWithinReviewWindow(
+  completedAt?: string | null,
+  now: number = Date.now(),
+): boolean {
   if (!completedAt) {
     return false;
   }
@@ -19,7 +22,7 @@ export function isWithinReviewWindow(completedAt?: string | null): boolean {
   if (Number.isNaN(completedTime)) {
     return false;
   }
-  const diffMs = Date.now() - completedTime;
+  const diffMs = now - completedTime;
   // Cho phép sai số đồng hồ tối đa 5 phút trong tương lai, và tối đa 14 ngày
   return diffMs >= -5 * 60 * 1000 && diffMs <= FOURTEEN_DAYS_MS;
 }
@@ -27,6 +30,15 @@ export function isWithinReviewWindow(completedAt?: string | null): boolean {
 export function useOrderReview(orderId?: string | null) {
   const queryClient = useQueryClient();
   const validOrderId = orderId || '';
+
+  const [currentTime, setCurrentTime] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const reviewQuery = useQuery<OrderReview | null>({
     queryKey: ordersQueryKeys.orderReview(validOrderId),
@@ -60,6 +72,20 @@ export function useOrderReview(orderId?: string | null) {
       reviewId: string;
       payload: UpdateReviewPayload;
     }) => {
+      const currentReview
+        = queryClient.getQueryData<OrderReview>(ordersQueryKeys.orderReview(validOrderId))
+          || reviewQuery.data;
+
+      if (currentReview?.createdAt) {
+        const createdTime = new Date(currentReview.createdAt).getTime();
+        if (!Number.isNaN(createdTime) && (Date.now() - createdTime > FORTY_EIGHT_HOURS_MS)) {
+          throw new Error('Đã quá thời hạn 48 giờ để chỉnh sửa đánh giá.');
+        }
+      }
+      if (currentReview?.isEdited) {
+        throw new Error('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất.');
+      }
+
       return ReviewsApi.updateReview(reviewId, payload);
     },
     onSuccess: (data) => {
@@ -71,7 +97,6 @@ export function useOrderReview(orderId?: string | null) {
   });
 
   const review = reviewQuery.data;
-  const [currentTime] = React.useState(() => Date.now());
 
   // Tính toán quyền chỉnh sửa đánh giá (trong 48h và chưa từng sửa trước đó)
   const canEdit = React.useMemo(() => {
