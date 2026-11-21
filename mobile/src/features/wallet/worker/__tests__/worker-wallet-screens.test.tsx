@@ -5,9 +5,10 @@ import { ApiError } from '@/services/api/api-error';
 import { PaymentApi } from '../../api/payment.api';
 import { WalletApi } from '../../api/wallet.api';
 import { WithdrawalItem } from '../components/withdrawal-item';
+import { WorkerBalanceScreen } from '../screens/worker-balance-screen';
 import { WorkerWalletScreen } from '../screens/worker-wallet-screen';
 import { WorkerWithdrawScreen } from '../screens/worker-withdraw-screen';
-import { bankAccount, response, withdrawal, workerWallet } from './fixtures';
+import { bankAccount, response, withdrawal, workerPayment, workerWallet } from './fixtures';
 
 const mockPush = jest.fn();
 const mockStored = new Map<string, unknown>();
@@ -99,6 +100,31 @@ it('shows backend balances, privacy persistence, and working wallet routes', asy
   fireEvent.press(screen.getByTestId('worker-wallet-details-btn'));
   expect(mockPush).toHaveBeenLastCalledWith('/worker/balance');
   expect(await screen.findByText('Thu nhập ghi nhận tuần này: 0 đ')).toBeOnTheScreen();
+});
+it('shows recent transactions but no partial financial totals when history spans multiple pages', async () => {
+  const payments = Array.from({ length: 100 }, (_, index) => ({ ...workerPayment, id: `payment-${index}` }));
+  const transactions = Array.from({ length: 100 }, (_, index) => ({
+    id: `tx-${index}`,
+    type: 'topup' as const,
+    amount: '10000',
+    status: 'completed' as const,
+    referenceId: null,
+    description: null,
+    createdAt: '2026-11-20',
+  }));
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: payments, page: 1, limit: 100, total: 150, totalPages: 2 }));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: transactions, page: 1, limit: 100, total: 150, totalPages: 2 }));
+
+  const view = render(<WorkerWalletScreen />);
+  await screen.findByTestId('worker-financials-unavailable');
+  expect(screen.getByTestId('transaction-item-tx-0')).toBeOnTheScreen();
+  expect(screen.queryByText(/Thu nhập ghi nhận tuần này:/)).toBeNull();
+  expect(screen.queryByText(/Tổng hoa hồng đã nộp:/)).toBeNull();
+  view.unmount();
+
+  render(<WorkerBalanceScreen />);
+  await screen.findByTestId('worker-financials-unavailable');
+  expect(screen.queryByTestId('worker-cash-commission-due')).toBeNull();
 });
 it('retries the original withdrawal after timeout even if its hold reduced available balance', async () => {
   mockStored.set(StorageKeys.PENDING_WITHDRAWAL('worker-1'), { amount: '100000', bankAccountId: bankAccount.id, idempotencyKey: 'original-key' });

@@ -1,10 +1,10 @@
-# Báo Cáo Tiến Độ Và Hoàn Thành Review Đợt 3 (HG-71)
+# Báo Cáo Tiến Độ Review Mobile (HG-71)
 
 - **Nhánh**: `feature/HG-71-mobile-app-payment-wallet`
 - **Pull Request**: [#93](https://github.com/duyaivy/HANDY_GO/pull/93)
 - **Người review**: `duyaivy` (Repository Owner)
 - **Thời gian hoàn thành**: 21/11/2026
-- **Trạng thái**: Hoàn thành 100% các yêu cầu kỹ thuật trong phạm vi Mobile.
+- **Trạng thái**: Đã sửa lỗi thống kê tính trên trang dữ liệu chưa đầy đủ. Với lịch sử nhiều trang, tạm ẩn các chỉ số tổng hợp cho đến khi có API tổng hợp từ Backend.
 
 ---
 
@@ -53,7 +53,7 @@
 ### 3.1. Unit & Integration Tests
 Toàn bộ test suite liên quan đến Wallet đều vượt qua 100%:
 - **Test Suites**: 25 passed, 25 total
-- **Tests**: 148 passed, 148 total
+- **Tests**: 153 passed, 153 total
 
 Các bài test kiểm chứng chuyên biệt:
 1. `mobile/src/features/wallet/hooks/__tests__/use-worker-financials.test.tsx`:
@@ -98,3 +98,19 @@ Theo định hướng từ review của `duyaivy`:
 - **Lợi ích**:
   - Truy vấn tức thời với độ phức tạp $O(1)$ request và kích thước payload cực nhỏ (< 1KB).
   - Đảm bảo tính toán công nợ và hoàn tiền (`refund_recovery`) hoàn toàn nhất quán theo transaction phía cơ sở dữ liệu.
+
+---
+
+## 5. Sửa Review Tiếp Theo: Không Tính Tổng Từ Trang 1
+
+**Vấn đề:** `useWorkerFinancials` chỉ tải tối đa 100 payment và 100 bút toán ví nhưng vẫn gọi `workerFinancialSummary` trên hai tập dữ liệu đó. Với 150 payment hoặc hơn 100 bút toán, các chỉ số `weeklyEarnings`, `completedJobs`, `commissionPaid` và `cashCommissionDue` có thể thấp hơn thực tế.
+
+**Đã sửa trong Mobile:**
+- Chỉ gọi `workerFinancialSummary` khi cả hai response đều xác nhận toàn bộ dữ liệu nằm trong trang đầu: `page = 1`, `totalPages` khớp `total/limit`, số bản ghi và số ID riêng biệt đều bằng `total`.
+- Nếu một nguồn có nhiều trang hoặc metadata không khớp, trả `summary: null`. Màn ví và màn số dư ẩn các chỉ số tổng, hiển thị thông báo chưa thể thống kê chính xác.
+- Giữ preview 5 giao dịch mới nhất từ trang đầu; preview không bị dùng làm dữ liệu đầu vào cho các phép tổng hợp.
+- Vẫn dùng một request tới mỗi service cho màn tổng quan. Không sửa Backend và không quét toàn bộ lịch sử trên thiết bị.
+
+**Kiểm tra:** 25/25 bộ test ví, 153/153 test đạt; TypeScript và ESLint các file sửa đạt. Regression tests bao gồm 150 payment, 150 bút toán, metadata thiếu nhất quán, ID trùng và kiểm tra giao diện không hiện số tổng sai nhưng vẫn hiện giao dịch gần đây. Jest vẫn có cảnh báo `act` và dùng `--forceExit`; chưa kiểm tra luồng này trên app native hoặc Backend deploy.
+
+**Giới hạn còn lại:** Khi lịch sử vượt một trang, các chỉ số tổng hợp chưa khả dụng. API tổng hợp phía Backend ở mục 4 là điều kiện để hiển thị lại chúng mà vẫn giữ giới hạn request cố định.

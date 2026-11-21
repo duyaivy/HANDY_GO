@@ -24,12 +24,17 @@ export function useWorkerFinancials() {
       ]);
       if (signal.aborted)
         throw new Error('Request cancelled');
-      const payments = paymentsRes.data.items;
-      const transactions = transactionsRes.data.items;
+      const paymentPage = paymentsRes.data;
+      const transactionPage = transactionsRes.data;
+      const complete = [paymentPage, transactionPage].every(page =>
+        page.page === 1
+        && page.totalPages === Math.ceil(page.total / page.limit)
+        && page.total === page.items.length
+        && page.total === new Set(page.items.map(item => item.id)).size,
+      );
       return {
-        ...workerFinancialSummary(payments, transactions, { userId }),
-        payments: payments.filter(item => item.workerUserId === userId),
-        transactions: transactions.slice(0, RECENT_TRANSACTIONS_LIMIT),
+        summary: complete ? workerFinancialSummary(paymentPage.items, transactionPage.items, { userId }) : null,
+        transactions: transactionPage.items.slice(0, RECENT_TRANSACTIONS_LIMIT),
       };
     },
   });

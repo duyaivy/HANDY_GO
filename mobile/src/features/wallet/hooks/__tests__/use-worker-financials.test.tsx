@@ -68,9 +68,61 @@ it('fetches bounded page 1 in single requests, excludes other workers, and caps 
     expect.anything(),
   );
 
-  expect(result.current.data?.payments).toEqual([workerPayment]);
   expect(result.current.data?.transactions).toHaveLength(5);
-  expect(result.current.data?.commissionPaid).toBe('70000');
+  expect(result.current.data?.summary?.commissionPaid).toBe('70000');
+});
+
+it.each(['payments', 'ledger'] as const)('hides totals when %s has 150 records but only page 1 is loaded', async (incompleteSource) => {
+  const payments = Array.from({ length: 100 }, (_, index) => ({ ...workerPayment, id: `payment-${index}`, orderId: `order-${index}` }));
+  const transactions = Array.from({ length: 100 }, (_, index) => ({
+    id: `tx-${index}`,
+    type: 'commission_debit' as const,
+    amount: '10000',
+    referenceId: payments[index]!.id,
+    description: null,
+    status: 'completed' as const,
+    createdAt: '2026-11-20',
+  }));
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({
+    items: payments,
+    page: 1,
+    limit: 100,
+    total: incompleteSource === 'payments' ? 150 : 100,
+    totalPages: incompleteSource === 'payments' ? 2 : 1,
+  }));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({
+    items: transactions,
+    page: 1,
+    limit: 100,
+    total: incompleteSource === 'ledger' ? 150 : 100,
+    totalPages: incompleteSource === 'ledger' ? 2 : 1,
+  }));
+
+  const { result } = setup();
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+  expect(result.current.data?.summary).toBeNull();
+  expect(result.current.data?.transactions.map(item => item.id)).toEqual(['tx-0', 'tx-1', 'tx-2', 'tx-3', 'tx-4']);
+  expect(PaymentApi.getMyPayments).toHaveBeenCalledTimes(1);
+  expect(WalletApi.getMyTransactions).toHaveBeenCalledTimes(1);
+});
+
+it('hides totals when page metadata claims one page but the row count is incomplete', async () => {
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: [workerPayment], page: 1, limit: 100, total: 2, totalPages: 1 }));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+
+  const { result } = setup();
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  expect(result.current.data?.summary).toBeNull();
+});
+
+it('hides totals when page 1 contains duplicate IDs despite a matching total', async () => {
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: [workerPayment, workerPayment], page: 1, limit: 100, total: 2, totalPages: 1 }));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+
+  const { result } = setup();
+  await waitFor(() => expect(result.current.isSuccess).toBe(true));
+  expect(result.current.data?.summary).toBeNull();
 });
 
 it('fails cleanly when payment query fails', async () => {
