@@ -90,6 +90,18 @@ describe('PaymentOrdersService.open', () => {
     expect(wallet.debitPayment).not.toHaveBeenCalled();
   });
 
+  it('does not change the method or completion state when the displayed amount is stale', async () => {
+    const { service, orders, tx, state, outbox } = build({ method: 'point', orderCompletedAt: null });
+    orders.getEligibility.mockResolvedValue(eligible());
+    await expect(service.open(customerId, { orderId, method: 'cash', expectedAmount: '99999' })).rejects.toMatchObject({ status: 409 });
+    expect(state.payment.method).toBe('point');
+    expect(state.payment.orderCompletedAt).toBeNull();
+    expect(tx.payment.update).not.toHaveBeenCalled();
+    expect(outbox.enqueue).not.toHaveBeenCalled();
+    await service.open(customerId, { orderId, method: 'cash', expectedAmount: '100000' });
+    expect(state.payment.method).toBe('cash');
+  });
+
   it('refuses to change the method while the payment is processing or settled with another method', async () => {
     const processing = build({ status: 'processing' });
     processing.orders.getEligibility.mockResolvedValue(eligible());

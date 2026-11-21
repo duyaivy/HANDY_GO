@@ -18,6 +18,7 @@ const TERMINAL_STATUSES = new Set<TopupRecord['status']>([
   'expired',
   'needs_review',
 ]);
+const FINISHED_STATUSES = new Set<TopupRecord['status']>(['completed', 'failed', 'cancelled', 'expired']);
 
 export function useTopup() {
   const queryClient = useQueryClient();
@@ -63,6 +64,8 @@ export function useTopup() {
           return;
         setActiveTopup(record);
         queryClient.setQueryData(walletQueryKeys.topupDetail(topupId), record);
+        if (userId && FINISHED_STATUSES.has(record.status))
+          StorageService.removeItem(StorageKeys.TOPUP_ATTEMPT(userId, record.amountVnd));
         if (record.status === 'completed') {
           cancelPolling();
           await queryClient.invalidateQueries({ queryKey: walletQueryKeys.all });
@@ -86,7 +89,7 @@ export function useTopup() {
     };
 
     timerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-  }, [cancelPolling, queryClient]);
+  }, [cancelPolling, queryClient, userId]);
 
   const createMutation = useMutation({
     mutationFn: async (payload: { amountVnd: number; idempotencyKey: string }) =>
@@ -100,6 +103,9 @@ export function useTopup() {
       throw new RangeError('Top-up amount must be between 10,000 and 50,000,000 VND');
     }
     const stored = userId
+      ? StorageService.getItem<{ amountVnd: number; idempotencyKey: string }>(StorageKeys.TOPUP_ATTEMPT(userId, amountVnd))
+      : null;
+    const legacy = userId
       ? StorageService.getItem<{ amountVnd: number; idempotencyKey: string }>(StorageKeys.PENDING_TOPUP(userId))
       : null;
     const retry = retryRef.current?.userId === userId ? retryRef.current : null;
@@ -107,17 +113,22 @@ export function useTopup() {
       ? retry
       : stored?.amountVnd === amountVnd && typeof stored.idempotencyKey === 'string'
         ? stored
-        : null;
+        : legacy?.amountVnd === amountVnd && typeof legacy.idempotencyKey === 'string'
+          ? legacy
+          : null;
     const payload = previous
       ? { amountVnd, idempotencyKey: previous.idempotencyKey }
       : { amountVnd, idempotencyKey: randomUUID() };
     retryRef.current = { userId, ...payload };
-    if (userId)
-      StorageService.setItem(StorageKeys.PENDING_TOPUP(userId), payload);
+    if (userId) {
+      StorageService.setItem(StorageKeys.TOPUP_ATTEMPT(userId, amountVnd), payload);
+      if (legacy?.amountVnd === amountVnd)
+        StorageService.removeItem(StorageKeys.PENDING_TOPUP(userId));
+    }
     const promise = createMutation.mutateAsync(payload).then((record) => {
       retryRef.current = null;
-      if (userId)
-        StorageService.removeItem(StorageKeys.PENDING_TOPUP(userId));
+      if (userId && FINISHED_STATUSES.has(record.status))
+        StorageService.removeItem(StorageKeys.TOPUP_ATTEMPT(userId, amountVnd));
       if (mountedRef.current) {
         setActiveTopup(record);
         queryClient.setQueryData(walletQueryKeys.topupDetail(record.id), record);
@@ -132,6 +143,19 @@ export function useTopup() {
       createInFlightRef.current = null;
     }
   }, [createMutation, queryClient, userId]);
+
+  const refreshTopup = useCallback(async (topupId: string): Promise<TopupRecord> => {
+    const record = (await PaymentApi.getTopupDetail(topupId)).data;
+    if (userId && FINISHED_STATUSES.has(record.status))
+      StorageService.removeItem(StorageKeys.TOPUP_ATTEMPT(userId, record.amountVnd));
+    if (mountedRef.current) {
+      setActiveTopup(record);
+      queryClient.setQueryData(walletQueryKeys.topupDetail(topupId), record);
+      if (record.status === 'completed')
+        await queryClient.invalidateQueries({ queryKey: walletQueryKeys.all });
+    }
+    return record;
+  }, [queryClient, userId]);
 
   const startVnpayCheckout = useCallback(async (checkoutUrl: string, topupId: string) => {
     if (!/^https?:\/\//i.test(checkoutUrl)) {
@@ -150,6 +174,8 @@ export function useTopup() {
         return;
       setActiveTopup(record);
       queryClient.setQueryData(walletQueryKeys.topupDetail(record.id), record);
+      if (userId && FINISHED_STATUSES.has(record.status))
+        StorageService.removeItem(StorageKeys.TOPUP_ATTEMPT(userId, record.amountVnd));
       if (record.status === 'completed') {
         cancelPolling();
         await queryClient.invalidateQueries({ queryKey: walletQueryKeys.all });
@@ -164,6 +190,7 @@ export function useTopup() {
     createTopup,
     isCreating: createMutation.isPending,
     activeTopup,
+    refreshTopup,
     isPolling,
     hasPollingTimedOut,
     startVnpayCheckout,

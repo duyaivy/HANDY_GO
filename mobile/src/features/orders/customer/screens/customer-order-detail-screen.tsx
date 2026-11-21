@@ -452,9 +452,9 @@ export function CustomerOrderDetailScreen({
 
       {/* 8. Sticky Bottom Action Bar (Cố định ở đáy màn hình) */}
       <View className="border-t border-neutral-200 bg-white p-4 pb-6 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
-        {currentStatus === 'completed' && (paymentState === 'unpaid' || paymentState === 'failed' || (payment?.status === 'pending' && payment.method !== 'cash'))
+        {currentStatus === 'completed' && (paymentState === 'unpaid' || paymentState === 'failed' || payment?.status === 'pending')
           ? (
-              <Button testID="customer-retry-payment-btn" label="Thanh toán đơn hàng" onPress={() => setIsPaymentOpen(true)} />
+              <Button testID="customer-retry-payment-btn" label={payment?.status === 'pending' && payment.method === 'cash' ? 'Đổi phương thức thanh toán' : 'Thanh toán đơn hàng'} onPress={() => setIsPaymentOpen(true)} />
             )
           : null}
         {currentStatus === 'awaiting_customer_confirmation' && (
@@ -560,6 +560,7 @@ export function CustomerOrderDetailScreen({
               amount={payment?.amount ?? order.agreedPrice}
               serviceName={resolvedServiceName}
               workerName={displayWorkerName}
+              initialMethod={payment?.method}
               needsConfirmation={currentStatus === 'awaiting_customer_confirmation'}
               onConfirmCompletion={confirmCompletion}
               onResult={handlePaymentResult}

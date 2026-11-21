@@ -84,6 +84,7 @@ it('returns the checkout URL and reuses the idempotency key after a network fail
   expect(PaymentApi.createTopup).toHaveBeenNthCalledWith(2, { amountVnd: 50_000, idempotencyKey: 'uuid-1' });
   expect(randomUUID).toHaveBeenCalledTimes(1);
   expect(savedTopups.has(StorageKeys.PENDING_TOPUP('user-1'))).toBe(false);
+  expect(savedTopups.get(StorageKeys.TOPUP_ATTEMPT('user-1', 50_000))?.idempotencyKey).toBe('uuid-1');
 });
 
 it('keeps the same key across a hook remount after an uncertain failure', async () => {
@@ -94,7 +95,7 @@ it('keeps the same key across a hook remount after an uncertain failure', async 
   await act(async () => {
     await expect(first.result.current.createTopup(50_000)).rejects.toThrow('timeout');
   });
-  expect(savedTopups.get(StorageKeys.PENDING_TOPUP('user-1'))?.idempotencyKey).toBe('uuid-1');
+  expect(savedTopups.get(StorageKeys.TOPUP_ATTEMPT('user-1', 50_000))?.idempotencyKey).toBe('uuid-1');
   first.unmount();
   const second = setup();
   await act(async () => {
@@ -102,6 +103,44 @@ it('keeps the same key across a hook remount after an uncertain failure', async 
   });
   expect(PaymentApi.createTopup).toHaveBeenNthCalledWith(2, { amountVnd: 50_000, idempotencyKey: 'uuid-1' });
   expect(randomUUID).toHaveBeenCalledTimes(1);
+});
+
+it('replays the same top-up after remount when provider payment is awaiting wallet credit', async () => {
+  jest.mocked(PaymentApi.createTopup)
+    .mockResolvedValueOnce(response(topup('awaiting_payment')))
+    .mockResolvedValueOnce(response({ ...topup('credit_pending'), providerPaidAt: '2026-01-01T00:00:00Z' }));
+  const first = setup();
+  await act(async () => {
+    await first.result.current.createTopup(50_000);
+  });
+  first.unmount();
+  const second = setup();
+  await act(async () => {
+    await second.result.current.createTopup(50_000);
+  });
+  expect(PaymentApi.createTopup).toHaveBeenNthCalledWith(2, { amountVnd: 50_000, idempotencyKey: 'uuid-1' });
+  expect(randomUUID).toHaveBeenCalledTimes(1);
+  expect(savedTopups.get(StorageKeys.TOPUP_ATTEMPT('user-1', 50_000))?.idempotencyKey).toBe('uuid-1');
+  expect(second.result.current.activeTopup?.status).toBe('credit_pending');
+});
+
+it('releases the saved attempt only when the top-up reaches a finished status', async () => {
+  jest.mocked(PaymentApi.createTopup).mockResolvedValue(response(topup('awaiting_payment')));
+  jest.mocked(PaymentApi.getTopupDetail)
+    .mockResolvedValueOnce(response(topup('credit_pending')))
+    .mockResolvedValueOnce(response(topup('completed')));
+  const { result } = setup();
+  await act(async () => {
+    await result.current.createTopup(50_000);
+  });
+  await act(async () => {
+    await result.current.refreshTopup('topup-1');
+  });
+  expect(savedTopups.has(StorageKeys.TOPUP_ATTEMPT('user-1', 50_000))).toBe(true);
+  await act(async () => {
+    await result.current.refreshTopup('topup-1');
+  });
+  expect(savedTopups.has(StorageKeys.TOPUP_ATTEMPT('user-1', 50_000))).toBe(false);
 });
 
 it('sends only one top-up request for rapid duplicate submits', async () => {
@@ -221,10 +260,16 @@ it('never overlaps status requests and clears its timer on unmount', async () =>
   expect(PaymentApi.getTopupDetail).toHaveBeenCalledTimes(1);
 });
 
-it('stops after forty unsuccessful status checks', async () => {
+it('stops after forty status checks and replays the same key while credit is pending', async () => {
   jest.useFakeTimers();
+  jest.mocked(PaymentApi.createTopup)
+    .mockResolvedValueOnce(response(topup('awaiting_payment')))
+    .mockResolvedValueOnce(response(topup('credit_pending')));
   jest.mocked(PaymentApi.getTopupDetail).mockResolvedValue(response(topup('credit_pending')));
   const { result } = setup();
+  await act(async () => {
+    await result.current.createTopup(50_000);
+  });
   await act(async () => {
     await result.current.startVnpayCheckout('https://example.com/checkout', 'topup-1');
   });
@@ -236,6 +281,11 @@ it('stops after forty unsuccessful status checks', async () => {
   expect(PaymentApi.getTopupDetail).toHaveBeenCalledTimes(40);
   expect(result.current.isPolling).toBe(false);
   expect(result.current.hasPollingTimedOut).toBe(true);
+  await act(async () => {
+    await result.current.createTopup(50_000);
+  });
+  expect(PaymentApi.createTopup).toHaveBeenNthCalledWith(2, { amountVnd: 50_000, idempotencyKey: 'uuid-1' });
+  expect(randomUUID).toHaveBeenCalledTimes(1);
   await act(async () => {
     await jest.advanceTimersByTimeAsync(10_000);
   });

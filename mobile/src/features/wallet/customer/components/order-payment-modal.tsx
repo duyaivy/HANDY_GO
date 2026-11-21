@@ -13,17 +13,18 @@ type Props = {
   amount: string | number;
   serviceName: string;
   workerName: string;
+  initialMethod?: PaymentMethod | null;
   needsConfirmation: boolean;
   onConfirmCompletion: () => Promise<unknown>;
   onResult: (payment: OrderPaymentRecord) => void;
   onClose: () => void;
 };
 
-export function OrderPaymentModal({ orderId, amount, serviceName, workerName, needsConfirmation, onConfirmCompletion, onResult, onClose }: Props) {
+export function OrderPaymentModal({ orderId, amount, serviceName, workerName, initialMethod, needsConfirmation, onConfirmCompletion, onResult, onClose }: Props) {
   const walletState = useWallet();
   const preference = usePreferredPaymentMethod();
   const { processPayment, isPaying } = useOrderPayment(orderId);
-  const [method, setMethod] = useState<PaymentMethod>(preference.method);
+  const [method, setMethod] = useState<PaymentMethod>(initialMethod ?? preference.method);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [topupAmount, setTopupAmount] = useState<number | null>(null);

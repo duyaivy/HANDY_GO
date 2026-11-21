@@ -343,6 +343,21 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
   });
 
+  it('lets the customer switch a pending cash payment to points', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({ data: { ...baseOrder, status: 'completed' }, statusCode: 200, message: 'OK' } as any);
+    jest.mocked(PaymentApi.getPaymentByOrder).mockResolvedValue({ data: { ...testPayment, method: 'cash', status: 'pending' }, statusCode: 200, message: 'OK' } as any);
+    render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+    const changeMethod = await screen.findByTestId('customer-retry-payment-btn');
+    expect(changeMethod).toHaveTextContent('Đổi phương thức thanh toán');
+    fireEvent.press(changeMethod);
+    expect(screen.getByTestId('order-payment-cash')).toHaveProp('accessibilityState', { checked: true, disabled: false });
+    fireEvent.press(screen.getByTestId('order-payment-point'));
+    await screen.findByText('Số dư sau thanh toán: 50.000 đ');
+    fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
+    await waitFor(() => expect(PaymentApi.openPayment).toHaveBeenCalledWith({ orderId: 'ord-test-001', method: 'point', expectedAmount: '450000' }));
+    await waitFor(() => expect(PaymentApi.payWithPoints).toHaveBeenCalledWith('payment-1'));
+  });
+
   it('reopens payment for an already completed unpaid order without repeating completion', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({ data: { ...baseOrder, status: 'completed' }, statusCode: 200, message: 'OK' } as any);
     const confirmSpy = jest.spyOn(OrdersApi, 'confirmCompletion');

@@ -23,6 +23,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
     startVnpayCheckout,
     simulateTopup,
     activeTopup,
+    refreshTopup,
     isCreating,
     isPolling,
     isSimulating,
@@ -37,6 +38,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
   const busy = isSubmitting || isCreating || isSimulating || isPolling;
   const displayedTopup = activeTopup?.amountVnd === String(amount) ? activeTopup : null;
   const isSandboxTopup = displayedTopup?.isSimulated === true || displayedTopup?.provider === 'mock';
+  const awaitingCredit = displayedTopup?.status === 'paid' || displayedTopup?.status === 'credit_pending' || displayedTopup?.status === 'needs_review';
 
   const onAmountChange = (text: string) => {
     const onlyDigits = text.replace(/\D/g, '').slice(0, 9);
@@ -51,11 +53,12 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
     setIsSubmitting(true);
     setError(null);
     try {
-      const existing = activeTopup?.amountVnd === String(amount)
-        && activeTopup.status === 'awaiting_payment'
-        ? activeTopup
-        : null;
-      const record = existing ?? await createTopup(amount);
+      // Replaying the same idempotency key also refreshes a checkout that may have been paid elsewhere.
+      const record = await createTopup(amount);
+      if (record.providerPaidAt || ['paid', 'credit_pending', 'needs_review', 'completed'].includes(record.status))
+        return;
+      if (['failed', 'cancelled', 'expired'].includes(record.status))
+        throw new Error('Giao dịch trước đã kết thúc. Vui lòng bấm lại để tạo yêu cầu nạp mới.');
       if (simulate) {
         if (!record.isSimulated || record.provider !== 'mock') {
           throw new Error('Backend hiện chưa bật chế độ nạp thử.');
@@ -153,16 +156,34 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
                 <Text testID="topup-status" className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
                   {displayedTopup.status === 'completed'
                     ? 'Nạp tiền thành công. Số dư ví đã được cập nhật.'
-                    : displayedTopup.status === 'credit_pending'
+                    : displayedTopup.status === 'paid' || displayedTopup.status === 'credit_pending'
                       ? 'Đã thanh toán, đang chờ cộng điểm vào ví...'
-                      : displayedTopup.status === 'awaiting_payment'
-                        ? isSandboxTopup ? 'Đang chờ xác nhận nạp thử...' : 'Đang chờ xác nhận thanh toán...'
-                        : `Trạng thái nạp tiền: ${displayedTopup.status}`}
+                      : displayedTopup.status === 'needs_review'
+                        ? 'Giao dịch đang được kiểm tra. Vui lòng kiểm tra lại trạng thái sau.'
+                        : displayedTopup.status === 'awaiting_payment'
+                          ? isSandboxTopup ? 'Đang chờ xác nhận nạp thử...' : 'Đang chờ xác nhận thanh toán...'
+                          : `Trạng thái nạp tiền: ${displayedTopup.status}`}
                 </Text>
               )
             : null}
           {hasPollingTimedOut
-            ? <Text className="mt-2 text-sm text-amber-700">Chưa nhận được xác nhận. Hãy kiểm tra lại lịch sử nạp tiền sau ít phút.</Text>
+            ? <Text className="mt-2 text-sm text-amber-700">{awaitingCredit ? 'Ví chưa cập nhật sau thanh toán. Vui lòng kiểm tra lại trạng thái sau ít phút.' : 'Chưa nhận được xác nhận. Hãy kiểm tra lại lịch sử nạp tiền sau ít phút.'}</Text>
+            : null}
+          {awaitingCredit
+            ? (
+                <Pressable
+                  testID="topup-refresh-btn"
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => {
+                    if (displayedTopup)
+                      void refreshTopup(displayedTopup.id).catch(cause => setError(cause instanceof Error ? cause.message : 'Không thể kiểm tra trạng thái nạp tiền.'));
+                  }}
+                  className="mt-3 rounded-xl border border-emerald-600 p-3"
+                >
+                  <Text className="text-center font-semibold text-emerald-700 dark:text-emerald-300">Kiểm tra lại trạng thái nạp tiền</Text>
+                </Pressable>
+              )
             : null}
           {busy
             ? (
@@ -179,10 +200,10 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
                 <Pressable
                   testID="topup-vnpay-btn"
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: !validAmount || busy }}
-                  disabled={!validAmount || busy}
+                  accessibilityState={{ disabled: !validAmount || busy || awaitingCredit }}
+                  disabled={!validAmount || busy || awaitingCredit}
                   onPress={() => { void submit(false); }}
-                  className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy ? 'bg-emerald-700' : 'bg-neutral-300'}`}
+                  className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy && !awaitingCredit ? 'bg-emerald-700' : 'bg-neutral-300'}`}
                 >
                   <Text className="text-base font-bold text-white">Thanh toán qua Cổng</Text>
                   <Text className="text-base font-black text-white">VNPAY</Text>
@@ -195,8 +216,8 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
                 <Pressable
                   testID="topup-simulate-btn"
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: !validAmount || busy }}
-                  disabled={!validAmount || busy}
+                  accessibilityState={{ disabled: !validAmount || busy || awaitingCredit }}
+                  disabled={!validAmount || busy || awaitingCredit}
                   onPress={() => { void submit(true); }}
                   className="mt-3 items-center rounded-xl border border-dashed border-emerald-600 px-4 py-3"
                 >

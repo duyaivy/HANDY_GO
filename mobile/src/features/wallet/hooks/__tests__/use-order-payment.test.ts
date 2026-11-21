@@ -127,6 +127,18 @@ it('rejects a changed snapshot amount before charging', async () => {
   expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
 });
 
+it('sends the displayed amount for atomic server validation and refreshes stale order data', async () => {
+  jest.mocked(PaymentApi.openPayment).mockRejectedValue(new ApiError('VALIDATION_ERROR', 'Payment amount changed', { statusCode: 409 }));
+  const { result, client } = setup();
+  const invalidate = jest.spyOn(client, 'invalidateQueries');
+  await act(async () => {
+    await expect(result.current.processPayment('cash', '40000')).rejects.toThrow('Chi phí đơn hàng đã thay đổi');
+  });
+  expect(PaymentApi.openPayment).toHaveBeenCalledWith({ orderId: 'order-1', method: 'cash', expectedAmount: '40000' });
+  expect(PaymentApi.payWithPoints).not.toHaveBeenCalled();
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['orders'] });
+});
+
 it('returns an already settled payment even when the remaining wallet balance is low', async () => {
   jest.mocked(PaymentApi.openPayment).mockResolvedValue(response({ ...payment, status: 'succeeded' }));
   jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response({ ...wallet, availableBalance: '0' }));

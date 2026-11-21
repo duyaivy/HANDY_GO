@@ -34,7 +34,7 @@ it('confirms completion before charging points and reports only settled success'
   await screen.findByText('Số dư sau thanh toán: 300.000 đ');
   fireEvent.press(screen.getByTestId('order-payment-confirm-btn'));
   await waitFor(() => expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ status: 'succeeded' })));
-  expect(PaymentApi.openPayment).toHaveBeenCalledWith({ orderId: 'order-1', method: 'point' });
+  expect(PaymentApi.openPayment).toHaveBeenCalledWith({ orderId: 'order-1', method: 'point', expectedAmount: '200000' });
   expect(confirm.mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(PaymentApi.openPayment).mock.invocationCallOrder[0]);
   expect(PaymentApi.payWithPoints).toHaveBeenCalledTimes(1);
 });
@@ -142,6 +142,11 @@ it('uses the saved default from the payment methods screen', async () => {
   mount();
   expect(screen.getByTestId('order-payment-cash')).toHaveProp('accessibilityState', { checked: true, disabled: false });
   await screen.findByText('Số dư ví: 500.000 đ');
+});
+
+it('shows the server-selected payment method when reopening a pending payment', async () => {
+  render(<OrderPaymentModal orderId="order-1" amount="200000" serviceName="Sửa máy lạnh" workerName="Thợ A" initialMethod="cash" needsConfirmation={false} onConfirmCompletion={confirm} onResult={onResult} onClose={jest.fn()} />);
+  expect(screen.getByTestId('order-payment-cash')).toHaveProp('accessibilityState', { checked: true, disabled: false });
 });
 
 it('does not report success for a failed point charge', async () => {

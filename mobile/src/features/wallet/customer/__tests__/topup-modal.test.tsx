@@ -22,23 +22,46 @@ const record: TopupRecord = {
 const createTopup = jest.fn<Promise<TopupRecord>, [number]>();
 const startVnpayCheckout = jest.fn<Promise<void>, [string, string]>();
 const simulateTopup = jest.fn<Promise<TopupRecord>, [string]>();
+const refreshTopup = jest.fn<Promise<TopupRecord>, [string]>();
 
 beforeEach(() => {
   jest.clearAllMocks();
   createTopup.mockResolvedValue(record);
   startVnpayCheckout.mockResolvedValue(undefined);
   simulateTopup.mockResolvedValue({ ...record, status: 'completed' });
+  refreshTopup.mockResolvedValue({ ...record, status: 'completed' });
   jest.mocked(useTopup).mockReturnValue({
     createTopup,
     startVnpayCheckout,
     simulateTopup,
     activeTopup: null,
+    refreshTopup,
     isCreating: false,
     isPolling: false,
     isSimulating: false,
     hasPollingTimedOut: false,
     cancelPolling: jest.fn(),
   });
+});
+
+it('does not create or reopen checkout when replay returns credit_pending', async () => {
+  createTopup.mockResolvedValue({ ...record, provider: 'vnpay', isSimulated: false, status: 'credit_pending', providerPaidAt: '2026-01-01T00:00:00Z' });
+  render(<TopupModal visible onClose={jest.fn()} />);
+  fireEvent.press(screen.getByTestId('topup-amount-100000'));
+  fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
+  await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(1));
+  expect(startVnpayCheckout).not.toHaveBeenCalled();
+});
+
+it('blocks checkout after polling times out at credit_pending and allows status refresh', async () => {
+  const pendingCredit = { ...record, provider: 'vnpay' as const, isSimulated: false, status: 'credit_pending' as const, providerPaidAt: '2026-01-01T00:00:00Z' };
+  jest.mocked(useTopup).mockReturnValue({ createTopup, startVnpayCheckout, simulateTopup, refreshTopup, activeTopup: pendingCredit, isCreating: false, isPolling: false, isSimulating: false, hasPollingTimedOut: true, cancelPolling: jest.fn() });
+  render(<TopupModal visible initialAmount={100_000} onClose={jest.fn()} />);
+  expect(screen.getByTestId('topup-vnpay-btn')).toBeDisabled();
+  fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
+  expect(createTopup).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByTestId('topup-refresh-btn'));
+  await waitFor(() => expect(refreshTopup).toHaveBeenCalledWith('topup-1'));
 });
 
 it('selects 100k and shows its formatted value in the input', () => {
@@ -84,7 +107,7 @@ it('keeps a mock checkout inside the app without simulating automatically', asyn
   expect(screen.queryByTestId('topup-vnpay-btn')).toBeNull();
   fireEvent.press(screen.getByTestId('topup-simulate-btn'));
   await waitFor(() => expect(simulateTopup).toHaveBeenCalledWith('topup-1'));
-  expect(createTopup).toHaveBeenCalledTimes(1);
+  expect(createTopup).toHaveBeenCalledTimes(2);
 });
 
 it('creates a sandbox top-up and simulates it only with the mock provider', async () => {
@@ -110,6 +133,7 @@ it('does not display an old success message for a newly selected amount', () => 
     createTopup,
     startVnpayCheckout,
     simulateTopup,
+    refreshTopup,
     activeTopup: { ...record, status: 'completed' },
     isCreating: false,
     isPolling: false,

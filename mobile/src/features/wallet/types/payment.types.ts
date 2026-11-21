@@ -68,4 +68,5 @@ export type OrderPaymentRecord = {
 export type CreateOrderPaymentPayload = {
   orderId: string;
   method: PaymentMethod;
+  expectedAmount?: string;
 };

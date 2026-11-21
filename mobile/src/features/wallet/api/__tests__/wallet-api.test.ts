@@ -44,11 +44,11 @@ describe('PaymentApi', () => {
   });
 
   it('uses the backend point method and explicit confirmation', async () => {
-    await PaymentApi.openPayment({ orderId: 'order-id', method: 'point' });
+    await PaymentApi.openPayment({ orderId: 'order-id', method: 'point', expectedAmount: '150000' });
     await PaymentApi.payWithPoints('payment-id');
     await PaymentApi.getPaymentByOrder('order-id');
 
-    expect(postSpy).toHaveBeenNthCalledWith(1, '/payments', { orderId: 'order-id', method: 'point' }, undefined);
+    expect(postSpy).toHaveBeenNthCalledWith(1, '/payments', { orderId: 'order-id', method: 'point', expectedAmount: '150000' }, undefined);
     expect(postSpy).toHaveBeenNthCalledWith(2, '/payments/payment-id/pay-with-points', { confirm: true }, undefined);
     expect(getSpy).toHaveBeenCalledWith('/payments/order/order-id', undefined);
   });

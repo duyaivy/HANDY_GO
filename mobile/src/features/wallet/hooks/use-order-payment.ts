@@ -19,13 +19,19 @@ export function useOrderPayment(orderId: string) {
   const inFlightRef = useRef<Promise<OrderPaymentRecord> | null>(null);
   const payMutation = useMutation({
     mutationFn: async ({ method, expectedAmount }: { method: PaymentMethod; expectedAmount?: string }) => {
-      const payment = (await PaymentApi.openPayment({ orderId, method }).catch((cause: unknown) => {
+      const payment = (await PaymentApi.openPayment({ orderId, method, ...(expectedAmount == null ? {} : { expectedAmount }) }).catch((cause: unknown) => {
         if (cause instanceof ApiError && cause.statusCode === 409 && cause.message === 'Payment is not ready for this order yet')
           throw new Error('Đơn đã được nghiệm thu nhưng hệ thống chưa sẵn sàng thanh toán. Lần thử này chưa trừ tiền ví. Vui lòng thử lại sau.');
+        if (cause instanceof ApiError && cause.statusCode === 409 && cause.message === 'Payment amount changed') {
+          void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+          throw new Error('Chi phí đơn hàng đã thay đổi. Vui lòng kiểm tra lại số tiền trước khi thanh toán.');
+        }
         throw cause;
       })).data;
-      if (expectedAmount != null && BigInt(payment.amount) !== BigInt(expectedAmount))
+      if (expectedAmount != null && BigInt(payment.amount) !== BigInt(expectedAmount)) {
+        void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
         throw new Error('Chi phí đơn hàng đã thay đổi. Vui lòng tải lại đơn trước khi thanh toán.');
+      }
       if (['succeeded', 'processing', 'refunded', 'partially_refunded'].includes(payment.status))
         return payment;
       if (method === 'cash')
