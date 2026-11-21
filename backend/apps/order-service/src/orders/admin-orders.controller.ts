@@ -27,6 +27,8 @@ import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { AdminGuard } from '../common/guards/admin.guard.js';
 import { OrdersService } from './orders.service.js';
 import { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
+import { AdminQueryDisputesDto } from './dto/admin-query-disputes.dto.js';
+import { AdminDisputeListResponseDto } from './dto/admin-dispute-list-response.dto.js';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
 import { OrderResponseDto } from './dto/order-response.dto.js';
 
@@ -53,6 +55,29 @@ export class AdminOrdersController {
   ) {
     const data = await this.ordersService.adminFindAll(query, user.roles);
     return buildSuccessResponse(data, 'Admin orders retrieved successfully');
+  }
+
+  @Get('disputes')
+  @ApiOperation({
+    summary: 'Admin query active disputes (HG-82)',
+    description:
+      'Search, filter, sort and paginate orders currently in dispute, including dispute evidence and both party IDs.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Disputes retrieved successfully',
+    type: AdminDisputeListResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Only administrators can access the dispute queue',
+  })
+  async findDisputes(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query() query: AdminQueryDisputesDto,
+  ) {
+    const data = await this.ordersService.adminFindDisputes(query, user.roles);
+    return buildSuccessResponse(data, 'Admin disputes retrieved successfully');
   }
 
   @Post(':id/resolve-dispute')

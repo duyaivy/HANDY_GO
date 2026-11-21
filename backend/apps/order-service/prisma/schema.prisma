@@ -181,6 +181,7 @@ model Order {
   @@index([workerUserId, status, createdAt])
   @@index([createdAt])
   @@index([status, completedAt])
+  @@index([status, disputedAt])
   @@map("orders")
   @@schema("order_service")
 }

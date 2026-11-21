@@ -12,6 +12,12 @@ import type { OrderOutboxRepository } from '../common/outbox/order-outbox.reposi
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 import { ORDER_ERROR_CODES } from '../common/constants/order-errors.js';
 import { DisputeCategory } from './dto/dispute-order.dto.js';
+import {
+  AdminQueryDisputesDto,
+  DisputePreviousStatus,
+  DisputeSortBy,
+  SortOrder,
+} from './dto/admin-query-disputes.dto.js';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -1551,6 +1557,164 @@ describe('OrdersService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('adminFindDisputes (HG-82)', () => {
+    it('returns only active disputes with dispute evidence and party IDs', async () => {
+      const evidence = {
+        id: mockEvidenceId,
+        mediaUrl: 'https://example.com/dispute.jpg',
+        mediaType: 'image',
+        submittedByUserId: mockCustomerId,
+        createdAt: new Date('2026-11-20T10:00:00.000Z'),
+      };
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([
+        {
+          ...validBaseOrder,
+          status: 'disputed',
+          disputePreviousStatus: 'completed',
+          disputeReason: 'Rò rỉ nước sau sửa chữa',
+          disputedAt,
+          completedAt: new Date('2026-11-18T09:00:00.000Z'),
+          evidences: [evidence],
+        },
+      ]);
+
+      const result = await service.adminFindDisputes(
+        new AdminQueryDisputesDto(),
+        ['ADMIN'],
+      );
+
+      expect(prismaMock.order.count).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+      });
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+        include: {
+          evidences: {
+            where: { evidenceType: 'dispute' },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        skip: 0,
+        take: 10,
+        orderBy: [{ disputedAt: 'desc' }, { id: 'asc' }],
+      });
+      expect(result).toEqual({
+        items: [
+          {
+            orderId: mockOrderId,
+            orderCode: validBaseOrder.orderCode,
+            status: 'disputed',
+            disputePreviousStatus: 'completed',
+            customerUserId: mockCustomerId,
+            workerUserId: mockWorkerId,
+            customer: { id: mockCustomerId },
+            worker: { id: mockWorkerId },
+            serviceId: mockServiceId,
+            agreedPrice: '350000',
+            currency: 'VND',
+            disputeReason: 'Rò rỉ nước sau sửa chữa',
+            disputedAt,
+            completedAt: new Date('2026-11-18T09:00:00.000Z'),
+            evidences: [evidence],
+            createdAt: validBaseOrder.createdAt,
+          },
+        ],
+        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 },
+      });
+    });
+
+    it('applies search, previous status, date range, pagination and price sorting', async () => {
+      prismaMock.order.count.mockResolvedValue(8);
+      prismaMock.order.findMany.mockResolvedValue([]);
+      const query = Object.assign(new AdminQueryDisputesDto(), {
+        page: 2,
+        limit: 3,
+        search: '  rò rỉ  ',
+        previousStatus: DisputePreviousStatus.COMPLETED,
+        disputedFrom: '2026-11-01T00:00:00.000Z',
+        disputedTo: '2026-11-21T23:59:59.000Z',
+        sortBy: DisputeSortBy.AGREED_PRICE,
+        sortOrder: SortOrder.ASC,
+      });
+
+      const result = await service.adminFindDisputes(query, ['Admin']);
+
+      const where = {
+        status: 'disputed',
+        disputePreviousStatus: 'completed',
+        disputedAt: {
+          gte: new Date(query.disputedFrom),
+          lte: new Date(query.disputedTo),
+        },
+        OR: [
+          { orderCode: { contains: 'rò rỉ', mode: 'insensitive' } },
+          { disputeReason: { contains: 'rò rỉ', mode: 'insensitive' } },
+        ],
+      };
+      expect(prismaMock.order.count).toHaveBeenCalledWith({ where });
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          skip: 3,
+          take: 3,
+          orderBy: [{ agreedPrice: 'asc' }, { id: 'asc' }],
+        }),
+      );
+      expect(result.pagination).toEqual({
+        page: 2,
+        limit: 3,
+        total: 8,
+        totalPages: 3,
+      });
+    });
+
+    it('returns an empty queue without applying a blank search term', async () => {
+      prismaMock.order.count.mockResolvedValue(0);
+      prismaMock.order.findMany.mockResolvedValue([]);
+
+      const result = await service.adminFindDisputes(
+        Object.assign(new AdminQueryDisputesDto(), { search: '   ' }),
+        ['Admin'],
+      );
+
+      expect(prismaMock.order.count).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+      });
+      expect(result).toEqual({
+        items: [],
+        pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      });
+    });
+
+    it.each([{ roles: [] }, { roles: ['Customer'] }, { roles: ['Worker'] }])(
+      'rejects non-admin roles %j before querying the database',
+      async ({ roles }) => {
+        await expect(
+          service.adminFindDisputes(new AdminQueryDisputesDto(), roles),
+        ).rejects.toMatchObject({
+          response: { code: ORDER_ERROR_CODES.FORBIDDEN_ROLE },
+          status: 403,
+        });
+        expect(prismaMock.order.count).not.toHaveBeenCalled();
+        expect(prismaMock.order.findMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects reversed date ranges before querying the database', async () => {
+      const query = Object.assign(new AdminQueryDisputesDto(), {
+        disputedFrom: '2026-11-21T00:00:00.000Z',
+        disputedTo: '2026-11-20T00:00:00.000Z',
+      });
+
+      await expect(service.adminFindDisputes(query, ['Admin'])).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prismaMock.order.count).not.toHaveBeenCalled();
     });
   });
 

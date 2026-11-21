@@ -1,14 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { HttpStatus } from '@nestjs/common';
+import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { AdminOrdersController } from './admin-orders.controller.js';
+import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
+import { AdminGuard } from '../common/guards/admin.guard.js';
 import type { OrdersService } from './orders.service.js';
 import type { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
+import type { AdminQueryDisputesDto } from './dto/admin-query-disputes.dto.js';
 import type { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
 
 describe('AdminOrdersController', () => {
   let controller: AdminOrdersController;
   let serviceMock: {
     adminFindAll: ReturnType<typeof vi.fn>;
+    adminFindDisputes: ReturnType<typeof vi.fn>;
     resolveDispute: ReturnType<typeof vi.fn>;
   };
 
@@ -18,6 +23,7 @@ describe('AdminOrdersController', () => {
   beforeEach(() => {
     serviceMock = {
       adminFindAll: vi.fn(),
+      adminFindDisputes: vi.fn(),
       resolveDispute: vi.fn(),
     };
 
@@ -46,6 +52,40 @@ describe('AdminOrdersController', () => {
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.message).toBe('Admin orders retrieved successfully');
       expect(response.data).toEqual(paginated);
+    });
+  });
+
+  describe('findDisputes', () => {
+    it('registers the dispute path behind trusted gateway and admin guards', () => {
+      expect(Reflect.getMetadata(PATH_METADATA, AdminOrdersController)).toBe(
+        'admin/orders',
+      );
+      expect(
+        Reflect.getMetadata(
+          PATH_METADATA,
+          AdminOrdersController.prototype.findDisputes,
+        ),
+      ).toBe('disputes');
+      expect(Reflect.getMetadata(GUARDS_METADATA, AdminOrdersController)).toEqual(
+        [TrustedGatewayGuard, AdminGuard],
+      );
+    });
+
+    it('returns the admin dispute queue in the standard response envelope', async () => {
+      const queue = {
+        items: [{ orderId: mockOrderId, status: 'disputed' }],
+        pagination: { page: 2, limit: 5, total: 6, totalPages: 2 },
+      };
+      serviceMock.adminFindDisputes.mockResolvedValue(queue);
+      const user = { userId: mockAdminId, roles: ['Admin'], permissions: [] };
+      const query = { page: 2, limit: 5 } as AdminQueryDisputesDto;
+
+      const response = await controller.findDisputes(user, query);
+
+      expect(serviceMock.adminFindDisputes).toHaveBeenCalledWith(query, ['Admin']);
+      expect(response.statusCode).toBe(HttpStatus.OK);
+      expect(response.message).toBe('Admin disputes retrieved successfully');
+      expect(response.data).toEqual(queue);
     });
   });
 

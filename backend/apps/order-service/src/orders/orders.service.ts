@@ -18,6 +18,12 @@ import {
 } from '../common/constants/order-errors.js';
 import type { QueryOrderDto } from './dto/query-order.dto.js';
 import type { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
+import {
+  DisputeSortBy,
+  SortOrder,
+  type AdminQueryDisputesDto,
+} from './dto/admin-query-disputes.dto.js';
+import type { AdminDisputeListResponseDto } from './dto/admin-dispute-list-response.dto.js';
 import type { CreateOrderEvidenceDto } from './dto/create-order-evidence.dto.js';
 import type { OrderEvidenceResponseDto } from './dto/order-evidence-response.dto.js';
 import type { RequestReworkDto } from './dto/request-rework.dto.js';
@@ -1597,6 +1603,106 @@ export class OrdersService {
       page,
       limit,
       totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /** Paginated queue of active disputes for administrators. */
+  async adminFindDisputes(
+    query: AdminQueryDisputesDto,
+    roles: string[] = [],
+  ): Promise<AdminDisputeListResponseDto> {
+    if (!roles.some((role) => role.toLowerCase() === 'admin')) {
+      throw new ForbiddenException({
+        code: ORDER_ERROR_CODES.FORBIDDEN_ROLE,
+        message: 'Only administrators can access dispute queue',
+      });
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const sortBy = query.sortBy ?? DisputeSortBy.DISPUTED_AT;
+    const sortOrder = query.sortOrder ?? SortOrder.DESC;
+    const from = query.disputedFrom ? new Date(query.disputedFrom) : undefined;
+    const to = query.disputedTo ? new Date(query.disputedTo) : undefined;
+    if (
+      (from && !Number.isFinite(from.getTime())) ||
+      (to && !Number.isFinite(to.getTime())) ||
+      (from && to && from > to)
+    ) {
+      throw new BadRequestException('Invalid dispute date range');
+    }
+
+    const where: Prisma.OrderWhereInput = { status: 'disputed' };
+    if (query.previousStatus) {
+      where.disputePreviousStatus = query.previousStatus;
+    }
+    if (from || to) {
+      where.disputedAt = {
+        ...(from ? { gte: from } : {}),
+        ...(to ? { lte: to } : {}),
+      };
+    }
+    const search = query.search?.trim();
+    if (search) {
+      where.OR = [
+        { orderCode: { contains: search, mode: 'insensitive' } },
+        { disputeReason: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const sortFields: Record<DisputeSortBy, Prisma.OrderOrderByWithRelationInput> = {
+      [DisputeSortBy.DISPUTED_AT]: { disputedAt: sortOrder },
+      [DisputeSortBy.COMPLETED_AT]: { completedAt: sortOrder },
+      [DisputeSortBy.CREATED_AT]: { createdAt: sortOrder },
+      [DisputeSortBy.AGREED_PRICE]: { agreedPrice: sortOrder },
+    };
+    const [total, orders] = await Promise.all([
+      this.prisma.order.count({ where }),
+      this.prisma.order.findMany({
+        where,
+        include: {
+          evidences: {
+            where: { evidenceType: 'dispute' },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [sortFields[sortBy], { id: 'asc' }],
+      }),
+    ]);
+
+    return {
+      items: orders.map((order) => ({
+        orderId: order.id,
+        orderCode: order.orderCode,
+        status: order.status,
+        disputePreviousStatus: order.disputePreviousStatus,
+        customerUserId: order.customerUserId,
+        workerUserId: order.workerUserId,
+        customer: { id: order.customerUserId },
+        worker: { id: order.workerUserId },
+        serviceId: order.serviceId,
+        agreedPrice: order.agreedPrice.toString(),
+        currency: 'VND',
+        disputeReason: order.disputeReason,
+        disputedAt: order.disputedAt,
+        completedAt: order.completedAt,
+        evidences: order.evidences.map((evidence) => ({
+          id: evidence.id,
+          mediaUrl: evidence.mediaUrl,
+          mediaType: evidence.mediaType,
+          submittedByUserId: evidence.submittedByUserId,
+          createdAt: evidence.createdAt,
+        })),
+        createdAt: order.createdAt,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 
