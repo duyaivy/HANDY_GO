@@ -48,7 +48,14 @@ let database: PaymentPrismaService,
   operations: PaymentOperationsService;
 let app: INestApplication;
 let seedEnv: NodeJS.ProcessEnv;
-const wallet = { getOperation: vi.fn().mockResolvedValue({ outcome: 'missing' }), refundCredit: vi.fn().mockResolvedValue({ outcome: 'rejected', status: 409, message: 'Unfunded' }) };
+const wallet = {
+  getOperation: vi.fn().mockResolvedValue({ outcome: 'missing' }),
+  refundCredit: vi.fn().mockResolvedValue({
+    outcome: 'rejected',
+    status: 409,
+    message: 'Unfunded',
+  }),
+};
 const outbox = { enqueue: vi.fn() };
 const runOnce = vi.fn().mockResolvedValue({ pointAttempts: 0 });
 function token(id: string, roles: string[] = [], permissions: string[] = []) {
@@ -116,7 +123,12 @@ beforeAll(async () => {
     .toString();
   database = new PaymentPrismaService();
   audit = new AdminAuditService(database);
-  refunds = new RefundsService(database, audit, wallet as never, outbox as never);
+  refunds = new RefundsService(
+    database,
+    audit,
+    wallet as never,
+    outbox as never,
+  );
   rules = new CommissionRulesAdminService(database, audit);
   operations = new PaymentOperationsService(database, audit);
   seedEnv = {
@@ -376,7 +388,12 @@ describe('Refund reservations and Admin decisions (PostgreSQL)', () => {
     const unavailableAudit = {
       record: vi.fn().mockRejectedValue(new Error('Audit unavailable')),
     };
-    const service = new RefundsService(database, unavailableAudit as never, wallet as never, outbox as never);
+    const service = new RefundsService(
+      database,
+      unavailableAudit as never,
+      wallet as never,
+      outbox as never,
+    );
     await expect(
       service.decide(admin, refund.id, { approve: true, reason: 'Reviewed' }),
     ).rejects.toThrow(/Audit unavailable/);
@@ -528,7 +545,6 @@ describe('Admin HTTP authorization, validation and operations', () => {
   });
 });
 
-
 describe('Inbound quarantine persistence (PostgreSQL)', () => {
   it('persists one safe record before ACK and rejects Admin replay of the missing body', async () => {
     const eventType = `test.unknown.${randomUUID()}`;
@@ -538,7 +554,9 @@ describe('Inbound quarantine persistence (PostgreSQL)', () => {
       const raw = { eventId: randomUUID(), token: 'must-not-be-stored' };
       await inbox.consume(eventType, raw, {} as never);
       await inbox.consume(eventType, raw, {} as never);
-      const rows = await database.client.failedInboundEvent.findMany({ where: { eventType } });
+      const rows = await database.client.failedInboundEvent.findMany({
+        where: { eventType },
+      });
       expect(rows).toHaveLength(1);
       expect(rows[0].status).toBe('quarantined');
       expect(rows[0].attempts).toBe(2);
@@ -546,11 +564,24 @@ describe('Inbound quarantine persistence (PostgreSQL)', () => {
       expect(JSON.stringify(rows)).not.toContain('must-not-be-stored');
       expect(rabbit.ack).toHaveBeenCalledTimes(2);
       expect(rabbit.nack).not.toHaveBeenCalled();
-      await expect(operations.replay(admin, rows[0].eventId, 'Cannot replay redacted body')).rejects.toMatchObject({ status: 409 });
-      const listing = await operations.deadLetters({ page: 1, limit: 100 } as never);
-      expect(listing.items.some((row) => row.eventId === rows[0].eventId)).toBe(true);
+      await expect(
+        operations.replay(
+          admin,
+          rows[0].eventId,
+          'Cannot replay redacted body',
+        ),
+      ).rejects.toMatchObject({ status: 409 });
+      const listing = await operations.deadLetters({
+        page: 1,
+        limit: 100,
+      } as never);
+      expect(listing.items.some((row) => row.eventId === rows[0].eventId)).toBe(
+        true,
+      );
     } finally {
-      await database.client.failedInboundEvent.deleteMany({ where: { eventType } });
+      await database.client.failedInboundEvent.deleteMany({
+        where: { eventType },
+      });
     }
   });
 });
