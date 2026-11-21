@@ -1,5 +1,5 @@
-import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsArray, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PaymentPaginationDto {
@@ -20,11 +20,45 @@ export class PaymentPaginationDto {
   limit = 20;
 }
 
+export const PAYMENT_STATUSES = [
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'cancelled',
+  'partially_refunded',
+  'refunded',
+] as const;
+
+export type PaymentStatusType = (typeof PAYMENT_STATUSES)[number];
+
 export class PaymentQueryDto extends PaymentPaginationDto {
-  @ApiPropertyOptional({ enum: ['pending', 'processing', 'succeeded', 'failed', 'cancelled', 'partially_refunded', 'refunded'] })
+  @ApiPropertyOptional({
+    enum: PAYMENT_STATUSES,
+    isArray: true,
+    description:
+      'Lọc theo trạng thái thanh toán (hỗ trợ chọn nhiều, mảng hoặc phân cách bằng dấu phẩy)',
+  })
   @IsOptional()
-  @IsIn(['pending', 'processing', 'succeeded', 'failed', 'cancelled', 'partially_refunded', 'refunded'])
-  status?: 'pending' | 'processing' | 'succeeded' | 'failed' | 'cancelled' | 'partially_refunded' | 'refunded';
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((item) => (typeof item === 'string' ? item.split(',') : item))
+        .map((s) => (typeof s === 'string' ? s.trim() : s))
+        .filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      return value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [value];
+  })
+  @IsArray()
+  @IsIn(PAYMENT_STATUSES, { each: true })
+  status?: PaymentStatusType[];
 
   @ApiPropertyOptional({ enum: ['cash', 'point'] })
   @IsOptional()
