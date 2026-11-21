@@ -551,6 +551,26 @@ describe('CustomerOrderReviewScreen', () => {
     expect(screen.queryByTestId('review-photo-item-0')).toBeNull();
     delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
   });
+
+  it('enforces maximum 1 video limit when trying to attach a second video', async () => {
+    (globalThis as any).__MOCK_VIDEO_PICKER__ = true;
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    // Add first video
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    expect(screen.getByTestId('review-photo-item-0')).toBeOnTheScreen();
+    expect(screen.getByTestId('review-video-badge-0')).toBeOnTheScreen();
+
+    // Try to add second video
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Giới hạn video',
+      'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.',
+    );
+
+    delete (globalThis as any).__MOCK_VIDEO_PICKER__;
+  });
 });
 
 describe('CustomerOrderDetailScreen review integration', () => {

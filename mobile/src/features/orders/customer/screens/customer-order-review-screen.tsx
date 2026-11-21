@@ -310,6 +310,10 @@ export function CustomerOrderReviewScreen({
   };
 
   const handleCaptureVideo = async () => {
+    if (mediaItems.some(item => item.mediaType === 'video')) {
+      Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+      return;
+    }
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -354,6 +358,10 @@ export function CustomerOrderReviewScreen({
 
   const handlePickFromLibrary = async (chosenType: 'images' | 'videos') => {
     try {
+      if (chosenType === 'videos' && mediaItems.some(item => item.mediaType === 'video')) {
+        Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+        return;
+      }
       const remaining = 5 - mediaItems.length;
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: chosenType === 'images',
@@ -363,9 +371,16 @@ export function CustomerOrderReviewScreen({
         videoMaxDuration: 30,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        const existingVideoCount = mediaItems.filter(m => m.mediaType === 'video').length;
+        let addedVideoCount = 0;
         for (const asset of result.assets) {
           const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
           if (isVideo) {
+            if (existingVideoCount + addedVideoCount >= 1) {
+              Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+              return;
+            }
+            addedVideoCount++;
             const durationSec = typeof asset.duration === 'number'
               ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
               : undefined;
@@ -414,6 +429,10 @@ export function CustomerOrderReviewScreen({
 
     if (process.env.NODE_ENV === 'test' && !(globalThis as any).__USE_REAL_PHOTO_PICKER__) {
       if ((globalThis as any).__MOCK_VIDEO_PICKER__) {
+        if (mediaItems.some(item => item.mediaType === 'video')) {
+          Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+          return;
+        }
         const newVideoItem: LocalMediaItem = {
           id: `sample-vid-${Date.now()}`,
           uri: 'https://res.cloudinary.com/handygo/video/upload/v1/reviews/sample.mp4',
@@ -439,7 +458,7 @@ export function CustomerOrderReviewScreen({
 
     if (hasVideo) {
       // Đã có video, chỉ cho phép đính kèm thêm hình ảnh (tối đa 3 nút cho Android)
-      Alert.alert('Đính kèm hình ảnh', 'Chọn nguồn hình ảnh:', [
+      Alert.alert('Đính kèm hình ảnh', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video. Chọn nguồn hình ảnh:', [
         { text: 'Chụp ảnh mới', onPress: handleCapturePhoto },
         { text: 'Chọn từ thư viện', onPress: () => handlePickFromLibrary('images') },
         { text: 'Hủy', style: 'cancel' },
@@ -491,6 +510,12 @@ export function CustomerOrderReviewScreen({
 
     if (!orderId && !propOrderId) {
       Alert.alert('Lỗi', 'Không xác định được mã đơn hàng.');
+      return;
+    }
+
+    const totalVideos = mediaItems.filter(item => item.mediaType === 'video').length;
+    if (totalVideos > 1) {
+      Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
       return;
     }
 
