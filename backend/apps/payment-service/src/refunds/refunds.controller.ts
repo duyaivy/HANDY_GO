@@ -22,7 +22,10 @@ import {
   DecideRefundDto,
 } from './dto/refunds.dto.js';
 import { RefundsService } from './refunds.service.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+@ApiTags('Refunds')
+@ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('payments')
 export class RefundsController {
