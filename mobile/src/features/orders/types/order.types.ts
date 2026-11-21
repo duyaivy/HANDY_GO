@@ -189,3 +189,69 @@ export type PaginatedList<T> = {
   limit?: number;
   totalPages: number;
 };
+
+export type ReviewRatingCriteria = 'good' | 'neutral' | 'bad';
+
+export type ReviewMediaItem = {
+  id?: string;
+  mediaType: 'image' | 'video';
+  mediaUrl: string;
+  thumbnailUrl?: string;
+  createdAt?: string;
+};
+
+export type OrderReview = {
+  id: string;
+  orderId: string;
+  rating: number;
+  attitudeRating?: ReviewRatingCriteria | null;
+  qualityRating?: ReviewRatingCriteria | null;
+  speedRating?: ReviewRatingCriteria | null;
+  comment?: string | null;
+  status: string;
+  isEdited?: boolean;
+  editedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  customer?: {
+    id: string;
+    fullName?: string;
+    avatarUrl?: string | null;
+  };
+  worker?: {
+    id: string;
+    fullName?: string;
+    avatarUrl?: string | null;
+  };
+  media?: ReviewMediaItem[];
+};
+
+export type CreateReviewPayload = {
+  orderId?: string;
+  workerUserId?: string;
+  rating: number;
+  comment?: string;
+  attitudeRating?: ReviewRatingCriteria;
+  qualityRating?: ReviewRatingCriteria;
+  speedRating?: ReviewRatingCriteria;
+  media?: Array<{
+    mediaType: 'image' | 'video';
+    mediaUrl: string;
+    thumbnailUrl?: string;
+    uploadReceipt?: string;
+  }>;
+};
+
+export type UpdateReviewPayload = {
+  rating?: number;
+  comment?: string;
+  attitudeRating?: ReviewRatingCriteria;
+  qualityRating?: ReviewRatingCriteria;
+  speedRating?: ReviewRatingCriteria;
+  media?: Array<{
+    mediaType: 'image' | 'video';
+    mediaUrl: string;
+    thumbnailUrl?: string;
+    uploadReceipt?: string;
+  }>;
+};

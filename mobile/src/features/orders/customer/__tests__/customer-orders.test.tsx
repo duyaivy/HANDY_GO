@@ -2,6 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as React from 'react';
 import { Alert } from 'react-native';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
@@ -188,6 +189,122 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
       expect(screen.getByText('Chi tiết đơn')).toBeOnTheScreen();
       expect(screen.queryByText('Đặt lại')).toBeNull();
     });
+  });
+
+  it('renders "⭐ Đánh giá" for unreviewed completed order, and "Sửa đánh giá" if already reviewed and within 48h', async () => {
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ord-comp-unreviewed',
+            orderCode: 'ORD-COMP-01',
+            serviceRequestId: 'req-01',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 300000,
+            agreedScope: 'Sửa vòi nước rửa chén',
+            addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: '2026-11-20T10:00:00Z',
+            createdAt: '2026-11-20T08:00:00Z',
+          },
+          {
+            id: 'ord-comp-reviewed',
+            orderCode: 'ORD-COMP-02',
+            serviceRequestId: 'req-02',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 450000,
+            agreedScope: 'Lắp quạt trần phòng khách',
+            addressText: '456 Hải Phòng, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: '2026-11-21T09:00:00Z',
+            createdAt: '2026-11-21T07:00:00Z',
+          },
+          {
+            id: 'ord-comp-expired',
+            orderCode: 'ORD-COMP-03',
+            serviceRequestId: 'req-03',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 200000,
+            agreedScope: 'Thay bóng đèn',
+            addressText: '789 Trần Phú, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: '2026-10-01T09:00:00Z',
+            createdAt: '2026-10-01T07:00:00Z',
+          },
+        ],
+        total: 3,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockImplementation(async (orderId: string) => {
+      if (orderId === 'ord-comp-reviewed') {
+        return {
+          id: 'rev-02',
+          orderId: 'ord-comp-reviewed',
+          rating: 5,
+          comment: 'Thợ làm rất cẩn thận!',
+          isEdited: false,
+          createdAt: new Date().toISOString(), // Newly reviewed within 48h
+        } as any;
+      }
+      if (orderId === 'ord-comp-expired') {
+        return {
+          id: 'rev-03',
+          orderId: 'ord-comp-expired',
+          rating: 4,
+          comment: 'Ổn',
+          isEdited: true, // Already edited
+          createdAt: '2026-10-01T10:00:00Z',
+        } as any;
+      }
+      return null; // Unreviewed
+    });
+
+    render(<CustomerOrdersScreen />);
+
+    const finishedTab = screen.getByTestId('activity-filter-tab-finished');
+    fireEvent.press(finishedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa vòi nước rửa chén')).toBeOnTheScreen();
+      expect(screen.getByText('Lắp quạt trần phòng khách')).toBeOnTheScreen();
+      expect(screen.getByText('Thợ sửa điện')).toBeOnTheScreen();
+    });
+
+    // 1. Unreviewed order shows "⭐ Đánh giá"
+    await waitFor(() => {
+      expect(screen.getByTestId('order-card-review-btn-ord-comp-unreviewed')).toBeOnTheScreen();
+    });
+    expect(screen.getByTestId('order-card-review-btn-ord-comp-unreviewed')).toHaveTextContent('⭐ Đánh giá');
+
+    // 2. Reviewed order within 48h shows "Sửa đánh giá" and NOT "⭐ Đánh giá"
+    await waitFor(() => {
+      expect(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed')).toBeOnTheScreen();
+    });
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-reviewed')).toBeNull();
+    expect(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed')).toHaveTextContent('Sửa đánh giá');
+
+    // Pressing "Sửa đánh giá" routes to review with mode: 'edit'
+    fireEvent.press(screen.getByTestId('order-card-edit-review-btn-ord-comp-reviewed'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/orders/ord-comp-reviewed/review',
+      params: { mode: 'edit' },
+    });
+
+    // 3. Reviewed order with expired edit window hides both review and edit-review buttons
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-expired')).toBeNull();
+    expect(screen.queryByTestId('order-card-edit-review-btn-ord-comp-expired')).toBeNull();
   });
 });
 

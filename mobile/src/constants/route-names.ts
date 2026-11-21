@@ -35,6 +35,7 @@ export const RouteNames = {
   CUSTOMER_ORDER_DETAIL: (id: string) => `/customer/orders/${id}` as const,
   CUSTOMER_ORDER_DETAIL_INFO: (id: string) => `/customer/orders/${id}/detail` as const,
   CUSTOMER_ORDER_CANCEL: (id: string) => `/customer/orders/${id}/cancel-dialog` as const,
+  CUSTOMER_ORDER_REVIEW: (id: string) => `/customer/orders/${id}/review` as const,
   CUSTOMER_SERVICE_DETAIL: (id: string) => `/customer/services/${id}` as const,
   CUSTOMER_BOOKING: '/customer/booking',
   CUSTOMER_BOOKING_SELECT_ADDRESS: '/customer/booking/select-address',
