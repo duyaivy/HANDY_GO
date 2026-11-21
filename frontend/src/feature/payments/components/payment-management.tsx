@@ -104,19 +104,20 @@ export default function PaymentManagement() {
 
   // Lấy số liệu thống kê toàn hệ thống từ API
   const paymentStats = statisticsQuery.data ?? {
-    total: 0,
-    succeeded: 0,
-    processing: 0,
-    failed: 0,
+    total: null,
+    succeeded: null,
+    processing: null,
+    failed: null,
+    hasUnavailableCount: false,
   };
 
-  const statsUnavailable =
-    statisticsQuery.isPending || statisticsQuery.isError;
+  const statsUnavailable = statisticsQuery.isPending;
+  const totalTransactions = paymentStats.total ?? data?.total ?? null;
 
   const statCards = [
     {
       label: "Tổng giao dịch",
-      value: paymentStats.total,
+      value: totalTransactions,
       icon: ReceiptText,
       iconClass: "text-slate-500",
       iconBg: "bg-slate-100",
@@ -185,7 +186,7 @@ export default function PaymentManagement() {
                 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900"
                 aria-live="polite"
               >
-                {statsUnavailable
+                {statsUnavailable || card.value === null
                   ? "—"
                   : card.value.toLocaleString("vi-VN")}
               </p>
@@ -197,6 +198,21 @@ export default function PaymentManagement() {
           );
         })}
       </section>
+
+      {paymentStats.hasUnavailableCount && !statsUnavailable && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p>Một số số liệu thống kê chưa tải được.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-amber-200 bg-white text-amber-800 hover:bg-amber-100"
+            onClick={() => void statisticsQuery.refetch()}
+            disabled={statisticsQuery.isFetching}
+          >
+            Thử lại
+          </Button>
+        </div>
+      )}
 
       {/* Danh sách giao dịch */}
       <section

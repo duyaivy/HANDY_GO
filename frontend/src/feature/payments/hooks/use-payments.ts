@@ -28,39 +28,34 @@ export const usePaymentStatisticsQuery = () =>
         limit: 1,
       };
 
-      const [
-        allResponse,
-        succeededResponse,
-        pendingResponse,
-        processingResponse,
-        failedResponse,
-      ] = await Promise.all([
-        paymentsApiRequest.list(baseQuery),
-        paymentsApiRequest.list({
-          ...baseQuery,
-          status: "succeeded",
-        }),
-        paymentsApiRequest.list({
-          ...baseQuery,
-          status: "pending",
-        }),
-        paymentsApiRequest.list({
-          ...baseQuery,
-          status: "processing",
-        }),
-        paymentsApiRequest.list({
-          ...baseQuery,
-          status: "failed",
-        }),
-      ]);
+      const count = async (status?: PaymentQuery["status"]) => {
+        try {
+          return (
+            await paymentsApiRequest.list({
+              ...baseQuery,
+              ...(status ? { status } : {}),
+            })
+          ).payload.data.total;
+        } catch {
+          return null;
+        }
+      };
+
+      const total = await count();
+      const succeeded = await count("succeeded");
+      const pending = await count("pending");
+      const processing = await count("processing");
+      const failed = await count("failed");
 
       return {
-        total: allResponse.payload.data.total,
-        succeeded: succeededResponse.payload.data.total,
+        total,
+        succeeded,
         processing:
-          pendingResponse.payload.data.total +
-          processingResponse.payload.data.total,
-        failed: failedResponse.payload.data.total,
+          pending === null || processing === null ? null : pending + processing,
+        failed,
+        hasUnavailableCount: [total, succeeded, pending, processing, failed].some(
+          (value) => value === null,
+        ),
       };
     },
     staleTime: 60 * 1000,

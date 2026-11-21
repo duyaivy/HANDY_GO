@@ -1,5 +1,5 @@
-import PaymentPlaceholder from "@/feature/payments/components/payment-placeholder";
+import RefundManagement from "@/feature/payments/components/refund-management";
 
 export default function PaymentRefundsPage() {
-  return <PaymentPlaceholder title="Hoàn tiền" />;
+  return <RefundManagement />;
 }

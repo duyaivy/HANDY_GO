@@ -1,5 +1,5 @@
-import PaymentPlaceholder from "@/feature/payments/components/payment-placeholder";
+import PaymentOperations from "@/feature/payments/components/payment-operations";
 
 export default function PaymentOperationsPage() {
-  return <PaymentPlaceholder title="Vận hành" />;
+  return <PaymentOperations />;
 }
