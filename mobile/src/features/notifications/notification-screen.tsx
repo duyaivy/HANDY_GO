@@ -185,7 +185,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
   }, [userId, read, unreadCount]);
 
   return (
-    <Screen safeArea={false}>
+    <Screen edges={['top', 'left', 'right']}>
       <AppBar
         title={worker ? 'Thông báo Thợ' : 'Thông báo'}
         subtitle={userId ? `${unreadCount} chưa đọc` : undefined}

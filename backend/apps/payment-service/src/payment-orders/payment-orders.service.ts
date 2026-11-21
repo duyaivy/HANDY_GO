@@ -62,6 +62,8 @@ export class PaymentOrdersService {
       ) {
         throw conflict('Order data does not match the payment snapshot');
       }
+      if (dto.expectedAmount !== undefined && payment.amount !== BigInt(dto.expectedAmount))
+        throw conflict('Payment amount changed');
       if (SETTLED_STATUSES.includes(payment.status)) {
         if (payment.method === dto.method) return payment.id;
         throw conflict('Payment is already settled with another method');

@@ -305,7 +305,7 @@ describe('HG-64 Phase 5: End-to-End Live Tracking & Resilience Test Suite', () =
 
       expect(alertSpy).toHaveBeenCalledWith(
         '🎉 Nghiệm thu thành công!',
-        expect.stringContaining('Tiền công đang được quyết toán vào ví của bạn'),
+        expect.stringContaining('kiểm tra trạng thái thanh toán'),
         expect.any(Array),
       );
 

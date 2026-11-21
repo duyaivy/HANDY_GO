@@ -3,7 +3,6 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BellIcon, ChevronLeftIcon, HeadsetIcon, SwitchIcon } from '@/components/ui/icons';
 import { PRIMARY_COLOR, SECONDARY_COLOR } from '@/constants/colors';
 import { Text } from './text';
@@ -43,6 +42,7 @@ export type AppBarProps = {
   testID?: string;
 };
 
+/** Screen owns the safe area; AppBar only renders the toolbar row. */
 export function AppBar({
   mode = 'stack',
   title,
@@ -62,7 +62,6 @@ export function AppBar({
   testID = 'app-bar',
 }: AppBarProps) {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
 
   const handleBack = React.useCallback(() => {
     if (onBack) {
@@ -168,7 +167,6 @@ export function AppBar({
   return (
     <View
       testID={testID}
-      style={{ paddingTop: Math.max(insets.top, 12) }}
       className={`z-30 w-full ${
         transparent
           ? 'bg-transparent'
