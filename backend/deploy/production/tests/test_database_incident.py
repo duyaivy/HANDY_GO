@@ -403,6 +403,10 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             }
             later_migrations = {
                 "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
+                "apps/order-service/prisma/migrations/20261121000000_add_dispute_evidence_metadata/migration.sql",
+                "apps/order-service/prisma/migrations/20261121001000_add_dispute_queue_index/migration.sql",
+                "apps/order-service/prisma/migrations/20261121002000_admin_dispute_resolutions/migration.sql",
+                "apps/payment-service/prisma/migrations/20261121002000_dispute_refund_link/migration.sql",
             }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
