@@ -279,7 +279,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     await waitFor(() => {
       expect(screen.getByText('Sửa vòi nước rửa chén')).toBeOnTheScreen();
       expect(screen.getByText('Lắp quạt trần phòng khách')).toBeOnTheScreen();
-      expect(screen.getByText('Thay bóng đèn')).toBeOnTheScreen();
+      expect(screen.getByText('Thợ sửa điện')).toBeOnTheScreen();
     });
 
     // 1. Unreviewed order shows "⭐ Đánh giá"
