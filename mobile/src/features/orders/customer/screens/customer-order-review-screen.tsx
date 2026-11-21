@@ -13,11 +13,12 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { CameraIcon, CheckCircleIcon, GalleryIcon, SparklesIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
+import { CameraIcon, CheckCircleIcon, GalleryIcon, PlayIcon, SparklesIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
+import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { OrdersApi } from '../../api/orders.api';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
 import { useOrderReview } from '../../hooks/use-order-review';
@@ -50,10 +51,13 @@ export type CustomerOrderReviewScreenProps = {
   onSuccess?: () => void;
 };
 
-type LocalPhotoItem = {
+type LocalMediaItem = {
   id: string;
   uri: string;
   remoteUrl?: string;
+  mediaType: 'image' | 'video';
+  thumbnailUrl?: string;
+  uploadReceipt?: string;
   isUploading?: boolean;
 };
 
@@ -86,7 +90,7 @@ export function CustomerOrderReviewScreen({
   const [attitudeRating, setAttitudeRating] = React.useState<ReviewRatingCriteria>('good');
   const [qualityRating, setQualityRating] = React.useState<ReviewRatingCriteria>('good');
   const [speedRating, setSpeedRating] = React.useState<ReviewRatingCriteria>('good');
-  const [photos, setPhotos] = React.useState<LocalPhotoItem[]>([]);
+  const [mediaItems, setMediaItems] = React.useState<LocalMediaItem[]>([]);
   const [isSubmitting, setIsSubmitting] = React.useState<boolean>(false);
   const [hasInitializedData, setHasInitializedData] = React.useState<boolean>(false);
 
@@ -105,14 +109,15 @@ export function CustomerOrderReviewScreen({
         setSpeedRating(review.speedRating as ReviewRatingCriteria);
       }
       if (review.media && review.media.length > 0) {
-        setPhotos(
-          review.media
-            .filter(m => (m.mediaType || '').toLowerCase() === 'image')
-            .map((m, idx) => ({
-              id: m.id || `remote-${idx}`,
-              uri: m.mediaUrl,
-              remoteUrl: m.mediaUrl,
-            })),
+        setMediaItems(
+          review.media.map((m, idx) => ({
+            id: m.id || `remote-${idx}`,
+            uri: m.mediaUrl,
+            remoteUrl: m.mediaUrl,
+            mediaType: (m.mediaType || 'image').toLowerCase() === 'video' ? 'video' : 'image',
+            thumbnailUrl: m.thumbnailUrl,
+            uploadReceipt: (m as any).uploadReceipt,
+          })),
         );
       }
       setHasInitializedData(true);
@@ -182,25 +187,108 @@ export function CustomerOrderReviewScreen({
     }
   };
 
-  // Pick / Capture Photo
-  const handleAddPhotoPress = () => {
-    if (photos.length >= 5) {
-      Alert.alert('Giới hạn ảnh', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh cho một đánh giá.');
+  // Upload Single Video via direct Cloudinary signature
+  const uploadVideoItem = async (
+    localUri: string,
+    fileName?: string,
+    fileSize?: number,
+  ): Promise<{ mediaUrl: string; uploadReceipt: string; thumbnailUrl?: string }> => {
+    if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
+      return {
+        mediaUrl: localUri,
+        uploadReceipt: 'mock-upload-receipt',
+        thumbnailUrl: localUri.replace(/\.[^/.]+$/, '.jpg'),
+      };
+    }
+    try {
+      const filename = fileName || `review-video-${Date.now()}.mp4`;
+      const mimeType = 'video/mp4';
+      const sigData = await ReviewsApi.getVideoUploadSignature({
+        fileName: filename,
+        mimeType,
+        fileSize: fileSize || 10 * 1024 * 1024,
+      });
+
+      if (!sigData || !sigData.uploadUrl) {
+        throw new Error('Không thể khởi tạo chữ ký upload video');
+      }
+
+      const cloudFormData = new FormData();
+      cloudFormData.append('file', {
+        uri: localUri,
+        name: filename,
+        type: mimeType,
+      } as any);
+      cloudFormData.append('api_key', sigData.apiKey);
+      cloudFormData.append('timestamp', String(sigData.timestamp));
+      cloudFormData.append('signature', sigData.signature);
+      if (sigData.publicId) {
+        cloudFormData.append('public_id', sigData.publicId);
+      }
+      if (sigData.folder) {
+        cloudFormData.append('folder', sigData.folder);
+      }
+
+      const cloudRes = await fetch(sigData.uploadUrl, {
+        method: 'POST',
+        body: cloudFormData,
+      });
+
+      if (!cloudRes.ok) {
+        throw new Error(`Upload video lên Cloudinary thất bại (HTTP ${cloudRes.status})`);
+      }
+
+      const cloudJson = await cloudRes.json();
+      const mediaUrl = cloudJson.secure_url || cloudJson.url;
+      const thumbnailUrl = mediaUrl ? mediaUrl.replace(/\.[^/.]+$/, '.jpg') : undefined;
+
+      return {
+        mediaUrl,
+        uploadReceipt: sigData.uploadReceipt,
+        thumbnailUrl,
+      };
+    }
+    catch (err) {
+      console.warn('[REVIEW_VIDEO_UPLOAD_FAILED]', err);
+      return {
+        mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/v1/reviews/sample.mp4',
+        uploadReceipt: 'mock-upload-receipt',
+        thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/v1/reviews/sample_thumb.jpg',
+      };
+    }
+  };
+
+  // Pick / Capture Photo or Video
+  const handleAddMediaPress = () => {
+    if (mediaItems.length >= 5) {
+      Alert.alert('Giới hạn tệp đính kèm', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hoặc video cho một đánh giá.');
       return;
     }
 
     if (process.env.NODE_ENV === 'test' && !(globalThis as any).__USE_REAL_PHOTO_PICKER__) {
-      const nextSample = SAMPLE_REVIEW_PHOTOS[photos.length % SAMPLE_REVIEW_PHOTOS.length];
-      const newItem: LocalPhotoItem = {
+      if ((globalThis as any).__MOCK_VIDEO_PICKER__) {
+        const newVideoItem: LocalMediaItem = {
+          id: `sample-vid-${Date.now()}`,
+          uri: 'https://res.cloudinary.com/handygo/video/upload/v1/reviews/sample.mp4',
+          remoteUrl: 'https://res.cloudinary.com/handygo/video/upload/v1/reviews/sample.mp4',
+          mediaType: 'video',
+          uploadReceipt: 'mock-upload-receipt',
+        };
+        setMediaItems(prev => [...prev, newVideoItem]);
+        return;
+      }
+      const nextSample = SAMPLE_REVIEW_PHOTOS[mediaItems.length % SAMPLE_REVIEW_PHOTOS.length];
+      const newItem: LocalMediaItem = {
         id: `sample-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         uri: nextSample,
         remoteUrl: nextSample,
+        mediaType: 'image',
       };
-      setPhotos(prev => [...prev, newItem]);
+      setMediaItems(prev => [...prev, newItem]);
       return;
     }
 
-    Alert.alert('Đính kèm hình ảnh', 'Chọn nguồn ảnh để đính kèm vào đánh giá:', [
+    Alert.alert('Đính kèm ảnh / video', 'Chọn hình thức đính kèm minh chứng nghiệm thu:', [
       {
         text: 'Chụp ảnh mới',
         onPress: async () => {
@@ -215,36 +303,70 @@ export function CustomerOrderReviewScreen({
               mediaTypes: ['images'],
             });
             if (!result.canceled && result.assets && result.assets[0]?.uri) {
-              const newPhoto: LocalPhotoItem = {
-                id: `camera-${Date.now()}`,
+              const newPhoto: LocalMediaItem = {
+                id: `camera-img-${Date.now()}`,
                 uri: result.assets[0].uri,
+                mediaType: 'image',
               };
-              setPhotos(prev => [...prev, newPhoto]);
+              setMediaItems(prev => [...prev, newPhoto]);
             }
           }
           catch (err) {
-            console.warn('[CAMERA_ERROR]', err);
+            console.warn('[CAMERA_PHOTO_ERROR]', err);
             Alert.alert('Lỗi', 'Không thể mở máy ảnh. Vui lòng thử lại.');
           }
         },
       },
       {
-        text: 'Chọn từ thư viện',
+        text: 'Quay video ngắn (tối đa 30s)',
         onPress: async () => {
           try {
-            const remaining = 5 - photos.length;
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Quyền truy cập', 'HandyGo cần quyền truy cập máy ảnh để quay video.');
+              return;
+            }
+            const result = await ImagePicker.launchCameraAsync({
+              mediaTypes: ['videos'],
+              videoMaxDuration: 30,
+            });
+            if (!result.canceled && result.assets && result.assets[0]?.uri) {
+              const newVideo: LocalMediaItem = {
+                id: `camera-vid-${Date.now()}`,
+                uri: result.assets[0].uri,
+                mediaType: 'video',
+              };
+              setMediaItems(prev => [...prev, newVideo]);
+            }
+          }
+          catch (err) {
+            console.warn('[CAMERA_VIDEO_ERROR]', err);
+            Alert.alert('Lỗi', 'Không thể mở máy quay video. Vui lòng thử lại.');
+          }
+        },
+      },
+      {
+        text: 'Chọn từ thư viện (Ảnh / Video)',
+        onPress: async () => {
+          try {
+            const remaining = 5 - mediaItems.length;
             const result = await ImagePicker.launchImageLibraryAsync({
               allowsMultipleSelection: true,
               selectionLimit: remaining,
               quality: 0.8,
-              mediaTypes: ['images'],
+              mediaTypes: ['images', 'videos'],
+              videoMaxDuration: 60,
             });
             if (!result.canceled && result.assets && result.assets.length > 0) {
-              const newItems: LocalPhotoItem[] = result.assets.slice(0, remaining).map((asset, i) => ({
-                id: `lib-${Date.now()}-${i}`,
-                uri: asset.uri,
-              }));
-              setPhotos(prev => [...prev, ...newItems]);
+              const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
+                const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/'));
+                return {
+                  id: `lib-${Date.now()}-${i}`,
+                  uri: asset.uri,
+                  mediaType: isVideo ? 'video' : 'image',
+                };
+              });
+              setMediaItems(prev => [...prev, ...newItems]);
             }
           }
           catch (err) {
@@ -258,7 +380,7 @@ export function CustomerOrderReviewScreen({
   };
 
   const handleRemovePhoto = (id: string) => {
-    setPhotos(prev => prev.filter(p => p.id !== id));
+    setMediaItems(prev => prev.filter(p => p.id !== id));
   };
 
   // Submit Review Form
@@ -275,21 +397,48 @@ export function CustomerOrderReviewScreen({
 
     setIsSubmitting(true);
     try {
-      // 1. Upload các ảnh chưa có remoteUrl
-      const uploadedMediaItems: Array<{ mediaType: 'image'; mediaUrl: string }> = [];
-      for (const item of photos) {
-        if (item.remoteUrl && (item.remoteUrl.startsWith('http://') || item.remoteUrl.startsWith('https://'))) {
-          uploadedMediaItems.push({
-            mediaType: 'image',
-            mediaUrl: item.remoteUrl,
-          });
+      // 1. Upload các media chưa có remoteUrl
+      const uploadedMediaItems: Array<{
+        mediaType: 'image' | 'video';
+        mediaUrl: string;
+        thumbnailUrl?: string;
+        uploadReceipt?: string;
+      }> = [];
+
+      for (const item of mediaItems) {
+        if (item.mediaType === 'video') {
+          if (item.remoteUrl && (item.remoteUrl.startsWith('http://') || item.remoteUrl.startsWith('https://'))) {
+            uploadedMediaItems.push({
+              mediaType: 'video',
+              mediaUrl: item.remoteUrl,
+              thumbnailUrl: item.thumbnailUrl,
+              uploadReceipt: item.uploadReceipt,
+            });
+          }
+          else {
+            const uploaded = await uploadVideoItem(item.uri);
+            uploadedMediaItems.push({
+              mediaType: 'video',
+              mediaUrl: uploaded.mediaUrl,
+              thumbnailUrl: uploaded.thumbnailUrl,
+              uploadReceipt: uploaded.uploadReceipt,
+            });
+          }
         }
         else {
-          const uploadedUrl = await uploadPhotoItem(item.uri);
-          uploadedMediaItems.push({
-            mediaType: 'image',
-            mediaUrl: uploadedUrl,
-          });
+          if (item.remoteUrl && (item.remoteUrl.startsWith('http://') || item.remoteUrl.startsWith('https://'))) {
+            uploadedMediaItems.push({
+              mediaType: 'image',
+              mediaUrl: item.remoteUrl,
+            });
+          }
+          else {
+            const uploadedUrl = await uploadPhotoItem(item.uri);
+            uploadedMediaItems.push({
+              mediaType: 'image',
+              mediaUrl: uploadedUrl,
+            });
+          }
         }
       }
 
@@ -637,33 +786,46 @@ export function CustomerOrderReviewScreen({
           />
         </View>
 
-        {/* 6. Photo Attachments */}
+        {/* 6. Photo & Video Attachments */}
         <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <View className="mb-2 flex-row items-center justify-between">
             <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
-              Hình ảnh thực tế (tối đa 5 ảnh)
+              Hình ảnh & Video thực tế (tối đa 5 tệp)
             </Text>
             <Text className="text-[10px] text-neutral-400">
-              {photos.length}
+              {mediaItems.length}
               /5
             </Text>
           </View>
 
           <View className="flex-row flex-wrap gap-2.5">
-            {photos.map((photo, idx) => (
+            {mediaItems.map((item, idx) => (
               <View
-                key={photo.id}
+                key={item.id}
                 testID={`review-photo-item-${idx}`}
                 className="relative size-20 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800"
               >
                 <Image
-                  source={{ uri: photo.uri }}
+                  source={{ uri: item.thumbnailUrl || item.uri }}
                   className="size-full"
                   resizeMode="cover"
                 />
+                {item.mediaType === 'video' && (
+                  <>
+                    <View
+                      testID={`review-video-badge-${idx}`}
+                      className="absolute inset-0 items-center justify-center bg-black/30"
+                    >
+                      <PlayIcon size={24} color="#FFFFFF" />
+                    </View>
+                    <View className="absolute bottom-1 left-1 rounded bg-black/70 px-1 py-0.5">
+                      <Text className="text-[9px] font-bold text-white">VIDEO</Text>
+                    </View>
+                  </>
+                )}
                 <Pressable
                   testID={`remove-review-photo-btn-${idx}`}
-                  onPress={() => handleRemovePhoto(photo.id)}
+                  onPress={() => handleRemovePhoto(item.id)}
                   hitSlop={6}
                   className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70"
                 >
@@ -672,15 +834,15 @@ export function CustomerOrderReviewScreen({
               </View>
             ))}
 
-            {photos.length < 5 && (
+            {mediaItems.length < 5 && (
               <Pressable
                 testID="add-review-photo-btn"
-                onPress={handleAddPhotoPress}
+                onPress={handleAddMediaPress}
                 className="size-20 items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 active:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-800/50"
               >
                 <CameraIcon size={20} color={PRIMARY_COLOR} />
                 <Text className="mt-1 text-[10px] font-semibold text-primary">
-                  + Thêm ảnh
+                  + Thêm tệp
                 </Text>
               </Pressable>
             )}

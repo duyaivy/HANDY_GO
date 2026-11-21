@@ -238,6 +238,7 @@ export type CreateReviewPayload = {
     mediaType: 'image' | 'video';
     mediaUrl: string;
     thumbnailUrl?: string;
+    uploadReceipt?: string;
   }>;
 };
 
@@ -251,5 +252,6 @@ export type UpdateReviewPayload = {
     mediaType: 'image' | 'video';
     mediaUrl: string;
     thumbnailUrl?: string;
+    uploadReceipt?: string;
   }>;
 };

@@ -282,6 +282,51 @@ describe('CustomerOrderReviewScreen', () => {
       );
     });
   });
+
+  it('supports attaching video and submitting with video signature receipt', async () => {
+    (globalThis as any).__MOCK_VIDEO_PICKER__ = true;
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview').mockResolvedValue({
+      id: 'rev-vid-1',
+      orderId: 'ord-completed-123',
+      rating: 5,
+      comment: 'Có video quay lại nghiệm thu công trình',
+      status: 'published',
+      createdAt: new Date().toISOString(),
+    } as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    // Add video attachment
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+
+    // Video item 0 should be displayed with video badge
+    expect(screen.getByTestId('review-photo-item-0')).toBeOnTheScreen();
+    expect(screen.getByTestId('review-video-badge-0')).toBeOnTheScreen();
+    expect(screen.getByText('VIDEO')).toBeOnTheScreen();
+
+    // Type comment and submit
+    fireEvent.changeText(screen.getByTestId('review-comment-input'), 'Có video quay lại nghiệm thu công trình');
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+
+    await waitFor(() => {
+      expect(createReviewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderId: 'ord-completed-123',
+          rating: 5,
+          comment: 'Có video quay lại nghiệm thu công trình',
+          media: [
+            expect.objectContaining({
+              mediaType: 'video',
+              mediaUrl: expect.stringContaining('.mp4'),
+              uploadReceipt: 'mock-upload-receipt',
+            }),
+          ],
+        }),
+      );
+    });
+
+    delete (globalThis as any).__MOCK_VIDEO_PICKER__;
+  });
 });
 
 describe('CustomerOrderDetailScreen review integration', () => {

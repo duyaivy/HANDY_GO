@@ -9,6 +9,7 @@ export type VideoUploadSignatureResponse = {
   folder: string;
   uploadUrl: string;
   uploadReceipt: string;
+  publicId?: string;
 };
 
 export const ReviewsApi = {
