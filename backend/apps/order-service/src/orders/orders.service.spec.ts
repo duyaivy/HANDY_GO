@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +10,8 @@ import { OrdersService } from './orders.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
+import { ORDER_ERROR_CODES } from '../common/constants/order-errors.js';
+import { DisputeCategory } from './dto/dispute-order.dto.js';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -36,6 +38,7 @@ describe('OrdersService', () => {
     };
     orderEvidence: {
       create: ReturnType<typeof vi.fn>;
+      createMany: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
@@ -55,6 +58,7 @@ describe('OrdersService', () => {
       findUnique: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
     };
     orderStatusHistory: {
       create: ReturnType<typeof vi.fn>;
@@ -217,6 +221,7 @@ describe('OrdersService', () => {
       },
       orderEvidence: {
         create: vi.fn(),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
         count: vi.fn().mockResolvedValue(1),
         findMany: vi.fn(),
         findFirst: vi.fn(),
@@ -984,7 +989,9 @@ describe('OrdersService', () => {
           return existingEvidence;
         });
 
-      const p2002Error = new Error('Unique constraint failed on the fields: (order_id, client_evidence_id)');
+      const p2002Error = new Error(
+        'Unique constraint failed on the fields: (order_id, client_evidence_id)',
+      );
       (p2002Error as any).code = 'P2002';
       prismaMock.orderEvidence.create.mockRejectedValue(p2002Error);
 
@@ -1034,9 +1041,247 @@ describe('OrdersService', () => {
         where: { id: mockEvidenceId },
       });
     });
+
+    it('does not let a worker delete dispute evidence after the order resumes', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      prismaMock.orderEvidence.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deleteEvidence(mockOrderId, mockEvidenceId, mockWorkerId),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.EVIDENCE_NOT_FOUND },
+        status: 404,
+      });
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: mockEvidenceId,
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
+      expect(prismaMock.orderEvidence.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('dispute', () => {
+    const now = new Date('2026-11-21T12:00:00.000Z');
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    it('allows the customer at the exact seven-day boundary and saves evidence with both outbox events', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: new Date(now.getTime() - sevenDaysMs),
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-1' });
+      const dto = {
+        reason: 'Dịch vụ bị lỗi sau khi nghiệm thu',
+        category: DisputeCategory.SERVICE_QUALITY,
+        evidenceUrls: [
+          'https://example.com/photo.jpg',
+          'https://example.com/video.mp4',
+          'https://example.com/photo.jpg',
+        ],
+      };
+
+      const result = await service.dispute(mockOrderId, mockCustomerId, dto);
+
+      expect(result.status).toBe('disputed');
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId, status: 'completed' },
+          data: expect.objectContaining({
+            status: 'disputed',
+            disputePreviousStatus: 'completed',
+            disputedAt: now,
+            disputeReason: dto.reason,
+            version: { increment: 1 },
+          }),
+        }),
+      );
+      expect(txMock.orderEvidence.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            orderId: mockOrderId,
+            mediaUrl: dto.evidenceUrls[0],
+            mediaType: 'image',
+            evidenceType: 'dispute',
+            submittedByUserId: mockCustomerId,
+          },
+          {
+            orderId: mockOrderId,
+            mediaUrl: dto.evidenceUrls[1],
+            mediaType: 'video',
+            evidenceType: 'dispute',
+            submittedByUserId: mockCustomerId,
+          },
+        ],
+      });
+      expect(txMock.orderStatusHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: mockOrderId,
+          fromStatus: 'completed',
+          toStatus: 'disputed',
+          changedByUserId: mockCustomerId,
+          reason: dto.reason,
+        }),
+      });
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(2);
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            orderCode: validBaseOrder.orderCode,
+            customerUserId: mockCustomerId,
+            workerUserId: mockWorkerId,
+            disputedByUserId: mockCustomerId,
+            reason: dto.reason,
+            category: dto.category,
+            evidences: dto.evidenceUrls.slice(0, 2),
+            disputePreviousStatus: 'completed',
+            completedAt: new Date(now.getTime() - sevenDaysMs).toISOString(),
+            disputedAt: now.toISOString(),
+          }),
+        }),
+        txMock,
+      );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            previousStatus: 'completed',
+            nextStatus: 'disputed',
+          }),
+        }),
+        txMock,
+      );
+    });
+
+    it.each([
+      ['expired', new Date(now.getTime() - sevenDaysMs - 1)],
+      ['missing completion time', null],
+    ])('rejects a completed order with %s', async (_case, completedAt) => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt,
+      });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.COMPLAINT_WINDOW_EXPIRED },
+        status: 400,
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([mockWorkerId, mockAdminId])(
+      'rejects non-customer %s for a completed order',
+      async (userId) => {
+        prismaMock.order.findUnique.mockResolvedValue({
+          ...validBaseOrder,
+          status: 'completed',
+          completedAt: now,
+        });
+
+        await expect(
+          service.dispute(mockOrderId, userId, { reason: 'Dịch vụ bị lỗi' }),
+        ).rejects.toMatchObject({
+          response: {
+            code: ORDER_ERROR_CODES.DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION,
+          },
+          status: 403,
+        });
+        expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lets the worker dispute while awaiting confirmation without evidence', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'awaiting_customer_confirmation',
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-1' });
+
+      await service.dispute(mockOrderId, mockWorkerId, {
+        reason: 'Khách hàng phản ánh sai tiến độ',
+      });
+
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId, status: 'awaiting_customer_confirmation' },
+        }),
+      );
+      expect(txMock.orderEvidence.createMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-participant on an active order', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      await expect(
+        service.dispute(mockOrderId, mockAdminId, { reason: 'Dịch vụ bị lỗi' }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.NOT_ORDER_OWNER },
+        status: 403,
+      });
+    });
+
+    it('does not create events when evidence persistence fails', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: now,
+      });
+      txMock.orderEvidence.createMany.mockRejectedValue(
+        new Error('write failed'),
+      );
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+          evidenceUrls: ['https://example.com/photo.jpg'],
+        }),
+      ).rejects.toThrow('write failed');
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects a concurrent status change before writing evidence or events', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: now,
+      });
+      txMock.order.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+          evidenceUrls: ['https://example.com/photo.jpg'],
+        }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION },
+        status: 409,
+      });
+      expect(txMock.orderEvidence.createMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
     it('should open dispute when order is in_progress and emit order.disputed', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,

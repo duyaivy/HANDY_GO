@@ -994,6 +994,7 @@ export class OrdersService {
           mediaType: dto.mediaType,
           mediaUrl: dto.mediaUrl,
           description: dto.description,
+          submittedByUserId: workerUserId,
         },
       });
 
@@ -1088,7 +1089,7 @@ export class OrdersService {
       }
 
       const evidence = await tx.orderEvidence.findFirst({
-        where: { id: evidenceId, orderId },
+        where: { id: evidenceId, orderId, evidenceType: 'work' },
       });
 
       if (!evidence) {
@@ -1109,8 +1110,8 @@ export class OrdersService {
   }
 
   /**
-   * Open a dispute on an active order (ORD-08, ORD-10).
-   * Customer or Worker can open dispute when status is in_progress or awaiting_customer_confirmation.
+   * Customer or worker can dispute an active order. Only the customer can dispute
+   * a completed order within seven days of completion.
    */
   async dispute(
     orderId: string,
@@ -1120,31 +1121,49 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await this.lockAndGetOrderOrThrow(orderId, tx);
 
-      const isParticipant =
-        order.customerUserId === userId || order.workerUserId === userId;
+      const now = new Date();
+      if (order.status === 'completed') {
+        if (order.customerUserId !== userId) {
+          throw new ForbiddenException({
+            code: ORDER_ERROR_CODES.DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION,
+            message:
+              ORDER_ERROR_MESSAGES.DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION,
+          });
+        }
 
-      if (!isParticipant) {
-        throw new ForbiddenException({
-          code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
-          message: 'Only participants in this order can open a dispute',
-        });
-      }
-
-      if (
-        order.status !== 'in_progress' &&
-        order.status !== 'awaiting_customer_confirmation'
+        const completedAtMs = order.completedAt?.getTime();
+        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+        if (
+          completedAtMs === undefined ||
+          !Number.isFinite(completedAtMs) ||
+          now.getTime() - completedAtMs > sevenDaysMs
+        ) {
+          throw new BadRequestException({
+            code: ORDER_ERROR_CODES.COMPLAINT_WINDOW_EXPIRED,
+            message: ORDER_ERROR_MESSAGES.COMPLAINT_WINDOW_EXPIRED,
+          });
+        }
+      } else if (
+        order.status === 'in_progress' ||
+        order.status === 'awaiting_customer_confirmation'
       ) {
+        if (order.customerUserId !== userId && order.workerUserId !== userId) {
+          throw new ForbiddenException({
+            code: ORDER_ERROR_CODES.NOT_ORDER_OWNER,
+            message: 'Only participants in this order can open a dispute',
+          });
+        }
+      } else {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-          message: `Disputes can only be opened when the order is 'in_progress' or 'awaiting_customer_confirmation'. Current status is '${order.status}'.`,
+          message: `Disputes cannot be opened when the order is '${order.status}'.`,
         });
       }
 
-      const now = new Date();
       const updateResult = await tx.order.updateMany({
         where: {
           id: orderId,
-          status: { in: ['in_progress', 'awaiting_customer_confirmation'] },
+          status: order.status,
         },
         data: {
           status: 'disputed',
@@ -1160,6 +1179,23 @@ export class OrdersService {
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
           message:
             'Order status changed concurrently and dispute cannot be opened',
+        });
+      }
+
+      const evidenceUrls = [...new Set(dto.evidenceUrls ?? [])];
+      if (evidenceUrls.length > 0) {
+        await tx.orderEvidence.createMany({
+          data: evidenceUrls.map((mediaUrl) => ({
+            orderId,
+            mediaUrl,
+            mediaType: /(?:\/video\/|\.(?:mp4|mov|webm|m4v)(?:$|[?#]))/i.test(
+              mediaUrl,
+            )
+              ? 'video'
+              : 'image',
+            evidenceType: 'dispute',
+            submittedByUserId: userId,
+          })),
         });
       }
 
@@ -1189,7 +1225,12 @@ export class OrdersService {
             customerUserId: order.customerUserId,
             workerUserId: order.workerUserId,
             disputedByUserId: userId,
+            reason: dto.reason,
             disputeReason: dto.reason,
+            category: dto.category ?? null,
+            evidences: evidenceUrls,
+            disputePreviousStatus: order.status,
+            completedAt: order.completedAt?.toISOString() ?? null,
             disputedAt: now.toISOString(),
           },
         },

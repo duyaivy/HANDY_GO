@@ -4,6 +4,7 @@ export const ORDER_ERROR_CODES = {
   DEADLINE_EXPIRED: 'DEADLINE_EXPIRED',
   MISSING_EVIDENCE: 'MISSING_EVIDENCE',
   DISPUTE_REASON_REQUIRED: 'DISPUTE_REASON_REQUIRED',
+  COMPLAINT_WINDOW_EXPIRED: 'COMPLAINT_WINDOW_EXPIRED',
   REWORK_REASON_REQUIRED: 'REWORK_REASON_REQUIRED',
   CANCEL_REASON_REQUIRED: 'CANCEL_REASON_REQUIRED',
   RESOLUTION_REASON_REQUIRED: 'RESOLUTION_REASON_REQUIRED',
@@ -11,6 +12,8 @@ export const ORDER_ERROR_CODES = {
 
   // 403 Forbidden
   NOT_ORDER_OWNER: 'NOT_ORDER_OWNER',
+  DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION:
+    'DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION',
   NOT_REQUEST_OWNER: 'NOT_REQUEST_OWNER',
   NOT_PROPOSAL_PARTICIPANT: 'NOT_PROPOSAL_PARTICIPANT',
   FORBIDDEN_ROLE: 'FORBIDDEN_ROLE',
@@ -50,6 +53,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'At least one proof of work image or video evidence is required before finishing the order',
   DISPUTE_REASON_REQUIRED:
     'A dispute reason is strictly required to open a dispute',
+  COMPLAINT_WINDOW_EXPIRED:
+    'Đã quá thời hạn 7 ngày kể từ khi hoàn tất đơn hàng, không thể mở khiếu nại.',
   REWORK_REASON_REQUIRED:
     'A rework reason is required when requesting rework',
   CANCEL_REASON_REQUIRED:
@@ -61,6 +66,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
 
   NOT_ORDER_OWNER:
     'You are not authorized to access or modify this order',
+  DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION:
+    'Chỉ khách hàng của đơn hàng mới có quyền mở khiếu nại sau khi đơn đã hoàn tất.',
   NOT_REQUEST_OWNER:
     'You are not authorized to modify this service request',
   NOT_PROPOSAL_PARTICIPANT:
