@@ -23,5 +23,5 @@ export function useWorkerCashPayments() {
     staleTime: 60_000,
   });
 
-  return { ...query, isAuthenticated: Boolean(userId) };
+  return { ...query, userId, isAuthenticated: Boolean(userId) };
 }

@@ -2,7 +2,7 @@ import type { ListRenderItemInfo } from '@shopify/flash-list';
 import type { OrderPaymentRecord } from '../../types/payment.types';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, View } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Screen } from '@/components/ui/screen';
@@ -16,17 +16,55 @@ const keyExtractor = (item: OrderPaymentRecord) => item.id;
 export function WorkerCashPaymentsScreen() {
   const router = useRouter();
   const query = useWorkerCashPayments();
+  const {
+    userId: currentUserId,
+    isAuthenticated,
+    hasNextPage,
+    isFetchingNextPage,
+    isPending,
+    isError,
+    fetchNextPage,
+  } = query;
+
   const payments = useMemo(() => {
+    if (!currentUserId)
+      return [];
     const unique = new Map<string, OrderPaymentRecord>();
     for (const page of query.data?.pages ?? []) {
       for (const item of page.items) {
-        if (item.method === 'cash' && item.orderCompletedAt && (item.status === 'pending' || item.status === 'failed')) {
+        if (
+          item.workerUserId === currentUserId
+          && item.method === 'cash'
+          && item.orderCompletedAt
+          && (item.status === 'pending' || item.status === 'failed')
+        ) {
           unique.set(item.id, item);
         }
       }
     }
     return Array.from(unique.values());
-  }, [query.data]);
+  }, [query.data, currentUserId]);
+
+  useEffect(() => {
+    if (
+      isAuthenticated
+      && payments.length === 0
+      && hasNextPage
+      && !isFetchingNextPage
+      && !isPending
+      && !isError
+    ) {
+      void fetchNextPage();
+    }
+  }, [
+    payments.length,
+    hasNextPage,
+    isAuthenticated,
+    isFetchingNextPage,
+    isPending,
+    isError,
+    fetchNextPage,
+  ]);
 
   const renderItem = useCallback(({ item }: ListRenderItemInfo<OrderPaymentRecord>) => (
     <Pressable testID={`worker-cash-order-${item.orderId}`} accessibilityRole="button" onPress={() => router.push(RouteNames.WORKER_JOB_DETAIL(item.orderId) as never)} className="gap-2 border-b border-neutral-200 p-4 dark:border-neutral-800">
@@ -37,21 +75,43 @@ export function WorkerCashPaymentsScreen() {
   ), [router]);
 
   const loadMore = useCallback(() => {
-    if (query.hasNextPage && !query.isFetchingNextPage) {
-      void query.fetchNextPage();
+    if (hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
     }
-  }, [query]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const renderEmpty = () => {
-    if (!query.isAuthenticated)
+    if (!isAuthenticated)
       return <Text className="p-4 text-neutral-500">Đăng nhập để xem đơn tiền mặt.</Text>;
-    if (query.isPending)
+    if (isPending)
       return <ActivityIndicator accessibilityLabel="Đang tải đơn tiền mặt" />;
-    if (query.isError) {
+    if (isError) {
       return (
         <Pressable accessibilityRole="button" onPress={() => { void query.refetch(); }} className="p-4">
           <Text className="text-red-600">Không thể tải đơn tiền mặt. Chạm để thử lại.</Text>
         </Pressable>
+      );
+    }
+    if (isFetchingNextPage || hasNextPage) {
+      return (
+        <View testID="worker-cash-seeking-more" className="items-center gap-3 p-6">
+          {isFetchingNextPage
+            ? <ActivityIndicator accessibilityLabel="Đang tìm thêm đơn tiền mặt" />
+            : null}
+          <Text className="text-neutral-500">Đang tìm thêm đơn...</Text>
+          {!isFetchingNextPage
+            ? (
+                <Pressable
+                  testID="worker-cash-load-more-btn"
+                  accessibilityRole="button"
+                  onPress={() => { void fetchNextPage(); }}
+                  className="rounded-xl bg-amber-500 px-4 py-2"
+                >
+                  <Text className="font-semibold text-white">Tải thêm</Text>
+                </Pressable>
+              )
+            : null}
+        </View>
       );
     }
     return <Text className="p-4 text-neutral-500">Không có đơn tiền mặt chờ xác nhận.</Text>;
@@ -77,7 +137,22 @@ export function WorkerCashPaymentsScreen() {
             />
           )}
           ListEmptyComponent={renderEmpty()}
-          ListFooterComponent={query.isFetchingNextPage ? <ActivityIndicator className="py-4" /> : null}
+          ListFooterComponent={(
+            query.isFetchingNextPage
+              ? <ActivityIndicator className="py-4" />
+              : query.hasNextPage
+                ? (
+                    <Pressable
+                      testID="worker-cash-footer-load-more"
+                      accessibilityRole="button"
+                      onPress={loadMore}
+                      className="items-center py-4"
+                    >
+                      <Text className="text-sm font-semibold text-amber-700 dark:text-amber-300">Tải thêm đơn</Text>
+                    </Pressable>
+                  )
+                : null
+          )}
         />
       </View>
     </Screen>

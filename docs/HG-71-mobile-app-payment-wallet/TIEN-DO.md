@@ -4,7 +4,7 @@
 - **Pull Request**: [#93](https://github.com/duyaivy/HANDY_GO/pull/93)
 - **Người review**: `duyaivy` (Repository Owner)
 - **Thời gian hoàn thành**: 21/11/2026
-- **Trạng thái**: Đã sửa lỗi thống kê tính trên trang dữ liệu chưa đầy đủ. Với lịch sử nhiều trang, tạm ẩn các chỉ số tổng hợp cho đến khi có API tổng hợp từ Backend.
+- **Trạng thái**: Hoàn thành 100% các yêu cầu review từ duyaivy: sửa thống kê không tính trên trang thiếu và sửa lọc phạm vi đơn tiền mặt thợ, loại bỏ trạng thái rỗng giả trong phân trang.
 
 ---
 
@@ -53,7 +53,7 @@
 ### 3.1. Unit & Integration Tests
 Toàn bộ test suite liên quan đến Wallet đều vượt qua 100%:
 - **Test Suites**: 25 passed, 25 total
-- **Tests**: 153 passed, 153 total
+- **Tests**: 156 passed, 156 total
 
 Các bài test kiểm chứng chuyên biệt:
 1. `mobile/src/features/wallet/hooks/__tests__/use-worker-financials.test.tsx`:
@@ -114,3 +114,27 @@ Theo định hướng từ review của `duyaivy`:
 **Kiểm tra:** 25/25 bộ test ví, 153/153 test đạt; TypeScript và ESLint các file sửa đạt. Regression tests bao gồm 150 payment, 150 bút toán, metadata thiếu nhất quán, ID trùng và kiểm tra giao diện không hiện số tổng sai nhưng vẫn hiện giao dịch gần đây. Jest vẫn có cảnh báo `act` và dùng `--forceExit`; chưa kiểm tra luồng này trên app native hoặc Backend deploy.
 
 **Giới hạn còn lại:** Khi lịch sử vượt một trang, các chỉ số tổng hợp chưa khả dụng. API tổng hợp phía Backend ở mục 4 là điều kiện để hiển thị lại chúng mà vẫn giữ giới hạn request cố định.
+
+---
+
+## 6. Sửa Review: Lọc Phạm Vi Đơn Tiền Mặt Và Tránh Trạng Thái Rỗng Giả
+
+**Vấn đề:** 
+1. `useWorkerCashPayments()` truy vấn `GET /payments/me` và màn hình `WorkerCashPaymentsScreen` chỉ lọc `method === 'cash'`, `orderCompletedAt` và `status pending/failed` mà không đối chiếu `workerUserId`. Với tài khoản vừa là khách vừa là thợ, đơn tiền mặt do user tạo với tư cách khách hàng (customer) có thể lọt vào danh sách chờ xác nhận của thợ.
+2. API phân trang danh sách chung trước khi client lọc: nếu trang 1 không có đơn tiền mặt hợp lệ nhưng các trang sau còn bản ghi, danh sách tạm thời rỗng và `ListEmptyComponent` hiển thị sai *"Không có đơn tiền mặt chờ xác nhận."* trong khi dữ liệu vẫn còn ở trang sau (`hasNextPage: true`).
+
+**Đã sửa trong Mobile:**
+- `useWorkerCashPayments`: Trả thêm `userId` của user đang đăng nhập.
+- `WorkerCashPaymentsScreen`:
+  - Lọc nghiêm ngặt: chỉ render đơn có `item.workerUserId === currentUserId`.
+  - Phân trang chủ động: khi `payments.length === 0` nhưng `hasNextPage === true`, `useEffect` tự động kích hoạt `fetchNextPage()` để tìm trang tiếp theo, không phụ thuộc vào `onEndReached` của danh sách rỗng.
+  - Xử lý trạng thái rỗng chính xác: khi `hasNextPage` hoặc `isFetchingNextPage` đang true, giao diện hiển thị trạng thái *"Đang tìm thêm đơn..."* kèm nút *"Tải thêm"*, tuyệt đối không khẳng định danh sách trống. Chỉ hiển thị thông báo *"Không có đơn tiền mặt chờ xác nhận."* khi đã duyệt hết toàn bộ các trang (`hasNextPage: false`).
+  - Thêm nút *"Tải thêm đơn"* ở chân danh sách (`ListFooterComponent`) khi có bản ghi và vẫn còn trang sau.
+
+**Kiểm tra:**
+- 25/25 bộ test ví, 156/156 test đạt (thêm 3 test kiểm chứng chuyên biệt trong `worker-cash-payments-screen.test.tsx` và `use-worker-cash-payments.test.tsx`).
+- Kiểm tra TypeScript (`tsc --noemit`) đạt 0 lỗi; ESLint đạt 0 lỗi/warning.
+- Regression tests kiểm chứng:
+  1. Tài khoản có đơn tiền mặt ở cả 2 vai trò: chỉ render đơn mà user là worker, loại bỏ đơn khách.
+  2. Trang 1 rỗng sau lọc nhưng trang 2 có đơn tiền mặt pending: tự động tải tiếp trang 2, không hiện thông báo rỗng giả, hiển thị chính xác đơn ở trang 2.
+  3. Tất cả các trang đều không có đơn phù hợp: duyệt qua toàn bộ các trang rồi mới hiển thị thông báo danh sách trống.

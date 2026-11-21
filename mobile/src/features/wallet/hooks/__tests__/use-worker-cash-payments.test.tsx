@@ -50,6 +50,8 @@ it('paginates cash payments with useInfiniteQuery page by page', async () => {
     { page: 1, limit: CASH_PAYMENTS_PAGE_SIZE },
     expect.anything(),
   );
+  expect(result.current.userId).toBe('worker-1');
+  expect(result.current.isAuthenticated).toBe(true);
   expect(result.current.data?.pages[0]?.items).toEqual([page1]);
   expect(result.current.hasNextPage).toBe(true);
 

@@ -87,3 +87,109 @@ it('renders error state and retries successfully', async () => {
   fireEvent.press(screen.getByText('Không thể tải đơn tiền mặt. Chạm để thử lại.'));
   await screen.findByTestId(`worker-cash-order-${workerPayment.orderId}`);
 });
+
+it('only renders cash payments where workerUserId matches current user, ignoring customer cash payments', async () => {
+  const customerPayment = {
+    ...workerPayment,
+    id: 'pay-as-customer',
+    orderId: 'order-as-customer',
+    customerUserId: 'worker-1',
+    workerUserId: 'other-worker',
+    method: 'cash' as const,
+    status: 'pending' as const,
+    orderCompletedAt: '2026-11-20T10:00:00Z',
+  };
+  const workerRolePayment = {
+    ...workerPayment,
+    id: 'pay-as-worker',
+    orderId: 'order-as-worker',
+    customerUserId: 'customer-99',
+    workerUserId: 'worker-1',
+    method: 'cash' as const,
+    status: 'pending' as const,
+    orderCompletedAt: '2026-11-20T10:00:00Z',
+  };
+
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(
+    response({
+      items: [customerPayment, workerRolePayment],
+      page: 1,
+      limit: 15,
+      total: 2,
+      totalPages: 1,
+    }),
+  );
+
+  render(<WorkerCashPaymentsScreen />);
+  await screen.findByTestId('worker-cash-order-order-as-worker');
+  expect(screen.queryByTestId('worker-cash-order-order-as-customer')).toBeNull();
+});
+
+it('proactively fetches next page when page 1 has no matching worker cash payments, does not claim empty list, and displays page 2 payments', async () => {
+  const nonMatchingPayment = {
+    ...workerPayment,
+    id: 'other-payment',
+    orderId: 'other-order',
+    customerUserId: 'worker-1',
+    workerUserId: 'other-worker',
+  };
+  const page2CashPayment = {
+    ...workerPayment,
+    id: 'cash-page-2',
+    orderId: 'order-page-2',
+    customerUserId: 'customer-1',
+    workerUserId: 'worker-1',
+    method: 'cash' as const,
+    status: 'pending' as const,
+    orderCompletedAt: '2026-11-20T10:00:00Z',
+  };
+
+  jest.mocked(PaymentApi.getMyPayments).mockImplementation(async ({ page } = {}) => {
+    if (page === 1) {
+      return response({
+        items: [nonMatchingPayment],
+        page: 1,
+        limit: 15,
+        total: 2,
+        totalPages: 2,
+      });
+    }
+    return response({
+      items: [page2CashPayment],
+      page: 2,
+      limit: 15,
+      total: 2,
+      totalPages: 2,
+    });
+  });
+
+  render(<WorkerCashPaymentsScreen />);
+
+  expect(screen.queryByText('Không có đơn tiền mặt chờ xác nhận.')).toBeNull();
+  await screen.findByTestId('worker-cash-order-order-page-2');
+  expect(PaymentApi.getMyPayments).toHaveBeenCalledTimes(2);
+  expect(screen.queryByText('Không có đơn tiền mặt chờ xác nhận.')).toBeNull();
+});
+
+it('displays empty state only after all pages have been searched and no matching payments found', async () => {
+  const nonMatchingPayment = {
+    ...workerPayment,
+    id: 'non-matching',
+    orderId: 'non-matching-order',
+    workerUserId: 'other-worker',
+  };
+
+  jest.mocked(PaymentApi.getMyPayments).mockImplementation(async ({ page } = {}) => {
+    return response({
+      items: [nonMatchingPayment],
+      page: page ?? 1,
+      limit: 15,
+      total: 2,
+      totalPages: 2,
+    });
+  });
+
+  render(<WorkerCashPaymentsScreen />);
+  expect(await screen.findByText('Không có đơn tiền mặt chờ xác nhận.')).toBeOnTheScreen();
+  expect(PaymentApi.getMyPayments).toHaveBeenCalledTimes(2);
+});
