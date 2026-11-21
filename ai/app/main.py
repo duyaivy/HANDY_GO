@@ -20,6 +20,7 @@ from app.domains.identity.utils.file_utils import ensure_storage_dirs
 from app.domains.matching.api.matching_ranking import router as matching_ranking_router
 from app.domains.matching.api.readiness import router as readiness_router
 from app.domains.matching.services.embedding_service import MultilingualE5Service
+from app.domains.pricing.api.pricing import router as pricing_router
 
 
 @asynccontextmanager
@@ -68,6 +69,10 @@ def create_app() -> FastAPI:
                 "description": "Endpoints xếp hạng ứng viên thợ cho NestJS Matching Service",
             },
             {
+                "name": "Internal AI Pricing",
+                "description": "Endpoints ước tính khoảng giá dịch vụ dựa trên đối sánh vector ngữ nghĩa E5",
+            },
+            {
                 "name": "Health & Readiness",
                 "description": "Kiểm tra liveness và readiness (kiểm tra model đã nạp vào RAM)",
             },
@@ -100,6 +105,9 @@ def create_app() -> FastAPI:
 
     # Internal inference router (cho Backend Matching Service)
     application.include_router(matching_ranking_router)
+
+    # Internal pricing inference router (cho Backend Order Service)
+    application.include_router(pricing_router)
 
     # Internal inference router (cho Backend KYC Worker)
     application.include_router(internal_identity.router)
