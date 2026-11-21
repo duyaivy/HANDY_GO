@@ -58,11 +58,33 @@ it('disables checkout and warns when the amount is below 10k', () => {
 });
 
 it('creates a top-up and opens its VNPAY checkout URL', async () => {
+  createTopup.mockResolvedValue({ ...record, provider: 'vnpay', isSimulated: false });
   render(<TopupModal visible onClose={jest.fn()} />);
   fireEvent.press(screen.getByTestId('topup-amount-100000'));
   fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
   await waitFor(() => expect(startVnpayCheckout).toHaveBeenCalledWith('https://example.com/checkout', 'topup-1'));
   expect(createTopup).toHaveBeenCalledWith(100_000);
+});
+
+it('keeps a mock checkout inside the app without simulating automatically', async () => {
+  const mockRecord = { ...record, checkoutUrl: 'mock://topup/MOCK-123' };
+  createTopup.mockResolvedValue(mockRecord);
+  const { rerender } = render(<TopupModal visible onClose={jest.fn()} />);
+  fireEvent.press(screen.getByTestId('topup-amount-100000'));
+  fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
+  await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.getByTestId('topup-simulate-btn')).toBeEnabled());
+  expect(startVnpayCheckout).not.toHaveBeenCalled();
+  expect(simulateTopup).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('topup-error')).toBeNull();
+
+  jest.mocked(useTopup).mockReturnValue({ ...jest.mocked(useTopup).mock.results[0].value, activeTopup: mockRecord });
+  rerender(<TopupModal visible onClose={jest.fn()} />);
+  expect(screen.getByTestId('topup-sandbox-notice')).toHaveTextContent(/không trừ tiền ngân hàng/);
+  expect(screen.queryByTestId('topup-vnpay-btn')).toBeNull();
+  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  await waitFor(() => expect(simulateTopup).toHaveBeenCalledWith('topup-1'));
+  expect(createTopup).toHaveBeenCalledTimes(1);
 });
 
 it('creates a sandbox top-up and simulates it only with the mock provider', async () => {

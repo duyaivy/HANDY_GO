@@ -49,7 +49,7 @@ export function useCreateWithdrawalMutation() {
         throw cause;
       }
     },
-    onSuccess: async () => { await client.invalidateQueries({ queryKey: walletQueryKeys.all }); },
+    onSuccess: () => { void client.invalidateQueries({ queryKey: walletQueryKeys.all }); },
   });
   const createWithdrawal = async (input: { amount: string; bankAccountId: string }) => {
     if (inFlight.current)
@@ -68,7 +68,7 @@ export function useCancelWithdrawalMutation() {
   const pending = useRef(new Map<string, Promise<WithdrawalRecord>>());
   const mutation = useMutation({
     mutationFn: async (id: string) => (await WalletApi.cancelWithdrawal(id)).data,
-    onSettled: async () => { await client.invalidateQueries({ queryKey: walletQueryKeys.all }); },
+    onSettled: () => { void client.invalidateQueries({ queryKey: walletQueryKeys.all }); },
   });
   const { mutateAsync } = mutation;
   const cancelWithdrawal = useCallback(async (id: string) => {

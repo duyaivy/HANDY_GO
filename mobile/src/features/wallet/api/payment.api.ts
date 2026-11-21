@@ -22,7 +22,7 @@ export const PaymentApi = {
   simulateTopup: (topupId: string, outcome: 'succeeded' | 'failed' = 'succeeded') =>
     ApiClient.post<ApiResponse<TopupRecord>>(
       `/payments/topups/${encodeURIComponent(topupId)}/simulate`,
-      { outcome },
+      { outcome, confirmSimulated: true },
     ),
 
   openPayment: (payload: CreateOrderPaymentPayload) =>

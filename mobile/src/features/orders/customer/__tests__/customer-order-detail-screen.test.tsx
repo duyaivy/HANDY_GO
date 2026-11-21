@@ -39,6 +39,15 @@ const initialAuthState = useAuthStore.getState();
 const testPayment = { id: 'payment-1', orderId: 'ord-test-001', amount: '450000', method: 'point', status: 'pending' };
 
 beforeEach(() => {
+  // Keep fallback lookups deterministic; unit tests must not contact the configured backend.
+  jest.spyOn(OrdersApi, 'getWorkerProfile').mockRejectedValue(new Error('Worker profile unavailable in this fixture'));
+  jest.spyOn(OrdersApi, 'getBidDetail').mockRejectedValue(new Error('Bid unavailable in this fixture'));
+  jest.spyOn(OrdersApi, 'getCandidates').mockResolvedValue({
+    statusCode: 200,
+    message: 'OK',
+    data: { bidding: { items: [] }, matching: { recommendations: [] } },
+  } as any);
+  jest.spyOn(OrdersApi, 'getRequestBids').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
   jest.spyOn(WalletApi, 'getMyWallet').mockResolvedValue({ data: { availableBalance: '500000', status: 'active' }, statusCode: 200, message: 'OK' } as any);
   jest.spyOn(PaymentApi, 'openPayment').mockResolvedValue({ data: testPayment, statusCode: 200, message: 'OK' } as any);
   jest.spyOn(PaymentApi, 'payWithPoints').mockResolvedValue({ data: { ...testPayment, status: 'succeeded' }, statusCode: 200, message: 'OK' } as any);

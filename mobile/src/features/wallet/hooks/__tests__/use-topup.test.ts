@@ -179,10 +179,20 @@ it('does not poll when the checkout URL cannot be opened', async () => {
   jest.mocked(Linking.openURL).mockRejectedValue(new Error('unsupported URL'));
   const { result } = setup();
   await act(async () => {
-    await expect(result.current.startVnpayCheckout('bad-url', 'topup-1'))
+    await expect(result.current.startVnpayCheckout('https://example.com/unavailable', 'topup-1'))
       .rejects
       .toThrow('unsupported URL');
   });
+  expect(result.current.isPolling).toBe(false);
+  expect(PaymentApi.getTopupDetail).not.toHaveBeenCalled();
+});
+
+it.each(['mock://topup/MOCK-123', 'intent://checkout', 'javascript:alert(1)'])('rejects an unsupported checkout scheme: %s', async (url) => {
+  const { result } = setup();
+  await act(async () => {
+    await expect(result.current.startVnpayCheckout(url, 'topup-1')).rejects.toThrow('Đường dẫn thanh toán không hợp lệ');
+  });
+  expect(Linking.openURL).not.toHaveBeenCalled();
   expect(result.current.isPolling).toBe(false);
   expect(PaymentApi.getTopupDetail).not.toHaveBeenCalled();
 });

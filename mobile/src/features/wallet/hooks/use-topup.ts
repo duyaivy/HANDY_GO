@@ -134,6 +134,9 @@ export function useTopup() {
   }, [createMutation, queryClient, userId]);
 
   const startVnpayCheckout = useCallback(async (checkoutUrl: string, topupId: string) => {
+    if (!/^https?:\/\//i.test(checkoutUrl)) {
+      throw new Error('Đường dẫn thanh toán không hợp lệ. Vui lòng kiểm tra cấu hình cổng thanh toán.');
+    }
     await Linking.openURL(checkoutUrl);
     if (mountedRef.current)
       pollForCompletion(topupId);

@@ -36,6 +36,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
   const validAmount = Number.isSafeInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
   const busy = isSubmitting || isCreating || isSimulating || isPolling;
   const displayedTopup = activeTopup?.amountVnd === String(amount) ? activeTopup : null;
+  const isSandboxTopup = displayedTopup?.isSimulated === true || displayedTopup?.provider === 'mock';
 
   const onAmountChange = (text: string) => {
     const onlyDigits = text.replace(/\D/g, '').slice(0, 9);
@@ -52,21 +53,20 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
     try {
       const existing = activeTopup?.amountVnd === String(amount)
         && activeTopup.status === 'awaiting_payment'
-        && (simulate ? activeTopup.isSimulated : Boolean(activeTopup.checkoutUrl))
         ? activeTopup
         : null;
       const record = existing ?? await createTopup(amount);
       if (simulate) {
-        if (!record.isSimulated) {
+        if (!record.isSimulated || record.provider !== 'mock') {
           throw new Error('Backend hiện chưa bật chế độ nạp thử.');
         }
         await simulateTopup(record.id);
       }
-      else if (record.checkoutUrl) {
+      else if (!record.isSimulated && record.provider !== 'mock') {
+        if (!record.checkoutUrl) {
+          throw new Error('Không có đường dẫn thanh toán. Vui lòng thử lại.');
+        }
         await startVnpayCheckout(record.checkoutUrl, record.id);
-      }
-      else {
-        throw new Error('Không có đường dẫn thanh toán. Vui lòng thử lại.');
       }
     }
     catch (cause) {
@@ -137,6 +137,17 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
           </View>
 
           {error ? <Text testID="topup-error" className="mt-3 text-sm text-red-600">{error}</Text> : null}
+          {isSandboxTopup
+            ? (
+                <Text testID="topup-sandbox-notice" className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
+                  {__DEV__
+                    ? displayedTopup?.status === 'awaiting_payment'
+                      ? 'Đây là giao dịch thử nghiệm, không trừ tiền ngân hàng. Bấm nút Giả lập nạp thành công bên dưới để xác nhận nạp thử.'
+                      : 'Đây là giao dịch thử nghiệm, không trừ tiền ngân hàng.'
+                    : 'Môi trường đang dùng nạp tiền thử nghiệm. Cổng VNPAY chưa được cấu hình.'}
+                </Text>
+              )
+            : null}
           {displayedTopup
             ? (
                 <Text testID="topup-status" className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">
@@ -145,7 +156,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
                     : displayedTopup.status === 'credit_pending'
                       ? 'Đã thanh toán, đang chờ cộng điểm vào ví...'
                       : displayedTopup.status === 'awaiting_payment'
-                        ? 'Đang chờ xác nhận thanh toán...'
+                        ? isSandboxTopup ? 'Đang chờ xác nhận nạp thử...' : 'Đang chờ xác nhận thanh toán...'
                         : `Trạng thái nạp tiền: ${displayedTopup.status}`}
                 </Text>
               )
@@ -162,18 +173,22 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
               )
             : null}
 
-          <Pressable
-            testID="topup-vnpay-btn"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !validAmount || busy }}
-            disabled={!validAmount || busy}
-            onPress={() => { void submit(false); }}
-            className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy ? 'bg-emerald-700' : 'bg-neutral-300'}`}
-          >
-            <Text className="text-base font-bold text-white">Thanh toán qua Cổng</Text>
-            <Text className="text-base font-black text-white">VNPAY</Text>
-            <ShieldCheckIcon color="#FFFFFF" size={18} />
-          </Pressable>
+          {isSandboxTopup
+            ? null
+            : (
+                <Pressable
+                  testID="topup-vnpay-btn"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !validAmount || busy }}
+                  disabled={!validAmount || busy}
+                  onPress={() => { void submit(false); }}
+                  className={`mt-6 flex-row items-center justify-center gap-2 rounded-xl p-4 ${validAmount && !busy ? 'bg-emerald-700' : 'bg-neutral-300'}`}
+                >
+                  <Text className="text-base font-bold text-white">Thanh toán qua Cổng</Text>
+                  <Text className="text-base font-black text-white">VNPAY</Text>
+                  <ShieldCheckIcon color="#FFFFFF" size={18} />
+                </Pressable>
+              )}
 
           {__DEV__
             ? (

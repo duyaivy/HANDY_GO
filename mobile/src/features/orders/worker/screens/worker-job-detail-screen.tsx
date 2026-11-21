@@ -161,7 +161,7 @@ export function WorkerJobDetailScreen({
     if (event.eventType === 'order.completed') {
       Alert.alert(
         '🎉 Nghiệm thu thành công!',
-        'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
+        'Khách hàng đã xác nhận hoàn thành công việc. Vui lòng kiểm tra trạng thái thanh toán trong chi tiết đơn hàng.',
         [{ text: 'Tuyệt vời', style: 'default' }],
       );
     }

@@ -129,3 +129,12 @@ pnpm run lint
 | TypeScript | Exit 0 |
 | ESLint | Exit 0; 0 lỗi, 0 cảnh báo |
 | Backend | Không có thay đổi so với baseline trước HG-71 |
+
+### Bổ sung ngày 21/11/2026 — Android với Docker local
+
+- Maestro chỉ là công cụ kiểm thử cá nhân trên máy local, không phải yêu cầu cài đặt của đồng đội hoặc CI. Các flow cá nhân nằm ở `mobile/.maestro-local/`, không đưa vào commit; phần dưới chỉ bàn giao kết quả đã quan sát.
+- Toàn bộ mobile **125 suites / 930 tests PASS** sau khi sửa mock và teardown của nhóm Radar/chi tiết/hủy đơn; không bỏ qua bài test hoặc nới assertion.
+- Sửa safe area bị cộng hai lần trong header; đã kiểm tra vị trí header trên 8 màn hình khách/thợ bằng Android UI hierarchy.
+- Thông báo nghiệm thu của thợ không còn khẳng định tiền đang vào ví trước khi có trạng thái thanh toán.
+- Đã đối chiếu nạp/rút mock, hủy và payout thất bại, Point/cash, replay chống cộng/trừ lặp và số dư ledger với backend Docker local. Chi tiết số tiền, ID, artifact và các giới hạn nằm tại [LOCAL-DOCKER.md](./LOCAL-DOCKER.md#nghiệm-thu-bổ-sung-local--21112026).
+- Đây là bằng chứng Android/local bổ sung cho kết quả Jest ở trên; không đánh dấu thay cho nghiệm thu VNPAY merchant/IPN, iOS hoặc backend deploy.

@@ -39,8 +39,8 @@ describe('PaymentApi', () => {
     expect(postSpy).toHaveBeenNthCalledWith(1, '/payments/topups', payload, undefined);
     expect(getSpy).toHaveBeenNthCalledWith(1, '/payments/topups', { params: { page: 3, limit: 15 } });
     expect(getSpy).toHaveBeenNthCalledWith(2, '/payments/topups/topup-id', undefined);
-    expect(postSpy).toHaveBeenNthCalledWith(2, '/payments/topups/topup-id/simulate', { outcome: 'succeeded' }, undefined);
-    expect(postSpy).toHaveBeenNthCalledWith(3, '/payments/topups/topup-id/simulate', { outcome: 'failed' }, undefined);
+    expect(postSpy).toHaveBeenNthCalledWith(2, '/payments/topups/topup-id/simulate', { outcome: 'succeeded', confirmSimulated: true }, undefined);
+    expect(postSpy).toHaveBeenNthCalledWith(3, '/payments/topups/topup-id/simulate', { outcome: 'failed', confirmSimulated: true }, undefined);
   });
 
   it('uses the backend point method and explicit confirmation', async () => {

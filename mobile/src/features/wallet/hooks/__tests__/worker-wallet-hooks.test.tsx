@@ -110,6 +110,29 @@ it('refreshes the wallet even when cancellation conflicts with a provider claim'
   });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['wallet'] });
 });
+it.each(['create', 'cancel'] as const)('reports a committed %s without waiting for unrelated background refreshes', async (action) => {
+  const { result, client } = setup(() => ({ create: useCreateWithdrawalMutation(), cancel: useCancelWithdrawalMutation() }));
+  let releaseRefresh!: () => void;
+  const refresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  jest.spyOn(client, 'invalidateQueries').mockReturnValue(refresh);
+  let completed = false;
+  act(() => {
+    const request = action === 'create' ? result.current.create.createWithdrawal(input) : result.current.cancel.cancelWithdrawal(withdrawal.id);
+    void request.then(() => {
+      completed = true;
+    });
+  });
+  try {
+    await waitFor(() => expect(completed).toBe(true));
+  }
+  finally {
+    await act(async () => {
+      releaseRefresh();
+    });
+  }
+});
 it('paginates the actual array withdrawal response', async () => {
   jest.mocked(WalletApi.getMyWithdrawals).mockResolvedValueOnce(response(Array.from({ length: 20 }, (_, index) => ({ ...withdrawal, id: `w-${index}` })))).mockResolvedValueOnce(response([]));
   const { result } = setup(useWithdrawalsQuery);
