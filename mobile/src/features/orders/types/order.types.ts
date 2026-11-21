@@ -189,3 +189,15 @@ export type PaginatedList<T> = {
   limit?: number;
   totalPages: number;
 };
+
+export type EstimatePricePayload = {
+  serviceId: string;
+  description?: string;
+};
+
+export type EstimatePriceResponse = {
+  aiRefPriceMin: number;
+  aiRefPriceMax: number;
+  matchedReason?: string;
+  isFallback: boolean;
+};

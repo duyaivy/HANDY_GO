@@ -43,9 +43,11 @@ export default function CustomerBookingSummaryRoute() {
     aiRefPriceMax,
     aiRefPriceMin,
     description,
+    isEstimatingPrice,
     latitude,
     longitude,
     mediaUrls,
+    priceEstimateReason,
     scheduledAt,
     serviceId,
     serviceName,
@@ -376,9 +378,16 @@ export default function CustomerBookingSummaryRoute() {
 
         {/* Khối khoảng giá tham khảo */}
         <View className="mb-4 rounded-2xl border border-amber-200/80 bg-primary-50 p-4 dark:border-amber-900/60 dark:bg-neutral-900">
-          <Text className="text-xs font-bold text-primary-600">
-            💡 Khoảng giá tham khảo ước tính:
-          </Text>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs font-bold text-primary-600">
+              💡 Khoảng giá tham khảo ước tính:
+            </Text>
+            {isEstimatingPrice && (
+              <Text className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                Đang tính toán...
+              </Text>
+            )}
+          </View>
           <Text className="mt-1 text-base font-black text-neutral-900 dark:text-white">
             {aiRefPriceMin.toLocaleString('vi-VN')}
             đ -
@@ -386,7 +395,14 @@ export default function CustomerBookingSummaryRoute() {
             {aiRefPriceMax.toLocaleString('vi-VN')}
             đ
           </Text>
-          <Text className="mt-0.5 text-[11px] text-neutral-500">
+          {Boolean(priceEstimateReason) && (
+            <View className="mt-1.5 self-start rounded-md bg-amber-100/80 px-2 py-0.5 dark:bg-amber-950/80">
+              <Text className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                Phù hợp: {priceEstimateReason}
+              </Text>
+            </View>
+          )}
+          <Text className="mt-1 text-[11px] text-neutral-500">
             Giá cuối cùng được thợ khảo sát và thống nhất trước khi làm.
           </Text>
         </View>

@@ -2,6 +2,8 @@ import type {
   BookingProposal,
   CreateBookingProposalPayload,
   CreateServiceRequestPayload,
+  EstimatePricePayload,
+  EstimatePriceResponse,
   Order,
   OrderEvidence,
   OrderStatusHistoryItem,
@@ -28,6 +30,13 @@ export type UploadImageOptions = {
 
 export const OrdersApi = {
   // --- Service Requests ---
+  estimatePrice: async (payload: EstimatePricePayload) => {
+    return ApiClient.post<{ statusCode: number; message: string; data: EstimatePriceResponse }>(
+      '/service-requests/estimate-price',
+      payload,
+    );
+  },
+
   createRequest: async (payload: CreateServiceRequestPayload) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       '/service-requests',
