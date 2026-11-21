@@ -1,6 +1,7 @@
+import * as ImagePicker from 'expo-image-picker';
 import * as React from 'react';
 import { Alert } from 'react-native';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
@@ -326,6 +327,61 @@ describe('CustomerOrderReviewScreen', () => {
     });
 
     delete (globalThis as any).__MOCK_VIDEO_PICKER__;
+  });
+
+  it('uploads photo with uploadReceipt and includes receipt in createReview payload', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
+    jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///review-evidence.jpg' }],
+    } as any);
+
+    const uploadDetailedSpy = jest.spyOn(OrdersApi, 'uploadImageDetailed').mockResolvedValue({
+      url: 'https://res.cloudinary.com/handygo/image/upload/v1/reviews/evidence.jpg',
+      uploadReceipt: 'verified-receipt-hmac-photo',
+      publicId: 'reviews/evidence',
+      assetId: 'asset-img-1',
+    });
+
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview').mockResolvedValue({
+      id: 'rev-photo-1',
+      orderId: 'ord-completed-123',
+      rating: 5,
+      status: 'published',
+      createdAt: new Date().toISOString(),
+    } as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    // Press add photo button and pick camera
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      alertButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
+    });
+
+    expect(screen.getByTestId('review-photo-item-0')).toBeOnTheScreen();
+
+    // Submit
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+
+    await waitFor(() => {
+      expect(uploadDetailedSpy).toHaveBeenCalledWith('file:///review-evidence.jpg', 'review_photo');
+      expect(createReviewSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          media: [
+            expect.objectContaining({
+              mediaType: 'image',
+              mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/v1/reviews/evidence.jpg',
+              uploadReceipt: 'verified-receipt-hmac-photo',
+            }),
+          ],
+        }),
+      );
+    });
+
+    delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
   });
 });
 

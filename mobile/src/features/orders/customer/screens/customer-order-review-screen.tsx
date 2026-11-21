@@ -174,18 +174,24 @@ export function CustomerOrderReviewScreen({
   };
 
   // Upload Single Photo
-  const uploadPhotoItem = async (localUri: string): Promise<string> => {
+  const uploadPhotoItem = async (localUri: string): Promise<{ mediaUrl: string; uploadReceipt?: string }> => {
     // Nếu ảnh đã là URL remote (Cloudinary), trả về luôn
     if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
-      return localUri;
+      return { mediaUrl: localUri };
     }
     try {
-      return await OrdersApi.uploadImage(localUri, 'review_photo');
+      const res = await OrdersApi.uploadImageDetailed(localUri, 'review_photo');
+      return {
+        mediaUrl: res.url,
+        uploadReceipt: res.uploadReceipt,
+      };
     }
     catch (err) {
       console.warn('[REVIEW_PHOTO_UPLOAD_FAILED]', err);
       // Fallback cho môi trường test hoặc giả lập
-      return SAMPLE_REVIEW_PHOTOS[0];
+      return {
+        mediaUrl: SAMPLE_REVIEW_PHOTOS[0],
+      };
     }
   };
 
@@ -432,13 +438,15 @@ export function CustomerOrderReviewScreen({
             uploadedMediaItems.push({
               mediaType: 'image',
               mediaUrl: item.remoteUrl,
+              uploadReceipt: item.uploadReceipt,
             });
           }
           else {
-            const uploadedUrl = await uploadPhotoItem(item.uri);
+            const uploaded = await uploadPhotoItem(item.uri);
             uploadedMediaItems.push({
               mediaType: 'image',
-              mediaUrl: uploadedUrl,
+              mediaUrl: uploaded.mediaUrl,
+              uploadReceipt: uploaded.uploadReceipt || item.uploadReceipt,
             });
           }
         }

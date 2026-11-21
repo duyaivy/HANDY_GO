@@ -1,4 +1,5 @@
 import type { CreateReviewPayload, OrderReview, UpdateReviewPayload } from '@/features/orders/types/order.types';
+import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ApiClient } from '@/services/api/api-client';
 
 export type VideoUploadSignatureResponse = {
@@ -83,5 +84,16 @@ export const ReviewsApi = {
     }>('/reviews/video-upload-signature', params);
 
     return response?.data || (response as unknown as VideoUploadSignatureResponse);
+  },
+
+  /**
+   * Upload ảnh đánh giá lên hệ thống và nhận URL kèm uploadReceipt hợp lệ
+   */
+  uploadReviewImage: async (uri: string): Promise<{ url: string; uploadReceipt?: string }> => {
+    const res = await OrdersApi.uploadImageDetailed(uri, 'review_photo');
+    return {
+      url: res.url,
+      uploadReceipt: res.uploadReceipt,
+    };
   },
 };
