@@ -16,7 +16,11 @@ import {
 } from '../common/auth/admin-access.js';
 import { requireUserId } from '../common/auth/require-user-id.js';
 import { PaymentPaginationDto } from '../payment-query/dto/payment-query.dto.js';
-import { CreateRefundDto, DecideRefundDto } from './dto/refunds.dto.js';
+import {
+  AdminRefundQueryDto,
+  CreateRefundDto,
+  DecideRefundDto,
+} from './dto/refunds.dto.js';
 import { RefundsService } from './refunds.service.js';
 
 @UseGuards(JwtAuthGuard)
@@ -62,6 +66,20 @@ export class RefundsController {
         true,
       ),
       'Refund requested',
+    );
+  }
+
+  @Get('admin/refunds')
+  async adminListAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: AdminRefundQueryDto,
+  ) {
+    return buildSuccessResponse(
+      await this.service.listAll(
+        requireAdminPermission(user, PAYMENT_PERMISSIONS.refundReadAll),
+        query,
+      ),
+      'Refunds retrieved',
     );
   }
 

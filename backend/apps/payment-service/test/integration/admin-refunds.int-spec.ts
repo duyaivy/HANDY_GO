@@ -398,6 +398,7 @@ describe('Admin HTTP authorization, validation and operations', () => {
     const routes = [
       '/admin/records',
       '/admin/commission-rules',
+      '/admin/refunds',
       `/admin/${paid.id}/refunds`,
       '/admin/operations/dead-letters',
       '/admin/operations/reports',
@@ -461,6 +462,17 @@ describe('Admin HTTP authorization, validation and operations', () => {
     )
       .send({ approve: true, reason: 'Evidence' })
       .expect(201);
+    const allRefunds = await authorized(
+      'get',
+      '/admin/refunds?status=needs_review',
+      P.refundReadAll,
+    ).expect(200);
+    expect(
+      allRefunds.body.data.items.some(
+        (item: { id: string }) => item.id === refund.id,
+      ),
+    ).toBe(true);
+    expect(allRefunds.body.data.items[0]).toHaveProperty('orderId');
   });
   it('replays dead letters once with unchanged ID/payload and audit', async () => {
     const payload = { eventId, data: { sensitive: 'hidden-bank-data' } };

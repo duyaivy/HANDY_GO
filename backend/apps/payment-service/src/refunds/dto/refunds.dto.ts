@@ -1,4 +1,14 @@
-import { IsBoolean, IsString, Length, Matches } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+} from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { PaymentPaginationDto } from '../../payment-query/dto/payment-query.dto.js';
 
 export class CreateRefundDto {
   @IsString()
@@ -22,3 +32,27 @@ export class DecideRefundDto {
   @Length(1, 1000)
   reason!: string;
 }
+
+export const REFUND_STATUSES = [
+  'pending',
+  'processing',
+  'completed',
+  'failed',
+  'cancelled',
+  'needs_review',
+] as const;
+
+export type RefundStatusType = (typeof REFUND_STATUSES)[number];
+
+export class AdminRefundQueryDto extends PaymentPaginationDto {
+  @ApiPropertyOptional({ enum: REFUND_STATUSES })
+  @IsOptional()
+  @IsIn(REFUND_STATUSES)
+  status?: RefundStatusType;
+
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  paymentId?: string;
+}
+
