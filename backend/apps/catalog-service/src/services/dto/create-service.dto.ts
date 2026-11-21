@@ -1,12 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 export class CreateServiceDto {
@@ -57,4 +59,24 @@ export class CreateServiceDto {
   @IsOptional()
   @IsBoolean({ message: 'isActive must be a boolean' })
   isActive?: boolean = true;
+
+  @ApiPropertyOptional({
+    description: 'Baseline minimum reference price for the service in VND',
+    example: 150000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'basePriceMin must be a number' })
+  @Min(0, { message: 'basePriceMin must be non-negative' })
+  basePriceMin?: number;
+
+  @ApiPropertyOptional({
+    description: 'Baseline maximum reference price for the service in VND',
+    example: 400000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'basePriceMax must be a number' })
+  @Min(0, { message: 'basePriceMax must be non-negative' })
+  basePriceMax?: number;
 }

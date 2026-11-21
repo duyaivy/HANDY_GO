@@ -57,6 +57,8 @@ export class ServicesService {
           description: dto.description,
           iconUrl: dto.iconUrl,
           isActive: dto.isActive ?? true,
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
@@ -75,6 +77,8 @@ export class ServicesService {
             description: created.description,
             iconUrl: created.iconUrl,
             isActive: created.isActive,
+            basePriceMin: (created as any).basePriceMin,
+            basePriceMax: (created as any).basePriceMax,
             createdAt: created.createdAt.toISOString(),
           },
         },
@@ -235,6 +239,8 @@ export class ServicesService {
           ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
@@ -253,6 +259,8 @@ export class ServicesService {
             description: res.description,
             iconUrl: res.iconUrl,
             isActive: res.isActive,
+            basePriceMin: (res as any).basePriceMin,
+            basePriceMax: (res as any).basePriceMax,
             updatedAt: res.updatedAt.toISOString(),
           },
         },
