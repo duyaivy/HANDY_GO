@@ -251,4 +251,226 @@ describe('workerReviewsScreen', () => {
       expect(screen.getByText('Chưa có đánh giá nào')).toBeOnTheScreen();
     });
   });
+
+  it('renders review media gallery and opens lightbox modal on tap', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-777',
+        phone: '0977888999',
+        email: 'worker777@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-777',
+          userId: 'worker-777',
+          status: 'verified',
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-777',
+        userId: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        bio: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          ratingDistribution: {
+            5: 1,
+            4: 0,
+            3: 0,
+            2: 0,
+            1: 0,
+          },
+        },
+        recentReviews: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerReviews').mockResolvedValue({
+      statusCode: 200,
+      data: [
+        {
+          id: 'rev-media-1',
+          orderId: 'ord-202',
+          rating: 5,
+          comment: 'Sửa bồn rửa bát rất sạch sẽ, có ảnh nghiệm thu đính kèm.',
+          createdAt: '2026-11-05T10:00:00Z',
+          customer: {
+            id: 'cust-2',
+            fullName: 'Anh Hoàng',
+            avatarUrl: null,
+          },
+          media: [
+            {
+              id: 'media-1',
+              mediaType: 'image',
+              mediaUrl: 'https://storage.example.com/reviews/bon-rua.jpg',
+            },
+            {
+              id: 'media-2',
+              mediaType: 'video',
+              mediaUrl: 'https://storage.example.com/reviews/video.mp4',
+              thumbnailUrl: 'https://storage.example.com/reviews/thumb.jpg',
+            },
+          ],
+        },
+      ],
+      pagination: {
+        page: 1,
+        limit: 30,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    render(<WorkerReviewsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Anh Hoàng')).toBeOnTheScreen();
+      expect(screen.getByText('Sửa bồn rửa bát rất sạch sẽ, có ảnh nghiệm thu đính kèm.')).toBeOnTheScreen();
+    });
+
+    expect(screen.getByTestId('review-media-gallery-rev-media-1')).toBeOnTheScreen();
+    const mediaItem0 = screen.getByTestId('review-media-item-rev-media-1-0');
+    expect(mediaItem0).toBeOnTheScreen();
+
+    fireEvent.press(mediaItem0);
+
+    expect(screen.getByTestId('review-media-lightbox')).toBeOnTheScreen();
+    expect(screen.getByText('Nhấn ra ngoài để đóng')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('review-media-lightbox'));
+  });
+
+  it('translates good, neutral, bad criteria ratings to Vietnamese and renders without star symbol', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-777',
+        phone: '0977888999',
+        email: 'worker777@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-777',
+          userId: 'worker-777',
+          status: 'verified',
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-777',
+        userId: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        bio: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          ratingDistribution: { 5: 1, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        recentReviews: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerReviews').mockResolvedValue({
+      statusCode: 200,
+      data: [
+        {
+          id: 'rev-crit-1',
+          orderId: 'ord-303',
+          rating: 5,
+          comment: 'Dịch vụ rất hài lòng.',
+          qualityRating: 'good',
+          attitudeRating: 'neutral',
+          speedRating: 'bad',
+          createdAt: '2026-11-06T10:00:00Z',
+          customer: {
+            id: 'cust-3',
+            fullName: 'Bác Minh',
+            avatarUrl: null,
+          },
+        },
+      ],
+      pagination: {
+        page: 1,
+        limit: 30,
+        total: 1,
+        totalPages: 1,
+      },
+    });
+
+    render(<WorkerReviewsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Bác Minh')).toBeOnTheScreen();
+    });
+
+    expect(screen.getByTestId('review-criteria-quality-rev-crit-1')).toHaveTextContent('Chất lượng: Tốt');
+    expect(screen.getByTestId('review-criteria-attitude-rev-crit-1')).toHaveTextContent('Thái độ: Bình thường');
+    expect(screen.getByTestId('review-criteria-speed-rev-crit-1')).toHaveTextContent('Tốc độ: Chậm');
+
+    expect(screen.queryByText(/good/i)).toBeNull();
+    expect(screen.queryByText(/neutral/i)).toBeNull();
+    expect(screen.queryByText(/★/)).toBeNull();
+  });
 });

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { ClockIcon } from '@/components/ui/icons/handy-icons';
+import { ClockIcon, StarIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
@@ -24,11 +24,13 @@ import {
 import {
   OrderEvidenceGallery,
   OrderPaymentCard,
+  OrderReviewCard,
   OrderServiceCard,
   OrderStatusStepper,
   OrderWorkerCard,
 } from '../../components';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
+import { useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderDetailScreenProps = {
@@ -111,6 +113,14 @@ export function CustomerOrderDetailScreen({
     worker,
   } = useCustomerOrderDetail(orderId);
 
+  const {
+    canEdit: canEditReview,
+    hasReviewed,
+    hoursRemainingToEdit,
+    refetch: refetchReview,
+    review,
+  } = useOrderReview(orderId);
+
   // Lấy serviceRequestId từ chi tiết order (hoặc search params)
   const serviceRequestId = order?.serviceRequestId || (searchParams?.serviceRequestId as string | undefined);
 
@@ -130,7 +140,7 @@ export function CustomerOrderDetailScreen({
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
     try {
-      await refetch();
+      await Promise.allSettled([refetch(), refetchReview()]);
     }
     finally {
       setIsManualRefreshing(false);
@@ -358,6 +368,45 @@ export function CustomerOrderDetailScreen({
           paymentState={order?.paymentState}
         />
 
+        {/* 4b. Customer Review Section (When order is completed) */}
+        {currentStatus === 'completed' && (
+          hasReviewed && review ? (
+            <OrderReviewCard
+              review={review}
+              canEdit={canEditReview}
+              hoursRemainingToEdit={hoursRemainingToEdit}
+              onEditPress={() => router.push({
+                pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                params: { mode: 'edit' },
+              } as any)}
+            />
+          ) : (
+            <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
+              <View className="flex-row items-center gap-3">
+                <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
+                  <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Đơn hàng đã hoàn thành!
+                  </Text>
+                  <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+                    Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
+                  </Text>
+                </View>
+              </View>
+              <Button
+                testID="cta-review-banner-btn"
+                label="⭐ Đánh giá ngay"
+                variant="default"
+                className="mt-3 h-9 w-full rounded-xl bg-primary"
+                textClassName="text-xs font-bold text-white"
+                onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+              />
+            </View>
+          )
+        )}
+
         {/* 5. Evidence Gallery with Lightbox Viewer */}
         <OrderEvidenceGallery evidences={order?.evidences} />
 
@@ -481,11 +530,22 @@ export function CustomerOrderDetailScreen({
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
             <Button
-              label="⭐ Đánh Giá Thợ"
+              testID="customer-review-order-btn"
+              label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
               variant="default"
               className="h-11 flex-1 rounded-2xl bg-primary"
               textClassName="text-xs font-bold text-white"
-              onPress={() => Alert.alert('Đánh giá', 'Cảm ơn bạn đã sẵn sàng đánh giá thợ!')}
+              onPress={() => {
+                if (hasReviewed && canEditReview) {
+                  router.push({
+                    pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                    params: { mode: 'edit' },
+                  } as any);
+                }
+                else {
+                  router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
+                }
+              }}
             />
             <Button
               label="Đặt Lại Dịch Vụ"

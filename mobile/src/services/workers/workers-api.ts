@@ -9,16 +9,25 @@ export type WorkerReviewCustomer = {
   avatarUrl?: string | null;
 };
 
+export type WorkerReviewMediaItem = {
+  id?: string;
+  mediaType: 'image' | 'video' | string;
+  mediaUrl: string;
+  thumbnailUrl?: string | null;
+  createdAt?: string;
+};
+
 export type WorkerReviewItem = {
   id: string;
   orderId?: string | null;
   rating: number;
-  attitudeRating?: number | null;
-  qualityRating?: number | null;
-  speedRating?: number | null;
+  attitudeRating?: number | string | null;
+  qualityRating?: number | string | null;
+  speedRating?: number | string | null;
   comment?: string | null;
   createdAt: string;
   customer: WorkerReviewCustomer;
+  media?: WorkerReviewMediaItem[];
 };
 
 export type WorkerRatingDistribution = Record<number, number>;

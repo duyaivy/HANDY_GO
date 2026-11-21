@@ -5,6 +5,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +16,7 @@ import { ArrowLeft } from '@/components/ui/icons/arrow-left';
 import {
   CheckCircleIcon,
   OrdersIcon,
+  PlayIcon,
   SparklesIcon,
   StarIcon,
   UserIcon,
@@ -62,6 +64,41 @@ function StarRatingRow({ rating, size = 14 }: { rating: number; size?: number })
   );
 }
 
+function formatCriteriaValue(type: 'quality' | 'attitude' | 'speed', value?: string | number | null): string {
+  if (!value) return '';
+  const raw = String(value).toLowerCase().trim();
+  if (raw === 'good') {
+    return type === 'speed' ? 'Nhanh' : 'Tốt';
+  }
+  if (raw === 'neutral') {
+    return 'Bình thường';
+  }
+  if (raw === 'bad') {
+    return type === 'speed' ? 'Chậm' : 'Chưa tốt';
+  }
+  return String(value);
+}
+
+function getCriteriaBadgeStyle(value?: string | number | null) {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'good') {
+    return {
+      bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+      text: 'text-emerald-700 dark:text-emerald-300',
+    };
+  }
+  if (raw === 'bad') {
+    return {
+      bg: 'bg-rose-50 dark:bg-rose-950/40',
+      text: 'text-rose-700 dark:text-rose-300',
+    };
+  }
+  return {
+    bg: 'bg-neutral-100 dark:bg-neutral-800',
+    text: 'text-neutral-600 dark:text-neutral-400',
+  };
+}
+
 export function WorkerReviewsScreen() {
   const router = useRouter();
   const user = useAuthStore.use.user();
@@ -71,6 +108,7 @@ export function WorkerReviewsScreen() {
   const workerIdentifier = profile?.workerProfile?.id || userId;
   const [selectedRating, setSelectedRating] = React.useState<number | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
+  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
 
   const handleBack = React.useCallback(() => {
     if (router.canGoBack()) {
@@ -410,39 +448,85 @@ export function WorkerReviewsScreen() {
                         {review.comment || 'Khách hàng không để lại nhận xét chi tiết.'}
                       </Text>
 
+                      {/* Review Attached Media/Images */}
+                      {review.media && review.media.length > 0 && (
+                        <View testID={`review-media-gallery-${review.id}`} className="mt-3 flex-row flex-wrap gap-2">
+                          {review.media.map((mediaItem, imgIndex) => {
+                            const isVideo = (mediaItem.mediaType || '').toLowerCase() === 'video';
+                            const displayUri = isVideo
+                              ? (mediaItem.thumbnailUrl || mediaItem.mediaUrl)
+                              : mediaItem.mediaUrl;
+                            return (
+                              <Pressable
+                                key={mediaItem.id || mediaItem.mediaUrl || imgIndex}
+                                testID={`review-media-item-${review.id}-${imgIndex}`}
+                                onPress={() => setSelectedImage(mediaItem.mediaUrl)}
+                                className="relative size-16 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 active:opacity-80"
+                              >
+                                <Image
+                                  source={{ uri: displayUri }}
+                                  className="size-full"
+                                  contentFit="cover"
+                                />
+                                {isVideo && (
+                                  <View className="absolute inset-0 items-center justify-center bg-black/40">
+                                    <PlayIcon size={20} color="#FFFFFF" />
+                                  </View>
+                                )}
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      )}
+
                       {/* Detail criteria badges if present */}
                       {(review.qualityRating || review.attitudeRating || review.speedRating) && (
                         <View className="mt-2.5 flex-row flex-wrap gap-2 border-t border-neutral-100 pt-2 dark:border-neutral-800">
-                          {review.qualityRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Chất lượng:
-                                {' '}
-                                {review.qualityRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
-                          {review.attitudeRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Thái độ:
-                                {' '}
-                                {review.attitudeRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
-                          {review.speedRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Tốc độ:
-                                {' '}
-                                {review.speedRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
+                          {review.qualityRating && (() => {
+                            const style = getCriteriaBadgeStyle(review.qualityRating);
+                            return (
+                              <View
+                                testID={`review-criteria-quality-${review.id}`}
+                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                              >
+                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                  Chất lượng:
+                                  {' '}
+                                  {formatCriteriaValue('quality', review.qualityRating)}
+                                </Text>
+                              </View>
+                            );
+                          })()}
+                          {review.attitudeRating && (() => {
+                            const style = getCriteriaBadgeStyle(review.attitudeRating);
+                            return (
+                              <View
+                                testID={`review-criteria-attitude-${review.id}`}
+                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                              >
+                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                  Thái độ:
+                                  {' '}
+                                  {formatCriteriaValue('attitude', review.attitudeRating)}
+                                </Text>
+                              </View>
+                            );
+                          })()}
+                          {review.speedRating && (() => {
+                            const style = getCriteriaBadgeStyle(review.speedRating);
+                            return (
+                              <View
+                                testID={`review-criteria-speed-${review.id}`}
+                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                              >
+                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                  Tốc độ:
+                                  {' '}
+                                  {formatCriteriaValue('speed', review.speedRating)}
+                                </Text>
+                              </View>
+                            );
+                          })()}
                         </View>
                       )}
                     </View>
@@ -492,6 +576,31 @@ export function WorkerReviewsScreen() {
           </View>
         </View>
       </View>
+
+      {/* Lightbox Modal for Full Image View */}
+      <Modal
+        visible={Boolean(selectedImage)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <Pressable
+          testID="review-media-lightbox"
+          className="flex-1 items-center justify-center bg-black/90 p-4"
+          onPress={() => setSelectedImage(null)}
+        >
+          {selectedImage && (
+            <Image
+              source={{ uri: selectedImage }}
+              className="h-3/4 w-full"
+              contentFit="contain"
+            />
+          )}
+          <Text className="mt-4 text-xs font-semibold text-white">
+            Nhấn ra ngoài để đóng
+          </Text>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
