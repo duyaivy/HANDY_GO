@@ -183,8 +183,16 @@ export class RefundsService {
   }
 
   async listAll(_actor: string, query: AdminRefundQueryDto) {
+    const statusWhere: Prisma.RefundWhereInput['status'] = query.status
+      ? Array.isArray(query.status)
+        ? query.status.length > 0
+          ? { in: query.status }
+          : undefined
+        : { in: [query.status] }
+      : undefined;
+
     const where: Prisma.RefundWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
+      ...(statusWhere ? { status: statusWhere } : {}),
       ...(query.paymentId ? { paymentId: query.paymentId } : {}),
     };
     const [rows, total] = await this.database.client.$transaction([

@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsOptional,
@@ -7,6 +8,7 @@ import {
   Length,
   Matches,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaymentPaginationDto } from '../../payment-query/dto/payment-query.dto.js';
 
@@ -65,10 +67,32 @@ export const REFUND_STATUSES = [
 export type RefundStatusType = (typeof REFUND_STATUSES)[number];
 
 export class AdminRefundQueryDto extends PaymentPaginationDto {
-  @ApiPropertyOptional({ enum: REFUND_STATUSES })
+  @ApiPropertyOptional({
+    enum: REFUND_STATUSES,
+    isArray: true,
+    description:
+      'Lọc theo trạng thái hoàn tiền (hỗ trợ chọn nhiều, mảng hoặc phân cách bằng dấu phẩy)',
+  })
   @IsOptional()
-  @IsIn(REFUND_STATUSES)
-  status?: RefundStatusType;
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((item) => (typeof item === 'string' ? item.split(',') : item))
+        .map((s) => (typeof s === 'string' ? s.trim() : s))
+        .filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      return value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [value];
+  })
+  @IsArray()
+  @IsIn(REFUND_STATUSES, { each: true })
+  status?: RefundStatusType[];
 
   @ApiPropertyOptional({ format: 'uuid' })
   @IsOptional()

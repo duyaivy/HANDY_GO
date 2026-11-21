@@ -464,7 +464,7 @@ describe('Admin HTTP authorization, validation and operations', () => {
       .expect(201);
     const allRefunds = await authorized(
       'get',
-      '/admin/refunds?status=needs_review',
+      '/admin/refunds?status=needs_review,pending',
       P.refundReadAll,
     ).expect(200);
     expect(

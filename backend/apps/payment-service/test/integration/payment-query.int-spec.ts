@@ -121,6 +121,16 @@ describe('Payment query HTTP', () => {
       .set('Authorization', `Bearer ${token(customerId)}`)
       .expect(200);
     expect(response.body.data).toMatchObject({ total: 1, page: 1, limit: 1, items: [{ id: paymentId }] });
+    const multiResponse = await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=pending,succeeded')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(200);
+    expect(multiResponse.body.data.items).toHaveLength(1);
+    const nonMatching = await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=failed&status=cancelled')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(200);
+    expect(nonMatching.body.data.items).toEqual([]);
     const unrelated = await request(app.getHttpServer())
       .get('/api/v1/payments/me')
       .set('Authorization', `Bearer ${token(otherId)}`)
