@@ -1,5 +1,5 @@
 import type { WorkerPublicProfileData, WorkerReviewItem, WorkerReviewMediaItem } from '@/services/workers/workers-api';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -143,32 +143,49 @@ export function WorkerReviewsScreen() {
     staleTime: 30 * 1000,
   });
 
-  // Fetch Reviews with Rating Filter from real backend
-  const reviewsQuery = useQuery<WorkerReviewItem[]>({
+  // Fetch Reviews with Infinite Pagination & Rating Filter from real backend
+  const reviewsInfiniteQuery = useInfiniteQuery({
     queryKey: ['worker-reviews', workerIdentifier, selectedRating],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 1 }) => {
       if (!workerIdentifier) {
-        return [];
+        return { items: [], pagination: { page: 1, limit: 15, total: 0, totalPages: 0 } };
       }
       const res = await WorkersApi.getWorkerReviews(workerIdentifier, {
         rating: selectedRating ?? undefined,
-        limit: 30,
+        page: pageParam,
+        limit: 15,
       });
-      return res.data;
+      const items = Array.isArray(res.data) ? res.data : [];
+      const pagination = res.pagination || {
+        page: pageParam,
+        limit: 15,
+        total: items.length,
+        totalPages: 1,
+      };
+      return { items, pagination };
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const { page, totalPages } = lastPage.pagination;
+      return page < totalPages ? page + 1 : undefined;
     },
     enabled: Boolean(workerIdentifier),
     staleTime: 30 * 1000,
   });
 
+  const reviewsList = React.useMemo(() => {
+    return reviewsInfiniteQuery.data?.pages.flatMap(p => p.items) ?? [];
+  }, [reviewsInfiniteQuery.data]);
+
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([profileQuery.refetch(), reviewsQuery.refetch()]);
+      await Promise.all([profileQuery.refetch(), reviewsInfiniteQuery.refetch()]);
     }
     finally {
       setRefreshing(false);
     }
-  }, [profileQuery, reviewsQuery]);
+  }, [profileQuery, reviewsInfiniteQuery]);
 
   const stats = profileQuery.data?.stats;
   const workerProfile = profile?.workerProfile;
@@ -188,8 +205,7 @@ export function WorkerReviewsScreen() {
   const totalRatingCount = stats?.ratingCount ?? workerProfile?.ratingCount ?? 0;
   const distribution = stats?.ratingDistribution ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
-  const reviewsList = reviewsQuery.data ?? [];
-  const isLoading = profileQuery.isLoading || reviewsQuery.isLoading;
+  const isLoading = profileQuery.isLoading || reviewsInfiniteQuery.isLoading;
 
   return (
     <Screen
@@ -548,6 +564,21 @@ export function WorkerReviewsScreen() {
               </View>
             )}
 
+            {/* Load More Reviews Button */}
+            {!isLoading && reviewsInfiniteQuery.hasNextPage && (
+              <View className="mt-4 items-center">
+                <Button
+                  testID="worker-reviews-load-more-btn"
+                  label={reviewsInfiniteQuery.isFetchingNextPage ? 'Đang tải thêm nhận xét...' : 'Xem thêm nhận xét'}
+                  variant="outline"
+                  disabled={reviewsInfiniteQuery.isFetchingNextPage}
+                  className="rounded-xl border-neutral-300 px-4 py-2 dark:border-neutral-700"
+                  textClassName="text-xs font-semibold text-neutral-700 dark:text-neutral-300"
+                  onPress={() => reviewsInfiniteQuery.fetchNextPage()}
+                />
+              </View>
+            )}
+
             {/* Empty Reviews State */}
             {!isLoading && reviewsList.length === 0 && (
               <View
@@ -580,7 +611,7 @@ export function WorkerReviewsScreen() {
                   variant="outline"
                   onPress={() => {
                     profileQuery.refetch();
-                    reviewsQuery.refetch();
+                    reviewsInfiniteQuery.refetch();
                   }}
                   className="mt-2 self-start"
                 />

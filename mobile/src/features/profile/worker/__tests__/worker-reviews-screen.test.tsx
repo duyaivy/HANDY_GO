@@ -393,6 +393,122 @@ describe('workerReviewsScreen', () => {
     fireEvent.press(screen.getByTestId('review-media-lightbox'));
   });
 
+  it('supports infinite scroll / loading more reviews when totalPages > 1', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-777',
+        phone: '0977888999',
+        email: 'worker777@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-777',
+          userId: 'worker-777',
+          status: 'verified',
+          averageRating: 4.9,
+          ratingCount: 30,
+          completedOrderCount: 40,
+          orderCountTotal: 40,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-777',
+        userId: 'worker-777',
+        fullName: 'Trần Văn Thợ Giỏi',
+        avatarUrl: null,
+        bio: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 4.9,
+          ratingCount: 30,
+          completedOrderCount: 40,
+          orderCountTotal: 40,
+          ratingDistribution: { 5: 28, 4: 2, 3: 0, 2: 0, 1: 0 },
+        },
+        recentReviews: [],
+      },
+    });
+
+    const getReviewsSpy = jest.spyOn(WorkersApi, 'getWorkerReviews').mockImplementation(async (_id, params) => {
+      const page = params?.page || 1;
+      if (page === 1) {
+        return {
+          statusCode: 200,
+          data: [
+            {
+              id: 'rev-page-1',
+              orderId: 'ord-p1',
+              rating: 5,
+              comment: 'Đánh giá trang 1',
+              createdAt: '2026-11-01T10:00:00Z',
+              customer: { id: 'cust-p1', fullName: 'Khách Trang 1', avatarUrl: null },
+            },
+          ],
+          pagination: { page: 1, limit: 15, total: 2, totalPages: 2 },
+        };
+      }
+      return {
+        statusCode: 200,
+        data: [
+          {
+            id: 'rev-page-2',
+            orderId: 'ord-p2',
+            rating: 5,
+            comment: 'Đánh giá trang 2',
+            createdAt: '2026-11-02T10:00:00Z',
+            customer: { id: 'cust-p2', fullName: 'Khách Trang 2', avatarUrl: null },
+          },
+        ],
+        pagination: { page: 2, limit: 15, total: 2, totalPages: 2 },
+      };
+    });
+
+    render(<WorkerReviewsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Đánh giá trang 1')).toBeOnTheScreen();
+    });
+
+    // Load more button should be visible because totalPages: 2 and currentPage: 1
+    const loadMoreBtn = screen.getByTestId('worker-reviews-load-more-btn');
+    expect(loadMoreBtn).toBeOnTheScreen();
+    expect(screen.getByText('Xem thêm nhận xét')).toBeOnTheScreen();
+
+    // Trigger load more
+    fireEvent.press(loadMoreBtn);
+
+    await waitFor(() => {
+      expect(getReviewsSpy).toHaveBeenCalledWith(
+        'wp-777',
+        expect.objectContaining({ page: 2 }),
+      );
+      expect(screen.getByText('Đánh giá trang 2')).toBeOnTheScreen();
+    });
+  });
+
   it('translates good, neutral, bad criteria ratings to Vietnamese and renders without star symbol', async () => {
     useAuthStore.setState({
       isAuthenticated: true,
