@@ -16,8 +16,12 @@ import { ConsumedEventRepository } from './inbox/consumed-event.repository.js';
       useClass: OrderOutboxRepository,
     },
     ConsumedEventRepository,
-    OutboxPublisherService,
     OrderOutboxPublisherService,
+    // Both tokens share the publisher that emits Order event envelopes.
+    {
+      provide: OutboxPublisherService,
+      useExisting: OrderOutboxPublisherService,
+    },
   ],
   exports: [
     PrismaModule,

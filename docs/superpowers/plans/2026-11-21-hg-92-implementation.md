@@ -29,19 +29,21 @@
 - [x] Add a Prisma invitation keyed by request and worker, with a note and timestamp.
 - [x] Add authenticated POST/GET endpoints under service-requests/:id/quote-invitations. POST verifies request ownership and matching eligibility, locks and rechecks the request, and saves the invitation and outbox event together. GET scopes results to the request owner or invited worker.
 - [x] Add a worker-directed quote invitation notification with request ID and route it to the existing worker bidding screen.
-- [ ] Run Order and notification checks for authorization, deadline and deduplication.
+- [x] Run Order and notification checks for authorization, deadline and deduplication.
 
 ### Task 2 — Radar and worker form
 
 - [x] Add OrdersApi invitation methods and render a note form from **Trao đổi**. Load persisted status and show the worker note in the existing bid form.
 - [x] Route valid bid holders to the existing bid card and chat entry. Keep quote revisions in the worker bidding form and remove synthetic recommendation prices and proposal actions.
 - [x] Pass the observed bid version and amount when confirming a proposal. Compare with Bidding eligibility proof and return a conflict on stale terms.
-- [ ] Run targeted Jest and Vitest suites and type checks.
+- [x] Run targeted Jest and Vitest suites and type checks.
 
 ## Verification
 
 - The Order SQL migration applied to disposable PostgreSQL. The unique constraint prevented a duplicate and the foreign key removed the invitation when its test request was deleted.
 - The mobile type check and the targeted Radar, Bidding, Chat and Notifications suites passed. Gateway candidate and Notification contract/policy tests passed.
-- The Order service suites and full API-to-mobile verification require generated Prisma clients. The cloud proxy returned HTTP 403 for the official Prisma checksum host.
+- The backend type check, build, and Order, Bidding, Message, and Notification service suites passed after generating the clients with the pinned Prisma JavaScript generator from npm. The standard Prisma CLI still received HTTP 403 from the native engine checksum host.
+- A local smoke test ran Gateway, Order, Bidding, Message, and Notification with PostgreSQL and RabbitMQ. It verified concurrent invitation deduplication, worker-only notification, sending and reading a chat message after a valid bid, stale quote rejection, and order creation after worker acceptance. Matching, worker-profile eligibility, and Auth session responses were fixtures. Mobile behavior was verified in Jest.
+- The smoke test exposed duplicate Order outbox publishers that could emit different source fields. Order now uses its own publisher for both injection tokens. Message Service refreshes eligibility once within the original deadline if an event invalidates the in-flight conversation check.
 
 The Radar shows the actual quote directly in the existing bid section once the worker has submitted a bid. Bid price revisions follow the existing round deadline and proposal revisions follow the existing booking proposal flow.
