@@ -42,4 +42,16 @@ describe('api error response envelope', () => {
 
     expect(error.fieldErrors).toEqual({ email: ['Email không hợp lệ'] });
   });
+
+  it('explains an HTML 429 response from Nginx without showing its markup', () => {
+    const error = ApiError.fromAxiosError({
+      response: {
+        status: 429,
+        data: '<html><title>429 Too Many Requests</title></html>',
+      },
+    });
+
+    expect(error.kind).toBe('RATE_LIMITED');
+    expect(error.message).toBe('Hệ thống đang nhận quá nhiều yêu cầu. Vui lòng đợi vài giây rồi thử lại.');
+  });
 });

@@ -866,10 +866,10 @@ export default function CustomerBookingRadarRoute() {
         `Bạn đã chọn thợ ${worker.name} với giá ${worker.priceText}. Đề xuất đã được gửi thành công và đang chờ thợ xác nhận nhận việc.`,
         [
           {
-            text: 'Xem hoạt động',
+            text: 'Xem đơn hàng',
             onPress: () => router.push({
               pathname: RouteNames.CUSTOMER_ORDERS,
-              params: { tab: 'Draft' },
+              params: { tab: 'In process' },
             } as any),
           },
           {
@@ -903,10 +903,10 @@ export default function CustomerBookingRadarRoute() {
           `Bạn đã gửi đề xuất cho thợ ${worker.name} rồi và đang chờ thợ xác nhận. Vui lòng kiểm tra trạng thái trong mục Hoạt động.`,
           [
             {
-              text: 'Xem hoạt động',
+              text: 'Xem đơn hàng',
               onPress: () => router.push({
                 pathname: RouteNames.CUSTOMER_ORDERS,
-                params: { tab: 'Draft' },
+                params: { tab: 'In process' },
               } as any),
             },
             {

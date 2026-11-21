@@ -422,7 +422,7 @@ class ReleaseTests(unittest.TestCase):
         first_start = next(c for c in calls.mock_calls if c[0] == 'vps3' and c.args[0] == 'up')
         self.assertLess(calls.mock_calls.index(wallet[0]), calls.mock_calls.index(first_start))
 
-    def test_onboarding_runs_only_message_and_chat_notification_migrations(self):
+    def test_onboarding_runs_only_approved_message_order_notification_and_tracking_migrations(self):
         commands = []
         roles = {'vps4': ('message-service',), 'vps1': ('notification-service',),
                  'vps3': ('catalog-service',), 'vps2': ('order-service',)}
@@ -441,9 +441,11 @@ class ReleaseTests(unittest.TestCase):
                       if isinstance(args, list) and args[-1].startswith('prisma:migrate:')]
         self.assertEqual(migrations, [('vps4', 'prisma:migrate:message'),
                                       ('vps1', 'prisma:migrate:notification'),
-                                      ('vps2', 'prisma:migrate:order')])
+                                      ('vps2', 'prisma:migrate:order'),
+                                      ('vps2', 'prisma:migrate:tracking')])
         self.assertIn(('vps1', 'prisma:migrate:notification'), migrations)
         self.assertIn(('vps2', 'prisma:migrate:order'), migrations)
+        self.assertIn(('vps2', 'prisma:migrate:tracking'), migrations)
         self.assertIn(('vps4', 'prisma:migrate:message'), migrations)
         self.assertNotIn('vps3', [role for role, _ in migrations])
 

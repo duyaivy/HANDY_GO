@@ -174,8 +174,8 @@ class RecoveryTests(unittest.TestCase):
     def test_partial_onboarding_rollout_recovers_to_three_host_baseline(self):
         states = copy.deepcopy(self.cluster.states)
         target_manifest = manifest(INCIDENT_A, 'new-hash') | {'onboard_vps4': True,
-            'migration_scope': ['message', 'notification', 'order'],
-            'migration_compatibility': {'policy': 'vps4-additive-v2', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+            'migration_scope': ['message', 'notification', 'order', 'tracking'],
+            'migration_compatibility': {'policy': 'vps4-additive-v3', 'sql': host.ONBOARDING_ADDITIVE_SQL,
                                         'baseline_hash': 'same', 'inventory_hash': 'new-hash'}}
         for role, state in states.items():
             state['manifests'][INCIDENT_A] = copy.deepcopy(target_manifest)
@@ -195,8 +195,8 @@ class RecoveryTests(unittest.TestCase):
                 with self.subTest(phase=phase, commit_existing=commit_existing):
                     states = copy.deepcopy(self.cluster.states)
                     target = manifest(INCIDENT_A, 'b' * 64) | {
-                        'onboard_vps4': True, 'migration_scope': ['message', 'notification', 'order'],
-                        'migration_compatibility': {'policy': 'vps4-additive-v2',
+                        'onboard_vps4': True, 'migration_scope': ['message', 'notification', 'order', 'tracking'],
+                        'migration_compatibility': {'policy': 'vps4-additive-v3',
                             'sql': host.ONBOARDING_ADDITIVE_SQL, 'baseline_hash': 'a' * 64,
                             'inventory_hash': 'b' * 64}}
                     for role, state in states.items():
@@ -220,8 +220,8 @@ class RecoveryTests(unittest.TestCase):
 
     def test_onboarding_compensation_and_repeated_recovery(self):
         target = manifest(INCIDENT_A, 'new') | {
-            'onboard_vps4': True, 'migration_scope': ['message', 'notification', 'order'],
-            'migration_compatibility': {'policy': 'vps4-additive-v2', 'sql': host.ONBOARDING_ADDITIVE_SQL,
+            'onboard_vps4': True, 'migration_scope': ['message', 'notification', 'order', 'tracking'],
+            'migration_compatibility': {'policy': 'vps4-additive-v3', 'sql': host.ONBOARDING_ADDITIVE_SQL,
                                       'baseline_hash': 'same', 'inventory_hash': 'new'}}
         for role, state in self.cluster.states.items():
             self.cluster.own(role, phase='APPLYING', previous=None if role == 'vps4' else OLD)

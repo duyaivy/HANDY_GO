@@ -146,12 +146,12 @@ export class WithdrawalService {
 
       await tx.$queryRaw`SELECT id FROM "wallet_service"."wallets" WHERE id = ${withdrawal.walletId}::uuid FOR UPDATE`;
       await tx.walletHold.update({ where: { id: hold.id }, data: { status: status === 'succeeded' ? 'captured' : 'released' } });
-      await tx.wallet.update({
+      const updatedWallet = await tx.wallet.update({
         where: { id: withdrawal.walletId },
         data: { reservedBalance: { decrement: hold.amount }, ...(status === 'succeeded' ? { balance: { decrement: hold.amount } } : {}) },
       });
       if (status === 'succeeded') {
-        await tx.walletTransaction.create({ data: { walletId: withdrawal.walletId, type: 'withdrawal', direction: 'debit', amount: hold.amount, operationId: id, idempotencyKey: `withdrawal:${id}`, referenceId: id } });
+        await tx.walletTransaction.create({ data: { walletId: withdrawal.walletId, type: 'withdrawal', direction: 'debit', amount: hold.amount, balanceBefore: updatedWallet.balance + hold.amount, balanceAfter: updatedWallet.balance, operationId: id, idempotencyKey: `withdrawal:${id}`, referenceId: id } });
         await tx.outboxEvent.create({ data: { eventType: 'wallet.debited', payload: { eventId: `wallet.debited:withdrawal:${id}`, withdrawalId: id, walletId: withdrawal.walletId, amount: hold.amount.toString(), type: 'withdrawal' } } });
       }
       const updated = await tx.withdrawal.update({ where: { id }, data: { status } });

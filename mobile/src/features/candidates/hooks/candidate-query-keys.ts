@@ -1,6 +1,8 @@
 export const candidateQueryKeys = {
   all: ['candidates'] as const,
   byRequest: (requestId: string) => [...candidateQueryKeys.all, 'request', requestId] as const,
+  conversationBid: (requestId: string, workerId: string) =>
+    [...candidateQueryKeys.byRequest(requestId), 'worker-bid', workerId] as const,
   candidatesList: (requestId: string, page = 1, limit = 20) =>
     [...candidateQueryKeys.byRequest(requestId), 'list', { page, limit }] as const,
   roundStatus: (requestId: string) =>

@@ -35,15 +35,6 @@ export class TimelineService {
     query: TimelineQueryDto,
     user: GatewayUser,
   ): Promise<TimelineListResponseDto> {
-    const cacheKey = this.buildTimelineCacheKey(serviceRequestId, user, query);
-    if (this.redis) {
-      const cached = await this.redis.get<TimelineListResponseDto>(cacheKey);
-      if (cached) {
-        this.logger.debug(`Cache hit for timeline: ${cacheKey}`);
-        return cached;
-      }
-    }
-
     const flow = await this.prisma.trackingFlow.findUnique({
       where: { serviceRequestId },
     });
@@ -79,6 +70,20 @@ export class TimelineService {
         throw new ForbiddenException(
           'Bạn không có quyền truy cập tiến trình của yêu cầu này',
         );
+      }
+    }
+
+    const cacheKey = this.buildTimelineCacheKey(
+      serviceRequestId,
+      user,
+      query,
+      flow.eventSequence ?? 0,
+    );
+    if (this.redis) {
+      const cached = await this.redis.get<TimelineListResponseDto>(cacheKey);
+      if (cached) {
+        this.logger.debug(`Cache hit for timeline: ${cacheKey}`);
+        return cached;
       }
     }
 
@@ -403,6 +408,7 @@ export class TimelineService {
     serviceRequestId: string,
     user: GatewayUser,
     query: TimelineQueryDto,
+    version: number,
   ): string {
     const page = Math.max(1, query.page || 1);
     const limit = Math.min(100, Math.max(1, query.limit || 20));
@@ -415,7 +421,7 @@ export class TimelineService {
     } else if (user.isWorker) {
       userScope = `wrk:${user.userId}`;
     }
-    return `tracking:timeline:${serviceRequestId}:${userScope}:p${page}:l${limit}:s${sort}:t${type}`;
+    return `tracking:timeline:${serviceRequestId}:${userScope}:p${page}:l${limit}:s${sort}:t${type}:v${version}`;
   }
 
   private async isFlowImmutable(trackingFlowId: string): Promise<boolean> {

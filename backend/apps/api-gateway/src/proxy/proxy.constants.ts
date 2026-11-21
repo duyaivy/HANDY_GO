@@ -26,15 +26,15 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/admin/kyc-cases',
       '/api/v1/admin/worker-registrations',
       '/api/v1/workers',
+      '/api/v1/reviews',
     ],
+    customMatch: (pathname: string) =>
+      /^\/api\/v1\/orders\/[^/?#]+\/reviews?(\/.*)?(\?.*)?$/.test(pathname),
   },
   {
     upstreamName: 'ai-service',
     envKey: 'AI_SERVICE_URL',
-    prefixes: [
-      '/api/v1/ocr',
-      '/ocr',
-    ],
+    prefixes: ['/api/v1/ocr', '/ocr'],
     timeoutEnvKey: 'AI_SERVICE_TIMEOUT_MS',
   },
   {
@@ -48,7 +48,9 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     prefixes: [],
     timeoutMs: 0,
     customMatch: (pathname: string) =>
-      /^\/api\/v1\/bids\/requests\/[^/?#]+\/events(\/.*)?(\?.*)?$/.test(pathname),
+      /^\/api\/v1\/bids\/requests\/[^/?#]+\/events(\/.*)?(\?.*)?$/.test(
+        pathname,
+      ),
   },
   {
     upstreamName: 'bidding-service',
@@ -70,10 +72,12 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
       '/api/v1/service-requests',
       '/api/v1/booking-proposals',
       '/api/v1/admin/orders',
+      '/api/v1/admin/dashboard',
       '/api/v1/requests',
     ],
     excludeMatch: (pathname: string) =>
-      /^\/api\/v1\/requests\/[^/?#]+\/candidates(\/.*)?(\?.*)?$/.test(pathname),
+      /^\/api\/v1\/requests\/[^/?#]+\/candidates(\/.*)?(\?.*)?$/.test(pathname) ||
+      /^\/api\/v1\/orders\/[^/?#]+\/reviews?(\/.*)?(\?.*)?$/.test(pathname),
   },
   {
     upstreamName: 'matching-service',
@@ -94,6 +98,16 @@ export const SERVICE_ROUTES: readonly ServiceRouteConfig[] = [
     upstreamName: 'wallet-service',
     envKey: 'WALLET_SERVICE_URL',
     prefixes: ['/api/v1/wallets'],
+  },
+  {
+    upstreamName: 'tracking-service-sse',
+    envKey: 'TRACKING_SERVICE_URL',
+    prefixes: [],
+    timeoutMs: 0,
+    customMatch: (pathname: string) =>
+      /^\/api\/v1\/tracking\/requests\/[^/?#]+\/live(\/.*)?(\?.*)?$/.test(
+        pathname,
+      ),
   },
   {
     upstreamName: 'tracking-service',

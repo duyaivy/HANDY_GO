@@ -89,3 +89,16 @@ model PendingTrackingEvent {
   @@map("pending_tracking_events")
   @@schema("tracking_service")
 }
+
+model RejectedTrackingEvent {
+  eventId String @id @map("event_id") @db.VarChar(128)
+  eventType String @map("event_type") @db.VarChar(100)
+  envelope Json
+  reason String @db.VarChar(100)
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([resolvedAt, receivedAt])
+  @@map("rejected_tracking_events")
+  @@schema("tracking_service")
+}

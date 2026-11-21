@@ -1,4 +1,4 @@
-import { PollBackoff, safeOutboxError } from '@app/common';
+import { PollBackoff, safeOutboxError, type ServiceRequestBiddingClosedPayload } from '@app/common';
 import {
   Injectable,
   Logger,
@@ -120,7 +120,7 @@ export class OrderDeadlineSchedulerService
                     requestCode: req.requestCode,
                     customerUserId: req.customerUserId,
                     biddingClosedAt: now.toISOString(),
-                  },
+                  } satisfies ServiceRequestBiddingClosedPayload,
                 },
                 tx,
               );

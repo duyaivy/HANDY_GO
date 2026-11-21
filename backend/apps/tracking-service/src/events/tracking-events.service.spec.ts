@@ -30,7 +30,16 @@ describe('TrackingEventsService', () => {
     prismaMock = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       pendingTrackingEvent: {
-        upsert: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]),
+        upsert: vi.fn(),
+        deleteMany: vi.fn(),
+        updateMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      rejectedTrackingEvent: {
+        upsert: vi.fn(),
+        findUnique: vi.fn(),
+        updateMany: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
       },
       consumedEvent: {
         findUnique: vi.fn(),
@@ -52,6 +61,115 @@ describe('TrackingEventsService', () => {
   });
 
   describe('Idempotency & Deduplication', () => {
+    it('quarantines an unresolvable event once with bounded redacted data', async () => {
+      const eventId = randomUUID();
+      const event = {
+        eventId,
+        eventType: 'order.status.changed',
+        payload: { status: 'confirmed', accessToken: 'private', detail: 'x'.repeat(100_000) },
+      };
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      expect(await service.recordDomainEvent(event)).toEqual({
+        recorded: false,
+        reason: 'QUARANTINED_UNRESOLVABLE_FLOW',
+      });
+      expect(await service.recordDomainEvent(event)).toEqual({
+        recorded: false,
+        reason: 'QUARANTINED_UNRESOLVABLE_FLOW',
+      });
+      expect(prismaMock.rejectedTrackingEvent.upsert).toHaveBeenCalledTimes(2);
+      const create = prismaMock.rejectedTrackingEvent.upsert.mock.calls[0][0].create;
+      expect(create.eventId).toBe(eventId);
+      expect(create.envelope.payload.accessToken).toBeUndefined();
+      expect(create.envelope.payload.detail.length).toBeLessThanOrEqual(2048);
+      expect(Buffer.byteLength(JSON.stringify(create.envelope))).toBeLessThanOrEqual(65_536);
+      expect(prismaMock.trackingEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('surfaces quarantine persistence failure for RabbitMQ requeue', async () => {
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.rejectedTrackingEvent.upsert.mockRejectedValue(new Error('database down'));
+      await expect(service.recordDomainEvent({ eventId: randomUUID() })).rejects.toThrow('QUARANTINE_PERSIST_FAILED');
+    });
+
+    it('keeps an oversized rejection bounded and prevents replay of partial data', async () => {
+      const eventId = randomUUID();
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      await service.recordDomainEvent({
+        eventId,
+        eventType: 'order.status.changed',
+        payload: Object.fromEntries(Array.from({ length: 90 }, (_, index) => [`field${index}`, 'x'.repeat(1000)])),
+      });
+      const envelope = prismaMock.rejectedTrackingEvent.upsert.mock.calls[0][0].create.envelope;
+      expect(envelope).toEqual({ eventId, eventType: 'order.status.changed', truncated: true });
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope,
+        resolvedAt: null,
+      });
+      await expect(service.replayRejectedEvent(eventId, randomUUID())).rejects.toThrow('REJECTED_ENVELOPE_TRUNCATED');
+    });
+
+    it('replays by event ID and marks the rejection resolved after recording', async () => {
+      const eventId = randomUUID();
+      const serviceRequestId = randomUUID();
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope: { eventId, payload: { nextStatus: 'confirmed' } },
+        resolvedAt: null,
+      });
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID(), serviceRequestId });
+      const result = await service.replayRejectedEvent(eventId, serviceRequestId);
+      expect(result).toEqual({ recorded: true });
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledOnce();
+      expect(prismaMock.rejectedTrackingEvent.updateMany).toHaveBeenCalledWith({
+        where: { eventId, resolvedAt: null },
+        data: { resolvedAt: expect.any(Date) },
+      });
+    });
+
+    it('leaves a rejection unresolved when replay still cannot map a flow', async () => {
+      const eventId = randomUUID();
+      prismaMock.rejectedTrackingEvent.findUnique.mockResolvedValue({
+        eventId,
+        eventType: 'order.status.changed',
+        envelope: { eventId, payload: { nextStatus: 'confirmed' } },
+        resolvedAt: null,
+      });
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      expect((await service.replayRejectedEvent(eventId)).reason).toBe('QUARANTINED_UNRESOLVABLE_FLOW');
+      expect(prismaMock.rejectedTrackingEvent.updateMany).not.toHaveBeenCalled();
+    });
+    it('records bidding closure once and retains the business closure time', async () => {
+      const eventId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const biddingClosedAt = '2026-11-10T10:00:00.000Z';
+      prismaMock.consumedEvent.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ eventId });
+      prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID(), serviceRequestId });
+      const event = {
+        eventId, eventType: 'service_request.bidding_closed', serviceRequestId,
+        payload: { serviceRequestId, biddingClosedAt },
+      };
+
+      expect(await service.recordDomainEvent(event)).toEqual({ recorded: true });
+      expect(await service.recordDomainEvent(event)).toEqual({ recorded: false, reason: 'ALREADY_CONSUMED' });
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledOnce();
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          eventType: 'service_request.bidding_closed',
+          entityType: TrackingEntityType.service_request,
+          entityId: serviceRequestId,
+          metadata: expect.objectContaining({ biddingClosedAt }),
+        }),
+      }));
+    });
+
     it('should skip processing if eventId was already consumed in consumed_events', async () => {
       const eventId = randomUUID();
       prismaMock.consumedEvent.findUnique.mockResolvedValue({
@@ -74,7 +192,9 @@ describe('TrackingEventsService', () => {
 
     it('should catch database constraint P2002 error gracefully and mark as IDEMPOTENT_DUPLICATE', async () => {
       const eventId = randomUUID();
-      prismaMock.consumedEvent.findUnique.mockResolvedValueOnce(null).mockResolvedValue({ eventId });
+      prismaMock.consumedEvent.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ eventId });
       prismaMock.$transaction.mockRejectedValue({ code: 'P2002' });
 
       const result = await service.recordDomainEvent({
@@ -216,7 +336,7 @@ describe('TrackingEventsService', () => {
       );
     });
 
-    it('should drop truly invalid payload without serviceRequestId or orderId as INVALID_PAYLOAD_UNRESOLVABLE_FLOW', async () => {
+    it('quarantines a payload without serviceRequestId or orderId', async () => {
       prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
 
       const result = await service.recordDomainEvent({
@@ -228,73 +348,95 @@ describe('TrackingEventsService', () => {
       });
 
       expect(result.recorded).toBe(false);
-      expect(result.reason).toBe('INVALID_PAYLOAD_UNRESOLVABLE_FLOW');
+      expect(result.reason).toBe('QUARANTINED_UNRESOLVABLE_FLOW');
+      expect(prismaMock.rejectedTrackingEvent.upsert).toHaveBeenCalledOnce();
     });
 
-    it('should map nextStatus to toStatus and previousStatus to fromStatus using exact Order Service payload contract', async () => {
-      const orderId = randomUUID();
-      const customerUserId = randomUUID();
-      const workerUserId = randomUUID();
-      const serviceRequestId = randomUUID();
-      const flowId = randomUUID();
+    it.each([
+      ['created', 'confirmed', 'confirmedAt'],
+      ['confirmed', 'in_progress', 'startedAt'],
+      ['in_progress', 'awaiting_customer_confirmation', 'finishedAt'],
+    ] as const)(
+      'maps the %s -> %s Order status contract into one timeline event',
+      async (previousStatus, nextStatus, timestampField) => {
+        const orderId = randomUUID();
+        const customerUserId = randomUUID();
+        const workerUserId = randomUUID();
+        const serviceRequestId = randomUUID();
+        const flowId = randomUUID();
 
-      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
-      prismaMock.trackingFlow.findUnique.mockResolvedValue({
-        id: flowId,
-        serviceRequestId,
-        orderId,
-      });
-      prismaMock.trackingFlow.upsert.mockResolvedValue({
-        id: flowId,
-        serviceRequestId,
-        orderId,
-      });
+        prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+        prismaMock.trackingFlow.findUnique.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          orderId,
+        });
+        prismaMock.trackingFlow.upsert.mockResolvedValue({
+          id: flowId,
+          serviceRequestId,
+          orderId,
+        });
 
-      const orderServicePayload = {
-        orderId,
-        customerId: customerUserId,
-        customerUserId,
-        workerId: workerUserId,
-        workerUserId,
-        previousStatus: 'confirmed',
-        nextStatus: 'in_progress',
-        notificationKind: 'status_update',
-      };
+        const orderServicePayload = {
+          orderId,
+          customerId: customerUserId,
+          customerUserId,
+          workerId: workerUserId,
+          workerUserId,
+          previousStatus,
+          nextStatus,
+          notificationKind: 'status_update',
+          [timestampField]: '2026-11-10T10:00:00.000Z',
+        };
 
-      const result = await service.recordDomainEvent({
-        eventId: randomUUID(),
-        eventType: 'order.status.changed',
-        payload: orderServicePayload,
-      });
+        const result = await service.recordDomainEvent({
+          eventId: randomUUID(),
+          eventType: 'order.status.changed',
+          payload: orderServicePayload,
+        });
 
-      expect(result.recorded).toBe(true);
-      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            entityType: TrackingEntityType.order,
-            entityId: orderId,
-            eventType: 'order.status.changed',
-            fromStatus: 'confirmed',
-            toStatus: 'in_progress',
-            actorUserId: workerUserId,
+        expect(result.recorded).toBe(true);
+        expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              entityType: TrackingEntityType.order,
+              entityId: orderId,
+              eventType: 'order.status.changed',
+              fromStatus: previousStatus,
+              toStatus: nextStatus,
+              actorUserId: workerUserId,
+              metadata: expect.objectContaining({
+                [timestampField]: '2026-11-10T10:00:00.000Z',
+              }),
+            }),
           }),
-        }),
-      );
-    });
+        );
+      },
+    );
   });
 
   describe('PostgreSQL pending inbox', () => {
-    const pendingData = () => ({ eventId: randomUUID(), eventType: 'order.status.changed', payload: { orderId: randomUUID(), nextStatus: 'in_progress' } });
+    const pendingData = () => ({
+      eventId: randomUUID(),
+      eventType: 'order.status.changed',
+      payload: { orderId: randomUUID(), nextStatus: 'in_progress' },
+    });
 
     it('commits pending without Redis and preserves the original envelope and ID on redelivery', async () => {
       const event = pendingData();
       await service.recordDomainEvent(event);
       await service.recordDomainEvent(event);
       expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledTimes(2);
-      expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledWith(expect.objectContaining({
-        where: { eventId: event.eventId }, update: {},
-        create: expect.objectContaining({ envelope: event, orderId: event.payload.orderId }),
-      }));
+      expect(prismaMock.pendingTrackingEvent.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { eventId: event.eventId },
+          update: {},
+          create: expect.objectContaining({
+            envelope: event,
+            orderId: event.payload.orderId,
+          }),
+        }),
+      );
       expect(prismaMock.consumedEvent.create).not.toHaveBeenCalled();
     });
 
@@ -302,10 +444,14 @@ describe('TrackingEventsService', () => {
       let rejectCommit!: (error: Error) => void;
       prismaMock.$transaction.mockImplementationOnce(async (callback: any) => {
         await callback(prismaMock);
-        await new Promise((_resolve, reject) => { rejectCommit = reject; });
+        await new Promise((_resolve, reject) => {
+          rejectCommit = reject;
+        });
       });
       let resolved = false;
-      const promise = service.recordDomainEvent(pendingData()).then(() => { resolved = true; });
+      const promise = service.recordDomainEvent(pendingData()).then(() => {
+        resolved = true;
+      });
       await vi.waitFor(() => expect(rejectCommit).toBeDefined());
       expect(resolved).toBe(false);
       rejectCommit(new Error('commit failed'));
@@ -313,13 +459,19 @@ describe('TrackingEventsService', () => {
     });
 
     it('rejects missing event IDs instead of generating a different ID on retry', async () => {
-      await expect(service.recordDomainEvent({ orderId: randomUUID() })).rejects.toThrow('INVALID_EVENT_ID');
+      await expect(
+        service.recordDomainEvent({ orderId: randomUUID() }),
+      ).rejects.toThrow('INVALID_EVENT_ID');
     });
 
     it('rechecks flow after pending commit to close the creation race', async () => {
       const event = pendingData();
-      prismaMock.trackingFlow.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ serviceRequestId: 'request' });
-      const flush = vi.spyOn(service, 'flushPendingOrderEvents').mockResolvedValue({ status: 'completed', flushedCount: 1 });
+      prismaMock.trackingFlow.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ serviceRequestId: 'request' });
+      const flush = vi
+        .spyOn(service, 'flushPendingOrderEvents')
+        .mockResolvedValue({ status: 'completed', flushedCount: 1 });
       await service.recordDomainEvent(event);
       expect(flush).toHaveBeenCalledWith(event.payload.orderId, 'request');
     });
@@ -327,37 +479,88 @@ describe('TrackingEventsService', () => {
     it('deletes pending in the same transaction as the tracking event write', async () => {
       const event = pendingData();
       prismaMock.trackingFlow.upsert.mockResolvedValue({ id: randomUUID() });
-      const tx = { ...prismaMock, pendingTrackingEvent: { deleteMany: vi.fn() } };
-      prismaMock.$transaction.mockImplementationOnce((callback: any) => callback(tx));
-      await service.recordDomainEvent({ ...event, serviceRequestId: randomUUID() }, undefined, true);
-      expect(tx.pendingTrackingEvent.deleteMany).toHaveBeenCalledWith({ where: { eventId: event.eventId } });
+      const tx = {
+        ...prismaMock,
+        pendingTrackingEvent: { deleteMany: vi.fn() },
+      };
+      prismaMock.$transaction.mockImplementationOnce((callback: any) =>
+        callback(tx),
+      );
+      await service.recordDomainEvent(
+        { ...event, serviceRequestId: randomUUID() },
+        undefined,
+        true,
+      );
+      expect(tx.pendingTrackingEvent.deleteMany).toHaveBeenCalledWith({
+        where: { eventId: event.eventId },
+      });
       expect(prismaMock.pendingTrackingEvent.deleteMany).not.toHaveBeenCalled();
     });
 
     it('keeps failed pending for retry and does not prevent the next event from progressing', async () => {
       const event = pendingData();
-      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([{ ...event, orderId: event.payload.orderId, envelope: event, attempts: 0 }]);
-      vi.spyOn(service, 'recordDomainEvent').mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValueOnce({ recorded: true });
-      const failed = await service.flushPendingOrderEvents(event.payload.orderId, randomUUID());
+      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([
+        {
+          ...event,
+          orderId: event.payload.orderId,
+          envelope: event,
+          attempts: 0,
+        },
+      ]);
+      vi.spyOn(service, 'recordDomainEvent')
+        .mockRejectedValueOnce(new Error('database unavailable'))
+        .mockResolvedValueOnce({ recorded: true });
+      const failed = await service.flushPendingOrderEvents(
+        event.payload.orderId,
+        randomUUID(),
+      );
       expect(failed.status).toBe('failed');
       expect(prismaMock.pendingTrackingEvent.deleteMany).not.toHaveBeenCalled();
-      expect(prismaMock.pendingTrackingEvent.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ attempts: { increment: 1 } }) }));
-      expect((await service.flushPendingOrderEvents(event.payload.orderId, randomUUID())).flushedCount).toBe(1);
+      expect(prismaMock.pendingTrackingEvent.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ attempts: { increment: 1 } }),
+        }),
+      );
+      expect(
+        (
+          await service.flushPendingOrderEvents(
+            event.payload.orderId,
+            randomUUID(),
+          )
+        ).flushedCount,
+      ).toBe(1);
     });
 
     it('scheduler retries durable pending after constructing a new service instance', async () => {
       const event = pendingData();
-      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([{ ...event, orderId: event.payload.orderId, envelope: event, attempts: 0, receivedAt: new Date() }]);
-      prismaMock.trackingFlow.findUnique.mockResolvedValue({ serviceRequestId: randomUUID() });
+      prismaMock.pendingTrackingEvent.findMany.mockResolvedValue([
+        {
+          ...event,
+          orderId: event.payload.orderId,
+          envelope: event,
+          attempts: 0,
+          receivedAt: new Date(),
+        },
+      ]);
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        serviceRequestId: randomUUID(),
+      });
       const restarted = new TrackingEventsService(prismaMock);
-      const flush = vi.spyOn(restarted, 'flushPendingOrderEvents').mockResolvedValue({ status: 'completed', flushedCount: 1 });
+      const flush = vi
+        .spyOn(restarted, 'flushPendingOrderEvents')
+        .mockResolvedValue({ status: 'completed', flushedCount: 1 });
       expect((await restarted.reconcilePendingOrders()).flushedOrders).toBe(1);
       expect(flush).toHaveBeenCalled();
     });
 
     it('does not ACK an unrelated unique violation as a consumed event', async () => {
       prismaMock.$transaction.mockRejectedValue({ code: 'P2002' });
-      await expect(service.recordDomainEvent({ ...pendingData(), serviceRequestId: randomUUID() })).rejects.toMatchObject({ code: 'P2002' });
+      await expect(
+        service.recordDomainEvent({
+          ...pendingData(),
+          serviceRequestId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ code: 'P2002' });
     });
   });
 
@@ -396,6 +599,42 @@ describe('TrackingEventsService', () => {
         prismaMock.trackingEvent.create.mock.calls[0][0].data.metadata;
       expect(passedMetadata.secretToken).toBeUndefined();
       expect(passedMetadata.password).toBeUndefined();
+    });
+
+    it('should retain reworkReason, disputeReason, and resolution in metadata (whitelist)', async () => {
+      const serviceRequestId = randomUUID();
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+      });
+
+      await service.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'order.status.changed',
+        serviceRequestId,
+        payload: {
+          previousStatus: 'finished',
+          nextStatus: 'in_progress',
+          reworkReason: 'Khách yêu cầu sơn lại lớp thứ hai',
+          disputeReason: 'Tranh chấp tiến độ thi công',
+          resolution: 'resume_previous_state',
+          resolutionNote: 'Admin yêu cầu thợ hoàn thành sơn lớp 2',
+          secretInternalKey: 'must-not-be-included',
+        },
+      });
+
+      const passedMetadata =
+        prismaMock.trackingEvent.create.mock.calls[0][0].data.metadata;
+      expect(passedMetadata.reworkReason).toBe(
+        'Khách yêu cầu sơn lại lớp thứ hai',
+      );
+      expect(passedMetadata.disputeReason).toBe('Tranh chấp tiến độ thi công');
+      expect(passedMetadata.resolution).toBe('resume_previous_state');
+      expect(passedMetadata.resolutionNote).toBe(
+        'Admin yêu cầu thợ hoàn thành sơn lớp 2',
+      );
+      expect(passedMetadata.secretInternalKey).toBeUndefined();
     });
   });
 

@@ -240,27 +240,44 @@ model KycReviewHistory {
 }
 
 model WorkerReview {
-  id                String       @id @db.Uuid
-  orderId           String       @unique(map: "worker_reviews_order_id_idx") @map("order_id") @db.Uuid
-  customerUserId    String       @map("customer_user_id") @db.Uuid
-  workerUserId      String       @map("worker_user_id") @db.Uuid
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @unique(map: "worker_reviews_order_id_idx") @map("order_id") @db.Uuid
+  customerUserId    String        @map("customer_user_id") @db.Uuid
+  workerUserId      String        @map("worker_user_id") @db.Uuid
   rating            Int
-  attitudeRating    String       @map("attitude_rating")
-  qualityRating     String       @map("quality_rating")
-  speedRating       String       @map("speed_rating")
+  attitudeRating    String        @map("attitude_rating")
+  qualityRating     String        @map("quality_rating")
+  speedRating       String        @map("speed_rating")
   comment           String?
-  status            ReviewStatus @default(published)
-  moderatedByUserId String?      @map("moderated_by_user_id") @db.Uuid
-  moderationNote    String?      @map("moderation_note")
-  createdAt         DateTime     @map("created_at") @db.Timestamp(6)
-  updatedAt         DateTime     @map("updated_at") @db.Timestamp(6)
-  customer          User         @relation("ReviewCustomer", fields: [customerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  worker            User         @relation("ReviewWorker", fields: [workerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  moderator         User?        @relation("ReviewModerator", fields: [moderatedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  status            ReviewStatus  @default(published)
+  isEdited          Boolean       @default(false) @map("is_edited")
+  editedAt          DateTime?     @map("edited_at") @db.Timestamp(6)
+  moderatedByUserId String?       @map("moderated_by_user_id") @db.Uuid
+  moderationNote    String?       @map("moderation_note")
+  createdAt         DateTime      @map("created_at") @db.Timestamp(6)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamp(6)
+  customer          User          @relation("ReviewCustomer", fields: [customerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  worker            User          @relation("ReviewWorker", fields: [workerUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  moderator         User?         @relation("ReviewModerator", fields: [moderatedByUserId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  media             ReviewMedia[]
 
   @@index([workerUserId])
   @@index([customerUserId])
   @@map("worker_reviews")
+}
+
+model ReviewMedia {
+  id           String       @id @default(uuid()) @db.Uuid
+  reviewId     String       @map("review_id") @db.Uuid
+  mediaType    String       @map("media_type") @db.VarChar(30)
+  mediaUrl     String       @map("media_url") @db.Text
+  thumbnailUrl String?      @map("thumbnail_url") @db.Text
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  review       WorkerReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@map("review_media")
 }
 
 model Complaint {
@@ -353,6 +370,7 @@ model WorkerServiceRegistration {
   evidenceFiles    Json               @map("evidence_files")
   idempotencyKey   String?            @unique @map("idempotency_key") @db.VarChar(128)
   status           RegistrationStatus @default(pending)
+  version          Int                @default(1)
   rejectionReason  String?            @map("rejection_reason") @db.Text
   reviewedByUserId String?            @map("reviewed_by_user_id") @db.Uuid
   reviewedAt       DateTime?          @map("reviewed_at") @db.Timestamptz(6)

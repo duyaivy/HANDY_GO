@@ -23,7 +23,10 @@ import { SubmitWorkerRegistrationDto } from './dto/submit-worker-registration.dt
 import { ListWorkerRegistrationsDto } from './dto/list-worker-registrations.dto.js';
 import { ReviewWorkerRegistrationDto } from './dto/review-worker-registration.dto.js';
 import { Prisma } from '@prisma/user-trust-client';
+import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
+import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
+import { ConfigService } from '@app/config';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -60,13 +63,13 @@ function isRegistrationPayloadMatch(
     // 2. Services: đối chiếu serviceId, title, description, experienceYears
     const existingServices = Array.isArray(existing.services)
       ? [...existing.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
     const dtoServices = Array.isArray(dto.services)
       ? [...dto.services].sort((a: any, b: any) =>
-          String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
-        )
+        String(a?.serviceId || '').localeCompare(String(b?.serviceId || '')),
+      )
       : [];
 
     if (existingServices.length !== dtoServices.length) {
@@ -140,13 +143,13 @@ function isRegistrationPayloadMatch(
     // 4. Evidence Files: url và fileType
     const existingEvidence = Array.isArray(existing.evidenceFiles)
       ? [...existing.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
     const dtoEvidence = Array.isArray(dto.evidenceFiles)
       ? [...dto.evidenceFiles].sort((a: any, b: any) =>
-          String(a?.url || '').localeCompare(String(b?.url || '')),
-        )
+        String(a?.url || '').localeCompare(String(b?.url || '')),
+      )
       : [];
 
     if (existingEvidence.length !== dtoEvidence.length) {
@@ -210,7 +213,11 @@ export class UserTrustServiceService {
     private readonly cloudinaryService?: CloudinaryService,
     @Optional()
     private readonly catalogClient?: CatalogClient,
-  ) {}
+    @Optional()
+    private readonly orderClient?: OrderClient,
+    @Optional()
+    private readonly configService?: ConfigService,
+  ) { }
 
   async getDisplayNames(ids: string[]) {
     return this.db.user.findMany({
@@ -304,14 +311,14 @@ export class UserTrustServiceService {
       const user = existingUser
         ? existingUser
         : await tx.user.create({
-            data: {
-              id: data.userId,
-              fullName: data.fullName,
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
+          data: {
+            id: data.userId,
+            fullName: data.fullName,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
 
       if (isVersion3) {
         // Unified account: upsert both CustomerProfile and WorkerProfile in same transaction
@@ -810,11 +817,11 @@ export class UserTrustServiceService {
       ],
       customerProfile: u.customerProfile
         ? {
-            id: u.customerProfile.id,
-            bio: u.customerProfile.bio,
-            createdAt: u.customerProfile.createdAt,
-            updatedAt: u.customerProfile.updatedAt,
-          }
+          id: u.customerProfile.id,
+          bio: u.customerProfile.bio,
+          createdAt: u.customerProfile.createdAt,
+          updatedAt: u.customerProfile.updatedAt,
+        }
         : null,
       workerProfile: u.workerProfile,
       bankAccounts: u.bankAccounts,
@@ -1322,21 +1329,49 @@ export class UserTrustServiceService {
       }
 
       const now = new Date();
-      let worker = await tx.workerProfile.findUnique({
+      const worker = await tx.workerProfile.findUnique({
         where: { userId },
       });
 
-      if (worker) {
-        await tx.workerProfile.update({
-          where: { id: worker.id },
-          data: {
-            status: 'verified',
-            verifiedAt: now,
-            approvedAt: now,
-            updatedAt: now,
-          },
+      if (!worker) {
+        this.logger.warn(`Worker profile not found for user ${userId} in ${eventType}`);
+        return;
+      }
+
+      let caseToUpdate: any = null;
+
+      if (payload?.kycCaseId) {
+        // [P2] Event đã chỉ rõ kycCaseId -> chỉ kiểm tra đúng case đó, tuyệt đối không fallback sang active case
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
         });
 
+        if (!targetCase) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} not found for user ${userId}. Ignoring event.`,
+          );
+          return;
+        }
+
+        if (targetCase.workerProfileId !== worker.id) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} belongs to worker ${targetCase.workerProfileId}, not ${worker.id}. Ignoring.`,
+          );
+          return;
+        }
+
+        // [P1] Chặn sự kiện kyc.completed đến muộn ghi đè quyết định KYC:
+        // Cả hai trạng thái cuối (approved, rejected) đều không được cập nhật lại, và không đổi WorkerProfile!
+        if (targetCase.status === 'approved' || targetCase.status === 'rejected') {
+          this.logger.log(
+            `[${eventType}] KycCase ${targetCase.id} is already in final state '${targetCase.status}'. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = targetCase;
+      } else {
+        // Chỉ fallback tìm active case khi event KHÔNG có kycCaseId (legacy event)
         const activeCase = await tx.kycCase.findFirst({
           where: {
             workerProfileId: worker.id,
@@ -1345,17 +1380,47 @@ export class UserTrustServiceService {
           orderBy: { createdAt: 'desc' },
         });
 
-        if (activeCase) {
-          await tx.kycCase.update({
-            where: { id: activeCase.id },
-            data: {
-              status: 'approved',
-              reviewedAt: now,
-              updatedAt: now,
-            },
-          });
+        if (!activeCase) {
+          this.logger.log(
+            `[${eventType}] No active KYC case in draft/submitted/reviewing for worker ${worker.id}. Skipping.`,
+          );
+          return;
         }
+
+        caseToUpdate = activeCase;
       }
+
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: caseToUpdate.id,
+          status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
+        },
+        data: {
+          status: 'approved',
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
+      });
+
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
+      }
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: {
+          status: 'verified',
+          verifiedAt: now,
+          approvedAt: now,
+          updatedAt: now,
+        },
+      });
     });
 
     this.logger.log(`KYC completed (approved) processed for user ${userId}`);
@@ -1396,79 +1461,99 @@ export class UserTrustServiceService {
       }
 
       const now = new Date();
-      let worker = await tx.workerProfile.findUnique({
+      const worker = await tx.workerProfile.findUnique({
         where: { userId },
       });
 
       if (!worker) {
-        let user = await tx.user.findUnique({ where: { id: userId } });
-        if (!user) {
-          user = await tx.user.create({
-            data: {
-              id: userId,
-              fullName: 'HandyGo Worker',
-              status: 'active',
-              createdAt: now,
-              updatedAt: now,
-            },
-          });
-        }
-        worker = await tx.workerProfile.create({
-          data: {
-            id: crypto.randomUUID(),
-            userId,
-            status: 'rejected',
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
-      } else {
-        await tx.workerProfile.update({
-          where: { id: worker.id },
-          data: { status: 'rejected', updatedAt: now },
-        });
+        this.logger.warn(`Worker profile not found for user ${userId} in ${eventType}`);
+        return;
       }
 
-      const reason = payload?.reason || payload?.message || 'Xác minh AI không thành công';
+      const reason = payload?.reason || payload?.note || payload?.message || 'Xác minh AI không thành công';
       const similarity = payload?.similarity ? Number(payload.similarity) : null;
+      let caseToUpdate: any = null;
 
-      const activeCase = await tx.kycCase.findFirst({
+      // 1. Nếu payload có kycCaseId cụ thể, kiểm tra đúng hồ sơ đó
+      if (payload?.kycCaseId) {
+        const targetCase = await tx.kycCase.findUnique({
+          where: { id: payload.kycCaseId },
+        });
+
+        if (!targetCase) {
+          // [P2] Event đã chỉ rõ kycCaseId nhưng không tìm thấy -> log cảnh báo và bỏ qua, tuyệt đối không fallback sang case khác!
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} not found for user ${userId}. Ignoring event.`,
+          );
+          return;
+        }
+
+        // Đảm bảo case thuộc đúng worker
+        if (targetCase.workerProfileId !== worker.id) {
+          this.logger.warn(
+            `[${eventType}] KycCase ${payload.kycCaseId} belongs to worker ${targetCase.workerProfileId}, not ${worker.id}. Ignoring.`,
+          );
+          return;
+        }
+
+        // [P1] Nếu case đã ở trạng thái kết thúc (rejected hoặc approved), không cập nhật lại
+        // và [P1] KHÔNG được chuyển trạng thái WorkerProfile (ví dụ: hồ sơ cũ rejected không được làm thợ đã verified bị rejected)!
+        if (targetCase.status === 'rejected' || targetCase.status === 'approved') {
+          this.logger.log(
+            `[${eventType}] KycCase ${targetCase.id} is already in final state '${targetCase.status}'. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = targetCase;
+      } else {
+        // Chỉ fallback tìm active case khi event thực sự KHÔNG có kycCaseId (legacy event)
+        const activeCase = await tx.kycCase.findFirst({
+          where: {
+            workerProfileId: worker.id,
+            status: { in: ['draft', 'submitted', 'reviewing'] },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        if (!activeCase) {
+          this.logger.log(
+            `[${eventType}] No active KYC case in draft/submitted/reviewing for worker ${worker.id}. Skipping.`,
+          );
+          return;
+        }
+
+        caseToUpdate = activeCase;
+      }
+
+      // [P1] Conditional update nguyên tử: chỉ cập nhật nếu case vẫn đang ở trạng thái reviewing/submitted/draft và đúng version
+      const updateResult = await tx.kycCase.updateMany({
         where: {
-          workerProfileId: worker.id,
+          id: caseToUpdate.id,
           status: { in: ['draft', 'submitted', 'reviewing'] },
+          version: caseToUpdate.version,
         },
-        orderBy: { createdAt: 'desc' },
+        data: {
+          status: 'rejected',
+          reviewNote: reason,
+          aiSimilarityScore: similarity ?? caseToUpdate.aiSimilarityScore,
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
       });
 
-      if (activeCase) {
-        await tx.kycCase.update({
-          where: { id: activeCase.id },
-          data: {
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity ?? activeCase.aiSimilarityScore,
-            reviewedAt: now,
-            updatedAt: now,
-          },
-        });
-      } else {
-        await tx.kycCase.create({
-          data: {
-            id: crypto.randomUUID(),
-            workerProfileId: worker.id,
-            idDocumentType: 'CCCD',
-            documentFrontRef: '',
-            selfieRef: '',
-            status: 'rejected',
-            reviewNote: reason,
-            aiSimilarityScore: similarity,
-            submittedAt: now,
-            reviewedAt: now,
-            createdAt: now,
-            updatedAt: now,
-          },
-        });
+      if (updateResult.count !== 1) {
+        this.logger.warn(
+          `[${eventType}] KycCase ${caseToUpdate.id} was concurrently modified or reviewed by Admin (version mismatch/finalized). Skipping WorkerProfile transition.`,
+        );
+        return;
       }
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: { status: 'rejected', updatedAt: now },
+      });
     });
 
     this.logger.log(`KYC failed processed for user ${userId}: ${payload?.reason || 'unspecified'}`);
@@ -1552,20 +1637,42 @@ export class UserTrustServiceService {
       throw new NotFoundException('Không tìm thấy hồ sơ KYC.');
     }
 
+    if (kycCase.status !== 'reviewing') {
+      throw new BadRequestException(
+        `Chỉ có thể phê duyệt hoặc từ chối hồ sơ KYC khi ở trạng thái 'reviewing'. Trạng thái hiện tại: '${kycCase.status}'.`,
+      );
+    }
+
     const now = new Date();
     const isApproved = decision === 'approved';
 
     const updated = await this.db.$transaction(async (tx: any) => {
-      const updatedCase = await tx.kycCase.update({
-        where: { id: kycCaseId },
+      const updateResult = await tx.kycCase.updateMany({
+        where: {
+          id: kycCaseId,
+          status: 'reviewing',
+          version: kycCase.version,
+        },
         data: {
           status: isApproved ? 'approved' : 'rejected',
           reviewedByUserId: adminUserId,
           reviewedAt: now,
           reviewNote: note || null,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
+
+      if (updateResult.count !== 1) {
+        throw new ConflictException(
+          'Hồ sơ KYC đã được xử lý bởi một quản trị viên khác hoặc dữ liệu đã bị thay đổi đồng thời.',
+        );
+      }
+
+      const updatedCase = (await tx.kycCase.findUnique({
+        where: { id: kycCaseId },
+        include: { workerProfile: true },
+      }))!;
 
       await tx.workerProfile.update({
         where: { id: kycCase.workerProfileId },
@@ -1667,9 +1774,9 @@ export class UserTrustServiceService {
         const a =
           Math.sin(dLat / 2) * Math.sin(dLat / 2) +
           Math.cos(latitude * (Math.PI / 180)) *
-            Math.cos(areaLat * (Math.PI / 180)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
+          Math.cos(areaLat * (Math.PI / 180)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const dist = R * c;
 
@@ -1778,20 +1885,32 @@ export class UserTrustServiceService {
    * Lấy hồ sơ công khai của thợ (Public Profile) dành cho khách hàng
    * xem khi nhận gợi ý từ AI Matching hoặc nhận báo giá từ Bidding.
    */
-  async getWorkerPublicProfile(workerIdentifier: string): Promise<unknown> {
-    const isUuid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        workerIdentifier,
-      );
+  async getWorkerPublicProfile(
+    workerIdentifier: string,
+    currentUserId?: string,
+  ): Promise<unknown> {
+    let workerWhere: any;
+    if (workerIdentifier === 'me') {
+      if (!currentUserId) {
+        throw new BadRequestException('Bạn cần đăng nhập để xem hồ sơ của mình');
+      }
+      workerWhere = { userId: currentUserId };
+    } else {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          workerIdentifier,
+        );
 
-    if (!isUuid) {
-      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      if (!isUuid) {
+        throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      }
+      workerWhere = {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      };
     }
 
     const worker = await this.db.workerProfile.findFirst({
-      where: {
-        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
-      },
+      where: workerWhere,
       include: {
         user: {
           include: {
@@ -1837,7 +1956,7 @@ export class UserTrustServiceService {
       }
     }
 
-    // Lấy 5 nhận xét gần nhất đã được phê duyệt (status: published)
+    // Lấy 5 nhận xét gần nhất đã được phê duyệt (status: published) kèm media
     const recentReviews = await this.db.workerReview.findMany({
       where: {
         workerUserId: worker.userId,
@@ -1846,6 +1965,9 @@ export class UserTrustServiceService {
       orderBy: { createdAt: 'desc' },
       take: 5,
       include: {
+        media: {
+          orderBy: { createdAt: 'asc' },
+        },
         customer: {
           select: {
             id: true,
@@ -1910,6 +2032,13 @@ export class UserTrustServiceService {
             fullName: r.customer.fullName,
             avatarUrl: r.customer.avatarUrl,
           },
+          media: (r.media || []).map((m: any) => ({
+            id: m.id,
+            mediaType: m.mediaType,
+            mediaUrl: m.mediaUrl,
+            thumbnailUrl: m.thumbnailUrl,
+            createdAt: m.createdAt,
+          })),
         })),
       },
     };
@@ -1917,27 +2046,47 @@ export class UserTrustServiceService {
 
   /**
    * Lấy danh sách đánh giá nhận xét của thợ có hỗ trợ phân trang và lọc theo số sao
+   * Hỗ trợ khi khách xem hồ sơ thợ qua đấu giá hoặc thợ tự xem của chính mình.
    */
   async getWorkerReviews(
     workerIdentifier: string,
     query: ListWorkerReviewsDto,
+    currentUserId?: string,
   ): Promise<unknown> {
-    const isUuid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        workerIdentifier,
-      );
+    let workerWhere: any;
+    if (workerIdentifier === 'me') {
+      if (!currentUserId) {
+        throw new BadRequestException('Bạn cần đăng nhập để xem đánh giá của mình');
+      }
+      workerWhere = { userId: currentUserId };
+    } else {
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          workerIdentifier,
+        );
 
-    if (!isUuid) {
-      throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      if (!isUuid) {
+        throw new BadRequestException('Mã định danh thợ không đúng định dạng UUID');
+      }
+      workerWhere = {
+        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
+      };
     }
 
     const worker = await this.db.workerProfile.findFirst({
-      where: {
-        OR: [{ id: workerIdentifier }, { userId: workerIdentifier }],
-      },
+      where: workerWhere,
       select: {
         id: true,
         userId: true,
+        averageRating: true,
+        ratingCount: true,
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
       },
     });
 
@@ -1957,13 +2106,67 @@ export class UserTrustServiceService {
       where.rating = Number(query.rating);
     }
 
+    if (query.hasMedia === true || (query.hasMedia as any) === 'true') {
+      where.media = {
+        some: {},
+      };
+    } else if (query.hasMedia === false || (query.hasMedia as any) === 'false') {
+      where.media = {
+        none: {},
+      };
+    }
+
+    let orderBy: any;
+    if (query.sortBy === 'highest_rating') {
+      orderBy = [{ rating: 'desc' }, { createdAt: 'desc' }];
+    } else if (query.sortBy === 'lowest_rating') {
+      orderBy = [{ rating: 'asc' }, { createdAt: 'desc' }];
+    } else if (query.sortBy === 'oldest') {
+      orderBy = [{ createdAt: 'asc' }];
+    } else {
+      orderBy = [{ createdAt: 'desc' }];
+    }
+
+    // Lấy phân bố số sao (1-5 sao)
+    const ratingGroups =
+      typeof this.db.workerReview?.groupBy === 'function'
+        ? (await this.db.workerReview.groupBy({
+          by: ['rating'],
+          where: {
+            workerUserId: worker.userId,
+            status: 'published',
+          },
+          _count: {
+            rating: true,
+          },
+        })) || []
+        : [];
+
+    const ratingDistribution: Record<number, number> = {
+      1: 0,
+      2: 0,
+      3: 0,
+      4: 0,
+      5: 0,
+    };
+    if (Array.isArray(ratingGroups)) {
+      for (const g of ratingGroups) {
+        if (g && g.rating >= 1 && g.rating <= 5) {
+          ratingDistribution[g.rating] = g._count?.rating || 0;
+        }
+      }
+    }
+
     const [reviews, total] = await Promise.all([
       this.db.workerReview.findMany({
         where,
         skip,
         take,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
+          media: {
+            orderBy: { createdAt: 'asc' },
+          },
           customer: {
             select: {
               id: true,
@@ -1976,8 +2179,24 @@ export class UserTrustServiceService {
       this.db.workerReview.count({ where }),
     ]);
 
+    const averageRatingNum =
+      worker.ratingCount && worker.ratingCount > 0
+        ? Number(Number(worker.averageRating).toFixed(2))
+        : 0;
+
     return {
       statusCode: 200,
+      worker: {
+        id: worker.id,
+        userId: worker.userId,
+        fullName: worker.user?.fullName || '',
+        avatarUrl: worker.user?.avatarUrl || null,
+      },
+      stats: {
+        averageRating: averageRatingNum,
+        ratingCount: worker.ratingCount || 0,
+        ratingDistribution,
+      },
       data: reviews.map((r) => ({
         id: r.id,
         orderId: r.orderId,
@@ -1986,12 +2205,21 @@ export class UserTrustServiceService {
         qualityRating: r.qualityRating,
         speedRating: r.speedRating,
         comment: r.comment,
+        isEdited: r.isEdited,
+        editedAt: r.editedAt,
         createdAt: r.createdAt,
         customer: {
           id: r.customer.id,
           fullName: r.customer.fullName,
           avatarUrl: r.customer.avatarUrl,
         },
+        media: (r.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
       })),
       pagination: {
         page: Number(query.page) || 1,
@@ -2281,13 +2509,13 @@ export class UserTrustServiceService {
     // TRƯỜNG HỢP 1: Đơn đang chờ duyệt (pending) -> Cập nhật trực tiếp đơn đó
     if (registration.status === 'pending') {
       const now = new Date();
-      // P1-02: Conditional update với status: pending và optimistic locking updatedAt
+      // P1-02: Conditional update với status: pending và version để đảm bảo tính nguyên tử, chống lost update
       const updateResult = await this.db.workerServiceRegistration.updateMany({
         where: {
           id: registration.id,
           workerProfileId: workerProfile.id,
           status: 'pending',
-          updatedAt: registration.updatedAt,
+          version: registration.version,
         },
         data: {
           categoryIds: dto.categoryIds,
@@ -2295,6 +2523,7 @@ export class UserTrustServiceService {
           serviceArea: dto.serviceArea as any,
           evidenceFiles: dto.evidenceFiles as any,
           idempotencyKey: resolvedKey || registration.idempotencyKey,
+          version: { increment: 1 },
           updatedAt: now,
         },
       });
@@ -2449,11 +2678,12 @@ export class UserTrustServiceService {
         id: registrationId,
         workerProfileId: workerProfile.id,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: registration.version,
       },
       data: {
         status: 'rejected',
         rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+        version: { increment: 1 },
         updatedAt: new Date(),
       },
     });
@@ -2606,6 +2836,7 @@ export class UserTrustServiceService {
       serviceArea: item.serviceArea,
       evidenceFiles: item.evidenceFiles,
       status: item.status,
+      version: item.version,
       rejectionReason: item.rejectionReason,
       reviewedAt: item.reviewedAt,
       reviewer: item.reviewer,
@@ -2678,6 +2909,7 @@ export class UserTrustServiceService {
         serviceArea: registration.serviceArea,
         evidenceFiles: registration.evidenceFiles,
         status: registration.status,
+        version: registration.version,
         rejectionReason: registration.rejectionReason,
         reviewedAt: registration.reviewedAt,
         reviewer: registration.reviewer,
@@ -2714,6 +2946,25 @@ export class UserTrustServiceService {
       );
     }
 
+    // [P1] Bắt buộc expectedVersion để ngăn duyệt dữ liệu đã bị sửa sau khi Admin mở trang chi tiết
+    if (
+      dto.expectedVersion === undefined ||
+      dto.expectedVersion === null ||
+      typeof dto.expectedVersion !== 'number'
+    ) {
+      throw new BadRequestException(
+        'Vui lòng cung cấp expectedVersion hợp lệ của đơn đăng ký',
+      );
+    }
+
+    if (registration.version !== dto.expectedVersion) {
+      throw new ConflictException(
+        'Đơn đăng ký đã có cập nhật mới từ thợ sau khi bạn mở trang. Vui lòng tải lại trang để xem nội dung mới nhất.',
+      );
+    }
+
+    const targetVersion = dto.expectedVersion;
+
     const now = new Date();
 
     let reviewerId: string | null = null;
@@ -2733,18 +2984,19 @@ export class UserTrustServiceService {
 
     if (dto.decision === 'approved') {
       await this.db.$transaction(async (tx) => {
-        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) kèm optimistic locking updatedAt (P1-02)
+        // 1. Cập nhật trạng thái đơn đăng ký nguyên tử (conditional update) với status pending và version (P1-02)
         const updateResult = await tx.workerServiceRegistration.updateMany({
           where: {
             id: registrationId,
             status: 'pending',
-            updatedAt: registration.updatedAt,
+            version: targetVersion,
           },
           data: {
             status: 'approved',
             rejectionReason: null,
             reviewedByUserId: reviewerId,
             reviewedAt: now,
+            version: { increment: 1 },
             updatedAt: now,
           },
         });
@@ -2850,13 +3102,14 @@ export class UserTrustServiceService {
       where: {
         id: registrationId,
         status: 'pending',
-        updatedAt: registration.updatedAt,
+        version: targetVersion,
       },
       data: {
         status: 'rejected',
         rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
         reviewedByUserId: reviewerId,
         reviewedAt: now,
+        version: { increment: 1 },
         updatedAt: now,
       },
     });
@@ -2968,6 +3221,983 @@ export class UserTrustServiceService {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký tải lên video thành công',
       data: signature,
+    };
+  }
+
+  /**
+   * P2-02 & P2-HG-68: Xác thực media do client cung cấp:
+   * 1. Ràng buộc đúng CLOUDINARY_CLOUD_NAME.
+   * 2. Giao thức HTTPS và đúng loại resource (image/video).
+   * 3. Xác thực quyền sở hữu của caller (chặn URL tài nguyên của người dùng khác hoặc giả mạo).
+   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (uploadReceipt hợp lệ).
+   */
+  private async validateReviewMedia(
+    mediaItems: Array<{
+      mediaType: string;
+      mediaUrl: string;
+      thumbnailUrl?: string;
+      uploadReceipt?: string;
+      thumbnailUploadReceipt?: string;
+    }> | undefined,
+    currentUserId: string,
+  ) {
+    if (!mediaItems || mediaItems.length === 0) return;
+
+    const configuredCloudName =
+      this.configService?.cloudinaryCloudName ||
+      process.env.CLOUDINARY_CLOUD_NAME ||
+      'handygo';
+
+    for (const item of mediaItems) {
+      const type = (item.mediaType || '').toLowerCase();
+      if (type !== 'image' && type !== 'video') {
+        throw new BadRequestException(
+          'Loại media không hợp lệ. Chỉ chấp nhận image hoặc video',
+        );
+      }
+
+      let parsed: URL;
+      try {
+        parsed = new URL(item.mediaUrl);
+      } catch {
+        throw new BadRequestException('Đường dẫn media không hợp lệ');
+      }
+
+      if (parsed.protocol !== 'https:') {
+        throw new BadRequestException(
+          'Đường dẫn media phải sử dụng giao thức HTTPS',
+        );
+      }
+
+      if (parsed.hostname !== 'res.cloudinary.com') {
+        throw new BadRequestException(
+          'Đường dẫn media phải thuộc hệ thống lưu trữ Cloudinary của HandyGo (https://res.cloudinary.com/...)',
+        );
+      }
+
+      const pathSegments = parsed.pathname.split('/').filter(Boolean);
+      // Format: /<cloud_name>/<resource_type>/upload/...
+      const urlCloudName = pathSegments[0];
+      if (urlCloudName !== configuredCloudName) {
+        throw new BadRequestException(
+          `Đường dẫn media không thuộc tài khoản Cloudinary của HandyGo (sai cloud_name: mong đợi '${configuredCloudName}', nhận '${urlCloudName}')`,
+        );
+      }
+
+      const path = parsed.pathname;
+      if (type === 'image' && !path.includes('/image/upload/')) {
+        throw new BadRequestException(
+          'Tệp hình ảnh không đúng loại tài nguyên Cloudinary image (/image/upload/...)',
+        );
+      }
+      if (type === 'video' && !path.includes('/video/upload/')) {
+        throw new BadRequestException(
+          'Tệp video không đúng loại tài nguyên Cloudinary video (/video/upload/...)',
+        );
+      }
+
+      // Trích xuất publicId từ URL (sau /upload/, bỏ qua version v123... nếu có)
+      const uploadIdx = pathSegments.indexOf('upload');
+      const afterUpload = uploadIdx !== -1 ? pathSegments.slice(uploadIdx + 1) : [];
+      const assetSegments =
+        afterUpload.length > 0 && /^v\d+$/i.test(afterUpload[0])
+          ? afterUpload.slice(1)
+          : afterUpload;
+      const publicIdWithExt = assetSegments.join('/');
+      const publicId = publicIdWithExt.replace(/\.[^/.]+$/, '');
+
+      if (!this.cloudinaryService || !(await this.cloudinaryService.verifyReviewMedia({
+        publicId, ownerId: currentUserId, mediaType: type, uploadReceipt: item.uploadReceipt,
+      }))) {
+        throw new BadRequestException(
+          item.uploadReceipt
+            ? `Mã xác thực upload (uploadReceipt) của ${type} không hợp lệ hoặc không thuộc caller`
+            : 'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
+        );
+      }
+
+      // 3. Kiểm tra thumbnail nếu có
+      if (item.thumbnailUrl) {
+        let thumbParsed: URL;
+        try {
+          thumbParsed = new URL(item.thumbnailUrl);
+        } catch {
+          throw new BadRequestException(
+            'Đường dẫn ảnh thu nhỏ (thumbnailUrl) không hợp lệ',
+          );
+        }
+        if (
+          thumbParsed.protocol !== 'https:' ||
+          thumbParsed.hostname !== 'res.cloudinary.com' ||
+          !/^\/[^/]+\/(image|video)\/upload\//.test(thumbParsed.pathname) ||
+          !/\.(jpg|jpeg|png|webp)$/i.test(thumbParsed.pathname)
+        ) {
+          throw new BadRequestException(
+            'Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary (/image/upload/...)',
+          );
+        }
+        const thumbSegments = thumbParsed.pathname.split('/').filter(Boolean);
+        if (thumbSegments[0] !== configuredCloudName) {
+          throw new BadRequestException(
+            'Đường dẫn ảnh thu nhỏ (thumbnailUrl) không thuộc tài khoản Cloudinary của HandyGo (sai cloud_name)',
+          );
+        }
+
+        const thumbAfterUpload = thumbSegments.slice(3);
+        const thumbKey = (/^v\d+$/.test(thumbAfterUpload[0] || '')
+          ? thumbAfterUpload.slice(1) : thumbAfterUpload).join('/').replace(/\.[^/.]+$/, '');
+        const derivedFromVideo = type === 'video' && thumbSegments[1] === 'video' && thumbKey === publicId;
+        const ownedImage = thumbSegments[1] === 'image' && await this.cloudinaryService.verifyReviewMedia({
+          publicId: thumbKey, ownerId: currentUserId, mediaType: 'image', uploadReceipt: item.thumbnailUploadReceipt,
+        });
+        if (!derivedFromVideo && !ownedImage) {
+          throw new BadRequestException('Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng');
+        }
+      }
+    }
+  }
+
+  /**
+   * Tạo đánh giá cho đơn hàng đã hoàn thành (số sao, nhận xét, hình ảnh, video)
+   */
+  async createReview(
+    currentUserId: string,
+    dto: CreateReviewDto,
+    orderIdParam?: string,
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ) {
+    const orderId = orderIdParam || dto.orderId;
+    if (!orderId) {
+      throw new BadRequestException('Mã đơn hàng không được để trống');
+    }
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        orderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đơn hàng không đúng định dạng UUID');
+    }
+
+    // 1. Kiểm tra đơn hàng đã được đánh giá trước đó chưa
+    const existing = await this.db.workerReview.findUnique({
+      where: { orderId },
+    });
+    if (existing) {
+      throw new ConflictException('Đơn hàng này đã được đánh giá trước đó');
+    }
+
+    // 2. Xác thực đơn hàng thông qua OrderClient
+    let workerUserId: string;
+    if (this.orderClient) {
+      const order = await this.orderClient.getOrder(orderId);
+      if (order.customerUserId !== currentUserId) {
+        throw new ForbiddenException('Bạn không có quyền đánh giá đơn hàng này');
+      }
+
+      // Kiểm tra trạng thái tranh chấp / hủy đơn
+      if (order.status === 'disputed') {
+        throw new BadRequestException(
+          'Không thể đánh giá đơn hàng đang trong trạng thái khiếu nại hoặc tranh chấp',
+        );
+      }
+      if (order.status === 'cancelled') {
+        throw new BadRequestException('Không thể đánh giá đơn hàng đã bị hủy');
+      }
+      if (order.status !== 'completed') {
+        throw new BadRequestException('Chỉ có thể đánh giá đơn hàng khi đã hoàn thành');
+      }
+
+      // Kiểm tra trạng thái thanh toán hoàn tiền / tranh chấp
+      if (order.paymentState === 'refunded') {
+        throw new BadRequestException('Không thể đánh giá đơn hàng đã được hoàn tiền');
+      }
+      if (order.paymentState === 'disputed') {
+        throw new BadRequestException(
+          'Không thể đánh giá đơn hàng đang có khiếu nại về thanh toán',
+        );
+      }
+
+      // P2-HG-68: Giới hạn thời gian đánh giá (Review Window: bắt buộc completedAt hợp lệ, tối đa 14 ngày kể từ khi hoàn thành)
+      if (!order.completedAt) {
+        throw new BadRequestException(
+          'Đơn hàng thiếu thông tin thời điểm hoàn thành (completedAt)',
+        );
+      }
+      const completedTime = new Date(order.completedAt).getTime();
+      if (Number.isNaN(completedTime)) {
+        throw new BadRequestException(
+          'Thời điểm hoàn thành đơn hàng không hợp lệ (invalid timestamp)',
+        );
+      }
+      const now = Date.now();
+      // Chống timestamp gian lận trong tương lai (cho phép sai số đồng hồ tối đa 5 phút)
+      if (completedTime > now + 5 * 60 * 1000) {
+        throw new BadRequestException(
+          'Thời điểm hoàn thành đơn hàng không hợp lệ (nằm trong tương lai)',
+        );
+      }
+      const maxReviewDays = 14;
+      const diffMs = now - completedTime;
+      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+      if (diffDays > maxReviewDays) {
+        throw new BadRequestException(
+          'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn thành)',
+        );
+      }
+
+      workerUserId = order.workerUserId;
+    } else {
+      throw new ServiceUnavailableException('Order Service client chưa được cấu hình');
+    }
+
+    // 3. Kiểm tra thợ có tồn tại
+    const worker = await this.db.workerProfile.findFirst({
+      where: {
+        OR: [{ id: workerUserId }, { userId: workerUserId }],
+      },
+      include: {
+        user: { select: { id: true, fullName: true, avatarUrl: true } },
+      },
+    });
+    if (!worker) {
+      throw new NotFoundException('Không tìm thấy thông tin thợ của đơn hàng');
+    }
+
+    // 4. Kiểm tra giới hạn số lượng media và xử lý upload media trực tiếp nếu có multipart files
+    if (files?.videos && files.videos.length > 0) {
+      throw new BadRequestException(
+        'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
+      );
+    }
+
+    const imgFromDto = (dto.media || []).filter(
+      (m) => (m.mediaType || '').toLowerCase() === 'image',
+    ).length;
+    const vidFromDto = (dto.media || []).filter(
+      (m) => (m.mediaType || '').toLowerCase() === 'video',
+    ).length;
+    const uploadedImgCount =
+      (files?.images?.length || 0) + (files?.file?.length || 0);
+
+    const totalImages = imgFromDto + uploadedImgCount;
+    const totalVideos = vidFromDto;
+    const totalMedia = totalImages + totalVideos;
+
+    if (totalMedia > 6) {
+      throw new BadRequestException(
+        'Chỉ được đính kèm tối đa 6 hình ảnh hoặc video',
+      );
+    }
+    if (totalImages > 5) {
+      throw new BadRequestException('Chỉ được đính kèm tối đa 5 hình ảnh');
+    }
+    if (totalVideos > 1) {
+      throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+    }
+
+    if (dto.media && dto.media.length > 0) {
+      await this.validateReviewMedia(dto.media, currentUserId);
+    }
+
+    const mediaItems: Array<{
+      mediaType: 'image' | 'video';
+      mediaUrl: string;
+      thumbnailUrl?: string;
+    }> = (dto.media || []).map((m) => ({
+      mediaType: m.mediaType.toLowerCase() === 'video' ? 'video' : 'image',
+      mediaUrl: m.mediaUrl,
+      thumbnailUrl: m.thumbnailUrl,
+    }));
+
+    const uploadedImages = [...(files?.images || []), ...(files?.file || [])];
+    if (uploadedImages.length > 0 && this.cloudinaryService) {
+      for (const img of uploadedImages) {
+        const res = await this.cloudinaryService.uploadImage(img);
+        mediaItems.push({
+          mediaType: 'image',
+          mediaUrl: res.url,
+        });
+      }
+    }
+
+    // 5. Chuẩn hóa đánh giá phụ (attitude, quality, speed)
+    const defaultSub = dto.rating >= 4 ? 'good' : dto.rating === 3 ? 'neutral' : 'bad';
+    const attitudeRating = dto.attitudeRating || defaultSub;
+    const qualityRating = dto.qualityRating || defaultSub;
+    const speedRating = dto.speedRating || defaultSub;
+
+    const reviewId = crypto.randomUUID();
+    const now = new Date();
+
+    // 6. Thực hiện giao dịch lưu đánh giá và cập nhật thống kê thợ
+    let review: any;
+    try {
+      review = await this.db.$transaction(async (tx) => {
+        // P1-HG-68: Khóa dòng worker_profiles bằng FOR UPDATE để serialize các request đánh giá đồng thời cho cùng một worker,
+        // ngăn ngừa race condition đọc cũ / ghi đè thống kê ratingCount và averageRating.
+        if (typeof tx.$queryRaw === 'function') {
+          try {
+            await tx.$queryRaw`SELECT id FROM user_trust_service.worker_profiles WHERE user_id = ${worker.userId}::uuid FOR UPDATE`;
+          } catch (err: any) {
+            if (
+              err?.code === '42P01' ||
+              (typeof err?.message === 'string' &&
+                err.message.includes('user_trust_service'))
+            ) {
+              await tx.$queryRaw`SELECT id FROM worker_profiles WHERE user_id = ${worker.userId}::uuid FOR UPDATE`;
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        const createdReview = await tx.workerReview.create({
+          data: {
+            id: reviewId,
+            orderId,
+            customerUserId: currentUserId,
+            workerUserId: worker.userId,
+            rating: dto.rating,
+            attitudeRating,
+            qualityRating,
+            speedRating,
+            comment: dto.comment?.trim() || null,
+            status: 'published',
+            createdAt: now,
+            updatedAt: now,
+            media:
+              mediaItems.length > 0
+                ? {
+                  create: mediaItems.map((m) => ({
+                    mediaType: m.mediaType,
+                    mediaUrl: m.mediaUrl,
+                    thumbnailUrl: m.thumbnailUrl || null,
+                  })),
+                }
+                : undefined,
+          },
+          include: {
+            media: true,
+            customer: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+              },
+            },
+            worker: {
+              select: {
+                id: true,
+                fullName: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        });
+
+        // Tính toán lại rating trung bình và tổng số lượng đánh giá của thợ
+        const agg = await tx.workerReview.aggregate({
+          where: {
+            workerUserId: worker.userId,
+            status: 'published',
+          },
+          _avg: { rating: true },
+          _count: { rating: true },
+        });
+
+        const ratingCount = agg._count.rating;
+        const avgScore = Number(agg._avg.rating || 0);
+
+        await tx.workerProfile.updateMany({
+          where: { userId: worker.userId },
+          data: {
+            ratingCount,
+            averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
+          },
+        });
+
+        // Lưu outbox event cho notification / event streaming
+        await tx.outboxEvent.create({
+          data: {
+            eventType: 'review.created',
+            payload: {
+              reviewId: createdReview.id,
+              orderId,
+              customerUserId: currentUserId,
+              workerUserId: worker.userId,
+              rating: createdReview.rating,
+              comment: createdReview.comment,
+              mediaCount: mediaItems.length,
+              createdAt: now.toISOString(),
+            },
+          },
+        });
+
+        return createdReview;
+      });
+    } catch (err: any) {
+      if (
+        err?.code === 'P2002' ||
+        (typeof err?.message === 'string' &&
+          (err.message.includes('Unique constraint failed') ||
+            err.message.includes('worker_reviews_order_id_idx') ||
+            err.message.includes('orderId')))
+      ) {
+        throw new ConflictException('Đơn hàng này đã được đánh giá');
+      }
+      throw err;
+    }
+
+    return {
+      statusCode: HttpStatus.CREATED,
+      message: 'Đánh giá đơn hàng thành công',
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Chỉnh sửa đánh giá đơn hàng (cho phép khách hàng chỉnh sửa 1 lần duy nhất trong vòng 48 giờ kể từ khi tạo)
+   */
+  async updateReview(
+    currentUserId: string,
+    idOrOrderId: string,
+    dto: UpdateReviewDto,
+    files?: {
+      file?: Express.Multer.File[];
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
+    },
+  ) {
+    if (!idOrOrderId) {
+      throw new BadRequestException('Mã đánh giá hoặc đơn hàng không được để trống');
+    }
+
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        idOrOrderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException(
+        'Mã đánh giá hoặc đơn hàng không đúng định dạng UUID',
+      );
+    }
+
+    const review = await this.db.workerReview.findFirst({
+      where: {
+        OR: [{ id: idOrOrderId }, { orderId: idOrOrderId }],
+      },
+      include: {
+        media: true,
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Không tìm thấy đánh giá');
+    }
+
+    if (review.customerUserId !== currentUserId) {
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa đánh giá này');
+    }
+
+    if (review.isEdited) {
+      throw new BadRequestException('Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất');
+    }
+
+    const editWindowHours = 48;
+    const diffHours =
+      (Date.now() - new Date(review.createdAt).getTime()) / (1000 * 60 * 60);
+    if (diffHours > editWindowHours) {
+      throw new BadRequestException(
+        `Đã quá thời hạn chỉnh sửa đánh giá (tối đa ${editWindowHours} giờ kể từ khi tạo)`,
+      );
+    }
+
+    // Xử lý media nếu có cập nhật dto.media hoặc upload files
+    if (files?.videos && files.videos.length > 0) {
+      throw new BadRequestException(
+        'Video đánh giá không hỗ trợ tải trực tiếp qua multipart. Vui lòng sử dụng API direct upload signature (/reviews/video-upload-signature) và truyền URL vào danh sách media.',
+      );
+    }
+
+    // The authorized review establishes ownership only for exact persisted attachments.
+    const newMedia = dto.media?.filter((item) => !(review.media || []).some((existing) =>
+      existing.mediaType === item.mediaType.toLowerCase() &&
+      existing.mediaUrl === item.mediaUrl &&
+      (existing.thumbnailUrl || undefined) === (item.thumbnailUrl || undefined),
+    ));
+    await this.validateReviewMedia(newMedia, currentUserId);
+
+    let updatedMediaItems: Array<{
+      mediaType: 'image' | 'video';
+      mediaUrl: string;
+      thumbnailUrl?: string;
+    }> | null = null;
+
+    const hasNewFiles = Boolean(
+      (files?.images && files.images.length > 0) ||
+      (files?.file && files.file.length > 0),
+    );
+
+    if (dto.media !== undefined || hasNewFiles) {
+      const mediaList: Array<{
+        mediaType: 'image' | 'video';
+        mediaUrl: string;
+        thumbnailUrl?: string;
+      }> = (dto.media || []).map((m) => ({
+        mediaType: m.mediaType.toLowerCase() === 'video' ? 'video' : 'image',
+        mediaUrl: m.mediaUrl,
+        thumbnailUrl: m.thumbnailUrl,
+      }));
+
+      const uploadedImages = [
+        ...(files?.images || []),
+        ...(files?.file || []),
+      ];
+      if (uploadedImages.length > 0 && this.cloudinaryService) {
+        for (const img of uploadedImages) {
+          const res = await this.cloudinaryService.uploadImage(img);
+          mediaList.push({
+            mediaType: 'image',
+            mediaUrl: res.url,
+          });
+        }
+      }
+
+      const imgCount = mediaList.filter(
+        (m) => (m.mediaType || '').toLowerCase() === 'image',
+      ).length;
+      const vidCount = mediaList.filter(
+        (m) => (m.mediaType || '').toLowerCase() === 'video',
+      ).length;
+
+      if (mediaList.length > 6) {
+        throw new BadRequestException(
+          'Chỉ được đính kèm tối đa 6 hình ảnh hoặc video',
+        );
+      }
+      if (imgCount > 5) {
+        throw new BadRequestException('Chỉ được đính kèm tối đa 5 hình ảnh');
+      }
+      if (vidCount > 1) {
+        throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+      }
+
+      updatedMediaItems = mediaList;
+    }
+
+    const newRating = dto.rating !== undefined ? dto.rating : review.rating;
+    const defaultSub =
+      newRating >= 4 ? 'good' : newRating === 3 ? 'neutral' : 'bad';
+    const attitudeRating =
+      dto.attitudeRating !== undefined
+        ? dto.attitudeRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.attitudeRating;
+    const qualityRating =
+      dto.qualityRating !== undefined
+        ? dto.qualityRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.qualityRating;
+    const speedRating =
+      dto.speedRating !== undefined
+        ? dto.speedRating
+        : dto.rating !== undefined
+          ? defaultSub
+          : review.speedRating;
+    const comment =
+      dto.comment !== undefined ? dto.comment.trim() || null : review.comment;
+
+    const now = new Date();
+    const isRatingChanged =
+      dto.rating !== undefined && dto.rating !== review.rating;
+
+    const updatedReview = await this.db.$transaction(async (tx) => {
+      // P1-HG-68: Khóa dòng worker_profiles nếu rating thay đổi để serialize tính toán thống kê đánh giá
+      if (isRatingChanged && typeof tx.$queryRaw === 'function') {
+        try {
+          await tx.$queryRaw`SELECT id FROM user_trust_service.worker_profiles WHERE user_id = ${review.workerUserId}::uuid FOR UPDATE`;
+        } catch (err: any) {
+          if (
+            err?.code === '42P01' ||
+            (typeof err?.message === 'string' &&
+              err.message.includes('user_trust_service'))
+          ) {
+            await tx.$queryRaw`SELECT id FROM worker_profiles WHERE user_id = ${review.workerUserId}::uuid FOR UPDATE`;
+          } else {
+            throw err;
+          }
+        }
+      }
+
+      // 1. Atomic conditional update: check isEdited: false directly in DB to prevent race condition
+      const updateResult = await tx.workerReview.updateMany({
+        where: {
+          id: review.id,
+          isEdited: false,
+        },
+        data: {
+          rating: newRating,
+          attitudeRating,
+          qualityRating,
+          speedRating,
+          comment,
+          isEdited: true,
+          editedAt: now,
+          updatedAt: now,
+        },
+      });
+
+      if (updateResult.count === 0) {
+        throw new BadRequestException(
+          'Đánh giá chỉ được phép chỉnh sửa 1 lần duy nhất',
+        );
+      }
+
+      // 2. Cập nhật media nếu có thay đổi
+      if (updatedMediaItems !== null) {
+        await tx.reviewMedia.deleteMany({
+          where: { reviewId: review.id },
+        });
+
+        if (updatedMediaItems.length > 0) {
+          await tx.reviewMedia.createMany({
+            data: updatedMediaItems.map((m) => ({
+              id: crypto.randomUUID(),
+              reviewId: review.id,
+              mediaType: m.mediaType,
+              mediaUrl: m.mediaUrl,
+              thumbnailUrl: m.thumbnailUrl || null,
+            })),
+          });
+        }
+      }
+
+      // 3. Đọc lại review sau khi cập nhật cùng quan hệ
+      const updated = await tx.workerReview.findUnique({
+        where: { id: review.id },
+        include: {
+          media: true,
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+          worker: {
+            select: {
+              id: true,
+              fullName: true,
+              avatarUrl: true,
+            },
+          },
+        },
+      });
+
+      if (!updated) {
+        throw new NotFoundException('Không tìm thấy đánh giá sau khi cập nhật');
+      }
+
+      // Nếu số sao thay đổi, cập nhật lại thống kê trung bình của thợ
+      if (dto.rating !== undefined && dto.rating !== review.rating) {
+        const agg = await tx.workerReview.aggregate({
+          where: {
+            workerUserId: review.workerUserId,
+            status: 'published',
+          },
+          _avg: { rating: true },
+          _count: { rating: true },
+        });
+
+        const ratingCount = agg._count.rating;
+        const avgScore = Number(agg._avg.rating || 0);
+
+        await tx.workerProfile.updateMany({
+          where: { userId: review.workerUserId },
+          data: {
+            ratingCount,
+            averageRating: new Prisma.Decimal(avgScore.toFixed(2)),
+          },
+        });
+      }
+
+      // Lưu outbox event cho notification / event streaming
+      await tx.outboxEvent.create({
+        data: {
+          eventType: 'review.updated',
+          payload: {
+            reviewId: updated.id,
+            orderId: updated.orderId,
+            customerUserId: currentUserId,
+            workerUserId: review.workerUserId,
+            oldRating: review.rating,
+            newRating: updated.rating,
+            comment: updated.comment,
+            editedAt: now.toISOString(),
+          },
+        },
+      });
+
+      return updated;
+    });
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Chỉnh sửa đánh giá thành công',
+      data: {
+        id: updatedReview.id,
+        orderId: updatedReview.orderId,
+        rating: updatedReview.rating,
+        attitudeRating: updatedReview.attitudeRating,
+        qualityRating: updatedReview.qualityRating,
+        speedRating: updatedReview.speedRating,
+        comment: updatedReview.comment,
+        status: updatedReview.status,
+        isEdited: updatedReview.isEdited,
+        editedAt: updatedReview.editedAt,
+        createdAt: updatedReview.createdAt,
+        updatedAt: updatedReview.updatedAt,
+        customer: updatedReview.customer,
+        worker: updatedReview.worker,
+        media: (updatedReview.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Kiểm tra xem caller có quyền xem review không (helper dùng chung cho getReviewByOrderId và getReviewById)
+   * - Published: ai cũng thấy
+   * - Hidden/flagged/removed: chỉ customer sở hữu, worker, hoặc admin mới thấy
+   */
+  private canViewNonPublishedReview(
+    review: { customerUserId: string; workerUserId: string },
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ): boolean {
+    if (!caller) return false;
+    if (caller.userId === review.customerUserId) return true;
+    if (caller.userId === review.workerUserId) return true;
+    const roles = (caller.roles || []).map((r) => r.toLowerCase());
+    if (roles.includes('admin')) return true;
+    if (
+      (caller.permissions || []).includes(
+        StandardPermissions.USER_MANAGE,
+      )
+    )
+      return true;
+    return false;
+  }
+
+  /**
+   * Lấy thông tin đánh giá theo mã đơn hàng
+   */
+  async getReviewByOrderId(
+    orderId: string,
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        orderId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đơn hàng không đúng định dạng UUID');
+    }
+
+    const review = await this.db.workerReview.findUnique({
+      where: { orderId },
+      include: {
+        media: true,
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+        worker: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Đơn hàng này chưa có đánh giá');
+    }
+
+    // P1-03: Kiểm tra visibility — nếu review không ở trạng thái published, chỉ cho phép người có quyền xem
+    if (review.status !== 'published') {
+      if (!this.canViewNonPublishedReview(review, caller)) {
+        throw new NotFoundException('Đơn hàng này chưa có đánh giá');
+      }
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Lấy chi tiết một đánh giá theo reviewId
+   */
+  async getReviewById(
+    reviewId: string,
+    caller?: { userId: string; roles?: string[]; permissions?: string[] },
+  ) {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        reviewId,
+      );
+    if (!isUuid) {
+      throw new BadRequestException('Mã đánh giá không đúng định dạng UUID');
+    }
+
+    const review = await this.db.workerReview.findUnique({
+      where: { id: reviewId },
+      include: {
+        media: true,
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+        worker: {
+          select: {
+            id: true,
+            fullName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    if (!review) {
+      throw new NotFoundException('Không tìm thấy đánh giá');
+    }
+
+    // P1-03: Kiểm tra visibility — nếu review không ở trạng thái published, chỉ cho phép người có quyền xem
+    if (review.status !== 'published') {
+      if (!this.canViewNonPublishedReview(review, caller)) {
+        throw new NotFoundException('Không tìm thấy đánh giá');
+      }
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      data: {
+        id: review.id,
+        orderId: review.orderId,
+        rating: review.rating,
+        attitudeRating: review.attitudeRating,
+        qualityRating: review.qualityRating,
+        speedRating: review.speedRating,
+        comment: review.comment,
+        status: review.status,
+        isEdited: review.isEdited,
+        editedAt: review.editedAt,
+        createdAt: review.createdAt,
+        updatedAt: review.updatedAt,
+        customer: review.customer,
+        worker: review.worker,
+        media: (review.media || []).map((m: any) => ({
+          id: m.id,
+          mediaType: m.mediaType,
+          mediaUrl: m.mediaUrl,
+          thumbnailUrl: m.thumbnailUrl,
+          createdAt: m.createdAt,
+        })),
+      },
+    };
+  }
+
+  /**
+   * Khởi tạo chữ ký direct upload video nhận xét đánh giá lên Cloudinary
+   */
+  async createReviewVideoSignature(
+    userId: string,
+    dto: { fileName?: string; mimeType: string; fileSize?: number },
+  ) {
+    if (!this.cloudinaryService) {
+      throw new BadRequestException('Dịch vụ Cloudinary chưa sẵn sàng');
+    }
+    const signature = await this.cloudinaryService.createVideoUploadSignature(
+      {
+        fileName: dto.fileName || `review-video-${Date.now()}.mp4`,
+        mimeType: dto.mimeType,
+        fileSize: dto.fileSize || 10 * 1024 * 1024,
+        intent: 'review',
+      },
+      userId,
+    );
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Khởi tạo chữ ký upload video đánh giá thành công',
+      data: {
+        ...signature,
+      },
     };
   }
 }

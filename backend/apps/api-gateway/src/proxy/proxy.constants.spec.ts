@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { SERVICE_ROUTES } from './proxy.constants.js';
 
 describe('AI identity proxy route', () => {
-  const route = SERVICE_ROUTES.find((serviceRoute) => serviceRoute.upstreamName === 'ai-service');
+  const route = SERVICE_ROUTES.find(
+    (serviceRoute) => serviceRoute.upstreamName === 'ai-service',
+  );
 
   it('configures direct 1:1 passthrough without path rewriting', () => {
     expect(route).toBeDefined();
@@ -23,6 +25,13 @@ describe('AI identity proxy route', () => {
     expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/kyc-cases');
     expect(userTrustRoute?.prefixes).toContain('/api/v1/admin/worker-registrations');
     expect(userTrustRoute?.prefixes).toContain('/api/v1/workers');
+    expect(userTrustRoute?.prefixes).toContain('/api/v1/reviews');
+    expect(
+      userTrustRoute?.customMatch?.('/api/v1/orders/a0000000-0000-4000-8000-000000000001/reviews'),
+    ).toBe(true);
+    expect(
+      userTrustRoute?.customMatch?.('/api/v1/orders/a0000000-0000-4000-8000-000000000001/review'),
+    ).toBe(true);
   });
 
   it('correctly isolates bidding subroutes and general request CRUD routes', () => {
@@ -78,5 +87,42 @@ describe('AI identity proxy route', () => {
       ),
     ).toBe(false);
     expect(orderRoute?.excludeMatch?.('/api/v1/requests')).toBe(false);
+  });
+
+  it('correctly configures tracking-service and real-time SSE streaming route with no timeout', () => {
+    const trackingRoute = SERVICE_ROUTES.find(
+      (r) => r.upstreamName === 'tracking-service',
+    );
+    const trackingSseRoute = SERVICE_ROUTES.find(
+      (r) => r.upstreamName === 'tracking-service-sse',
+    );
+
+    expect(trackingRoute).toBeDefined();
+    expect(trackingRoute?.prefixes).toContain('/api/v1/tracking');
+
+    expect(trackingSseRoute).toBeDefined();
+    expect(trackingSseRoute?.timeoutMs).toBe(0);
+    expect(
+      trackingSseRoute?.customMatch?.(
+        '/api/v1/tracking/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/live',
+      ),
+    ).toBe(true);
+    expect(
+      trackingSseRoute?.customMatch?.(
+        '/api/v1/tracking/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/live?lastEventId=abc-123',
+      ),
+    ).toBe(true);
+
+    // REST endpoints should not match SSE route
+    expect(
+      trackingSseRoute?.customMatch?.(
+        '/api/v1/tracking/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/summary',
+      ),
+    ).toBe(false);
+    expect(
+      trackingSseRoute?.customMatch?.(
+        '/api/v1/tracking/requests/69b2d3c0-21a4-4a25-83c9-9486c9da391b/timeline',
+      ),
+    ).toBe(false);
   });
 });

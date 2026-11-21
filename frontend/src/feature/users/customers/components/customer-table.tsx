@@ -185,7 +185,7 @@ function CopyUserId({ id }: { id: string }) {
       aria-label={`Sao chép User ID ${id}`}
       className={`inline-flex max-w-full items-center gap-1.5 text-left text-[12px] text-[#64748B] transition-colors hover:text-[#FF5E14] ${FOCUS_RING}`}
     >
-      <span className="truncate">User ID: {id.slice(0, 8)}…</span>
+      <span className="truncate">ID: {id.slice(0, 8)}…</span>
       <Copy className="h-3.5 w-3.5 shrink-0" />
       {copied && <span className="shrink-0 text-emerald-600">Đã sao chép</span>}
     </button>

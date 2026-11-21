@@ -13,10 +13,11 @@ export const EVENT_PATTERNS = {
 
   ORDER_CREATED: 'order.created',
   ORDER_ACCEPTED: 'order.accepted',
-  ORDER_STARTED: 'order.started',
   ORDER_STATUS_CHANGED: 'order.status.changed',
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',
+  ORDER_DISPUTED: 'order.disputed',
+  ORDER_REWORK_REQUESTED: 'order.rework_requested',
 
   BIDDING_ROUND_OPENED: 'bidding.round.opened',
   BIDDING_ROUND_CLOSED: 'bidding.round.closed',

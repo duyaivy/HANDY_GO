@@ -20,6 +20,34 @@ describe('SummaryService', () => {
     service = new SummaryService(prismaMock as unknown as PrismaService);
   });
 
+  it('marks request bidding closed without a bidding.round.closed event', async () => {
+    const serviceRequestId = randomUUID();
+    const customerId = randomUUID();
+    const publishedAt = new Date('2026-11-10T09:00:00.000Z');
+    const biddingClosedAt = new Date('2026-11-10T10:00:00.000Z');
+    const recordedAt = new Date('2026-11-10T10:00:01.000Z');
+    const user: GatewayUser = {
+      userId: customerId, roles: ['Customer'], isAdmin: false,
+      isCustomer: true, isWorker: false,
+    };
+    prismaMock.trackingFlow.findUnique.mockResolvedValue({
+      id: randomUUID(), serviceRequestId, customerId, orderId: null,
+      eventSequence: 3, createdAt: publishedAt, updatedAt: biddingClosedAt,
+      events: [
+        { eventType: 'service_request.published', entityType: TrackingEntityType.service_request, occurredAt: publishedAt, metadata: {} },
+        { eventType: 'bidding.round.opened', entityType: TrackingEntityType.bidding_round, occurredAt: new Date('2026-11-10T09:30:00.000Z'), metadata: {} },
+        { eventType: 'service_request.bidding_closed', entityType: TrackingEntityType.service_request, occurredAt: recordedAt, metadata: { biddingClosedAt: biddingClosedAt.toISOString() } },
+      ],
+    });
+
+    const result = await service.getRequestSummary(serviceRequestId, user);
+
+    expect(result.serviceRequest.status).toBe('bidding_closed');
+    expect(result.serviceRequest.biddingClosedAt).toEqual(biddingClosedAt);
+    expect(result.bidding.status).toBe('open');
+    expect(result.currentPhase).toBe('BIDDING_CLOSED');
+  });
+
   it('should generate accurate summary and COMPLETED phase for a full lifecycle flow', async () => {
     const customerId = randomUUID();
     const serviceRequestId = randomUUID();
@@ -253,7 +281,7 @@ describe('SummaryService', () => {
     expect(summary.bookingProposal).toBeUndefined();
   });
 
-  it('should not leak order or payment milestones to a worker who participated in a rejected proposal but was not assigned to the order', async () => {
+  it.each([false, true])('does not reveal order or payment to an unassigned participating worker (Customer role: %s)', async (isCustomer) => {
     const customerId = randomUUID();
     const serviceRequestId = randomUUID();
     const rejectedWorker = randomUUID();
@@ -263,9 +291,9 @@ describe('SummaryService', () => {
 
     const workerUser: GatewayUser = {
       userId: rejectedWorker,
-      roles: ['Worker'],
+      roles: isCustomer ? ['Customer', 'Worker'] : ['Worker'],
       isAdmin: false,
-      isCustomer: false,
+      isCustomer,
       isWorker: true,
     };
 
@@ -328,6 +356,8 @@ describe('SummaryService', () => {
     );
 
     // Rejected worker has participation rights to view the flow, but must NOT see the order or payment of the assigned worker
+    expect(summary.bookingProposal).toBeUndefined();
+    expect(summary.orderId).toBeUndefined();
     expect(summary.order).toBeUndefined();
     expect(summary.payment).toBeUndefined();
   });
@@ -357,7 +387,123 @@ describe('SummaryService', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
+  it('keeps proposal, Order, Payment and orderId private across dual-role, owner and assigned-worker Redis reads', async () => {
+    const serviceRequestId = randomUUID();
+    const orderId = randomUUID();
+    const ownerId = randomUUID();
+    const participantId = randomUUID();
+    const assignedWorkerId = randomUUID();
+    const now = new Date();
+    const participant: GatewayUser = {
+      userId: participantId, roles: ['Customer', 'Worker'],
+      isAdmin: false, isCustomer: true, isWorker: true,
+    };
+    const owner: GatewayUser = {
+      userId: ownerId, roles: ['Customer', 'Worker'],
+      isAdmin: false, isCustomer: true, isWorker: true,
+    };
+    const assignedWorker: GatewayUser = {
+      userId: assignedWorkerId, roles: ['Worker'],
+      isAdmin: false, isCustomer: false, isWorker: true,
+    };
+    prismaMock.trackingFlow.findUnique.mockResolvedValue({
+      id: randomUUID(), serviceRequestId, orderId, customerId: ownerId,
+      eventSequence: 5, createdAt: now, updatedAt: now,
+      events: [
+        { eventType: 'service_request.published', entityType: TrackingEntityType.service_request, entityId: serviceRequestId, occurredAt: now, metadata: {} },
+        { eventType: 'bid.submitted', entityType: TrackingEntityType.bid, entityId: randomUUID(), actorUserId: participantId, occurredAt: now, metadata: { workerId: participantId, amount: 300000 } },
+        { eventType: 'booking_proposal.finalized', entityType: TrackingEntityType.booking_proposal, entityId: randomUUID(), actorUserId: ownerId, occurredAt: now, metadata: { workerId: assignedWorkerId, revisionNo: 1 } },
+        { eventType: 'order.created', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, toStatus: 'created', metadata: { workerUserId: assignedWorkerId } },
+        { eventType: 'order.completed', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, toStatus: 'completed', metadata: {} },
+        { eventType: 'payment.succeeded', entityType: TrackingEntityType.payment, entityId: randomUUID(), occurredAt: now, metadata: {} },
+      ],
+    });
+    const oldKey = `tracking:summary-auth2:${serviceRequestId}:cust:${participantId}:v5`;
+    const cache = new Map<string, any>([[oldKey, { bookingProposal: { status: 'finalized' }, orderId, order: { status: 'completed' }, payment: { status: 'succeeded' } }]]);
+    const redisMock: any = {
+      get: vi.fn(async (key: string) => cache.get(key) ?? null),
+      set: vi.fn(async (key: string, value: any) => { cache.set(key, value); }),
+    };
+    const cachedService = new SummaryService(prismaMock, redisMock);
+
+    const firstParticipantRead = await cachedService.getRequestSummary(serviceRequestId, participant);
+    expect(firstParticipantRead.bookingProposal).toBeUndefined();
+    expect(firstParticipantRead.orderId).toBeUndefined();
+    expect(firstParticipantRead.order).toBeUndefined();
+    expect(firstParticipantRead.payment).toBeUndefined();
+    expect(firstParticipantRead.bidding.myBid?.amount).toBe(300000);
+    const ownerSummary = await cachedService.getRequestSummary(serviceRequestId, owner);
+    expect(ownerSummary.bookingProposal?.status).toBe('finalized');
+    expect(ownerSummary.orderId).toBe(orderId);
+    expect(ownerSummary.order?.status).toBe('completed');
+    const assignedSummary = await cachedService.getRequestSummary(serviceRequestId, assignedWorker);
+    expect(assignedSummary.bookingProposal?.status).toBe('finalized');
+    expect(assignedSummary.orderId).toBe(orderId);
+    expect(assignedSummary.payment?.status).toBe('succeeded');
+    expect((await cachedService.getRequestSummary(serviceRequestId, owner)).payment?.status).toBe('succeeded');
+    expect((await cachedService.getRequestSummary(serviceRequestId, assignedWorker)).order?.status).toBe('completed');
+    const secondParticipantRead = await cachedService.getRequestSummary(serviceRequestId, participant);
+    expect(secondParticipantRead.bookingProposal).toBeUndefined();
+    expect(secondParticipantRead.orderId).toBeUndefined();
+    expect(secondParticipantRead.order).toBeUndefined();
+    expect(secondParticipantRead.payment).toBeUndefined();
+    expect(redisMock.get).not.toHaveBeenCalledWith(oldKey);
+    expect(redisMock.get).toHaveBeenCalledWith(`tracking:summary-auth3:${serviceRequestId}:cust:${participantId}:v5`);
+    expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:cust:${ownerId}:v5`)).toBe(true);
+    expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:wrk:${assignedWorkerId}:v5`)).toBe(true);
+    const newKeys = [...cache.keys()].filter(key => key.startsWith('tracking:summary-auth3:'));
+    expect(newKeys.every(key => new RegExp(`^tracking:[^:]+:${serviceRequestId}:`).test(key))).toBe(true);
+
+    const outsider: GatewayUser = {
+      userId: randomUUID(), roles: ['Customer', 'Worker'],
+      isAdmin: false, isCustomer: true, isWorker: true,
+    };
+    await expect(cachedService.getRequestSummary(serviceRequestId, outsider)).rejects.toThrow(ForbiddenException);
+  });
+
   describe('Redis Caching', () => {
+    it('uses a new cache version after payment is recorded even when old cache survives', async () => {
+      const serviceRequestId = randomUUID();
+      const customerId = randomUUID();
+      const orderId = randomUUID();
+      const now = new Date();
+      const user: GatewayUser = { userId: customerId, roles: ['Customer'], isAdmin: false, isCustomer: true, isWorker: false };
+      const events: any[] = [
+        { eventType: 'order.created', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, metadata: {} },
+        { eventType: 'order.completed', entityType: TrackingEntityType.order, entityId: orderId, occurredAt: now, metadata: {} },
+      ];
+      let eventSequence = 2;
+      prismaMock.trackingFlow.findUnique.mockImplementation(async () => ({
+        id: randomUUID(), serviceRequestId, customerId, orderId, eventSequence,
+        createdAt: now, updatedAt: now, events: [...events],
+      }));
+      const cache = new Map<string, any>();
+      const redisMock: any = {
+        get: vi.fn(async (key: string) => cache.get(key) ?? null),
+        set: vi.fn(async (key: string, value: any) => { cache.set(key, value); }),
+        delByPattern: vi.fn(async () => { /* Redis outage leaves old key behind. */ }),
+      };
+      const cachedService = new SummaryService(prismaMock, redisMock);
+      const before = await cachedService.getRequestSummary(serviceRequestId, user);
+      expect(before.payment).toBeUndefined();
+      events.push({ eventType: 'payment.succeeded', entityType: TrackingEntityType.payment, entityId: randomUUID(), occurredAt: new Date(now.getTime() + 1), metadata: {} });
+      eventSequence = 3;
+      await redisMock.delByPattern(`tracking:*:${serviceRequestId}:*`);
+      const after = await cachedService.getRequestSummary(serviceRequestId, user);
+      expect(after.payment?.status).toBe('succeeded');
+      expect(cache.has(`tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v2`)).toBe(true);
+      expect(redisMock.get).toHaveBeenLastCalledWith(`tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v3`);
+    });
+
+    it('checks ownership before returning a cached summary', async () => {
+      const serviceRequestId = randomUUID();
+      const user: GatewayUser = { userId: randomUUID(), roles: ['Customer'], isAdmin: false, isCustomer: true, isWorker: false };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({ id: randomUUID(), serviceRequestId, customerId: randomUUID(), eventSequence: 2, events: [] });
+      const redisMock: any = { get: vi.fn().mockResolvedValue({ currentPhase: 'COMPLETED' }) };
+      await expect(new SummaryService(prismaMock, redisMock).getRequestSummary(serviceRequestId, user)).rejects.toThrow(ForbiddenException);
+      expect(redisMock.get).not.toHaveBeenCalled();
+    });
+
     it('should return cached summary immediately if present in Redis', async () => {
       const serviceRequestId = randomUUID();
       const user: GatewayUser = {
@@ -378,16 +524,21 @@ describe('SummaryService', () => {
         get: vi.fn().mockResolvedValue(cachedData),
         set: vi.fn(),
       };
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: cachedData.flowId, serviceRequestId, eventSequence: 3, events: [],
+      });
 
       const cachedService = new SummaryService(prismaMock, redisMock);
-      const result = await cachedService.getRequestSummary(serviceRequestId, user);
+      const result = await cachedService.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
 
       expect(result).toBe(cachedData);
       expect(redisMock.get).toHaveBeenCalledWith(
-        `tracking:summary:${serviceRequestId}:admin`,
+        `tracking:summary-auth3:${serviceRequestId}:admin:v3`,
       );
-      // DB should not be called on cache hit
-      expect(prismaMock.trackingFlow.findUnique).not.toHaveBeenCalled();
+      expect(prismaMock.trackingFlow.findUnique).toHaveBeenCalledOnce();
     });
 
     it('should cache summary in Redis with TTL when currentPhase is COMPLETED', async () => {
@@ -435,10 +586,13 @@ describe('SummaryService', () => {
       });
 
       const cachedService = new SummaryService(prismaMock, redisMock);
-      const _result = await cachedService.getRequestSummary(serviceRequestId, user);
+      const _result = await cachedService.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
 
       expect(redisMock.set).toHaveBeenCalledWith(
-        `tracking:summary:${serviceRequestId}:cust:${customerId}`,
+        `tracking:summary-auth3:${serviceRequestId}:cust:${customerId}:v0`,
         expect.objectContaining({ currentPhase: 'COMPLETED' }),
         7 * 24 * 3600,
       );
@@ -495,15 +649,20 @@ describe('SummaryService', () => {
             toStatus: 'created',
           },
           {
-            eventType: 'order.started',
+            eventType: 'order.status.changed',
             entityType: TrackingEntityType.order,
             entityId: orderId,
             occurredAt: new Date(),
+            fromStatus: 'confirmed',
+            toStatus: 'in_progress',
           },
         ],
       });
 
-      const inProgressSummary = await service.getRequestSummary(serviceRequestId, user);
+      const inProgressSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(inProgressSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
       expect(inProgressSummary.order?.status).toBe('in_progress');
 
@@ -533,7 +692,10 @@ describe('SummaryService', () => {
         ],
       });
 
-      const disputedSummary = await service.getRequestSummary(serviceRequestId, user);
+      const disputedSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(disputedSummary.currentPhase).toBe('DISPUTED');
       expect(disputedSummary.order?.status).toBe('disputed');
 
@@ -569,9 +731,266 @@ describe('SummaryService', () => {
         ],
       });
 
-      const nextStatusSummary = await service.getRequestSummary(serviceRequestId, user);
+      const nextStatusSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
       expect(nextStatusSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
       expect(nextStatusSummary.order?.status).toBe('in_progress');
+    });
+
+    it('derives the awaiting-confirmation milestone from one status change', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const finishedAt = new Date('2026-11-10T10:00:00.000Z');
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date('2026-11-10T09:00:00.000Z'),
+        updatedAt: finishedAt,
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date('2026-11-10T09:00:00.000Z'),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: finishedAt,
+            fromStatus: 'in_progress',
+            toStatus: 'awaiting_customer_confirmation',
+            metadata: {
+              previousStatus: 'in_progress',
+              nextStatus: 'awaiting_customer_confirmation',
+              finishedAt: finishedAt.toISOString(),
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('AWAITING_CONFIRMATION');
+      expect(summary.order).toMatchObject({
+        status: 'awaiting_customer_confirmation',
+        finishedAt,
+      });
+    });
+
+    it('should transition to ORDER_IN_PROGRESS and record reworkReason when rework is requested', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 20000),
+            fromStatus: 'in_progress',
+            toStatus: 'awaiting_customer_confirmation',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'finished',
+            toStatus: 'in_progress',
+            reason: 'Vòi nước vẫn còn rò rỉ sau khi sửa',
+            metadata: {
+              previousStatus: 'finished',
+              nextStatus: 'in_progress',
+              reworkReason: 'Vòi nước vẫn còn rò rỉ sau khi sửa',
+              notificationKind: 'rework_requested',
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(summary.order?.status).toBe('in_progress');
+      expect(summary.order?.reworkReason).toBe(
+        'Vòi nước vẫn còn rò rỉ sau khi sửa',
+      );
+    });
+
+    it('should compute DISPUTED phase and record disputeReason when dispute is filed', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.disputed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            toStatus: 'disputed',
+            reason: 'Thợ không đến đúng hẹn và làm hỏng tường',
+            metadata: {
+              disputeReason: 'Thợ không đến đúng hẹn và làm hỏng tường',
+            },
+          },
+        ],
+      });
+
+      const summary = await service.getRequestSummary(serviceRequestId, user);
+      expect(summary.currentPhase).toBe('DISPUTED');
+      expect(summary.order?.status).toBe('disputed');
+      expect(summary.order?.disputeReason).toBe(
+        'Thợ không đến đúng hẹn và làm hỏng tường',
+      );
+    });
+
+    it('should accurately compute phase when dispute is resolved by Admin', async () => {
+      const customerId = randomUUID();
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const user: GatewayUser = {
+        userId: customerId,
+        roles: ['Customer'],
+        isAdmin: false,
+        isCustomer: true,
+        isWorker: false,
+      };
+
+      // 1. Resolved with resume_previous_state -> ORDER_IN_PROGRESS
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.created',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 30000),
+            toStatus: 'created',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 20000),
+            toStatus: 'disputed',
+          },
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'disputed',
+            toStatus: 'in_progress',
+            reason: 'Hòa giải thành công',
+            metadata: {
+              previousStatus: 'disputed',
+              nextStatus: 'in_progress',
+              resolution: 'resume_previous_state',
+            },
+          },
+        ],
+      });
+
+      const resumedSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
+      expect(resumedSummary.currentPhase).toBe('ORDER_IN_PROGRESS');
+      expect(resumedSummary.order?.status).toBe('in_progress');
+
+      // 2. Resolved with cancel -> CANCELLED
+      prismaMock.trackingFlow.findUnique.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        customerId,
+        orderId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [
+          {
+            eventType: 'order.status.changed',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            occurredAt: new Date(Date.now() - 10000),
+            fromStatus: 'disputed',
+            toStatus: 'cancelled',
+            metadata: {
+              previousStatus: 'disputed',
+              nextStatus: 'cancelled',
+              resolution: 'cancel',
+            },
+          },
+        ],
+      });
+
+      const cancelledSummary = await service.getRequestSummary(
+        serviceRequestId,
+        user,
+      );
+      expect(cancelledSummary.currentPhase).toBe('CANCELLED');
+      expect(cancelledSummary.order?.status).toBe('cancelled');
     });
   });
 });

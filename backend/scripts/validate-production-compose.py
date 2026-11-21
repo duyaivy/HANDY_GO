@@ -64,18 +64,30 @@ with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
         env['PRIVATE_IP'] = {'vps1': '10.77.0.1', 'vps2': '10.77.0.2', 'vps3': '10.77.0.3', 'vps4': '10.77.0.4'}[role]
         output = subprocess.check_output([*command, '--profile', role, 'config', '--format', 'json'], env=env, text=True)
         services = json.loads(output)['services']
+        same_host_overrides = {
+            ('vps1', 'api-gateway'): {
+                'AUTH_SERVICE_URL': 'http://auth-service:3001',
+                'USER_TRUST_SERVICE_URL': 'http://user-trust-service:3002',
+                'NOTIFICATION_SERVICE_URL': 'http://notification-service:3008',
+            },
+            ('vps2', 'order-service'): {
+                'BIDDING_SERVICE_URL': 'http://bidding-service:3005',
+                'MATCHING_SERVICE_URL': 'http://matching-service:3006',
+            },
+            ('vps2', 'bidding-service'): {
+                'ORDER_SERVICE_URL': 'http://order-service:3004',
+            },
+            ('vps3', 'payment-service'): {
+                'WALLET_SERVICE_URL': 'http://wallet-service:3009',
+            },
+        }
         for name, service in services.items():
             if name == 'nginx':
                 continue
-            if role == 'vps1' and name == 'api-gateway':
-                assert set(service['environment']) == set(required_keys) | {
-                    'PORT', 'NODE_OPTIONS', 'AUTH_SERVICE_URL', 'USER_TRUST_SERVICE_URL', 'NOTIFICATION_SERVICE_URL'
-                }
-                assert service['environment']['AUTH_SERVICE_URL'] == 'http://auth-service:3001'
-                assert service['environment']['USER_TRUST_SERVICE_URL'] == 'http://user-trust-service:3002'
-                assert service['environment']['NOTIFICATION_SERVICE_URL'] == 'http://notification-service:3008'
-            else:
-                assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'}
+            overrides = same_host_overrides.get((role, name), {})
+            assert set(service['environment']) == set(required_keys) | {'PORT', 'NODE_OPTIONS'} | set(overrides)
+            for key, expected_url in overrides.items():
+                assert service['environment'][key] == expected_url
         print(f'{role}: Compose resolves with every optional ENV absent')
     # Infrastructure interpolation remains mandatory.
     for required in ('APP_IMAGE', 'APP_ENV_FILE', 'PRIVATE_IP', 'NGINX_IMAGE'):

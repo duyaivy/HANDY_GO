@@ -163,6 +163,15 @@
         "tsConfigPath": "apps/tracking-service/tsconfig.app.json"
       }
     },
+    "tracking-replay": {
+      "type": "application",
+      "root": "apps/tracking-replay",
+      "entryFile": "main",
+      "sourceRoot": "apps/tracking-replay/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/tracking-replay/tsconfig.app.json"
+      }
+    },
     "user-trust-service": {
       "type": "application",
       "root": "apps/user-trust-service",

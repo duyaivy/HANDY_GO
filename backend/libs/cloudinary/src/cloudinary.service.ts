@@ -37,6 +37,7 @@ export class CloudinaryService {
   async uploadImage(
     file: Express.Multer.File,
     chatOwnerId?: string,
+    publicOwnerId?: string,
   ): Promise<UploadImageResponseDto> {
     if (!file || !file.buffer || file.buffer.length === 0) {
       throw new AppException(
@@ -123,6 +124,14 @@ export class CloudinaryService {
             width: result.width,
             height: result.height,
             bytes: result.bytes,
+            ...(publicOwnerId && !chatOwnerId
+              ? {
+                  uploadReceipt: crypto
+                    .createHmac('sha256', apiSecret)
+                    .update(`${publicOwnerId}:image:${result.public_id}`)
+                    .digest('hex'),
+                }
+              : {}),
           });
         },
       );
@@ -196,12 +205,26 @@ export class CloudinaryService {
 
     const uploadId = crypto.randomUUID();
     const folder =
-      dto.intent === 'chat' ? '' : this.configService.cloudinaryVideoFolder;
+      dto.intent === 'chat'
+        ? ''
+        : dto.intent === 'review' && chatOwnerId
+          ? `handy-go/reviews/videos/${chatOwnerId}`
+          : this.configService.cloudinaryVideoFolder;
     const publicId =
       dto.intent === 'chat'
         ? `handy-go/chat/videos/${crypto.randomUUID()}`
-        : `${folder}/${crypto.randomUUID()}`;
+        : dto.intent === 'review' && chatOwnerId
+          ? `${folder}/${crypto.randomUUID()}`
+          : `${folder}/${crypto.randomUUID()}`;
     const timestamp = Math.floor(Date.now() / 1000);
+
+    const uploadReceipt =
+      chatOwnerId && (dto.intent === 'review' || !dto.intent)
+        ? crypto
+            .createHmac('sha256', apiSecret)
+            .update(`${chatOwnerId}:video:${publicId}`)
+            .digest('hex')
+        : undefined;
 
     const privateOptions =
       dto.intent === 'chat'
@@ -213,7 +236,7 @@ export class CloudinaryService {
         : {};
     const paramsToSign = {
       ...privateOptions,
-      folder,
+      folder: '',
       public_id: publicId,
       timestamp,
     };
@@ -236,12 +259,37 @@ export class CloudinaryService {
       timestamp,
       signature,
       publicId,
-      folder,
+      folder: '',
       resourceType: 'video',
       uploadUrl,
       chunkSize,
+      uploadReceipt,
     };
   }
+
+  /** Verify positive ownership evidence; a path containing an owner ID is not proof. */
+  async verifyReviewMedia(input: {
+    publicId: string;
+    ownerId: string;
+    mediaType: 'image' | 'video';
+    uploadReceipt?: string;
+  }): Promise<boolean> {
+    const secret = this.configService.cloudinaryApiSecret;
+    if (!secret || !/^[a-f0-9]{64}$/.test(input.uploadReceipt || ''))
+      return false;
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${input.ownerId}:${input.mediaType}:${input.publicId}`)
+      .digest('hex');
+    return (
+      input.uploadReceipt!.length === expected.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(input.uploadReceipt!),
+        Buffer.from(expected),
+      )
+    );
+  }
+
   private chatContext(
     ownerId: string,
     key: string,

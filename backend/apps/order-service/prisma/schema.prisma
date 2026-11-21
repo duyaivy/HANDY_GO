@@ -179,6 +179,8 @@ model Order {
 
   @@index([customerUserId, status, createdAt])
   @@index([workerUserId, status, createdAt])
+  @@index([createdAt])
+  @@index([status, completedAt])
   @@map("orders")
   @@schema("order_service")
 }

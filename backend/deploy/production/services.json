@@ -28,7 +28,8 @@
       "url_env": "AUTH_SERVICE_URL",
       "http_callers": [
         "api-gateway",
-        "message-service"
+        "message-service",
+        "order-service"
       ],
       "wireguard_http": true
     },
@@ -48,7 +49,8 @@
         "bidding-service",
         "wallet-service",
         "message-service",
-        "payment-service"
+        "payment-service",
+        "order-service"
       ],
       "wireguard_http": true
     },
@@ -81,7 +83,8 @@
         "api-gateway",
         "bidding-service",
         "message-service",
-        "payment-service"
+        "payment-service",
+        "user-trust-service"
       ],
       "wireguard_http": true
     },
@@ -139,7 +142,7 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 112,
+      "memory_mib": 192,
       "migration": "payment",
       "migration_order": 2,
       "url_env": "PAYMENT_SERVICE_URL",
@@ -154,7 +157,7 @@
       "state": "PARTIAL",
       "deploy": true,
       "scope": "health-only",
-      "memory_mib": 112,
+      "memory_mib": 192,
       "migration": "wallet",
       "migration_order": 1,
       "url_env": "WALLET_SERVICE_URL",
@@ -177,6 +180,7 @@
       "http_callers": [
         "api-gateway",
         "user-trust-service",
+        "order-service",
         "message-service"
       ],
       "wireguard_http": true

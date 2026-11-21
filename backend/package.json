@@ -65,6 +65,7 @@
     "lint": "oxlint apps/ libs/ *.ts",
     "test": "vitest run",
     "seed:tracking": "node --env-file=.env scripts/seed-tracking-test-data.mjs",
+    "tracking:replay-rejected": "nest build tracking-replay && node dist/apps/tracking-replay/main.js",
     "test:notification:events": "node scripts/test-notification-events.mjs",
     "test:notification:cloud-event": "node --env-file-if-exists=.env scripts/test-notification-cloud-event.mjs",
     "test:watch": "vitest",

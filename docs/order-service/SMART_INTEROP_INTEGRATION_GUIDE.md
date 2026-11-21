@@ -129,22 +129,11 @@ graph TD
 - **File nguồn:** [`mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx)
 - **Dòng mã nguồn:** L30-L38, L97-L105
 
-#### Hiện trạng Fallback:
-1. **Mock Order cho ID `JOB-1020`:**
-   ```typescript
-   // mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx: L30-L37
-   const fallbackJob = {
-     id: jobId,
-     orderCode: jobId,
-     agreedPrice: 300000,
-     agreedScope: 'Sửa chữa và thay mới đường ống cấp nước bồn rửa',
-     addressText: '123 Nguyễn Lương Bằng, Đà Nẵng',
-     status: 'created',
-   };
-   const currentJob = order || fallbackJob;
-   ```
+#### Hiện trạng Tích hợp:
+1. **Live Production SSE & Timeline (HG-64):** Đã hoàn tất tích hợp `OrderTrackingTimeline`, `useTrackingSummary`, và `useTrackingEvents` đồng bộ thời gian thực 2 chiều giữa Khách hàng và Thợ. Có cơ chế Graceful Fallback tự động rơi về `statusHistory` nếu gián đoạn kết nối.
+2. **Mock Order cho ID `JOB-1020`:** Giữ nguyên để phục vụ automated tests độc lập.
 
-#### Hướng dẫn đấu nối khi Live Tracking & Map Service hoàn thành:
+#### Hướng dẫn đấu nối bổ sung khi mở rộng Map Service (Tùy chọn):
 1. **Nút dẫn đường (Navigation):**
    - Nối icon địa chỉ `📍 {currentJob.addressText}` với `Linking.openURL('https://www.google.com/maps/dir/?api=1&destination=...')`.
 2. **Background Geolocation Service:**
@@ -181,4 +170,4 @@ graph TD
 | **Notification Service (FCM/OneSignal)** | [`use-worker-jobs.ts`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/hooks/use-worker-jobs.ts) | Nhận Push Notification khi có Proposal mới và tự động refetch | **Cao** |
 | **Payment Service (Escrow/VNPay)** | [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx) | Tích hợp xác nhận thanh toán trực tuyến trước khi chuyển `completed` | **Trung bình** |
 | **Review & Rating Service** | [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx) | Mở màn hình đánh giá sao sau khi nghiệm thu thành công | **Trung bình** |
-| **Tracking / Map Service** | [`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx) | Khởi động GPS tracking khi thợ bấm "Bắt đầu làm" | **Thấp** |
+| **Tracking Service (SSE & Live Timeline)** | [`customer-order-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/customer/screens/customer-order-detail-screen.tsx), [`worker-job-detail-screen.tsx`](file:///d:/SCHOOL/PBL6/mobile/src/features/orders/worker/screens/worker-job-detail-screen.tsx) | ✅ **Live Production SSE** - Đã hoàn thành tích hợp 100% trong HG-64 | **Hoàn thành** |

@@ -17,10 +17,10 @@ Một Compose: `backend/deploy/production/compose.production.yml`. Một ENV ứ
 | 1 | | auth-service | Register/OTP/login/refresh/reset | 208 / 112 |
 | 1 | | user-trust-service | Profile/provisioning/RPC; chưa đầy đủ KYC | 176 / 96 |
 | 1 | | notification-service | **Phase 1 core APIs**, chưa delivery/consumer | 128 / 64 |
-| 2 | 10.77.0.2 | order-service | **Health-only** | 128 / 64 |
+| 2 | 10.77.0.2 | order-service | API request/order và transactional outbox; chưa nghiệm thu luồng thật trên production | 128 / 64 |
 | 2 | | bidding-service | **Health-only** | 112 / 56 |
 | 2 | | matching-service | **Health-only** | 160 / 80 |
-| 2 | | tracking-service | **Health-only**, chưa realtime | 128 / 64 |
+| 2 | | tracking-service | Consumer event, timeline và SSE trong mã nguồn; chưa nghiệm thu luồng thật trên production | 128 / 64 |
 | 3 | 10.77.0.3 | payment-service | **Health-only** | 112 / 56 |
 | 3 | | wallet-service | **Health-only** | 112 / 56 |
 | 3 | | catalog-service | Category/service CRUD, cache, outbox | 224 / 128 |
@@ -524,7 +524,7 @@ curl -i https://handygo.duyaivy.id.vn/docs-json
 curl -i https://handygo.duyaivy.id.vn/docs/specs/auth-service
 ```
 
-Spec downstream phải có các endpoint nghiệp vụ; HTTP 200 với tiêu đề `(Offline)` nghĩa là Gateway chưa lấy được `/docs-json` từ service đó. Không coi GET /health 200 là DB/consumer nghiệp vụ đạt; bảy service khung chỉ có liveness. Các probes chưa thay thế business acceptance/payment/webhook/realtime/load test.
+Spec downstream phải có các endpoint nghiệp vụ; HTTP 200 với tiêu đề `(Offline)` nghĩa là Gateway chưa lấy được `/docs-json` từ service đó. Không coi GET /health 200 là DB/consumer nghiệp vụ đạt; các service còn khung chỉ có liveness. Order và Tracking có luồng nghiệp vụ trong mã nguồn nhưng vẫn cần kiểm thử với RabbitMQ/PostgreSQL/Redis thật và SSE qua gateway. Các probes chưa thay thế business acceptance/payment/webhook/realtime/load test.
 
 Trong Actions → Backend production → deploy → **Coordinate production release or manual rollback**, log ghi SSH start/complete/failed cho từng VPS và stage/begin/prepare/apply/verify/commit/restore/finish. Remote stderr được truyền trực tiếp; Docker command và migration có log start/complete, exit code và 40 dòng cuối khi lỗi. Lỗi apply/verify/restore còn thu container State/health và 40 dòng log gần nhất trước khi rollback. JSON stdout dành cho coordinator, không bị trộn với log.
 

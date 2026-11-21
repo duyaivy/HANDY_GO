@@ -95,7 +95,10 @@ export class ApiError extends Error {
     const message = data?.message || data?.error || 'Đã có lỗi xảy ra. Vui lòng thử lại.';
 
     if (code === ERROR_CODES.RATE_LIMITED || status === 429) {
-      return new ApiError('RATE_LIMITED', message, {
+      const rateLimitMessage = typeof data === 'object' && typeof data?.message === 'string'
+        ? data.message
+        : 'Hệ thống đang nhận quá nhiều yêu cầu. Vui lòng đợi vài giây rồi thử lại.';
+      return new ApiError('RATE_LIMITED', rateLimitMessage, {
         statusCode: status,
         code: code || ERROR_CODES.RATE_LIMITED,
         fieldErrors,

@@ -98,7 +98,11 @@ services:
     <<: *app
     profiles: [vps2]
     command: [node, dist/apps/order-service/main.js]
-    environment: {PORT: '3004', NODE_OPTIONS: '--max-old-space-size=64'}
+    environment:
+      PORT: '3004'
+      NODE_OPTIONS: '--max-old-space-size=64'
+      BIDDING_SERVICE_URL: http://bidding-service:3005
+      MATCHING_SERVICE_URL: http://matching-service:3006
     mem_limit: 128m
     memswap_limit: 256m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3004:3004']
@@ -106,7 +110,10 @@ services:
     <<: *app
     profiles: [vps2]
     command: [node, dist/apps/bidding-service/main.js]
-    environment: {PORT: '3005', NODE_OPTIONS: '--max-old-space-size=56'}
+    environment:
+      PORT: '3005'
+      NODE_OPTIONS: '--max-old-space-size=56'
+      ORDER_SERVICE_URL: http://order-service:3004
     mem_limit: 112m
     memswap_limit: 224m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3005:3005']
@@ -130,17 +137,22 @@ services:
     <<: *app
     profiles: [vps3]
     command: [node, dist/apps/payment-service/main.js]
-    environment: {PORT: '3007', NODE_OPTIONS: '--max-old-space-size=56'}
-    mem_limit: 112m
-    memswap_limit: 224m
+    environment:
+      PORT: '3007'
+      NODE_OPTIONS: '--max-old-space-size=104'
+      WALLET_SERVICE_URL: http://wallet-service:3009
+    mem_limit: 192m
+    memswap_limit: 384m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3007:3007']
   wallet-service:
     <<: *app
     profiles: [vps3]
     command: [node, dist/apps/wallet-service/main.js]
-    environment: {PORT: '3009', NODE_OPTIONS: '--max-old-space-size=56'}
-    mem_limit: 112m
-    memswap_limit: 224m
+    environment:
+      PORT: '3009'
+      NODE_OPTIONS: '--max-old-space-size=104'
+    mem_limit: 192m
+    memswap_limit: 384m
     ports: ['${PRIVATE_IP:?WireGuard IP required}:3009:3009']
   catalog-service:
     <<: *app

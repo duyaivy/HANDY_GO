@@ -1,4 +1,5 @@
 import type { OrderStatusHistoryItem } from '../../types/order.types';
+import type { TrackingEventItem } from '@/features/tracking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -13,6 +14,11 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
+import {
+  OrderTrackingTimeline,
+  useTrackingEvents,
+  useTrackingSummary,
+} from '@/features/tracking';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
 function formatVND(amount: number | string | undefined | null): string {
@@ -64,23 +70,121 @@ export function WorkerJobDetailScreen({
   onBack,
 }: WorkerJobDetailScreenProps = {}) {
   const router = useRouter();
-  const params = useLocalSearchParams<{ id?: string }>();
+  const params = useLocalSearchParams<{ id?: string; serviceRequestId?: string }>();
   const jobId = propJobId || params.id || '';
 
   const {
     confirmReadiness,
     isConfirmingReadiness,
     isLoading,
+    isRefetching,
     isStartingOrder,
     order,
+    refetch,
     startOrder,
     statusHistory,
   } = useWorkerJobDetail(jobId);
 
-  // Trạng thái local cho phép test mượt mà ngay cả khi mock
-  const [localStatus, setLocalStatus] = React.useState<string>(order?.status || 'created');
+  // Lấy serviceRequestId từ order hoặc params
+  const serviceRequestId = order?.serviceRequestId || params.serviceRequestId;
 
-  const currentStatus = order?.status || localStatus;
+  // Lấy dữ liệu summary từ Tracking Service
+  const {
+    data: trackingSummary,
+    isError: isTrackingError,
+    isLoading: isTrackingLoading,
+  } = useTrackingSummary(serviceRequestId);
+
+  const [demoStatus, setDemoStatus] = React.useState('created');
+  const retryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeJobId = React.useRef(jobId);
+  const notifiedEventIds = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    activeJobId.current = jobId;
+    const notifiedIds = notifiedEventIds.current;
+    return () => {
+      activeJobId.current = '';
+      notifiedIds.clear();
+      if (retryTimer.current) {
+        clearTimeout(retryTimer.current);
+      }
+    };
+  }, [jobId]);
+
+  // Xử lý sự kiện thời gian thực từ Tracking SSE
+  const handleWorkerRealtimeEvent = React.useCallback((event: TrackingEventItem) => {
+    if (event.entityType !== 'order' || event.entityId !== jobId) {
+      return;
+    }
+    void refetch().then((result) => {
+      if (activeJobId.current !== jobId) {
+        return;
+      }
+      if (event.eventType === 'order.status.changed' && event.toStatus && result?.data?.status !== event.toStatus) {
+        if (retryTimer.current) {
+          clearTimeout(retryTimer.current);
+        }
+        retryTimer.current = setTimeout(() => {
+          retryTimer.current = null;
+          if (activeJobId.current === jobId) {
+            void refetch();
+          }
+        }, 2000);
+      }
+    });
+
+    // Mọi event cập nhật dữ liệu; chỉ event nghiệp vụ chuyên biệt được hiện Alert một lần.
+    if (event.eventType !== 'order.rework_requested' && event.eventType !== 'order.completed' && event.eventType !== 'order.disputed') {
+      return;
+    }
+    if (notifiedEventIds.current.has(event.eventId)) {
+      return;
+    }
+    notifiedEventIds.current.add(event.eventId);
+
+    // Chỉ event nghiệp vụ của khách mới là yêu cầu làm lại; reason của admin không phải rework.
+    if (event.eventType === 'order.rework_requested') {
+      const reworkReason = event.metadata?.reworkReason;
+      const reworkReasonText = typeof reworkReason === 'string' && reworkReason.trim()
+        ? reworkReason.trim()
+        : 'Khách hàng yêu cầu chỉnh sửa lại công việc';
+      Alert.alert(
+        '⚠️ Yêu cầu chỉnh sửa công việc',
+        `Khách hàng vừa gửi yêu cầu sửa lại:\n\n"${reworkReasonText}"\n\nVui lòng kiểm tra và hoàn thiện lại công việc.`,
+        [{ text: 'Đã hiểu', style: 'default' }],
+      );
+    }
+
+    // 2. Trường hợp Khách hàng đã duyệt nghiệm thu thành công
+    if (event.eventType === 'order.completed') {
+      Alert.alert(
+        '🎉 Nghiệm thu thành công!',
+        'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
+        [{ text: 'Tuyệt vời', style: 'default' }],
+      );
+    }
+
+    // 3. Trường hợp đơn bị tranh chấp / khiếu nại
+    if (event.eventType === 'order.disputed') {
+      Alert.alert(
+        '🚨 Đơn hàng đang được khiếu nại',
+        'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.',
+        [{ text: 'Xem chi tiết', style: 'destructive' }],
+      );
+    }
+  }, [jobId, refetch]);
+
+  // Lắng nghe sự kiện SSE với callback xử lý thông báo
+  const { connectionStatus } = useTrackingEvents(serviceRequestId, handleWorkerRealtimeEvent);
+
+  const currentStatus = jobId === 'JOB-1020' ? demoStatus : order?.status;
+  const lastStatusChange = order?.statusHistory?.at(-1);
+  const activeReworkReason = currentStatus === 'in_progress'
+    && lastStatusChange?.fromStatus === 'awaiting_customer_confirmation'
+    && lastStatusChange.toStatus === 'in_progress'
+    ? lastStatusChange.reason
+    : null;
 
   // Lean Dispatch Rule 3 (Guard): Kiểm tra nếu chưa tới 30 phút trước giờ hẹn
   const isTooEarly = React.useMemo(() => {
@@ -98,32 +202,30 @@ export function WorkerJobDetailScreen({
 
   const handleConfirmReadiness = async () => {
     try {
-      if (jobId && jobId !== 'JOB-1020') {
+      if (jobId === 'JOB-1020') {
+        setDemoStatus('confirmed');
+      }
+      else {
         await confirmReadiness();
       }
-      setLocalStatus('confirmed');
       Alert.alert('Thành công', 'Đã xác nhận sẵn sàng thi công!');
     }
-    catch {
-      setLocalStatus('confirmed');
-      Alert.alert('Sẵn sàng', 'Đã xác nhận sẵn sàng thi công!');
+    catch (err: any) {
+      Alert.alert('Chưa thể xác nhận sẵn sàng', err?.message || 'Vui lòng thử lại.');
     }
   };
 
   const handleStartOrder = async () => {
     try {
-      if (jobId && jobId !== 'JOB-1020') {
+      if (jobId === 'JOB-1020') {
+        setDemoStatus('in_progress');
+      }
+      else {
         await startOrder();
       }
-      setLocalStatus('in_progress');
       Alert.alert('Bắt đầu', 'Đơn hàng đã bắt đầu tính thời gian thi công!');
     }
     catch (err: any) {
-      if (jobId === 'JOB-1020') {
-        setLocalStatus('in_progress');
-        Alert.alert('Bắt đầu', 'Đơn hàng đã chuyển sang trạng thái Đang làm!');
-        return;
-      }
       const message
         = err?.response?.data?.message
           || err?.message
@@ -146,6 +248,9 @@ export function WorkerJobDetailScreen({
           <View className="items-center justify-center py-4">
             <ActivityIndicator size="small" color={PRIMARY_COLOR} />
           </View>
+        )}
+        {isRefetching && (
+          <Text className="mb-2 text-xs text-neutral-500">Đang cập nhật trạng thái đơn việc...</Text>
         )}
 
         {/* Thẻ thông tin khách hàng & địa chỉ làm việc */}
@@ -211,6 +316,43 @@ export function WorkerJobDetailScreen({
           </View>
         </View>
 
+        {/* Dòng thời gian Timeline các mốc trạng thái */}
+        {serviceRequestId && !isTrackingError && (trackingSummary || isTrackingLoading)
+          ? (
+              <OrderTrackingTimeline
+                summary={trackingSummary}
+                isLoading={isTrackingLoading}
+                connectionStatus={connectionStatus}
+              />
+            )
+          : (
+              /* FALLBACK: Render statusHistory tĩnh cũ nếu Tracking Service không khả dụng */
+              statusHistory && statusHistory.length > 0 && (
+                <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+                  <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
+                    Lịch sử trạng thái đơn hàng (Dự phòng)
+                  </Text>
+                  <View className="gap-2.5">
+                    {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
+                      <View key={item.id || idx} className="flex-row items-start gap-2.5">
+                        <View className="mt-1 size-2 rounded-full bg-primary" />
+                        <View className="flex-1">
+                          <Text className="text-xs font-bold text-neutral-900 dark:text-white">
+                            Chuyển sang:
+                            {' '}
+                            {formatOrderStatus(item.toStatus)}
+                          </Text>
+                          <Text className="text-[10px] text-neutral-400">
+                            {new Date(item.createdAt).toLocaleString('vi-VN')}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )
+            )}
+
         {/* Khối hành động thi công theo trạng thái */}
         <View className="mb-6 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
@@ -260,14 +402,31 @@ export function WorkerJobDetailScreen({
           )}
 
           {currentStatus === 'in_progress' && (
-            <Button
-              testID="worker-complete-job-nav-btn"
-              label="3. Chụp Ảnh Bằng Chứng & Báo Xong Việc →"
-              variant="default"
-              className="h-12 w-full rounded-2xl bg-emerald-600 active:bg-emerald-700"
-              textClassName="text-sm font-bold text-white"
-              onPress={() => router.push(RouteNames.WORKER_JOB_COMPLETE(jobId) as any)}
-            />
+            <View>
+              {activeReworkReason && (
+                <View
+                  testID="worker-rework-alert-banner"
+                  className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30"
+                >
+                  <Text className="text-xs font-bold text-amber-800 dark:text-amber-200">
+                    ⚠️ Khách hàng yêu cầu chỉnh sửa lại công việc
+                  </Text>
+                  <Text className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    &quot;
+                    {activeReworkReason}
+                    &quot;
+                  </Text>
+                </View>
+              )}
+              <Button
+                testID="worker-complete-job-nav-btn"
+                label="3. Chụp Ảnh Bằng Chứng & Báo Xong Việc →"
+                variant="default"
+                className="h-12 w-full rounded-2xl bg-emerald-600 active:bg-emerald-700"
+                textClassName="text-sm font-bold text-white"
+                onPress={() => router.push(RouteNames.WORKER_JOB_COMPLETE(jobId) as any)}
+              />
+            </View>
           )}
 
           {currentStatus === 'awaiting_customer_confirmation' && (
@@ -287,7 +446,21 @@ export function WorkerJobDetailScreen({
                 🎉 Đơn hàng đã hoàn tất!
               </Text>
               <Text className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
-                Khách hàng đã thanh toán và nghiệm thu thành công.
+                Khách hàng đã nghiệm thu công việc.
+              </Text>
+            </View>
+          )}
+
+          {currentStatus === 'disputed' && (
+            <View
+              testID="worker-disputed-banner"
+              className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/50 dark:bg-rose-950/20"
+            >
+              <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
+                🚨 Đơn hàng đang được khiếu nại
+              </Text>
+              <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
+                {order?.disputeReason || trackingSummary?.order?.disputeReason || 'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.'}
               </Text>
             </View>
           )}
@@ -314,32 +487,6 @@ export function WorkerJobDetailScreen({
             </View>
           )}
         </View>
-
-        {/* Dòng thời gian Timeline */}
-        {statusHistory && statusHistory.length > 0 && (
-          <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-            <Text className="mb-3 text-sm font-bold text-neutral-900 dark:text-white">
-              Lịch sử trạng thái đơn hàng
-            </Text>
-            <View className="gap-2.5">
-              {statusHistory.map((item: OrderStatusHistoryItem, idx: number) => (
-                <View key={item.id || idx} className="flex-row items-start gap-2.5">
-                  <View className="mt-1 size-2 rounded-full bg-primary" />
-                  <View className="flex-1">
-                    <Text className="text-xs font-bold text-neutral-900 dark:text-white">
-                      Chuyển sang:
-                      {' '}
-                      {formatOrderStatus(item.toStatus)}
-                    </Text>
-                    <Text className="text-[10px] text-neutral-400">
-                      {new Date(item.createdAt).toLocaleString('vi-VN')}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          </View>
-        )}
 
         {/* Tương thích automated test cũ */}
         <View className="mt-6 items-center justify-center py-2">

@@ -20,6 +20,13 @@ export class ServicesService {
     private readonly redis: RedisService,
   ) {}
 
+  async getDashboardSummaries(ids: string[]) {
+    return this.prisma.service.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, iconUrl: true },
+    });
+  }
+
   async create(dto: CreateServiceDto) {
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },

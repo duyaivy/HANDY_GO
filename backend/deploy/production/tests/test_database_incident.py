@@ -137,21 +137,21 @@ class DatabaseIncidentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DB_DDL_VERIFIED_AUTH"):
             validate_database_plan(values, self.registry, run_migrations=True)
 
-    def test_onboarding_requires_ddl_confirmation_only_for_message_related_migrations(
+    def test_onboarding_requires_ddl_confirmation_for_scoped_migrations(
         self,
     ):
         values = dict(self.values)
         for service in SERVICES:
             suffix = service.upper().replace("-", "_")
-            if service not in ("message", "notification", "order"):
+            if service not in ("message", "notification", "order", "tracking"):
                 values.pop("DB_DDL_VERIFIED_" + suffix, None)
         validate_database_plan(
             values,
             self.registry,
             run_migrations=True,
-            migration_scope={"message", "notification", "order"},
+            migration_scope={"message", "notification", "order", "tracking"},
         )
-        for service in ("message", "notification", "order"):
+        for service in ("message", "notification", "order", "tracking"):
             key = "DB_DDL_VERIFIED_" + service.upper()
             invalid = dict(values)
             invalid.pop(key)
@@ -160,7 +160,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                     invalid,
                     self.registry,
                     run_migrations=True,
-                    migration_scope={"message", "notification", "order"},
+                    migration_scope={"message", "notification", "order", "tracking"},
                 )
 
     def test_onboarding_requires_ddl_confirmation_for_order(self):
@@ -171,7 +171,7 @@ class DatabaseIncidentTests(unittest.TestCase):
                 values,
                 self.registry,
                 run_migrations=True,
-                migration_scope={"message", "notification", "order"},
+                migration_scope={"message", "notification", "order", "tracking"},
             )
         values.pop("DB_DDL_VERIFIED_ORDER", None)
         with self.assertRaisesRegex(ValueError, "DB_DDL_VERIFIED_ORDER"):
@@ -179,14 +179,14 @@ class DatabaseIncidentTests(unittest.TestCase):
                 values,
                 self.registry,
                 run_migrations=True,
-                migration_scope={"message", "notification", "order"},
+                migration_scope={"message", "notification", "order", "tracking"},
             )
         values["DB_DDL_VERIFIED_ORDER"] = "true"
         plan = validate_database_plan(
             values,
             self.registry,
             run_migrations=True,
-            migration_scope={"message", "notification", "order"},
+            migration_scope={"message", "notification", "order", "tracking"},
         )
         self.assertIn("PRIMARY", plan)
 
@@ -392,27 +392,38 @@ class DatabaseIncidentTests(unittest.TestCase):
 class OnboardingMigrationProofTests(unittest.TestCase):
     def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
         import tempfile
-        import shutil
         from database_plan import onboarding_migration_proof
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            dashboard_migrations = {
+                "apps/order-service/prisma/migrations/20261115000000_dashboard_overview_indexes/migration.sql",
+                "apps/bidding-service/prisma/migrations/20261115000000_dashboard_bid_activity_indexes/migration.sql",
+                "apps/auth-service/prisma/migrations/20261118000000_preserve_customer_registration_history/migration.sql",
+            }
+            later_migrations = {
+                "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
+            }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
             ):
-                destination = root / source.relative_to(PROD.parents[1])
+                relative = source.relative_to(PROD.parents[1])
+                if relative.as_posix() in dashboard_migrations | later_migrations:
+                    continue  # Reconstruct the historical three-host release baseline.
+                destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
+                # Release archives use Git's LF bytes, including on Windows checkouts.
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
-            self.assertEqual(proof["policy"], "vps4-additive-v2")
+            self.assertEqual(proof["policy"], "vps4-additive-v3")
             self.assertEqual(
                 proof["baseline_hash"],
-                "0fdda62ac971648dfc04209a4b6a2a8c3fb43665c2e1bdedd6a8e2390f52d5e1",
+                "fcab305bb94e6f3b925f442056df3b9955acd1552df90290ecbd5b130c3a3aa0",
             )
             current = {
                 "rollback_compatible": True,
                 "onboard_vps4": True,
-                "migration_scope": ["message", "notification", "order"],
+                "migration_scope": ["message", "notification", "order", "tracking"],
                 "migration_hash": proof["inventory_hash"],
                 "migration_compatibility": proof,
             }
@@ -421,6 +432,17 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "migration_hash": proof["baseline_hash"],
             }
             self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            for relative in dashboard_migrations:
+                source = PROD.parents[1] / relative
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(
+                migration_hash=changed["inventory_hash"],
+                migration_compatibility=changed,
+            )
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
             extra = (
                 root
                 / "apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql"

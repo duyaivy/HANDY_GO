@@ -206,7 +206,6 @@ export function useWorkerJobDetail(jobId?: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
     },
   });
 
@@ -222,7 +221,6 @@ export function useWorkerJobDetail(jobId?: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.orderDetail(jobId!) });
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
     },
   });
 
