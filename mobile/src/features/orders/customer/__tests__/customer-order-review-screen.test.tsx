@@ -358,7 +358,11 @@ describe('CustomerOrderReviewScreen', () => {
     fireEvent.press(screen.getByTestId('add-review-photo-btn'));
     const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
     await act(async () => {
-      alertButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
+      alertButtons.find(b => b.text === 'Hình ảnh').onPress();
+    });
+    const photoButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      photoButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
     });
 
     expect(screen.getByTestId('review-photo-item-0')).toBeOnTheScreen();
@@ -400,7 +404,11 @@ describe('CustomerOrderReviewScreen', () => {
     fireEvent.press(screen.getByTestId('add-review-photo-btn'));
     const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
     await act(async () => {
-      alertButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
+      alertButtons.find(b => b.text === 'Hình ảnh').onPress();
+    });
+    const photoButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      photoButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
     });
 
     fireEvent.press(screen.getByTestId('submit-review-btn'));
@@ -432,7 +440,11 @@ describe('CustomerOrderReviewScreen', () => {
     fireEvent.press(screen.getByTestId('add-review-photo-btn'));
     const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
     await act(async () => {
-      alertButtons.find(b => b.text === 'Quay video ngắn (tối đa 30s)').onPress();
+      alertButtons.find(b => b.text === 'Video (tối đa 30s)').onPress();
+    });
+    const videoButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      videoButtons.find(b => b.text === 'Quay video mới').onPress();
     });
 
     fireEvent.press(screen.getByTestId('submit-review-btn'));

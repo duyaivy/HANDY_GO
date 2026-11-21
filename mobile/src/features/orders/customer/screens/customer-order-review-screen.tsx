@@ -247,6 +247,87 @@ export function CustomerOrderReviewScreen({
     };
   };
 
+  // Camera and Library Handlers (split to ensure <= 3 buttons per Alert for full Android support)
+  const handleCapturePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Quyền truy cập', 'HandyGo cần quyền truy cập camera để chụp ảnh.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        mediaTypes: ['images'],
+      });
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        const newPhoto: LocalMediaItem = {
+          id: `camera-img-${Date.now()}`,
+          uri: result.assets[0].uri,
+          mediaType: 'image',
+        };
+        setMediaItems(prev => [...prev, newPhoto]);
+      }
+    }
+    catch (err) {
+      console.warn('[CAMERA_PHOTO_ERROR]', err);
+      Alert.alert('Lỗi', 'Không thể mở máy ảnh. Vui lòng thử lại.');
+    }
+  };
+
+  const handleCaptureVideo = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Quyền truy cập', 'HandyGo cần quyền truy cập máy ảnh để quay video.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['videos'],
+        videoMaxDuration: 30,
+      });
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        const newVideo: LocalMediaItem = {
+          id: `camera-vid-${Date.now()}`,
+          uri: result.assets[0].uri,
+          mediaType: 'video',
+        };
+        setMediaItems(prev => [...prev, newVideo]);
+      }
+    }
+    catch (err) {
+      console.warn('[CAMERA_VIDEO_ERROR]', err);
+      Alert.alert('Lỗi', 'Không thể mở máy quay video. Vui lòng thử lại.');
+    }
+  };
+
+  const handlePickFromLibrary = async (chosenType: 'images' | 'videos') => {
+    try {
+      const remaining = 5 - mediaItems.length;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsMultipleSelection: chosenType === 'images',
+        selectionLimit: remaining,
+        quality: 0.8,
+        mediaTypes: [chosenType],
+        videoMaxDuration: 30,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
+          const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
+          return {
+            id: `lib-${Date.now()}-${i}`,
+            uri: asset.uri,
+            mediaType: isVideo ? 'video' : 'image',
+          };
+        });
+        setMediaItems(prev => [...prev, ...newItems]);
+      }
+    }
+    catch (err) {
+      console.warn('[GALLERY_ERROR]', err);
+      Alert.alert('Lỗi', 'Không thể mở thư viện. Vui lòng thử lại.');
+    }
+  };
+
   // Pick / Capture Photo or Video
   const handleAddMediaPress = () => {
     if (mediaItems.length >= 5) {
@@ -277,91 +358,38 @@ export function CustomerOrderReviewScreen({
       return;
     }
 
-    Alert.alert('Đính kèm ảnh / video', 'Chọn hình thức đính kèm minh chứng nghiệm thu:', [
+    const hasVideo = mediaItems.some(item => item.mediaType === 'video');
+
+    if (hasVideo) {
+      // Đã có video, chỉ cho phép đính kèm thêm hình ảnh (tối đa 3 nút cho Android)
+      Alert.alert('Đính kèm hình ảnh', 'Chọn nguồn hình ảnh:', [
+        { text: 'Chụp ảnh mới', onPress: handleCapturePhoto },
+        { text: 'Chọn từ thư viện', onPress: () => handlePickFromLibrary('images') },
+        { text: 'Hủy', style: 'cancel' },
+      ]);
+      return;
+    }
+
+    // Menu lựa chọn cấp 1 (3 nút: Hình ảnh, Video, Hủy - tương thích hoàn hảo Android)
+    Alert.alert('Đính kèm ảnh / video', 'Chọn loại minh chứng muốn đính kèm:', [
       {
-        text: 'Chụp ảnh mới',
-        onPress: async () => {
-          try {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Quyền truy cập', 'HandyGo cần quyền truy cập camera để chụp ảnh.');
-              return;
-            }
-            const result = await ImagePicker.launchCameraAsync({
-              quality: 0.8,
-              mediaTypes: ['images'],
-            });
-            if (!result.canceled && result.assets && result.assets[0]?.uri) {
-              const newPhoto: LocalMediaItem = {
-                id: `camera-img-${Date.now()}`,
-                uri: result.assets[0].uri,
-                mediaType: 'image',
-              };
-              setMediaItems(prev => [...prev, newPhoto]);
-            }
-          }
-          catch (err) {
-            console.warn('[CAMERA_PHOTO_ERROR]', err);
-            Alert.alert('Lỗi', 'Không thể mở máy ảnh. Vui lòng thử lại.');
-          }
+        text: 'Hình ảnh',
+        onPress: () => {
+          Alert.alert('Đính kèm hình ảnh', 'Chọn nguồn hình ảnh:', [
+            { text: 'Chụp ảnh mới', onPress: handleCapturePhoto },
+            { text: 'Chọn từ thư viện', onPress: () => handlePickFromLibrary('images') },
+            { text: 'Hủy', style: 'cancel' },
+          ]);
         },
       },
       {
-        text: 'Quay video ngắn (tối đa 30s)',
-        onPress: async () => {
-          try {
-            const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Quyền truy cập', 'HandyGo cần quyền truy cập máy ảnh để quay video.');
-              return;
-            }
-            const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ['videos'],
-              videoMaxDuration: 30,
-            });
-            if (!result.canceled && result.assets && result.assets[0]?.uri) {
-              const newVideo: LocalMediaItem = {
-                id: `camera-vid-${Date.now()}`,
-                uri: result.assets[0].uri,
-                mediaType: 'video',
-              };
-              setMediaItems(prev => [...prev, newVideo]);
-            }
-          }
-          catch (err) {
-            console.warn('[CAMERA_VIDEO_ERROR]', err);
-            Alert.alert('Lỗi', 'Không thể mở máy quay video. Vui lòng thử lại.');
-          }
-        },
-      },
-      {
-        text: 'Chọn từ thư viện (Ảnh / Video)',
-        onPress: async () => {
-          try {
-            const remaining = 5 - mediaItems.length;
-            const result = await ImagePicker.launchImageLibraryAsync({
-              allowsMultipleSelection: true,
-              selectionLimit: remaining,
-              quality: 0.8,
-              mediaTypes: ['images', 'videos'],
-              videoMaxDuration: 60,
-            });
-            if (!result.canceled && result.assets && result.assets.length > 0) {
-              const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
-                const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/'));
-                return {
-                  id: `lib-${Date.now()}-${i}`,
-                  uri: asset.uri,
-                  mediaType: isVideo ? 'video' : 'image',
-                };
-              });
-              setMediaItems(prev => [...prev, ...newItems]);
-            }
-          }
-          catch (err) {
-            console.warn('[GALLERY_ERROR]', err);
-            Alert.alert('Lỗi', 'Không thể mở thư viện ảnh. Vui lòng thử lại.');
-          }
+        text: 'Video (tối đa 30s)',
+        onPress: () => {
+          Alert.alert('Đính kèm video', 'Chọn nguồn video:', [
+            { text: 'Quay video mới', onPress: handleCaptureVideo },
+            { text: 'Chọn từ thư viện', onPress: () => handlePickFromLibrary('videos') },
+            { text: 'Hủy', style: 'cancel' },
+          ]);
         },
       },
       { text: 'Hủy', style: 'cancel' },
