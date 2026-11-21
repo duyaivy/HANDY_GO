@@ -128,4 +128,3 @@ it('renders reference price range and estimated reason badge correctly', () => {
   expect(screen.getByText(/250\.000.*đ.*-.*450\.000.*đ/)).toBeOnTheScreen();
   expect(screen.getByText(/Phù hợp: Vệ sinh và bảo dưỡng cơ bản/)).toBeOnTheScreen();
 });
-

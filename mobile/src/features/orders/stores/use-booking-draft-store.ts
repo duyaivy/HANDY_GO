@@ -93,7 +93,9 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   fetchEstimatedPrice: async (overrideServiceId?: string, overrideDescription?: string) => {
     const currentServiceId = overrideServiceId ?? get().serviceId;
     const currentDescription = overrideDescription ?? get().description;
-    if (!currentServiceId) return;
+    if (!currentServiceId) {
+      return;
+    }
 
     set({ isEstimatingPrice: true });
     try {
@@ -108,9 +110,11 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
           priceEstimateReason: res.data.matchedReason || null,
         });
       }
-    } catch (error) {
+    }
+    catch (error) {
       console.warn('Failed to fetch estimated price, keeping default/current prices:', error);
-    } finally {
+    }
+    finally {
       set({ isEstimatingPrice: false });
     }
   },

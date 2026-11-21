@@ -398,7 +398,9 @@ export default function CustomerBookingSummaryRoute() {
           {Boolean(priceEstimateReason) && (
             <View className="mt-1.5 self-start rounded-md bg-amber-100/80 px-2 py-0.5 dark:bg-amber-950/80">
               <Text className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
-                Phù hợp: {priceEstimateReason}
+                Phù hợp:
+                {' '}
+                {priceEstimateReason}
               </Text>
             </View>
           )}
