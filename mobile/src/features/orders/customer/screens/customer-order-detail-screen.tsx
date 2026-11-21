@@ -544,6 +544,12 @@ export function CustomerOrderDetailScreen({
                     params: { mode: 'edit' },
                   } as any);
                 }
+                else if (hasReviewed) {
+                  router.push({
+                    pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                    params: { mode: 'view' },
+                  } as any);
+                }
                 else {
                   router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
                 }

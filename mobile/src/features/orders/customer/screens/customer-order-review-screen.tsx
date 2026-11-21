@@ -70,6 +70,7 @@ export function CustomerOrderReviewScreen({
   const searchParams = useLocalSearchParams<{ id?: string; mode?: string }>();
   const orderId = propOrderId || searchParams?.id || '';
   const isRequestedEdit = searchParams?.mode === 'edit';
+  const isRequestedView = searchParams?.mode === 'view';
 
   const { order, worker } = useCustomerOrderDetail(orderId);
   const {
@@ -82,7 +83,25 @@ export function CustomerOrderReviewScreen({
     updateReview,
   } = useOrderReview(orderId);
 
-  const isEditMode = isRequestedEdit || (hasReviewed && canEdit);
+  // 3 explicit screen modes:
+  // 1. 'view': Đã có review nhưng không còn quyền sửa (hết 48h hoặc đã sửa rồi), hoặc route yêu cầu mode=view
+  // 2. 'edit': Đã có review và còn quyền sửa trong 48h
+  // 3. 'create': Chưa có review nào
+  const screenMode: 'create' | 'edit' | 'view' = React.useMemo(() => {
+    if (hasReviewed) {
+      if (isRequestedView) {
+        return 'view';
+      }
+      if (canEdit && (isRequestedEdit || !searchParams?.mode)) {
+        return 'edit';
+      }
+      return 'view';
+    }
+    return 'create';
+  }, [hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
+
+  const isEditMode = screenMode === 'edit';
+  const isViewMode = screenMode === 'view';
 
   // Form State
   const [rating, setRating] = React.useState<number>(5);
@@ -402,6 +421,11 @@ export function CustomerOrderReviewScreen({
 
   // Submit Review Form
   const handleSubmit = async () => {
+    if (isViewMode) {
+      Alert.alert('Chỉ xem', 'Đánh giá này đã hết hạn chỉnh sửa và chỉ ở chế độ xem.');
+      return;
+    }
+
     if (rating < 1 || rating > 5) {
       Alert.alert('Chưa chọn số sao', 'Vui lòng chọn từ 1 đến 5 sao đánh giá.');
       return;
@@ -557,7 +581,7 @@ export function CustomerOrderReviewScreen({
     <Screen safeArea scrollable={false} className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
-        title={isEditMode ? 'Chỉnh sửa đánh giá' : 'Đánh giá dịch vụ'}
+        title={isViewMode ? 'Chi tiết đánh giá' : isEditMode ? 'Chỉnh sửa đánh giá' : 'Đánh giá dịch vụ'}
         subtitle={`Mã đơn: #${order?.orderCode || orderId.slice(0, 8)}`}
         onBack={() => router.back()}
         testID="review-app-bar"
@@ -625,7 +649,12 @@ export function CustomerOrderReviewScreen({
               <Pressable
                 key={starIndex}
                 testID={`star-rating-button-${starIndex}`}
-                onPress={() => setRating(starIndex)}
+                disabled={isViewMode}
+                onPress={() => {
+                  if (!isViewMode) {
+                    setRating(starIndex);
+                  }
+                }}
                 hitSlop={8}
                 className="p-1 active:scale-110"
               >
@@ -672,7 +701,12 @@ export function CustomerOrderReviewScreen({
                 <Pressable
                   key={opt.value}
                   testID={`criteria-attitude-${opt.value}`}
-                  onPress={() => setAttitudeRating(opt.value)}
+                  disabled={isViewMode}
+                  onPress={() => {
+                    if (!isViewMode) {
+                      setAttitudeRating(opt.value);
+                    }
+                  }}
                   className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     attitudeRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
@@ -709,7 +743,12 @@ export function CustomerOrderReviewScreen({
                 <Pressable
                   key={opt.value}
                   testID={`criteria-quality-${opt.value}`}
-                  onPress={() => setQualityRating(opt.value)}
+                  disabled={isViewMode}
+                  onPress={() => {
+                    if (!isViewMode) {
+                      setQualityRating(opt.value);
+                    }
+                  }}
                   className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     qualityRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
@@ -746,7 +785,12 @@ export function CustomerOrderReviewScreen({
                 <Pressable
                   key={opt.value}
                   testID={`criteria-speed-${opt.value}`}
-                  onPress={() => setSpeedRating(opt.value)}
+                  disabled={isViewMode}
+                  onPress={() => {
+                    if (!isViewMode) {
+                      setSpeedRating(opt.value);
+                    }
+                  }}
                   className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
                     speedRating === opt.value
                       ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
@@ -768,40 +812,42 @@ export function CustomerOrderReviewScreen({
           </View>
         </View>
 
-        {/* 4. Quick Suggestions */}
-        <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <Text className="mb-2 text-xs font-bold text-neutral-700 dark:text-neutral-300">
-            Gợi ý nhận xét nhanh
-          </Text>
-          <View className="flex-row flex-wrap gap-2">
-            {QUICK_TAG_SUGGESTIONS.map((tag, idx) => {
-              const isSelected = comment.includes(tag);
-              return (
-                <Pressable
-                  key={tag}
-                  testID={`quick-tag-${idx}`}
-                  onPress={() => handleToggleQuickTag(tag)}
-                  className={`rounded-full border px-3 py-1.5 ${
-                    isSelected
-                      ? 'border-primary bg-primary/10'
-                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800'
-                  }`}
-                >
-                  <Text
-                    className={`text-[11px] ${
+        {/* 4. Quick Suggestions (chỉ hiển thị khi tạo hoặc sửa) */}
+        {!isViewMode && (
+          <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            <Text className="mb-2 text-xs font-bold text-neutral-700 dark:text-neutral-300">
+              Gợi ý nhận xét nhanh
+            </Text>
+            <View className="flex-row flex-wrap gap-2">
+              {QUICK_TAG_SUGGESTIONS.map((tag, idx) => {
+                const isSelected = comment.includes(tag);
+                return (
+                  <Pressable
+                    key={tag}
+                    testID={`quick-tag-${idx}`}
+                    onPress={() => handleToggleQuickTag(tag)}
+                    className={`rounded-full border px-3 py-1.5 ${
                       isSelected
-                        ? 'font-bold text-primary'
-                        : 'text-neutral-600 dark:text-neutral-400'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800'
                     }`}
                   >
-                    {isSelected ? '✓ ' : '+ '}
-                    {tag}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Text
+                      className={`text-[11px] ${
+                        isSelected
+                          ? 'font-bold text-primary'
+                          : 'text-neutral-600 dark:text-neutral-400'
+                      }`}
+                    >
+                      {isSelected ? '✓ ' : '+ '}
+                      {tag}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* 5. Detailed Comment Input */}
         <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
@@ -819,10 +865,11 @@ export function CustomerOrderReviewScreen({
             testID="review-comment-input"
             value={comment}
             onChangeText={setComment}
+            editable={!isViewMode}
             maxLength={500}
             multiline
             numberOfLines={4}
-            placeholder="Chia sẻ thêm về trải nghiệm làm việc với thợ, chất lượng nghiệm thu và thái độ phục vụ..."
+            placeholder={isViewMode ? 'Không có nhận xét chi tiết' : 'Chia sẻ thêm về trải nghiệm làm việc với thợ, chất lượng nghiệm thu và thái độ phục vụ...'}
             placeholderTextColor="#9CA3AF"
             textAlignVertical="top"
             className="min-h-[100px] rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-900 dark:border-neutral-800 dark:bg-neutral-800 dark:text-white"
@@ -866,18 +913,20 @@ export function CustomerOrderReviewScreen({
                     </View>
                   </>
                 )}
-                <Pressable
-                  testID={`remove-review-photo-btn-${idx}`}
-                  onPress={() => handleRemovePhoto(item.id)}
-                  hitSlop={6}
-                  className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70"
-                >
-                  <Text className="text-[11px] font-bold text-white">✕</Text>
-                </Pressable>
+                {!isViewMode && (
+                  <Pressable
+                    testID={`remove-review-photo-btn-${idx}`}
+                    onPress={() => handleRemovePhoto(item.id)}
+                    hitSlop={6}
+                    className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70"
+                  >
+                    <Text className="text-[11px] font-bold text-white">✕</Text>
+                  </Pressable>
+                )}
               </View>
             ))}
 
-            {mediaItems.length < 5 && (
+            {!isViewMode && mediaItems.length < 5 && (
               <Pressable
                 testID="add-review-photo-btn"
                 onPress={handleAddMediaPress}
@@ -895,12 +944,16 @@ export function CustomerOrderReviewScreen({
         {/* 7. Notice Banner (Quy định 48h) */}
         <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-            ℹ️ Chính sách đánh giá HandyGo:
+            {isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
           </Text>
           <Text className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-            {isEditMode
-              ? `Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.`
-              : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
+            {isViewMode
+              ? (review?.isEdited
+                  ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
+                  : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
+              : isEditMode
+                ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
+                : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
           </Text>
           {isEditMode && hoursRemainingToEdit > 0 && (
             <Text className="mt-1 text-[11px] font-bold text-amber-800 dark:text-amber-300">
@@ -916,21 +969,34 @@ export function CustomerOrderReviewScreen({
 
       {/* 8. Sticky Bottom Submit Action */}
       <View className="border-t border-neutral-200 bg-white p-4 pb-6 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
-        <Button
-          testID="submit-review-btn"
-          label={
-            isSubmitting
-              ? 'Đang gửi...'
-              : isEditMode
-                ? 'Lưu thay đổi đánh giá'
-                : '⭐ Gửi đánh giá dịch vụ'
-          }
-          variant="default"
-          disabled={isSubmitting || rating === 0}
-          className="h-12 w-full rounded-2xl bg-primary"
-          textClassName="text-sm font-bold text-white"
-          onPress={handleSubmit}
-        />
+        {isViewMode
+          ? (
+              <Button
+                testID="close-review-btn"
+                label="Quay lại"
+                variant="outline"
+                className="h-12 w-full rounded-2xl border-neutral-300 dark:border-neutral-700"
+                textClassName="text-sm font-bold text-neutral-700 dark:text-neutral-300"
+                onPress={() => (onSuccess ? onSuccess() : router.back())}
+              />
+            )
+          : (
+              <Button
+                testID="submit-review-btn"
+                label={
+                  isSubmitting
+                    ? 'Đang gửi...'
+                    : isEditMode
+                      ? 'Lưu thay đổi đánh giá'
+                      : '⭐ Gửi đánh giá dịch vụ'
+                }
+                variant="default"
+                disabled={isSubmitting || rating === 0}
+                className="h-12 w-full rounded-2xl bg-primary"
+                textClassName="text-sm font-bold text-white"
+                onPress={handleSubmit}
+              />
+            )}
       </View>
     </Screen>
   );

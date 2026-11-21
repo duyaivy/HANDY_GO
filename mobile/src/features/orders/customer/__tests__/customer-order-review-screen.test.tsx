@@ -267,6 +267,42 @@ describe('CustomerOrderReviewScreen', () => {
     );
   });
 
+  it('renders in read-only view mode when review exists but is expired or already edited', async () => {
+    const expiredReview = {
+      id: 'rev-expired-1',
+      orderId: 'ord-completed-123',
+      rating: 4,
+      comment: 'Đã hoàn tất nghiệm thu',
+      attitudeRating: 'good' as const,
+      qualityRating: 'good' as const,
+      speedRating: 'good' as const,
+      status: 'published',
+      isEdited: true, // Already edited -> cannot edit anymore
+      createdAt: '2026-10-01T10:00:00Z',
+    };
+
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(expiredReview as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Chi tiết đánh giá')).toBeOnTheScreen();
+      expect(screen.getByText(/Đánh giá này đã được chỉnh sửa 1 lần/)).toBeOnTheScreen();
+    });
+
+    // Close/back button is displayed instead of submit button
+    expect(screen.getByTestId('close-review-btn')).toBeOnTheScreen();
+    expect(screen.queryByTestId('submit-review-btn')).toBeNull();
+    expect(screen.queryByTestId('add-review-photo-btn')).toBeNull();
+
+    // Comment input is not editable
+    expect(screen.getByTestId('review-comment-input').props.editable).toBe(false);
+
+    // Press close button
+    fireEvent.press(screen.getByTestId('close-review-btn'));
+    expect(mockBack).toHaveBeenCalled();
+  });
+
   it('displays error alert when createReview fails', async () => {
     jest.spyOn(ReviewsApi, 'createReview').mockRejectedValue({
       response: { data: { message: 'Đơn hàng này đã được đánh giá trước đó' } },
@@ -552,6 +588,35 @@ describe('CustomerOrderDetailScreen review integration', () => {
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/customer/orders/ord-completed-456/review',
       params: { mode: 'edit' },
+    });
+  });
+
+  it('navigates with mode: view when review exists but cannot be edited', async () => {
+    const nonEditableReview = {
+      id: 'rev-expired-456',
+      orderId: 'ord-completed-456',
+      rating: 5,
+      comment: 'Đã quá hạn 48h',
+      status: 'published',
+      isEdited: true,
+      createdAt: '2026-10-01T10:00:00Z',
+    };
+
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(nonEditableReview as any);
+
+    render(<CustomerOrderDetailScreen orderId="ord-completed-456" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('order-review-card')).toBeOnTheScreen();
+    });
+
+    const bottomReviewBtn = screen.getByTestId('customer-review-order-btn');
+    expect(bottomReviewBtn).toHaveTextContent('⭐ Xem Đánh Giá');
+
+    fireEvent.press(bottomReviewBtn);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/orders/ord-completed-456/review',
+      params: { mode: 'view' },
     });
   });
 });
