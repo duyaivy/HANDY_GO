@@ -1,16 +1,17 @@
-# [HG-82] Chi Tiết Thay Đổi Task 1, Task 2 Và Task 3
+# [HG-82] Chi Tiết Thay Đổi Task 1–4
 
-Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82-order-dispute-7-days-admin-resolution`, bao gồm migrations, Prisma schema, API, event, logic service và kết quả kiểm tra local. **Task 3 nằm tại mục 5 bên dưới, thuộc commit `7310df9`.**
+Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82-order-dispute-7-days-admin-resolution`, bao gồm migrations, Prisma schema, API, event, logic service và kết quả kiểm tra local. Chi tiết Task 3 nằm tại mục 5; chi tiết kiểm thử Task 4 nằm tại mục 6.
 
 ---
 
-## 1. Tổng Quan 3 Commit
+## 1. Tổng Quan Các Commit
 
 | Commit SHA | Thông điệp Commit | Task liên quan | Tóm tắt thay đổi |
 | :--- | :--- | :--- | :--- |
 | **`a7836ac`** | `feat(HG-82): support seven-day disputes on completed orders` | **Task 1** | Cho phép khách hàng mở khiếu nại trong 7 ngày sau khi hoàn tất đơn (`completed`); lưu metadata bằng chứng khiếu nại (`evidence_type`, `submitted_by_user_id`); migration DB; mở rộng Outbox event. |
 | **`592aded`** | `feat(HG-82): add admin dispute queue` | **Task 2** | Xây dựng API `GET /admin/orders/disputes` cho Admin tra cứu danh sách khiếu nại; thêm migration tạo index DB `(status, disputed_at)`; DTO query & response; test proxy API Gateway. |
 | **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
+| **Commit Task 4 (xem `git log`)** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
 
 ---
 
@@ -224,3 +225,34 @@ File: `backend/apps/api-gateway/src/proxy/proxy.constants.spec.ts`
 - `oxlint` trên Order, Payment, Notification events, Tracking events và common events: pass.
 - `pnpm test`: 244 file pass, 2.082 test pass; 18 file và 167 test được suite đánh dấu skip. Các test HG-82 mới kiểm tra quyết định/chiếu trạng thái, idempotency, actor, hạn mức, event sau Wallet confirmation và chống thông báo trùng.
 - Docker Desktop daemon không khả dụng trên máy lúc kiểm tra; vì vậy **chưa chạy migration local, RabbitMQ/Wallet/DB integration và chưa kiểm thử trên app/deploy**. Không suy kết quả unit test/mock thành xác nhận tiền đã thực sự hoàn.
+
+---
+
+## 6. Task 4: Kiểm Thử Và Xác Minh Chất Lượng Local
+
+### 6.1. Test bổ sung
+
+- `backend/apps/order-service/src/orders/orders.service.spec.ts`: kiểm tra danh sách Admin vẫn giữ đơn `disputed` khi resolution là `refund_pending` hoặc `needs_review`, hiển thị đúng số tiền và phân trang; không gắn resolution của lần khiếu nại cũ vào lần hiện tại.
+- `backend/apps/order-service/src/orders/hg82-resolution.spec.ts`: kiểm tra số tiền hoàn mặc định bằng số còn được hoàn, chặn vượt hạn mức trước khi tạo quyết định/event, từ chối key khác cho cùng chu kỳ, chặn action cũ sau hoàn thành và role không phải Admin.
+- `backend/apps/order-service/src/consumers/hg82-payment-events.spec.ts`: kiểm tra Payment xác nhận hoàn toàn phần thì Order nhận `paymentState = refunded`; event sai Payment hoặc thiếu refund ID không được kết thúc tranh chấp.
+- `backend/apps/payment-service/src/order-events/dispute-refund.service.spec.ts`: replay cùng `resolutionId` không tạo refund thứ hai; Payment chuyển sang trạng thái không thể hoàn thì phát `needs_review` thay vì tạo refund.
+- `backend/apps/payment-service/test/integration/funded-wallet-refunds.int-spec.ts`: dùng DB Order/Payment/Wallet test và Wallet HTTP thật; hai yêu cầu Admin đồng thời chỉ tạo một resolution, Payment inbox nhận event đúng một lần, Wallet ghi sổ rồi Order consumer kết thúc tranh chấp, replay không tạo refund thứ hai. Kiểm tra unique constraint `(orderId, disputedAt)` trên PostgreSQL.
+- `backend/apps/payment-service/test/integration/cross-service-transport.int-spec.ts`: phát quyết định Order và kết quả Payment qua RabbitMQ thật, kiểm tra Order giữ `disputed` cho đến kết quả Wallet rồi chuyển `completed`/`refunded`; kiểm tra SQL backfill `first_completed_at` lặp lại, không ghi đè mốc đã có hoặc điền khi `completed_at` null.
+- `backend/apps/payment-service/test/integration/payment-query.int-spec.ts`: nạp `ConfigModule` trong test harness để `PaymentInternalController` được khởi tạo; phục hồi sáu ca HTTP query đã fail trong lần chạy tích hợp đầu.
+- Cập nhật `docs/HG-82/TASK-4-TESTING-AND-VERIFICATION.md`: sửa mốc biên chính xác 168 giờ, mã lỗi của người không phải khách, bổ sung đường dẫn các suite, lệnh chạy và kết quả thực tế. File Task 4 trước đó là tài liệu local chưa được tracking; commit Task 4 đưa vào repository.
+
+### 6.2. Kết quả ngày 21/11/2026
+
+- `pnpm test`: **PASS**, 245 file và 2.098 test; 18 file và 167 test được suite đánh dấu skip.
+- `pnpm run typecheck`: **PASS**.
+- `pnpm exec nest build` cho Order, Payment, Notification và Tracking: **PASS**.
+- `pnpm exec oxlint` trên Order, Payment và module event Notification/Tracking/common: **PASS**.
+- `pnpm exec prisma validate` cho schema Order và Payment: **PASS**.
+- Các suite HG-82 chạy riêng sau bổ sung test: **PASS**. Log báo lỗi giả lập SMTP/Wallet/Firebase/Redis của các ca negative test trong suite chung không làm suite fail.
+- Docker Desktop được khởi động local; `pnpm run prisma:generate:wallet` sửa Prisma client cũ trong `node_modules` lệch schema hiện tại. Migration Order, Payment, Wallet áp dụng **PASS** trên PostgreSQL test tạm.
+- `pnpm run test:integration:payment`: **PASS**, 9 file và 76 test trên PostgreSQL/RabbitMQ/Wallet test local. Trong lần chạy đầu, client Wallet cũ gây lỗi cột `balance_before`; sau generate lại, `payment-query.int-spec.ts` còn thiếu `ConfigModule` trong harness và đã được sửa. Lần chạy cuối toàn bộ suite pass.
+
+### 6.3. Giới hạn và phần còn phải nghiệm thu
+
+- Backfill được kiểm tra bằng SQL cùng điều kiện migration trên PostgreSQL test sau khi migration đã áp dụng; chưa phục dựng dữ liệu lịch sử thực tế trước migration. Event sai thứ tự và `needs_review` được kiểm tra bằng unit test; notification/tracking HG-82 qua broker và timeline trên app/deploy chưa được xác minh.
+- Chỉ dùng container/database test cô lập; không chạy migration hoặc thay đổi DB deploy, không xác nhận refund trên app/deploy, không push hay tạo PR. Container test được dọn sau lần chạy cuối.

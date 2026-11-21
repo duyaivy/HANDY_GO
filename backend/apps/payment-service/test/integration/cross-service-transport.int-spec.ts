@@ -28,6 +28,8 @@ import { PaymentPrismaService } from '../../src/common/database/payment-prisma.s
 import { PaymentOutboxService } from '../../src/common/outbox/payment-outbox.service.js';
 import { AdminAuditService } from '../../src/common/audit/admin-audit.service.js';
 import { RefundsService } from '../../src/refunds/refunds.service.js';
+import { DisputeRefundService } from '../../src/order-events/dispute-refund.service.js';
+import { OrderEventsConsumer } from '../../src/order-events/order-events.consumer.js';
 import { RefundsController } from '../../src/refunds/refunds.controller.js';
 import { PaymentOutboxRepository } from '../../src/common/outbox/payment-outbox.repository.js';
 import { PaymentInboxService } from '../../src/common/inbound/payment-inbox.service.js';
@@ -70,6 +72,9 @@ import { InternalOrderController } from '../../../order-service/src/internal/int
 import { InternalSecretGuard } from '../../../order-service/src/internal/guards/internal-secret.guard.js';
 import { PaymentEventsConsumer } from '../../../order-service/src/consumers/payment-events.consumer.js';
 import { ConsumedEventRepository } from '../../../order-service/src/common/inbox/consumed-event.repository.js';
+import { OrdersService } from '../../../order-service/src/orders/orders.service.js';
+import { OrderOutboxRepository } from '../../../order-service/src/common/outbox/order-outbox.repository.js';
+import { OrderOutboxPublisherService } from '../../../order-service/src/common/outbox/order-outbox-publisher.service.js';
 import { ProxyMiddleware } from '../../../api-gateway/src/proxy/proxy.middleware.js';
 import { GatewayAuthMiddleware } from '../../../api-gateway/src/auth/gateway-auth.middleware.js';
 
@@ -307,6 +312,7 @@ beforeAll(async () => {
       InternalSecretGuard,
       InternalOrderService,
       ConsumedEventRepository,
+      { provide: OrderOutboxRepository, useValue: new OrderOutboxRepository(orderDb) },
     ],
     `order-cross-${randomUUID()}`,
   );
@@ -478,6 +484,79 @@ async function orderPayment(method: 'point' | 'cash') {
 }
 
 describe('Gateway + real HTTP + RabbitMQ + isolated service schemas', () => {
+  it('backfills first completion only when completedAt exists and the target is null', async () => {
+    const legacy = await orderPayment('cash');
+    const withoutCompletion = await orderPayment('cash');
+    const completedAt = new Date('2026-01-01T00:00:00.000Z');
+    await orderDb.order.update({ where: { id: legacy.orderId }, data: { completedAt, firstCompletedAt: null } });
+    const backfill = () => orderDb.$executeRaw`
+      UPDATE order_service.orders SET first_completed_at = completed_at
+      WHERE first_completed_at IS NULL AND completed_at IS NOT NULL
+    `;
+    await backfill();
+    await backfill();
+    expect((await orderDb.order.findUniqueOrThrow({ where: { id: legacy.orderId } })).firstCompletedAt).toEqual(completedAt);
+    expect((await orderDb.order.findUniqueOrThrow({ where: { id: withoutCompletion.orderId } })).firstCompletedAt).toBeNull();
+    const preserved = new Date('2025-12-01T00:00:00.000Z');
+    await orderDb.order.update({ where: { id: legacy.orderId }, data: { firstCompletedAt: preserved } });
+    await backfill();
+    expect((await orderDb.order.findUniqueOrThrow({ where: { id: legacy.orderId } })).firstCompletedAt).toEqual(preserved);
+  });
+
+  it('delivers an HG-82 refund decision and confirmed outcome through RabbitMQ exactly once', async () => {
+    const payment = await orderPayment('point');
+    await call('/payments', { orderId: payment.orderId, method: 'point' });
+    await call(`/payments/${payment.id}/pay-with-points`, { confirm: true });
+    for (let i = 0; i < 3; i++) await paymentPublisher.publishPendingEvents();
+    await eventually(async () => (await orderDb.order.findUniqueOrThrow({ where: { id: payment.orderId } })).paymentState === 'paid');
+    const completedAt = new Date(Date.now() - 86400000);
+    await orderDb.order.update({ where: { id: payment.orderId }, data: {
+      status: 'disputed', disputePreviousStatus: 'completed', disputedAt: new Date(),
+      completedAt, firstCompletedAt: completedAt,
+    } });
+    const orderOutbox = new OrderOutboxRepository(orderDb);
+    const orderService = new OrdersService(orderDb, orderOutbox, {
+      byOrder: async (id: string) => {
+        const result = await new PaymentQueryService(paymentDb).refundableByOrder(id);
+        return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
+      },
+    } as never);
+    const idempotencyKey = randomUUID();
+    const dto = { action: 'refund' as const, resolutionNote: 'Hoàn tiền sau khiếu nại', idempotencyKey };
+    const decision = await orderService.resolveCompletedDispute(payment.orderId, admin, dto, ['Admin']);
+    expect(decision.state).toBe('refund_pending');
+    const inbox = new PaymentInboxService(paymentDb, new RabbitMQContextService());
+    const disputeService = new DisputeRefundService(inbox, paymentDb, new PaymentOutboxService(paymentDb),
+      new AdminAuditService(paymentDb), new RefundsService(paymentDb, new AdminAuditService(paymentDb),
+        new WalletClient(config as never), new PaymentOutboxService(paymentDb)));
+    disputeService.onModuleInit();
+    const hg82PaymentApp = await appFor([OrderEventsConsumer], [
+      { provide: PaymentInboxService, useValue: inbox },
+      { provide: DisputeRefundService, useValue: disputeService },
+    ], `payment-hg82-${randomUUID()}`);
+    try {
+      const orderPublisher = new OrderOutboxPublisherService(orderOutbox, rabbit);
+      await orderPublisher.triggerPublish();
+      await eventually(async () => (await paymentDb.client.refund.count({ where: { disputeResolutionId: decision.resolutionId } })) === 1);
+      await eventually(async () => (await paymentDb.client.outboxEvent.count({ where: {
+        eventType: 'payment.dispute.refund.completed',
+        payload: { path: ['resolutionId'], equals: decision.resolutionId },
+      } })) === 1);
+      expect((await orderDb.order.findUniqueOrThrow({ where: { id: payment.orderId } })).status).toBe('disputed');
+      for (let i = 0; i < 3; i++) await paymentPublisher.publishPendingEvents();
+      await eventually(async () => (await orderDb.order.findUniqueOrThrow({ where: { id: payment.orderId } })).status === 'completed');
+      const final = await orderDb.order.findUniqueOrThrow({ where: { id: payment.orderId } });
+      expect(final.paymentState).toBe('refunded');
+      expect(await orderDb.outboxEvent.count({ where: { aggregateId: payment.orderId, eventType: 'order.dispute.resolved' } })).toBe(1);
+      const replay = await orderService.resolveCompletedDispute(payment.orderId, admin, dto, ['Admin']);
+      expect(replay.resolutionId).toBe(decision.resolutionId);
+      expect(await paymentDb.client.refund.count({ where: { disputeResolutionId: decision.resolutionId } })).toBe(1);
+    } finally {
+      await hg82PaymentApp.close();
+      apps.splice(apps.indexOf(hg82PaymentApp), 1);
+    }
+  });
+
   it('mock failure never credits; simulation requires owner JWT and is disabled in production', async () => {
     const topup = await call('/payments/topups', {
       amountVnd: 10000,

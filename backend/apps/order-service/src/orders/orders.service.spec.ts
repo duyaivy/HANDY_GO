@@ -1561,6 +1561,46 @@ describe('OrdersService', () => {
   });
 
   describe('adminFindDisputes (HG-82)', () => {
+    it.each(['refund_pending', 'needs_review'])('projects the current %s refund in the active dispute queue', async (state) => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const resolutionId = '88888888-8888-8888-8888-888888888888';
+      const findResolutions = vi.fn().mockResolvedValue([{
+        id: resolutionId, orderId: mockOrderId, disputedAt, action: 'refund', state,
+        refundAmountVnd: 200000n, decidedAt: new Date('2026-11-20T10:00:00.000Z'),
+        failureCode: state === 'needs_review' ? 'PAYMENT_NOT_REFUNDABLE' : null,
+      }]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(findResolutions).toHaveBeenCalledWith({ where: { OR: [{ orderId: mockOrderId, disputedAt }] } });
+      expect(result.items[0].resolution).toEqual(expect.objectContaining({
+        resolutionId, state, refundAmountVnd: '200000',
+      }));
+      expect(result.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
+    });
+
+    it('does not project a decision from an earlier dispute cycle', async () => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const findResolutions = vi.fn().mockResolvedValue([{
+        id: '88888888-8888-8888-8888-888888888888', orderId: mockOrderId,
+        disputedAt: new Date('2026-11-18T09:00:00.000Z'), action: 'refund', state: 'completed',
+      }]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(result.items[0].resolution).toBeNull();
+    });
+
     it('returns only active disputes with dispute evidence and party IDs', async () => {
       const evidence = {
         id: mockEvidenceId,

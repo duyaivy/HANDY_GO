@@ -76,6 +76,46 @@ describe('HG-82 Admin resolution', () => {
     expect(f.tx.orderDisputeResolution.create).not.toHaveBeenCalled();
   });
 
+  it('defaults the refund to the exact remaining paid balance', async () => {
+    const f = fixture();
+    const result = await f.service.resolveCompletedDispute(orderId, adminUserId,
+      { action: 'refund', resolutionNote: 'Hoàn toàn bộ số dư còn lại', idempotencyKey: randomUUID() }, ['Admin']);
+    expect(result.refundAmountVnd).toBe('300000');
+    expect(f.tx.orderDisputeResolution.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ refundAmountVnd: 300000n }),
+    }));
+  });
+
+  it('rejects a refund above the remaining balance without a decision or event', async () => {
+    const f = fixture();
+    await expect(f.service.resolveCompletedDispute(orderId, adminUserId,
+      { action: 'refund', resolutionNote: 'Vượt quá hạn mức hoàn', refundAmountVnd: '300001', idempotencyKey: randomUUID() }, ['Admin']))
+      .rejects.toMatchObject({ status: 400, response: expect.objectContaining({ code: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE' }) });
+    expect(f.tx.orderDisputeResolution.create).not.toHaveBeenCalled();
+    expect(f.outbox.createEvent).not.toHaveBeenCalled();
+  });
+
+  it('rejects a second key for the same dispute cycle', async () => {
+    const f = fixture();
+    const dto = { action: 'refund' as const, resolutionNote: 'Hoàn một phần theo bằng chứng', refundAmountVnd: '200000' };
+    await f.service.resolveCompletedDispute(orderId, adminUserId, { ...dto, idempotencyKey: randomUUID() }, ['Admin']);
+    await expect(f.service.resolveCompletedDispute(orderId, adminUserId, { ...dto, idempotencyKey: randomUUID() }, ['Admin']))
+      .rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'DISPUTE_ALREADY_DECIDED' }) });
+    expect(f.tx.orderDisputeResolution.create).toHaveBeenCalledTimes(1);
+    expect(f.outbox.createEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects legacy actions after completion and non-admin decisions', async () => {
+    const f = fixture();
+    await expect(f.service.resolveDispute(orderId, adminUserId,
+      { action: 'complete', resolutionNote: 'Hoàn tất theo cách cũ' }, ['Admin']))
+      .rejects.toMatchObject({ status: 400, response: expect.objectContaining({ code: 'LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION' }) });
+    await expect(f.service.resolveCompletedDispute(orderId, adminUserId,
+      { action: 'dismiss', resolutionNote: 'Không chấp nhận khiếu nại', idempotencyKey: randomUUID() }, ['Worker']))
+      .rejects.toMatchObject({ status: 403, response: expect.objectContaining({ code: 'FORBIDDEN_ROLE' }) });
+    expect(f.tx.orderDisputeResolution.create).not.toHaveBeenCalled();
+  });
+
   it('rejects Admin self-approval before creating a pending refund decision', async () => {
     const f = fixture();
     await expect(f.service.resolveCompletedDispute(orderId, customerUserId,

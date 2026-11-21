@@ -71,4 +71,25 @@ describe('Payment HG-82 dispute refund consumer', () => {
       payload: expect.objectContaining({ failureCode: 'APPROVER_IS_CUSTOMER' }),
     }));
   });
+
+  it('does not create another refund for a replay of the same resolution', async () => {
+    const f = fixture();
+    f.tx.refund.findUnique.mockResolvedValue({ paymentId, amountVnd: 200000n });
+    await f.service.recordDecision(f.data, f.tx as any);
+    expect(f.tx.refund.create).not.toHaveBeenCalled();
+    expect(f.outbox.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('flags a Payment that became non-refundable after the Admin decision', async () => {
+    const f = fixture();
+    f.tx.payment.findUnique.mockResolvedValue({
+      id: paymentId, orderId, customerUserId, workerUserId, status: 'failed', amount: 350000n,
+    });
+    await f.service.recordDecision(f.data, f.tx as any);
+    expect(f.tx.refund.create).not.toHaveBeenCalled();
+    expect(f.outbox.enqueue).toHaveBeenCalledWith(f.tx, expect.objectContaining({
+      eventType: EVENT_PATTERNS.PAYMENT_DISPUTE_REFUND_NEEDS_REVIEW,
+      payload: expect.objectContaining({ failureCode: 'PAYMENT_NOT_REFUNDABLE' }),
+    }));
+  });
 });

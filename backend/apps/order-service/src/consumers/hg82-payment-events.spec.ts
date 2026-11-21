@@ -72,4 +72,26 @@ describe('Order HG-82 Payment outcome', () => {
     } });
     expect(f.tx.order.updateMany).not.toHaveBeenCalled();
   });
+
+  it('accepts a full refund outcome and records the refunded payment state', async () => {
+    const f = fixture();
+    await f.consumer.handleDisputeRefundCompleted({ eventId: randomUUID(), payload: {
+      ...f.data.payload, paymentStatus: 'refunded',
+    } });
+    expect(f.tx.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ paymentState: 'refunded', status: 'completed' }),
+    }));
+  });
+
+  it('ignores a completion for another payment or a missing refund ID', async () => {
+    const f = fixture();
+    await f.consumer.handleDisputeRefundCompleted({ eventId: randomUUID(), payload: {
+      ...f.data.payload, paymentId: randomUUID(),
+    } });
+    await f.consumer.handleDisputeRefundCompleted({ eventId: randomUUID(), payload: {
+      ...f.data.payload, refundId: undefined,
+    } });
+    expect(f.tx.order.updateMany).not.toHaveBeenCalled();
+    expect(f.outbox.createEvent).not.toHaveBeenCalled();
+  });
 });

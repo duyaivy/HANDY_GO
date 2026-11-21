@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { JWT_AUDIENCE, JWT_ISSUER } from '@app/auth';
+import { ConfigModule } from '@app/config';
 import { Client } from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -61,7 +62,9 @@ beforeAll(async () => {
     [attemptId, paymentId],
   );
   process.env.JWT_PUBLIC_KEY = publicKey.export({ type: 'spki', format: 'pem' }).toString();
-  const module = await Test.createTestingModule({ imports: [PaymentQueryModule] }).compile();
+  const module = await Test.createTestingModule({
+    imports: [ConfigModule.forRoot({ serviceName: 'payment-service', defaultPort: 3007 }), PaymentQueryModule],
+  }).compile();
   app = module.createNestApplication();
   app.setGlobalPrefix('api/v1');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
