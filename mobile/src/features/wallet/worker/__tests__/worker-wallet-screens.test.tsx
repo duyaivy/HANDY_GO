@@ -119,7 +119,7 @@ it('shows recent transactions but no partial financial totals when history spans
   await screen.findByTestId('worker-financials-unavailable');
   expect(screen.getByTestId('transaction-item-tx-0')).toBeOnTheScreen();
   expect(screen.queryByText(/Thu nhập ghi nhận tuần này:/)).toBeNull();
-  expect(screen.queryByText(/Tổng hoa hồng đã nộp:/)).toBeNull();
+  expect(screen.queryByText(/Tổng phí nền tảng đã nộp:/)).toBeNull();
   view.unmount();
 
   render(<WorkerBalanceScreen />);

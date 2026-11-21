@@ -55,7 +55,7 @@ export function WorkerCashPaymentCard({ orderId, completed }: { orderId: string;
                   <Text className="font-bold text-neutral-900 dark:text-white">{`${payment.method === 'cash' ? 'Khách thanh toán tiền mặt' : payment.method === 'point' ? 'Khách thanh toán điểm ví' : 'Chưa chọn phương thức'}: ${formatPointsToVND(payment.amount)}`}</Text>
                   <Text testID="worker-payment-status" className="text-sm text-neutral-700 dark:text-neutral-300">{payment.status === 'succeeded' ? 'Đã thanh toán' : payment.status === 'refunded' || payment.status === 'partially_refunded' ? 'Đã hoàn tiền' : payment.status === 'processing' ? 'Đang xử lý thanh toán' : payment.status === 'cancelled' ? 'Thanh toán đã hủy' : payment.method === 'cash' ? 'Chờ thợ xác nhận nhận tiền mặt' : 'Chưa thanh toán'}</Text>
                   <Text className="text-sm text-neutral-700 dark:text-neutral-300">{`Phí sàn theo đơn: ${formatPointsToVND(payment.platformFee)}`}</Text>
-                  {payment.method === 'cash' ? <Text className="text-sm text-neutral-600 dark:text-neutral-400">Tiền mặt không được cộng vào ví thợ. Máy chủ cấn trừ hoa hồng; nếu số dư chưa đủ, khoản chưa thu vẫn là công nợ.</Text> : null}
+                  {payment.method === 'cash' ? <Text className="text-sm text-neutral-600 dark:text-neutral-400">Tiền mặt không được cộng vào ví thợ. Máy chủ cấn trừ phí nền tảng; nếu số dư chưa đủ, khoản chưa thu vẫn là công nợ.</Text> : null}
                   {eligible
                     ? (
                         <>

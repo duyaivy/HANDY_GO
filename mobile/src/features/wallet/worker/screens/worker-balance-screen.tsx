@@ -33,7 +33,7 @@ export function WorkerBalanceScreen() {
         {finances.data?.summary && !finances.isError
           ? (
               <View className="gap-2 rounded-2xl bg-white p-4 dark:bg-neutral-900">
-                <Text testID="worker-cash-commission-due" className="font-semibold text-amber-700 dark:text-amber-300">{`Hoa hồng tiền mặt chưa ghi nhận thu: ${formatPointsToVND(finances.data.summary.cashCommissionDue)}`}</Text>
+                <Text testID="worker-cash-commission-due" className="font-semibold text-amber-700 dark:text-amber-300">{`Phí nền tảng tiền mặt chưa ghi nhận thu: ${formatPointsToVND(finances.data.summary.cashCommissionDue)}`}</Text>
                 <Text className="text-xs text-neutral-500 dark:text-neutral-400">Đối chiếu phí theo payment đã nhận tiền mặt với bút toán commission_debit cùng mã payment. Có thể chênh lệch tạm thời trong lúc các dịch vụ đồng bộ; kéo xuống để cập nhật.</Text>
               </View>
             )

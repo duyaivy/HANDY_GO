@@ -22,7 +22,7 @@ const WORKER_FILTERS: { label: string; type?: WalletTransactionType }[] = [
   { label: 'Tất cả' },
   { label: 'Nạp tiền', type: 'topup' },
   { label: 'Thu nhập', type: 'worker_earning' },
-  { label: 'Hoa hồng', type: 'commission_debit' },
+  { label: 'Phí nền tảng', type: 'commission_debit' },
   { label: 'Rút tiền', type: 'withdrawal' },
   { label: 'Thu hồi hoàn tiền', type: 'refund_recovery' },
 ];

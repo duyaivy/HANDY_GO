@@ -7,7 +7,7 @@ export function WorkerEarningsSummary() {
   const query = useWorkerFinancials();
   return (
     <View testID="worker-earnings-summary" className="gap-3 rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      <Text className="font-bold text-neutral-900 dark:text-white">Thu nhập & hoa hồng</Text>
+      <Text className="font-bold text-neutral-900 dark:text-white">Thu nhập & phí nền tảng</Text>
       {!query.isAuthenticated
         ? <Text className="text-neutral-500">Đăng nhập để xem thu nhập.</Text>
         : query.isPending
@@ -19,8 +19,8 @@ export function WorkerEarningsSummary() {
                   <>
                     <Text className="text-neutral-800 dark:text-neutral-200">{`Thu nhập ghi nhận tuần này: ${formatPointsToVND(query.data.summary.weeklyEarnings)}`}</Text>
                     <Text className="text-neutral-800 dark:text-neutral-200">{`Đơn đã nghiệm thu tuần này: ${query.data.summary.completedJobs}`}</Text>
-                    <Text className="text-neutral-800 dark:text-neutral-200">{`Tổng hoa hồng đã nộp: ${formatPointsToVND(query.data.summary.commissionPaid)}`}</Text>
-                    <Text className="text-xs text-neutral-500 dark:text-neutral-400">Theo payment đã thanh toán; gồm thu nhập tiền mặt trực tiếp, không đồng nghĩa số dư ví. Hoa hồng theo mức áp dụng cho từng đơn.</Text>
+                    <Text className="text-neutral-800 dark:text-neutral-200">{`Tổng phí nền tảng đã nộp: ${formatPointsToVND(query.data.summary.commissionPaid)}`}</Text>
+                    <Text className="text-xs text-neutral-500 dark:text-neutral-400">Theo payment đã thanh toán; gồm thu nhập tiền mặt trực tiếp, không đồng nghĩa số dư ví. Phí nền tảng theo mức áp dụng cho từng đơn.</Text>
                   </>
                 )
               : query.data

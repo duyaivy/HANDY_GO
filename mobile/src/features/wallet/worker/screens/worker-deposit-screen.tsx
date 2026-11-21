@@ -18,7 +18,7 @@ export function WorkerDepositScreen() {
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar mode="stack" title="Nạp tiền ví ký quỹ" role="Worker" onBack={router.back} />
       <View testID="wallet-deposit-screen" className="gap-4 p-4">
-        <Text className="text-base font-semibold text-neutral-900 dark:text-white">Tiền nạp vào ví dùng để cấn trừ hoa hồng sàn khi nhận việc thanh toán tiền mặt.</Text>
+        <Text className="text-base font-semibold text-neutral-900 dark:text-white">Tiền nạp vào ví dùng để cấn trừ phí nền tảng khi nhận việc thanh toán tiền mặt.</Text>
         <Text className="text-sm text-neutral-500 dark:text-neutral-400">1 VND = 1 Point. Tiền chỉ được cộng khi máy chủ xác nhận nạp hoàn tất. Nạp ví không tự tạo một khoản cọc tách riêng.</Text>
         {wallet.isLoading ? <ActivityIndicator /> : wallet.wallet ? <Text testID="worker-deposit-balance" className="font-bold text-emerald-700 dark:text-emerald-300">{`Số dư khả dụng: ${formatPointsToVND(wallet.availableBalance)}`}</Text> : <Text className="text-amber-700">{wallet.isWalletNotFound ? 'Ví của bạn chưa sẵn sàng' : 'Không thể tải số dư ví'}</Text>}
         {wallet.isError ? <Pressable accessibilityRole="button" onPress={() => { void wallet.refetch(); }}><Text className="text-emerald-700">Thử tải lại ví</Text></Pressable> : null}
