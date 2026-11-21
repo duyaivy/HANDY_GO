@@ -522,6 +522,9 @@ describe('Admin HTTP authorization, validation and operations', () => {
         reason: 'Refund B1',
         idempotencyKey: randomUUID(),
         status: 'completed',
+        approvedByUserId: admin,
+        approvedAt: new Date(),
+        decisionNote: 'Approved in test',
       },
     });
     const refB2 = await database.client.refund.create({
