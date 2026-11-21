@@ -73,6 +73,9 @@ describe('customerBookingScreen - Service Name Preservation and Non-destructive 
     fireEvent.changeText(input, customText);
     expect(useBookingDraftStore.getState().description).toBe(customText);
 
+    // Expand suggestions accordion
+    fireEvent.press(screen.getByTestId('booking-suggestions-toggle-btn'));
+
     // 2. User selects location chip "Nhà tắm"
     const bathroomChip = screen.getByText('Nhà tắm');
     fireEvent.press(bathroomChip);
@@ -138,5 +141,29 @@ describe('customerBookingScreen - Service Name Preservation and Non-destructive 
     // Passing explicit service name overrides properly
     store.setService('custom-id', 'Sửa robot hút bụi');
     expect(useBookingDraftStore.getState().serviceName).toBe('Sửa robot hút bụi');
+  });
+
+  it('prefixes serviceName when user selects suggestion chips without typing custom text first', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+
+    render(
+      <CustomerBookingScreen
+        serviceId="cbb1b85c-32f9-4041-a0fd-df5cde04784f"
+      />,
+    );
+
+    // Expand suggestions accordion
+    fireEvent.press(screen.getByTestId('booking-suggestions-toggle-btn'));
+
+    // Select location chip "Nhà tắm"
+    fireEvent.press(screen.getByText('Nhà tắm'));
+
+    const desc = useBookingDraftStore.getState().description;
+    expect(desc).toBe('Tôi cần người Sửa máy giặt: Vị trí: Nhà tắm');
+    expect(desc).not.toContain('Cần thợ kiểm tra');
+
+    // Unselect chip -> clears description back to empty
+    fireEvent.press(screen.getByText('Nhà tắm'));
+    expect(useBookingDraftStore.getState().description).toBe('');
   });
 });

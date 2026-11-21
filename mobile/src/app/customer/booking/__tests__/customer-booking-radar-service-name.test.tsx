@@ -77,6 +77,21 @@ describe('customerBookingRadarScreen - Service Name Preservation (TASK-04 Follow
       expect(resolveServiceName(null, null, null)).toBe('Dịch vụ tiện ích');
       expect(resolveServiceName(null, 'Dịch vụ tiện ích', null)).toBe('Dịch vụ tiện ích');
     });
+
+    it('does not infer a service from hexadecimal characters in unknown UUIDs', () => {
+      const unknownId = 'acabcdef-1234-4567-89ab-123456789abc';
+      expect(resolveServiceName(unknownId)).toBe('Dịch vụ tiện ích');
+      expect(resolveServiceName(unknownId, undefined, 'Tôi cần người Sửa máy giặt')).toBe('Sửa máy giặt');
+      expect(resolveServiceName(unknownId, 'Bảo dưỡng máy in')).toBe('Bảo dưỡng máy in');
+    });
+
+    it.each(['Sự cố: Không in', 'Vị trí: Văn phòng', 'Mức độ: Nặng'])(
+      'excludes %s from titles extracted from descriptions',
+      (chip) => {
+        expect(resolveServiceName(undefined, undefined, `Tôi cần người Bảo dưỡng máy in: ${chip}`))
+          .toBe('Bảo dưỡng máy in');
+      },
+    );
   });
 
   describe('Radar Screen header resolution', () => {

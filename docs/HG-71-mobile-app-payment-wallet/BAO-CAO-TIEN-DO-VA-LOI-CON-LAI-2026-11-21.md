@@ -8,7 +8,7 @@
 
 **Commit nền trước đợt bàn giao:** `bd6f292b782127134838d7e7059bb1c4e25b495e`.
 
-**Trạng thái bàn giao:** phần làm sạch toàn nhánh được ghi trong commit local chứa bản cập nhật báo cáo này, sau `37f7f2c`; chưa push. Tra SHA bằng `git log -1`. Công cụ Docker/seed và Maestro cá nhân nằm ngoài phần bàn giao. Phạm vi toàn nhánh cập nhật ở mục 12; inventory 28 file ở mục 9 là của commit bàn giao trước đợt làm sạch.
+**Trạng thái bàn giao:** phần dọn phạm vi đã được commit tại `4c6e916`; nhánh hiện có PR #93 để review. Lần tích hợp `main` để xử lý conflict được ghi ở mục 13; tra SHA mới nhất bằng `git log -1`. Công cụ Docker/seed và Maestro cá nhân nằm ngoài phần bàn giao. Mục 9 và 12 là inventory tại thời điểm bàn giao/dọn phạm vi tương ứng.
 
 ## 1. Kết quả hiện tại
 
@@ -414,7 +414,7 @@ Tổng inventory: **1 backend + 10 runtime mobile + 14 tests + 3 tài liệu = 2
 ### 9.5. Maestro cá nhân — ngoài phạm vi commit
 
 - Bộ flow cá nhân: `mobile/.maestro-local/worker-wallet/`, gồm 19 file YAML được giữ trên máy này.
-- Hướng dẫn chạy cá nhân: `mobile/.maestro-local/README.local.md`; manifest SHA-256: `mobile/.maestro-local/preserved-files.json`.
+- Hướng dẫn chạy cá nhân: `mobile/.maestro-local/readme.local.md`; manifest SHA-256: `mobile/.maestro-local/preserved-files.json`.
 - 12 file đã track từ commit cũ trong `mobile/.maestro/` được bỏ tracking trong đợt làm sạch toàn nhánh, vẫn tồn tại trên máy và bị ignore local. Các commit cũ không bị viết lại; phần diff bàn giao sau khi commit đợt làm sạch sẽ không còn thêm các flow này.
 - Ignore và quy tắc cho Codex chỉ nằm ở `.git/info/exclude` và `AGENTS.md` root đã được Git bỏ qua. Không bắt đồng đội áp dụng môi trường cá nhân.
 
@@ -455,7 +455,7 @@ Các file vẫn tồn tại tại chỗ để Docker Desktop và việc test tr�
 
 - Đối chiếu với `main` remote tại SHA `3e5fb284fccda515d4d13dbaa9ce0b25ed966250`; merge-base với HG-71 là `70f5ee2aa26a6d4c1d218dfc900e3bfe9b7ff927`.
 - Chỉ tải Git objects để đọc; không cập nhật ref, chuyển nhánh, merge hoặc rebase. `main`, `release` và HEAD HG-71 giữ nguyên.
-- Đợt làm sạch được commit local trên HG-71 theo yêu cầu người dùng; chưa push hoặc tạo PR. Phần diff toàn nhánh sau commit phản ánh phạm vi đã làm sạch. Các commit cũ vẫn chứa file lịch sử; không viết lại lịch sử để xóa chúng.
+- Khi kết thúc đợt làm sạch, chỉ tạo commit local trên HG-71, chưa push hoặc tạo PR. Sau đó nhánh được đưa lên PR #93; phần xử lý conflict theo yêu cầu người dùng nằm ở mục 13. Các commit cũ vẫn chứa file lịch sử; không viết lại lịch sử để xóa chúng.
 
 ### 12.2. Nội dung đã đưa ra khỏi phần bàn giao
 
@@ -494,3 +494,24 @@ Giữ phần tách resolver proposal để đáp ứng lint trong Phần 7, cùn
 - `git diff --check` và `git diff --cached --check`: PASS. Các giới hạn nghiệm thu và lỗi còn lại ở mục 7–8 vẫn giữ nguyên.
 
 Số 123 là diff từ merge-base của HG-71; không phải so sánh trực tiếp hai ngọn nhánh. `main` có thay đổi mới về auth/keyboard không thuộc HG-71; đợt này không nhập các thay đổi đó vào nhánh hoặc tác động đến chúng trên `main`.
+
+## 13. Tích hợp `main` để xử lý conflict PR #93 — 21/11/2026
+
+Theo yêu cầu xử lý conflict của PR #93, hợp nhất commit `main` `3e5fb284fccda515d4d13dbaa9ce0b25ed966250` vào nhánh nguồn `feature/HG-71-mobile-app-payment-wallet`. Không merge PR vào `main`, không thay đổi `release`, không force-push hoặc chạy deploy.
+
+- File conflict trực tiếp: `mobile/src/features/chat/__tests__/chat-deal-bar-live-bidding.test.tsx`. Giữ bản trên `main`: fake timers, async `act`, flush React Query notifications sau từng sự kiện SSE và khôi phục real timers khi cleanup.
+- Rà các file tự hợp nhất về chọn vai trò, bàn phím, tên dịch vụ, Radar và danh sách đơn. Giữ sửa đổi từ `main` cùng phần xóa cache ví khi đăng xuất, xử lý Back khi đang nhập và safe area của HG-71.
+- Xác minh 17 đường dẫn chỉ thay đổi trên `main` vẫn giữ nguyên nội dung trong kết quả hợp nhất.
+- Diff với `main` sau hợp nhất còn **111 file**. Không có thay đổi `.github/`, flow Maestro hoặc bộ Docker/seed cá nhân trong diff này. Số 123 tại mục 12 thuộc merge-base cũ, trước khi tích hợp `main`.
+- Kiểm tra checksum 43 file local: nội dung được giữ nguyên. Đổi tên hướng dẫn cá nhân từ `README.local.md` sang `readme.local.md` để tuân thủ lint; file vẫn bị ignore local.
+
+Kết quả kiểm tra trên mã sau hợp nhất:
+
+| Kiểm tra | Kết quả |
+| --- | --- |
+| Toàn bộ mobile Jest | **128 suites / 963 tests PASS**, không failed |
+| `pnpm lint` | PASS, exit 0 sau khi sửa tên hướng dẫn local |
+| `pnpm type-check` | PASS, exit 0 |
+| Conflict index và diff check | Không còn unmerged entries; diff check PASS |
+
+Artifact chỉ giữ local trong `mobile/coverage/`: `hg71-pr93-tests.json`, `hg71-pr93-tests.log`, `hg71-pr93-lint.log`, `hg71-pr93-typecheck.log`. Jest vẫn dùng `--forceExit` và còn cảnh báo async/cleanup; không coi kết quả PASS là đã xử lý toàn bộ open handles. Đợt xử lý conflict không chạy lại native hoặc thao tác tài chính; các giới hạn ở mục 7–8 vẫn áp dụng.

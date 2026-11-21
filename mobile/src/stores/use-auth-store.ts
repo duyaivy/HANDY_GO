@@ -65,15 +65,30 @@ export function setStoredGuestRole(role: AppMode | null): void {
   }
 }
 
-export function resolveActiveMode(user: AuthUser | null): AppMode | null {
+export function resolveActiveMode(
+  user: AuthUser | null,
+  preferredRole?: AppMode | null,
+): AppMode | null {
   if (!user || !user.roles || user.roles.length === 0) {
     return null;
   }
 
+  // 1. Explicit preferred role (e.g. from Welcome selection or guest state)
+  if (preferredRole && user.roles.includes(preferredRole)) {
+    return preferredRole;
+  }
+
+  // 2. Previously stored mode for this specific user account
   const stored = getStoredActiveMode(user.id);
   // Stored mode is only used if user currently has that role
   if (stored && user.roles.includes(stored)) {
     return stored;
+  }
+
+  // 3. Guest selected role from device storage
+  const guestRole = getStoredGuestRole();
+  if (guestRole && user.roles.includes(guestRole)) {
+    return guestRole;
   }
 
   // Fallback: Default to Customer if account has Customer role (or both)
@@ -122,7 +137,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   setUser: (user) => {
-    const activeMode = resolveActiveMode(user);
+    const preferredMode = get().guestRole || getStoredGuestRole();
+    const activeMode = resolveActiveMode(user, preferredMode);
     if (user && activeMode) {
       setStoredActiveMode(user.id, activeMode);
     }
@@ -175,7 +191,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
         refresh: session.refreshToken,
       });
 
-      const activeMode = resolveActiveMode(session.user);
+      const preferredMode = get().guestRole || getStoredGuestRole();
+      const activeMode = resolveActiveMode(session.user, preferredMode);
       if (activeMode) {
         setStoredActiveMode(session.user.id, activeMode);
       }
@@ -218,7 +235,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
         refresh: session.refreshToken,
       });
 
-      const activeMode = resolveActiveMode(session.user);
+      const preferredMode = get().guestRole || getStoredGuestRole();
+      const activeMode = resolveActiveMode(session.user, preferredMode);
       if (activeMode) {
         setStoredActiveMode(session.user.id, activeMode);
       }

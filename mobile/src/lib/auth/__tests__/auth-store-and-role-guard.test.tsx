@@ -218,6 +218,49 @@ describe('secure Token Storage & Auth Store', () => {
     expect(getMyProfileSpy).toHaveBeenCalled();
   });
 
+  it('handles login with dual roles and honors Worker preferredMode/guestRole', async () => {
+    useAuthStore.getState().setGuestRole('Worker');
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'u-dual-worker',
+        fullName: 'Dual Worker User',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: '',
+        updatedAt: '',
+      },
+    });
+
+    jest.spyOn(AuthApi, 'login').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        accessToken: 'access_worker',
+        refreshToken: 'refresh_worker',
+        expiresIn: 300,
+        user: {
+          id: 'u-dual-worker',
+          phone: '+84988888888',
+          email: 'worker@example.com',
+          roles: ['Customer', 'Worker'],
+          permissions: [],
+        },
+      },
+    });
+
+    const session = await useAuthStore.getState().login({ phone: '0988888888', password: 'Password123' });
+    expect(session.user.roles).toEqual(['Customer', 'Worker']);
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.activeMode).toBe('Worker');
+  });
+
   it('retains authenticated session even if getMyProfile throws during login', async () => {
     jest.spyOn(AuthApi, 'getMyProfile').mockRejectedValueOnce(new Error('Network error loading profile'));
 
