@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -25,6 +26,7 @@ jest.mock('@/components/map/handy-map', () => ({
 
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   useBookingDraftStore.getState().resetDraft();
 });
@@ -124,6 +126,7 @@ describe('customerBookingRadarScreen - Invalid Bid Price Handling (PR62-05-P2 / 
           {
             selectionSource: 'bid',
             sourceBidId: 'bid-valid-1',
+            version: 3,
             workerUserId: 'worker-valid-1',
             amount: 180000,
             status: 'active',
@@ -185,11 +188,13 @@ describe('customerBookingRadarScreen - Invalid Bid Price Handling (PR62-05-P2 / 
     expect(screen.getByText('Không có giá hợp lệ')).toBeOnTheScreen();
     expect(screen.getByText('Không thể chọn')).toBeOnTheScreen();
 
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     // Clicking valid candidate submits proposal with correct agreedPrice
     fireEvent.press(screen.getByTestId('radar-select-worker-btn'));
 
     await waitFor(() => {
       expect(createProposalSpy).toHaveBeenCalledTimes(1);
+      expect(alert).toHaveBeenCalledWith('Đã gửi đề xuất dịch vụ!', expect.any(String), expect.any(Array));
     });
 
     expect(createProposalSpy).toHaveBeenCalledWith(
@@ -198,8 +203,43 @@ describe('customerBookingRadarScreen - Invalid Bid Price Handling (PR62-05-P2 / 
         workerUserId: 'worker-valid-1',
         selectionSource: 'bid',
         sourceBidId: 'bid-valid-1',
+        expectedBidVersion: 3,
         agreedPrice: 180000,
       }),
     );
   });
+});
+
+it('sends a recommendation invitation with a note and no booking proposal', async () => {
+  jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue({
+    bidding: { status: 'open', items: [] },
+    matching: {
+      status: 'completed',
+      recommendations: [{
+        workerUserId: 'worker-matched',
+        sourceMatchResultId: 'match-1',
+        matchingScore: 88,
+        workerProfile: { fullName: 'Thợ được gợi ý' },
+      }],
+    },
+  } as any);
+  const invite = jest.spyOn(OrdersApi, 'createQuoteInvitation').mockResolvedValue({
+    data: { id: 'invite-1', workerUserId: 'worker-matched', note: 'Có kiểm tra tận nơi không?' },
+  } as Awaited<ReturnType<typeof OrdersApi.createQuoteInvitation>>);
+  const proposal = jest.spyOn(OrdersApi, 'createProposal');
+
+  render(<CustomerBookingRadarScreen />);
+  fireEvent.press(await screen.findByText('Trao đổi'));
+  expect(screen.queryByText('200.000đ')).toBeNull();
+  expect(screen.queryByText('Chọn thợ')).toBeNull();
+  fireEvent.changeText(screen.getByLabelText('Lời nhắn cho thợ'), '  Có kiểm tra tận nơi không?  ');
+  fireEvent.press(screen.getByText('Gửi hỏi giá'));
+
+  expect(await screen.findByText('Đã gửi hỏi giá')).toBeOnTheScreen();
+  expect(invite).toHaveBeenCalledWith('req-real-price-001', {
+    workerUserId: 'worker-matched',
+    sourceMatchResultId: 'match-1',
+    note: 'Có kiểm tra tận nơi không?',
+  });
+  expect(proposal).not.toHaveBeenCalled();
 });

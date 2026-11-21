@@ -45,6 +45,7 @@ describe('Notification event contracts, routing, templates and policies', () => 
 
   it.each([
     ['matching.completed', 'customer'],
+    ['quote_invitation.created', 'worker'],
     ['bid.submitted', 'customer'],
     ['bid.revised', 'customer'],
     ['booking_proposal.created', 'worker'],

@@ -76,6 +76,21 @@ describe('ProposalSourceVerifierService (BE-10)', () => {
       sourceBidId: 'bid-3333',
     };
 
+    it.each([
+      { amount: 300000, version: 3 },
+      { amount: 350000, version: 2 },
+    ])('rejects stale confirmed terms when the authoritative bid is %j', async (bid) => {
+      mockFetch.mockResolvedValueOnce({
+        status: 200,
+        json: async () => ({ data: { eligible: true, bid } }),
+      });
+
+      await expect(service.verifyProposalSource({
+        ...validParams,
+        expectedBid: { amount: 300000, version: 2 },
+      })).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+    });
+
     it('passes when Bidding Service returns 200 with eligible=true', async () => {
       mockFetch.mockResolvedValueOnce({
         status: 200,

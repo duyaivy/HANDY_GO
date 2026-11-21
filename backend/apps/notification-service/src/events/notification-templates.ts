@@ -21,6 +21,10 @@ const templates = {
     'Đã tìm thấy thợ phù hợp',
     'Hệ thống đã hoàn tất tìm kiếm thợ phù hợp cho yêu cầu của bạn.',
   ],
+  'quote_invitation.created': [
+    'Khách hàng muốn trao đổi',
+    'Bạn vừa nhận được lời mời báo giá cho một yêu cầu dịch vụ.',
+  ],
   'bid.submitted': [
     'Bạn có báo giá mới',
     'Một thợ vừa gửi báo giá cho yêu cầu của bạn.',

@@ -14,6 +14,7 @@ export interface VerifyProposalSourceParams {
   serviceRequestId: string;
   workerUserId: string;
   sourceBidId?: string;
+  expectedBid?: { version: number; amount: number };
   sourceMatchResultId?: string;
 }
 
@@ -68,7 +69,7 @@ export class ProposalSourceVerifierService {
   }
 
   private async verifyBidSource(params: VerifyProposalSourceParams): Promise<void> {
-    const { sourceBidId, serviceRequestId, workerUserId } = params;
+    const { sourceBidId, serviceRequestId, workerUserId, expectedBid } = params;
 
     if (!sourceBidId) {
       throw new AppException(
@@ -108,7 +109,8 @@ export class ProposalSourceVerifierService {
 
       if (response.status === 200) {
         const body = (await response.json()) as {
-          data?: { eligible: boolean; reason?: string };
+          data?: { eligible: boolean; reason?: string; bid?: { version: number; amount: number } };
+          bid?: { version: number; amount: number };
           eligible?: boolean;
           reason?: string;
         };
@@ -123,6 +125,16 @@ export class ProposalSourceVerifierService {
           );
         }
 
+        if (expectedBid && (
+          result.bid?.version !== expectedBid.version ||
+          result.bid?.amount !== expectedBid.amount
+        )) {
+          throw new AppException(
+            HttpStatus.CONFLICT,
+            'BID_TERMS_CHANGED',
+            'Báo giá đã thay đổi. Vui lòng kiểm tra và xác nhận lại.',
+          );
+        }
         this.logger.log(
           `Bid ${sourceBidId} verified successfully via Bidding Service`,
         );

@@ -1,4 +1,7 @@
+import { QuoteInvitationsController } from './quote-invitations.controller.js';
+import { QuoteInvitationsService } from './quote-invitations.service.js';
 import { Module } from '@nestjs/common';
+import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { ServiceRequestsController } from './service-requests.controller.js';
 import { ServiceRequestsService } from './service-requests.service.js';
 import { OrderDeadlineSchedulerService } from './workers/order-deadline-scheduler.service.js';
@@ -6,8 +9,13 @@ import { BookingProposalsModule } from '../booking-proposals/booking-proposals.m
 
 @Module({
   imports: [BookingProposalsModule],
-  controllers: [ServiceRequestsController],
-  providers: [ServiceRequestsService, OrderDeadlineSchedulerService],
+  controllers: [ServiceRequestsController, QuoteInvitationsController],
+  providers: [
+    ServiceRequestsService,
+    QuoteInvitationsService,
+    OrderDeadlineSchedulerService,
+    TrustedGatewayGuard,
+  ],
   exports: [ServiceRequestsService, OrderDeadlineSchedulerService],
 })
 export class ServiceRequestsModule {}

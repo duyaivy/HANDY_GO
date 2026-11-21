@@ -157,6 +157,9 @@ export class BookingProposalsService {
       serviceRequestId: dto.serviceRequestId,
       workerUserId: dto.workerUserId,
       sourceBidId: dto.sourceBidId,
+      ...((dto.selectionSource === WorkerSelectionSource.bid && dto.expectedBidVersion != null)
+        ? { expectedBid: { version: dto.expectedBidVersion, amount: dto.agreedPrice } }
+        : {}),
       sourceMatchResultId: dto.sourceMatchResultId,
     });
 

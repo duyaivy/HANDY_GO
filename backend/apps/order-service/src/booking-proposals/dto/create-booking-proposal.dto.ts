@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsEnum,
   IsISO8601,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -61,6 +62,12 @@ export class CreateBookingProposalDto {
   @IsOptional()
   @IsUUID()
   sourceBidId?: string;
+
+  @ApiPropertyOptional({ description: 'Bid version confirmed by the customer' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedBidVersion?: number;
 
   @ApiPropertyOptional({
     description:

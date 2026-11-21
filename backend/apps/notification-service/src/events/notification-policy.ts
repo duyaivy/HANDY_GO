@@ -28,6 +28,7 @@ export const DEFAULT_PRODUCTION_POLICIES: Partial<
   Record<NotificationEventType, EventPolicy>
 > = {
   'message.created': { mode: 'optional', roles: ['recipient'] },
+  'quote_invitation.created': { mode: 'mandatory', roles: ['worker'] },
   'bid.submitted': { mode: 'optional', roles: ['customer'] },
   'bid.revised': { mode: 'optional', roles: ['customer'] },
   'matching.eligible_workers.ready': { mode: 'optional', roles: ['worker'] },

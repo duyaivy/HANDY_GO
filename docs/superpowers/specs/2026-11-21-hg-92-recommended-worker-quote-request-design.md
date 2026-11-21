@@ -12,7 +12,7 @@ Khách có thể hỏi giá một thợ được AI gợi ý và gửi kèm lờ
 
 ## Luồng thực hiện
 
-1. Thẻ gợi ý AI giữ thông tin thợ, bỏ giá riêng và đổi nút **Chọn thợ** thành **Hỏi giá**. Giữ khoảng giá chung với nhãn **Chi phí ước tính tham khảo**.
+1. Thẻ gợi ý AI giữ thông tin thợ, bỏ giá riêng và đổi nút **Chọn thợ** thành **Trao đổi**. Giữ khoảng giá chung với nhãn **Chi phí ước tính tham khảo**.
 2. Khách xem tên thợ và yêu cầu, nhập lời nhắn văn bản ngắn tùy chọn, rồi bấm **Gửi hỏi giá**. Backend lưu lời mời gắn với yêu cầu và thợ. Lời mời không tạo báo giá, đề xuất đặt lịch hay đơn hàng.
 3. Thợ nhận thông báo, mở lời mời và xem lời nhắn trong ngữ cảnh yêu cầu. Thợ có thể bỏ qua hoặc gửi báo giá ban đầu qua nghiệp vụ báo giá hiện có. Khách thấy **Đã gửi hỏi giá** trong thời gian chờ.
 4. Khi có báo giá hợp lệ, khách thấy **Xem báo giá** và **Nhắn tin**. Nếu thợ đã có báo giá hợp lệ lúc khách xem thẻ, hiển thị các hành động này ngay. Lời nhắn ban đầu nằm trong lời mời, quyền chat tiếp tục được xác minh theo báo giá và trạng thái đơn hiện hành.

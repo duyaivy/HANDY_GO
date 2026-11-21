@@ -1,5 +1,6 @@
 import type { HandyMapRef } from '@/components/map/handy-map';
 import type { BidCandidate, RecommendationCandidate } from '@/features/candidates/types/candidate.types';
+import type { QuoteInvitation } from '@/features/orders/api/orders.api';
 import type { CreateBookingProposalPayload } from '@/features/orders/types/order.types';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -30,9 +31,11 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
+import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
 import { ChatEntry } from '@/features/chat/chat-entry';
 import { OrdersApi } from '@/features/orders/api/orders.api';
+import { QuoteInvitationModal } from '@/features/orders/customer/quote-invitation-modal';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { usePendingProposals } from '@/features/orders/hooks/use-pending-proposals';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -54,13 +57,16 @@ type DisplayWorkerCandidate = {
   priceText: string;
   distance: string;
   avatarUrl: string;
-  selectionSource: 'bid' | 'recommendation';
   sourceBidId?: string;
-  sourceMatchResultId?: string;
+  bidVersion?: number;
   message?: string;
   matchingScore?: number;
   rank?: number;
   isPriceValid?: boolean;
+};
+
+type RecommendedWorker = Omit<DisplayWorkerCandidate, 'price' | 'priceText'> & {
+  sourceMatchResultId: string;
 };
 
 const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1540569014015-19a7be504e3a?w=160&auto=format&fit=crop&q=80';
@@ -83,7 +89,6 @@ const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   priceText: '300.000đ',
   distance: '0.5km',
   avatarUrl: DEFAULT_AVATAR,
-  selectionSource: 'bid',
   sourceBidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
   isPriceValid: true,
 };
@@ -348,6 +353,20 @@ export default function CustomerBookingRadarRoute() {
   });
 
   const currentUserId = useAuthStore(state => state.user?.id);
+
+  const [invitedWorker, setInvitedWorker] = React.useState<{
+    requestId: string;
+    worker: RecommendedWorker;
+  } | null>(null);
+  const invitationKey = ['orders', 'quote-invitations', validRequestId, currentUserId];
+  const { data: quoteInvitations } = useQuery({
+    queryKey: invitationKey,
+    queryFn: async ({ signal }) => (await OrdersApi.listQuoteInvitations(validRequestId!, signal)).data,
+    enabled: Boolean(validRequestId && currentUserId && recommendations.length),
+  });
+  const invitedWorkerIds = new Set(quoteInvitations?.map(invitation => invitation.workerUserId));
+  const invitationsClosed = biddingStatus === 'closed' || biddingStatus === 'cancelled'
+    || Boolean(serverRequest && serverRequest.status !== 'open_for_bidding');
 
   // Query existing proposals for this request to track proposed workers
   const { data: requestProposals } = useQuery({
@@ -747,35 +766,30 @@ export default function CustomerBookingRadarRoute() {
             ? `${b.workerProfile.distanceKm.toFixed(1)}km`
             : 'Gần bạn',
           avatarUrl: b.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-          selectionSource: 'bid' as const,
           sourceBidId: b.sourceBidId,
+          bidVersion: b.version,
           message: b.message || undefined,
         };
       });
   }, [bids]);
 
   // Map AI Recommendations (Section B)
-  const mappedRecommendations: DisplayWorkerCandidate[] = React.useMemo(() => {
-    const defaultRecPrice = typeof aiRefPriceMin === 'number' && aiRefPriceMin > 0 ? aiRefPriceMin : 200000;
+  const mappedRecommendations: RecommendedWorker[] = React.useMemo(() => {
     return recommendations.map((r: RecommendationCandidate) => ({
       id: r.workerUserId,
       name: r.workerProfile?.fullName?.trim() || 'Thợ đối tác HandyGo',
       rating: r.workerProfile?.averageRating ?? 0,
       totalOrders: r.workerProfile?.completedOrderCount ?? 0,
       completionRate: 95,
-      price: defaultRecPrice,
-      priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
-      isPriceValid: true,
       distance: typeof r.workerProfile?.distanceKm === 'number'
         ? `${r.workerProfile.distanceKm.toFixed(1)}km`
         : 'Gần bạn',
       avatarUrl: r.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-      selectionSource: 'recommendation' as const,
       sourceMatchResultId: r.sourceMatchResultId,
       matchingScore: r.matchingScore,
       rank: r.rank,
     }));
-  }, [recommendations, aiRefPriceMin]);
+  }, [recommendations]);
 
   // Combined candidates or test fallback
   const allCandidatesList = [...mappedBids, ...mappedRecommendations];
@@ -786,7 +800,7 @@ export default function CustomerBookingRadarRoute() {
   // Candidate selection -> Booking Proposal creation (Contract Section 7 & 17)
   const handleSelectWorkerAndSendProposal = async (worker: DisplayWorkerCandidate) => {
     // PR62-05-P2: Báo giá không hợp lệ (null, 0, NaN, âm) không được phép tạo proposal
-    if (worker.selectionSource === 'bid' && (!isValidBidPrice(worker.price) || worker.isPriceValid === false)) {
+    if (!isValidBidPrice(worker.price) || worker.isPriceValid === false) {
       Alert.alert(
         'Báo giá không hợp lệ',
         'Báo giá từ thợ không có giá hợp lệ (giá phải lớn hơn 0). Không thể tạo đề xuất từ báo giá này.',
@@ -817,38 +831,19 @@ export default function CustomerBookingRadarRoute() {
         return;
       }
 
-      // Enforce strict XOR validation for Proposal Source (MOB-06 / Contract Section 17)
-      let proposalPayload: CreateBookingProposalPayload;
-
-      if (worker.selectionSource === 'bid') {
-        if (!worker.sourceBidId) {
-          throw new Error('Nguồn báo giá không hợp lệ: thiếu sourceBidId');
-        }
-        proposalPayload = {
-          serviceRequestId: targetRequestId,
-          workerUserId: worker.id,
-          selectionSource: 'bid',
-          sourceBidId: worker.sourceBidId,
-          agreedPrice: worker.price,
-          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
-          scheduledAt: scheduledAt || undefined,
-        };
+      if (!worker.sourceBidId) {
+        throw new Error('Nguồn báo giá không hợp lệ: thiếu sourceBidId');
       }
-      else {
-        if (!worker.sourceMatchResultId) {
-          throw new Error('Nguồn gợi ý không hợp lệ: thiếu sourceMatchResultId');
-        }
-        const agreedPrice = worker.price > 0 ? worker.price : 200000;
-        proposalPayload = {
-          serviceRequestId: targetRequestId,
-          workerUserId: worker.id,
-          selectionSource: 'recommendation',
-          sourceMatchResultId: worker.sourceMatchResultId,
-          agreedPrice,
-          agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ gợi ý AI ${worker.name}`,
-          scheduledAt: scheduledAt || undefined,
-        };
-      }
+      const proposalPayload: CreateBookingProposalPayload = {
+        serviceRequestId: targetRequestId,
+        workerUserId: worker.id,
+        selectionSource: 'bid',
+        sourceBidId: worker.sourceBidId,
+        expectedBidVersion: worker.bidVersion,
+        agreedPrice: worker.price,
+        agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
+        scheduledAt: scheduledAt || undefined,
+      };
 
       // Call Booking Proposal API (Never create Order directly)
       const response = await OrdersApi.createProposal(proposalPayload);
@@ -892,6 +887,15 @@ export default function CustomerBookingRadarRoute() {
       const errorMsg = String(errorObj?.response?.data?.message || backendMessage || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
+
+      if (errorCode === 'BID_TERMS_CHANGED' || errorMsg.includes('Báo giá đã thay đổi')) {
+        fail(worker.id);
+        if (validRequestId) {
+          void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.byRequest(validRequestId) });
+        }
+        Alert.alert('Báo giá đã thay đổi', 'Vui lòng xem lại báo giá và xác nhận lại.');
+        return;
+      }
 
       const isConflict = errorObj?.response?.status === 409 || errorCode === 'PROPOSAL_REVISION_CONFLICT'
         || errorMsg.includes('already awaiting response');
@@ -1514,40 +1518,23 @@ export default function CustomerBookingRadarRoute() {
 
                                     </View>
                                   </View>
-                                  {/* Price and action span the card width on compact screens. */}
                                   <View className="mt-3 flex-row items-center justify-between gap-3 border-t border-neutral-100 pt-3 dark:border-neutral-700/60">
-                                    <View className="min-w-0 flex-1">
-                                      <Text className="text-lg font-bold text-secondary-700 dark:text-blue-400" numberOfLines={1} adjustsFontSizeToFit>
-                                        {worker.priceText}
-                                      </Text>
-                                      <Text className="mt-0.5 text-xs text-neutral-400">
-                                        {worker.distance}
-                                      </Text>
-                                    </View>
-                                    <Pressable
-                                      testID={globalIdx === 0 ? 'radar-select-worker-btn' : undefined}
-                                      onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                      disabled={isSubmitting || isWorkerProposed(worker.id)}
-                                      className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
-                                        isWorkerProposed(worker.id)
-                                          ? 'bg-neutral-200 dark:bg-neutral-800'
-                                          : 'bg-[#F5A524] active:opacity-80'
-                                      }`}
-                                    >
-                                      <Text
-                                        className={`text-sm font-bold ${
-                                          isWorkerProposed(worker.id)
-                                            ? 'text-neutral-500 dark:text-neutral-400'
-                                            : 'text-white'
-                                        }`}
-                                      >
-                                        {isWorkerProposed(worker.id)
-                                          ? 'Đang chờ thợ...'
-                                          : isSubmitting
-                                            ? 'Đang gửi...'
-                                            : 'Chọn thợ'}
-                                      </Text>
-                                    </Pressable>
+                                    <Text className="flex-1 text-xs text-neutral-500">{worker.distance}</Text>
+                                    {invitedWorkerIds.has(worker.id)
+                                      ? <Text className="text-sm text-neutral-500">{invitationsClosed ? 'Đã hết hạn hỏi giá' : 'Đã gửi hỏi giá'}</Text>
+                                      : (
+                                          <Pressable
+                                            accessibilityRole="button"
+                                            className="min-h-10 justify-center rounded-xl bg-[#F5A524] px-4 disabled:opacity-50"
+                                            disabled={!validRequestId || !worker.sourceMatchResultId || invitationsClosed}
+                                            onPress={() => {
+                                              if (validRequestId)
+                                                setInvitedWorker({ requestId: validRequestId, worker });
+                                            }}
+                                          >
+                                            <Text className="text-sm font-bold text-white">Trao đổi</Text>
+                                          </Pressable>
+                                        )}
                                   </View>
                                 </View>
                               );
@@ -1559,7 +1546,7 @@ export default function CustomerBookingRadarRoute() {
                       {/* Fallback Test Worker for test environment */}
                       {mappedBids.length === 0 && mappedRecommendations.length === 0 && displayList.length > 0 && (
                         <View
-                          key={displayList[0].id}
+                          key={FALLBACK_TEST_WORKER.id}
                           className="rounded-2xl border border-neutral-100 bg-white p-3.5 shadow-xs dark:border-neutral-800 dark:bg-neutral-800/80"
                         >
                           <View className="flex-row items-start">
@@ -1570,7 +1557,7 @@ export default function CustomerBookingRadarRoute() {
                             >
                               <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
                                 <Image
-                                  source={{ uri: displayList[0].avatarUrl }}
+                                  source={{ uri: FALLBACK_TEST_WORKER.avatarUrl }}
                                   className="size-full"
                                   resizeMode="cover"
                                 />
@@ -1579,30 +1566,30 @@ export default function CustomerBookingRadarRoute() {
 
                             <View className="min-w-0 flex-1">
                               <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                                {displayList[0].name}
+                                {FALLBACK_TEST_WORKER.name}
                               </Text>
                               <View className="mt-2.5 flex-row items-center justify-between border-t border-neutral-100 pt-2">
                                 <Text className="text-base font-black text-secondary-700">
-                                  {displayList[0].priceText}
+                                  {FALLBACK_TEST_WORKER.priceText}
                                 </Text>
                                 <Pressable
                                   testID="radar-select-worker-btn"
-                                  onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
-                                  disabled={isSubmitting || isWorkerProposed(displayList[0].id)}
+                                  onPress={() => handleSelectWorkerAndSendProposal(FALLBACK_TEST_WORKER)}
+                                  disabled={isSubmitting || isWorkerProposed(FALLBACK_TEST_WORKER.id)}
                                   className={`rounded-lg px-3 py-1.5 ${
-                                    isWorkerProposed(displayList[0].id)
+                                    isWorkerProposed(FALLBACK_TEST_WORKER.id)
                                       ? 'bg-neutral-200 dark:bg-neutral-800'
                                       : 'bg-[#F5A524]'
                                   }`}
                                 >
                                   <Text
                                     className={`text-xs font-bold ${
-                                      isWorkerProposed(displayList[0].id)
+                                      isWorkerProposed(FALLBACK_TEST_WORKER.id)
                                         ? 'text-neutral-500 dark:text-neutral-400'
                                         : 'text-white'
                                     }`}
                                   >
-                                    {isWorkerProposed(displayList[0].id) ? 'Đang chờ thợ...' : 'Chọn thợ'}
+                                    {isWorkerProposed(FALLBACK_TEST_WORKER.id) ? 'Đang chờ thợ...' : 'Chọn thợ'}
                                   </Text>
                                 </Pressable>
                               </View>
@@ -1615,6 +1602,23 @@ export default function CustomerBookingRadarRoute() {
           </ScrollView>
         )}
       </View>
+
+      {invitedWorker && invitedWorker.requestId === validRequestId && (
+        <QuoteInvitationModal
+          key={`${invitedWorker.requestId}:${invitedWorker.worker.id}`}
+          requestId={invitedWorker.requestId}
+          worker={invitedWorker.worker}
+          onClose={() => setInvitedWorker(null)}
+          onSent={(invitation) => {
+            queryClient.setQueryData<QuoteInvitation[]>(invitationKey, current => [
+              ...(current ?? []).filter(item => item.id !== invitation.id),
+              invitation,
+            ]);
+            setInvitedWorker(current => current === invitedWorker ? null : current);
+            void queryClient.invalidateQueries({ queryKey: invitationKey });
+          }}
+        />
+      )}
 
       {/* ── 4. Modal Chi tiết đơn đặt việc chuẩn Vua Thợ ── */}
       <Modal

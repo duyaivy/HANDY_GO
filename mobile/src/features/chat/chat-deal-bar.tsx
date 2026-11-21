@@ -453,6 +453,7 @@ export function ChatDealBar({
                     workerUserId: currentBid.workerUserId || conversation.workerId,
                     selectionSource: 'bid',
                     sourceBidId: currentBid.sourceBidId || currentBid.id,
+                    expectedBidVersion: currentBid.version,
                     agreedPrice: currentBid.amount,
                     agreedScope: conversation.serviceName || 'Dịch vụ đã trao đổi',
                     supersedesProposalId,
@@ -483,9 +484,10 @@ export function ChatDealBar({
                   if (controller.signal.aborted) {
                     return;
                   }
+                  void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.conversationBid(conversation.requestId, conversation.workerId) });
                   Alert.alert(
                     'Không thể gửi đề xuất',
-                    err?.message || 'Có lỗi xảy ra khi gửi đề xuất chọn thợ.',
+                    err?.response?.data?.message || err?.message || 'Có lỗi xảy ra khi gửi đề xuất chọn thợ.',
                   );
                 }
                 finally {
