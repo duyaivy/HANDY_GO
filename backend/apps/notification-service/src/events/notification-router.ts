@@ -52,6 +52,12 @@ const strategies: StrategyMap = {
       ? [{ userId: data.customerId, role: 'customer' }]
       : [],
   }),
+  'quote_invitation.created': ({ data }) => ({
+    category: 'request',
+    entityId: data.invitationId,
+    requestId: data.requestId,
+    recipients: [{ userId: data.workerId, role: 'worker' }],
+  }),
   'bid.submitted': ({ data }) => ({
     category: 'bidding',
     entityId: data.bidId,

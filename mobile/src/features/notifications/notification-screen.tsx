@@ -61,7 +61,8 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
 
       // Route matching job discovery notifications directly to Worker Home / Bidding
       if (
-        eventType === 'matching.eligible_workers.ready'
+        eventType === 'quote_invitation.created'
+        || eventType === 'matching.eligible_workers.ready'
         || category === 'matching'
         || (category === 'request' && (worker || mode === 'Worker' || userRoles.includes('Worker')))
       ) {

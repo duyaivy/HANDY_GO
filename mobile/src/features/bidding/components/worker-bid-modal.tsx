@@ -13,6 +13,8 @@ import Svg, { Path } from 'react-native-svg';
 import { Button } from '@/components/ui/button';
 import { Text } from '@/components/ui/text';
 import { ChatEntry } from '@/features/chat/chat-entry';
+import { OrdersApi } from '@/features/orders/api/orders.api';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { isBeforeDeadline, useDeadlineClock } from '../hooks/use-deadline-clock';
 import {
   useMyBidForRequest,
@@ -49,6 +51,24 @@ function WorkerBidModalForm({
   bidQuery,
 }: WorkerBidModalProps & { bidQuery: ReturnType<typeof useMyBidForRequest> }) {
   const requestId = request?.id || '';
+  const userId = useAuthStore(state => state.user?.id);
+  const [invitation, setInvitation] = React.useState<{ workerId: string; note: string | null } | null>(null);
+
+  React.useEffect(() => {
+    if (!visible || !requestId || !userId)
+      return;
+    const controller = new AbortController();
+    OrdersApi.listQuoteInvitations(requestId, controller.signal).then(({ data }) => {
+      if (!controller.signal.aborted) {
+        const current = data.find(item => item.workerUserId === userId);
+        setInvitation(current ? { workerId: userId, note: current.note } : null);
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted)
+        setInvitation(null);
+    });
+    return () => controller.abort();
+  }, [requestId, userId, visible]);
 
   const { data: roundStatus, isLoading: isLoadingStatus, isError: isStatusError } = useRoundStatus(
     requestId,
@@ -242,6 +262,12 @@ function WorkerBidModalForm({
           </View>
 
           <ScrollView className="mt-3" showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            {invitation && invitation.workerId === userId && (
+              <View className="mb-4 rounded-xl bg-amber-50 p-3 dark:bg-amber-950">
+                <Text className="text-sm font-bold">Khách hàng muốn trao đổi</Text>
+                {invitation.note && <Text className="mt-1 text-sm">{invitation.note}</Text>}
+              </View>
+            )}
             {/* Round Status Info */}
             <View className="mb-4 rounded-xl bg-blue-50 p-3 dark:bg-blue-950/40">
               <View className="flex-row items-center justify-between">

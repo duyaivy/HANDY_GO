@@ -29,7 +29,25 @@ export type UploadImageOptions = {
   signal?: AbortSignal;
 };
 
+export type QuoteInvitation = {
+  id: string;
+  workerUserId: string;
+  note: string | null;
+};
+
 export const OrdersApi = {
+  listQuoteInvitations: (requestId: string, signal?: AbortSignal) =>
+    ApiClient.get<{ data: QuoteInvitation[] }>(`/service-requests/${requestId}/quote-invitations`, { signal }),
+
+  createQuoteInvitation: (requestId: string, payload: {
+    workerUserId: string;
+    sourceMatchResultId: string;
+    note?: string;
+  }) => ApiClient.post<{ data: QuoteInvitation }>(
+    `/service-requests/${requestId}/quote-invitations`,
+    payload,
+  ),
+
   // --- Service Requests ---
   estimatePrice: async (payload: EstimatePricePayload, options?: { signal?: AbortSignal }) => {
     return ApiClient.post<{ statusCode: number; message: string; data: EstimatePriceResponse }>(

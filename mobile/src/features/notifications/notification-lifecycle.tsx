@@ -63,7 +63,8 @@ export function NotificationLifecycle() {
         }
         // Route matching job discovery notifications to Worker Home with bidding requestId
         else if (
-          eventType === 'matching.eligible_workers.ready'
+          eventType === 'quote_invitation.created'
+          || eventType === 'matching.eligible_workers.ready'
           || (category === 'matching' && (mode === 'Worker' || userRoles.includes('Worker')))
         ) {
           if (userRoles.includes('Worker') && mode !== 'Worker') {

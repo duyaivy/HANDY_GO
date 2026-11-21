@@ -1,4 +1,7 @@
+import { QuoteInvitationsController } from './quote-invitations.controller.js';
+import { QuoteInvitationsService } from './quote-invitations.service.js';
 import { Module } from '@nestjs/common';
+import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { ServiceRequestsController } from './service-requests.controller.js';
 import { ServiceRequestsService } from './service-requests.service.js';
 import { PricingEstimatorService } from './services/pricing-estimator.service.js';
@@ -7,11 +10,13 @@ import { BookingProposalsModule } from '../booking-proposals/booking-proposals.m
 
 @Module({
   imports: [BookingProposalsModule],
-  controllers: [ServiceRequestsController],
+  controllers: [ServiceRequestsController, QuoteInvitationsController],
   providers: [
     ServiceRequestsService,
     PricingEstimatorService,
+    QuoteInvitationsService,
     OrderDeadlineSchedulerService,
+    TrustedGatewayGuard,
   ],
   exports: [
     ServiceRequestsService,

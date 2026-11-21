@@ -85,11 +85,27 @@ model ServiceRequest {
 
   media            RequestMedia[]
   bookingProposals BookingProposal[]
+  quoteInvitations QuoteInvitation[]
   order            Order?
 
   @@index([customerUserId, status, createdAt])
   @@index([serviceId, status])
   @@map("service_requests")
+  @@schema("order_service")
+}
+
+model QuoteInvitation {
+  id                  String   @id @default(uuid()) @db.Uuid
+  serviceRequestId    String   @map("service_request_id") @db.Uuid
+  workerUserId        String   @map("worker_user_id") @db.Uuid
+  sourceMatchResultId String   @map("source_match_result_id") @db.Uuid
+  note                String?  @db.VarChar(500)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceRequestId, workerUserId])
+  @@map("quote_invitations")
   @@schema("order_service")
 }
 

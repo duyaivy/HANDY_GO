@@ -172,6 +172,7 @@ export type CreateBookingProposalPayload = {
   agreedScope: string;
   scheduledAt?: string;
   sourceBidId?: string;
+  expectedBidVersion?: number;
   sourceMatchResultId?: string;
   expiresAt?: string;
   supersedesProposalId?: string;

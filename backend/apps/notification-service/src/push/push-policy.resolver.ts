@@ -19,6 +19,7 @@ export interface PushPolicyDecision {
 
 const defaultPolicies: Record<string, PushPolicy> = {
   'message.created': { enabled: true, mode: 'optional' },
+  'quote_invitation.created': { enabled: true, mode: 'optional' },
 };
 
 export function simulatedPushPolicies(): Record<string, PushPolicy> {

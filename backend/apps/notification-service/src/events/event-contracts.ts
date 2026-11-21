@@ -5,6 +5,7 @@ export const NOTIFICATION_EVENTS = [
   'message.created',
   'matching.eligible_workers.ready',
   'matching.completed',
+  'quote_invitation.created',
   'bid.submitted',
   'bid.revised',
   'booking_proposal.created',
@@ -55,6 +56,7 @@ export interface EventDataMap {
     requestId: string;
     customerId?: string;
   };
+  'quote_invitation.created': { invitationId: string; requestId: string; customerId: string; workerId: string };
   'bid.submitted': BidData;
   'bid.revised': BidData;
   'booking_proposal.created': ProposalData;
@@ -125,6 +127,7 @@ export const EVENT_CONTRACTS = {
     source: 'matching-service',
     ids: ['requestId'],
   },
+  'quote_invitation.created': { source: 'order-service', ids: ['invitationId', 'requestId', 'customerId', 'workerId'] },
   'bid.submitted': { source: 'bidding-service', ids: bid },
   'bid.revised': { source: 'bidding-service', ids: bid },
   'booking_proposal.created': { source: 'order-service', ids: proposal },
