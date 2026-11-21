@@ -2,6 +2,7 @@ import type { AuthSessionData, AuthUser, LoginPayload, VerifyOtpPayload } from '
 import { create } from 'zustand';
 import { StorageKeys } from '@/constants/storage-keys';
 import { chatSocket } from '@/features/chat/chat-socket';
+import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { getToken, hydrateTokens, removeToken, setToken } from '@/lib/auth/utils';
 import { storage } from '@/lib/storage';
@@ -283,6 +284,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
       await queryClient.cancelQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['notifications'] });
       queryClient.removeQueries({ queryKey: ['user-profile'] });
+      await queryClient.cancelQueries({ queryKey: walletQueryKeys.all });
+      queryClient.removeQueries({ queryKey: walletQueryKeys.all });
       await removeToken();
       setStoredGuestRole(null);
       set({

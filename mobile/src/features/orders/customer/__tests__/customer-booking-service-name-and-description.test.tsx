@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { BackHandler, Keyboard, TextInput } from 'react-native';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
@@ -27,6 +28,20 @@ afterEach(() => {
 });
 
 describe('customerBookingScreen - Service Name Preservation and Non-destructive Description (TASK-06)', () => {
+  it('dismisses a focused input before navigating back so hiding the keyboard preserves the draft', () => {
+    const listener = jest.spyOn(BackHandler, 'addEventListener');
+    const blur = jest.fn();
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    jest.spyOn(TextInput.State, 'currentlyFocusedInput').mockReturnValue({ blur } as unknown as TextInput);
+    render(<CustomerBookingScreen serviceId="cbb1b85c-32f9-4041-a0fd-df5cde04784f" />);
+    fireEvent.changeText(screen.getByTestId('booking-description-input'), 'HG71 sandbox request');
+    const back = listener.mock.calls.find(([event]) => event === 'hardwareBackPress')?.[1];
+    expect(back?.()).toBe(true);
+    expect(blur).toHaveBeenCalled();
+    expect(dismiss).toHaveBeenCalled();
+    expect(mockBack).not.toHaveBeenCalled();
+    expect(useBookingDraftStore.getState().description).toBe('HG71 sandbox request');
+  });
   it('preserves specific serviceName and resolves known service ID without falling back to generic default', () => {
     useAuthStore.setState({ isAuthenticated: true });
 

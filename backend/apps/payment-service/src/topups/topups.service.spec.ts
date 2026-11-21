@@ -114,10 +114,13 @@ describe('TopupsService.handleIpn', () => {
     expect(outbox.enqueue).not.toHaveBeenCalled();
   });
 
-  it('still honours a verified payment that arrives after the checkout expired', async () => {
-    const { service, state } = setup({ status: 'expired' });
-    await service.handleIpn({});
-    expect(state.topup!.status).toBe('credit_pending');
+  it('holds a verified payment after expiry for review without crediting twice', async () => {
+    const { service, state, outbox, tx } = setup({ status: 'expired' });
+    await expect(service.handleIpn({})).resolves.toBe(IPN_RESPONSE.ok);
+    expect(state.topup).toMatchObject({ status: 'needs_review', providerPaymentRef: '777', failureReason: 'provider_success_after_expiry' });
+    expect(state.topup!.providerPaidAt).toBeInstanceOf(Date);
+    expect(tx.topupAttempt.updateMany).toHaveBeenCalled();
+    expect(outbox.enqueue).not.toHaveBeenCalled();
   });
 });
 

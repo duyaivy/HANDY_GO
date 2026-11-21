@@ -16,7 +16,6 @@ export function useTrackingEvents(
 
   useEffect(() => {
     if (!serviceRequestId) {
-      setConnectionStatus('disconnected');
       return;
     }
 
@@ -48,5 +47,5 @@ export function useTrackingEvents(
     };
   }, [serviceRequestId, queryClient]);
 
-  return { connectionStatus };
+  return { connectionStatus: serviceRequestId ? connectionStatus : 'disconnected' as const };
 }

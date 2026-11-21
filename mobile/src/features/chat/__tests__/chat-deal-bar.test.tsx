@@ -6,7 +6,8 @@ import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { candidateQueryKeys } from '@/features/candidates/hooks/candidate-query-keys';
 import { OrdersApi } from '@/features/orders/api/orders.api';
-import { ChatDealBar, resolveLatestProposal } from '../chat-deal-bar';
+import { ChatDealBar } from '../chat-deal-bar';
+import { resolveLatestProposal } from '../resolve-latest-proposal';
 
 const mockWorkerBid = {
   id: 'bid-111',
