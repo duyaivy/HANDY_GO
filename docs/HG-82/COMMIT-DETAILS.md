@@ -11,7 +11,7 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`a7836ac`** | `feat(HG-82): support seven-day disputes on completed orders` | **Task 1** | Cho phép khách hàng mở khiếu nại trong 7 ngày sau khi hoàn tất đơn (`completed`); lưu metadata bằng chứng khiếu nại (`evidence_type`, `submitted_by_user_id`); migration DB; mở rộng Outbox event. |
 | **`592aded`** | `feat(HG-82): add admin dispute queue` | **Task 2** | Xây dựng API `GET /admin/orders/disputes` cho Admin tra cứu danh sách khiếu nại; thêm migration tạo index DB `(status, disputed_at)`; DTO query & response; test proxy API Gateway. |
 | **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
-| **Commit Task 4 (xem `git log`)** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
+| **`a1388415`** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
 
 ---
 
@@ -228,7 +228,7 @@ File: `backend/apps/api-gateway/src/proxy/proxy.constants.spec.ts`
 
 ---
 
-## 6. Task 4: Kiểm Thử Và Xác Minh Chất Lượng Local
+## 6. Commit Task 4: `a1388415` - Kiểm Thử Và Xác Minh Chất Lượng Local
 
 ### 6.1. Test bổ sung
 
