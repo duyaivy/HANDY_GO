@@ -65,6 +65,40 @@ describe('PR 68 regressions', () => {
     );
   });
 
+  it.each([true, false])('rechecks and honors eligibility %s when the first bid event arrives during creation', async (eligible) => {
+    const bid = { bidId: randomUUID(), requestId: c.requestId, workerId: c.workerId };
+    const proof = {
+      requestId: c.requestId,
+      customerId: c.customerId,
+      workerId: c.workerId,
+      orderId: null,
+      permissions: { create: true },
+    };
+    db.conversation.findMany.mockResolvedValue([]);
+    db.conversation.create = vi.fn(async () => c);
+    authority.bid = vi.fn(async () => bid);
+    authority.permission
+      .mockImplementationOnce(async () => {
+        await service.invalidate(randomUUID(), 'bid.submitted', {
+          requestId: c.requestId,
+          workerId: c.workerId,
+        });
+        return proof;
+      })
+      .mockResolvedValueOnce({ ...proof, permissions: { create: eligible } });
+    vi.spyOn(service, 'get').mockResolvedValue(c);
+
+    const result = service.create(c.customerId, { bidId: bid.bidId });
+    if (eligible) {
+      await expect(result).resolves.toMatchObject({ created: true });
+      expect(db.conversation.create).toHaveBeenCalledOnce();
+    } else {
+      await expect(result).rejects.toMatchObject({ code: 'CHAT_INELIGIBLE' });
+      expect(db.conversation.create).not.toHaveBeenCalled();
+    }
+    expect(authority.bid).toHaveBeenCalledTimes(2);
+  });
+
   it('another worker submitting a bid keeps the existing chat immediately writable', async () => {
     await service.invalidate(randomUUID(), 'bid.submitted', {
       requestId: c.requestId,

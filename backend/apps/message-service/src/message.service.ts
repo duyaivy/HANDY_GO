@@ -185,19 +185,28 @@ export class MessageService {
     input: { bidId: string },
   ): Promise<{ conversation: ChatConversation; created: boolean }> {
     validateInput('conversation.create', input);
-    const generation = this.generation,
-      deadline = Date.now() + 2000,
-      bid = await this.authority.bid(input.bidId, deadline);
-    const proof = await this.authority.permission(
-      userId,
-      { requestId: bid.requestId, workerId: bid.workerId },
-      false,
-      bid,
-      deadline,
-    );
-    if (!proof.permissions.create) throw new ChatError('CHAT_INELIGIBLE');
-    if (generation !== this.generation)
+    const deadline = Date.now() + 2000;
+    const authorize = async () => {
+      const bid = await this.authority.bid(input.bidId, deadline);
+      return this.authority.permission(
+        userId,
+        { requestId: bid.requestId, workerId: bid.workerId },
+        false,
+        bid,
+        deadline,
+      );
+    };
+
+    let generation = this.generation;
+    let proof = await authorize();
+    // The first bid event can arrive while this request checks eligibility.
+    if (generation !== this.generation && Date.now() < deadline) {
+      generation = this.generation;
+      proof = await authorize();
+    }
+    if (generation !== this.generation || Date.now() > deadline)
       throw new ChatError('ELIGIBILITY_UNAVAILABLE');
+    if (!proof.permissions.create) throw new ChatError('CHAT_INELIGIBLE');
     let created = false,
       c: Conversation;
     try {

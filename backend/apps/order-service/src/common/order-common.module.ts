@@ -18,8 +18,12 @@ import { DisputeRefundReconciliationService } from './inbox/dispute-refund-recon
     },
     ConsumedEventRepository,
     DisputeRefundReconciliationService,
-    OutboxPublisherService,
     OrderOutboxPublisherService,
+    // Both tokens share the publisher that emits Order event envelopes.
+    {
+      provide: OutboxPublisherService,
+      useExisting: OrderOutboxPublisherService,
+    },
   ],
   exports: [
     PrismaModule,
