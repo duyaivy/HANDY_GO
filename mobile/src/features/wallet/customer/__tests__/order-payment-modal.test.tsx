@@ -122,7 +122,10 @@ it('returns from sandbox top-up to an updated balance and can settle the same or
   mount();
   await screen.findByText('Số dư ví không đủ (Còn thiếu 100.000 đ)');
   fireEvent.press(screen.getByTestId('order-payment-topup-btn'));
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
   await screen.findByText('Đã thanh toán, đang chờ cộng điểm vào ví...');
   fireEvent.press(screen.getByTestId('topup-close-btn'));
   await screen.findByText('Số dư sau thanh toán: 0 đ', {}, { timeout: 5000 });

@@ -27,7 +27,7 @@ export function WorkerBalanceCard({ wallet, onWithdraw, onDeposit, onDetails }: 
       {wallet.status !== 'active' ? <Text className="text-sm text-amber-200">Ví hiện không hoạt động</Text> : null}
       <View className="flex-row gap-3">
         <Pressable testID="worker-wallet-withdraw-btn" accessibilityRole="button" disabled={wallet.status !== 'active'} onPress={onWithdraw} className="flex-1 items-center rounded-xl bg-white p-3"><Text className="font-bold text-emerald-800">Rút tiền</Text></Pressable>
-        <Pressable testID="worker-wallet-deposit-btn" accessibilityRole="button" disabled={wallet.status !== 'active'} onPress={onDeposit} className="flex-1 items-center rounded-xl bg-orange-500 p-3"><Text className="font-bold text-white">Nạp ký quỹ</Text></Pressable>
+        <Pressable testID="worker-wallet-deposit-btn" accessibilityRole="button" disabled={wallet.status !== 'active'} onPress={onDeposit} className="flex-1 items-center rounded-xl bg-orange-500 p-3"><Text className="font-bold text-white">Nạp tiền</Text></Pressable>
       </View>
       <Pressable testID="worker-wallet-details-btn" accessibilityRole="button" onPress={onDetails} className="items-center p-2"><Text className="font-semibold text-white">Chi tiết số dư</Text></Pressable>
     </View>

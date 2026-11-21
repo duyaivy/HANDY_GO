@@ -91,7 +91,10 @@ it('shares balances, transaction history and saved preference through top-up and
   fireEvent.changeText(screen.getByTestId('topup-amount-input'), '5.000');
   expect(screen.getByTestId('topup-vnpay-btn')).toHaveProp('accessibilityState', { disabled: true });
   fireEvent.press(screen.getByTestId('topup-amount-50000'));
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger1 = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger1);
+  fireEvent.press(trigger1);
+  fireEvent.press(trigger1);
   await waitFor(() => expect(screen.getByTestId('wallet-balance-amount')).toHaveTextContent('150.000 đ'), { timeout: 5000 });
   fireEvent.press(screen.getByTestId('topup-close-btn'));
   fireEvent.press(screen.getByTestId('payment-see-all-transactions-btn'));
@@ -111,7 +114,10 @@ it('shares balances, transaction history and saved preference through top-up and
   await screen.findByText('Số dư ví không đủ (Còn thiếu 50.000 đ)');
   fireEvent.press(screen.getByTestId('order-payment-topup-btn'));
   expect(screen.getByTestId('topup-amount-input')).toHaveProp('value', '50.000');
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger2 = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger2);
+  fireEvent.press(trigger2);
+  fireEvent.press(trigger2);
   await screen.findByText('Đã thanh toán, đang chờ cộng điểm vào ví...');
   fireEvent.press(screen.getByTestId('topup-close-btn'));
   await screen.findByText('Số dư sau thanh toán: 0 đ', {}, { timeout: 5000 });

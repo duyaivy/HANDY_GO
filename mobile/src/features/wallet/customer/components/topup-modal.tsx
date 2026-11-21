@@ -9,6 +9,8 @@ import { formatPointsToVND } from '../../utils/formatters';
 const QUICK_AMOUNTS = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000];
 const MIN_TOPUP = 10_000;
 const MAX_TOPUP = 50_000_000;
+const SANDBOX_TAP_TARGET = 3;
+const SANDBOX_TAP_WINDOW_MS = 3_000;
 
 type Props = {
   visible: boolean;
@@ -33,6 +35,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLock = useRef(false);
+  const sandboxTapTimestamps = useRef<number[]>([]);
   const amount = digits ? Number(digits) : 0;
   const validAmount = Number.isSafeInteger(amount) && amount >= MIN_TOPUP && amount <= MAX_TOPUP;
   const busy = isSubmitting || isCreating || isSimulating || isPolling;
@@ -44,6 +47,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
     const onlyDigits = text.replace(/\D/g, '').slice(0, 9);
     setDigits(onlyDigits ? String(Number(onlyDigits)) : '');
     setError(null);
+    sandboxTapTimestamps.current = [];
   };
 
   const submit = async (simulate: boolean) => {
@@ -81,6 +85,20 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
       submitLock.current = false;
       setIsSubmitting(false);
     }
+  };
+
+  const handleSandboxHiddenTap = () => {
+    if (!__DEV__ || !validAmount || busy || awaitingCredit || submitLock.current)
+      return;
+    const now = Date.now();
+    const recent = sandboxTapTimestamps.current.filter(ts => now - ts <= SANDBOX_TAP_WINDOW_MS);
+    recent.push(now);
+    if (recent.length >= SANDBOX_TAP_TARGET) {
+      sandboxTapTimestamps.current = [];
+      void submit(true);
+      return;
+    }
+    sandboxTapTimestamps.current = recent;
   };
 
   const validationMessage = digits && !validAmount
@@ -132,13 +150,19 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
               disabled={busy}
               error={validationMessage ?? undefined}
             />
-            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-              Điểm nhận được:
-              {' '}
-              {validAmount ? formatPointsToVND(amount).replace(' đ', '') : '0'}
-              {' '}
-              Point
-            </Text>
+            <Pressable
+              testID="topup-sandbox-hidden-trigger"
+              disabled={!__DEV__ || !validAmount || busy || awaitingCredit}
+              onPress={handleSandboxHiddenTap}
+            >
+              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                Điểm nhận được:
+                {' '}
+                {validAmount ? formatPointsToVND(amount).replace(' đ', '') : '0'}
+                {' '}
+                Point
+              </Text>
+            </Pressable>
           </View>
 
           {error ? <Text testID="topup-error" className="mt-3 text-sm text-red-600">{error}</Text> : null}
@@ -146,9 +170,7 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
             ? (
                 <Text testID="topup-sandbox-notice" className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">
                   {__DEV__
-                    ? displayedTopup?.status === 'awaiting_payment'
-                      ? 'Đây là giao dịch thử nghiệm, không trừ tiền ngân hàng. Bấm nút Giả lập nạp thành công bên dưới để xác nhận nạp thử.'
-                      : 'Đây là giao dịch thử nghiệm, không trừ tiền ngân hàng.'
+                    ? 'Đây là giao dịch thử nghiệm, không trừ tiền ngân hàng.'
                     : 'Môi trường đang dùng nạp tiền thử nghiệm. Cổng VNPAY chưa được cấu hình.'}
                 </Text>
               )
@@ -212,21 +234,6 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
                   <ShieldCheckIcon color="#FFFFFF" size={18} />
                 </Pressable>
               )}
-
-          {__DEV__
-            ? (
-                <Pressable
-                  testID="topup-simulate-btn"
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: !validAmount || busy || awaitingCredit }}
-                  disabled={!validAmount || busy || awaitingCredit}
-                  onPress={() => { void submit(true); }}
-                  className="mt-3 items-center rounded-xl border border-dashed border-emerald-600 px-4 py-3"
-                >
-                  <Text className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">⚡ [Sandbox] Giả lập nạp thành công</Text>
-                </Pressable>
-              )
-            : null}
         </ScrollView>
       </View>
     </View>

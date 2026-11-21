@@ -88,7 +88,10 @@ it('deposits, views transactions, reserves/cancels a withdrawal and confirms cas
   fireEvent.press(screen.getByTestId('worker-wallet-deposit-btn'));
   fireEvent.press(await screen.findByTestId('worker-deposit-open-btn'));
   expect(screen.getByTestId('topup-amount-input')).toHaveProp('value', '200.000');
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
   await screen.findByText('Nạp tiền thành công. Số dư ví đã được cập nhật.');
   fireEvent.press(screen.getByTestId('topup-close-btn'));
   fireEvent.press(screen.getByTestId('app-bar-back-btn'));

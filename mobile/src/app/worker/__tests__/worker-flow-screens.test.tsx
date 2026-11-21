@@ -93,7 +93,7 @@ describe('worker Skeleton & Route Flow', () => {
     it('renders deposit amounts with title and back button', () => {
       render(<WorkerWalletDepositScreen />);
 
-      expect(screen.getByText('Nạp tiền ví ký quỹ')).toBeOnTheScreen();
+      expect(screen.getByText('Nạp tiền vào ví')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-deposit-amount-200000')).toBeOnTheScreen();
       expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
 

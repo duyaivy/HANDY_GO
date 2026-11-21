@@ -158,7 +158,7 @@ export function WorkerProfileScreen() {
                     HANDY_GO balance
                   </Text>
                   <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                    Số dư & tài khoản ký quỹ
+                    Số dư ví
                   </Text>
                 </View>
               </View>

@@ -87,7 +87,10 @@ it('updates the visible wallet balance after sandbox settlement completes', asyn
   await waitFor(() => expect(screen.getByTestId('wallet-balance-amount')).toHaveTextContent('0 đ'));
   fireEvent.press(screen.getByTestId('wallet-topup-btn'));
   fireEvent.press(screen.getByTestId('topup-amount-100000'));
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
 
   await waitFor(() => expect(PaymentApi.simulateTopup).toHaveBeenCalledWith('topup-1', 'succeeded'));
   await waitFor(() => expect(PaymentApi.getTopupDetail).toHaveBeenCalledWith('topup-1'), { timeout: 5_000 });

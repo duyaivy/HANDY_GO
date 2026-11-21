@@ -16,7 +16,7 @@ export function WorkerDepositScreen() {
   const ready = wallet.status === 'active' && !wallet.isLoading && !wallet.isError && !wallet.isWalletNotFound;
   return (
     <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
-      <AppBar mode="stack" title="Nạp tiền ví ký quỹ" role="Worker" onBack={router.back} />
+      <AppBar mode="stack" title="Nạp tiền vào ví" role="Worker" onBack={router.back} />
       <View testID="wallet-deposit-screen" className="gap-4 p-4">
         <Text className="text-base font-semibold text-neutral-900 dark:text-white">Tiền nạp vào ví dùng để cấn trừ phí nền tảng khi nhận việc thanh toán tiền mặt.</Text>
         <Text className="text-sm text-neutral-500 dark:text-neutral-400">1 VND = 1 Point. Tiền chỉ được cộng khi máy chủ xác nhận nạp hoàn tất. Nạp ví không tự tạo một khoản cọc tách riêng.</Text>

@@ -15,7 +15,7 @@ export function WorkerBalanceScreen() {
   const finances = useWorkerFinancials();
   return (
     <Screen safeArea scrollable refreshControl={<RefreshControl refreshing={wallet.isLoading} onRefresh={() => { void Promise.all([wallet.refetch(), finances.refetch()]); }} />} className="bg-neutral-50 dark:bg-neutral-950">
-      <AppBar mode="stack" title="HANDY_GO balance" subtitle="Số dư & Tài khoản ký quỹ" role="Worker" onBack={router.back} />
+      <AppBar mode="stack" title="HANDY_GO balance" subtitle="Số dư ví" role="Worker" onBack={router.back} />
       <View testID="worker-balance-screen" className="gap-4 p-4">
         {wallet.isLoading
           ? <ActivityIndicator />

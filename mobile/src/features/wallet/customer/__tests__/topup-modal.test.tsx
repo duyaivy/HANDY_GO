@@ -98,14 +98,23 @@ it('creates a top-up and opens its VNPAY checkout URL', async () => {
   expect(createTopup).toHaveBeenCalledWith(100_000);
 });
 
+function triggerHiddenSandbox() {
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+}
+
 it('keeps a mock checkout inside the app without simulating automatically', async () => {
   const mockRecord = { ...record, checkoutUrl: 'mock://topup/MOCK-123' };
   createTopup.mockResolvedValue(mockRecord);
   const { rerender } = render(<TopupModal visible onClose={jest.fn()} />);
+  expect(screen.queryByTestId('topup-simulate-btn')).toBeNull();
+  expect(screen.queryByText(/Giả lập nạp thành công/)).toBeNull();
   fireEvent.press(screen.getByTestId('topup-amount-100000'));
   fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
   await waitFor(() => expect(createTopup).toHaveBeenCalledTimes(1));
-  await waitFor(() => expect(screen.getByTestId('topup-simulate-btn')).toBeEnabled());
+  await waitFor(() => expect(screen.getByTestId('topup-sandbox-hidden-trigger')).toBeEnabled());
   expect(startVnpayCheckout).not.toHaveBeenCalled();
   expect(simulateTopup).not.toHaveBeenCalled();
   expect(screen.queryByTestId('topup-error')).toBeNull();
@@ -114,25 +123,44 @@ it('keeps a mock checkout inside the app without simulating automatically', asyn
   rerender(<TopupModal visible onClose={jest.fn()} />);
   expect(screen.getByTestId('topup-sandbox-notice')).toHaveTextContent(/không trừ tiền ngân hàng/);
   expect(screen.queryByTestId('topup-vnpay-btn')).toBeNull();
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  triggerHiddenSandbox();
   await waitFor(() => expect(simulateTopup).toHaveBeenCalledWith('topup-1'));
   expect(createTopup).toHaveBeenCalledTimes(2);
 });
 
-it('creates a sandbox top-up and simulates it only with the mock provider', async () => {
+it('creates a sandbox top-up and simulates it only after 3 rapid taps on the points label', async () => {
   render(<TopupModal visible onClose={jest.fn()} />);
   fireEvent.press(screen.getByTestId('topup-amount-100000'));
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  expect(createTopup).not.toHaveBeenCalled();
+  expect(simulateTopup).not.toHaveBeenCalled();
+  fireEvent.press(trigger);
   await waitFor(() => expect(simulateTopup).toHaveBeenCalledWith('topup-1'));
   expect(createTopup).toHaveBeenCalledWith(100_000);
   expect(startVnpayCheckout).not.toHaveBeenCalled();
+});
+
+it('resets the hidden sandbox tap counter when taps are spaced beyond 3 seconds', () => {
+  const nowSpy = jest.spyOn(Date, 'now');
+  nowSpy.mockReturnValueOnce(1_000).mockReturnValueOnce(1_500).mockReturnValueOnce(5_000);
+  render(<TopupModal visible onClose={jest.fn()} />);
+  fireEvent.press(screen.getByTestId('topup-amount-100000'));
+  const trigger = screen.getByTestId('topup-sandbox-hidden-trigger');
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  fireEvent.press(trigger);
+  expect(createTopup).not.toHaveBeenCalled();
+  expect(simulateTopup).not.toHaveBeenCalled();
+  nowSpy.mockRestore();
 });
 
 it('shows a clear error if sandbox is unavailable on the backend', async () => {
   createTopup.mockResolvedValue({ ...record, isSimulated: false, provider: 'vnpay' });
   render(<TopupModal visible onClose={jest.fn()} />);
   fireEvent.press(screen.getByTestId('topup-amount-100000'));
-  fireEvent.press(screen.getByTestId('topup-simulate-btn'));
+  triggerHiddenSandbox();
   expect(await screen.findByText('Backend hiện chưa bật chế độ nạp thử.')).toBeOnTheScreen();
   expect(simulateTopup).not.toHaveBeenCalled();
 });
