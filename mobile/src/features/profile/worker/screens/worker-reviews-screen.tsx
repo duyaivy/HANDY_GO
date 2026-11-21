@@ -479,17 +479,23 @@ export function WorkerReviewsScreen() {
                         </View>
                       )}
 
-                      {/* Detail criteria badges if present */}
+                      {/* Detail criteria badges: always on 1 row and equal font size on 1 line */}
                       {(review.qualityRating || review.attitudeRating || review.speedRating) && (
-                        <View className="mt-2.5 flex-row flex-wrap gap-2 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+                        <View
+                          testID={`review-criteria-row-${review.id}`}
+                          className="mt-2.5 flex-row items-center gap-1 border-t border-neutral-100 pt-2 dark:border-neutral-800"
+                        >
                           {review.qualityRating && (() => {
                             const style = getCriteriaBadgeStyle(review.qualityRating);
                             return (
                               <View
                                 testID={`review-criteria-quality-${review.id}`}
-                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
                               >
-                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                <Text
+                                  numberOfLines={1}
+                                  className={`text-center text-[9px] font-semibold ${style.text}`}
+                                >
                                   Chất lượng:
                                   {' '}
                                   {formatCriteriaValue('quality', review.qualityRating)}
@@ -502,9 +508,12 @@ export function WorkerReviewsScreen() {
                             return (
                               <View
                                 testID={`review-criteria-attitude-${review.id}`}
-                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
                               >
-                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                <Text
+                                  numberOfLines={1}
+                                  className={`text-center text-[9px] font-semibold ${style.text}`}
+                                >
                                   Thái độ:
                                   {' '}
                                   {formatCriteriaValue('attitude', review.attitudeRating)}
@@ -517,9 +526,12 @@ export function WorkerReviewsScreen() {
                             return (
                               <View
                                 testID={`review-criteria-speed-${review.id}`}
-                                className={`rounded-md px-2 py-0.5 ${style.bg}`}
+                                className={`flex-1 items-center justify-center rounded-lg px-0.5 py-1 ${style.bg}`}
                               >
-                                <Text className={`text-[10px] font-medium ${style.text}`}>
+                                <Text
+                                  numberOfLines={1}
+                                  className={`text-center text-[9px] font-semibold ${style.text}`}
+                                >
                                   Tốc độ:
                                   {' '}
                                   {formatCriteriaValue('speed', review.speedRating)}

@@ -16,6 +16,7 @@ import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { useCustomerOrders } from '../../hooks/use-customer-orders';
+import { useOrderReview } from '../../hooks/use-order-review';
 
 export const ACTIVITY_FILTER_TABS = [
   'Searching',
@@ -185,6 +186,45 @@ function getOrderServiceTitle(ord: Order): string {
   }
 
   return scope;
+}
+
+function OrderCardReviewAction({ orderId }: { orderId: string }) {
+  const router = useRouter();
+  const { canEdit, hasReviewed } = useOrderReview(orderId);
+
+  // Đã đánh giá
+  if (hasReviewed) {
+    // Nếu vẫn còn thời gian sửa (trong 48h và chưa từng sửa trước đó)
+    if (canEdit) {
+      return (
+        <Button
+          testID={`order-card-edit-review-btn-${orderId}`}
+          label="Sửa đánh giá"
+          variant="outline"
+          className="h-8 shrink-0 rounded-xl border-amber-400 bg-amber-50 px-3 active:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40"
+          textClassName="text-[11px] font-bold text-amber-800 dark:text-amber-300"
+          onPress={() => router.push({
+            pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+            params: { mode: 'edit' },
+          } as any)}
+        />
+      );
+    }
+    // Đã đánh giá và hết hạn sửa: không hiển thị nút đánh giá nữa
+    return null;
+  }
+
+  // Chưa đánh giá: hiển thị nút đánh giá
+  return (
+    <Button
+      testID={`order-card-review-btn-${orderId}`}
+      label="⭐ Đánh giá"
+      variant="default"
+      className="h-8 shrink-0 rounded-xl bg-primary px-3"
+      textClassName="text-[11px] font-bold text-white"
+      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+    />
+  );
 }
 
 export function CustomerOrdersScreen({
@@ -489,14 +529,7 @@ export function CustomerOrdersScreen({
                     </Text>
                     <View className="flex-row items-center gap-1.5">
                       {ord.status === 'completed' && (
-                        <Button
-                          testID={`order-card-review-btn-${ord.id}`}
-                          label="⭐ Đánh giá"
-                          variant="default"
-                          className="h-8 shrink-0 rounded-xl bg-primary px-3"
-                          textClassName="text-[11px] font-bold text-white"
-                          onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(ord.id) as any)}
-                        />
+                        <OrderCardReviewAction orderId={ord.id} />
                       )}
                       <Button
                         testID={`order-card-detail-btn-${ord.id}`}
