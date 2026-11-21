@@ -383,6 +383,70 @@ describe('CustomerOrderReviewScreen', () => {
 
     delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
   });
+
+  it('displays error alert and aborts submit when photo upload fails', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
+    jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///failed-photo.jpg' }],
+    } as any);
+
+    jest.spyOn(OrdersApi, 'uploadImageDetailed').mockRejectedValue(new Error('Network error'));
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview');
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      alertButtons.find(b => b.text === 'Chụp ảnh mới').onPress();
+    });
+
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Tải hình ảnh thất bại',
+        expect.stringContaining('Không thể tải hình ảnh minh chứng'),
+      );
+    });
+
+    expect(createReviewSpy).not.toHaveBeenCalled();
+    delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
+  });
+
+  it('displays error alert and aborts submit when video upload fails', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
+    jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///failed-video.mp4' }],
+    } as any);
+
+    jest.spyOn(ReviewsApi, 'getVideoUploadSignature').mockRejectedValue(new Error('Signature failure'));
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview');
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      alertButtons.find(b => b.text === 'Quay video ngắn (tối đa 30s)').onPress();
+    });
+
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+
+    await waitFor(() => {
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Tải video thất bại',
+        expect.stringContaining('Không thể tải video minh chứng'),
+      );
+    });
+
+    expect(createReviewSpy).not.toHaveBeenCalled();
+    delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
+  });
 });
 
 describe('CustomerOrderDetailScreen review integration', () => {

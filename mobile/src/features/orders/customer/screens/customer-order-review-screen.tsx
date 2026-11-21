@@ -179,20 +179,11 @@ export function CustomerOrderReviewScreen({
     if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
       return { mediaUrl: localUri };
     }
-    try {
-      const res = await OrdersApi.uploadImageDetailed(localUri, 'review_photo');
-      return {
-        mediaUrl: res.url,
-        uploadReceipt: res.uploadReceipt,
-      };
-    }
-    catch (err) {
-      console.warn('[REVIEW_PHOTO_UPLOAD_FAILED]', err);
-      // Fallback cho môi trường test hoặc giả lập
-      return {
-        mediaUrl: SAMPLE_REVIEW_PHOTOS[0],
-      };
-    }
+    const res = await OrdersApi.uploadImageDetailed(localUri, 'review_photo');
+    return {
+      mediaUrl: res.url,
+      uploadReceipt: res.uploadReceipt,
+    };
   };
 
   // Upload Single Video via direct Cloudinary signature
@@ -208,62 +199,52 @@ export function CustomerOrderReviewScreen({
         thumbnailUrl: localUri.replace(/\.[^/.]+$/, '.jpg'),
       };
     }
-    try {
-      const filename = fileName || `review-video-${Date.now()}.mp4`;
-      const mimeType = 'video/mp4';
-      const sigData = await ReviewsApi.getVideoUploadSignature({
-        fileName: filename,
-        mimeType,
-        fileSize: fileSize || 10 * 1024 * 1024,
-      });
+    const filename = fileName || `review-video-${Date.now()}.mp4`;
+    const mimeType = 'video/mp4';
+    const sigData = await ReviewsApi.getVideoUploadSignature({
+      fileName: filename,
+      mimeType,
+      fileSize: fileSize || 10 * 1024 * 1024,
+    });
 
-      if (!sigData || !sigData.uploadUrl) {
-        throw new Error('Không thể khởi tạo chữ ký upload video');
-      }
-
-      const cloudFormData = new FormData();
-      cloudFormData.append('file', {
-        uri: localUri,
-        name: filename,
-        type: mimeType,
-      } as any);
-      cloudFormData.append('api_key', sigData.apiKey);
-      cloudFormData.append('timestamp', String(sigData.timestamp));
-      cloudFormData.append('signature', sigData.signature);
-      if (sigData.publicId) {
-        cloudFormData.append('public_id', sigData.publicId);
-      }
-      if (sigData.folder) {
-        cloudFormData.append('folder', sigData.folder);
-      }
-
-      const cloudRes = await fetch(sigData.uploadUrl, {
-        method: 'POST',
-        body: cloudFormData,
-      });
-
-      if (!cloudRes.ok) {
-        throw new Error(`Upload video lên Cloudinary thất bại (HTTP ${cloudRes.status})`);
-      }
-
-      const cloudJson = await cloudRes.json();
-      const mediaUrl = cloudJson.secure_url || cloudJson.url;
-      const thumbnailUrl = mediaUrl ? mediaUrl.replace(/\.[^/.]+$/, '.jpg') : undefined;
-
-      return {
-        mediaUrl,
-        uploadReceipt: sigData.uploadReceipt,
-        thumbnailUrl,
-      };
+    if (!sigData || !sigData.uploadUrl) {
+      throw new Error('Không thể khởi tạo chữ ký upload video');
     }
-    catch (err) {
-      console.warn('[REVIEW_VIDEO_UPLOAD_FAILED]', err);
-      return {
-        mediaUrl: 'https://res.cloudinary.com/handygo/video/upload/v1/reviews/sample.mp4',
-        uploadReceipt: 'mock-upload-receipt',
-        thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/v1/reviews/sample_thumb.jpg',
-      };
+
+    const cloudFormData = new FormData();
+    cloudFormData.append('file', {
+      uri: localUri,
+      name: filename,
+      type: mimeType,
+    } as any);
+    cloudFormData.append('api_key', sigData.apiKey);
+    cloudFormData.append('timestamp', String(sigData.timestamp));
+    cloudFormData.append('signature', sigData.signature);
+    if (sigData.publicId) {
+      cloudFormData.append('public_id', sigData.publicId);
     }
+    if (sigData.folder) {
+      cloudFormData.append('folder', sigData.folder);
+    }
+
+    const cloudRes = await fetch(sigData.uploadUrl, {
+      method: 'POST',
+      body: cloudFormData,
+    });
+
+    if (!cloudRes.ok) {
+      throw new Error(`Upload video lên Cloudinary thất bại (HTTP ${cloudRes.status})`);
+    }
+
+    const cloudJson = await cloudRes.json();
+    const mediaUrl = cloudJson.secure_url || cloudJson.url;
+    const thumbnailUrl = mediaUrl ? mediaUrl.replace(/\.[^/.]+$/, '.jpg') : undefined;
+
+    return {
+      mediaUrl,
+      uploadReceipt: sigData.uploadReceipt,
+      thumbnailUrl,
+    };
   };
 
   // Pick / Capture Photo or Video
@@ -424,13 +405,24 @@ export function CustomerOrderReviewScreen({
             });
           }
           else {
-            const uploaded = await uploadVideoItem(item.uri);
-            uploadedMediaItems.push({
-              mediaType: 'video',
-              mediaUrl: uploaded.mediaUrl,
-              thumbnailUrl: uploaded.thumbnailUrl,
-              uploadReceipt: uploaded.uploadReceipt,
-            });
+            try {
+              const uploaded = await uploadVideoItem(item.uri);
+              uploadedMediaItems.push({
+                mediaType: 'video',
+                mediaUrl: uploaded.mediaUrl,
+                thumbnailUrl: uploaded.thumbnailUrl,
+                uploadReceipt: uploaded.uploadReceipt,
+              });
+            }
+            catch (err: any) {
+              console.warn('[REVIEW_VIDEO_UPLOAD_ERROR]', err);
+              Alert.alert(
+                'Tải video thất bại',
+                'Không thể tải video minh chứng lên máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.',
+              );
+              setIsSubmitting(false);
+              return;
+            }
           }
         }
         else {
@@ -442,12 +434,23 @@ export function CustomerOrderReviewScreen({
             });
           }
           else {
-            const uploaded = await uploadPhotoItem(item.uri);
-            uploadedMediaItems.push({
-              mediaType: 'image',
-              mediaUrl: uploaded.mediaUrl,
-              uploadReceipt: uploaded.uploadReceipt || item.uploadReceipt,
-            });
+            try {
+              const uploaded = await uploadPhotoItem(item.uri);
+              uploadedMediaItems.push({
+                mediaType: 'image',
+                mediaUrl: uploaded.mediaUrl,
+                uploadReceipt: uploaded.uploadReceipt || item.uploadReceipt,
+              });
+            }
+            catch (err: any) {
+              console.warn('[REVIEW_PHOTO_UPLOAD_ERROR]', err);
+              Alert.alert(
+                'Tải hình ảnh thất bại',
+                'Không thể tải hình ảnh minh chứng lên máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.',
+              );
+              setIsSubmitting(false);
+              return;
+            }
           }
         }
       }
