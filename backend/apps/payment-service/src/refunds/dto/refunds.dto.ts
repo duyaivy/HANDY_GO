@@ -1,4 +1,5 @@
 import {
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsIn,
@@ -75,7 +76,8 @@ export class AdminRefundQueryDto extends PaymentPaginationDto {
   })
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') return undefined;
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return [];
     if (Array.isArray(value)) {
       return value
         .flatMap((item) => (typeof item === 'string' ? item.split(',') : item))
@@ -91,6 +93,7 @@ export class AdminRefundQueryDto extends PaymentPaginationDto {
     return [value];
   })
   @IsArray()
+  @ArrayNotEmpty({ message: 'status must not be empty when provided' })
   @IsIn(REFUND_STATUSES, { each: true })
   status?: RefundStatusType[];
 
@@ -99,4 +102,3 @@ export class AdminRefundQueryDto extends PaymentPaginationDto {
   @IsUUID()
   paymentId?: string;
 }
-

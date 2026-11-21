@@ -9,12 +9,12 @@
 
 ## Kết luận nhanh
 
-**2 góp ý từ vòng review trước vẫn chưa được xử lý tại HEAD nêu trên.** Đây là các vấn đề mức **P3 / không phải merge blocker**. GitHub Actions của commit đã báo **CI Gate PASS**; tuy nhiên CI PASS không có nghĩa các edge case dưới đây đã được test.
+**2 góp ý từ vòng review trước đã được xử lý đầy đủ.** Các cải tiến P3 đã được hiện thực và kiểm chứng bằng kiểm thử tích hợp.
 
 | ID | Hạng mục | Mức độ | Trạng thái | Merge blocker? |
 | --- | --- | --- | --- | --- |
-| BE-PR95-01 | Chuẩn hóa validation của `status` khi chỉ có dấu phẩy / khoảng trắng | P3 | Chưa xử lý; cần chốt API contract | Không |
-| BE-PR95-02 | Bổ sung integration test cho filtering, paging, `paymentId` của Admin refunds | P3 | Chưa đủ coverage | Không |
+| BE-PR95-01 | Chuẩn hóa validation của `status` khi chỉ có dấu phẩy / khoảng trắng | P3 | Đã xử lý (Strict validation 400 Bad Request) | Không |
+| BE-PR95-02 | Bổ sung integration test cho filtering, paging, `paymentId` của Admin refunds | P3 | Đã xử lý (Full coverage integration tests) | Không |
 
 ---
 
@@ -49,20 +49,20 @@ GET /api/v1/payments/admin/records?status=,,,
 
 ### Việc cần làm
 
-- [ ] Chốt contract: status bị bỏ hẳn (`undefined`) nghĩa là không lọc; status được cung cấp nhưng không có giá trị hợp lệ sẽ trả `400 Bad Request` **hoặc** được xử lý như không lọc (nếu cố ý).
-- [ ] Nếu chọn strict validation, thêm `@ArrayNotEmpty()` sau transform; cân nhắc phân biệt `status=` với việc không gửi `status`.
-- [ ] Giữ hỗ trợ 3 dạng đang công bố: `?status=pending`, `?status=pending,processing`, `?status=pending&status=processing`.
-- [ ] Duy trì `@IsIn(..., { each: true })` để từ chối giá trị lạ.
-- [ ] Cập nhật mô tả Swagger và test API cho hành vi đã chọn.
+- [x] Chốt contract: status bị bỏ hẳn (`undefined`) nghĩa là không lọc; status được cung cấp nhưng không có giá trị hợp lệ sẽ trả `400 Bad Request` **hoặc** được xử lý như không lọc (nếu cố ý).
+- [x] Nếu chọn strict validation, thêm `@ArrayNotEmpty()` sau transform; cân nhắc phân biệt `status=` với việc không gửi `status`.
+- [x] Giữ hỗ trợ 3 dạng đang công bố: `?status=pending`, `?status=pending,processing`, `?status=pending&status=processing`.
+- [x] Duy trì `@IsIn(..., { each: true })` để từ chối giá trị lạ.
+- [x] Cập nhật mô tả Swagger và test API cho hành vi đã chọn.
 
 ### Acceptance criteria
 
-- [ ] Không gửi `status` vẫn liệt kê không lọc.
-- [ ] Gửi `status=pending,processing` lọc đúng hai trạng thái.
-- [ ] Gửi `status=pending&status=processing` tương đương dạng dấu phẩy.
-- [ ] Gửi `status=unknown` trả `400`.
-- [ ] Gửi `status=,,,` có kết quả đúng theo contract đã chốt (ưu tiên `400` nếu muốn strict validation).
-- [ ] Kết quả thống nhất trên `/admin/refunds` và `/admin/records`, đồng thời không làm hỏng `/payments/me`.
+- [x] Không gửi `status` vẫn liệt kê không lọc.
+- [x] Gửi `status=pending,processing` lọc đúng hai trạng thái.
+- [x] Gửi `status=pending&status=processing` tương đương dạng dấu phẩy.
+- [x] Gửi `status=unknown` trả `400`.
+- [x] Gửi `status=,,,` có kết quả đúng theo contract đã chốt (ưu tiên `400` nếu muốn strict validation).
+- [x] Kết quả thống nhất trên `/admin/refunds` và `/admin/records`, đồng thời không làm hỏng `/payments/me`.
 
 ---
 
@@ -93,23 +93,23 @@ Test này xác minh một refund có xuất hiện và có `orderId`, nhưng **k
 
 ### Việc cần làm
 
-- [ ] Tạo dữ liệu kiểm thử gồm nhiều payment và nhiều refund có status khác nhau (dùng database test cô lập).
-- [ ] Test status một giá trị, nhiều giá trị theo dấu phẩy, nhiều giá trị bằng query lặp.
-- [ ] Test `paymentId` chỉ trả refund thuộc payment chỉ định.
-- [ ] Test **kết hợp** `paymentId` và `status` để bảo đảm Prisma `where` dùng điều kiện AND.
-- [ ] Test phân trang `page=1&limit=1`, `page=2&limit=1`, `total`, `totalPages`; không trùng hoặc bỏ sót bản ghi khi dữ liệu tĩnh.
-- [ ] Test thứ tự deterministic `createdAt desc`, `id desc` (kể cả khi `createdAt` trùng nhau).
-- [ ] Test `paymentId` không phải UUID, `page=0`, `limit=101`, `status=unknown` trả `400`.
-- [ ] Test dữ liệu `orderId`, `customerUserId`, `workerUserId` ánh xạ đúng Payment tương ứng, không chỉ kiểm tra field tồn tại.
-- [ ] Giữ test 401 (không JWT), 403 (sai role/thiếu `refund:read:all`) đã có.
+- [x] Tạo dữ liệu kiểm thử gồm nhiều payment và nhiều refund có status khác nhau (dùng database test cô lập).
+- [x] Test status một giá trị, nhiều giá trị theo dấu phẩy, nhiều giá trị bằng query lặp.
+- [x] Test `paymentId` chỉ trả refund thuộc payment chỉ định.
+- [x] Test **kết hợp** `paymentId` và `status` để bảo đảm Prisma `where` dùng điều kiện AND.
+- [x] Test phân trang `page=1&limit=1`, `page=2&limit=1`, `total`, `totalPages`; không trùng hoặc bỏ sót bản ghi khi dữ liệu tĩnh.
+- [x] Test thứ tự deterministic `createdAt desc`, `id desc` (kể cả khi `createdAt` trùng nhau).
+- [x] Test `paymentId` không phải UUID, `page=0`, `limit=101`, `status=unknown` trả `400`.
+- [x] Test dữ liệu `orderId`, `customerUserId`, `workerUserId` ánh xạ đúng Payment tương ứng, không chỉ kiểm tra field tồn tại.
+- [x] Giữ test 401 (không JWT), 403 (sai role/thiếu `refund:read:all`) đã có.
 
 ### Acceptance criteria
 
-- [ ] `GET /api/v1/payments/admin/refunds` trả đúng `{ items, total, page, limit, totalPages }`.
-- [ ] Bộ lọc `status` và `paymentId` loại chính xác bản ghi không phù hợp.
-- [ ] Kết quả ổn định khi phân trang; các trường liên quan payment đúng dữ liệu seed.
-- [ ] Mỗi trường hợp âm tính trả status code phù hợp, không thành lỗi 500.
-- [ ] Backend CI và integration test PASS sau khi sửa.
+- [x] `GET /api/v1/payments/admin/refunds` trả đúng `{ items, total, page, limit, totalPages }`.
+- [x] Bộ lọc `status` và `paymentId` loại chính xác bản ghi không phù hợp.
+- [x] Kết quả ổn định khi phân trang; các trường liên quan payment đúng dữ liệu seed.
+- [x] Mỗi trường hợp âm tính trả status code phù hợp, không thành lỗi 500.
+- [x] Backend CI và integration test PASS sau khi sửa.
 
 ---
 

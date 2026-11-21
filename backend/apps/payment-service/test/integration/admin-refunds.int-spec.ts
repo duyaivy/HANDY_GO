@@ -491,6 +491,182 @@ describe('Admin HTTP authorization, validation and operations', () => {
     ).toBe(true);
     expect(allRefunds.body.data.items[0]).toHaveProperty('orderId');
   });
+  it('filters Admin refunds by status, paymentId, pagination, and validates bad query parameters', async () => {
+    const payA = await payment();
+    const payB = await payment();
+    const refA1 = await database.client.refund.create({
+      data: {
+        paymentId: payA.id,
+        requestedByUserId: customer,
+        amountVnd: 10n,
+        reason: 'Refund A1',
+        idempotencyKey: randomUUID(),
+        status: 'needs_review',
+      },
+    });
+    const refA2 = await database.client.refund.create({
+      data: {
+        paymentId: payA.id,
+        requestedByUserId: customer,
+        amountVnd: 20n,
+        reason: 'Refund A2',
+        idempotencyKey: randomUUID(),
+        status: 'failed',
+      },
+    });
+    const refB1 = await database.client.refund.create({
+      data: {
+        paymentId: payB.id,
+        requestedByUserId: customer,
+        amountVnd: 30n,
+        reason: 'Refund B1',
+        idempotencyKey: randomUUID(),
+        status: 'completed',
+      },
+    });
+    const refB2 = await database.client.refund.create({
+      data: {
+        paymentId: payB.id,
+        requestedByUserId: customer,
+        amountVnd: 40n,
+        reason: 'Refund B2',
+        idempotencyKey: randomUUID(),
+        status: 'needs_review',
+      },
+    });
+
+    // 1. Without status query: returns all refunds for paymentId and maps payment details correctly
+    const byPayment = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(byPayment.body.data.total).toBe(2);
+    expect(byPayment.body.data.items).toHaveLength(2);
+    const itemA1 = byPayment.body.data.items.find(
+      (i: { id: string }) => i.id === refA1.id,
+    );
+    expect(itemA1).toBeDefined();
+    expect(itemA1.orderId).toBe(payA.orderId);
+    expect(itemA1.customerUserId).toBe(payA.customerUserId);
+    expect(itemA1.workerUserId).toBe(payA.workerUserId);
+
+    // 2. Filter single status: returns only matching refund
+    const singleStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(singleStatus.body.data.total).toBe(1);
+    expect(singleStatus.body.data.items[0].id).toBe(refA2.id);
+
+    // 3. Filter multi-status via comma-separated string
+    const commaStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed,needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(commaStatus.body.data.total).toBe(2);
+    expect(
+      commaStatus.body.data.items.map((i: { id: string }) => i.id).sort(),
+    ).toEqual([refA1.id, refA2.id].sort());
+
+    // 4. Filter multi-status via repeated query parameters (?status=...&status=...)
+    const repeatStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed&status=needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(repeatStatus.body.data.total).toBe(2);
+    expect(
+      repeatStatus.body.data.items.map((i: { id: string }) => i.id).sort(),
+    ).toEqual([refA1.id, refA2.id].sort());
+
+    // 5. Filter paymentId excludes refunds from other payments
+    const needsReviewA = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(needsReviewA.body.data.total).toBe(1);
+    expect(needsReviewA.body.data.items[0].id).toBe(refA1.id);
+    expect(
+      needsReviewA.body.data.items.some(
+        (i: { id: string }) => i.id === refB2.id,
+      ),
+    ).toBe(false);
+
+    // 6. AND condition: status + paymentId combination
+    const emptyAnd = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=completed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(emptyAnd.body.data.total).toBe(0);
+    expect(emptyAnd.body.data.items).toEqual([]);
+
+    const matchAnd = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payB.id}&status=completed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(matchAnd.body.data.total).toBe(1);
+    expect(matchAnd.body.data.items[0].id).toBe(refB1.id);
+
+    // 7. Pagination and deterministic ordering (page 1 vs page 2)
+    const page1 = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&page=1&limit=1`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(page1.body.data).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      totalPages: 2,
+    });
+    expect(page1.body.data.items).toHaveLength(1);
+
+    const page2 = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&page=2&limit=1`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(page2.body.data).toMatchObject({
+      total: 2,
+      page: 2,
+      limit: 1,
+      totalPages: 2,
+    });
+    expect(page2.body.data.items).toHaveLength(1);
+    expect(page1.body.data.items[0].id).not.toBe(page2.body.data.items[0].id);
+
+    // 8. Negative validation tests (400 Bad Request)
+    await authorized(
+      'get',
+      '/admin/refunds?paymentId=not-a-uuid',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized('get', '/admin/refunds?page=0', P.refundReadAll).expect(
+      400,
+    );
+    await authorized('get', '/admin/refunds?limit=101', P.refundReadAll).expect(
+      400,
+    );
+    await authorized(
+      'get',
+      '/admin/refunds?status=unknown',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized(
+      'get',
+      '/admin/refunds?status=,,,',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized('get', '/admin/refunds?status=', P.refundReadAll).expect(
+      400,
+    );
+  });
   it('replays dead letters once with unchanged ID/payload and audit', async () => {
     const payload = { eventId, data: { sensitive: 'hidden-bank-data' } };
     await database.client.failedInboundEvent.create({

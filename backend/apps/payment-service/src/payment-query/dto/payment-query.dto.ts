@@ -1,5 +1,13 @@
 import { Transform, Type } from 'class-transformer';
-import { IsArray, IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PaymentPaginationDto {
@@ -41,7 +49,8 @@ export class PaymentQueryDto extends PaymentPaginationDto {
   })
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') return undefined;
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return [];
     if (Array.isArray(value)) {
       return value
         .flatMap((item) => (typeof item === 'string' ? item.split(',') : item))
@@ -57,6 +66,7 @@ export class PaymentQueryDto extends PaymentPaginationDto {
     return [value];
   })
   @IsArray()
+  @ArrayNotEmpty({ message: 'status must not be empty when provided' })
   @IsIn(PAYMENT_STATUSES, { each: true })
   status?: PaymentStatusType[];
 
