@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Linking } from 'react-native';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { WorkersApi } from '@/services/workers/workers-api';
@@ -365,10 +366,29 @@ describe('workerReviewsScreen', () => {
     const mediaItem0 = screen.getByTestId('review-media-item-rev-media-1-0');
     expect(mediaItem0).toBeOnTheScreen();
 
+    // 1. Open image in lightbox
     fireEvent.press(mediaItem0);
-
     expect(screen.getByTestId('review-media-lightbox')).toBeOnTheScreen();
     expect(screen.getByText('Nhấn ra ngoài để đóng')).toBeOnTheScreen();
+
+    // Close lightbox
+    fireEvent.press(screen.getByTestId('review-media-lightbox'));
+
+    // 2. Open video in lightbox and trigger fullscreen playback
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+    const mediaItem1 = screen.getByTestId('review-media-item-rev-media-1-1');
+    expect(mediaItem1).toBeOnTheScreen();
+
+    fireEvent.press(mediaItem1);
+    expect(screen.getByTestId('review-media-lightbox')).toBeOnTheScreen();
+    expect(screen.getByText('VIDEO ĐÁNH GIÁ')).toBeOnTheScreen();
+
+    const playBtn = screen.getByTestId('lightbox-play-video-btn');
+    expect(playBtn).toBeOnTheScreen();
+    expect(screen.getByText('Phát video toàn màn hình')).toBeOnTheScreen();
+
+    fireEvent.press(playBtn);
+    expect(openUrlSpy).toHaveBeenCalledWith('https://storage.example.com/reviews/video.mp4');
 
     fireEvent.press(screen.getByTestId('review-media-lightbox'));
   });

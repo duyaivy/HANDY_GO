@@ -1,10 +1,11 @@
-import type { WorkerPublicProfileData, WorkerReviewItem } from '@/services/workers/workers-api';
+import type { WorkerPublicProfileData, WorkerReviewItem, WorkerReviewMediaItem } from '@/services/workers/workers-api';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Linking,
   Modal,
   Pressable,
   RefreshControl,
@@ -108,7 +109,7 @@ export function WorkerReviewsScreen() {
   const workerIdentifier = profile?.workerProfile?.id || userId;
   const [selectedRating, setSelectedRating] = React.useState<number | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
-  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+  const [selectedMedia, setSelectedMedia] = React.useState<WorkerReviewMediaItem | null>(null);
 
   const handleBack = React.useCallback(() => {
     if (router.canGoBack()) {
@@ -460,7 +461,7 @@ export function WorkerReviewsScreen() {
                               <Pressable
                                 key={mediaItem.id || mediaItem.mediaUrl || imgIndex}
                                 testID={`review-media-item-${review.id}-${imgIndex}`}
-                                onPress={() => setSelectedImage(mediaItem.mediaUrl)}
+                                onPress={() => setSelectedMedia(mediaItem)}
                                 className="relative size-16 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 active:opacity-80"
                               >
                                 <Image
@@ -589,26 +590,59 @@ export function WorkerReviewsScreen() {
         </View>
       </View>
 
-      {/* Lightbox Modal for Full Image View */}
+      {/* Lightbox Modal for Full Image/Video View */}
       <Modal
-        visible={Boolean(selectedImage)}
+        visible={Boolean(selectedMedia)}
         transparent
         animationType="fade"
-        onRequestClose={() => setSelectedImage(null)}
+        onRequestClose={() => setSelectedMedia(null)}
       >
         <Pressable
           testID="review-media-lightbox"
           className="flex-1 items-center justify-center bg-black/90 p-4"
-          onPress={() => setSelectedImage(null)}
+          onPress={() => setSelectedMedia(null)}
         >
-          {selectedImage && (
-            <Image
-              source={{ uri: selectedImage }}
-              className="h-3/4 w-full"
-              contentFit="contain"
-            />
+          {selectedMedia && (
+            (selectedMedia.mediaType || '').toLowerCase() === 'video' ? (
+              <View className="w-full items-center justify-center">
+                <View className="relative h-72 w-full overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-900">
+                  <Image
+                    source={{ uri: selectedMedia.thumbnailUrl || selectedMedia.mediaUrl }}
+                    className="size-full"
+                    contentFit="contain"
+                  />
+                  <View className="absolute inset-0 items-center justify-center bg-black/40">
+                    <PlayIcon size={56} color="#FFFFFF" />
+                  </View>
+                  <View className="absolute top-3 left-3 rounded-md bg-black/70 px-2 py-1">
+                    <Text className="text-[10px] font-bold text-white">VIDEO ĐÁNH GIÁ</Text>
+                  </View>
+                </View>
+
+                <Pressable
+                  testID="lightbox-play-video-btn"
+                  onPress={() => {
+                    if (selectedMedia.mediaUrl) {
+                      void Linking.openURL(selectedMedia.mediaUrl);
+                    }
+                  }}
+                  className="mt-5 flex-row items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 active:bg-blue-700"
+                >
+                  <PlayIcon size={18} color="#FFFFFF" />
+                  <Text className="text-sm font-bold text-white">
+                    Phát video toàn màn hình
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: selectedMedia.mediaUrl }}
+                className="h-3/4 w-full"
+                contentFit="contain"
+              />
+            )
           )}
-          <Text className="mt-4 text-xs font-semibold text-white">
+          <Text className="mt-4 text-xs font-semibold text-white/80">
             Nhấn ra ngoài để đóng
           </Text>
         </Pressable>
