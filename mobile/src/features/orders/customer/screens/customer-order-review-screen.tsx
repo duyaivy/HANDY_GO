@@ -37,6 +37,9 @@ const QUICK_TAG_SUGGESTIONS = [
   'Giải thích rõ ràng vấn đề kỹ thuật',
 ];
 
+const MAX_VIDEO_DURATION_SEC = 30;
+const MAX_VIDEO_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+
 const RATING_FEEDBACK_TEXTS: Record<number, { title: string; subtitle: string }> = {
   1: { title: 'Rất không hài lòng 😞', subtitle: 'Chúng tôi rất tiếc vì trải nghiệm này. Hãy chia sẻ lý do để HandyGo hỗ trợ bạn.' },
   2: { title: 'Chưa hài lòng 🙁', subtitle: 'Dịch vụ chưa đạt kỳ vọng của bạn ở điểm nào?' },
@@ -59,6 +62,9 @@ type LocalMediaItem = {
   thumbnailUrl?: string;
   uploadReceipt?: string;
   isUploading?: boolean;
+  fileName?: string;
+  fileSize?: number;
+  duration?: number;
 };
 
 export function CustomerOrderReviewScreen({
@@ -216,10 +222,13 @@ export function CustomerOrderReviewScreen({
     fileName?: string,
     fileSize?: number,
   ): Promise<{ mediaUrl: string; uploadReceipt: string; thumbnailUrl?: string }> => {
+    if (fileSize && fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
+      throw new Error('Dung lượng video không được vượt quá 50MB.');
+    }
     if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
       return {
         mediaUrl: localUri,
-        uploadReceipt: 'mock-upload-receipt',
+        uploadReceipt: '',
         thumbnailUrl: localUri.replace(/\.[^/.]+$/, '.jpg'),
       };
     }
@@ -288,6 +297,8 @@ export function CustomerOrderReviewScreen({
           id: `camera-img-${Date.now()}`,
           uri: result.assets[0].uri,
           mediaType: 'image',
+          fileName: result.assets[0].fileName || undefined,
+          fileSize: result.assets[0].fileSize,
         };
         setMediaItems(prev => [...prev, newPhoto]);
       }
@@ -310,10 +321,27 @@ export function CustomerOrderReviewScreen({
         videoMaxDuration: 30,
       });
       if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        const asset = result.assets[0];
+        const durationSec = typeof asset.duration === 'number'
+          ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
+          : undefined;
+
+        if (durationSec !== undefined && durationSec > MAX_VIDEO_DURATION_SEC) {
+          Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
+          return;
+        }
+        if (asset.fileSize && asset.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
+          Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
+          return;
+        }
+
         const newVideo: LocalMediaItem = {
           id: `camera-vid-${Date.now()}`,
-          uri: result.assets[0].uri,
+          uri: asset.uri,
           mediaType: 'video',
+          fileName: asset.fileName || undefined,
+          fileSize: asset.fileSize,
+          duration: durationSec,
         };
         setMediaItems(prev => [...prev, newVideo]);
       }
@@ -335,12 +363,37 @@ export function CustomerOrderReviewScreen({
         videoMaxDuration: 30,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        for (const asset of result.assets) {
+          const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
+          if (isVideo) {
+            const durationSec = typeof asset.duration === 'number'
+              ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
+              : undefined;
+
+            if (durationSec !== undefined && durationSec > MAX_VIDEO_DURATION_SEC) {
+              Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
+              return;
+            }
+            if (asset.fileSize && asset.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
+              Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
+              return;
+            }
+          }
+        }
+
         const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
           const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
+          const durationSec = typeof asset.duration === 'number'
+            ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
+            : undefined;
+
           return {
             id: `lib-${Date.now()}-${i}`,
             uri: asset.uri,
             mediaType: isVideo ? 'video' : 'image',
+            fileName: asset.fileName || undefined,
+            fileSize: asset.fileSize,
+            duration: durationSec,
           };
         });
         setMediaItems(prev => [...prev, ...newItems]);
@@ -453,6 +506,17 @@ export function CustomerOrderReviewScreen({
 
       for (const item of mediaItems) {
         if (item.mediaType === 'video') {
+          if (item.duration !== undefined && item.duration > MAX_VIDEO_DURATION_SEC) {
+            Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
+            setIsSubmitting(false);
+            return;
+          }
+          if (item.fileSize && item.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
+            Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
+            setIsSubmitting(false);
+            return;
+          }
+
           if (item.remoteUrl && (item.remoteUrl.startsWith('http://') || item.remoteUrl.startsWith('https://'))) {
             uploadedMediaItems.push({
               mediaType: 'video',
@@ -463,7 +527,7 @@ export function CustomerOrderReviewScreen({
           }
           else {
             try {
-              const uploaded = await uploadVideoItem(item.uri);
+              const uploaded = await uploadVideoItem(item.uri, item.fileName, item.fileSize);
               uploadedMediaItems.push({
                 mediaType: 'video',
                 mediaUrl: uploaded.mediaUrl,

@@ -495,6 +495,62 @@ describe('CustomerOrderReviewScreen', () => {
     expect(createReviewSpy).not.toHaveBeenCalled();
     delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
   });
+
+  it('rejects video if duration exceeds 30 seconds', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
+    jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///long-video.mp4', duration: 45, fileSize: 10 * 1024 * 1024 }],
+    } as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      alertButtons.find(b => b.text === 'Video (tối đa 30s)').onPress();
+    });
+    const videoButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      videoButtons.find(b => b.text === 'Quay video mới').onPress();
+    });
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Video quá dài',
+      'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.',
+    );
+    expect(screen.queryByTestId('review-photo-item-0')).toBeNull();
+    delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
+  });
+
+  it('rejects video if file size exceeds 50MB', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
+    jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///heavy-video.mp4', duration: 15, fileSize: 60 * 1024 * 1024 }],
+    } as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const alertButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      alertButtons.find(b => b.text === 'Video (tối đa 30s)').onPress();
+    });
+    const videoButtons = (Alert.alert as jest.Mock).mock.calls.at(-1)?.[2] as any[];
+    await act(async () => {
+      videoButtons.find(b => b.text === 'Quay video mới').onPress();
+    });
+
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Video quá lớn',
+      'Dung lượng video không được vượt quá 50MB.',
+    );
+    expect(screen.queryByTestId('review-photo-item-0')).toBeNull();
+    delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
+  });
 });
 
 describe('CustomerOrderDetailScreen review integration', () => {
