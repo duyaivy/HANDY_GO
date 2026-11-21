@@ -22,6 +22,7 @@ const paymentSelect = {
   paidAt: true,
   createdAt: true,
   updatedAt: true,
+  refunds: { where: { status: 'completed' }, select: { amountVnd: true } },
 } satisfies Prisma.PaymentSelect;
 
 type PaymentRecord = Prisma.PaymentGetPayload<{ select: typeof paymentSelect }>;
@@ -35,11 +36,13 @@ export class PaymentQueryService {
   }
 
   private serialize(payment: PaymentRecord) {
+    const { refunds, ...fields } = payment;
     return {
-      ...payment,
+      ...fields,
       amount: payment.amount.toString(),
       platformFee: payment.platformFee.toString(),
       workerEarning: payment.workerEarning.toString(),
+      refundedAmount: refunds.reduce((sum, refund) => sum + refund.amountVnd, 0n).toString(),
     };
   }
 

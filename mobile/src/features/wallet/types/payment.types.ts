@@ -59,6 +59,7 @@ export type OrderPaymentRecord = {
   status: OrderPaymentStatus;
   platformFee: string;
   workerEarning: string;
+  refundedAmount: string;
   orderCompletedAt: string | null;
   paidAt: string | null;
   createdAt: string;

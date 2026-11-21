@@ -53,6 +53,15 @@ it('does not create or reopen checkout when replay returns credit_pending', asyn
   expect(startVnpayCheckout).not.toHaveBeenCalled();
 });
 
+it('warns about a possibly paid expired checkout before allowing another attempt', async () => {
+  createTopup.mockResolvedValue({ ...record, provider: 'vnpay', isSimulated: false, status: 'expired', checkoutUrl: null });
+  render(<TopupModal visible onClose={jest.fn()} />);
+  fireEvent.press(screen.getByTestId('topup-amount-100000'));
+  fireEvent.press(screen.getByTestId('topup-vnpay-btn'));
+  expect(await screen.findByText(/Nếu đã thanh toán, hãy kiểm tra lịch sử nạp tiền/)).toBeOnTheScreen();
+  expect(startVnpayCheckout).not.toHaveBeenCalled();
+});
+
 it('blocks checkout after polling times out at credit_pending and allows status refresh', async () => {
   const pendingCredit = { ...record, provider: 'vnpay' as const, isSimulated: false, status: 'credit_pending' as const, providerPaidAt: '2026-01-01T00:00:00Z' };
   jest.mocked(useTopup).mockReturnValue({ createTopup, startVnpayCheckout, simulateTopup, refreshTopup, activeTopup: pendingCredit, isCreating: false, isPolling: false, isSimulating: false, hasPollingTimedOut: true, cancelPolling: jest.fn() });

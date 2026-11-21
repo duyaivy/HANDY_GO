@@ -24,6 +24,7 @@ const payment: OrderPaymentRecord = {
   status: 'pending',
   platformFee: '5000',
   workerEarning: '45000',
+  refundedAmount: '0',
   orderCompletedAt: '2026-01-01',
   paidAt: null,
   createdAt: '2026-01-01',

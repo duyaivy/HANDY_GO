@@ -21,3 +21,19 @@ it('excludes other workers, unpaid income and old weeks while preserving large a
   const large = workerFinancialSummary([{ ...paid, workerEarning: '9007199254740993' }], [], { userId: 'worker-1', now });
   expect(large.weeklyEarnings).toBe('9007199254740993');
 });
+
+it.each([
+  { status: 'refunded', refundedAmount: '200000', recoveryAmount: '150000', weeklyEarnings: '0', commissionPaid: '0' },
+  { status: 'partially_refunded', refundedAmount: '100000', recoveryAmount: '75000', weeklyEarnings: '75000', commissionPaid: '25000' },
+] as const)('subtracts a $status Point refund from earnings and commission', ({ status, refundedAmount, recoveryAmount, weeklyEarnings, commissionPaid }) => {
+  const point = { ...paid, method: 'point' as const, status, refundedAmount };
+  const recovery: WalletTransaction = { ...commission, id: 'refund-1', type: 'refund_recovery', referenceId: point.id, amount: recoveryAmount };
+  const summary = workerFinancialSummary([point], [recovery, recovery], { userId: 'worker-1', now });
+  expect(summary.weeklyEarnings).toBe(weeklyEarnings);
+  expect(summary.commissionPaid).toBe(commissionPaid);
+});
+
+it('does not show stale earnings while a completed refund is missing from the worker ledger', () => {
+  const point = { ...paid, method: 'point' as const, status: 'partially_refunded' as const, refundedAmount: '100000' };
+  expect(() => workerFinancialSummary([point], [], { userId: 'worker-1', now })).toThrow('Dữ liệu hoàn tiền chưa đồng bộ');
+});

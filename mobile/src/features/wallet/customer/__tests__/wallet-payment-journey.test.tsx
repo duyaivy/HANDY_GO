@@ -55,7 +55,7 @@ it('shares balances, transaction history and saved preference through top-up and
   let topupNumber = 0;
   const topups = new Map<string, TopupRecord>();
   const wallet: WalletData = { id: 'wallet-1', userId: 'customer-1', balance: '100000', availableBalance: '100000', reservedBalance: '0', status: 'active', createdAt: '', updatedAt: '' };
-  const payment: OrderPaymentRecord = { id: 'payment-1', orderId: 'order-1', customerUserId: 'customer-1', workerUserId: 'worker-1', amount: '200000', currency: 'VND', method: 'point', status: 'pending', platformFee: '20000', workerEarning: '180000', orderCompletedAt: '2026-11-20', paidAt: null, createdAt: '', updatedAt: '' };
+  const payment: OrderPaymentRecord = { id: 'payment-1', orderId: 'order-1', customerUserId: 'customer-1', workerUserId: 'worker-1', amount: '200000', currency: 'VND', method: 'point', status: 'pending', platformFee: '20000', workerEarning: '180000', refundedAmount: '0', orderCompletedAt: '2026-11-20', paidAt: null, createdAt: '', updatedAt: '' };
   jest.mocked(WalletApi.getMyWallet).mockImplementation(async () => response({ ...wallet, balance: String(balance), availableBalance: String(balance) }));
   jest.mocked(WalletApi.getMyTransactions).mockImplementation(async (query) => {
     const items = ledger.filter(item => !query?.type || item.type === query.type);

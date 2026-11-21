@@ -57,7 +57,9 @@ export function TopupModal({ visible, onClose, initialAmount, embedded = false }
       const record = await createTopup(amount);
       if (record.providerPaidAt || ['paid', 'credit_pending', 'needs_review', 'completed'].includes(record.status))
         return;
-      if (['failed', 'cancelled', 'expired'].includes(record.status))
+      if (record.status === 'expired')
+        throw new Error('Giao dịch trước đã hết hạn. Nếu đã thanh toán, hãy kiểm tra lịch sử nạp tiền trước khi tạo yêu cầu mới.');
+      if (['failed', 'cancelled'].includes(record.status))
         throw new Error('Giao dịch trước đã kết thúc. Vui lòng bấm lại để tạo yêu cầu nạp mới.');
       if (simulate) {
         if (!record.isSimulated || record.provider !== 'mock') {

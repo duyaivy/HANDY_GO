@@ -33,9 +33,10 @@ Nguồn: `backend/apps/wallet-service/src/wallet-query/`, `backend/apps/payment-
 - `GET /payments/topups` nhận `page`, `limit` và trả `items`, `page`, `limit`, `total`, `totalPages`.
 - `GET /payments/topups/:id` trả trạng thái để client polling. `POST /payments/topups/:id/simulate` nhận `{ outcome: 'succeeded' | 'failed' }`; chỉ khả dụng khi Backend bật MockTopupProvider.
 - Top-up có `isSimulated`, `simulationEndpoint`, `checkoutUrl`, `providerPaidAt`, `walletCreditedAt`, `expiresAt`, `createdAt`. Các trường endpoint, URL và thời điểm chưa phát sinh có thể `null`. Backend không trả `userId` trong top-up response.
-- `POST /payments` nhận `{ orderId, method }` với `method: 'point' | 'cash'`. Giá trị Backend là `point`, không phải `points`.
+- IPN thanh toán thành công đến sau khi top-up chuyển sang `expired` đưa giao dịch vào `needs_review` và lưu bằng chứng từ provider; Backend không tự cộng Point cho trường hợp này.
+- `POST /payments` nhận `{ orderId, method, expectedAmount? }` với `method: 'point' | 'cash'`. `expectedAmount` là chuỗi số tiền client đã xác nhận; Backend trả 409 nếu giá đã đổi. Giá trị Backend là `point`, không phải `points`.
 - `POST /payments/:id/pay-with-points` nhận `{ confirm: true }`. Backend xử lý idempotency theo payment/attempt, không nhận idempotency key từ client cho route này.
-- `GET /payments/order/:orderId` trả thanh toán với `customerUserId`, `workerUserId`, `amount`, `currency`, `method`, `status`, `platformFee`, `workerEarning`, `orderCompletedAt`, `paidAt`, `createdAt`, `updatedAt`. `method` và các thời điểm chưa phát sinh có thể `null`.
+- `GET /payments/order/:orderId` và `GET /payments/me` trả thanh toán với `customerUserId`, `workerUserId`, `amount`, `currency`, `method`, `status`, `platformFee`, `workerEarning`, `refundedAmount`, `orderCompletedAt`, `paidAt`, `createdAt`, `updatedAt`. `refundedAmount` là tổng các refund `completed`, dạng chuỗi; `method` và các thời điểm chưa phát sinh có thể `null`.
 - Mọi phương thức API trả nguyên envelope `{ statusCode, message, data }` theo hành vi `ApiClient.get/post` hiện tại.
 
 ## 3. Quy tắc tiền tệ

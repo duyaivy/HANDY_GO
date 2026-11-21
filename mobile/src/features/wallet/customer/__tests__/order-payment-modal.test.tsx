@@ -14,7 +14,7 @@ jest.mock('../../api/wallet.api', () => ({ WalletApi: { getMyWallet: jest.fn() }
 jest.mock('../../api/payment.api', () => ({ PaymentApi: { openPayment: jest.fn(), payWithPoints: jest.fn(), createTopup: jest.fn(), simulateTopup: jest.fn(), getTopupDetail: jest.fn() } }));
 const response = <T,>(data: T) => ({ statusCode: 200, message: 'ok', data });
 const wallet: WalletData = { id: 'wallet-1', userId: 'customer-1', balance: '500000', availableBalance: '500000', reservedBalance: '0', status: 'active', createdAt: '', updatedAt: '' };
-const payment: OrderPaymentRecord = { id: 'payment-1', orderId: 'order-1', customerUserId: 'customer-1', workerUserId: 'worker-1', amount: '200000', currency: 'VND', method: 'point', status: 'pending', platformFee: '20000', workerEarning: '180000', orderCompletedAt: '2026-11-20', paidAt: null, createdAt: '', updatedAt: '' };
+const payment: OrderPaymentRecord = { id: 'payment-1', orderId: 'order-1', customerUserId: 'customer-1', workerUserId: 'worker-1', amount: '200000', currency: 'VND', method: 'point', status: 'pending', platformFee: '20000', workerEarning: '180000', refundedAmount: '0', orderCompletedAt: '2026-11-20', paidAt: null, createdAt: '', updatedAt: '' };
 const confirm = jest.fn<Promise<unknown>, []>();
 const onResult = jest.fn();
 function mount(amount: string | number = '200000', needsConfirmation = true) {
