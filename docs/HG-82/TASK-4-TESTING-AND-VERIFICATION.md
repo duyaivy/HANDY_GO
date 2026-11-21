@@ -122,12 +122,14 @@ pnpm exec prisma validate --schema=apps/payment-service/prisma/schema.prisma
 | Nest build Order, Payment, Notification, Tracking | **PASS** cả bốn | Chỉ xác nhận biên dịch |
 | `oxlint` trên các module liên quan | **PASS** | Không thay thế kiểm thử chạy thật |
 | `prisma validate` Order và Payment | **PASS** | Kiểm tra cấu trúc schema; migration trên DB test ghi ở dòng dưới |
-| Migration Order/Payment/Wallet trên PostgreSQL test | **PASS** | Áp dụng trong container `handygo-payment-test`, database test tạm; không đụng DB deploy |
+| Migration Order/Payment/Wallet trên PostgreSQL test | **PASS** | Database test trống: áp dụng 19 migration lịch sử (7 Order, 6 Payment, 6 Wallet), trong đó chỉ 4 file SQL mới thuộc HG-82 (3 Order, 1 Payment); không đụng DB deploy |
 | `pnpm run test:integration:payment` | **PASS:** 9 file, 76 test | Test HG-82 mới đi qua RabbitMQ và Wallet thật; không phải kiểm thử app/deploy |
 
 Các test mới của Task 4 kiểm tra projection `refund_pending`/`needs_review` đúng chu kỳ khiếu nại, số tiền hoàn mặc định và vượt hạn mức, hai idempotency key cho cùng chu kỳ, từ chối action cũ và role sai, Payment replay/Payment đổi trạng thái, kết quả hoàn một phần/toàn phần và event sai payment/refund ID. Test tích hợp xác nhận unique/CAS khi hai yêu cầu Admin chạy đồng thời, backfill SQL chạy lặp không ghi đè mốc cũ, và Order chỉ kết thúc sau khi Wallet ghi sổ. Test biên 168 giờ, HTTP 202, Wallet chưa xác nhận và actor tách biệt đã có trong các suite của Task 1–3 và đều pass trong lần chạy này.
 
 **Giới hạn:** Chưa chạy các ca HG-82 về notification/tracking qua broker và timeline trên app/deploy. Backfill được kiểm tra với SQL cùng điều kiện migration trên PostgreSQL test sau khi migration đã áp dụng, không phải phục dựng dữ liệu lịch sử thật. Không dùng kết quả test local để khẳng định tiền đã hoàn trên môi trường deploy.
+
+Trên database cũ, `prisma migrate deploy` chỉ áp dụng các migration chưa có trong `_prisma_migrations` của schema tương ứng. Nếu các migration trước HG-82 đã được ghi nhận đầy đủ thì tối đa 4 file HG-82 còn chờ; nếu Task 1/2 đã chạy thì ít hơn. Không suy số migration còn chờ từ kết quả dựng database test trống; kiểm tra lịch sử trên đúng database đích trước khi triển khai.
 
 ### 3.3. Tiêu Chí Nghiệm Thu (Acceptance Criteria / DoD)
 

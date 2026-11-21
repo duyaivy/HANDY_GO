@@ -254,5 +254,7 @@ File: `backend/apps/api-gateway/src/proxy/proxy.constants.spec.ts`
 
 ### 6.3. Giới hạn và phần còn phải nghiệm thu
 
+- **Số migration HG-82 mới: 4 file SQL**, gồm 3 file Order (Task 1, 2, 3) và 1 file Payment (Task 3); Task 4 không thêm migration, Wallet không có migration HG-82 mới. Database Docker test ban đầu trống nên script đã áp dụng tổng cộng **19 migration** để dựng đủ ba schema: 7 Order, 6 Payment, 6 Wallet. Mười lăm migration còn lại là lịch sử có sẵn của repo; 19 không phải số migration cần chạy lại trên database cũ.
+- Với database đã vận hành, `prisma migrate deploy` dựa vào lịch sử `_prisma_migrations` của từng schema và chỉ áp dụng migration còn thiếu. Nếu tất cả migration trước HG-82 đã được ghi nhận thì tối đa 4 file HG-82 còn chờ; nếu Task 1/2 đã áp dụng thì ít hơn. Cần kiểm tra trạng thái migration trên đúng database đích trước khi triển khai; schema đã có cột/bảng nhưng thiếu lịch sử migration phải được đối soát riêng.
 - Backfill được kiểm tra bằng SQL cùng điều kiện migration trên PostgreSQL test sau khi migration đã áp dụng; chưa phục dựng dữ liệu lịch sử thực tế trước migration. Event sai thứ tự và `needs_review` được kiểm tra bằng unit test; notification/tracking HG-82 qua broker và timeline trên app/deploy chưa được xác minh.
 - Chỉ dùng container/database test cô lập; không chạy migration hoặc thay đổi DB deploy, không xác nhận refund trên app/deploy, không push hay tạo PR. Container test được dọn sau lần chạy cuối.
