@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { resolveServiceName } from '@/constants/services';
+import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, render, screen, waitFor } from '@/lib/test-utils';
@@ -25,8 +26,16 @@ jest.mock('@/components/map/handy-map', () => ({
   HandyMap: () => null,
 }));
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getMyRequests').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'getRequestDetail').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
+  jest.spyOn(OrdersApi, 'getProposalsForRequest').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue({ bidding: { items: [] }, matching: { recommendations: [] } } as any);
+});
+
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   mockSearchParams = { requestId: 'req-service-name-001' };
   useBookingDraftStore.getState().resetDraft();
@@ -68,6 +77,21 @@ describe('customerBookingRadarScreen - Service Name Preservation (TASK-04 Follow
       expect(resolveServiceName(null, null, null)).toBe('Dịch vụ tiện ích');
       expect(resolveServiceName(null, 'Dịch vụ tiện ích', null)).toBe('Dịch vụ tiện ích');
     });
+
+    it('does not infer a service from hexadecimal characters in unknown UUIDs', () => {
+      const unknownId = 'acabcdef-1234-4567-89ab-123456789abc';
+      expect(resolveServiceName(unknownId)).toBe('Dịch vụ tiện ích');
+      expect(resolveServiceName(unknownId, undefined, 'Tôi cần người Sửa máy giặt')).toBe('Sửa máy giặt');
+      expect(resolveServiceName(unknownId, 'Bảo dưỡng máy in')).toBe('Bảo dưỡng máy in');
+    });
+
+    it.each(['Sự cố: Không in', 'Vị trí: Văn phòng', 'Mức độ: Nặng'])(
+      'excludes %s from titles extracted from descriptions',
+      (chip) => {
+        expect(resolveServiceName(undefined, undefined, `Tôi cần người Bảo dưỡng máy in: ${chip}`))
+          .toBe('Bảo dưỡng máy in');
+      },
+    );
   });
 
   describe('Radar Screen header resolution', () => {

@@ -1,0 +1,778 @@
+{
+  "feature": "HG-71",
+  "historical": true,
+  "latestReport": "../BAO-CAO-TIEN-DO-VA-LOI-CON-LAI-2026-11-21.md",
+  "note": "Historical evidence at testedWorkingTreeBase; backendUnchanged and nativeValidation describe that run only, not the current branch.",
+  "verifiedAt": "2026-11-20T16:50:33.6752693+07:00",
+  "timezone": "Asia/Bangkok",
+  "testedWorkingTreeBase": "95408457b943119ac312702d3c22d8682e23234b",
+  "scope": "Mobile automated integration and regression; mocked APIs, not native device E2E",
+  "gates": {
+    "wallet": {
+      "command": "pnpm test src/features/wallet --runInBand",
+      "success": true,
+      "suitesTotal": 16,
+      "suitesPassed": 16,
+      "suitesFailed": 0,
+      "testsTotal": 84,
+      "testsPassed": 84,
+      "testsFailed": 0,
+      "testsPending": 0
+    },
+    "customerNavigation": {
+      "command": "pnpm test src/app/customer/__tests__/account-payment-flow.test.tsx --runInBand",
+      "success": true,
+      "suitesTotal": 1,
+      "suitesPassed": 1,
+      "suitesFailed": 0,
+      "testsTotal": 14,
+      "testsPassed": 14,
+      "testsFailed": 0,
+      "testsPending": 0
+    },
+    "fullMobile": {
+      "command": "pnpm test --runInBand",
+      "success": true,
+      "suitesTotal": 118,
+      "suitesPassed": 118,
+      "suitesFailed": 0,
+      "testsTotal": 880,
+      "testsPassed": 880,
+      "testsFailed": 0,
+      "testsPending": 0
+    },
+    "typeCheck": {
+      "command": "pnpm run type-check",
+      "exitCode": 0
+    },
+    "lint": {
+      "command": "pnpm run lint",
+      "exitCode": 0,
+      "errors": 0,
+      "warnings": 0,
+      "note": "Full lint plus clean targeted lint for the final async-act test change."
+    },
+    "backendUnchanged": {
+      "command": "git diff 70f5ee2 --name-only -- backend",
+      "changedPaths": []
+    }
+  },
+  "nativeValidation": {
+    "executed": false,
+    "connectedAdbDevicesAtInventory": 0,
+    "availableAvds": [
+      "CUSTOMER"
+    ],
+    "liveVnpayOrBackendPaymentExecuted": false
+  },
+  "suites": [
+    {
+      "file": "scripts/__tests__/firebase-config.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/__tests__/index.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/app/__tests__/auth-routes.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/app/__tests__/welcome.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/__tests__/account-payment-flow.test.tsx",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/__tests__/activities-flow.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/__tests__/customer-flow-screens.test.tsx",
+      "status": "passed",
+      "passed": 34,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-bids-price.test.tsx",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-bids-sorting.test.tsx",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-cancel.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-coords.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-locate.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-radar-service-name.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/app/customer/booking/__tests__/customer-booking-select-address.test.tsx",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/app/worker/__tests__/worker-account-skeleton-flow.test.tsx",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0
+    },
+    {
+      "file": "src/app/worker/__tests__/worker-flow-screens.test.tsx",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "file": "src/components/map/handy-map.test.tsx",
+      "status": "passed",
+      "passed": 13,
+      "failed": 0
+    },
+    {
+      "file": "src/components/ui/app-bar.test.tsx",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0
+    },
+    {
+      "file": "src/components/ui/button.test.tsx",
+      "status": "passed",
+      "passed": 11,
+      "failed": 0
+    },
+    {
+      "file": "src/components/ui/checkbox.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/components/ui/input.test.tsx",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "file": "src/components/ui/select.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/auth-4-step-flow.test.tsx",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/change-password-screen.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/complete-profile-screen.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/create-pin-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/login-screen.test.tsx",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/otp-verification-screen.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/password-reset-screens.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/auth/__tests__/register-screen.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/deadline-clock.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/price-suggestions.test.tsx",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/worker-bidding.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/worker-chat-entry.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/worker-discovery.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/worker-price-suggestions.test.tsx",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/__tests__/worker-request-bids.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/hooks/use-deadline-clock.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/bidding/hooks/use-worker-bidding.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/candidates/__tests__/use-candidates.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/candidates/__tests__/use-conversation-bid.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/catalog/__tests__/category-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/adjust-bid-modal.test.tsx",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-config.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-deal-bar-live-bidding.test.tsx",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-deal-bar.test.tsx",
+      "status": "passed",
+      "passed": 23,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-entry.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-lifecycle.test.tsx",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-media-card.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-media-preparation.test.ts",
+      "status": "passed",
+      "passed": 15,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-media.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-screen.test.tsx",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/chat-socket.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/conversation-list-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/message-cache.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/use-chat-keyboard.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/chat/__tests__/use-chat.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/dev-demo/__tests__/base-demo-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/home/customer/__tests__/customer-home-screen.test.tsx",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/home/worker/__tests__/worker-home-screen.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/notifications/__tests__/notification-lifecycle.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/notifications/__tests__/notification-screen.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/features/notifications/__tests__/push-registration.test.ts",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/__tests__/order-d4-integration.test.tsx",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/__tests__/realtime-sync.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/api/__tests__/orders.api.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-booking-service-name-and-description.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-booking-upload-progress.test.tsx",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-order-cancel-dialog.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-order-detail-screen.test.tsx",
+      "status": "passed",
+      "passed": 25,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-order-detail-tracking.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/customer/__tests__/customer-orders.test.tsx",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/hooks/__tests__/use-pending-proposals.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/hooks/use-pending-proposals.test.ts",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/utils/__tests__/bid-price.test.ts",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/utils/__tests__/cancel-error-message.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/worker/__tests__/worker-job-complete-screen.test.tsx",
+      "status": "passed",
+      "passed": 20,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/worker/__tests__/worker-job-detail-screen.test.tsx",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0
+    },
+    {
+      "file": "src/features/orders/worker/__tests__/worker-jobs-screen.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile-detail/components/__tests__/profile-detail-modals.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile-detail/customer/__tests__/customer-profile-detail-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/__tests__/app-mode-switch-flow.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/__tests__/app-mode-switch-integration.test.tsx",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/customer/__tests__/customer-profile-screen.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/customer/__tests__/customer-settings-screen.test.tsx",
+      "status": "passed",
+      "passed": 4,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/worker/__tests__/worker-profile-screen.test.tsx",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/worker/__tests__/worker-register-service-screen.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/worker/__tests__/worker-reviews-screen.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/profile/worker/__tests__/worker-skills-screen.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/tracking/__tests__/order-tracking-timeline.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/tracking/__tests__/tracking-e2e-resilience.test.tsx",
+      "status": "passed",
+      "passed": 8,
+      "failed": 0
+    },
+    {
+      "file": "src/features/tracking/__tests__/tracking.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/features/tracking/__tests__/use-tracking-events.test.tsx",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/api/__tests__/wallet-api.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/customer-link-account-screen.test.tsx",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/customer-payment-screen.test.tsx",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/customer-transaction-history-screen.test.tsx",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/order-payment-card.test.tsx",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/order-payment-modal.test.tsx",
+      "status": "passed",
+      "passed": 14,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/topup-modal.test.tsx",
+      "status": "passed",
+      "passed": 6,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/transaction-detail-modal.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/transaction-item.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/wallet-balance-card.test.tsx",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/customer/__tests__/wallet-payment-journey.test.tsx",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/hooks/__tests__/use-order-payment.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/hooks/__tests__/use-topup.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/hooks/__tests__/use-wallet-transactions.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/hooks/__tests__/use-wallet.test.ts",
+      "status": "passed",
+      "passed": 2,
+      "failed": 0
+    },
+    {
+      "file": "src/features/wallet/utils/__tests__/formatters.test.ts",
+      "status": "passed",
+      "passed": 9,
+      "failed": 0
+    },
+    {
+      "file": "src/lib/auth/__tests__/auth-store-and-role-guard.test.tsx",
+      "status": "passed",
+      "passed": 16,
+      "failed": 0
+    },
+    {
+      "file": "src/services/api/__tests__/api-client-refresh.test.ts",
+      "status": "passed",
+      "passed": 19,
+      "failed": 0
+    },
+    {
+      "file": "src/services/api/__tests__/api-error.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/services/api/__tests__/api-log-policy.test.ts",
+      "status": "passed",
+      "passed": 1,
+      "failed": 0
+    },
+    {
+      "file": "src/services/identity/__tests__/identity-api.test.ts",
+      "status": "passed",
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "file": "src/services/logger/__tests__/logger.test.ts",
+      "status": "passed",
+      "passed": 3,
+      "failed": 0
+    },
+    {
+      "file": "src/services/sse/__tests__/bidding-sse-client.test.ts",
+      "status": "passed",
+      "passed": 17,
+      "failed": 0
+    },
+    {
+      "file": "src/services/sse/__tests__/tracking-sse-client.test.ts",
+      "status": "passed",
+      "passed": 10,
+      "failed": 0
+    },
+    {
+      "file": "src/services/sse/__tests__/use-bidding-events.test.ts",
+      "status": "passed",
+      "passed": 7,
+      "failed": 0
+    }
+  ]
+}

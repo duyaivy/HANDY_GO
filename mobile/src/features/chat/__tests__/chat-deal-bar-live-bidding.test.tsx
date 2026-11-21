@@ -53,6 +53,8 @@ let targetBid: BidCandidate;
 let client: QueryClient;
 beforeEach(() => {
   jest.clearAllMocks();
+  // Control queued React Query notifications between successive SSE events.
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   targetBid = {
     selectionSource: 'bid',
@@ -88,15 +90,22 @@ afterEach(() => {
   terminateAllBiddingSseConnections();
   Object.keys(mockListeners).forEach(key => delete mockListeners[key]);
   client.clear();
+  jest.useRealTimers();
 });
 
 it('updates a later-page worker quote from a real bidding subscription and hides it when withdrawn', async () => {
   render(<QueryClientProvider client={client}><ChatDealBar conversation={conversation} userId="customer" /></QueryClientProvider>);
   expect(await screen.findByText('230.000 đ')).toBeTruthy();
   targetBid = { ...targetBid, amount: 300000, version: 2 };
-  act(() => mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' })));
+  await act(async () => {
+    mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' }));
+    await jest.advanceTimersByTimeAsync(0);
+  });
   expect(await screen.findByText('300.000 đ')).toBeTruthy();
   targetBid = { ...targetBid, status: 'withdrawn' };
-  act(() => mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' })));
+  await act(async () => {
+    mockListeners['bid.changed'].forEach(listener => listener({ requestId: 'request' }));
+    await jest.advanceTimersByTimeAsync(0);
+  });
   await waitFor(() => expect(screen.queryByTestId('deal-bar-select-worker-btn')).toBeNull());
 });

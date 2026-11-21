@@ -192,7 +192,19 @@ export class TopupsService implements OnModuleInit {
       const now = new Date();
       let response: IpnResponse = IPN_RESPONSE.alreadyConfirmed;
 
-      if (notification.success && ['pending', 'awaiting_payment', 'expired'].includes(current.status)) {
+      if (notification.success && current.status === 'expired') {
+        // An expired checkout can be paid before its IPN arrives. Keep the provider evidence
+        // for review, but never credit it automatically after the customer may have retried.
+        await tx.topupRequest.update({
+          where: { id: topup.id },
+          data: { status: 'needs_review', providerPaidAt: now, providerPaymentRef: notification.providerTransactionNo, failureReason: 'provider_success_after_expiry' },
+        });
+        await tx.topupAttempt.updateMany({
+          where: { providerTransactionRef: notification.txnRef!, status: { in: ['pending', 'processing'] } },
+          data: { status: 'succeeded', finishedAt: now },
+        });
+        response = IPN_RESPONSE.ok;
+      } else if (notification.success && PENDING_STATUSES.includes(current.status)) {
         const paid = await tx.topupRequest.update({
           where: { id: topup.id },
           data: { status: 'credit_pending', providerPaidAt: now, providerPaymentRef: notification.providerTransactionNo },

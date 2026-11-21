@@ -85,8 +85,11 @@ describe('welcomeScreen (role picker)', () => {
     expect(mockReplace).toHaveBeenCalledWith('/worker');
   });
 
-  it('navigates to login screen when clicking the login link', () => {
+  it('navigates to login screen and sets guestRole when clicking the login link', () => {
     render(<WelcomeScreen />);
+
+    const workerCard = screen.getByTestId('welcome-worker-card');
+    fireEvent.press(workerCard);
 
     const loginLink = screen.getByTestId('welcome-login-link');
     expect(loginLink.props.accessibilityRole).toBe('button');
@@ -94,6 +97,7 @@ describe('welcomeScreen (role picker)', () => {
 
     fireEvent.press(loginLink);
 
+    expect(useAuthStore.getState().guestRole).toBe('Worker');
     expect(mockPush).toHaveBeenCalledWith('/(auth)/login');
   });
 

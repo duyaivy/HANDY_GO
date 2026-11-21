@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { WalletIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
+import { formatPointsToVND, parseOrderVnd } from '@/features/wallet/utils/formatters';
 
 export type OrderPaymentCardProps = {
   agreedPrice: number | string | undefined | null;
@@ -11,11 +12,8 @@ export type OrderPaymentCardProps = {
 };
 
 function formatVND(amount: number | string | undefined | null): string {
-  if (!amount) {
-    return '0đ';
-  }
-  const n = typeof amount === 'string' ? Number.parseFloat(amount) : amount;
-  return `${n.toLocaleString('vi-VN')}đ`;
+  const parsed = parseOrderVnd(amount);
+  return parsed == null ? 'Chưa xác định' : formatPointsToVND(parsed.toString());
 }
 
 function getPaymentStateBadge(state?: string | null) {
@@ -28,7 +26,7 @@ function getPaymentStateBadge(state?: string | null) {
       };
     case 'pending':
       return {
-        label: 'Đang xử lý',
+        label: 'Chờ xác nhận',
         bg: 'bg-blue-100 dark:bg-blue-950/40',
         text: 'text-blue-800 dark:text-blue-300',
       };
@@ -47,7 +45,7 @@ function getPaymentStateBadge(state?: string | null) {
     case 'unpaid':
     default:
       return {
-        label: 'Thanh toán khi xong',
+        label: 'Chờ thanh toán',
         bg: 'bg-amber-100 dark:bg-amber-950/40',
         text: 'text-amber-800 dark:text-amber-300',
       };
@@ -57,7 +55,7 @@ function getPaymentStateBadge(state?: string | null) {
 export function OrderPaymentCard({
   agreedPrice,
   paymentState,
-  paymentMethod = 'Tiền mặt khi hoàn tất',
+  paymentMethod,
 }: OrderPaymentCardProps) {
   const badge = getPaymentStateBadge(paymentState);
   const formattedTotal = formatVND(agreedPrice);
@@ -96,7 +94,7 @@ export function OrderPaymentCard({
             Phương thức thanh toán
           </Text>
           <Text className="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
-            {paymentMethod}
+            {paymentMethod === 'point' ? 'Điểm ví HandyGo' : paymentMethod === 'cash' ? 'Tiền mặt' : paymentMethod ?? 'Chưa chọn phương thức'}
           </Text>
         </View>
 

@@ -42,6 +42,8 @@ try {
   }
   deploy(path.join(temporary, 'prisma.config.ts'));
   const wallet = await client.query("INSERT INTO wallet_service.wallets (system_key, balance) VALUES ('MIGRATION_FIXTURE', 500) RETURNING id");
+  const legacyEntry = await client.query(`INSERT INTO wallet_service.wallet_transactions
+    (wallet_id, type, direction, amount) VALUES ($1, 'migration_fixture', 'credit', 20) RETURNING id`, [wallet.rows[0].id]);
   const withdrawal = await client.query(`INSERT INTO wallet_service.withdrawals
     (user_id, wallet_id, bank_account_id, amount, idempotency_key)
     VALUES (gen_random_uuid(), $1, gen_random_uuid(), 100, 'migration-fixture') RETURNING id`, [wallet.rows[0].id]);
@@ -49,6 +51,16 @@ try {
   deploy(path.join(source, 'prisma.config.ts'));
   assert.equal((await client.query('SELECT count(*)::int AS count FROM wallet_service._prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')).rows[0].count, migrations.length);
   assert.equal((await client.query("SELECT balance FROM wallet_service.wallets WHERE system_key = 'MIGRATION_FIXTURE'")).rows[0].balance, '500');
+  assert.deepEqual((await client.query('SELECT balance_before, balance_after FROM wallet_service.wallet_transactions WHERE id = $1', [legacyEntry.rows[0].id])).rows[0], { balance_before: null, balance_after: null });
+  await client.query(`INSERT INTO wallet_service.wallet_transactions
+    (wallet_id, type, direction, amount, balance_before, balance_after)
+    VALUES ($1, 'snapshot_fixture', 'credit', 9007199254740993, 0, 9007199254740993)`, [wallet.rows[0].id]);
+  await assert.rejects(client.query(`INSERT INTO wallet_service.wallet_transactions
+    (wallet_id, type, direction, amount, balance_before, balance_after)
+    VALUES ($1, 'bad_snapshot', 'debit', 10, 100, 95)`, [wallet.rows[0].id]), { code: '23514' });
+  await assert.rejects(client.query(`INSERT INTO wallet_service.wallet_transactions
+    (wallet_id, type, direction, amount, balance_before)
+    VALUES ($1, 'partial_snapshot', 'debit', 10, 100)`, [wallet.rows[0].id]), { code: '23514' });
   assert((await client.query('SELECT payout_operation_id FROM wallet_service.withdrawals WHERE id = $1', [withdrawal.rows[0].id])).rows[0].payout_operation_id);
   // Old release inserts omit new columns; defaults must keep these writes working.
   await client.query(`INSERT INTO wallet_service.withdrawals (user_id, wallet_id, bank_account_id, amount, idempotency_key)
