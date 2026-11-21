@@ -1,15 +1,16 @@
 # [HG-82] Chi Tiết Thay Đổi Task 1, Task 2 Và Task 3
 
-Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82-order-dispute-7-days-admin-resolution`, bao gồm migrations, Prisma schema, API, event, logic service và kết quả kiểm tra local. Bảng dưới ghi SHA của hai commit đã có; mục 5 ghi chi tiết phần Task 3 của commit hiện tại.
+Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82-order-dispute-7-days-admin-resolution`, bao gồm migrations, Prisma schema, API, event, logic service và kết quả kiểm tra local. **Task 3 nằm tại mục 5 bên dưới, thuộc commit `7310df9`.**
 
 ---
 
-## 1. Tổng Quan 2 Commit
+## 1. Tổng Quan 3 Commit
 
 | Commit SHA | Thông điệp Commit | Task liên quan | Tóm tắt thay đổi |
 | :--- | :--- | :--- | :--- |
 | **`a7836ac`** | `feat(HG-82): support seven-day disputes on completed orders` | **Task 1** | Cho phép khách hàng mở khiếu nại trong 7 ngày sau khi hoàn tất đơn (`completed`); lưu metadata bằng chứng khiếu nại (`evidence_type`, `submitted_by_user_id`); migration DB; mở rộng Outbox event. |
 | **`592aded`** | `feat(HG-82): add admin dispute queue` | **Task 2** | Xây dựng API `GET /admin/orders/disputes` cho Admin tra cứu danh sách khiếu nại; thêm migration tạo index DB `(status, disputed_at)`; DTO query & response; test proxy API Gateway. |
+| **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
 
 ---
 
@@ -192,7 +193,7 @@ File: `backend/apps/api-gateway/src/proxy/proxy.constants.spec.ts`
 
 ---
 
-## 5. Task 3: Admin Phán Quyết Khiếu Nại Sau Hoàn Thành
+## 5. Commit 3: `7310df9` - Task 3: Admin Phán Quyết Khiếu Nại Sau Hoàn Thành
 
 ### 5.1. Dữ liệu và migration
 
