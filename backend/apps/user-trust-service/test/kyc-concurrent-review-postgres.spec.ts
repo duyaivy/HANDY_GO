@@ -311,9 +311,23 @@ describe('KYC Admin Concurrent Review Integration with PostgreSQL', () => {
     ]);
 
     // 6. Assertions on concurrent outcome:
-    // Both promises settle cleanly without database deadlocks
-    expect(adminResult.status).toBe('fulfilled');
+    // Both promises settle cleanly without database deadlocks.
+    // AI consumer settles cleanly. If consumer won first, admin rejection gets ConflictException.
     expect(consumerResult.status).toBe('fulfilled');
+    if (adminResult.status === 'rejected') {
+      const reason = (adminResult as PromiseRejectedResult).reason;
+      const isConflict =
+        reason instanceof ConflictException ||
+        (reason && typeof reason === 'object' && 'status' in reason && (reason as any).status === 409) ||
+        (reason?.message && (
+          reason.message.includes('quản trị viên khác') ||
+          reason.message.includes('thay đổi đồng thời') ||
+          reason.message.includes('được xử lý trước đó')
+        ));
+      expect(Boolean(isConflict)).toBe(true);
+    } else {
+      expect(adminResult.status).toBe('fulfilled');
+    }
 
     // 7. Verify database state on PostgreSQL:
     const finalCase = await prisma.kycCase.findUnique({
