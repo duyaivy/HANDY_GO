@@ -1,10 +1,9 @@
 import type {
-  WorkerPublicProfileData,
   WorkerReviewItem,
   WorkerReviewMediaItem,
   WorkerServiceOfferingItem,
 } from '@/services/workers/workers-api';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -37,6 +36,7 @@ import { Image } from '@/components/ui/image';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
 import { WorkersApi } from '@/services/workers/workers-api';
 
 export type WorkerDetailScreenProps = {
@@ -175,15 +175,7 @@ export function WorkerDetailScreen({
   }, [handleBack]);
 
   // Fetch Public Profile from API (user-trust-service via api-gateway /workers/:id)
-  const profileQuery = useQuery<WorkerPublicProfileData>({
-    queryKey: ['worker-public-profile', workerId],
-    queryFn: async () => {
-      if (!workerId) {
-        throw new Error('Mã thợ không hợp lệ');
-      }
-      const res = await WorkersApi.getWorkerPublicProfile(workerId);
-      return res.data;
-    },
+  const profileQuery = useWorkerPublicProfile(workerId, {
     enabled: Boolean(workerId) && !isMockWorker,
     staleTime: 30 * 1000,
   });

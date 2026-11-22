@@ -31,6 +31,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
+import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
 import { ChatEntry } from '@/features/chat/chat-entry';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
@@ -42,7 +43,6 @@ import { isValidCoordinate } from '@/services/location/coordinates';
 import { DeviceLocationService } from '@/services/location/device-location';
 import { MapboxService } from '@/services/map/mapbox-service';
 import { useBiddingEvents } from '@/services/sse/use-bidding-events';
-import { WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 
 type DisplayWorkerCandidate = {
@@ -114,14 +114,12 @@ function WorkerStatsTags({
   fallbackRate: number;
 }) {
   const isMockWorker = !workerId || workerId.startsWith('th-01') || workerId.startsWith('mock-') || workerId.startsWith('test-') || workerId.startsWith('worker-');
-  const { data: profileRes } = useQuery({
-    queryKey: ['worker-public-profile', workerId],
-    queryFn: () => WorkersApi.getWorkerPublicProfile(workerId!),
+  const { data: profile } = useWorkerPublicProfile(workerId, {
     enabled: !isMockWorker,
     staleTime: 5 * 60 * 1000,
   });
 
-  const stats = profileRes?.data?.stats;
+  const stats = profile?.stats;
   const completed = stats?.completedOrderCount ?? fallbackOrders;
   const total = stats?.orderCountTotal;
 

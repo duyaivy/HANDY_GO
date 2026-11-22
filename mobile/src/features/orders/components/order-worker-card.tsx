@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -12,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { ChatIcon, PhoneIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
-import { WorkersApi } from '@/services/workers/workers-api';
+import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
 
 export type OrderWorkerCardProps = {
   workerId?: string;
@@ -38,15 +37,13 @@ export function OrderWorkerCard({
   const router = useRouter();
 
   const isNoPhoneMock = workerId === 'worker-no-phone' || workerId === 'worker-missing-fields-uuid';
-  const { data: publicProfileRes } = useQuery({
-    queryKey: ['worker-public-profile', workerId],
-    queryFn: () => WorkersApi.getWorkerPublicProfile(workerId!),
+  const { data: publicProfile } = useWorkerPublicProfile(workerId, {
     enabled: Boolean(workerId && !isNoPhoneMock && !phoneNumber),
     staleTime: 5 * 60 * 1000,
   });
 
   const effectivePhone = phoneNumber
-    || publicProfileRes?.data?.phone
+    || publicProfile?.phone
     || (!isNoPhoneMock && workerId && workerId !== 'worker-placeholder'
       ? (workerId === 'a-canh-van' ? '0901234567' : '0912 345 678')
       : undefined);
