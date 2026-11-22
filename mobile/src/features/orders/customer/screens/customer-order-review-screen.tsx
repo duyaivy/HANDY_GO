@@ -21,7 +21,7 @@ import { KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { OrdersApi } from '../../api/orders.api';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
-import { isWithinReviewWindow, useOrderReview } from '../../hooks/use-order-review';
+import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 
 const SAMPLE_REVIEW_PHOTOS = [
   'https://res.cloudinary.com/handygo/image/upload/v1/reviews/sample1.jpg',
@@ -39,6 +39,7 @@ const QUICK_TAG_SUGGESTIONS = [
 
 const MAX_VIDEO_DURATION_SEC = 30;
 const MAX_VIDEO_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+const MAX_REVIEW_MEDIA_ITEMS = 5;
 
 const RATING_FEEDBACK_TEXTS: Record<number, { title: string; subtitle: string }> = {
   1: { title: 'Rất không hài lòng 😞', subtitle: 'Chúng tôi rất tiếc vì trải nghiệm này. Hãy chia sẻ lý do để HandyGo hỗ trợ bạn.' },
@@ -61,10 +62,9 @@ type LocalMediaItem = {
   mediaType: 'image' | 'video';
   thumbnailUrl?: string;
   uploadReceipt?: string;
-  isUploading?: boolean;
   fileName?: string;
   fileSize?: number;
-  duration?: number;
+  mimeType?: string;
 };
 
 export function CustomerOrderReviewScreen({
@@ -97,7 +97,7 @@ export function CustomerOrderReviewScreen({
     updateReview,
   } = useOrderReview(orderId);
 
-  const is14DaysExpired = Boolean(order) && !hasReviewed && !isWithinReviewWindow(order?.completedAt);
+  const isCreationUnavailable = Boolean(order) && !hasReviewed && !canCreateOrderReview(order);
 
   // 3 explicit screen modes:
   // 1. 'view': Đã có review nhưng không còn quyền sửa (hết 48h hoặc đã sửa rồi), hoặc route yêu cầu mode=view
@@ -107,7 +107,7 @@ export function CustomerOrderReviewScreen({
     if (isLoadingReview || isLoadingOrder) {
       return isRequestedView ? 'view' : 'create';
     }
-    if (is14DaysExpired) {
+    if (isCreationUnavailable) {
       return 'view';
     }
     if (hasReviewed) {
@@ -120,7 +120,7 @@ export function CustomerOrderReviewScreen({
       return 'view';
     }
     return 'create';
-  }, [isLoadingReview, isLoadingOrder, is14DaysExpired, hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
+  }, [isLoadingReview, isLoadingOrder, isCreationUnavailable, hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
 
   const isEditMode = screenMode === 'edit';
   const isViewMode = screenMode === 'view';
@@ -215,12 +215,11 @@ export function CustomerOrderReviewScreen({
   };
 
   // Upload Single Photo
-  const uploadPhotoItem = async (localUri: string): Promise<{ mediaUrl: string; uploadReceipt?: string }> => {
-    // Nếu ảnh đã là URL remote (Cloudinary), trả về luôn
-    if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
-      return { mediaUrl: localUri };
-    }
+  const uploadPhotoItem = async (localUri: string): Promise<{ mediaUrl: string; uploadReceipt: string }> => {
     const res = await OrdersApi.uploadImageDetailed(localUri, 'review_photo');
+    if (!res.uploadReceipt) {
+      throw new Error('Không nhận được biên nhận tải hình ảnh');
+    }
     return {
       mediaUrl: res.url,
       uploadReceipt: res.uploadReceipt,
@@ -228,33 +227,26 @@ export function CustomerOrderReviewScreen({
   };
 
   // Upload Single Video via direct Cloudinary signature
-  const uploadVideoItem = async (
-    localUri: string,
-    fileName?: string,
-    fileSize?: number,
-  ): Promise<{ mediaUrl: string; uploadReceipt: string; thumbnailUrl?: string }> => {
-    if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
-      return {
-        mediaUrl: localUri,
-        uploadReceipt: 'mock-upload-receipt',
-        thumbnailUrl: localUri.replace(/\.[^/.]+$/, '.jpg'),
-      };
-    }
+  const uploadVideoItem = async ({
+    uri,
+    fileName,
+    fileSize,
+    mimeType = 'video/mp4',
+  }: LocalMediaItem): Promise<{ mediaUrl: string; uploadReceipt: string; thumbnailUrl: string }> => {
     const filename = fileName || `review-video-${Date.now()}.mp4`;
-    const mimeType = 'video/mp4';
     const sigData = await ReviewsApi.getVideoUploadSignature({
       fileName: filename,
       mimeType,
-      fileSize: fileSize || 10 * 1024 * 1024,
+      fileSize,
     });
 
-    if (!sigData || !sigData.uploadUrl) {
+    if (!sigData?.uploadUrl || !sigData.uploadReceipt) {
       throw new Error('Không thể khởi tạo chữ ký upload video');
     }
 
     const cloudFormData = new FormData();
     cloudFormData.append('file', {
-      uri: localUri,
+      uri,
       name: filename,
       type: mimeType,
     } as any);
@@ -278,14 +270,43 @@ export function CustomerOrderReviewScreen({
     }
 
     const cloudJson = await cloudRes.json();
-    const mediaUrl = cloudJson.secure_url || cloudJson.url;
-    const thumbnailUrl = mediaUrl ? mediaUrl.replace(/\.[^/.]+$/, '.jpg') : undefined;
+    const mediaUrl = cloudJson.secure_url;
+    if (typeof mediaUrl !== 'string' || !mediaUrl.startsWith('https://')) {
+      throw new Error('Không nhận được đường dẫn video hợp lệ');
+    }
+    const thumbnailUrl = mediaUrl.replace(/\.[^/.]+$/, '.jpg');
 
     return {
       mediaUrl,
       uploadReceipt: sigData.uploadReceipt,
       thumbnailUrl,
     };
+  };
+
+  const addPickedVideo = (asset: ImagePicker.ImagePickerAsset) => {
+    // Expo reports the picked video's duration in milliseconds.
+    if (asset.duration != null && asset.duration > MAX_VIDEO_DURATION_SEC * 1000) {
+      Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
+      return;
+    }
+    if (asset.fileSize != null && asset.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
+      Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
+      return;
+    }
+    if (mediaItems.some(item => item.mediaType === 'video')) {
+      Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+      return;
+    }
+
+    const video: LocalMediaItem = {
+      id: `review-video-${Date.now()}`,
+      uri: asset.uri,
+      mediaType: 'video',
+      fileName: asset.fileName ?? undefined,
+      fileSize: asset.fileSize,
+      mimeType: asset.mimeType ?? undefined,
+    };
+    setMediaItems(prev => prev.length < MAX_REVIEW_MEDIA_ITEMS && !prev.some(item => item.mediaType === 'video') ? [...prev, video] : prev);
   };
 
   // Camera and Library Handlers (split to ensure <= 3 buttons per Alert for full Android support)
@@ -306,7 +327,7 @@ export function CustomerOrderReviewScreen({
           uri: result.assets[0].uri,
           mediaType: 'image',
         };
-        setMediaItems(prev => [...prev, newPhoto]);
+        setMediaItems(prev => prev.length < MAX_REVIEW_MEDIA_ITEMS ? [...prev, newPhoto] : prev);
       }
     }
     catch (err) {
@@ -324,36 +345,10 @@ export function CustomerOrderReviewScreen({
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['videos'],
-        videoMaxDuration: 30,
+        videoMaxDuration: MAX_VIDEO_DURATION_SEC,
       });
-      if (!result.canceled && result.assets && result.assets[0]?.uri) {
-        const asset = result.assets[0];
-        const durationSec = typeof asset.duration === 'number'
-          ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
-          : undefined;
-
-        if (durationSec !== undefined && durationSec > MAX_VIDEO_DURATION_SEC) {
-          Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
-          return;
-        }
-        if (asset.fileSize && asset.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
-          Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
-          return;
-        }
-        if (mediaItems.some(item => item.mediaType === 'video')) {
-          Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
-          return;
-        }
-
-        const newVideo: LocalMediaItem = {
-          id: `camera-vid-${Date.now()}`,
-          uri: asset.uri,
-          mediaType: 'video',
-          fileName: asset.fileName || undefined,
-          fileSize: asset.fileSize,
-          duration: durationSec,
-        };
-        setMediaItems(prev => [...prev, newVideo]);
+      if (!result.canceled && result.assets[0]?.uri) {
+        addPickedVideo(result.assets[0]);
       }
     }
     catch (err) {
@@ -364,25 +359,30 @@ export function CustomerOrderReviewScreen({
 
   const handlePickFromLibrary = async (chosenType: 'images' | 'videos') => {
     try {
-      const remaining = 5 - mediaItems.length;
+      const remaining = MAX_REVIEW_MEDIA_ITEMS - mediaItems.length;
+      if (remaining <= 0) {
+        return;
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: chosenType === 'images',
         selectionLimit: remaining,
         quality: 0.8,
         mediaTypes: [chosenType],
-        videoMaxDuration: 30,
+        videoMaxDuration: MAX_VIDEO_DURATION_SEC,
       });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
-          const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
-          return {
-            id: `lib-${Date.now()}-${i}`,
-            uri: asset.uri,
-            mediaType: isVideo ? 'video' : 'image',
-          };
-        });
-        setMediaItems(prev => [...prev, ...newItems]);
+      if (result.canceled || !result.assets[0]?.uri) {
+        return;
       }
+      if (chosenType === 'videos') {
+        addPickedVideo(result.assets[0]);
+        return;
+      }
+      const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => ({
+        id: `lib-${Date.now()}-${i}`,
+        uri: asset.uri,
+        mediaType: 'image',
+      }));
+      setMediaItems(prev => [...prev, ...newItems.slice(0, Math.max(0, MAX_REVIEW_MEDIA_ITEMS - prev.length))]);
     }
     catch (err) {
       console.warn('[GALLERY_ERROR]', err);
@@ -392,7 +392,7 @@ export function CustomerOrderReviewScreen({
 
   // Pick / Capture Photo or Video
   const handleAddMediaPress = () => {
-    if (mediaItems.length >= 5) {
+    if (mediaItems.length >= MAX_REVIEW_MEDIA_ITEMS) {
       Alert.alert('Giới hạn tệp đính kèm', 'Bạn chỉ có thể đính kèm tối đa 5 hình ảnh hoặc video cho một đánh giá.');
       return;
     }
@@ -497,10 +497,10 @@ export function CustomerOrderReviewScreen({
       return;
     }
 
-    if (!isEditMode && !isWithinReviewWindow(order.completedAt)) {
+    if (!isEditMode && !canCreateOrderReview(order)) {
       Alert.alert(
-        'Hết hạn đánh giá',
-        'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn tất).',
+        'Không thể đánh giá',
+        'Đơn hàng này không đủ điều kiện để gửi đánh giá.',
       );
       return;
     }
@@ -537,7 +537,7 @@ export function CustomerOrderReviewScreen({
           }
           else {
             try {
-              const uploaded = await uploadVideoItem(item.uri);
+              const uploaded = await uploadVideoItem(item);
               uploadedMediaItems.push({
                 mediaType: 'video',
                 mediaUrl: uploaded.mediaUrl,
@@ -561,6 +561,7 @@ export function CustomerOrderReviewScreen({
             uploadedMediaItems.push({
               mediaType: 'image',
               mediaUrl: item.remoteUrl,
+              thumbnailUrl: item.thumbnailUrl,
               uploadReceipt: item.uploadReceipt,
             });
           }
@@ -570,7 +571,7 @@ export function CustomerOrderReviewScreen({
               uploadedMediaItems.push({
                 mediaType: 'image',
                 mediaUrl: uploaded.mediaUrl,
-                uploadReceipt: uploaded.uploadReceipt || item.uploadReceipt,
+                uploadReceipt: uploaded.uploadReceipt,
               });
             }
             catch (err: any) {
@@ -1083,14 +1084,16 @@ export function CustomerOrderReviewScreen({
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-300">
             {isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
           </Text>
-          <Text className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-            {isViewMode
-              ? (review?.isEdited
-                  ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
-                  : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
-              : isEditMode
-                ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
-                : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
+          <Text className="mt-1 text-[11px]/relaxed text-amber-700 dark:text-amber-400">
+            {isCreationUnavailable
+              ? 'Đơn hàng này không đủ điều kiện để gửi đánh giá.'
+              : isViewMode
+                ? (review?.isEdited
+                    ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
+                    : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
+                : isEditMode
+                  ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
+                  : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
           </Text>
           {isEditMode && hoursRemainingToEdit > 0 && (
             <Text className="mt-1 text-[11px] font-bold text-amber-800 dark:text-amber-300">

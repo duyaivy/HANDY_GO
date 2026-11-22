@@ -58,6 +58,8 @@ describe('CustomerOrderReviewScreen', () => {
   const mockOrder = {
     id: 'ord-completed-123',
     orderCode: 'ORD-8888',
+    serviceRequestId: 'request-123',
+    bookingProposalId: 'proposal-123',
     customerUserId: 'cust-uuid-1',
     workerUserId: 'worker-uuid-2',
     worker: {
@@ -69,8 +71,10 @@ describe('CustomerOrderReviewScreen', () => {
       name: 'Lắp đặt công tơ điện và atomat',
     },
     agreedPrice: 350000,
-    status: 'completed',
-    paymentState: 'paid',
+    agreedScope: 'Lắp đặt công tơ điện và atomat',
+    addressText: 'Địa chỉ đơn hàng',
+    status: 'completed' as const,
+    paymentState: 'paid' as const,
     completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
   };
@@ -220,6 +224,11 @@ describe('CustomerOrderReviewScreen', () => {
   });
 
   it('displays existing review and handles edit mode within 48h', async () => {
+    const existingPhoto = {
+      mediaType: 'image' as const,
+      mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/review.jpg',
+      thumbnailUrl: 'https://res.cloudinary.com/handygo/image/upload/w_100/review.jpg',
+    };
     const existingReview = {
       id: 'rev-existing-1',
       orderId: 'ord-completed-123',
@@ -231,7 +240,7 @@ describe('CustomerOrderReviewScreen', () => {
       status: 'published',
       isEdited: false,
       createdAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(), // 2 hours ago
-      media: [],
+      media: [existingPhoto],
     };
 
     jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(existingReview as any);
@@ -260,6 +269,7 @@ describe('CustomerOrderReviewScreen', () => {
         'rev-existing-1',
         expect.objectContaining({
           rating: 5,
+          media: [existingPhoto],
         }),
       );
     });
@@ -305,6 +315,19 @@ describe('CustomerOrderReviewScreen', () => {
     // Press close button
     fireEvent.press(screen.getByTestId('close-review-btn'));
     expect(mockBack).toHaveBeenCalled();
+  });
+
+  it('prevents creating a review for a refunded order opened directly', async () => {
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      statusCode: 200,
+      data: { ...mockOrder, paymentState: 'refunded' },
+      message: 'OK',
+    });
+
+    render(<CustomerOrderReviewScreen orderId={mockOrder.id} />);
+
+    expect(await screen.findByText('Đơn hàng này không đủ điều kiện để gửi đánh giá.')).toBeOnTheScreen();
+    expect(screen.queryByTestId('submit-review-btn')).toBeNull();
   });
 
   it('displays error alert when createReview fails', async () => {
@@ -513,7 +536,7 @@ describe('CustomerOrderReviewScreen', () => {
     jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
     jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
       canceled: false,
-      assets: [{ uri: 'file:///long-video.mp4', duration: 45, fileSize: 10 * 1024 * 1024 }],
+      assets: [{ uri: 'file:///long-video.mp4', duration: 45_000, fileSize: 10 * 1024 * 1024 }],
     } as any);
 
     render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
@@ -541,7 +564,7 @@ describe('CustomerOrderReviewScreen', () => {
     jest.spyOn(ImagePicker, 'requestCameraPermissionsAsync').mockResolvedValue({ status: 'granted' } as any);
     jest.spyOn(ImagePicker, 'launchCameraAsync').mockResolvedValue({
       canceled: false,
-      assets: [{ uri: 'file:///heavy-video.mp4', duration: 15, fileSize: 60 * 1024 * 1024 }],
+      assets: [{ uri: 'file:///heavy-video.mp4', duration: 15_000, fileSize: 60 * 1024 * 1024 }],
     } as any);
 
     render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
@@ -562,6 +585,88 @@ describe('CustomerOrderReviewScreen', () => {
     );
     expect(screen.queryByTestId('review-photo-item-0')).toBeNull();
     delete (globalThis as any).__USE_REAL_PHOTO_PICKER__;
+  });
+
+  it.each([
+    { duration: 30_001, fileSize: 1024, alertTitle: 'Video quá dài' },
+    { duration: 15_000, fileSize: 50 * 1024 * 1024 + 1, alertTitle: 'Video quá lớn' },
+  ])('rejects invalid library video with "$alertTitle"', async ({ duration, fileSize, alertTitle }) => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    jest.spyOn(ImagePicker, 'launchImageLibraryAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///library-video.mp4', width: 1920, height: 1080, duration, fileSize }],
+    });
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const [, , choices] = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+    choices?.find(choice => choice.text === 'Video (tối đa 30s)')?.onPress?.();
+    const [, , sources] = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+    await act(async () => {
+      sources?.find(source => source.text === 'Chọn từ thư viện')?.onPress?.();
+    });
+
+    expect(Alert.alert).toHaveBeenCalledWith(alertTitle, expect.any(String));
+    expect(screen.queryByTestId('review-video-badge-0')).toBeNull();
+  });
+
+  it('uploads a short library video with its original file metadata and receipt', async () => {
+    (globalThis as any).__USE_REAL_PHOTO_PICKER__ = true;
+    const fileName = 'review.mov';
+    const mimeType = 'video/quicktime';
+    const fileSize = 82_431;
+    jest.spyOn(ImagePicker, 'launchImageLibraryAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: `file:///${fileName}`, width: 1920, height: 1080, duration: 700, fileName, mimeType, fileSize }],
+    });
+    const uploadUrl = 'https://api.cloudinary.com/v1_1/handygo/video/upload';
+    const mediaUrl = 'https://res.cloudinary.com/handygo/video/upload/review.mov';
+    const signatureSpy = jest.spyOn(ReviewsApi, 'getVideoUploadSignature').mockResolvedValue({
+      signature: 'signature',
+      timestamp: 123,
+      apiKey: 'key',
+      cloudName: 'handygo',
+      folder: '',
+      uploadUrl,
+      uploadReceipt: 'video-receipt',
+    });
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ secure_url: mediaUrl }),
+    } as Response);
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview').mockResolvedValue({
+      id: 'created-review',
+      orderId: mockOrder.id,
+      rating: 5,
+      status: 'published',
+      createdAt: new Date().toISOString(),
+    });
+
+    render(<CustomerOrderReviewScreen orderId={mockOrder.id} />);
+
+    fireEvent.press(screen.getByTestId('add-review-photo-btn'));
+    const [, , choices] = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+    choices?.find(choice => choice.text === 'Video (tối đa 30s)')?.onPress?.();
+    const [, , sources] = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+    await act(async () => {
+      sources?.find(source => source.text === 'Chọn từ thư viện')?.onPress?.();
+    });
+    expect(screen.getByTestId('review-video-badge-0')).toBeOnTheScreen();
+    await waitFor(() => expect(screen.getByTestId('submit-review-btn')).toBeEnabled());
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+
+    await waitFor(() => {
+      expect(signatureSpy).toHaveBeenCalledWith({ fileName, mimeType, fileSize });
+      expect(createReviewSpy).toHaveBeenCalledWith(expect.objectContaining({
+        media: [{
+          mediaType: 'video',
+          mediaUrl,
+          thumbnailUrl: mediaUrl.replace('.mov', '.jpg'),
+          uploadReceipt: 'video-receipt',
+        }],
+      }));
+    });
   });
 
   it('enforces maximum 1 video limit when trying to attach a second video', async () => {
@@ -782,26 +887,25 @@ describe('CustomerOrderDetailScreen review integration', () => {
     });
   });
 
-  it('hides review invite banner and review button when completed order has null, undefined, or invalid completedAt', async () => {
-    const orderNoCompletedAt = {
-      ...completedOrder,
-      id: 'ord-no-completed-at',
-      completedAt: null,
-    };
-
+  it.each([
+    ['missing completion timestamp', { completedAt: null }],
+    ['refunded payment', { paymentState: 'refunded' }],
+  ])('hides review actions for a completed order with %s', async (_, overrides) => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       statusCode: 200,
-      data: orderNoCompletedAt,
+      data: { ...completedOrder, ...overrides },
       message: 'OK',
     } as any);
-    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(null);
+    const getReview = jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(null);
 
-    render(<CustomerOrderDetailScreen orderId="ord-no-completed-at" />);
+    render(<CustomerOrderDetailScreen orderId={completedOrder.id} />);
 
     await waitFor(() => {
-      expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
-      expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
+      expect(screen.getByText('Sửa chữa điện nước')).toBeOnTheScreen();
+      expect(getReview).toHaveBeenCalledWith(completedOrder.id);
     });
+    expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
+    expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
   });
 
   it('does not prematurely display review CTA while review status is loading in order detail', async () => {

@@ -35,7 +35,7 @@ import {
   OrderWorkerCard,
 } from '../../components';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
-import { isWithinReviewWindow, useOrderReview } from '../../hooks/use-order-review';
+import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderDetailScreenProps = {
@@ -160,6 +160,8 @@ export function CustomerOrderDetailScreen({
     refetch: refetchReview,
     review,
   } = useOrderReview(orderId);
+  const canCreateReview = canCreateOrderReview(order);
+  const showReviewAction = !isLoadingReview && !isReviewError && (hasReviewed || canCreateReview);
 
   // Lấy serviceRequestId từ chi tiết order (hoặc search params)
   const serviceRequestId = order?.serviceRequestId || (searchParams?.serviceRequestId as string | undefined);
@@ -414,7 +416,7 @@ export function CustomerOrderDetailScreen({
                   } as any)}
                 />
               )
-            : isWithinReviewWindow(order?.completedAt)
+            : canCreateReview
               ? (
                   <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
                     <View className="flex-row items-center gap-3">
@@ -598,7 +600,7 @@ export function CustomerOrderDetailScreen({
 
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
-            {!isLoadingReview && !isReviewError && (hasReviewed || isWithinReviewWindow(order?.completedAt)) && (
+            {showReviewAction && (
               <Button
                 testID="customer-review-order-btn"
                 label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
@@ -628,7 +630,7 @@ export function CustomerOrderDetailScreen({
               label="Đặt Lại Dịch Vụ"
               variant="outline"
               className={`h-11 rounded-2xl border-primary ${
-                !isLoadingReview && !isReviewError && (hasReviewed || isWithinReviewWindow(order?.completedAt)) ? 'flex-1' : 'w-full'
+                showReviewAction ? 'flex-1' : 'w-full'
               }`}
               textClassName="text-xs font-bold text-primary"
               onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}

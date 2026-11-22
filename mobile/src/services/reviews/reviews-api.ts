@@ -1,6 +1,7 @@
 import type { CreateReviewPayload, OrderReview, UpdateReviewPayload } from '@/features/orders/types/order.types';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ApiClient } from '@/services/api/api-client';
+import { ApiError } from '@/services/api/api-error';
 
 export type VideoUploadSignatureResponse = {
   signature: string;
@@ -28,14 +29,8 @@ export const ReviewsApi = {
 
       return response?.data || (response as unknown as OrderReview) || null;
     }
-    catch (err: any) {
-      // 404 nghĩa là đơn hàng chưa có đánh giá
-      const status = err?.response?.status || err?.status;
-      if (status === 404) {
-        return null;
-      }
-      const msg = String(err?.response?.data?.message || err?.message || '');
-      if (msg.toLowerCase().includes('chưa có đánh giá') || msg.toLowerCase().includes('not found')) {
+    catch (err) {
+      if (err instanceof ApiError && err.kind === 'NOT_FOUND') {
         return null;
       }
       throw err;

@@ -1,5 +1,6 @@
 import type {
   CreateReviewPayload,
+  Order,
   OrderReview,
   UpdateReviewPayload,
 } from '../types/order.types';
@@ -25,6 +26,12 @@ export function isWithinReviewWindow(
   const diffMs = now - completedTime;
   // Cho phép sai số đồng hồ tối đa 5 phút trong tương lai, và tối đa 14 ngày
   return diffMs >= -5 * 60 * 1000 && diffMs <= FOURTEEN_DAYS_MS;
+}
+
+export function canCreateOrderReview(order?: Pick<Order, 'status' | 'paymentState' | 'completedAt'> | null): boolean {
+  return order?.status === 'completed'
+    && order.paymentState !== 'refunded'
+    && isWithinReviewWindow(order.completedAt);
 }
 
 export function useOrderReview(orderId?: string | null) {
