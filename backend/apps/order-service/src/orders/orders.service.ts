@@ -32,7 +32,10 @@ import type { OrderEvidenceResponseDto } from './dto/order-evidence-response.dto
 import type { RequestReworkDto } from './dto/request-rework.dto.js';
 import type { CancelOrderDto } from './dto/cancel-order.dto.js';
 import type { DisputeOrderDto } from './dto/dispute-order.dto.js';
-import type { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
+import type {
+  Hg82ResolutionAction,
+  ResolveDisputeDto,
+} from './dto/resolve-dispute.dto.js';
 import { PaymentRefundClient } from './payment-refund.client.js';
 import type {
   OrderResponseDto,
@@ -1146,11 +1149,10 @@ export class OrdersService {
         }
 
         const completedAtMs = order.completedAt?.getTime();
-        const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
         if (
           completedAtMs === undefined ||
           !Number.isFinite(completedAtMs) ||
-          now.getTime() - completedAtMs > sevenDaysMs
+          now.getTime() - completedAtMs > ORDER_CONSTANTS.COMPLAINT_WINDOW_MS
         ) {
           throw new BadRequestException({
             code: ORDER_ERROR_CODES.COMPLAINT_WINDOW_EXPIRED,
@@ -1284,132 +1286,378 @@ export class OrdersService {
     adminUserId: string,
     dto: ResolveDisputeDto,
     roles: string[] = [],
-  ): Promise<OrderResponseDto & { resolutionId: string; state: string; refundAmountVnd: string | null }> {
-    if (!roles.some((role) => role.toLowerCase() === 'admin')) {
-      throw new ForbiddenException({ code: ORDER_ERROR_CODES.FORBIDDEN_ROLE, message: ORDER_ERROR_MESSAGES.FORBIDDEN_ROLE });
+  ): Promise<
+    OrderResponseDto & {
+      resolutionId: string;
+      state: string;
+      refundAmountVnd: string | null;
     }
-    if (!['dismiss', 'rework', 'refund'].includes(dto.action)) {
-      throw new BadRequestException({ code: ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION, message: ORDER_ERROR_MESSAGES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION });
-    }
-    const key = dto.idempotencyKey?.trim();
-    const note = dto.resolutionNote?.trim();
-    if (!key || key.length > 150 || !note || note.length < 5 || note.length > 2000 || (dto.action !== 'refund' && dto.refundAmountVnd !== undefined)) {
-      throw new BadRequestException({ code: ORDER_ERROR_CODES.RESOLUTION_REASON_REQUIRED, message: 'A valid note and idempotency key are required; amount is refund-only' });
-    }
-    if (dto.refundAmountVnd !== undefined && !/^[1-9]\d{0,18}$/.test(dto.refundAmountVnd)) {
-      throw new BadRequestException({ code: ORDER_ERROR_CODES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE, message: 'Refund amount must be an exact positive whole VND string' });
-    }
-    const hash = createHash('sha256').update(JSON.stringify({ orderId, adminUserId, action: dto.action, note, requestedAmount: dto.refundAmountVnd ?? null })).digest('hex');
-    const replay = async () => {
-      const existing = await this.prisma.orderDisputeResolution.findUnique({ where: { idempotencyKey: key } });
-      if (!existing) return null;
-      if (existing.orderId !== orderId || existing.requestHash !== hash) {
-        throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
-      }
-      const current = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-      return { ...this.formatOrderResponse(current), resolutionId: existing.id, state: existing.state, refundAmountVnd: existing.refundAmountVnd?.toString() ?? null };
-    };
-    const previous = await replay();
+  > {
+    const { action, key, note } = this.validateCompletedDisputeInput(dto, roles);
+    const hash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          orderId,
+          adminUserId,
+          action,
+          note,
+          requestedAmount: dto.refundAmountVnd ?? null,
+        }),
+      )
+      .digest('hex');
+
+    const previous = await this.findIdempotentDisputeResolution(orderId, key, hash);
     if (previous) return previous;
+
     const snapshot = await this.getOrderOrThrow(orderId);
-    if (snapshot.status !== 'disputed' || snapshot.disputePreviousStatus !== 'completed') {
-      throw new ConflictException({ code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION, message: 'Only a post-completion dispute can use this action' });
-    }
-    if (dto.action === 'refund' && snapshot.customerUserId === adminUserId) {
-      throw new ForbiddenException({ code: ORDER_ERROR_CODES.REFUND_SELF_APPROVAL_FORBIDDEN, message: ORDER_ERROR_MESSAGES.REFUND_SELF_APPROVAL_FORBIDDEN });
-    }
-    let paymentId: string | null = null;
-    let refundAmount: bigint | null = null;
-    if (dto.action === 'refund') {
-      if (!this.paymentRefundClient) throw new ServiceUnavailableException('Payment refundability client is unavailable');
-      const eligibility = await this.paymentRefundClient.byOrder(orderId);
-      if (!eligibility.paymentId || !['succeeded', 'partially_refunded'].includes(eligibility.status) || eligibility.refundableAmountVnd <= 0n) {
-        throw new ConflictException({ code: ORDER_ERROR_CODES.PAYMENT_NOT_REFUNDABLE, message: ORDER_ERROR_MESSAGES.PAYMENT_NOT_REFUNDABLE });
-      }
-      paymentId = eligibility.paymentId;
-      refundAmount = dto.refundAmountVnd === undefined ? eligibility.refundableAmountVnd : BigInt(dto.refundAmountVnd);
-      if (refundAmount > eligibility.refundableAmountVnd) {
-        throw new BadRequestException({ code: ORDER_ERROR_CODES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE, message: ORDER_ERROR_MESSAGES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE });
-      }
-    }
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const order = await this.lockAndGetOrderOrThrow(orderId, tx);
-        const existing = await tx.orderDisputeResolution.findUnique({ where: { idempotencyKey: key } });
-        if (existing) {
-          if (existing.orderId === orderId && existing.requestHash === hash) {
-            const current = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
-            return { ...this.formatOrderResponse(current), resolutionId: existing.id, state: existing.state, refundAmountVnd: existing.refundAmountVnd?.toString() ?? null };
-          }
-          throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
-        }
-        const activeResolution = order.disputedAt
-          ? await tx.orderDisputeResolution.findFirst({
-            where: {
-              orderId,
-              disputedAt: order.disputedAt,
-              state: { not: 'superseded' },
-            },
-          })
-          : null;
-        if (activeResolution) {
-          if (activeResolution.state !== 'needs_review') {
-            throw new ConflictException({
-              code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
-              message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
-            });
-          }
-          await tx.orderDisputeResolution.update({
-            where: { id: activeResolution.id },
-            data: { state: 'superseded' },
-          });
-        }
-        if (order.status !== 'disputed' || order.disputePreviousStatus !== 'completed' || !order.disputedAt) {
-          throw new ConflictException({ code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION, message: 'Only a post-completion dispute can use this action' });
-        }
-        const now = new Date();
-        const state = dto.action === 'refund' ? 'refund_pending' : 'completed';
-        const resolution = await tx.orderDisputeResolution.create({
-          data: {
-            orderId, disputedAt: order.disputedAt, idempotencyKey: key, requestHash: hash,
-            adminUserId, action: dto.action, resolutionNote: note, state,
-            refundAmountVnd: refundAmount, paymentId,
-            previousCompletedAt: order.completedAt, previousWorkerFinishedAt: order.workerFinishedAt,
-            decidedAt: now, resolvedAt: dto.action === 'refund' ? null : now,
-          }
-        });
-        const nextStatus = dto.action === 'dismiss' ? 'completed' : dto.action === 'rework' ? 'in_progress' : 'disputed';
-        const updated = await tx.order.updateMany({
-          where: { id: orderId, status: 'disputed', version: order.version }, data: {
-            status: nextStatus, version: { increment: 1 }, disputeResolutionNote: note,
-            ...(dto.action === 'refund' ? {} : { disputeResolvedAt: now }),
-            ...(dto.action === 'rework' ? { firstCompletedAt: order.firstCompletedAt ?? order.completedAt, completedAt: null, workerFinishedAt: null } : {}),
-          }
-        });
-        if (updated.count !== 1) throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
-        const payload = {
-          resolutionId: resolution.id, orderId, orderCode: order.orderCode, disputedAt: order.disputedAt.toISOString(),
-          adminUserId, action: dto.action, resolutionNote: note, customerUserId: order.customerUserId,
-          workerUserId: order.workerUserId, paymentId, refundAmountVnd: refundAmount?.toString() ?? null,
-          decidedAt: now.toISOString(),
-        };
-        await this.outboxRepo.createEvent({ aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER, aggregateId: orderId, eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTE_DECISION_RECORDED, payload }, tx);
-        if (dto.action !== 'refund') {
-          await tx.orderStatusHistory.create({ data: { orderId, fromStatus: 'disputed', toStatus: nextStatus, changedByUserId: adminUserId, reason: note } });
-          await this.emitOrderStatusChangedEvent(tx, order, 'disputed', nextStatus, { resolutionId: resolution.id, resolution: dto.action, reason: note });
-          await this.outboxRepo.createEvent({ aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER, aggregateId: orderId, eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTE_RESOLVED, payload: { ...payload, resolvedStatus: nextStatus, resolvedAt: now.toISOString() } }, tx);
-        }
-        const current = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
-        return { ...this.formatOrderResponse(current), resolutionId: resolution.id, state, refundAmountVnd: refundAmount?.toString() ?? null };
+    if (
+      snapshot.status !== 'disputed' ||
+      snapshot.disputePreviousStatus !== 'completed'
+    ) {
+      throw new ConflictException({
+        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        message: 'Only a post-completion dispute can use this action',
       });
+    }
+    if (action === 'refund' && snapshot.customerUserId === adminUserId) {
+      throw new ForbiddenException({
+        code: ORDER_ERROR_CODES.REFUND_SELF_APPROVAL_FORBIDDEN,
+        message: ORDER_ERROR_MESSAGES.REFUND_SELF_APPROVAL_FORBIDDEN,
+      });
+    }
+
+    const { paymentId, refundAmount } =
+      action === 'refund'
+        ? await this.preflightRefundEligibility(orderId, dto.refundAmountVnd)
+        : { paymentId: null, refundAmount: null };
+
+    try {
+      return await this.prisma.$transaction((tx) =>
+        this.commitCompletedDisputeTx(tx, {
+          orderId,
+          adminUserId,
+          action,
+          key,
+          note,
+          hash,
+          paymentId,
+          refundAmount,
+        }),
+      );
     } catch (error) {
       if ((error as { code?: string }).code === 'P2002') {
-        const duplicate = await replay();
+        const duplicate = await this.findIdempotentDisputeResolution(
+          orderId,
+          key,
+          hash,
+        );
         if (duplicate) return duplicate;
-        throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+          message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+        });
       }
       throw error;
     }
+  }
+
+  private validateCompletedDisputeInput(
+    dto: ResolveDisputeDto,
+    roles: string[],
+  ): { action: Hg82ResolutionAction; key: string; note: string } {
+    if (!roles.some((role) => role.toLowerCase() === 'admin')) {
+      throw new ForbiddenException({
+        code: ORDER_ERROR_CODES.FORBIDDEN_ROLE,
+        message: ORDER_ERROR_MESSAGES.FORBIDDEN_ROLE,
+      });
+    }
+    if (!['dismiss', 'rework', 'refund'].includes(dto.action)) {
+      throw new BadRequestException({
+        code: ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION,
+        message: ORDER_ERROR_MESSAGES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION,
+      });
+    }
+    const key = dto.idempotencyKey?.trim();
+    const note = dto.resolutionNote?.trim();
+    if (
+      !key ||
+      key.length > ORDER_CONSTANTS.MAX_IDEMPOTENCY_KEY_LENGTH ||
+      !note ||
+      note.length < ORDER_CONSTANTS.MIN_RESOLUTION_NOTE_LENGTH ||
+      note.length > ORDER_CONSTANTS.MAX_RESOLUTION_NOTE_LENGTH ||
+      (dto.action !== 'refund' && dto.refundAmountVnd !== undefined)
+    ) {
+      throw new BadRequestException({
+        code: ORDER_ERROR_CODES.RESOLUTION_REASON_REQUIRED,
+        message:
+          'A valid note and idempotency key are required; amount is refund-only',
+      });
+    }
+    if (
+      dto.refundAmountVnd !== undefined &&
+      !/^[1-9]\d{0,18}$/.test(dto.refundAmountVnd)
+    ) {
+      throw new BadRequestException({
+        code: ORDER_ERROR_CODES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE,
+        message: 'Refund amount must be an exact positive whole VND string',
+      });
+    }
+    return { action: dto.action as Hg82ResolutionAction, key, note };
+  }
+
+  private async findIdempotentDisputeResolution(
+    orderId: string,
+    key: string,
+    hash: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<
+    | (OrderResponseDto & {
+        resolutionId: string;
+        state: string;
+        refundAmountVnd: string | null;
+      })
+    | null
+  > {
+    const client = tx ?? this.prisma;
+    const existing = await client.orderDisputeResolution.findUnique({
+      where: { idempotencyKey: key },
+    });
+    if (!existing) return null;
+    if (existing.orderId !== orderId || existing.requestHash !== hash) {
+      throw new ConflictException({
+        code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+        message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+      });
+    }
+    const current = await client.order.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    return {
+      ...this.formatOrderResponse(current),
+      resolutionId: existing.id,
+      state: existing.state,
+      refundAmountVnd: existing.refundAmountVnd?.toString() ?? null,
+    };
+  }
+
+  private async preflightRefundEligibility(
+    orderId: string,
+    requestedAmount?: string,
+  ): Promise<{ paymentId: string; refundAmount: bigint }> {
+    if (!this.paymentRefundClient) {
+      throw new ServiceUnavailableException(
+        'Payment refundability client is unavailable',
+      );
+    }
+    const eligibility = await this.paymentRefundClient.byOrder(orderId);
+    if (
+      !eligibility.paymentId ||
+      !['succeeded', 'partially_refunded'].includes(eligibility.status) ||
+      eligibility.refundableAmountVnd <= 0n
+    ) {
+      throw new ConflictException({
+        code: ORDER_ERROR_CODES.PAYMENT_NOT_REFUNDABLE,
+        message: ORDER_ERROR_MESSAGES.PAYMENT_NOT_REFUNDABLE,
+      });
+    }
+    const refundAmount =
+      requestedAmount === undefined
+        ? eligibility.refundableAmountVnd
+        : BigInt(requestedAmount);
+    if (refundAmount > eligibility.refundableAmountVnd) {
+      throw new BadRequestException({
+        code: ORDER_ERROR_CODES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE,
+        message: ORDER_ERROR_MESSAGES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE,
+      });
+    }
+    return { paymentId: eligibility.paymentId, refundAmount };
+  }
+
+  private async commitCompletedDisputeTx(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      adminUserId: string;
+      action: Hg82ResolutionAction;
+      key: string;
+      note: string;
+      hash: string;
+      paymentId: string | null;
+      refundAmount: bigint | null;
+    },
+  ): Promise<
+    OrderResponseDto & {
+      resolutionId: string;
+      state: string;
+      refundAmountVnd: string | null;
+    }
+  > {
+    const {
+      orderId,
+      adminUserId,
+      action,
+      key,
+      note,
+      hash,
+      paymentId,
+      refundAmount,
+    } = params;
+    const order = await this.lockAndGetOrderOrThrow(orderId, tx);
+
+    const existing = await this.findIdempotentDisputeResolution(
+      orderId,
+      key,
+      hash,
+      tx,
+    );
+    if (existing) return existing;
+
+    const activeResolution = order.disputedAt
+      ? await tx.orderDisputeResolution.findFirst({
+          where: {
+            orderId,
+            disputedAt: order.disputedAt,
+            state: { not: 'superseded' },
+          },
+        })
+      : null;
+    if (activeResolution) {
+      if (activeResolution.state !== 'needs_review') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+          message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+        });
+      }
+      await tx.orderDisputeResolution.update({
+        where: { id: activeResolution.id },
+        data: { state: 'superseded' },
+      });
+    }
+
+    if (
+      order.status !== 'disputed' ||
+      order.disputePreviousStatus !== 'completed' ||
+      !order.disputedAt
+    ) {
+      throw new ConflictException({
+        code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
+        message: 'Only a post-completion dispute can use this action',
+      });
+    }
+
+    const now = new Date();
+    const state = action === 'refund' ? 'refund_pending' : 'completed';
+    const resolution = await tx.orderDisputeResolution.create({
+      data: {
+        orderId,
+        disputedAt: order.disputedAt,
+        idempotencyKey: key,
+        requestHash: hash,
+        adminUserId,
+        action,
+        resolutionNote: note,
+        state,
+        refundAmountVnd: refundAmount,
+        paymentId,
+        previousCompletedAt: order.completedAt,
+        previousWorkerFinishedAt: order.workerFinishedAt,
+        decidedAt: now,
+        resolvedAt: action === 'refund' ? null : now,
+      },
+    });
+
+    const nextStatus =
+      action === 'dismiss'
+        ? 'completed'
+        : action === 'rework'
+          ? 'in_progress'
+          : 'disputed';
+    const updated = await tx.order.updateMany({
+      where: { id: orderId, status: 'disputed', version: order.version },
+      data: {
+        status: nextStatus,
+        version: { increment: 1 },
+        disputeResolutionNote: note,
+        ...(action === 'refund' ? {} : { disputeResolvedAt: now }),
+        ...(action === 'rework'
+          ? {
+              firstCompletedAt: order.firstCompletedAt ?? order.completedAt,
+              completedAt: null,
+              workerFinishedAt: null,
+            }
+          : {}),
+      },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException({
+        code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+        message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+      });
+    }
+
+    const payload = {
+      resolutionId: resolution.id,
+      orderId,
+      orderCode: order.orderCode,
+      disputedAt: order.disputedAt.toISOString(),
+      adminUserId,
+      action,
+      resolutionNote: note,
+      customerUserId: order.customerUserId,
+      workerUserId: order.workerUserId,
+      paymentId,
+      refundAmountVnd: refundAmount?.toString() ?? null,
+      decidedAt: now.toISOString(),
+    };
+    await this.outboxRepo.createEvent(
+      {
+        aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+        aggregateId: orderId,
+        eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTE_DECISION_RECORDED,
+        payload,
+      },
+      tx,
+    );
+
+    if (action !== 'refund') {
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          fromStatus: 'disputed',
+          toStatus: nextStatus,
+          changedByUserId: adminUserId,
+          reason: note,
+        },
+      });
+      await this.emitOrderStatusChangedEvent(tx, order, 'disputed', nextStatus, {
+        resolutionId: resolution.id,
+        resolution: action,
+        reason: note,
+      });
+      await this.outboxRepo.createEvent(
+        {
+          aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
+          aggregateId: orderId,
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTE_RESOLVED,
+          payload: {
+            ...payload,
+            resolvedStatus: nextStatus,
+            resolvedAt: now.toISOString(),
+          },
+        },
+        tx,
+      );
+    }
+
+    const current = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+    });
+    return {
+      ...this.formatOrderResponse(current),
+      resolutionId: resolution.id,
+      state,
+      refundAmountVnd: refundAmount?.toString() ?? null,
+    };
   }
 
   async resolveDispute(

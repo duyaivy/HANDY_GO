@@ -10,6 +10,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { ORDER_CONSTANTS } from '../../common/constants/order.constants.js';
 
 export enum DisputeCategory {
   SERVICE_QUALITY = 'service_quality',
@@ -27,10 +28,10 @@ export class DisputeOrderDto {
   })
   @IsNotEmpty({ message: 'Dispute reason is strictly required' })
   @IsString()
-  @MinLength(5, {
+  @MinLength(ORDER_CONSTANTS.MIN_RESOLUTION_NOTE_LENGTH, {
     message: 'Dispute reason must be at least 5 characters long',
   })
-  @MaxLength(2000, {
+  @MaxLength(ORDER_CONSTANTS.MAX_RESOLUTION_NOTE_LENGTH, {
     message: 'Dispute reason must be at most 2000 characters long',
   })
   reason: string;
@@ -51,10 +52,10 @@ export class DisputeOrderDto {
   })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10, {
+  @ArrayMaxSize(ORDER_CONSTANTS.MAX_DISPUTE_EVIDENCE_URLS, {
     message: 'Tối đa 10 bằng chứng cho mỗi lần khiếu nại',
   })
-  @MaxLength(2048, {
+  @MaxLength(ORDER_CONSTANTS.MAX_EVIDENCE_URL_LENGTH, {
     each: true,
     message: 'Mỗi URL bằng chứng không được vượt quá 2048 ký tự',
   })

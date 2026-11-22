@@ -18,7 +18,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`65c49fcf`** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
 | **`2f1110f9`** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
 | **`7b698974`** | `fix(HG-82): tighten dispute DTO input length, URL protocol, and refund amount bounds` | **Review Fix #06** | Bổ sung `@MaxLength(2000)` cho `reason` và `resolutionNote`; giới hạn `evidenceUrls` tối đa 10 phần tử, mỗi URL tối đa 2048 ký tự và bắt buộc protocol `http`/`https`; giới hạn `refundAmountVnd` theo regex `/^[1-9]\d{0,18}$/` ở DTO và `OrdersService`. Chi tiết tại mục 12. |
-| **Review Fix #07** | `fix(HG-82): persist disputeCategory, fix resolveDispute status check order, and allow partially_refunded filter` | **Review Fix #07** | Thêm cột `orders.dispute_category` để lưu và trả về `disputeCategory` trong `OrderResponseDto` & `adminFindDisputes`; đảo thứ tự kiểm tra `order.status !== 'disputed'` trước `order.disputePreviousStatus === 'completed'` trong `resolveDispute`; bổ sung `'partially_refunded'` vào `QueryOrderDto.paymentState`. Chi tiết tại mục 13. |
+| **`d8fb7f98`** | `fix(HG-82): persist disputeCategory, fix resolveDispute status check order, and allow partially_refunded filter` | **Review Fix #07** | Thêm cột `orders.dispute_category` để lưu và trả về `disputeCategory` trong `OrderResponseDto` & `adminFindDisputes`; đảo thứ tự kiểm tra `order.status !== 'disputed'` trước `order.disputePreviousStatus === 'completed'` trong `resolveDispute`; bổ sung `'partially_refunded'` vào `QueryOrderDto.paymentState`. Chi tiết tại mục 13. |
+| **Review Fix #08** | `refactor(HG-82): extract resolveCompletedDispute helpers and centralize HG-82 constants` | **Review Fix #08** | Gom các magic numbers của HG-82 vào `ORDER_CONSTANTS` và tách `OrdersService.resolveCompletedDispute` thành 4 helper có trách nhiệm đơn lẻ (`validateCompletedDisputeInput`, `findIdempotentDisputeResolution`, `preflightRefundEligibility`, `commitCompletedDisputeTx`). Chi tiết tại mục 14. |
 
 ---
 
@@ -501,3 +502,31 @@ Trong `PaymentEventsConsumer.processDisputeRefund`:
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
   - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 14. Review Fix #08: Refactor `resolveCompletedDispute` Và Tập Trung Hằng Số Nghiệp Vụ HG-82
+
+### 14.1. Nguyên nhân & phạm vi sửa
+
+1. `OrdersService.resolveCompletedDispute` dài hơn 110 dòng, gộp 6 trách nhiệm (kiểm tra role/input, idempotency replay, HTTP preflight Payment, thực thi transaction Prisma, ghi outbox event và xử lý `P2002`), đồng thời lặp lại logic tra cứu idempotency trong và ngoài transaction.
+2. Các hằng số thời hạn và độ dài của HG-82 (`7 * 24 * 60 * 60 * 1000`, `5`, `2000`, `150`, `10`, `2048`, `100`) nằm rải rác dưới dạng magic numbers trong `orders.service.ts`, DTOs và `payment-events.consumer.ts`.
+
+### 14.2. Thay đổi mã nguồn (`backend/apps/order-service`)
+
+1. **`src/common/constants/order.constants.ts`:**
+   - Định nghĩa tập trung các hằng số HG-82: `COMPLAINT_WINDOW_DAYS`, `COMPLAINT_WINDOW_MS`, `MIN_RESOLUTION_NOTE_LENGTH`, `MAX_RESOLUTION_NOTE_LENGTH`, `MAX_IDEMPOTENCY_KEY_LENGTH`, `MAX_DISPUTE_EVIDENCE_URLS`, `MAX_EVIDENCE_URL_LENGTH`, `MAX_FAILURE_CODE_LENGTH`.
+   - Áp dụng lại tại `orders.service.ts`, `dispute-order.dto.ts`, `resolve-dispute.dto.ts` và `payment-events.consumer.ts`.
+2. **`src/orders/orders.service.ts`:**
+   - Tách `resolveCompletedDispute` thành 4 private helper rõ trách nhiệm:
+     - `validateCompletedDisputeInput(dto, roles)`
+     - `findIdempotentDisputeResolution(orderId, key, hash, tx?)` (dùng chung cho cả ngoài transaction, trong transaction và nhánh catch `P2002`)
+     - `preflightRefundEligibility(orderId, requestedAmount?)`
+     - `commitCompletedDisputeTx(tx, params)`
+
+### 14.3. Kết quả kiểm chứng
+
+- `pnpm exec vitest run apps/order-service`: **PASS** (toàn bộ unit test hiện có pass, không có regression).
+- `pnpm run typecheck`: **PASS**.
+- `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+- `pnpm exec nest build order-service`: **PASS**.

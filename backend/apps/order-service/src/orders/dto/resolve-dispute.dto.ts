@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { ORDER_CONSTANTS } from '../../common/constants/order.constants.js';
 
 export type DisputeResolutionAction =
   | 'resume_previous_state'
@@ -26,10 +27,10 @@ export class ResolveDisputeDto {
   })
   @IsNotEmpty({ message: 'Resolution note is strictly required' })
   @IsString()
-  @MinLength(5, {
+  @MinLength(ORDER_CONSTANTS.MIN_RESOLUTION_NOTE_LENGTH, {
     message: 'Resolution note must be at least 5 characters long',
   })
-  @MaxLength(2000, {
+  @MaxLength(ORDER_CONSTANTS.MAX_RESOLUTION_NOTE_LENGTH, {
     message: 'Resolution note must be at most 2000 characters long',
   })
   resolutionNote: string;
@@ -43,6 +44,6 @@ export class ResolveDisputeDto {
   @ApiPropertyOptional({ description: 'Required for completed-order disputes' })
   @IsOptional()
   @IsString()
-  @MaxLength(150)
+  @MaxLength(ORDER_CONSTANTS.MAX_IDEMPOTENCY_KEY_LENGTH)
   idempotencyKey?: string;
 }

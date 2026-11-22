@@ -78,9 +78,16 @@ export class PaymentEventsConsumer {
           return;
         }
         if (kind === 'needs_review') {
-          await tx.orderDisputeResolution.update({ where: { id: resolution.id }, data: {
-            state: 'needs_review', failureCode: typeof body.failureCode === 'string' ? body.failureCode.slice(0, 100) : 'PAYMENT_REVIEW_REQUIRED',
-          } });
+          await tx.orderDisputeResolution.update({
+            where: { id: resolution.id },
+            data: {
+              state: 'needs_review',
+              failureCode:
+                typeof body.failureCode === 'string'
+                  ? body.failureCode.slice(0, ORDER_CONSTANTS.MAX_FAILURE_CODE_LENGTH)
+                  : 'PAYMENT_REVIEW_REQUIRED',
+            },
+          });
           return;
         }
         const expectedAmount = resolution.refundAmountVnd?.toString();
