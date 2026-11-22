@@ -131,6 +131,8 @@ export type WorkerPublicProfileData = {
   fullName: string;
   avatarUrl?: string | null;
   bio?: string | null;
+  phone?: string | null;
+  headline?: string | null;
   status: string;
   isVerified: boolean;
   verifiedAt?: string | null;
@@ -138,6 +140,13 @@ export type WorkerPublicProfileData = {
   memberSince?: string | null;
   stats: WorkerPublicProfileStats;
   services?: WorkerServiceOfferingItem[];
+  serviceAreas?: Array<{
+    id?: string;
+    latitude: number;
+    longitude: number;
+    radiusKm: number;
+    isActive?: boolean;
+  }>;
   recentReviews?: WorkerReviewItem[];
 };
 

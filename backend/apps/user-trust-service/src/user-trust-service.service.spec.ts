@@ -860,6 +860,7 @@ describe('UserTrustServiceService', () => {
       expect(result.data.id).toBe(validWorkerId);
       expect(result.data.fullName).toBe('Trần Thợ Lành Nghề');
       expect(result.data.bio).toBe('Thợ điện nước 10 năm kinh nghiệm, tận tâm, chu đáo.');
+      expect(result.data.headline).toBe('Sửa điện nước dân dụng');
       expect(result.data.isVerified).toBe(true);
       expect(result.data.stats.averageRating).toBe(4.85);
       expect(result.data.stats.ratingDistribution).toEqual({

@@ -1,0 +1,214 @@
+import { fireEvent, screen } from '@testing-library/react-native';
+import * as React from 'react';
+import { Linking } from 'react-native';
+import { render } from '@/lib/test-utils';
+import { WorkerDetailScreen } from '../worker-detail-screen';
+
+const mockBack = jest.fn();
+const mockPush = jest.fn();
+const mockReplace = jest.fn();
+let mockParams: Record<string, string> = {};
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    back: mockBack,
+    push: mockPush,
+    replace: mockReplace,
+    canGoBack: () => true,
+  }),
+  useLocalSearchParams: () => mockParams,
+}));
+
+describe('WorkerDetailScreen', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockParams = {};
+    jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true as any);
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('renders worker profile header with avatar, name, and phone', () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+        phoneNumber="0988 777 666"
+        headline="Thợ sửa điện gia dụng"
+        avatarUrl="https://example.com/avatar.jpg"
+      />,
+    );
+
+    // Header Card
+    expect(screen.getByTestId('worker-profile-card')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-profile-name')).toHaveTextContent('Nguyễn Văn Thợ');
+    expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('0988 777 666');
+    expect(screen.getByTestId('worker-call-btn')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-chat-btn')).toBeOnTheScreen();
+  });
+
+  it('renders 3 performance stats cards (total orders, completed orders, completion rate)', () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+      />,
+    );
+
+    expect(screen.getByTestId('worker-order-stats-row')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-total-orders')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-completed-orders')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-completion-rate')).toBeOnTheScreen();
+    expect(screen.getByText('Đơn đã nhận')).toBeOnTheScreen();
+    expect(screen.getByText('Đã hoàn thành')).toBeOnTheScreen();
+    expect(screen.getByText('Tỉ lệ xong')).toBeOnTheScreen();
+  });
+
+  it('renders rating overview card and distribution bars', () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+      />,
+    );
+
+    expect(screen.getByTestId('worker-rating-overview-card')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-average-rating-score')).toBeOnTheScreen();
+    expect(screen.getByText('Đánh giá của khách hàng')).toBeOnTheScreen();
+  });
+
+  it('renders filter chips and filters reviews by star rating', () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+      />,
+    );
+
+    expect(screen.getByTestId('filter-chip-all')).toBeOnTheScreen();
+    expect(screen.getByTestId('filter-chip-5')).toBeOnTheScreen();
+    expect(screen.getByTestId('filter-chip-4')).toBeOnTheScreen();
+
+    // Default shows reviews list
+    expect(screen.getByTestId('worker-reviews-list')).toBeOnTheScreen();
+
+    // Filter by 1 star where mock has 0 reviews
+    fireEvent.press(screen.getByTestId('filter-chip-1'));
+    expect(screen.getByTestId('worker-reviews-empty')).toBeOnTheScreen();
+    expect(screen.getByText('Hiện chưa có nhận xét nào đạt mức 1 sao.')).toBeOnTheScreen();
+
+    // Filter back to all
+    fireEvent.press(screen.getByTestId('filter-chip-all'));
+    expect(screen.getByTestId('worker-reviews-list')).toBeOnTheScreen();
+  });
+
+  it('triggers phone call on pressing Gọi điện button', async () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        phoneNumber="0988 777 666"
+      />,
+    );
+
+    const callBtn = screen.getByTestId('worker-call-btn');
+    fireEvent.press(callBtn);
+
+    expect(Linking.canOpenURL).toHaveBeenCalledWith('tel:0988777666');
+  });
+
+  it('navigates to chat on pressing Nhắn tin button', () => {
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+      />,
+    );
+
+    const chatBtn = screen.getByTestId('worker-chat-btn');
+    fireEvent.press(chatBtn);
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/chat',
+      params: {
+        workerId: 'w-101',
+        workerName: 'Nguyễn Văn Thợ',
+      },
+    });
+  });
+
+  it('handles back button via onBack prop or router.back', () => {
+    const onBackMock = jest.fn();
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        onBack={onBackMock}
+      />,
+    );
+
+    const backBtn = screen.getByTestId('app-bar-back-btn');
+    fireEvent.press(backBtn);
+
+    expect(onBackMock).toHaveBeenCalled();
+  });
+
+  it('renders multiple services in header chips and dedicated services section', () => {
+    const multiServices = [
+      {
+        id: 's-1',
+        serviceId: 's-dien',
+        title: 'Sửa điện gia dụng',
+        experienceYears: 7,
+        isActive: true,
+        description: 'Chuyên sửa chập cháy, aptomat, công tắc đèn.',
+      },
+      {
+        id: 's-2',
+        serviceId: 's-lanh',
+        title: 'Bảo dưỡng máy lạnh',
+        experienceYears: 5,
+        isActive: true,
+        description: 'Vệ sinh máy lạnh, nạp gas, kiểm tra xì gas.',
+      },
+      {
+        id: 's-3',
+        serviceId: 's-nuoc',
+        title: 'Sửa ống nước & vòi sen',
+        experienceYears: 4,
+        isActive: true,
+        description: 'Xử lý rò rỉ nước, thay vòi, lắp bơm tăng áp.',
+      },
+    ];
+
+    render(
+      <WorkerDetailScreen
+        workerId="w-101"
+        workerName="Nguyễn Văn Thợ"
+        services={multiServices}
+      />,
+    );
+
+    // Dedicated Services Section
+    expect(screen.getByTestId('worker-services-section')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-services-count')).toHaveTextContent('3 dịch vụ');
+    expect(screen.getByTestId('worker-services-list')).toBeOnTheScreen();
+    expect(screen.getAllByText('Sửa điện gia dụng').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Bảo dưỡng máy lạnh').length).toBeGreaterThanOrEqual(1);
+
+    // Default renders first 2 services, and show "Xem tất cả"
+    expect(screen.getByTestId('toggle-expand-services-btn')).toBeOnTheScreen();
+    expect(screen.getByText('Xem tất cả')).toBeOnTheScreen();
+
+    // Press expand button
+    fireEvent.press(screen.getByTestId('toggle-expand-services-btn'));
+    expect(screen.getByText('Thu gọn')).toBeOnTheScreen();
+    expect(screen.getByText('Sửa ống nước & vòi sen')).toBeOnTheScreen();
+    expect(screen.getByText('4 năm kinh nghiệm')).toBeOnTheScreen();
+
+    // Press collapse button
+    fireEvent.press(screen.getByTestId('toggle-expand-services-btn'));
+    expect(screen.getByText('Xem tất cả')).toBeOnTheScreen();
+  });
+});

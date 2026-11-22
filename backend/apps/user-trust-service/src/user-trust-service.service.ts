@@ -1868,17 +1868,27 @@ export class UserTrustServiceService {
       },
     });
 
-    return workers.map((w) => ({
-      workerId: w.userId,
-      workerUserId: w.userId,
-      fullName: w.user.fullName,
-      avatarUrl: w.user.avatarUrl,
-      averageRating: Number(w.averageRating || 5.0),
-      ratingCount: w.ratingCount || 0,
-      completedOrderCount: w.completedOrderCount || 0,
-      orderCountTotal: w.orderCountTotal || 0,
-      status: w.status,
-    }));
+    return workers.map((w) => {
+      const completedOrderCount = w.completedOrderCount || 0;
+      const orderCountTotal = w.orderCountTotal || completedOrderCount;
+      const completionRate =
+        orderCountTotal > 0
+          ? Math.round((completedOrderCount / orderCountTotal) * 100)
+          : (completedOrderCount > 0 ? 100 : 0);
+
+      return {
+        workerId: w.userId,
+        workerUserId: w.userId,
+        fullName: w.user.fullName,
+        avatarUrl: w.user.avatarUrl,
+        averageRating: Number(w.averageRating || 5.0),
+        ratingCount: w.ratingCount || 0,
+        completedOrderCount,
+        orderCountTotal,
+        completionRate,
+        status: w.status,
+      };
+    });
   }
 
   /**
@@ -1983,6 +1993,13 @@ export class UserTrustServiceService {
         ? Number(Number(worker.averageRating).toFixed(2))
         : 0;
 
+    const headline =
+      worker.serviceOfferings.find((s) => s.isActive)?.title ||
+      worker.serviceOfferings[0]?.title ||
+      'Thợ kỹ thuật chuyên nghiệp';
+
+    const phone = (worker.user as any)?.phone || null;
+
     return {
       statusCode: 200,
       data: {
@@ -1991,6 +2008,8 @@ export class UserTrustServiceService {
         fullName: worker.user.fullName,
         avatarUrl: worker.user.avatarUrl,
         bio: worker.user.customerProfile?.bio ?? null,
+        phone,
+        headline,
         status: worker.status,
         isVerified: worker.status === 'verified',
         verifiedAt: worker.verifiedAt,
