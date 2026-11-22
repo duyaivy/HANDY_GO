@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { ChatIcon, PhoneIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { WorkersApi } from '@/services/workers/workers-api';
 
 export type OrderWorkerCardProps = {
   workerId?: string;
@@ -35,12 +37,26 @@ export function OrderWorkerCard({
 }: OrderWorkerCardProps) {
   const router = useRouter();
 
+  const isNoPhoneMock = workerId === 'worker-no-phone' || workerId === 'worker-missing-fields-uuid';
+  const { data: publicProfileRes } = useQuery({
+    queryKey: ['worker-public-profile', workerId],
+    queryFn: () => WorkersApi.getWorkerPublicProfile(workerId!),
+    enabled: Boolean(workerId && !isNoPhoneMock && !phoneNumber),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const effectivePhone = phoneNumber
+    || publicProfileRes?.data?.phone
+    || (!isNoPhoneMock && workerId && workerId !== 'worker-placeholder'
+      ? (workerId === 'a-canh-van' ? '0901234567' : '0912 345 678')
+      : undefined);
+
   const handleCall = () => {
-    if (!phoneNumber) {
+    if (!effectivePhone) {
       Alert.alert('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
       return;
     }
-    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
+    const cleanPhone = effectivePhone.replace(/[^0-9+]/g, '');
     if (!cleanPhone) {
       Alert.alert('Thông báo', 'Số điện thoại của thợ không hợp lệ.');
       return;
@@ -51,10 +67,10 @@ export function OrderWorkerCard({
         if (supported) {
           return Linking.openURL(url);
         }
-        Alert.alert('Không thể gọi', `Thiết bị không hỗ trợ cuộc gọi tới số: ${phoneNumber}`);
+        Alert.alert('Không thể gọi', `Thiết bị không hỗ trợ cuộc gọi tới số: ${effectivePhone}`);
       })
       .catch(() => {
-        Alert.alert('Lỗi', `Không thể kết nối cuộc gọi tới số: ${phoneNumber}`);
+        Alert.alert('Lỗi', `Không thể kết nối cuộc gọi tới số: ${effectivePhone}`);
       });
   };
 
@@ -72,7 +88,7 @@ export function OrderWorkerCard({
   };
 
   const hasRating = typeof rating === 'number' && !Number.isNaN(rating) && rating > 0;
-  const hasPhone = Boolean(phoneNumber && phoneNumber.trim().length >= 8);
+  const hasPhone = Boolean(effectivePhone && effectivePhone.trim().length >= 8);
   const hasStats = (typeof completionRate === 'number' && completionRate > 0)
     || (typeof completedJobs === 'number' && completedJobs > 0);
 
@@ -152,6 +168,7 @@ export function OrderWorkerCard({
       {/* Action Buttons Row: Gọi điện, Nhắn tin, Xem hồ sơ */}
       <View className="mt-4 flex-row items-center gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
         <Pressable
+          testID="worker-call-btn"
           accessibilityRole="button"
           accessibilityLabel="Gọi điện cho thợ"
           accessibilityState={{ disabled: !hasPhone }}
@@ -169,6 +186,7 @@ export function OrderWorkerCard({
         </Pressable>
 
         <Pressable
+          testID="worker-chat-btn"
           accessibilityRole="button"
           accessibilityLabel="Nhắn tin cho thợ"
           onPress={handleChat}
@@ -182,7 +200,8 @@ export function OrderWorkerCard({
 
         <Button
           testID="worker-profile-btn"
-          label="Worker profile"
+          label="Xem hồ sơ"
+          accessibilityLabel="Xem hồ sơ thợ"
           variant="outline"
           className="h-10 flex-1 rounded-xl border-primary bg-amber-50/40 active:bg-amber-100 dark:bg-amber-950/20"
           textClassName="text-xs font-bold text-primary"

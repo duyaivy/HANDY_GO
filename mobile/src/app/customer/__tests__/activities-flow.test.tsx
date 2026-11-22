@@ -84,10 +84,10 @@ describe('activities feature skeleton and navigation flow', () => {
       expect(screen.getByText('Chi tiết đơn hàng (Plumber)')).toBeOnTheScreen();
       expect(screen.getByText('A CẢNH VĂN')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-profile-btn')).toBeOnTheScreen();
-      expect(screen.getByText('Worker profile')).toBeOnTheScreen();
+      expect(screen.getByText('Xem hồ sơ')).toBeOnTheScreen();
     });
 
-    it('navigates to Worker profile when pressing "Worker profile" button', () => {
+    it('navigates to Worker profile when pressing "Xem hồ sơ" button', () => {
       render(<CustomerOrderDetailScreen orderId="224466" />);
 
       const workerProfileBtn = screen.getByTestId('worker-profile-btn');
