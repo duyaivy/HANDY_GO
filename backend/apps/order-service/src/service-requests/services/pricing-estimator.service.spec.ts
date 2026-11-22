@@ -104,4 +104,91 @@ describe('PricingEstimatorService', () => {
     expect(result.aiRefPriceMax).toBe(500000);
     expect(result.isFallback).toBe(true);
   });
+
+  it('falls back to catalog base prices when AI payload has min >= max', async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      {
+        id: '123e4567-e89b-42d3-a456-426614174000',
+        name: 'Sửa máy lạnh',
+        base_price_min: 160000,
+        base_price_max: 420000,
+      },
+    ]);
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValueOnce({
+        status: 'success',
+        ai_ref_price_min: 500000,
+        ai_ref_price_max: 300000,
+      }),
+    } as any);
+
+    const result = await service.estimatePrice({
+      serviceId: '123e4567-e89b-42d3-a456-426614174000',
+      description: 'Máy lạnh',
+    });
+
+    expect(result.aiRefPriceMin).toBe(160000);
+    expect(result.aiRefPriceMax).toBe(420000);
+    expect(result.isFallback).toBe(true);
+  });
+
+  it('falls back to catalog base prices when AI payload has invalid or non-numeric types', async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      {
+        id: '123e4567-e89b-42d3-a456-426614174000',
+        name: 'Sửa máy lạnh',
+        base_price_min: 160000,
+        base_price_max: 420000,
+      },
+    ]);
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValueOnce({
+        status: 'success',
+        ai_ref_price_min: 'invalid',
+        ai_ref_price_max: null,
+      }),
+    } as any);
+
+    const result = await service.estimatePrice({
+      serviceId: '123e4567-e89b-42d3-a456-426614174000',
+      description: 'Máy lạnh',
+    });
+
+    expect(result.aiRefPriceMin).toBe(160000);
+    expect(result.aiRefPriceMax).toBe(420000);
+    expect(result.isFallback).toBe(true);
+  });
+
+  it('falls back to system baseline if catalog prices are also corrupted', async () => {
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      {
+        id: '123e4567-e89b-42d3-a456-426614174000',
+        name: 'Sửa máy lạnh',
+        base_price_min: 800000,
+        base_price_max: 400000, // Corrupted catalog min > max
+      },
+    ]);
+
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValueOnce({
+        status: 'success',
+        ai_ref_price_min: -10000,
+        ai_ref_price_max: -5000,
+      }),
+    } as any);
+
+    const result = await service.estimatePrice({
+      serviceId: '123e4567-e89b-42d3-a456-426614174000',
+      description: 'Máy lạnh',
+    });
+
+    expect(result.aiRefPriceMin).toBe(150000);
+    expect(result.aiRefPriceMax).toBe(350000);
+    expect(result.isFallback).toBe(true);
+  });
 });

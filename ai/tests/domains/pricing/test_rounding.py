@@ -47,3 +47,31 @@ def test_sanitize_price_range_clamping():
     min_p, max_p = sanitize_price_range(10000, 30000000, floor=50000, ceiling=20000000)
     assert min_p >= 50000
     assert max_p <= 20000000
+
+
+def test_sanitize_price_range_floor_greater_than_ceiling():
+    # When floor > ceiling, ensure min < max and does not exceed ceiling
+    min_p, max_p = sanitize_price_range(700000, 750000, floor=700000, ceiling=600000)
+    assert 0 < min_p < max_p
+    assert max_p <= 600000
+
+
+def test_sanitize_price_range_floor_equals_ceiling():
+    min_p, max_p = sanitize_price_range(500000, 500000, floor=500000, ceiling=500000)
+    assert 0 < min_p < max_p
+    assert max_p <= 500000
+
+
+def test_sanitize_price_range_low_ceiling():
+    min_p, max_p = sanitize_price_range(50000, 60000, floor=50000, ceiling=20000)
+    assert 0 < min_p < max_p
+    assert max_p <= 20000
+
+
+def test_sanitize_price_range_rounding_boundaries():
+    # Close to 500k and 2M step boundaries
+    min_p, max_p = sanitize_price_range(496000, 498000, floor=100000, ceiling=1000000)
+    assert 0 < min_p < max_p
+    assert min_p % 10000 == 0
+    assert max_p % 50000 == 0 or max_p % 10000 == 0
+

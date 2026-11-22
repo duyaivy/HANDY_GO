@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -46,6 +47,18 @@ export class ServicesService {
     if (existing) {
       throw new ConflictException(
         `Service '${dto.name}' already exists in this category`,
+      );
+    }
+
+    if (
+      dto.basePriceMin !== undefined &&
+      dto.basePriceMax !== undefined &&
+      dto.basePriceMin != null &&
+      dto.basePriceMax != null &&
+      dto.basePriceMin >= dto.basePriceMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
       );
     }
 
@@ -228,6 +241,34 @@ export class ServicesService {
           `Service '${targetName}' already exists in this category`,
         );
       }
+    }
+
+    const targetMin =
+      dto.basePriceMin !== undefined
+        ? dto.basePriceMin != null
+          ? Number(dto.basePriceMin)
+          : null
+        : service.basePriceMin != null
+          ? Number(service.basePriceMin)
+          : null;
+
+    const targetMax =
+      dto.basePriceMax !== undefined
+        ? dto.basePriceMax != null
+          ? Number(dto.basePriceMax)
+          : null
+        : service.basePriceMax != null
+          ? Number(service.basePriceMax)
+          : null;
+
+    if (
+      targetMin != null &&
+      targetMax != null &&
+      targetMin >= targetMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
+      );
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {

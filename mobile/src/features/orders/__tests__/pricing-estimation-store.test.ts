@@ -28,10 +28,13 @@ describe('useBookingDraftStore - Price Estimation', () => {
 
     await useBookingDraftStore.getState().fetchEstimatedPrice();
 
-    expect(estimateSpy).toHaveBeenCalledWith({
-      serviceId: 'srv-ac-123',
-      description: 'Máy lạnh bị chảy nước nhỏ giọt',
-    });
+    expect(estimateSpy).toHaveBeenCalledWith(
+      {
+        serviceId: 'srv-ac-123',
+        description: 'Máy lạnh bị chảy nước nhỏ giọt',
+      },
+      expect.objectContaining({ signal: expect.any(Object) }),
+    );
 
     const state = useBookingDraftStore.getState();
     expect(state.aiRefPriceMin).toBe(220000);

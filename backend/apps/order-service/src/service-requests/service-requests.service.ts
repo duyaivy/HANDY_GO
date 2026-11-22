@@ -36,6 +36,55 @@ export class ServiceRequestsService {
   async createDraft(userId: string, dto: CreateServiceRequestDto) {
     const requestCode = generateRequestCode();
 
+    let resolvedMin = dto.aiRefPriceMin;
+    let resolvedMax = dto.aiRefPriceMax;
+
+    const hasValidRange =
+      typeof resolvedMin === 'number' &&
+      typeof resolvedMax === 'number' &&
+      Number.isFinite(resolvedMin) &&
+      Number.isFinite(resolvedMax) &&
+      resolvedMin > 0 &&
+      resolvedMin < resolvedMax;
+
+    if (!hasValidRange && dto.serviceId) {
+      try {
+        const rows = await this.prisma.$queryRaw<
+          Array<{
+            base_price_min: number | null;
+            base_price_max: number | null;
+          }>
+        >`
+          SELECT base_price_min, base_price_max
+          FROM services
+          WHERE id = ${dto.serviceId}::uuid
+          LIMIT 1
+        `;
+        if (rows.length > 0) {
+          const bMin = rows[0].base_price_min != null ? Number(rows[0].base_price_min) : undefined;
+          const bMax = rows[0].base_price_max != null ? Number(rows[0].base_price_max) : undefined;
+          if (bMin !== undefined && bMax !== undefined && bMin > 0 && bMin < bMax) {
+            resolvedMin = Math.round(bMin);
+            resolvedMax = Math.round(bMax);
+          }
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to resolve catalog base prices for service ${dto.serviceId}: ${err?.message || err}`);
+      }
+    }
+
+    if (
+      resolvedMin === undefined ||
+      resolvedMax === undefined ||
+      !Number.isFinite(resolvedMin) ||
+      !Number.isFinite(resolvedMax) ||
+      resolvedMin <= 0 ||
+      resolvedMin >= resolvedMax
+    ) {
+      resolvedMin = 150000;
+      resolvedMax = 350000;
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.serviceRequest.create({
         data: {
@@ -44,10 +93,8 @@ export class ServiceRequestsService {
           serviceId: dto.serviceId ?? null,
           description: dto.description ?? null,
           scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-          aiRefPriceMin:
-            dto.aiRefPriceMin !== undefined ? dto.aiRefPriceMin : null,
-          aiRefPriceMax:
-            dto.aiRefPriceMax !== undefined ? dto.aiRefPriceMax : null,
+          aiRefPriceMin: resolvedMin,
+          aiRefPriceMax: resolvedMax,
           addressText: dto.addressText ?? null,
           latitude: dto.latitude !== undefined ? dto.latitude : null,
           longitude: dto.longitude !== undefined ? dto.longitude : null,

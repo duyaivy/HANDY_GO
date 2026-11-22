@@ -110,6 +110,24 @@ export default function CustomerBookingSummaryRoute() {
         finalDescription = `Tôi cần người ${serviceName.trim()}: ${finalDescription}`;
       }
 
+      // Ensure in-flight pricing estimate completes or falls back (safeguard timeout: 2500ms)
+      const draftStore = useBookingDraftStore.getState();
+      if (draftStore.isEstimatingPrice && typeof draftStore.waitForEstimate === 'function') {
+        try {
+          await Promise.race([
+            draftStore.waitForEstimate(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('estimate timeout')), 2500)),
+          ]);
+        }
+        catch {
+          // Timeout or estimation error: proceeds safely with current fallback prices
+        }
+      }
+
+      const latestDraft = useBookingDraftStore.getState();
+      const effectiveAiRefPriceMin = latestDraft.aiRefPriceMin || 150000;
+      const effectiveAiRefPriceMax = latestDraft.aiRefPriceMax || 350000;
+
       const createRes = await OrdersApi.createRequest({
         serviceId: validServiceId,
         description: finalDescription,
@@ -117,8 +135,8 @@ export default function CustomerBookingSummaryRoute() {
         latitude: typeof latitude === 'number' && !Number.isNaN(latitude) ? latitude : 16.0748,
         longitude: typeof longitude === 'number' && !Number.isNaN(longitude) ? longitude : 108.1499,
         scheduledAt: effectiveScheduledAt,
-        aiRefPriceMin: aiRefPriceMin || 150000,
-        aiRefPriceMax: aiRefPriceMax || 350000,
+        aiRefPriceMin: effectiveAiRefPriceMin,
+        aiRefPriceMax: effectiveAiRefPriceMax,
         media: mediaUrls.map(url => ({
           mediaUrl: url,
           mediaType: 'image',

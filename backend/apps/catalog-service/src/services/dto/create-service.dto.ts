@@ -9,7 +9,55 @@ import {
   IsUUID,
   MaxLength,
   Min,
+  Validate,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
+
+@ValidatorConstraint({ name: 'isLessThanBasePriceMax', async: false })
+export class IsLessThanBasePriceMaxConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(basePriceMin: any, args: ValidationArguments) {
+    const obj = args.object as any;
+    if (
+      basePriceMin === undefined ||
+      basePriceMin === null ||
+      obj.basePriceMax === undefined ||
+      obj.basePriceMax === null
+    ) {
+      return true;
+    }
+    return Number(basePriceMin) < Number(obj.basePriceMax);
+  }
+
+  defaultMessage(_args: ValidationArguments) {
+    return 'basePriceMin must be strictly less than basePriceMax';
+  }
+}
+
+@ValidatorConstraint({ name: 'isGreaterThanBasePriceMin', async: false })
+export class IsGreaterThanBasePriceMinConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(basePriceMax: any, args: ValidationArguments) {
+    const obj = args.object as any;
+    if (
+      basePriceMax === undefined ||
+      basePriceMax === null ||
+      obj.basePriceMin === undefined ||
+      obj.basePriceMin === null
+    ) {
+      return true;
+    }
+    return Number(basePriceMax) > Number(obj.basePriceMin);
+  }
+
+  defaultMessage(_args: ValidationArguments) {
+    return 'basePriceMax must be strictly greater than basePriceMin';
+  }
+}
 
 export class CreateServiceDto {
   @ApiProperty({
@@ -68,6 +116,7 @@ export class CreateServiceDto {
   @Type(() => Number)
   @IsNumber({}, { message: 'basePriceMin must be a number' })
   @Min(0, { message: 'basePriceMin must be non-negative' })
+  @Validate(IsLessThanBasePriceMaxConstraint)
   basePriceMin?: number;
 
   @ApiPropertyOptional({
@@ -78,5 +127,6 @@ export class CreateServiceDto {
   @Type(() => Number)
   @IsNumber({}, { message: 'basePriceMax must be a number' })
   @Min(0, { message: 'basePriceMax must be non-negative' })
+  @Validate(IsGreaterThanBasePriceMinConstraint)
   basePriceMax?: number;
 }

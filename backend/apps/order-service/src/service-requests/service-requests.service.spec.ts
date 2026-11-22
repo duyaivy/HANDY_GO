@@ -154,6 +154,94 @@ describe('ServiceRequestsService', () => {
       });
       expect(result.media).toHaveLength(1);
     });
+
+    it('should use provided valid aiRefPriceMin and aiRefPriceMax', async () => {
+      const dto = {
+        description: 'Sửa bồn rửa',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+      };
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        ...dto,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 200000,
+            aiRefPriceMax: 400000,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to catalog base prices when client prices are missing or invalid', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+        aiRefPriceMin: 500000,
+        aiRefPriceMax: 300000, // Invalid: min > max
+      };
+
+      prismaMock.$queryRaw.mockResolvedValueOnce([
+        {
+          base_price_min: 180000,
+          base_price_max: 380000,
+        },
+      ]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 180000,
+            aiRefPriceMax: 380000,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to system defaults (150000 - 350000) when catalog lookup is empty or invalid', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+      };
+
+      prismaMock.$queryRaw.mockResolvedValueOnce([]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 150000,
+            aiRefPriceMax: 350000,
+          }),
+        }),
+      );
+    });
   });
 
   describe('findAll', () => {

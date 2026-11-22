@@ -96,4 +96,102 @@ describe('Catalog Service Base Prices', () => {
     expect((result as any).basePriceMin).toBe(150000);
     expect((result as any).basePriceMax).toBe(400000);
   });
+
+  it('rejects CreateServiceDto when min > max', async () => {
+    const invalidDto = plainToInstance(CreateServiceDto, {
+      categoryId: '123e4567-e89b-42d3-a456-426614174000',
+      name: 'Sửa máy lạnh',
+      basePriceMin: 500000,
+      basePriceMax: 300000,
+    });
+    const errors = await validate(invalidDto);
+    expect(errors.length).toBeGreaterThan(0);
+    const messages = errors.flatMap((e) => Object.values(e.constraints || {}));
+    expect(
+      messages.some((m) => m.includes('basePriceMin must be strictly less than basePriceMax')),
+    ).toBe(true);
+  });
+
+  it('rejects CreateServiceDto when min == max', async () => {
+    const invalidDto = plainToInstance(CreateServiceDto, {
+      categoryId: '123e4567-e89b-42d3-a456-426614174000',
+      name: 'Sửa máy lạnh',
+      basePriceMin: 300000,
+      basePriceMax: 300000,
+    });
+    const errors = await validate(invalidDto);
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('allows CreateServiceDto when only one bound is provided', async () => {
+    const validDto = plainToInstance(CreateServiceDto, {
+      categoryId: '123e4567-e89b-42d3-a456-426614174000',
+      name: 'Sửa máy lạnh',
+      basePriceMin: 150000,
+    });
+    const errors = await validate(validDto);
+    expect(errors.length).toBe(0);
+  });
+
+  it('ServicesService.create rejects min >= max with BadRequestException', async () => {
+    const mockPrisma = {
+      category: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'cat-1', name: 'Điện lạnh' }),
+      },
+      service: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const service = new ServicesService(
+      mockPrisma as any,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(
+      service.create({
+        categoryId: '123e4567-e89b-12d3-a456-426614174000',
+        name: 'Sửa máy lạnh',
+        basePriceMin: 400000,
+        basePriceMax: 200000,
+      } as any),
+    ).rejects.toThrow('basePriceMin must be strictly less than basePriceMax');
+  });
+
+  it('ServicesService.update validates single field PATCH against existing database prices', async () => {
+    const mockPrisma = {
+      service: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'svc-1',
+          categoryId: 'cat-1',
+          name: 'Sửa máy lạnh',
+          basePriceMin: 150000,
+          basePriceMax: 400000,
+        }),
+        update: vi.fn(),
+      },
+      category: {
+        findUnique: vi.fn(),
+      },
+    };
+    const service = new ServicesService(
+      mockPrisma as any,
+      {} as any,
+      {} as any,
+    );
+
+    // Try to update basePriceMin to 500000 when DB basePriceMax is 400000
+    await expect(
+      service.update('svc-1', {
+        basePriceMin: 500000,
+      }),
+    ).rejects.toThrow('basePriceMin must be strictly less than basePriceMax');
+
+    // Try to update basePriceMax to 100000 when DB basePriceMin is 150000
+    await expect(
+      service.update('svc-1', {
+        basePriceMax: 100000,
+      }),
+    ).rejects.toThrow('basePriceMin must be strictly less than basePriceMax');
+  });
 });

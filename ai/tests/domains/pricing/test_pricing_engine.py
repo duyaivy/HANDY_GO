@@ -49,3 +49,23 @@ async def test_pricing_engine_fallback_on_unrelated_or_empty_description():
     assert result_unrelated.is_fallback is True
     assert result_unrelated.ai_ref_price_min == 150000
     assert result_unrelated.ai_ref_price_max == 400000
+
+
+@pytest.mark.asyncio
+async def test_pricing_engine_unsupported_service_does_not_cross_match():
+    # Regression test for [P2][AI-01]: "Sơn nhà" with an AC-like description
+    engine = PricingEngineService()
+    result = await engine.estimate_price(
+        service_name="Sơn nhà",
+        description="Máy lạnh bị chảy nước nhỏ giọt ướt hết sàn nhà",
+        base_price_min=200000,
+        base_price_max=500000,
+    )
+
+    assert result.status == "success"
+    assert result.is_fallback is True
+    assert result.matched_case is None
+    assert result.confidence == 0.0
+    assert result.ai_ref_price_min == 200000
+    assert result.ai_ref_price_max == 500000
+

@@ -45,8 +45,8 @@ class PricingEngineService:
             if any(k in normalized_service for k in keywords):
                 matched.append(b)
 
-        # If no specific keyword match, use all benchmarks
-        return matched if matched else self._benchmarks
+        # If no specific keyword match, do not match cross-category benchmarks
+        return matched
 
     async def estimate_price(
         self,

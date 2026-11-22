@@ -170,4 +170,45 @@ describe('ServiceRequest DTO GPS Validation', () => {
       expect(errors[0].constraints).toHaveProperty('isProjectCloudinaryUrl');
     });
   });
+
+  describe('CreateServiceRequestDto Pricing validation', () => {
+    it('should validate successfully when aiRefPriceMin < aiRefPriceMax', async () => {
+      const dto = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 150000,
+        aiRefPriceMax: 300000,
+      });
+
+      const errors = await validate(dto);
+      const priceErrors = errors.filter((e) => ['aiRefPriceMin', 'aiRefPriceMax'].includes(e.property));
+      expect(priceErrors).toHaveLength(0);
+    });
+
+    it('should reject when aiRefPriceMin >= aiRefPriceMax', async () => {
+      const dtoEqual = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 200000,
+      });
+      const errorsEqual = await validate(dtoEqual);
+      const minErrorEqual = errorsEqual.find((e) => e.property === 'aiRefPriceMin');
+      expect(minErrorEqual?.constraints).toHaveProperty('isAiRefPriceMinLessThanMax');
+
+      const dtoGreater = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 350000,
+        aiRefPriceMax: 200000,
+      });
+      const errorsGreater = await validate(dtoGreater);
+      const minErrorGreater = errorsGreater.find((e) => e.property === 'aiRefPriceMin');
+      expect(minErrorGreater?.constraints).toHaveProperty('isAiRefPriceMinLessThanMax');
+    });
+
+    it('should allow optional pricing fields for draft creation', async () => {
+      const dto = plainToInstance(CreateServiceRequestDto, {
+        description: 'Chưa có giá ước tính',
+      });
+
+      const errors = await validate(dto);
+      const priceErrors = errors.filter((e) => ['aiRefPriceMin', 'aiRefPriceMax'].includes(e.property));
+      expect(priceErrors).toHaveLength(0);
+    });
+  });
 });

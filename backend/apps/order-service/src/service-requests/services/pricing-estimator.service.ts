@@ -21,6 +21,35 @@ interface AiPricingApiResponse {
   is_fallback: boolean;
 }
 
+const SYSTEM_FALLBACK_MIN = 150000;
+const SYSTEM_FALLBACK_MAX = 350000;
+
+function resolveValidPriceRange(
+  min: unknown,
+  max: unknown,
+  defaultMin = SYSTEM_FALLBACK_MIN,
+  defaultMax = SYSTEM_FALLBACK_MAX,
+): { min: number; max: number } {
+  const numMin =
+    typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : undefined;
+  const numMax =
+    typeof max === 'number' && Number.isFinite(max) && max > 0 ? max : undefined;
+  if (numMin !== undefined && numMax !== undefined && numMin < numMax) {
+    return { min: Math.round(numMin), max: Math.round(numMax) };
+  }
+  return { min: defaultMin, max: defaultMax };
+}
+
+function isValidAiPricingPayload(data: any): data is AiPricingApiResponse {
+  if (!data || typeof data !== 'object') return false;
+  const min = data.ai_ref_price_min;
+  const max = data.ai_ref_price_max;
+  if (typeof min !== 'number' || !Number.isFinite(min) || min <= 0) return false;
+  if (typeof max !== 'number' || !Number.isFinite(max) || max <= 0) return false;
+  if (min >= max) return false;
+  return true;
+}
+
 @Injectable()
 export class PricingEstimatorService {
   private readonly logger = new Logger(PricingEstimatorService.name);
@@ -60,12 +89,11 @@ export class PricingEstimatorService {
     }
 
     const service = rows[0];
-    const catalogMin = service.base_price_min
-      ? Number(service.base_price_min)
-      : 150000;
-    const catalogMax = service.base_price_max
-      ? Number(service.base_price_max)
-      : 350000;
+    const catalogMin =
+      service.base_price_min != null ? Number(service.base_price_min) : undefined;
+    const catalogMax =
+      service.base_price_max != null ? Number(service.base_price_max) : undefined;
+    const validatedCatalogRange = resolveValidPriceRange(catalogMin, catalogMax);
 
     // 2. Call AI Service inference endpoint with bounded timeout
     const controller = new AbortController();
@@ -87,12 +115,8 @@ export class PricingEstimatorService {
           body: JSON.stringify({
             service_name: service.name,
             description: dto.description || '',
-            base_price_min: service.base_price_min
-              ? Number(service.base_price_min)
-              : undefined,
-            base_price_max: service.base_price_max
-              ? Number(service.base_price_max)
-              : undefined,
+            base_price_min: catalogMin,
+            base_price_max: catalogMax,
           }),
           signal: controller.signal,
         },
@@ -104,12 +128,21 @@ export class PricingEstimatorService {
         );
       }
 
-      const data = (await response.json()) as AiPricingApiResponse;
+      const data = await response.json();
+
+      if (!isValidAiPricingPayload(data)) {
+        throw new Error(
+          `AI service returned invalid pricing payload: min=${data?.ai_ref_price_min}, max=${data?.ai_ref_price_max}`,
+        );
+      }
 
       return {
         aiRefPriceMin: Math.round(data.ai_ref_price_min),
         aiRefPriceMax: Math.round(data.ai_ref_price_max),
-        matchedReason: data.matched_case || undefined,
+        matchedReason:
+          typeof data.matched_case === 'string' && data.matched_case.trim()
+            ? data.matched_case.trim()
+            : undefined,
         isFallback: Boolean(data.is_fallback),
       };
     } catch (error: any) {
@@ -118,8 +151,8 @@ export class PricingEstimatorService {
       );
 
       return {
-        aiRefPriceMin: Math.round(catalogMin),
-        aiRefPriceMax: Math.round(catalogMax),
+        aiRefPriceMin: validatedCatalogRange.min,
+        aiRefPriceMax: validatedCatalogRange.max,
         matchedReason: undefined,
         isFallback: true,
       };

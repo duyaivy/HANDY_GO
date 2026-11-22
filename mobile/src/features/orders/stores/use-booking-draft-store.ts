@@ -29,8 +29,12 @@ export type BookingDraftState = {
   setSelectedWorker: (workerId: string, price?: number) => void;
   setCreatedRequestId: (id: string | null) => void;
   fetchEstimatedPrice: (serviceId?: string, description?: string) => Promise<void>;
+  waitForEstimate: () => Promise<void>;
   resetDraft: () => void;
 };
+
+const DEFAULT_MIN_PRICE = 150000;
+const DEFAULT_MAX_PRICE = 350000;
 
 function DEFAULT_SCHEDULED_AT() {
   const d = new Date();
@@ -38,6 +42,11 @@ function DEFAULT_SCHEDULED_AT() {
   d.setHours(9, 0, 0, 0);
   return d.toISOString();
 }
+
+let currentDraftToken = 1;
+let latestRequestId = 0;
+let activeAbortController: AbortController | null = null;
+let activeEstimatePromise: Promise<void> | null = null;
 
 export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   serviceId: '',
@@ -48,22 +57,51 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   longitude: 108.1499,
   scheduledAt: DEFAULT_SCHEDULED_AT(),
   mediaUrls: [],
-  aiRefPriceMin: 150000,
-  aiRefPriceMax: 350000,
+  aiRefPriceMin: DEFAULT_MIN_PRICE,
+  aiRefPriceMax: DEFAULT_MAX_PRICE,
   isEstimatingPrice: false,
   priceEstimateReason: null,
   selectedWorkerId: '',
   agreedPrice: 300000,
   createdRequestId: null,
 
-  setService: (serviceId, serviceName) =>
-    set(state => ({
-      serviceId,
-      serviceName: resolveServiceName(
+  setService: (serviceId, serviceName) => {
+    const prevServiceId = get().serviceId;
+    if (serviceId !== prevServiceId) {
+      latestRequestId++;
+      if (activeAbortController) {
+        try {
+          activeAbortController.abort();
+        }
+        catch {
+          // ignore
+        }
+        activeAbortController = null;
+      }
+      activeEstimatePromise = null;
+
+      set(state => ({
         serviceId,
-        serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
-      ),
-    })),
+        serviceName: resolveServiceName(
+          serviceId,
+          serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
+        ),
+        aiRefPriceMin: DEFAULT_MIN_PRICE,
+        aiRefPriceMax: DEFAULT_MAX_PRICE,
+        isEstimatingPrice: false,
+        priceEstimateReason: null,
+      }));
+    }
+    else {
+      set(state => ({
+        serviceId,
+        serviceName: resolveServiceName(
+          serviceId,
+          serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
+        ),
+      }));
+    }
+  },
 
   setDescription: description => set({ description }),
 
@@ -97,29 +135,89 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       return;
     }
 
-    set({ isEstimatingPrice: true });
-    try {
-      const res = await OrdersApi.estimatePrice({
-        serviceId: currentServiceId,
-        description: currentDescription,
-      });
-      if (res?.data && typeof res.data.aiRefPriceMin === 'number' && typeof res.data.aiRefPriceMax === 'number') {
-        set({
-          aiRefPriceMin: res.data.aiRefPriceMin,
-          aiRefPriceMax: res.data.aiRefPriceMax,
-          priceEstimateReason: res.data.matchedReason || null,
-        });
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      }
+      catch {
+        // ignore
       }
     }
-    catch (error) {
-      console.warn('Failed to fetch estimated price, keeping default/current prices:', error);
-    }
-    finally {
-      set({ isEstimatingPrice: false });
+    const controller = new AbortController();
+    activeAbortController = controller;
+
+    const thisDraftToken = currentDraftToken;
+    const thisRequestId = ++latestRequestId;
+
+    set({ isEstimatingPrice: true });
+
+    const promise = (async () => {
+      try {
+        const res = await OrdersApi.estimatePrice(
+          {
+            serviceId: currentServiceId,
+            description: currentDescription,
+          },
+          { signal: controller.signal },
+        );
+
+        if (thisDraftToken !== currentDraftToken || thisRequestId !== latestRequestId) {
+          return;
+        }
+
+        if (res?.data && typeof res.data.aiRefPriceMin === 'number' && typeof res.data.aiRefPriceMax === 'number') {
+          set({
+            aiRefPriceMin: res.data.aiRefPriceMin,
+            aiRefPriceMax: res.data.aiRefPriceMax,
+            priceEstimateReason: res.data.matchedReason || null,
+          });
+        }
+      }
+      catch (error: any) {
+        if (thisDraftToken !== currentDraftToken || thisRequestId !== latestRequestId) {
+          return;
+        }
+        console.warn('Failed to fetch estimated price, keeping default/current prices:', error);
+      }
+      finally {
+        if (thisDraftToken === currentDraftToken && thisRequestId === latestRequestId) {
+          set({ isEstimatingPrice: false });
+          if (activeEstimatePromise === promise) {
+            activeEstimatePromise = null;
+          }
+        }
+      }
+    })();
+
+    activeEstimatePromise = promise;
+    return promise;
+  },
+
+  waitForEstimate: async () => {
+    if (activeEstimatePromise) {
+      try {
+        await activeEstimatePromise;
+      }
+      catch {
+        // ignore
+      }
     }
   },
 
-  resetDraft: () =>
+  resetDraft: () => {
+    currentDraftToken++;
+    latestRequestId++;
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      }
+      catch {
+        // ignore
+      }
+      activeAbortController = null;
+    }
+    activeEstimatePromise = null;
+
     set({
       serviceId: '',
       serviceName: 'Dịch vụ tiện ích',
@@ -129,12 +227,13 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       longitude: 108.1499,
       scheduledAt: DEFAULT_SCHEDULED_AT(),
       mediaUrls: [],
-      aiRefPriceMin: 150000,
-      aiRefPriceMax: 350000,
+      aiRefPriceMin: DEFAULT_MIN_PRICE,
+      aiRefPriceMax: DEFAULT_MAX_PRICE,
       isEstimatingPrice: false,
       priceEstimateReason: null,
       selectedWorkerId: '',
       agreedPrice: 300000,
       createdRequestId: null,
-    }),
+    });
+  },
 }));

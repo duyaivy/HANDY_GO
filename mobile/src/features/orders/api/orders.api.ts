@@ -30,10 +30,11 @@ export type UploadImageOptions = {
 
 export const OrdersApi = {
   // --- Service Requests ---
-  estimatePrice: async (payload: EstimatePricePayload) => {
+  estimatePrice: async (payload: EstimatePricePayload, options?: { signal?: AbortSignal }) => {
     return ApiClient.post<{ statusCode: number; message: string; data: EstimatePriceResponse }>(
       '/service-requests/estimate-price',
       payload,
+      options?.signal ? { signal: options.signal } : undefined,
     );
   },
 

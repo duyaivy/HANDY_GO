@@ -29,6 +29,14 @@ def round_to_clean_currency(amount: float) -> int:
     return rounded
 
 
+def _get_currency_step(amount: int) -> int:
+    if amount < 500_000:
+        return 10_000
+    elif amount < 2_000_000:
+        return 50_000
+    return 100_000
+
+
 def sanitize_price_range(
     min_price: float,
     max_price: float,
@@ -36,9 +44,25 @@ def sanitize_price_range(
     ceiling: float = 20_000_000,
 ) -> Tuple[int, int]:
     """
-    Clamps and enforces min_price < max_price with at least one step spread.
+    Clamps and enforces 0 < min_price < max_price <= ceiling with at least one step spread.
     Guarantees clean rounded integer currency for VND.
     """
+    clean_ceiling = round_to_clean_currency(ceiling)
+    if clean_ceiling < 20_000:
+        clean_ceiling = 20_000
+
+    step_for_ceiling = _get_currency_step(clean_ceiling)
+    if clean_ceiling <= step_for_ceiling:
+        step_for_ceiling = 10_000
+
+    clean_floor = round_to_clean_currency(floor)
+    if clean_floor < 10_000:
+        clean_floor = 10_000
+
+    # Handle inverted or equal bounds: floor >= ceiling
+    if clean_floor >= clean_ceiling:
+        clean_floor = max(10_000, clean_ceiling - step_for_ceiling)
+
     clean_min = round_to_clean_currency(min_price)
     clean_max = round_to_clean_currency(max_price)
 
@@ -47,22 +71,27 @@ def sanitize_price_range(
         clean_min, clean_max = clean_max, clean_min
 
     # Clamp to floor and ceiling
-    clean_floor = round_to_clean_currency(floor)
-    clean_ceiling = round_to_clean_currency(ceiling)
-
     clean_min = max(clean_floor, min(clean_min, clean_ceiling))
     clean_max = max(clean_floor, min(clean_max, clean_ceiling))
 
     # Enforce min_price < max_price with minimum step spread
     if clean_min >= clean_max:
-        step = (
-            10_000
-            if clean_min < 500_000
-            else (50_000 if clean_min < 2_000_000 else 100_000)
-        )
+        step = _get_currency_step(clean_min)
         clean_max = clean_min + step
         if clean_max > clean_ceiling:
             clean_max = clean_ceiling
-            clean_min = max(clean_floor, clean_max - step)
+            step_down = _get_currency_step(clean_max)
+            clean_min = max(10_000, clean_max - step_down)
+            if clean_min >= clean_max:
+                clean_min = max(10_000, clean_max - 10_000)
+
+    # Final guarantee: 0 < clean_min < clean_max <= clean_ceiling
+    if clean_min <= 0:
+        clean_min = 10_000
+    if clean_max <= clean_min:
+        clean_max = clean_min + 10_000
+    if clean_max > clean_ceiling:
+        clean_max = clean_ceiling
+        clean_min = max(10_000, clean_max - 10_000)
 
     return clean_min, clean_max

@@ -3,7 +3,7 @@ import * as React from 'react';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import CustomerBookingSummaryScreen from '../summary';
 
 const mockPush = jest.fn();
@@ -127,4 +127,59 @@ it('renders reference price range and estimated reason badge correctly', () => {
 
   expect(screen.getByText(/250\.000.*đ.*-.*450\.000.*đ/)).toBeOnTheScreen();
   expect(screen.getByText(/Phù hợp: Vệ sinh và bảo dưỡng cơ bản/)).toBeOnTheScreen();
+});
+
+it('waits for in-flight price estimation before submitting booking and uses estimated prices', async () => {
+  let resolveEstimate: () => void;
+  const estimatePromise = new Promise<void>((resolve) => {
+    resolveEstimate = resolve;
+  });
+
+  useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+  useBookingDraftStore.setState({
+    isEstimatingPrice: true,
+    waitForEstimate: jest.fn().mockImplementation(() => estimatePromise),
+  });
+
+  render(<CustomerBookingSummaryScreen />);
+  expect(screen.getByText('Đang tính toán...')).toBeOnTheScreen();
+
+  fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+  // Update store as if estimate resolved
+  act(() => {
+    useBookingDraftStore.setState({
+      aiRefPriceMin: 320000,
+      aiRefPriceMax: 650000,
+      isEstimatingPrice: false,
+    });
+  });
+  resolveEstimate!();
+
+  await waitFor(() => expect(OrdersApi.createRequest).toHaveBeenCalledWith(
+    expect.objectContaining({
+      serviceId: transportService.id,
+      aiRefPriceMin: 320000,
+      aiRefPriceMax: 650000,
+    }),
+  ));
+});
+
+it('submits with valid fallback prices when price estimation fails or times out', async () => {
+  useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+  useBookingDraftStore.setState({
+    isEstimatingPrice: true,
+    waitForEstimate: jest.fn().mockRejectedValue(new Error('Network failure')),
+  });
+
+  render(<CustomerBookingSummaryScreen />);
+  fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+  await waitFor(() => expect(OrdersApi.createRequest).toHaveBeenCalledWith(
+    expect.objectContaining({
+      serviceId: transportService.id,
+      aiRefPriceMin: 150000,
+      aiRefPriceMax: 350000,
+    }),
+  ));
 });
