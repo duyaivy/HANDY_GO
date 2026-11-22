@@ -364,4 +364,27 @@ describe('HG-82 Admin resolution', () => {
     });
     expect(f.tx.orderDisputeResolution.create).not.toHaveBeenCalled();
   });
+
+  it('throws 409 INVALID_STATE_TRANSITION (not 400) when legacy resolveDispute is called on an already-resolved order with disputePreviousStatus = completed', async () => {
+    const f = fixture();
+    f.order.status = 'completed';
+    f.order.disputePreviousStatus = 'completed';
+
+    await expect(
+      f.service.resolveDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'complete',
+          resolutionNote: 'Gọi lại khi đơn đã giải quyết xong',
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'INVALID_STATE_TRANSITION',
+      }),
+    });
+  });
 });

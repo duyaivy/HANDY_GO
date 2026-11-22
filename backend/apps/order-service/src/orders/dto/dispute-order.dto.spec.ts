@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validate } from 'class-validator';
 import { DisputeCategory, DisputeOrderDto } from './dispute-order.dto.js';
 import { ResolveDisputeDto } from './resolve-dispute.dto.js';
+import { QueryOrderDto } from './query-order.dto.js';
 
 describe('DisputeOrderDto', () => {
   it('accepts a reason, category and valid evidence URLs', async () => {
@@ -78,5 +79,15 @@ describe('ResolveDisputeDto', () => {
     expect((await validate(dto)).map((error) => error.property)).toContain(
       property,
     );
+  });
+});
+
+describe('QueryOrderDto', () => {
+  it('accepts paymentState = partially_refunded', async () => {
+    const dto = Object.assign(new QueryOrderDto(), {
+      paymentState: 'partially_refunded',
+    });
+
+    expect(await validate(dto)).toEqual([]);
   });
 });

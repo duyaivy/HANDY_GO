@@ -167,6 +167,7 @@ model Order {
   cancelReason          String?               @map("cancel_reason") @db.Text
   disputedAt            DateTime?             @map("disputed_at") @db.Timestamptz(6)
   disputeReason         String?               @map("dispute_reason") @db.Text
+  disputeCategory       String?               @map("dispute_category") @db.VarChar(50)
   disputePreviousStatus OrderStatus?          @map("dispute_previous_status")
   disputeResolvedAt     DateTime?             @map("dispute_resolved_at") @db.Timestamptz(6)
   disputeResolutionNote String?               @map("dispute_resolution_note") @db.Text

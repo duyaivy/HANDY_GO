@@ -95,7 +95,7 @@ export class OrderResponseDto {
 
   @ApiProperty({
     description: 'Payment settlement projection state',
-    enum: ['unpaid', 'pending', 'paid', 'refunded', 'failed'],
+    enum: ['unpaid', 'pending', 'paid', 'partially_refunded', 'refunded', 'failed'],
   })
   paymentState: string;
 
@@ -125,6 +125,9 @@ export class OrderResponseDto {
 
   @ApiPropertyOptional({ description: 'Reason for opening dispute' })
   disputeReason?: string | null;
+
+  @ApiPropertyOptional({ description: 'Dispute category' })
+  disputeCategory?: string | null;
 
   @ApiPropertyOptional({ description: 'Previous status before dispute' })
   disputePreviousStatus?: string | null;

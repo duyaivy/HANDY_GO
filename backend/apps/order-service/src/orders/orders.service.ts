@@ -47,7 +47,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly outboxRepo: OrderOutboxRepository,
     @Optional() private readonly paymentRefundClient?: PaymentRefundClient,
-  ) {}
+  ) { }
 
   /**
    * Worker accepts a booking proposal to create an official order atomically (ORD-06).
@@ -189,11 +189,11 @@ export class OrdersService {
       const activeOrderCount =
         typeof tx.order.count === 'function'
           ? ((await tx.order.count({
-              where: {
-                workerUserId,
-                status: { in: ['created', 'confirmed', 'in_progress'] },
-              },
-            })) ?? 0)
+            where: {
+              workerUserId,
+              status: { in: ['created', 'confirmed', 'in_progress'] },
+            },
+          })) ?? 0)
           : 0;
       if (activeOrderCount >= ORDER_CONSTANTS.MAX_ACTIVE_ORDERS_PER_WORKER) {
         throw new ConflictException({
@@ -462,13 +462,13 @@ export class OrdersService {
       const activeWorkingOrder =
         typeof tx.order.findFirst === 'function'
           ? await tx.order.findFirst({
-              where: {
-                workerUserId,
-                status: 'in_progress',
-                id: { not: orderId },
-              },
-              select: { id: true, orderCode: true },
-            })
+            where: {
+              workerUserId,
+              status: 'in_progress',
+              id: { not: orderId },
+            },
+            select: { id: true, orderCode: true },
+          })
           : null;
       if (activeWorkingOrder) {
         throw new ConflictException({
@@ -1184,6 +1184,7 @@ export class OrdersService {
           disputePreviousStatus: order.status,
           disputedAt: now,
           disputeReason: dto.reason,
+          disputeCategory: dto.category ?? null,
           version: { increment: 1 },
         },
       });
@@ -1344,12 +1345,12 @@ export class OrdersService {
         }
         const activeResolution = order.disputedAt
           ? await tx.orderDisputeResolution.findFirst({
-              where: {
-                orderId,
-                disputedAt: order.disputedAt,
-                state: { not: 'superseded' },
-              },
-            })
+            where: {
+              orderId,
+              disputedAt: order.disputedAt,
+              state: { not: 'superseded' },
+            },
+          })
           : null;
         if (activeResolution) {
           if (activeResolution.state !== 'needs_review') {
@@ -1368,19 +1369,23 @@ export class OrdersService {
         }
         const now = new Date();
         const state = dto.action === 'refund' ? 'refund_pending' : 'completed';
-        const resolution = await tx.orderDisputeResolution.create({ data: {
-          orderId, disputedAt: order.disputedAt, idempotencyKey: key, requestHash: hash,
-          adminUserId, action: dto.action, resolutionNote: note, state,
-          refundAmountVnd: refundAmount, paymentId,
-          previousCompletedAt: order.completedAt, previousWorkerFinishedAt: order.workerFinishedAt,
-          decidedAt: now, resolvedAt: dto.action === 'refund' ? null : now,
-        } });
+        const resolution = await tx.orderDisputeResolution.create({
+          data: {
+            orderId, disputedAt: order.disputedAt, idempotencyKey: key, requestHash: hash,
+            adminUserId, action: dto.action, resolutionNote: note, state,
+            refundAmountVnd: refundAmount, paymentId,
+            previousCompletedAt: order.completedAt, previousWorkerFinishedAt: order.workerFinishedAt,
+            decidedAt: now, resolvedAt: dto.action === 'refund' ? null : now,
+          }
+        });
         const nextStatus = dto.action === 'dismiss' ? 'completed' : dto.action === 'rework' ? 'in_progress' : 'disputed';
-        const updated = await tx.order.updateMany({ where: { id: orderId, status: 'disputed', version: order.version }, data: {
-          status: nextStatus, version: { increment: 1 }, disputeResolutionNote: note,
-          ...(dto.action === 'refund' ? {} : { disputeResolvedAt: now }),
-          ...(dto.action === 'rework' ? { firstCompletedAt: order.firstCompletedAt ?? order.completedAt, completedAt: null, workerFinishedAt: null } : {}),
-        } });
+        const updated = await tx.order.updateMany({
+          where: { id: orderId, status: 'disputed', version: order.version }, data: {
+            status: nextStatus, version: { increment: 1 }, disputeResolutionNote: note,
+            ...(dto.action === 'refund' ? {} : { disputeResolvedAt: now }),
+            ...(dto.action === 'rework' ? { firstCompletedAt: order.firstCompletedAt ?? order.completedAt, completedAt: null, workerFinishedAt: null } : {}),
+          }
+        });
         if (updated.count !== 1) throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
         const payload = {
           resolutionId: resolution.id, orderId, orderCode: order.orderCode, disputedAt: order.disputedAt.toISOString(),
@@ -1423,15 +1428,15 @@ export class OrdersService {
     return this.prisma.$transaction(async (tx) => {
       const order = await this.lockAndGetOrderOrThrow(orderId, tx);
 
-      if (order.disputePreviousStatus === 'completed') {
-        throw new BadRequestException({ code: ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION, message: ORDER_ERROR_MESSAGES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION });
-      }
-
       if (order.status !== 'disputed') {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
           message: `Only orders in 'disputed' status can be resolved. Current status is '${order.status}'.`,
         });
+      }
+
+      if (order.disputePreviousStatus === 'completed') {
+        throw new BadRequestException({ code: ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION, message: ORDER_ERROR_MESSAGES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION });
       }
 
       const now = new Date();
@@ -1832,9 +1837,9 @@ export class OrdersService {
     }));
     const resolutions = currentDisputes.length && this.prisma.orderDisputeResolution?.findMany
       ? await this.prisma.orderDisputeResolution.findMany({
-          where: { state: { not: 'superseded' }, OR: currentDisputes },
-          orderBy: { decidedAt: 'asc' },
-        })
+        where: { state: { not: 'superseded' }, OR: currentDisputes },
+        orderBy: { decidedAt: 'asc' },
+      })
       : [];
     const resolutionByDispute = new Map(
       resolutions
@@ -1856,13 +1861,16 @@ export class OrdersService {
         agreedPrice: order.agreedPrice.toString(),
         currency: 'VND',
         disputeReason: order.disputeReason,
+        disputeCategory: order.disputeCategory ?? null,
         disputedAt: order.disputedAt,
         completedAt: order.completedAt,
         resolution: (() => {
           const row = order.disputedAt ? resolutionByDispute.get(`${order.id}:${order.disputedAt.toISOString()}`) : undefined;
-          return row ? { resolutionId: row.id, action: row.action, state: row.state,
+          return row ? {
+            resolutionId: row.id, action: row.action, state: row.state,
             refundAmountVnd: row.refundAmountVnd?.toString() ?? null, decidedAt: row.decidedAt,
-            failureCode: row.failureCode } : null;
+            failureCode: row.failureCode
+          } : null;
         })(),
         evidences: order.evidences.map((evidence) => ({
           id: evidence.id,
@@ -1888,10 +1896,12 @@ export class OrdersService {
     }
     const row = await this.prisma.orderDisputeResolution.findUnique({ where: { id: resolutionId } });
     if (!row) throw new NotFoundException('Dispute resolution not found');
-    return { resolutionId: row.id, orderId: row.orderId, disputedAt: row.disputedAt,
+    return {
+      resolutionId: row.id, orderId: row.orderId, disputedAt: row.disputedAt,
       action: row.action, state: row.state, refundAmountVnd: row.refundAmountVnd?.toString() ?? null,
       paymentId: row.paymentId, refundId: row.refundId, failureCode: row.failureCode,
-      decidedAt: row.decidedAt, resolvedAt: row.resolvedAt };
+      decidedAt: row.decidedAt, resolvedAt: row.resolvedAt
+    };
   }
 
   /**
@@ -2005,6 +2015,7 @@ export class OrdersService {
       cancelReason: order.cancelReason,
       disputedAt: order.disputedAt,
       disputeReason: order.disputeReason,
+      disputeCategory: order.disputeCategory ?? null,
       disputePreviousStatus: order.disputePreviousStatus,
       disputeResolvedAt: order.disputeResolvedAt,
       disputeResolutionNote: order.disputeResolutionNote,

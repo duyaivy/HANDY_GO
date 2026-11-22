@@ -17,7 +17,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`ef6edaca`** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
 | **`65c49fcf`** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
 | **`2f1110f9`** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
-| **Review Fix #06** | `fix(HG-82): tighten dispute DTO input length, URL protocol, and refund amount bounds` | **Review Fix #06** | Bổ sung `@MaxLength(2000)` cho `reason` và `resolutionNote`; giới hạn `evidenceUrls` tối đa 10 phần tử, mỗi URL tối đa 2048 ký tự và bắt buộc protocol `http`/`https`; giới hạn `refundAmountVnd` theo regex `/^[1-9]\d{0,18}$/` ở DTO và `OrdersService`. Chi tiết tại mục 12. |
+| **`7b698974`** | `fix(HG-82): tighten dispute DTO input length, URL protocol, and refund amount bounds` | **Review Fix #06** | Bổ sung `@MaxLength(2000)` cho `reason` và `resolutionNote`; giới hạn `evidenceUrls` tối đa 10 phần tử, mỗi URL tối đa 2048 ký tự và bắt buộc protocol `http`/`https`; giới hạn `refundAmountVnd` theo regex `/^[1-9]\d{0,18}$/` ở DTO và `OrdersService`. Chi tiết tại mục 12. |
+| **Review Fix #07** | `fix(HG-82): persist disputeCategory, fix resolveDispute status check order, and allow partially_refunded filter` | **Review Fix #07** | Thêm cột `orders.dispute_category` để lưu và trả về `disputeCategory` trong `OrderResponseDto` & `adminFindDisputes`; đảo thứ tự kiểm tra `order.status !== 'disputed'` trước `order.disputePreviousStatus === 'completed'` trong `resolveDispute`; bổ sung `'partially_refunded'` vào `QueryOrderDto.paymentState`. Chi tiết tại mục 13. |
 
 ---
 
@@ -462,6 +463,40 @@ Trong `PaymentEventsConsumer.processDisputeRefund`:
   - Kiểm tra `DisputeOrderDto`: chấp nhận URL `https://storage.handygo.vn/a.jpg`; từ chối `ftp://evil.com/a.jpg`, `evil.com/a.jpg` (thiếu protocol), `javascript:alert(1)`, mảng 11 phần tử, URL dài > 2048 ký tự, và `reason` dài 2001 ký tự.
   - Kiểm tra `ResolveDisputeDto` & `OrdersService.resolveCompletedDispute`: chấp nhận `refundAmountVnd: '50000'`; từ chối `resolutionNote` dài 2001 ký tự và `refundAmountVnd` 20 chữ số (`'10000000000000000000'`).
 - **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/order-service/src/orders`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 13. Review Fix #07: Lưu Và Hiển Thị `disputeCategory`, Đảo Thứ Tự Guard `resolveDispute` Và Hỗ Trợ Bộ Lọc `paymentState = partially_refunded`
+
+### 13.1. Nguyên nhân & phạm vi sửa
+
+1. `DisputeOrderDto.category` chỉ được truyền vào outbox event `order.disputed` mà không lưu vào bảng `orders` hay trả ra API chi tiết đơn / danh sách khiếu nại Admin.
+2. Trong `OrdersService.resolveDispute`, kiểm tra `order.disputePreviousStatus === 'completed'` đứng trước `order.status !== 'disputed'`, khiến lời gọi lặp lại trên đơn đã giải quyết xong trả `400 LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION` thay vì `409 INVALID_STATE_TRANSITION`.
+3. `QueryOrderDto.paymentState` (và `OrderResponseDto.paymentState`) thiếu giá trị `'partially_refunded'`.
+
+### 13.2. Thay đổi mã nguồn & Migration (`backend/apps/order-service`)
+
+1. **Migration & Prisma Schema (Phương án A — Lưu & hiển thị `disputeCategory`):**
+   - Tạo migration `prisma/migrations/20261122001000_add_order_dispute_category/migration.sql` thêm cột `dispute_category VARCHAR(50)` vào `order_service.orders`.
+   - Cập nhật `prisma/schema.prisma` thêm `disputeCategory String? @map("dispute_category") @db.VarChar(50)` vào model `Order` và đăng ký migration vào `later_migrations` trong `backend/deploy/production/tests/test_database_incident.py`.
+   - Lưu `disputeCategory: dto.category ?? null` trong `OrdersService.dispute` và trả `disputeCategory` trong `OrderResponseDto` (`formatOrderResponse`) cũng như `AdminDisputeItemDto` (`adminFindDisputes`).
+2. **Thứ tự guard trong `OrdersService.resolveDispute`:**
+   - Kiểm tra `if (order.status !== 'disputed')` (ném `409 INVALID_STATE_TRANSITION`) trước `if (order.disputePreviousStatus === 'completed')` (ném `400 LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`).
+3. **Hỗ trợ `'partially_refunded'` trong `QueryOrderDto`:**
+   - Bổ sung `'partially_refunded'` vào `PAYMENT_STATE_VALUES` trong `src/orders/dto/query-order.dto.ts` và enum Swagger của `OrderResponseDto`.
+
+### 13.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/orders/orders.service.spec.ts`, `src/orders/hg82-resolution.spec.ts`, `src/orders/dto/dispute-order.dto.spec.ts`:**
+  1. `dispute()` lưu `disputeCategory` vào DB và `adminFindDisputes()` trả đúng `disputeCategory`.
+  2. `resolveDispute()` gọi trên đơn có `status: 'completed'` và `disputePreviousStatus: 'completed'` trả `409 INVALID_STATE_TRANSITION`.
+  3. `QueryOrderDto` chấp nhận `paymentState: 'partially_refunded'`.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm run prisma:generate:order` & `prisma validate`: **PASS**.
   - `pnpm exec vitest run apps/order-service/src/orders`: **PASS**.
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).

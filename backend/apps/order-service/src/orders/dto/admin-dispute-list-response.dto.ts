@@ -65,6 +65,9 @@ export class AdminDisputeItemDto {
   @ApiPropertyOptional({ description: 'Reason for opening the dispute' })
   disputeReason: string | null;
 
+  @ApiPropertyOptional({ description: 'Category of the dispute' })
+  disputeCategory?: string | null;
+
   @ApiPropertyOptional({ description: 'When the dispute was opened' })
   disputedAt: Date | null;
 
