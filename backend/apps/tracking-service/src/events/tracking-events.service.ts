@@ -178,6 +178,7 @@ export class TrackingEventsService {
     const rawActorId =
       data.actorUserId ||
       rawPayload.actorUserId ||
+      rawPayload.adminUserId ||
       rawPayload.workerId ||
       rawPayload.customerId ||
       rawPayload.userId;
@@ -190,11 +191,16 @@ export class TrackingEventsService {
       rawPayload.toStatus ||
       rawPayload.newStatus ||
       rawPayload.nextStatus ||
+      rawPayload.resolvedStatus ||
       rawPayload.status ||
       null;
 
     const reason =
-      rawPayload.reason || rawPayload.message || data.reason || null;
+      rawPayload.reason ||
+      rawPayload.resolutionNote ||
+      rawPayload.message ||
+      data.reason ||
+      null;
 
     const aggregateVersion =
       typeof data.aggregateVersion === 'number'
@@ -618,7 +624,9 @@ export class TrackingEventsService {
       'price',
       'totalAmount',
       'workerId',
+      'workerUserId',
       'customerId',
+      'customerUserId',
       'revisionNo',
       'roundId',
       'bidCount',
@@ -649,6 +657,12 @@ export class TrackingEventsService {
       'notificationKind',
       'previousStatus',
       'nextStatus',
+      'action',
+      'resolutionId',
+      'resolvedStatus',
+      'decidedAt',
+      'paymentStatus',
+      'refundAmountVnd',
     ];
 
     for (const key of safeKeys) {

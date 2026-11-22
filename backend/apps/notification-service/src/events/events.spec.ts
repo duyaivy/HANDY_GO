@@ -43,6 +43,15 @@ describe('Notification event contracts, routing, templates and policies', () => 
     }
   });
 
+  it('uses the Order resolution event for HG-82 refund success without a second Payment alert', () => {
+    const refund = eventFixture('payment.refunded');
+    if (refund.eventType !== 'payment.refunded') throw new Error('Unexpected fixture');
+    const correlated = { ...refund, data: { ...refund.data, resolutionId: randomUUID() } };
+    expect(simulated.resolve(correlated)).toEqual({ skipReason: 'DEDICATED_DISPUTE_EVENT' });
+    const resolved = eventFixture('order.dispute.resolved');
+    expect(router.resolve(resolved).recipients.map((recipient) => recipient.role)).toEqual(['customer', 'worker']);
+  });
+
   it.each([
     ['matching.completed', 'customer'],
     ['bid.submitted', 'customer'],

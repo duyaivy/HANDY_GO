@@ -4,10 +4,13 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -25,17 +28,26 @@ import {
 } from '../common/decorators/current-user.decorator.js';
 import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { AdminGuard } from '../common/guards/admin.guard.js';
+import { DisputeRefundReconciliationService } from '../common/inbox/dispute-refund-reconciliation.service.js';
 import { OrdersService } from './orders.service.js';
 import { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
+import { AdminQueryDisputesDto } from './dto/admin-query-disputes.dto.js';
+import { AdminQueryReconciliationsDto } from './dto/admin-query-reconciliations.dto.js';
+import { AdminDisputeListResponseDto } from './dto/admin-dispute-list-response.dto.js';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
 import { OrderResponseDto } from './dto/order-response.dto.js';
+import { AdminDisputeDecisionResponseDto } from './dto/admin-dispute-decision-response.dto.js';
 
 @ApiTags('Admin Orders')
 @ApiBearerAuth()
 @UseGuards(TrustedGatewayGuard, AdminGuard)
 @Controller('admin/orders')
 export class AdminOrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    @Optional()
+    private readonly reconciliationService?: DisputeRefundReconciliationService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -55,12 +67,35 @@ export class AdminOrdersController {
     return buildSuccessResponse(data, 'Admin orders retrieved successfully');
   }
 
+  @Get('disputes')
+  @ApiOperation({
+    summary: 'Admin query active disputes (HG-82)',
+    description:
+      'Search, filter, sort and paginate orders currently in dispute, including dispute evidence and both party IDs.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Disputes retrieved successfully',
+    type: AdminDisputeListResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description: 'Only administrators can access the dispute queue',
+  })
+  async findDisputes(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query() query: AdminQueryDisputesDto,
+  ) {
+    const data = await this.ordersService.adminFindDisputes(query, user.roles);
+    return buildSuccessResponse(data, 'Admin disputes retrieved successfully');
+  }
+
   @Post(':id/resolve-dispute')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Admin resolves dispute (ORD-08)',
+    summary: 'Admin resolves dispute (ORD-08 and HG-82)',
     description:
-      'Administrator resolves an active dispute with reason and action (resume_previous_state, cancel, complete). Completing emits order.completed for settlement.',
+      'Legacy actions apply before completion. Completed-order disputes use dismiss, rework, or refund; refund returns 202 until Payment confirms.',
   })
   @ApiParam({ name: 'id', description: 'Order UUID' })
   @ApiBody({ type: ResolveDisputeDto })
@@ -69,17 +104,78 @@ export class AdminOrdersController {
     description: 'Dispute resolved successfully',
     type: OrderResponseDto,
   })
+  @ApiResponse({ status: HttpStatus.ACCEPTED, description: 'Refund decision recorded; awaiting Payment confirmation', type: AdminDisputeDecisionResponseDto })
   async resolveDispute(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: RequestUserIdentity,
     @Body() dto: ResolveDisputeDto,
+    @Res({ passthrough: true }) response?: { status(code: number): unknown },
   ) {
-    const data = await this.ordersService.resolveDispute(
+    const isHg82 = ['dismiss', 'rework', 'refund'].includes(dto.action);
+    const data = isHg82 ? await this.ordersService.resolveCompletedDispute(
+      id, user.userId, dto, user.roles,
+    ) : await this.ordersService.resolveDispute(
       id,
       user.userId,
       dto,
       user.roles,
     );
-    return buildSuccessResponse(data, 'Dispute resolved successfully');
+    const status = dto.action === 'refund' ? HttpStatus.ACCEPTED : HttpStatus.OK;
+    response?.status(status);
+    return buildSuccessResponse(data, dto.action === 'refund' ? 'Refund decision recorded' : 'Dispute resolved successfully', status);
+  }
+
+  @Get('dispute-reconciliations')
+  @ApiOperation({
+    summary:
+      'List durable dispute refund payment event reconciliation items (HG-82)',
+  })
+  async listDisputeReconciliations(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query() query: AdminQueryReconciliationsDto,
+  ) {
+    if (!this.reconciliationService) {
+      throw new ServiceUnavailableException(
+        'Dispute refund reconciliation service is unavailable',
+      );
+    }
+    return buildSuccessResponse(
+      await this.reconciliationService.listReconciliations(query, user.roles),
+      'Dispute reconciliations retrieved successfully',
+    );
+  }
+
+  @Post('dispute-reconciliations/:eventId/replay')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Replay a recoverable payment dispute refund event after data remediation (HG-82)',
+  })
+  async replayDisputeReconciliation(
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: RequestUserIdentity,
+  ) {
+    if (!this.reconciliationService) {
+      throw new ServiceUnavailableException(
+        'Dispute refund reconciliation service is unavailable',
+      );
+    }
+    return buildSuccessResponse(
+      await this.reconciliationService.replayEvent(
+        eventId,
+        user.userId,
+        user.roles,
+      ),
+      'Dispute reconciliation event replayed successfully',
+    );
+  }
+
+  @Get('dispute-resolutions/:resolutionId')
+  @ApiOperation({ summary: 'Read an Admin dispute decision and refund progress (HG-82)' })
+  async findDisputeResolution(
+    @Param('resolutionId', ParseUUIDPipe) resolutionId: string,
+    @CurrentUser() user: RequestUserIdentity,
+  ) {
+    return buildSuccessResponse(await this.ordersService.adminFindDisputeResolution(resolutionId, user.roles));
   }
 }

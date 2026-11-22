@@ -148,7 +148,8 @@
       "migration_order": 2,
       "url_env": "PAYMENT_SERVICE_URL",
       "http_callers": [
-        "api-gateway"
+        "api-gateway",
+        "order-service"
       ],
       "wireguard_http": true
     },
