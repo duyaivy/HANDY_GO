@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
 import { Linking } from 'react-native';
 import { render } from '@/lib/test-utils';
@@ -210,5 +210,58 @@ describe('WorkerDetailScreen', () => {
     // Press collapse button
     fireEvent.press(screen.getByTestId('toggle-expand-services-btn'));
     expect(screen.getByText('Xem tất cả')).toBeOnTheScreen();
+  });
+
+  describe('Phone number fallback & call CTA safety', () => {
+    it('does NOT fallback to mock phone for real worker with no phone, disables call CTA', async () => {
+      render(
+        <WorkerDetailScreen
+          workerId="worker-real-999-uuid"
+          workerName="Thợ Thật Không Số"
+        />,
+      );
+
+      // Verify header phone does not show fake numbers
+      expect(screen.queryByText('0912 345 678')).toBeNull();
+      expect(screen.queryByText('0977 888 999')).toBeNull();
+      expect(screen.queryByText('0988 123 456')).toBeNull();
+      expect(screen.getByText('Chưa cập nhật số điện thoại')).toBeOnTheScreen();
+
+      // Pressing call button should show alert and not open tel:
+      const callBtn = screen.getByTestId('worker-call-btn');
+      fireEvent.press(callBtn);
+
+      expect(Linking.openURL).not.toHaveBeenCalled();
+    });
+
+    it('opens phone URL when real worker has valid phone', async () => {
+      render(
+        <WorkerDetailScreen
+          workerId="worker-real-999-uuid"
+          workerName="Thợ Thật Có Số"
+          phoneNumber="0933 444 555"
+        />,
+      );
+
+      expect(screen.getByText('0933 444 555')).toBeOnTheScreen();
+
+      const callBtn = screen.getByTestId('worker-call-btn');
+      fireEvent.press(callBtn);
+
+      expect(Linking.canOpenURL).toHaveBeenCalledWith('tel:0933444555');
+      await waitFor(() => {
+        expect(Linking.openURL).toHaveBeenCalledWith('tel:0933444555');
+      });
+    });
+
+    it('falls back to demo phone only for explicit mock worker (th-01)', () => {
+      render(
+        <WorkerDetailScreen
+          workerId="th-01"
+        />,
+      );
+
+      expect(screen.getByText('0977 888 999')).toBeOnTheScreen();
+    });
   });
 });

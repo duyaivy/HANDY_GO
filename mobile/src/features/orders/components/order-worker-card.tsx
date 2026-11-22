@@ -37,6 +37,7 @@ export function OrderWorkerCard({
   const router = useRouter();
 
   const isNoPhoneMock = workerId === 'worker-no-phone' || workerId === 'worker-missing-fields-uuid';
+  const isMockWorker = !isNoPhoneMock && (workerId === 'a-canh-van' || workerId === 'th-01' || workerId === 'mock-worker' || Boolean(workerId?.startsWith('mock-')));
   const { data: publicProfile } = useWorkerPublicProfile(workerId, {
     enabled: Boolean(workerId && !isNoPhoneMock && !phoneNumber),
     staleTime: 5 * 60 * 1000,
@@ -44,7 +45,7 @@ export function OrderWorkerCard({
 
   const effectivePhone = phoneNumber
     || publicProfile?.phone
-    || (!isNoPhoneMock && workerId && workerId !== 'worker-placeholder'
+    || (isMockWorker
       ? (workerId === 'a-canh-van' ? '0901234567' : '0912 345 678')
       : undefined);
 

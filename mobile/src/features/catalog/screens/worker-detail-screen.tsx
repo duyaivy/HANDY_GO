@@ -256,9 +256,11 @@ export function WorkerDetailScreen({
     || profileData?.phone
     || searchParams?.phoneNumber
     || searchParams?.phone
-    || (isCanhVan
-      ? '0988 123 456'
-      : (workerId === 'th-01' ? '0977 888 999' : '0912 345 678'));
+    || (isMockWorker
+      ? (isCanhVan
+          ? '0988 123 456'
+          : (workerId === 'th-01' ? '0977 888 999' : '0912 345 678'))
+      : undefined);
 
   // Worker Services (Multiple Services Support)
   const defaultMockServices: WorkerServiceOfferingItem[] = React.useMemo(() => [
@@ -481,14 +483,12 @@ export function WorkerDetailScreen({
               </Text>
 
               {/* Số điện thoại thợ */}
-              {phoneNumber && (
-                <View testID="worker-profile-phone" className="mt-2 flex-row items-center gap-1.5">
-                  <PhoneIcon size={14} color="#059669" />
-                  <Text className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                    {phoneNumber}
-                  </Text>
-                </View>
-              )}
+              <View testID="worker-profile-phone" className="mt-2 flex-row items-center gap-1.5">
+                <PhoneIcon size={14} color={phoneNumber ? '#059669' : '#9CA3AF'} />
+                <Text className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                  {phoneNumber || 'Chưa cập nhật số điện thoại'}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -498,8 +498,13 @@ export function WorkerDetailScreen({
               accessibilityRole="button"
               accessibilityLabel="Gọi điện cho thợ"
               testID="worker-call-btn"
+              disabled={!phoneNumber}
               onPress={handleCall}
-              className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 active:bg-emerald-700"
+              className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 ${
+                phoneNumber
+                  ? 'bg-emerald-600 active:bg-emerald-700'
+                  : 'bg-emerald-600/50 opacity-50'
+              }`}
             >
               <PhoneIcon size={15} color="#FFFFFF" />
               <Text className="text-xs font-bold text-white">
