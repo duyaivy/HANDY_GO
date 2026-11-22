@@ -103,10 +103,18 @@ export class WorkerProfileEnricherService {
           averageRating?: number;
           ratingCount?: number;
           completedOrderCount?: number;
+          orderCountTotal?: number;
+          completionRate?: number;
           distanceKm?: number;
         }> = Array.isArray(data) ? data : data.data || [];
 
         for (const p of profiles) {
+          const completedCount = p.completedOrderCount ?? 0;
+          const totalCount = p.orderCountTotal ?? completedCount;
+          const completionRate = typeof p.completionRate === 'number'
+            ? p.completionRate
+            : (totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : (completedCount > 0 ? 100 : 0));
+
           const profileSummary: WorkerProfileSummaryDto = {
             fullName: p.fullName || 'Thợ đối tác',
             avatarUrl: p.avatarUrl || null,
@@ -115,7 +123,9 @@ export class WorkerProfileEnricherService {
                 ? p.averageRating
                 : null,
             ratingCount: p.ratingCount ?? 0,
-            completedOrderCount: p.completedOrderCount ?? 0,
+            completedOrderCount: completedCount,
+            orderCountTotal: totalCount,
+            completionRate,
             distanceKm: p.distanceKm ?? null,
           };
 

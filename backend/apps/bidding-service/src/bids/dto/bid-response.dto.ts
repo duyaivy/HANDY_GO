@@ -119,6 +119,18 @@ export class WorkerProfileSummaryDto {
   completedOrderCount?: number | null;
 
   @ApiPropertyOptional({
+    description: 'Tổng số công việc đã nhận',
+    example: 40,
+  })
+  orderCountTotal?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Tỉ lệ hoàn thành đơn hàng thành công (%)',
+    example: 95,
+  })
+  completionRate?: number | null;
+
+  @ApiPropertyOptional({
     description:
       'Khoảng cách ước tính từ vị trí thợ đến địa chỉ khách hàng (km)',
     example: 2.5,
