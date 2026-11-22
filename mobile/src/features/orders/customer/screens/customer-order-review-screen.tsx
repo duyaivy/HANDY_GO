@@ -593,7 +593,7 @@ export function CustomerOrderReviewScreen({
           reviewId: review.id,
           payload: {
             rating,
-            comment: comment.trim() || undefined,
+            comment: comment.trim(),
             attitudeRating,
             qualityRating,
             speedRating,

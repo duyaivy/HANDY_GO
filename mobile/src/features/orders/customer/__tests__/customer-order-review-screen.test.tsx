@@ -223,6 +223,27 @@ describe('CustomerOrderReviewScreen', () => {
     );
   });
 
+  it('sends an explicit empty comment when clearing an existing review', async () => {
+    const review = {
+      id: 'rev-existing-1',
+      orderId: 'ord-completed-123',
+      rating: 4,
+      comment: 'Old comment',
+      isEdited: false,
+      status: 'published',
+      createdAt: new Date().toISOString(),
+      media: [],
+    };
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(review as any);
+    const update = jest.spyOn(ReviewsApi, 'updateReview').mockResolvedValue({ ...review, isEdited: true } as any);
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+    await waitFor(() => expect(screen.getByTestId('review-comment-input').props.value).toBe('Old comment'));
+    fireEvent.changeText(screen.getByTestId('review-comment-input'), '');
+    fireEvent.press(screen.getByTestId('submit-review-btn'));
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls[0][1]).toEqual(expect.objectContaining({ comment: '' }));
+  });
+
   it('displays existing review and handles edit mode within 48h', async () => {
     const existingPhoto = {
       mediaType: 'image' as const,
