@@ -1,9 +1,21 @@
+import type { ServiceSuggestionGroup } from '@/features/catalog/types';
 import { create } from 'zustand';
 import { resolveServiceName } from '@/constants/services';
+
+export type BookingServiceMeta = {
+  categoryId?: string | null;
+  categoryName?: string | null;
+  serviceSuggestionGroups?: ServiceSuggestionGroup[] | null;
+  categorySuggestionGroups?: ServiceSuggestionGroup[] | null;
+};
 
 export type BookingDraftState = {
   serviceId: string;
   serviceName: string;
+  categoryId: string;
+  categoryName: string;
+  serviceSuggestionGroups: ServiceSuggestionGroup[] | null;
+  categorySuggestionGroups: ServiceSuggestionGroup[] | null;
   description: string;
   addressText: string;
   latitude: number;
@@ -16,7 +28,8 @@ export type BookingDraftState = {
   agreedPrice: number;
   createdRequestId: string | null;
 
-  setService: (id: string, name?: string) => void;
+  setService: (id: string, name?: string, meta?: BookingServiceMeta) => void;
+  setSuggestionMetadata: (meta: BookingServiceMeta) => void;
   setDescription: (desc: string) => void;
   setAddress: (address: string, lat?: number, lng?: number) => void;
   setScheduledAt: (dateIso: string) => void;
@@ -38,6 +51,10 @@ function DEFAULT_SCHEDULED_AT() {
 export const useBookingDraftStore = create<BookingDraftState>(set => ({
   serviceId: '',
   serviceName: 'Dịch vụ tiện ích',
+  categoryId: '',
+  categoryName: '',
+  serviceSuggestionGroups: null,
+  categorySuggestionGroups: null,
   description: '',
   addressText: '',
   latitude: 16.0748,
@@ -50,13 +67,52 @@ export const useBookingDraftStore = create<BookingDraftState>(set => ({
   agreedPrice: 300000,
   createdRequestId: null,
 
-  setService: (serviceId, serviceName) =>
-    set(state => ({
-      serviceId,
-      serviceName: resolveServiceName(
+  setService: (serviceId, serviceName, meta) =>
+    set((state) => {
+      const isSwitchingService = Boolean(
+        state.serviceId && serviceId && state.serviceId !== serviceId,
+      );
+      const fallbackPreviousName = !isSwitchingService && state.serviceName !== 'Dịch vụ tiện ích'
+        ? state.serviceName
+        : undefined;
+
+      return {
         serviceId,
-        serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
-      ),
+        serviceName: resolveServiceName(
+          serviceId,
+          serviceName || fallbackPreviousName,
+        ),
+        categoryId:
+          meta?.categoryId !== undefined
+            ? (meta.categoryId ?? '')
+            : (isSwitchingService ? '' : state.categoryId),
+        categoryName:
+          meta?.categoryName !== undefined
+            ? (meta.categoryName ?? '')
+            : (isSwitchingService ? '' : state.categoryName),
+        serviceSuggestionGroups:
+          meta?.serviceSuggestionGroups !== undefined
+            ? (meta.serviceSuggestionGroups ?? null)
+            : (isSwitchingService ? null : state.serviceSuggestionGroups),
+        categorySuggestionGroups:
+          meta?.categorySuggestionGroups !== undefined
+            ? (meta.categorySuggestionGroups ?? null)
+            : (isSwitchingService ? null : state.categorySuggestionGroups),
+      };
+    }),
+
+  setSuggestionMetadata: meta =>
+    set(state => ({
+      categoryId: meta.categoryId !== undefined ? (meta.categoryId ?? '') : state.categoryId,
+      categoryName: meta.categoryName !== undefined ? (meta.categoryName ?? '') : state.categoryName,
+      serviceSuggestionGroups:
+        meta.serviceSuggestionGroups !== undefined
+          ? (meta.serviceSuggestionGroups ?? null)
+          : state.serviceSuggestionGroups,
+      categorySuggestionGroups:
+        meta.categorySuggestionGroups !== undefined
+          ? (meta.categorySuggestionGroups ?? null)
+          : state.categorySuggestionGroups,
     })),
 
   setDescription: description => set({ description }),
@@ -88,6 +144,10 @@ export const useBookingDraftStore = create<BookingDraftState>(set => ({
     set({
       serviceId: '',
       serviceName: 'Dịch vụ tiện ích',
+      categoryId: '',
+      categoryName: '',
+      serviceSuggestionGroups: null,
+      categorySuggestionGroups: null,
       description: '',
       addressText: '',
       latitude: 16.0748,

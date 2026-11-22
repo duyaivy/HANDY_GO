@@ -8,14 +8,15 @@ generator client {
 }
 
 model Category {
-  id          String   @id @default(uuid()) @db.Uuid
-  parentId    String?  @map("parent_id") @db.Uuid
-  name        String   @db.VarChar(150)
-  description String?  @db.Text
-  imageUrl    String?  @map("image_url") @db.Text
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  parentId         String?  @map("parent_id") @db.Uuid
+  name             String   @db.VarChar(150)
+  description      String?  @db.Text
+  imageUrl         String?  @map("image_url") @db.Text
+  suggestionGroups Json?    @map("suggestion_groups") @db.JsonB
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
   parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
   children Category[] @relation("CategoryHierarchy")
@@ -26,14 +27,15 @@ model Category {
 }
 
 model Service {
-  id          String   @id @default(uuid()) @db.Uuid
-  categoryId  String   @map("category_id") @db.Uuid
-  name        String   @db.VarChar(180)
-  description String?  @db.Text
-  iconUrl     String?  @map("icon_url") @db.Text
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  categoryId       String   @map("category_id") @db.Uuid
+  name             String   @db.VarChar(180)
+  description      String?  @db.Text
+  iconUrl          String?  @map("icon_url") @db.Text
+  suggestionGroups Json?    @map("suggestion_groups") @db.JsonB
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
   category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
 

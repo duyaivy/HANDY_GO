@@ -9,6 +9,7 @@ import { MapPinIcon, SparklesIcon } from '@/components/ui/icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { usePopularServices } from '@/features/catalog/hooks/use-services';
+import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { useAppModeSwitch } from '@/features/profile/hooks/use-app-mode-switch';
 import { useAuthStore } from '@/stores/use-auth-store';
 import {
@@ -69,11 +70,25 @@ export function CustomerHomeScreen() {
 
   const handleServiceSelect = React.useCallback(
     (serviceId: string, service?: ServiceResponseDto) => {
+      const targetId = serviceId || service?.id || 'srv-01';
+      const targetName = service?.name || 'Sửa ống nước';
+      const categoryId = service?.categoryId;
+      const categoryName = service?.category?.name;
+
+      useBookingDraftStore.getState().setService(targetId, targetName, {
+        categoryId,
+        categoryName,
+        serviceSuggestionGroups: service?.suggestionGroups ?? null,
+        categorySuggestionGroups: service?.category?.suggestionGroups ?? null,
+      });
+
       router.push({
         pathname: RouteNames.CUSTOMER_BOOKING,
         params: {
-          serviceId: serviceId || 'srv-01',
-          serviceName: service?.name || 'Sửa ống nước',
+          serviceId: targetId,
+          serviceName: targetName,
+          ...(categoryId ? { categoryId } : {}),
+          ...(categoryName ? { categoryName } : {}),
         },
       } as any);
     },
