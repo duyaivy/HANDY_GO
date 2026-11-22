@@ -268,3 +268,15 @@ export type UpdateReviewPayload = {
     uploadReceipt?: string;
   }>;
 };
+
+export type EstimatePricePayload = {
+  serviceId: string;
+  description?: string;
+};
+
+export type EstimatePriceResponse = {
+  aiRefPriceMin: number;
+  aiRefPriceMax: number;
+  matchedReason?: string;
+  isFallback: boolean;
+};
