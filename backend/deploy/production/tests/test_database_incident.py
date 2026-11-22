@@ -17,6 +17,21 @@ from database_plan import (
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_global_direct_url_matches_prisma_precedence(self):
+        values = {
+            "DATABASE_URL": "postgresql://u:p@runtime/db",
+            "DIRECT_URL": "postgresql://u:p@session/db",
+            "DB_DDL_VERIFIED_AUTH": "true",
+        }
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "session")
+        values["DIRECT_URL"] = "postgresql://u:p@aws.pooler.supabase.com:6543/db"
+        with self.assertRaisesRegex(ValueError, "transaction pooler"):
+            migration_endpoint(values, "auth", True)
+        values["DATABASE_URL_AUTH"] = "postgresql://u:p@override/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "override")
+        values["DIRECT_URL_AUTH"] = "postgresql://u:p@explicit/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "explicit")
+
     def test_message_direct_migration_url_uses_the_declared_message_schema(self):
         values = {
             "DIRECT_URL_MESSAGE": "postgresql://u:p@db/db?schema=message",
