@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { resolveServiceName } from '@/constants/services';
+import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, render, screen, waitFor } from '@/lib/test-utils';
@@ -25,8 +26,16 @@ jest.mock('@/components/map/handy-map', () => ({
   HandyMap: () => null,
 }));
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getMyRequests').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'getRequestDetail').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
+  jest.spyOn(OrdersApi, 'getProposalsForRequest').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue({ bidding: { items: [] }, matching: { recommendations: [] } } as any);
+});
+
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   mockSearchParams = { requestId: 'req-service-name-001' };
   useBookingDraftStore.getState().resetDraft();

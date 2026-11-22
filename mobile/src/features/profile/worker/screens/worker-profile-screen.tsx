@@ -63,7 +63,7 @@ export function WorkerProfileScreen() {
   };
 
   return (
-    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen edges={['top', 'left', 'right']} scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
         hideBackButton
@@ -158,7 +158,7 @@ export function WorkerProfileScreen() {
                     HANDY_GO balance
                   </Text>
                   <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                    Số dư & tài khoản ký quỹ
+                    Số dư ví
                   </Text>
                 </View>
               </View>

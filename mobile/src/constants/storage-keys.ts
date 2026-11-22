@@ -13,6 +13,11 @@ export const StorageKeys = {
   DEVICE_NOTIFICATION_TOKEN: 'handy_go_device_push_token',
   SAVED_FAVORITE_WORKERS: 'handy_go_favorite_workers',
   GUEST_SELECTED_ROLE: 'handy_go_guest_selected_role',
+  PENDING_TOPUP: (userId: string) => `handy_go_pending_topup_${userId}` as const,
+  TOPUP_ATTEMPT: (userId: string, amountVnd: number | string) => `handy_go_topup_attempt_${userId}_${amountVnd}` as const,
+  PENDING_WITHDRAWAL: (userId: string) => `handy_go_pending_withdrawal_${userId}` as const,
+  WALLET_BALANCE_HIDDEN: 'handy_go_wallet_balance_hidden',
+  PREFERRED_PAYMENT_METHOD: (userId: string) => `handy_go_preferred_payment_method_${userId}` as const,
 } as const;
 
 export type StorageKey = typeof StorageKeys[keyof typeof StorageKeys];

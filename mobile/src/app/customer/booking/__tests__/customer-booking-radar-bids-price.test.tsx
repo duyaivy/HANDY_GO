@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -23,8 +24,15 @@ jest.mock('@/components/map/handy-map', () => ({
   HandyMap: () => null,
 }));
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getRequestDetail').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
+  jest.spyOn(OrdersApi, 'getProposalsForRequest').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+});
+
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   useBookingDraftStore.getState().resetDraft();
 });
@@ -201,5 +209,10 @@ describe('customerBookingRadarScreen - Invalid Bid Price Handling (PR62-05-P2 / 
         agreedPrice: 180000,
       }),
     );
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Đã gửi đề xuất dịch vụ!',
+      expect.any(String),
+      expect.any(Array),
+    ));
   });
 });
