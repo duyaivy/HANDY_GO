@@ -297,8 +297,8 @@ export function WorkerDetailScreen({
     if (profileData?.services && profileData.services.length > 0) {
       return profileData.services;
     }
-    return defaultMockServices;
-  }, [propServices, profileData?.services, defaultMockServices]);
+    return isMockWorker ? defaultMockServices : [];
+  }, [propServices, profileData?.services, isMockWorker, defaultMockServices]);
 
   // Performance Stats
   const rawTotal = profileData?.stats?.orderCountTotal;
@@ -306,22 +306,24 @@ export function WorkerDetailScreen({
   const defaultTotal = isCanhVan ? 42 : (workerId === 'th-01' ? 68 : 28);
   const defaultCompleted = isCanhVan ? 41 : (workerId === 'th-01' ? 66 : 27);
 
-  const totalOrders = rawTotal ?? defaultTotal;
-  const completedOrders = rawCompleted ?? defaultCompleted;
+  const totalOrders = rawTotal ?? (isMockWorker ? defaultTotal : 0);
+  const completedOrders = rawCompleted ?? (isMockWorker ? defaultCompleted : 0);
   const completionRate = totalOrders > 0
     ? `${Math.round((completedOrders / totalOrders) * 100)}%`
-    : '98%';
+    : (isMockWorker ? '98%' : '—');
 
   const avgRating = profileData?.stats?.averageRating
-    ?? (isCanhVan ? 4.9 : (workerId === 'th-01' ? 4.8 : 4.9));
+    ?? (isMockWorker ? (isCanhVan ? 4.9 : (workerId === 'th-01' ? 4.8 : 4.9)) : 0);
   const totalRatingCount = profileData?.stats?.ratingCount
-    ?? (isCanhVan ? 38 : (workerId === 'th-01' ? 52 : 25));
+    ?? (isMockWorker ? (isCanhVan ? 38 : (workerId === 'th-01' ? 52 : 25)) : 0);
   const distribution = profileData?.stats?.ratingDistribution
-    ?? (isCanhVan
-      ? { 5: 35, 4: 3, 3: 0, 2: 0, 1: 0 }
-      : (workerId === 'th-01'
-          ? { 5: 45, 4: 6, 3: 1, 2: 0, 1: 0 }
-          : { 5: 22, 4: 3, 3: 0, 2: 0, 1: 0 }));
+    ?? (isMockWorker
+      ? (isCanhVan
+          ? { 5: 35, 4: 3, 3: 0, 2: 0, 1: 0 }
+          : (workerId === 'th-01'
+              ? { 5: 45, 4: 6, 3: 1, 2: 0, 1: 0 }
+              : { 5: 22, 4: 3, 3: 0, 2: 0, 1: 0 }))
+      : { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 });
 
   // Reviews List
   const fetchedReviews = React.useMemo(() => {
@@ -700,6 +702,17 @@ export function WorkerDetailScreen({
           </View>
         )}
 
+        {services.length === 0 && (
+          <View
+            testID="worker-services-empty"
+            className="mt-4 items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900"
+          >
+            <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+              Thợ chưa cập nhật danh sách dịch vụ.
+            </Text>
+          </View>
+        )}
+
         {/* Row 2: Thẻ Tổng quan đánh giá của khách hàng (Điểm TB + Phân bổ sao) */}
         <View
           testID="worker-rating-overview-card"
@@ -717,11 +730,13 @@ export function WorkerDetailScreen({
                   testID="worker-average-rating-score"
                   className="text-3xl font-extrabold text-neutral-900 dark:text-white"
                 >
-                  {avgRating.toFixed(1)}
+                  {totalRatingCount > 0 ? avgRating.toFixed(1) : '—'}
                 </Text>
-                <Text className="ml-1 text-sm font-medium text-neutral-400">
-                  /5
-                </Text>
+                {totalRatingCount > 0 && (
+                  <Text className="ml-1 text-sm font-medium text-neutral-400">
+                    /5
+                  </Text>
+                )}
               </View>
 
               <View className="mt-1">

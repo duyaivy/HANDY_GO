@@ -320,4 +320,77 @@ describe('WorkerDetailScreen', () => {
       expect(screen.getByText('Nguyễn Văn Hùng')).toBeOnTheScreen();
     });
   });
+
+  describe('Performance stats & services fallback safety for real worker vs mock', () => {
+    it('does NOT fallback to mock stats or mock services for real worker with null/zero stats', async () => {
+      jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValueOnce({
+        statusCode: 200,
+        data: {
+          id: 'worker-real-zero-stats',
+          userId: 'u-1',
+          fullName: 'Thợ Mới Tinh',
+          phone: null,
+          status: 'verified',
+          isVerified: true,
+          stats: {
+            averageRating: 0,
+            ratingCount: 0,
+            completedOrderCount: 0,
+            orderCountTotal: 0,
+            ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+          },
+          services: [],
+        } as any,
+      } as any);
+
+      render(
+        <WorkerDetailScreen
+          workerId="worker-real-zero-stats"
+          workerName="Thợ Mới Tinh"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('worker-total-orders')).toHaveTextContent('0');
+      });
+
+      // Stats check
+      expect(screen.getByTestId('worker-total-orders')).toHaveTextContent('0');
+      expect(screen.getByTestId('worker-completed-orders')).toHaveTextContent('0');
+      expect(screen.getByTestId('worker-completion-rate')).toHaveTextContent('—');
+      expect(screen.queryByText('98%')).toBeNull();
+      expect(screen.queryByText('28')).toBeNull();
+      expect(screen.queryByText('27')).toBeNull();
+
+      // Rating score
+      expect(screen.getByTestId('worker-average-rating-score')).toHaveTextContent('—');
+      expect(screen.getByText('0 đánh giá')).toBeOnTheScreen();
+      expect(screen.queryByText('4.9')).toBeNull();
+      expect(screen.queryByText('25 đánh giá')).toBeNull();
+
+      // Services check: must be empty state, no mock services
+      expect(screen.getByTestId('worker-services-empty')).toBeOnTheScreen();
+      expect(screen.getByText('Thợ chưa cập nhật danh sách dịch vụ.')).toBeOnTheScreen();
+      expect(screen.queryByText('Bảo dưỡng & vệ sinh máy lạnh')).toBeNull();
+      expect(screen.queryByText('Sửa chữa ống nước & thiết bị vệ sinh')).toBeNull();
+    });
+
+    it('falls back to mock stats and default mock services for mock worker (w-101)', () => {
+      render(
+        <WorkerDetailScreen
+          workerId="w-101"
+          workerName="Nguyễn Văn Thợ"
+        />,
+      );
+
+      // Total orders fallback for demo
+      expect(screen.getByTestId('worker-total-orders')).toHaveTextContent('28');
+      expect(screen.getByTestId('worker-completed-orders')).toHaveTextContent('27');
+      expect(screen.getByTestId('worker-completion-rate')).toHaveTextContent('96%');
+
+      // Mock services
+      expect(screen.getByTestId('worker-services-section')).toBeOnTheScreen();
+      expect(screen.getByText('Bảo dưỡng & vệ sinh máy lạnh')).toBeOnTheScreen();
+    });
+  });
 });
