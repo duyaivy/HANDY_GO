@@ -1456,6 +1456,13 @@ export class OrdersService {
           },
         );
       } else if (dto.action === 'cancel') {
+        if (order.firstCompletedAt) {
+          throw new BadRequestException({
+            code: ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION,
+            message:
+              'Cannot cancel a warranty order that was already completed and settled. Complete or resolve via refund flow instead.',
+          });
+        }
         nextStatus = 'cancelled';
         orderUpdateData.status = nextStatus;
         orderUpdateData.cancelledAt = now;
@@ -1495,17 +1502,20 @@ export class OrdersService {
           },
         );
       } else if (dto.action === 'complete') {
+        const isWarrantyCompletion = Boolean(order.firstCompletedAt);
         nextStatus = 'completed';
         orderUpdateData.status = nextStatus;
         orderUpdateData.completedAt = now;
         if (!order.firstCompletedAt) orderUpdateData.firstCompletedAt = now;
 
-        // Exactly 1 transactional order.completed event for Payment settlement
+        // Warranty completion emits order.warranty.completed to avoid reopening Payment settlement
         await this.outboxRepo.createEvent(
           {
             aggregateType: ORDER_CONSTANTS.AGGREGATE_ORDER,
             aggregateId: orderId,
-            eventType: ORDER_CONSTANTS.EVENT_ORDER_COMPLETED,
+            eventType: isWarrantyCompletion
+              ? ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED
+              : ORDER_CONSTANTS.EVENT_ORDER_COMPLETED,
             eventVersion: 1,
             payload: {
               orderId,
@@ -1518,6 +1528,9 @@ export class OrdersService {
               agreedPrice: order.agreedPrice.toString(),
               currency: 'VND',
               completedAt: now.toISOString(),
+              ...(isWarrantyCompletion
+                ? { firstCompletedAt: order.firstCompletedAt!.toISOString() }
+                : {}),
             },
           },
           tx,

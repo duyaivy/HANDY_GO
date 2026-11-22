@@ -27,7 +27,7 @@ function fixture() {
     order: {
       findUnique: vi.fn(async () => order), findUniqueOrThrow: vi.fn(async () => order),
       updateMany: vi.fn(async ({ where, data }: any) => {
-        if (where.status !== order.status || where.version !== order.version) return { count: 0 };
+        if (where.status !== order.status || (where.version !== undefined && where.version !== order.version)) return { count: 0 };
         order = { ...order, ...data, version: order.version + 1 };
         return { count: 1 };
       }),
@@ -61,7 +61,13 @@ function fixture() {
         return created;
       }),
     },
-    orderStatusHistory: { create: vi.fn() },
+    orderStatusHistory: {
+      create: vi.fn(async ({ data }: any) => ({
+        id: randomUUID(),
+        createdAt: new Date(),
+        ...data,
+      })),
+    },
   };
   const db = {
     order: {
@@ -232,4 +238,89 @@ describe('HG-82 Admin resolution', () => {
       expect(queue.items[0].resolution?.state).toBe(second.state);
     },
   );
+
+  it('emits order.warranty.completed (not order.completed) when legacy resolveDispute completes a warranty rework dispute', async () => {
+    const f = fixture();
+    f.order.disputePreviousStatus = 'in_progress';
+    f.order.firstCompletedAt = completedAt;
+    f.order.completedAt = null;
+
+    const result = await f.service.resolveDispute(
+      orderId,
+      adminUserId,
+      {
+        action: 'complete',
+        resolutionNote: 'Thợ đã hoàn thành bảo hành đạt yêu cầu',
+      },
+      ['Admin'],
+    );
+
+    expect(result.status).toBe('completed');
+    expect(f.order.firstCompletedAt).toEqual(completedAt);
+    expect(f.order.completedAt).toBeInstanceOf(Date);
+    expect(f.outbox.createEvent.mock.calls.map(([event]) => event.eventType)).toEqual([
+      ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED,
+      ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+    ]);
+    expect(f.outbox.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED,
+        payload: expect.objectContaining({
+          firstCompletedAt: completedAt.toISOString(),
+        }),
+      }),
+      f.tx,
+    );
+  });
+
+  it('sets firstCompletedAt and emits order.completed when legacy resolveDispute completes a normal pre-completion dispute', async () => {
+    const f = fixture();
+    f.order.disputePreviousStatus = 'in_progress';
+    f.order.firstCompletedAt = null;
+    f.order.completedAt = null;
+
+    const result = await f.service.resolveDispute(
+      orderId,
+      adminUserId,
+      {
+        action: 'complete',
+        resolutionNote: 'Xác nhận hoàn thành lần đầu cho đơn thường',
+      },
+      ['Admin'],
+    );
+
+    expect(result.status).toBe('completed');
+    expect(f.order.firstCompletedAt).toBeInstanceOf(Date);
+    expect(f.order.completedAt).toEqual(f.order.firstCompletedAt);
+    expect(f.outbox.createEvent.mock.calls.map(([event]) => event.eventType)).toEqual([
+      ORDER_CONSTANTS.EVENT_ORDER_COMPLETED,
+      ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+    ]);
+  });
+
+  it('rejects legacy cancel action on a warranty order that already has firstCompletedAt', async () => {
+    const f = fixture();
+    f.order.disputePreviousStatus = 'in_progress';
+    f.order.firstCompletedAt = completedAt;
+    f.order.completedAt = null;
+
+    await expect(
+      f.service.resolveDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'cancel',
+          resolutionNote: 'Thử hủy đơn bảo hành đã thanh toán',
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({
+        code: 'LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION',
+      }),
+    });
+    expect(f.tx.order.updateMany).not.toHaveBeenCalled();
+    expect(f.outbox.createEvent).not.toHaveBeenCalled();
+  });
 });

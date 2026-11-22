@@ -13,7 +13,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
 | **`a1388415`** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
 | **`3826c826`** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
-| **Review Fix #02** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
+| **`07523e7d`** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
+| **Review Fix #03** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
 
 ---
 
@@ -346,3 +347,31 @@ Khi `tracking-service` nhận 3 event cuối luồng HG-82 (`order.dispute.decis
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/order-service apps/payment-service`: **PASS** (0 warnings, 0 errors).
   - `pnpm exec nest build order-service` & `pnpm exec nest build payment-service`: **PASS**.
+
+---
+
+## 9. Review Fix #03: Bảo Toàn Invariant Bảo Hành Trong Legacy `resolveDispute` Sau Khi Admin Chọn `rework`
+
+### 9.1. Nguyên nhân & phạm vi sửa
+
+Sau khi một đơn hàng đã hoàn tất lần đầu (`firstCompletedAt !== null`) và Admin phán quyết `rework` để đưa đơn về `in_progress`, nếu phát sinh tranh chấp mới trong quá trình bảo hành (`disputePreviousStatus` là `'in_progress'` hoặc `'awaiting_customer_confirmation'`), Admin xử lý qua luồng `OrdersService.resolveDispute` gặp 2 lỗ hổng vi phạm bất biến HG-82:
+1. Nhánh `action: 'cancel'` cho phép hủy thẳng đơn bảo hành đã thanh toán sang `'cancelled'` mà không đi qua quy trình hoàn tiền.
+2. Nhánh `action: 'complete'` luôn phát `order.completed` thay vì `order.warranty.completed`, làm phát lại sự kiện hoàn thành gốc lần thứ hai.
+
+### 9.2. Thay đổi mã nguồn (`backend/apps/order-service`)
+
+- **`src/orders/orders.service.ts` (phương thức `resolveDispute`):**
+  - Ở nhánh `dto.action === 'cancel'`: kiểm tra `if (order.firstCompletedAt)`, nếu đơn đã từng hoàn tất thì ném `BadRequestException` với mã lỗi `ORDER_ERROR_CODES.LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`, không cập nhật DB và không tạo outbox event.
+  - Ở nhánh `dto.action === 'complete'`: kiểm tra `const isWarrantyCompletion = Boolean(order.firstCompletedAt)`. Nếu `isWarrantyCompletion === true` thì giữ nguyên `order.firstCompletedAt`, phát `ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED` (kèm `firstCompletedAt` trong payload); nếu `false` thì gán `firstCompletedAt = now` và phát `ORDER_CONSTANTS.EVENT_ORDER_COMPLETED`.
+
+### 9.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/orders/hg82-resolution.spec.ts`:**
+  1. `resolveDispute` với `action: 'complete'` trên đơn có `firstCompletedAt !== null` và `disputePreviousStatus === 'in_progress'` $\rightarrow$ chuyển `status = 'completed'`, giữ nguyên `firstCompletedAt`, phát `order.warranty.completed` (không phát `order.completed`).
+  2. `resolveDispute` với `action: 'complete'` trên đơn thường (`firstCompletedAt === null`) $\rightarrow$ gán `firstCompletedAt`, phát `order.completed`.
+  3. `resolveDispute` với `action: 'cancel'` trên đơn có `firstCompletedAt !== null` $\rightarrow$ ném `BadRequestException` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`), không ghi DB/outbox.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/order-service/src/orders/orders.service.spec.ts apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service`: **PASS**.
