@@ -10,6 +10,7 @@ import {
   ScrollView,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
@@ -73,6 +74,7 @@ export function WorkerJobHistoryScreen({
   testID = 'worker-job-history-screen',
 }: WorkerJobHistoryScreenProps = {}) {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = React.useState<WorkerJobHistoryTab>('all');
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
 
@@ -111,7 +113,7 @@ export function WorkerJobHistoryScreen({
 
   return (
     <Screen
-      edges={['top', 'left', 'right']}
+      safeArea
       className="bg-neutral-50 dark:bg-neutral-950"
     >
       <AppBar
@@ -123,7 +125,10 @@ export function WorkerJobHistoryScreen({
       <ScrollView
         testID="worker-history-scroll-view"
         className="flex-1"
-        contentContainerStyle={{ flexGrow: 1 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingBottom: Math.max(insets.bottom, 16) + 40,
+        }}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
@@ -313,7 +318,7 @@ export function WorkerJobHistoryScreen({
 
         {/* Auto infinite loading indicator */}
         {isFetchingNextPage && (
-          <View testID="worker-history-loading-more-indicator" className="mt-4 flex-row items-center justify-center gap-2 py-3">
+          <View testID="worker-history-loading-more-indicator" className="mt-4 mb-6 flex-row items-center justify-center gap-2 py-3">
             <ActivityIndicator size="small" color={SECONDARY_COLOR} />
             <Text className="text-xs font-medium text-neutral-500">Đang tải thêm công việc...</Text>
           </View>
@@ -321,13 +326,13 @@ export function WorkerJobHistoryScreen({
 
         {/* Fallback load more button */}
         {hasNextPage && !isFetchingNextPage && (
-          <View className="mt-4 items-center">
+          <View className="mt-4 mb-6 items-center">
             <Button
               testID="worker-history-load-more-btn"
               label="Xem thêm"
               variant="outline"
-              className="h-9 rounded-xl border-neutral-300 px-4"
-              textClassName="text-xs font-semibold text-neutral-600"
+              className="h-10 rounded-xl border-neutral-300 px-6 dark:border-neutral-700"
+              textClassName="text-xs font-semibold text-neutral-600 dark:text-neutral-300"
               onPress={() => fetchNextPage()}
             />
           </View>
