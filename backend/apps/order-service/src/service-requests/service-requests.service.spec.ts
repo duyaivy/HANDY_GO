@@ -563,6 +563,119 @@ describe('ServiceRequestsService', () => {
         service.updateDraft(mockRequestId, mockUserId, { description: 'test' }),
       ).rejects.toThrow(AppException);
     });
+
+    it('should ignore client-provided prices and not overwrite server prices when only address/schedule changes (HG96-REM-04)', async () => {
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 1,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        addressText: '456 Lê Duẩn, Đà Nẵng',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      } as any);
+
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 1 },
+        data: expect.objectContaining({
+          addressText: '456 Lê Duẩn, Đà Nẵng',
+          aiRefPriceMin: undefined,
+          aiRefPriceMax: undefined,
+          version: { increment: 1 },
+        }),
+      });
+    });
+
+    it('should recalculate reference price when description changes (HG96-REM-04)', async () => {
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh nhẹ',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 1,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 350000,
+        aiRefPriceMax: 700000,
+        currency: 'VND',
+        source: 'ai_semantic',
+      });
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        description: 'Sửa máy lạnh hỏng block nặng',
+      });
+
+      expect(pricingEstimatorMock.estimatePrice).toHaveBeenCalledWith({
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh hỏng block nặng',
+      });
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 1 },
+        data: expect.objectContaining({
+          description: 'Sửa máy lạnh hỏng block nặng',
+          aiRefPriceMin: 350000,
+          aiRefPriceMax: 700000,
+          version: { increment: 1 },
+        }),
+      });
+    });
+
+    it('should recalculate reference price when serviceId changes (HG96-REM-04)', async () => {
+      const newServiceId = 'b1ffcd88-8d1c-4fe9-aa5e-5bb8bd270b22';
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Bảo trì',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 2,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 500000,
+        aiRefPriceMax: 900000,
+        currency: 'VND',
+        source: 'ai_semantic',
+      });
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        serviceId: newServiceId,
+      });
+
+      expect(pricingEstimatorMock.estimatePrice).toHaveBeenCalledWith({
+        serviceId: newServiceId,
+        description: 'Bảo trì',
+      });
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 2 },
+        data: expect.objectContaining({
+          serviceId: newServiceId,
+          aiRefPriceMin: 500000,
+          aiRefPriceMax: 900000,
+          version: { increment: 1 },
+        }),
+      });
+    });
   });
 
   describe('publish', () => {

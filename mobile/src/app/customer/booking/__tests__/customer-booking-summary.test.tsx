@@ -1,5 +1,6 @@
 import type { ServiceResponseDto } from '@/features/catalog/types';
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -182,4 +183,135 @@ it('submits with valid fallback prices when price estimation fails or times out'
       aiRefPriceMax: 350000,
     }),
   ));
+});
+
+describe('HG96-REM-05: Backend Price Synchronization & Confirmation', () => {
+  it('synchronizes backend authoritative price and prompts customer when server price differs from preview', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+      priceEstimateReason: 'ước tính xem trước',
+    });
+
+    jest.mocked(OrdersApi.createRequest).mockResolvedValueOnce({
+      statusCode: 201,
+      message: 'Created',
+      data: {
+        id: 'req-server-diff',
+        aiRefPriceMin: '150000',
+        aiRefPriceMax: '450000',
+      } as any,
+    });
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Cập nhật khoảng giá tham khảo',
+        expect.stringContaining('150.000đ - 450.000đ'),
+        expect.any(Array),
+        { cancelable: false },
+      );
+    });
+
+    // Check store synchronization
+    const updatedStore = useBookingDraftStore.getState();
+    expect(updatedStore.aiRefPriceMin).toBe(150000);
+    expect(updatedStore.aiRefPriceMax).toBe(450000);
+    expect(updatedStore.priceEstimateReason).toBeNull();
+
+    // Customer confirms and proceeds to find worker
+    const alertButtons = alertSpy.mock.calls[0][2] as any[];
+    const confirmButton = alertButtons.find(b => b.text === 'Tiếp tục tìm thợ');
+    expect(confirmButton).toBeDefined();
+
+    await act(async () => {
+      await confirmButton.onPress();
+    });
+
+    expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-server-diff');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/booking/radar',
+      params: { requestId: 'req-server-diff', serviceName: transportService.name },
+    });
+  });
+
+  it('publishes and navigates directly without alert when server price matches preview', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+    });
+
+    jest.mocked(OrdersApi.createRequest).mockResolvedValueOnce({
+      statusCode: 201,
+      message: 'Created',
+      data: {
+        id: 'req-same-price',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 350000,
+      } as any,
+    });
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-same-price');
+    });
+
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/booking/radar',
+      params: { requestId: 'req-same-price', serviceName: transportService.name },
+    });
+  });
+
+  it('retries publishing without creating duplicate request when initial publish fails', async () => {
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+
+    jest.mocked(OrdersApi.createRequest).mockResolvedValueOnce({
+      statusCode: 201,
+      message: 'Created',
+      data: {
+        id: 'req-fail-publish',
+        aiRefPriceMin: 150000,
+        aiRefPriceMax: 350000,
+      } as any,
+    });
+    jest.mocked(OrdersApi.publishRequest).mockRejectedValueOnce(new Error('Network error on publish'));
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Yêu cầu đã được tạo nhưng chưa thể tìm thợ. Vui lòng bấm Tìm thợ ngay để thử lại.')).toBeOnTheScreen();
+    });
+
+    expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1);
+
+    // Second click: retry publish on existing draft
+    jest.mocked(OrdersApi.publishRequest).mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'Published',
+      data: { id: 'req-fail-publish' } as any,
+    });
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(OrdersApi.publishRequest).toHaveBeenCalledTimes(2);
+    });
+    expect(OrdersApi.publishRequest).toHaveBeenLastCalledWith('req-fail-publish');
+
+    // Still only created once (no duplicate requests)
+    expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/booking/radar',
+      params: { requestId: 'req-fail-publish', serviceName: transportService.name },
+    });
+  });
 });

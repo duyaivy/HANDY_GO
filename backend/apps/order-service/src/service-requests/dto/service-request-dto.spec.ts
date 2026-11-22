@@ -211,4 +211,23 @@ describe('ServiceRequest DTO GPS Validation', () => {
       expect(priceErrors).toHaveLength(0);
     });
   });
+
+  describe('UpdateServiceRequestDto Exclusions (HG96-REM-04)', () => {
+    it('should exclude aiRefPriceMin and aiRefPriceMax when transforming UpdateServiceRequestDto', async () => {
+      const dto = plainToInstance(UpdateServiceRequestDto, {
+        description: 'Mô tả cập nhật',
+        addressText: '123 Nguyễn Lương Bằng, Đà Nẵng',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      });
+
+      expect((dto as any).aiRefPriceMin).toBeUndefined();
+      expect((dto as any).aiRefPriceMax).toBeUndefined();
+      expect(dto.description).toBe('Mô tả cập nhật');
+      expect(dto.addressText).toBe('123 Nguyễn Lương Bằng, Đà Nẵng');
+
+      const errors = await validate(dto, { whitelist: true });
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

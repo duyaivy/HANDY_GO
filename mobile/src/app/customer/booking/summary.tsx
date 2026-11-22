@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -78,12 +79,44 @@ export default function CustomerBookingSummaryRoute() {
   }, [scheduledAt]);
 
   const handleStartFinding = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmissionError(null);
+
+    const publishAndNavigate = async (requestId: string) => {
+      try {
+        await OrdersApi.publishRequest(requestId);
+        setCreatedRequestId(requestId);
+        router.push({
+          pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
+          params: { requestId, serviceName },
+        } as any);
+      }
+      catch (error) {
+        console.log('[BOOKING_SUMMARY] Publish request error:', error);
+        setCreatedRequestId(requestId);
+        setSubmissionError('Yêu cầu đã được tạo nhưng chưa thể tìm thợ. Vui lòng bấm Tìm thợ ngay để thử lại.');
+      }
+      finally {
+        setIsSubmitting(false);
+      }
+    };
+
     try {
+      const currentDraft = useBookingDraftStore.getState();
+      // Retry publish directly if draft request was already created in a previous attempt (HG96-REM-05)
+      if (currentDraft.createdRequestId) {
+        await publishAndNavigate(currentDraft.createdRequestId);
+        return;
+      }
+
       const validServiceId = await resolveValidServiceId(serviceId, serviceName);
       if (!validServiceId) {
         setSubmissionError('Dịch vụ này hiện chưa được hỗ trợ. Vui lòng chọn lại dịch vụ từ danh mục.');
+        setIsSubmitting(false);
         return;
       }
 
@@ -144,28 +177,64 @@ export default function CustomerBookingSummaryRoute() {
       });
 
       const newId = createRes?.data?.id;
-      if (newId) {
-        try {
-          await OrdersApi.publishRequest(newId);
-        }
-        catch {
-          // ignore
-        }
-        setCreatedRequestId(newId);
-        router.push({
-          pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
-          params: { requestId: newId, serviceName },
-        } as any);
+      if (!newId) {
+        throw new Error('Không thể nhận diện mã đơn từ máy chủ');
+      }
+
+      // Sync authoritative pricing from server response (HG96-REM-05)
+      const serverMin = Number(createRes?.data?.aiRefPriceMin);
+      const serverMax = Number(createRes?.data?.aiRefPriceMax);
+      const hasServerPrice
+        = !Number.isNaN(serverMin) && !Number.isNaN(serverMax) && serverMin > 0 && serverMin < serverMax;
+
+      const finalMin = hasServerPrice ? Math.round(serverMin) : effectiveAiRefPriceMin;
+      const finalMax = hasServerPrice ? Math.round(serverMax) : effectiveAiRefPriceMax;
+
+      const isPriceDifferent
+        = hasServerPrice
+          && (finalMin !== effectiveAiRefPriceMin || finalMax !== effectiveAiRefPriceMax);
+
+      // Always synchronize authoritative backend price into local state/UI
+      if (hasServerPrice) {
+        useBookingDraftStore.setState({
+          aiRefPriceMin: finalMin,
+          aiRefPriceMax: finalMax,
+          ...(isPriceDifferent ? { priceEstimateReason: null } : {}),
+        });
+      }
+
+      setCreatedRequestId(newId);
+
+      if (isPriceDifferent) {
+        setIsSubmitting(false);
+        Alert.alert(
+          'Cập nhật khoảng giá tham khảo',
+          `Khoảng giá chính thức do hệ thống xác nhận là ${finalMin.toLocaleString('vi-VN')}đ - ${finalMax.toLocaleString('vi-VN')}đ (thay đổi so với mức xem trước). Bạn có muốn tiếp tục tìm thợ?`,
+          [
+            {
+              text: 'Xem lại',
+              style: 'cancel',
+              onPress: () => {
+                setIsSubmitting(false);
+              },
+            },
+            {
+              text: 'Tiếp tục tìm thợ',
+              onPress: () => {
+                void publishAndNavigate(newId);
+              },
+            },
+          ],
+          { cancelable: false },
+        );
       }
       else {
-        router.push(RouteNames.CUSTOMER_BOOKING_RADAR as any);
+        await publishAndNavigate(newId);
       }
     }
     catch (error) {
       console.log('[BOOKING_SUMMARY] Request creation error:', error);
       setSubmissionError('Không thể tạo yêu cầu. Vui lòng thử lại sau.');
-    }
-    finally {
       setIsSubmitting(false);
     }
   };
@@ -398,7 +467,7 @@ export default function CustomerBookingSummaryRoute() {
         <View className="mb-4 rounded-2xl border border-amber-200/80 bg-primary-50 p-4 dark:border-amber-900/60 dark:bg-neutral-900">
           <View className="flex-row items-center justify-between">
             <Text className="text-xs font-bold text-primary-600">
-              💡 Khoảng giá tham khảo ước tính:
+              💡 Khoảng giá tham khảo (xem trước):
             </Text>
             {isEstimatingPrice && (
               <Text className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
@@ -423,7 +492,7 @@ export default function CustomerBookingSummaryRoute() {
             </View>
           )}
           <Text className="mt-1 text-[11px] text-neutral-500">
-            Giá cuối cùng được thợ khảo sát và thống nhất trước khi làm.
+            Khoảng giá chính thức do hệ thống xác nhận khi tạo đơn. Giá cuối cùng do thợ và bạn thống nhất trước khi làm.
           </Text>
         </View>
       </ScrollView>
