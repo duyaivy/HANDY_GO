@@ -45,6 +45,7 @@ describe('OrdersService', () => {
     orderEvidence: {
       create: ReturnType<typeof vi.fn>;
       createMany: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
@@ -65,6 +66,14 @@ describe('OrdersService', () => {
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       updateMany: ReturnType<typeof vi.fn>;
+    };
+    orderEvidence: {
+      create: ReturnType<typeof vi.fn>;
+      createMany: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
     };
     orderStatusHistory: {
       create: ReturnType<typeof vi.fn>;
@@ -605,12 +614,12 @@ describe('OrdersService', () => {
   });
 
   describe('finish', () => {
-    it('should mark order finished when in_progress and evidence count >= 1', async () => {
+    it('should mark order finished when in_progress and work evidence count >= 1', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'in_progress',
-        _count: { evidences: 1 },
       });
+      txMock.orderEvidence.count = vi.fn().mockResolvedValue(1);
       txMock.order.update.mockResolvedValue({
         ...validBaseOrder,
         status: 'awaiting_customer_confirmation',
@@ -623,6 +632,12 @@ describe('OrdersService', () => {
 
       const result = await service.finish(mockOrderId, mockWorkerId);
 
+      expect(txMock.orderEvidence.count).toHaveBeenCalledWith({
+        where: {
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -638,23 +653,33 @@ describe('OrdersService', () => {
       expect(result.status).toBe('awaiting_customer_confirmation');
     });
 
-    it('should throw BadRequestException if worker did not attach any evidence (ORD-10)', async () => {
+    it('should throw BadRequestException if worker did not attach any work evidence even when dispute evidence exists (ORD-10)', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'in_progress',
-        _count: { evidences: 0 },
+        _count: { evidences: 2 },
       });
+      txMock.orderEvidence.count = vi.fn().mockResolvedValue(0);
 
-      await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          code: ORDER_ERROR_CODES.MISSING_EVIDENCE,
+        }),
+      });
+      expect(txMock.orderEvidence.count).toHaveBeenCalledWith({
+        where: {
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException if order is not in_progress', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'confirmed',
-        _count: { evidences: 1 },
       });
 
       await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toThrow(
@@ -953,6 +978,13 @@ describe('OrdersService', () => {
       };
       const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
 
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenNthCalledWith(2, {
+        where: {
+          orderId: mockOrderId,
+          mediaUrl: 'https://example.com/img-same-url.jpg',
+          evidenceType: 'work',
+        },
+      });
       expect(prismaMock.orderEvidence.create).not.toHaveBeenCalled();
       expect(result.id).toBe(mockEvidenceId);
       expect(result.mediaUrl).toBe('https://example.com/img-same-url.jpg');

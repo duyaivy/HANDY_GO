@@ -564,13 +564,13 @@ export class OrdersService {
         });
       }
 
-      // ORD-10 Guard: Verify at least one evidence image/video exists inside the locked transaction
-      const evidenceCount =
-        (order as any)._count?.evidences !== undefined
-          ? (order as any)._count.evidences
-          : await tx.orderEvidence.count({
-              where: { orderId },
-            });
+      // ORD-10 Guard: Verify at least one work evidence image/video exists inside the locked transaction
+      const evidenceCount = await tx.orderEvidence.count({
+        where: {
+          orderId,
+          evidenceType: 'work',
+        },
+      });
 
       if (evidenceCount === 0) {
         throw new BadRequestException({
@@ -976,11 +976,12 @@ export class OrdersService {
         }
       }
 
-      // 2. Dedup Guard: Check if identical mediaUrl was already attached to this order
+      // 2. Dedup Guard: Check if identical work mediaUrl was already attached to this order
       const existingByUrl = await tx.orderEvidence.findFirst({
         where: {
           orderId,
           mediaUrl: dto.mediaUrl,
+          evidenceType: 'work',
         },
       });
 
@@ -1005,6 +1006,7 @@ export class OrdersService {
           clientEvidenceId: dto.clientEvidenceId,
           mediaType: dto.mediaType,
           mediaUrl: dto.mediaUrl,
+          evidenceType: 'work',
           description: dto.description,
           submittedByUserId: workerUserId,
         },

@@ -14,7 +14,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`a1388415`** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
 | **`3826c826`** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
 | **`07523e7d`** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
-| **Review Fix #03** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
+| **`ef6edaca`** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
+| **Review Fix #04** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
 
 ---
 
@@ -370,6 +371,34 @@ Sau khi một đơn hàng đã hoàn tất lần đầu (`firstCompletedAt !== n
   1. `resolveDispute` với `action: 'complete'` trên đơn có `firstCompletedAt !== null` và `disputePreviousStatus === 'in_progress'` $\rightarrow$ chuyển `status = 'completed'`, giữ nguyên `firstCompletedAt`, phát `order.warranty.completed` (không phát `order.completed`).
   2. `resolveDispute` với `action: 'complete'` trên đơn thường (`firstCompletedAt === null`) $\rightarrow$ gán `firstCompletedAt`, phát `order.completed`.
   3. `resolveDispute` với `action: 'cancel'` trên đơn có `firstCompletedAt !== null` $\rightarrow$ ném `BadRequestException` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`), không ghi DB/outbox.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/order-service/src/orders/orders.service.spec.ts apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 10. Review Fix #04: Lọc `evidenceType: 'work'` Trong Kiểm Tra Bằng Chứng Công Việc ORD-10 (`finish` & `addEvidence`)
+
+### 10.1. Nguyên nhân & phạm vi sửa
+
+Bảng `order_evidences` lưu chung bằng chứng thi công của thợ (`evidenceType = 'work'`) và bằng chứng khiếu nại (`evidenceType = 'dispute'`). Tuy nhiên:
+1. `OrdersService.finish()` đếm tổng `orderEvidence` theo `orderId` (hoặc đọc `_count?.evidences`) mà không lọc `evidenceType: 'work'`, dẫn đến đơn có ảnh `dispute` nhưng 0 ảnh `work` vẫn vượt qua được kiểm tra ORD-10.
+2. `OrdersService.addEvidence()` khi dedup theo `mediaUrl` chưa lọc `evidenceType: 'work'`, có thể trả về bản ghi `dispute` nếu trùng URL thay vì lưu bản ghi `work`.
+
+### 10.2. Thay đổi mã nguồn (`backend/apps/order-service`)
+
+- **`src/orders/orders.service.ts`:**
+  - Trong `finish()`: bỏ nhánh đọc `(order as any)._count?.evidences` và truy vấn trực tiếp `await tx.orderEvidence.count({ where: { orderId, evidenceType: 'work' } })`.
+  - Trong `addEvidence()`: bổ sung `evidenceType: 'work'` vào điều kiện `where` của `existingByUrl` (`tx.orderEvidence.findFirst({ where: { orderId, mediaUrl: dto.mediaUrl, evidenceType: 'work' } })`) và truyền tường minh `evidenceType: 'work'` khi tạo bản ghi mới (`tx.orderEvidence.create`).
+
+### 10.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/orders/orders.service.spec.ts`:**
+  1. `finish()` khi đơn chỉ có bằng chứng `dispute` (`_count.evidences = 2` nhưng `tx.orderEvidence.count` với `evidenceType: 'work'` trả về `0`) $\rightarrow$ ném `BadRequestException` với mã `MISSING_EVIDENCE`, không cập nhật trạng thái đơn.
+  2. `finish()` khi đơn có ít nhất 1 bằng chứng `evidenceType: 'work'` $\rightarrow$ chuyển sang `awaiting_customer_confirmation` thành công.
+  3. `addEvidence()` truyền `evidenceType: 'work'` vào `tx.orderEvidence.findFirst` khi kiểm tra trùng `mediaUrl`.
 - **Kết quả chạy kiểm tra local:**
   - `pnpm exec vitest run apps/order-service/src/orders/orders.service.spec.ts apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
   - `pnpm run typecheck`: **PASS**.
