@@ -1,0 +1,189 @@
+[
+  {
+    "service_keywords": ["máy lạnh", "điều hòa", "ac"],
+    "case_name": "Vệ sinh, bảo dưỡng máy lạnh định kỳ",
+    "description_patterns": [
+      "máy lạnh bám bụi cần vệ sinh bảo dưỡng định kỳ",
+      "vệ sinh cục nóng cục lạnh điều hòa",
+      "rửa máy lạnh tại nhà bơm nước sạch sẽ"
+    ],
+    "price_min": 150000,
+    "price_max": 250000
+  },
+  {
+    "service_keywords": ["máy lạnh", "điều hòa", "ac"],
+    "case_name": "Máy lạnh chảy nước, nghẹt ống thoát nước",
+    "description_patterns": [
+      "máy lạnh bị chảy nước nhỏ giọt ngập sàn",
+      "máy lạnh rỉ nước dàn lạnh đọng nước",
+      "tắc đường ống thoát nước máy lạnh"
+    ],
+    "price_min": 200000,
+    "price_max": 350000
+  },
+  {
+    "service_keywords": ["máy lạnh", "điều hòa", "ac"],
+    "case_name": "Máy lạnh thiếu gas, xì gas, cần nạp gas",
+    "description_patterns": [
+      "máy lạnh không lạnh hết gas thiếu gas r22 r32 r410a",
+      "bật máy lạnh không phà ra hơi lạnh cần bơm gas",
+      "hết gas máy lạnh xì dàn nạp ga"
+    ],
+    "price_min": 350000,
+    "price_max": 650000
+  },
+  {
+    "service_keywords": ["máy lạnh", "điều hòa", "ac"],
+    "case_name": "Máy lạnh hỏng tụ, hỏng quạt dàn nóng",
+    "description_patterns": [
+      "máy lạnh quạt cục nóng không chạy kêu to rung lắc",
+      "hư tụ máy lạnh kêu rè rè chớp đèn lỗi",
+      "thay tụ đề quạt dàn nóng dàn lạnh máy lạnh"
+    ],
+    "price_min": 450000,
+    "price_max": 800000
+  },
+  {
+    "service_keywords": ["máy lạnh", "điều hòa", "ac"],
+    "case_name": "Hư hỏng bo mạch, block máy lạnh nặng",
+    "description_patterns": [
+      "máy lạnh chết block không lên nguồn hỏng bo mạch inverter",
+      "máy lạnh báo lỗi bo điều khiển cháy cầu chì mạch",
+      "sửa board máy lạnh inverter thay block"
+    ],
+    "price_min": 800000,
+    "price_max": 1800000
+  },
+  {
+    "service_keywords": ["ống nước", "nước", "điện nước", "plumbing"],
+    "case_name": "Sửa rò rỉ nước, thay vòi sen, dây cấp nước",
+    "description_patterns": [
+      "vòi nước bị rò rỉ nước nhỏ giọt thay vòi rửa chén lavabo",
+      "thay van khóa nước dây cấp nước bị xì",
+      "sửa vòi sen tắm vòi xịt vệ sinh bị rỉ nước"
+    ],
+    "price_min": 100000,
+    "price_max": 250000
+  },
+  {
+    "service_keywords": ["ống nước", "nước", "điện nước", "plumbing"],
+    "case_name": "Thông nghẹt bồn cầu, chậu rửa bát, cống thoát sàn",
+    "description_patterns": [
+      "thông tắc bồn cầu nghẹt nước không rút",
+      "thông bồn rửa chén lavabo bị ứ nghẽn thức ăn rác",
+      "nghẹt cống thoát sàn nhà tắm nước tràn ra ngoài"
+    ],
+    "price_min": 150000,
+    "price_max": 350000
+  },
+  {
+    "service_keywords": ["ống nước", "nước", "điện nước", "plumbing"],
+    "case_name": "Sửa vỡ đường ống nước âm tường, rò rỉ ngầm",
+    "description_patterns": [
+      "vỡ ống nước âm tường thấm trần nhà ẩm mốc",
+      "bục đường ống nước ppr pvc trong tường sàn nhà rò rỉ nặng",
+      "dò tìm đường ống nước vỡ ngầm bể ngầm"
+    ],
+    "price_min": 400000,
+    "price_max": 1200000
+  },
+  {
+    "service_keywords": ["ống nước", "nước", "máy bơm"],
+    "case_name": "Sửa chữa, lắp đặt máy bơm nước gia đình",
+    "description_patterns": [
+      "máy bơm nước kêu to không lên nước cháy tụ",
+      "lắp máy bơm tăng áp rơ le nhảy tạch tạch liên tục",
+      "thay máy bơm nước mới sửa máy bơm đẩy cao"
+    ],
+    "price_min": 250000,
+    "price_max": 600000
+  },
+  {
+    "service_keywords": ["điện", "sửa điện", "electrical"],
+    "case_name": "Sửa chữa sự cố chập điện, nhảy aptomat / CB",
+    "description_patterns": [
+      "nhà bị mất điện cục bộ nhảy cb aptomat liên tục gạt lên không được",
+      "chập cháy điện có mùi khét mất nguồn điện",
+      "sửa chập điện âm tường tìm điểm đứt dây"
+    ],
+    "price_min": 200000,
+    "price_max": 500000
+  },
+  {
+    "service_keywords": ["điện", "sửa điện", "electrical"],
+    "case_name": "Thay lắp bóng đèn, ổ cắm, quạt trần, công tắc",
+    "description_patterns": [
+      "thay bóng đèn led tuýp đèn trần bị cháy",
+      "thay ổ cắm công tắc điện bị lỏng liệt tiếp xúc",
+      "lắp quạt trần quạt hút thông gió đèn trang trí"
+    ],
+    "price_min": 100000,
+    "price_max": 300000
+  },
+  {
+    "service_keywords": ["tủ lạnh", "refrigerator"],
+    "case_name": "Tủ lạnh không lạnh, không đông đá, xì gas",
+    "description_patterns": [
+      "tủ lạnh ngăn mát không lạnh ngăn đá không đông kem tan chảy",
+      "tủ lạnh hết gas xì giàn lạnh kêu to",
+      "tủ lạnh chạy liên tục không ngắt đọng sương bám tuyết dày"
+    ],
+    "price_min": 250000,
+    "price_max": 600000
+  },
+  {
+    "service_keywords": ["tủ lạnh", "refrigerator"],
+    "case_name": "Hư block, hỏng bo điều khiển tủ lạnh",
+    "description_patterns": [
+      "tủ lạnh inverter chết lốc máy nén không chạy",
+      "thay rơ le khởi động quạt gió tủ lạnh hỏng bo mạch",
+      "sửa bo mạch tủ lạnh inverter side by side"
+    ],
+    "price_min": 600000,
+    "price_max": 1600000
+  },
+  {
+    "service_keywords": ["máy giặt", "washing machine"],
+    "case_name": "Máy giặt không vắt, không xả nước, lỗi bơm xả",
+    "description_patterns": [
+      "máy giặt báo lỗi không xả nước đọng nước đầy lồng",
+      "máy giặt không vắt kêu tít tít dừng giữa chừng",
+      "thay van xả bơm xả nước máy giặt"
+    ],
+    "price_min": 200000,
+    "price_max": 450000
+  },
+  {
+    "service_keywords": ["máy giặt", "washing machine"],
+    "case_name": "Máy giặt rung lắc dữ dội, gãy chảng ba, bạc đạn",
+    "description_patterns": [
+      "máy giặt vắt kêu như máy bay trực thăng rung lắc mạnh nhảy khỏi vị trí",
+      "gãy chảng ba hỏng bạc đạn thụt giảm xóc máy giặt",
+      "thay chạc ba bạc đạn máy giặt cửa ngang"
+    ],
+    "price_min": 450000,
+    "price_max": 1200000
+  },
+  {
+    "service_keywords": ["khóa", "sửa khóa", "lock"],
+    "case_name": "Mở khóa kẹt, mất chìa, mở cửa khẩn cấp",
+    "description_patterns": [
+      "quên chìa khóa trong nhà kẹt khóa cửa phòng cửa chính",
+      "mở khóa tay gạt tay nắm tròn bị kẹt không vặn được",
+      "thợ mở khóa cửa tại nhà mất chìa"
+    ],
+    "price_min": 100000,
+    "price_max": 250000
+  },
+  {
+    "service_keywords": ["khóa", "sửa khóa", "lock"],
+    "case_name": "Thay ổ khóa mới, sửa khóa điện tử / thông minh",
+    "description_patterns": [
+      "thay ruột khóa ổ khóa cửa gỗ nhôm xingfa mới",
+      "lắp khóa điện tử vân tay thông minh",
+      "sửa khóa vân tay hết pin lỗi cơ khóa"
+    ],
+    "price_min": 200000,
+    "price_max": 600000
+  }
+]

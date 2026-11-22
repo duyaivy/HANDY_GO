@@ -24,6 +24,7 @@ export function eventFixture(type: NotificationEventType): NotificationEvent {
       nextStatus: 'TEST_AFTER',
       notificationKind: 'status_update',
     });
+  if (type === 'order.dispute.decision.recorded' || type === 'order.dispute.resolved') data.action = 'refund';
   return validateNotificationEvent({
     eventId: randomUUID(),
     eventType: type,

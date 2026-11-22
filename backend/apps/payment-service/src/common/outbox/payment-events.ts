@@ -81,7 +81,7 @@ export function paymentCancelledEvent(payment: PaymentEventSubject): OutboxEvent
 
 export function paymentRefundedEvent(
   payment: PaymentEventSubject,
-  refund: { id: string; amountVnd: bigint },
+  refund: { id: string; amountVnd: bigint; disputeResolutionId?: string | null },
 ): OutboxEventInput {
   return {
     aggregateType: 'refund',
@@ -92,6 +92,7 @@ export function paymentRefundedEvent(
       refundId: refund.id,
       recipientId: payment.customerUserId,
       refundAmount: refund.amountVnd.toString(),
+      ...(refund.disputeResolutionId ? { resolutionId: refund.disputeResolutionId } : {}),
     },
   };
 }

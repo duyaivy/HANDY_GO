@@ -51,6 +51,9 @@ const templates = {
   ],
   'order.cancelled': ['Đơn hàng đã bị hủy', '{{audience}} đã được hủy.'],
   'order.completed': ['Công việc đã hoàn thành', '{{audience}} đã hoàn thành.'],
+  'order.warranty.completed': ['Bảo hành đã hoàn thành', '{{audience}} đã hoàn thành lần bảo hành.'],
+  'order.dispute.decision.recorded': ['Đang xử lý hoàn tiền', 'Yêu cầu hoàn tiền của đơn hàng đã được chấp thuận và đang xử lý.'],
+  'order.dispute.resolved': ['Khiếu nại đã được giải quyết', '{{audience}} đã có kết quả giải quyết khiếu nại.'],
   'payment.succeeded': [
     'Thanh toán thành công',
     'Giao dịch của bạn đã thành công.',

@@ -6,6 +6,7 @@ describe('production service topology', () => {
   const config = {
     NODE_ENV: 'production',
     AI_SERVICE_URL: ai,
+    AUTH_SERVICE_URL: 'http://auth-service:3001',
     USER_TRUST_SERVICE_URL: 'http://10.77.0.1:3002',
     CATALOG_SERVICE_URL: 'http://10.77.0.3:3003',
     ORDER_SERVICE_URL: 'http://10.77.0.2:3004',
@@ -15,7 +16,13 @@ describe('production service topology', () => {
     AUTH_SERVICE_URL: 'http://10.77.0.1:3001',
     BIDDING_SERVICE_URL: 'http://bidding-service:3005',
     MATCHING_SERVICE_URL: 'http://matching-service:3006',
+    PAYMENT_SERVICE_URL: 'http://10.77.0.3:3007',
   };
+
+  it('requires a reachable Auth origin for User Trust contact lookup', () => {
+    expect(() => validateProductionServiceEndpoints(config, 'user-trust-service')).not.toThrow();
+    expect(() => validateProductionServiceEndpoints({ ...config, AUTH_SERVICE_URL: '' }, 'user-trust-service')).toThrow('AUTH_SERVICE_URL');
+  });
 
   it('enforces same VPS -> Docker DNS and different VPS -> WireGuard IP', () => {
     // Cross-host callers must use WireGuard IP and reject Docker DNS
@@ -68,7 +75,7 @@ describe('production service topology', () => {
   it('prevents missing Order URLs and wrong Matching ports from activating local fallbacks', () => {
     expect(() => validateProductionServiceEndpoints(orderConfig, 'order-service')).not.toThrow();
     for (const key of ['AUTH_SERVICE_URL', 'USER_TRUST_SERVICE_URL', 'CATALOG_SERVICE_URL',
-      'BIDDING_SERVICE_URL', 'MATCHING_SERVICE_URL']) {
+      'BIDDING_SERVICE_URL', 'MATCHING_SERVICE_URL', 'PAYMENT_SERVICE_URL']) {
       const missingUrl: Record<string, unknown> = { ...orderConfig };
       delete missingUrl[key];
       expect(() => validateProductionServiceEndpoints(missingUrl, 'order-service')).toThrow(key);

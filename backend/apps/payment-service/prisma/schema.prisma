@@ -292,6 +292,7 @@ model PayoutAttempt {
 
 model Refund {
   id                String       @id @default(uuid()) @db.Uuid
+  disputeResolutionId String?    @unique @map("dispute_resolution_id") @db.Uuid
   paymentId         String       @map("payment_id") @db.Uuid
   requestedByUserId String?      @map("requested_by_user_id") @db.Uuid
   amountVnd         BigInt       @map("amount_vnd")
