@@ -182,36 +182,48 @@ export function WorkerJobHistoryScreen({
 
         {/* Statistics Overview Card */}
         <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <Text className="text-xs font-bold tracking-wider text-neutral-400 uppercase">
-            Tổng quan hiệu suất
-          </Text>
-
-          <View className="mt-3 flex-row items-center justify-between divide-x divide-neutral-100 dark:divide-neutral-800">
+          <View className="flex-row items-center justify-between border-b border-neutral-100 pb-3 dark:border-neutral-800">
             <View className="flex-1 pr-2">
-              <View className="flex-row items-center gap-1.5">
-                <CheckCircleIcon color="#10B981" size={16} />
-                <Text className="text-xs text-neutral-500">Hoàn thành</Text>
-              </View>
-              <Text testID="worker-history-completed-count" className="mt-1 text-lg font-black text-neutral-900 dark:text-white">
-                {stats.completedCount} việc
+              <Text className="text-xs font-bold tracking-wider text-neutral-400 uppercase">
+                Tổng quan hiệu suất
               </Text>
-            </View>
-
-            <View className="flex-1 px-3">
-              <View className="flex-row items-center gap-1.5">
-                <ClockIcon color="#6B7280" size={16} />
-                <Text className="text-xs text-neutral-500">Đã hủy</Text>
-              </View>
-              <Text testID="worker-history-cancelled-count" className="mt-1 text-lg font-black text-neutral-700 dark:text-neutral-300">
-                {stats.cancelledCount} việc
-              </Text>
-            </View>
-
-            <View className="flex-1 pl-3">
-              <Text className="text-xs text-neutral-500">Thu nhập</Text>
-              <Text className="mt-1 text-base font-black text-emerald-600 dark:text-emerald-400" numberOfLines={1}>
+              <Text className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">
                 {formatVND(stats.totalEarnings)}
               </Text>
+              <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                Tổng thu nhập từ đơn hoàn thành
+              </Text>
+            </View>
+            <View className="size-11 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/40">
+              <CheckCircleIcon color="#059669" size={24} />
+            </View>
+          </View>
+
+          <View className="mt-3 flex-row items-center justify-between">
+            <View className="flex-1 flex-row items-center pr-2">
+              <View className="mr-2.5 size-8 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-950/40">
+                <OrdersIcon color="#2563EB" size={16} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">Hoàn thành</Text>
+                <Text testID="worker-history-completed-count" className="text-sm font-bold text-neutral-900 dark:text-white">
+                  {stats.completedCount} việc
+                </Text>
+              </View>
+            </View>
+
+            <View className="h-8 w-px bg-neutral-100 dark:bg-neutral-800" />
+
+            <View className="flex-1 flex-row items-center pl-3">
+              <View className="mr-2.5 size-8 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800">
+                <ClockIcon color="#6B7280" size={16} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">Đã hủy</Text>
+                <Text testID="worker-history-cancelled-count" className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
+                  {stats.cancelledCount} việc
+                </Text>
+              </View>
             </View>
           </View>
         </View>
