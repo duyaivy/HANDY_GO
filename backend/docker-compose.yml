@@ -131,6 +131,7 @@ services:
       <<: *development-environment
       NEST_PROJECT: user-trust-service
       PORT: '3002'
+      AUTH_SERVICE_URL: http://auth-service:3001
       DATABASE_URL_USER_TRUST: ${DATABASE_URL_USER_TRUST}
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004

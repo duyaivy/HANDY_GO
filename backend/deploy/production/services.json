@@ -28,6 +28,7 @@
       "url_env": "AUTH_SERVICE_URL",
       "http_callers": [
         "api-gateway",
+        "user-trust-service",
         "message-service",
         "order-service"
       ],

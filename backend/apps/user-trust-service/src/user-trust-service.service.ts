@@ -27,6 +27,7 @@ import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
+import { AuthClient } from './clients/auth.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -217,6 +218,8 @@ export class UserTrustServiceService {
     private readonly orderClient?: OrderClient,
     @Optional()
     private readonly configService?: ConfigService,
+    @Optional()
+    private readonly authClient?: AuthClient,
   ) { }
 
   async getDisplayNames(ids: string[]) {
@@ -1998,7 +2001,7 @@ export class UserTrustServiceService {
       worker.serviceOfferings[0]?.title ||
       'Thợ kỹ thuật chuyên nghiệp';
 
-    const phone = (worker.user as any)?.phone || null;
+    const phone = await this.authClient?.getUserPhone(worker.userId) ?? null;
 
     return {
       statusCode: 200,
