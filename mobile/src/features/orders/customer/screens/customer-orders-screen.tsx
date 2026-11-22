@@ -10,12 +10,14 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
+import { MapPinIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { isSpecificServiceName, KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
 import { useCustomerOrders } from '../../hooks/use-customer-orders';
+import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 
 export const ACTIVITY_FILTER_TABS = [
   'Searching',
@@ -245,6 +247,60 @@ function getOrderServiceTitle(ord: Order): string {
   return scope;
 }
 
+function OrderCardReviewAction({ order }: { order: Order }) {
+  const orderId = order.id;
+  const router = useRouter();
+  const {
+    canEdit,
+    hasReviewed,
+    isError: isReviewError,
+    isLoading: isLoadingReview,
+  } = useOrderReview(orderId);
+
+  // Đang tải trạng thái hoặc gặp lỗi API: tránh hiển thị CTA tạo mới sai
+  if (isLoadingReview || isReviewError) {
+    return null;
+  }
+
+  // Đã đánh giá
+  if (hasReviewed) {
+    // Nếu vẫn còn thời gian sửa (trong 48h và chưa từng sửa trước đó)
+    if (canEdit) {
+      return (
+        <Button
+          testID={`order-card-edit-review-btn-${orderId}`}
+          label="Sửa đánh giá"
+          variant="outline"
+          className="h-8 shrink-0 rounded-xl border-amber-400 bg-amber-50 px-3 active:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40"
+          textClassName="text-[11px] font-bold text-amber-800 dark:text-amber-300"
+          onPress={() => router.push({
+            pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+            params: { mode: 'edit' },
+          } as any)}
+        />
+      );
+    }
+    // Đã đánh giá và hết hạn sửa: không hiển thị nút đánh giá nữa
+    return null;
+  }
+
+  if (!canCreateOrderReview(order)) {
+    return null;
+  }
+
+  // Chưa đánh giá và còn trong thời hạn 14 ngày: hiển thị nút đánh giá
+  return (
+    <Button
+      testID={`order-card-review-btn-${orderId}`}
+      label="⭐ Đánh giá"
+      variant="default"
+      className="h-8 shrink-0 rounded-xl bg-primary px-3"
+      textClassName="text-[11px] font-bold text-white"
+      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+    />
+  );
+}
+
 export function CustomerOrdersScreen({
   testID = 'orders-customer-screen',
 }: CustomerOrdersScreenProps = {}) {
@@ -433,6 +489,13 @@ export function CustomerOrdersScreen({
                     {req.requestCode || req.id.slice(0, 8)}
                   </Text>
 
+                  <View className="mt-1 flex-row items-center gap-1.5">
+                    <MapPinIcon size={13} color="#9CA3AF" />
+                    <Text className="flex-1 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={2}>
+                      {req.addressText || 'Đà Nẵng'}
+                    </Text>
+                  </View>
+
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
                       Hủy lúc:
@@ -441,11 +504,8 @@ export function CustomerOrdersScreen({
                     </Text>
                   )}
 
-                  <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
-                      {req.addressText || 'Đà Nẵng'}
-                    </Text>
-                    {isSearch && (
+                  {isSearch && (
+                    <View className="mt-3 flex-row items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                       <Button
                         label="Xem Radar thợ →"
                         variant="default"
@@ -462,8 +522,8 @@ export function CustomerOrdersScreen({
                           },
                         } as any)}
                       />
-                    )}
-                  </View>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -532,6 +592,15 @@ export function CustomerOrdersScreen({
                     {formatVND(ord.agreedPrice)}
                   </Text>
 
+                  {Boolean(ord.addressText) && (
+                    <View className="mt-1 flex-row items-center gap-1.5">
+                      <MapPinIcon size={13} color="#9CA3AF" />
+                      <Text className="flex-1 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={2}>
+                        {ord.addressText}
+                      </Text>
+                    </View>
+                  )}
+
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
                       Hủy lúc:
@@ -541,15 +610,24 @@ export function CustomerOrdersScreen({
                     </Text>
                   )}
 
-                  <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
-                      {ord.addressText}
-                    </Text>
+                  <View className="mt-3 flex-row items-center justify-end gap-1.5 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                    {ord.status === 'completed' && (
+                      <OrderCardReviewAction order={ord} />
+                    )}
                     <Button
+                      testID={`order-card-detail-btn-${ord.id}`}
                       label="Chi tiết đơn"
-                      variant="default"
-                      className="h-8 shrink-0 rounded-xl bg-primary px-3"
-                      textClassName="text-[11px] font-bold text-white"
+                      variant={ord.status === 'completed' ? 'outline' : 'default'}
+                      className={`h-8 shrink-0 rounded-xl px-3 ${
+                        ord.status === 'completed'
+                          ? 'border-neutral-300 dark:border-neutral-700'
+                          : 'bg-primary'
+                      }`}
+                      textClassName={`text-[11px] font-bold ${
+                        ord.status === 'completed'
+                          ? 'text-neutral-700 dark:text-neutral-300'
+                          : 'text-white'
+                      }`}
                       onPress={() => router.push(RouteNames.CUSTOMER_ORDER_DETAIL(ord.id) as any)}
                     />
                   </View>

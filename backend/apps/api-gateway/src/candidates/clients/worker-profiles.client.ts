@@ -37,12 +37,20 @@ export class WorkerProfilesClient {
           !row.fullName.trim()
         )
           continue;
+        const completedOrderCount = row.completedOrderCount ?? 0;
+        const orderCountTotal = row.orderCountTotal ?? completedOrderCount;
+        const completionRate = typeof row.completionRate === 'number'
+          ? row.completionRate
+          : (orderCountTotal > 0 ? Math.round((completedOrderCount / orderCountTotal) * 100) : (completedOrderCount > 0 ? 100 : 0));
+
         profiles.set(row.workerId, {
           fullName: row.fullName,
           avatarUrl: row.avatarUrl ?? null,
           averageRating: row.averageRating ?? null,
           ratingCount: row.ratingCount ?? 0,
-          completedOrderCount: row.completedOrderCount ?? 0,
+          completedOrderCount,
+          orderCountTotal,
+          completionRate,
         });
       }
     } catch {
