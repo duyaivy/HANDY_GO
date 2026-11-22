@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { ClockIcon, CloseIcon, OrdersIcon } from '@/components/ui/icons/handy-icons';
+import { ClockIcon, CloseIcon, OrdersIcon, RetryIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
@@ -109,6 +109,7 @@ export function CustomerOrderHistoryScreen({
     orders,
     requests,
     isLoading,
+    isError,
     refetch,
     hasNextPage,
     isFetchingNextPage,
@@ -188,7 +189,8 @@ export function CustomerOrderHistoryScreen({
     [hasNextPage, isFetchingNextPage, fetchNextPage],
   );
 
-  const isEmpty = !isLoading && !searchQuery.trim() && filteredOrders.length === 0 && filteredRequests.length === 0;
+  const isErrorState = !isLoading && isError && filteredOrders.length === 0 && filteredRequests.length === 0;
+  const isEmpty = !isLoading && !isError && !searchQuery.trim() && filteredOrders.length === 0 && filteredRequests.length === 0;
   const isSearchEmpty = !isLoading && searchQuery.trim().length > 0 && searchedOrders.length === 0 && searchedRequests.length === 0;
 
   return (
@@ -212,11 +214,14 @@ export function CustomerOrderHistoryScreen({
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl
             refreshing={isManualRefreshing}
             onRefresh={handleManualRefresh}
             tintColor={PRIMARY_COLOR}
+            colors={[PRIMARY_COLOR]}
           />
         }
       >
@@ -299,6 +304,38 @@ export function CustomerOrderHistoryScreen({
             <ActivityIndicator size="small" color={PRIMARY_COLOR} />
             <Text className="mt-2 text-xs text-neutral-500">Đang tải lịch sử đơn hàng...</Text>
           </View>
+        )}
+
+        {/* Error state */}
+        {isErrorState && (
+          <View testID="history-error-state" className="items-center justify-center py-16">
+            <View className="mb-4 size-16 items-center justify-center rounded-full bg-rose-50 dark:bg-rose-950/40">
+              <Svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <Circle cx="12" cy="12" r="10" />
+                <Path d="M12 8v4M12 16h.01" />
+              </Svg>
+            </View>
+            <Text className="text-base font-bold text-neutral-900 dark:text-white">
+              Không thể tải dữ liệu
+            </Text>
+            <Text className="mt-1 max-w-[280px] text-center text-xs text-neutral-500 dark:text-neutral-400">
+              Đã có sự cố khi kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.
+            </Text>
+            <Button
+              testID="history-retry-btn"
+              label="Thử lại"
+              className="mt-6 h-10 flex-row items-center rounded-2xl bg-primary px-6"
+              textClassName="text-xs font-bold text-white"
+              onPress={handleManualRefresh}
+            />
+          </View>
+        )}
+
+        {/* Search results count */}
+        {searchQuery.trim().length > 0 && !isSearchEmpty && !isLoading && !isErrorState && (
+          <Text testID="search-results-count" className="mb-3 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            Tìm thấy {searchedOrders.length + searchedRequests.length} kết quả phù hợp
+          </Text>
         )}
 
         {/* Empty state when no orders at all */}
@@ -387,6 +424,18 @@ export function CustomerOrderHistoryScreen({
                     {isCompleted ? 'Hoàn thành lúc: ' : 'Thời gian: '}
                     {formatDate(order.completedAt || order.updatedAt || order.createdAt)}
                   </Text>
+
+                  {isCancelled && order.cancelReason ? (
+                    <Text className="mt-1 text-xs text-rose-500 dark:text-rose-400" numberOfLines={2}>
+                      Lý do hủy: {order.cancelReason}
+                    </Text>
+                  ) : null}
+
+                  {order.status === 'disputed' && order.disputeReason ? (
+                    <Text className="mt-1 text-xs text-rose-500 dark:text-rose-400" numberOfLines={2}>
+                      Lý do khiếu nại: {order.disputeReason}
+                    </Text>
+                  ) : null}
 
                   <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                     <View>

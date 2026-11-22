@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { CustomerOrderHistoryScreen } from '../screens/customer-order-history-screen';
 
 const mockPush = jest.fn();
@@ -29,6 +29,7 @@ const mockOrders = [
     addressText: '200 Hải Phòng, Đà Nẵng',
     status: 'cancelled',
     paymentState: 'refunded',
+    cancelReason: 'Khách bận đột xuất',
     cancelledAt: '2026-11-19T14:30:00.000Z',
     createdAt: '2026-11-19T14:00:00.000Z',
   },
@@ -51,6 +52,7 @@ let mockHookReturn = {
   orders: mockOrders,
   requests: mockRequests,
   isLoading: false,
+  isError: false,
   refetch: mockRefetch,
   hasNextPage: false,
   isFetchingNextPage: false,
@@ -76,6 +78,7 @@ afterEach(() => {
     orders: mockOrders,
     requests: mockRequests,
     isLoading: false,
+    isError: false,
     refetch: mockRefetch,
     hasNextPage: false,
     isFetchingNextPage: false,
@@ -235,6 +238,43 @@ describe('customerOrderHistoryScreen', () => {
 
     expect(screen.queryByTestId('search-empty-state')).toBeNull();
     expect(screen.getByTestId('history-order-card-ord-comp-1')).toBeOnTheScreen();
+  });
+
+  it('renders cancelReason for cancelled orders', () => {
+    render(<CustomerOrderHistoryScreen />);
+    expect(screen.getByText('Lý do hủy: Khách bận đột xuất')).toBeOnTheScreen();
+  });
+
+  it('renders search results count indicator during search', () => {
+    render(<CustomerOrderHistoryScreen />);
+    const searchInput = screen.getByTestId('history-search-input');
+    fireEvent.changeText(searchInput, 'máy lạnh');
+
+    expect(screen.getByTestId('search-results-count')).toBeOnTheScreen();
+    expect(screen.getByText('Tìm thấy 1 kết quả phù hợp')).toBeOnTheScreen();
+  });
+
+  it('renders error state when isError is true and calls refetch on retry tap', async () => {
+    mockHookReturn = {
+      orders: [],
+      requests: [],
+      isLoading: false,
+      isError: true,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    expect(screen.getByTestId('history-error-state')).toBeOnTheScreen();
+    expect(screen.getByText('Không thể tải dữ liệu')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('history-retry-btn'));
+    });
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 });
 

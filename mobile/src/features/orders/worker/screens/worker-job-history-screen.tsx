@@ -84,6 +84,7 @@ export function WorkerJobHistoryScreen({
     orders,
     stats,
     isLoading,
+    isError,
     refetch,
     hasNextPage,
     isFetchingNextPage,
@@ -126,7 +127,8 @@ export function WorkerJobHistoryScreen({
     [hasNextPage, isFetchingNextPage, fetchNextPage],
   );
 
-  const isEmpty = !isLoading && !searchQuery.trim() && orders.length === 0;
+  const isErrorState = !isLoading && isError && orders.length === 0;
+  const isEmpty = !isLoading && !isError && !searchQuery.trim() && orders.length === 0;
   const isSearchEmpty = !isLoading && searchQuery.trim().length > 0 && searchedOrders.length === 0;
 
   return (
@@ -150,11 +152,14 @@ export function WorkerJobHistoryScreen({
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl
             refreshing={isManualRefreshing}
             onRefresh={handleManualRefresh}
             tintColor={SECONDARY_COLOR}
+            colors={[SECONDARY_COLOR]}
           />
         }
       >
@@ -263,6 +268,38 @@ export function WorkerJobHistoryScreen({
           </View>
         )}
 
+        {/* Error state */}
+        {isErrorState && (
+          <View testID="worker-history-error-state" className="items-center justify-center py-16">
+            <View className="mb-4 size-16 items-center justify-center rounded-full bg-rose-50 dark:bg-rose-950/40">
+              <Svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <Circle cx="12" cy="12" r="10" />
+                <Path d="M12 8v4M12 16h.01" />
+              </Svg>
+            </View>
+            <Text className="text-base font-bold text-neutral-900 dark:text-white">
+              Không thể tải dữ liệu
+            </Text>
+            <Text className="mt-1 max-w-[280px] text-center text-xs text-neutral-500 dark:text-neutral-400">
+              Đã có sự cố khi kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng và thử lại.
+            </Text>
+            <Button
+              testID="worker-history-retry-btn"
+              label="Thử lại"
+              className="mt-6 h-10 flex-row items-center rounded-2xl bg-[#F5A524] px-6"
+              textClassName="text-xs font-bold text-white"
+              onPress={handleManualRefresh}
+            />
+          </View>
+        )}
+
+        {/* Search results count */}
+        {searchQuery.trim().length > 0 && !isSearchEmpty && !isLoading && !isErrorState && (
+          <Text testID="worker-search-results-count" className="mb-3 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            Tìm thấy {searchedOrders.length} công việc phù hợp
+          </Text>
+        )}
+
         {/* Empty state */}
         {isEmpty && (
           <View testID="worker-history-empty-state" className="items-center justify-center py-16">
@@ -317,9 +354,12 @@ export function WorkerJobHistoryScreen({
           <View className="gap-3">
             {searchedOrders.map((job: Order) => {
               const isCompleted = job.status === 'completed';
+              const isCancelled = job.status === 'cancelled';
               const badge = isCompleted
                 ? { label: 'Hoàn thành', bg: 'bg-emerald-100 dark:bg-emerald-950/40', text: 'text-emerald-800 dark:text-emerald-300' }
-                : { label: 'Đã hủy', bg: 'bg-neutral-100 dark:bg-neutral-800', text: 'text-neutral-600 dark:text-neutral-400' };
+                : isCancelled
+                  ? { label: 'Đã hủy', bg: 'bg-neutral-100 dark:bg-neutral-800', text: 'text-neutral-600 dark:text-neutral-400' }
+                  : { label: 'Khiếu nại', bg: 'bg-rose-100 dark:bg-rose-950/40', text: 'text-rose-800 dark:text-rose-300' };
 
               return (
                 <View
@@ -357,6 +397,18 @@ export function WorkerJobHistoryScreen({
                     {isCompleted ? 'Hoàn thành lúc: ' : 'Thời gian: '}
                     {formatDate(job.completedAt || job.cancelledAt || job.updatedAt || job.createdAt)}
                   </Text>
+
+                  {isCancelled && job.cancelReason ? (
+                    <Text className="mt-1 text-xs text-rose-500 dark:text-rose-400" numberOfLines={2}>
+                      Lý do hủy: {job.cancelReason}
+                    </Text>
+                  ) : null}
+
+                  {job.status === 'disputed' && job.disputeReason ? (
+                    <Text className="mt-1 text-xs text-rose-500 dark:text-rose-400" numberOfLines={2}>
+                      Lý do khiếu nại: {job.disputeReason}
+                    </Text>
+                  ) : null}
 
                   {/* Footer */}
                   <View className="mt-3.5 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">

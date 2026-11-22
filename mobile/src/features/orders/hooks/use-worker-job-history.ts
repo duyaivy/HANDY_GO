@@ -110,6 +110,7 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     orders,
     stats,
     isLoading: query.isLoading,
+    isError: query.isError,
     isRefetching: query.isRefetching,
     refetch: query.refetch,
     hasNextPage: Boolean(query.hasNextPage),

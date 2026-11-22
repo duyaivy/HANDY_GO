@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { WorkerJobHistoryScreen } from '../screens/worker-job-history-screen';
 
 const mockPush = jest.fn();
@@ -27,6 +27,7 @@ const mockWorkerOrders = [
     agreedScope: 'Bảo dưỡng điều hòa',
     addressText: '88 Nguyễn Văn Thoại, Đà Nẵng',
     status: 'cancelled',
+    cancelReason: 'Thời tiết xấu',
     cancelledAt: '2026-11-20T16:00:00.000Z',
     createdAt: '2026-11-20T15:00:00.000Z',
   },
@@ -40,6 +41,7 @@ let mockHookReturn = {
     totalEarnings: 350000,
   },
   isLoading: false,
+  isError: false,
   refetch: mockRefetch,
   hasNextPage: false,
   isFetchingNextPage: false,
@@ -69,6 +71,7 @@ afterEach(() => {
       totalEarnings: 350000,
     },
     isLoading: false,
+    isError: false,
     refetch: mockRefetch,
     hasNextPage: false,
     isFetchingNextPage: false,
@@ -210,6 +213,47 @@ describe('workerJobHistoryScreen', () => {
 
     expect(screen.queryByTestId('worker-search-empty-state')).toBeNull();
     expect(screen.getByTestId('worker-history-card-job-comp-1')).toBeOnTheScreen();
+  });
+
+  it('renders cancelReason for cancelled jobs', () => {
+    render(<WorkerJobHistoryScreen />);
+    expect(screen.getByText('Lý do hủy: Thời tiết xấu')).toBeOnTheScreen();
+  });
+
+  it('renders search results count indicator during search', () => {
+    render(<WorkerJobHistoryScreen />);
+    const searchInput = screen.getByTestId('worker-history-search-input');
+    fireEvent.changeText(searchInput, 'điều hòa');
+
+    expect(screen.getByTestId('worker-search-results-count')).toBeOnTheScreen();
+    expect(screen.getByText('Tìm thấy 1 công việc phù hợp')).toBeOnTheScreen();
+  });
+
+  it('renders error state when isError is true and calls refetch on retry tap', async () => {
+    mockHookReturn = {
+      orders: [],
+      stats: {
+        completedCount: 0,
+        cancelledCount: 0,
+        totalEarnings: 0,
+      },
+      isLoading: false,
+      isError: true,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByTestId('worker-history-error-state')).toBeOnTheScreen();
+    expect(screen.getByText('Không thể tải dữ liệu')).toBeOnTheScreen();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('worker-history-retry-btn'));
+    });
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 });
 
