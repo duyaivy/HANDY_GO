@@ -5,6 +5,7 @@ import { PaymentApi } from '@/features/wallet/api/payment.api';
 import { WalletApi } from '@/features/wallet/api/wallet.api';
 import { queryClient } from '@/lib/api/query-client';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { ReviewsApi } from '@/services/reviews/reviews-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { CustomerOrderDetailScreen } from '../screens/customer-order-detail-screen';
@@ -58,6 +59,7 @@ beforeEach(() => {
     statusCode: 200,
     message: 'OK',
   } as any);
+  jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(null);
 });
 
 afterEach(() => {
