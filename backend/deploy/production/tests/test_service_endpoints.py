@@ -71,6 +71,9 @@ class ServiceEndpointTests(unittest.TestCase):
         self.assertEqual(env.get('NOTIFICATION_SERVICE_URL'), 'http://notification-service:3008')
 
     def test_same_host_microservices_override_docker_dns(self):
+        trust_env = self.compose['services']['user-trust-service']['environment']
+        self.assertEqual(trust_env.get('AUTH_SERVICE_URL'), 'http://auth-service:3001')
+
         payment_env = self.compose['services']['payment-service']['environment']
         self.assertEqual(payment_env.get('WALLET_SERVICE_URL'), 'http://wallet-service:3009')
         self.assertEqual(payment_env.get('NODE_OPTIONS'), '--max-old-space-size=104')

@@ -35,20 +35,12 @@ export function OrderEvidenceGallery({ evidences = [] }: OrderEvidenceGalleryPro
 
   return (
     <View className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-900 dark:bg-emerald-950/20">
-      <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2">
-          <View className="size-7 items-center justify-center rounded-lg bg-emerald-600">
-            <CameraIcon size={16} color="#FFFFFF" />
-          </View>
-          <Text className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
-            📷 Bằng chứng hoàn thành do Thợ nộp:
-          </Text>
+      <View className="flex-row items-center gap-2">
+        <View className="size-7 shrink-0 items-center justify-center rounded-lg bg-emerald-600">
+          <CameraIcon size={16} color="#FFFFFF" />
         </View>
-
-        <Text className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
-          {validEvidences.length}
-          {' '}
-          ảnh
+        <Text className="flex-1 text-sm font-bold text-emerald-900 dark:text-emerald-300">
+          Bằng chứng hoàn thành do Thợ nộp:
         </Text>
       </View>
 

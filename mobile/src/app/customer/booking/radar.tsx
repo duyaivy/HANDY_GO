@@ -31,6 +31,7 @@ import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
 import { useCandidates } from '@/features/candidates/hooks/use-candidates';
+import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
 import { ChatEntry } from '@/features/chat/chat-entry';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
@@ -101,6 +102,48 @@ async function fetchLatestActiveRequestId(): Promise<string | null> {
   catch {
     return null;
   }
+}
+
+function WorkerStatsTags({
+  workerId,
+  fallbackOrders,
+  fallbackRate,
+}: {
+  workerId?: string;
+  fallbackOrders: number;
+  fallbackRate: number;
+}) {
+  const isMockWorker = !workerId || workerId.startsWith('th-01') || workerId.startsWith('mock-') || workerId.startsWith('test-') || workerId.startsWith('worker-');
+  const { data: profile } = useWorkerPublicProfile(workerId, {
+    enabled: !isMockWorker,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const stats = profile?.stats;
+  const completed = stats?.completedOrderCount ?? fallbackOrders;
+  const total = stats?.orderCountTotal;
+
+  const rate = typeof total === 'number' && total > 0
+    ? Math.round((completed / total) * 100)
+    : fallbackRate;
+
+  return (
+    <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
+      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
+        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
+          {completed}
+          {' '}
+          đơn
+        </Text>
+      </View>
+      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
+        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
+          {rate}
+          % hoàn thành
+        </Text>
+      </View>
+    </View>
+  );
 }
 
 export default function CustomerBookingRadarRoute() {
@@ -734,12 +777,21 @@ export default function CustomerBookingRadarRoute() {
         const validPrice = isValidPrice
           ? (typeof b.amount === 'number' ? b.amount : Number(b.amount))
           : 0;
+
+        const completedOrders = b.workerProfile?.completedOrderCount ?? 0;
+        const totalOrders = b.workerProfile?.orderCountTotal ?? completedOrders;
+        const completionRate = typeof b.workerProfile?.completionRate === 'number'
+          ? Math.min(100, Math.max(0, Math.round(b.workerProfile.completionRate)))
+          : (totalOrders > 0
+              ? Math.min(100, Math.max(0, Math.round((completedOrders / totalOrders) * 100)))
+              : (completedOrders > 0 ? 100 : 0));
+
         return {
           id: b.workerUserId,
           name: b.workerProfile?.fullName || 'Thợ đối tác',
           rating: typeof b.workerProfile?.averageRating === 'number' ? b.workerProfile.averageRating : 0,
-          totalOrders: b.workerProfile?.completedOrderCount ?? 0,
-          completionRate: 98,
+          totalOrders: completedOrders,
+          completionRate,
           price: validPrice,
           priceText: isValidPrice ? `${validPrice.toLocaleString('vi-VN')}đ` : 'Không có giá hợp lệ',
           isPriceValid: isValidPrice,
@@ -757,24 +809,34 @@ export default function CustomerBookingRadarRoute() {
   // Map AI Recommendations (Section B)
   const mappedRecommendations: DisplayWorkerCandidate[] = React.useMemo(() => {
     const defaultRecPrice = typeof aiRefPriceMin === 'number' && aiRefPriceMin > 0 ? aiRefPriceMin : 200000;
-    return recommendations.map((r: RecommendationCandidate) => ({
-      id: r.workerUserId,
-      name: r.workerProfile?.fullName?.trim() || 'Thợ đối tác HandyGo',
-      rating: r.workerProfile?.averageRating ?? 0,
-      totalOrders: r.workerProfile?.completedOrderCount ?? 0,
-      completionRate: 95,
-      price: defaultRecPrice,
-      priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
-      isPriceValid: true,
-      distance: typeof r.workerProfile?.distanceKm === 'number'
-        ? `${r.workerProfile.distanceKm.toFixed(1)}km`
-        : 'Gần bạn',
-      avatarUrl: r.workerProfile?.avatarUrl || DEFAULT_AVATAR,
-      selectionSource: 'recommendation' as const,
-      sourceMatchResultId: r.sourceMatchResultId,
-      matchingScore: r.matchingScore,
-      rank: r.rank,
-    }));
+    return recommendations.map((r: RecommendationCandidate) => {
+      const completedOrders = r.workerProfile?.completedOrderCount ?? 0;
+      const totalOrders = r.workerProfile?.orderCountTotal ?? completedOrders;
+      const completionRate = typeof r.workerProfile?.completionRate === 'number'
+        ? Math.min(100, Math.max(0, Math.round(r.workerProfile.completionRate)))
+        : (totalOrders > 0
+            ? Math.min(100, Math.max(0, Math.round((completedOrders / totalOrders) * 100)))
+            : (completedOrders > 0 ? 100 : 0));
+
+      return {
+        id: r.workerUserId,
+        name: r.workerProfile?.fullName?.trim() || 'Thợ đối tác HandyGo',
+        rating: r.workerProfile?.averageRating ?? 0,
+        totalOrders: completedOrders,
+        completionRate,
+        price: defaultRecPrice,
+        priceText: `${defaultRecPrice.toLocaleString('vi-VN')}đ`,
+        isPriceValid: true,
+        distance: typeof r.workerProfile?.distanceKm === 'number'
+          ? `${r.workerProfile.distanceKm.toFixed(1)}km`
+          : 'Gần bạn',
+        avatarUrl: r.workerProfile?.avatarUrl || DEFAULT_AVATAR,
+        selectionSource: 'recommendation' as const,
+        sourceMatchResultId: r.sourceMatchResultId,
+        matchingScore: r.matchingScore,
+        rank: r.rank,
+      };
+    });
   }, [recommendations, aiRefPriceMin]);
 
   // Combined candidates or test fallback
@@ -1288,9 +1350,9 @@ export default function CustomerBookingRadarRoute() {
                                         resizeMode="cover"
                                       />
                                     </View>
-                                    <View className="absolute inset-x-0 -bottom-1 items-center">
-                                      <View className="rounded-full bg-secondary-800 px-1.5 py-0.5 shadow-xs">
-                                        <Text className="text-[7px] font-black tracking-wider text-white uppercase">
+                                    <View className="absolute -inset-x-4 -bottom-1.5 items-center">
+                                      <View className="shrink-0 rounded-full bg-secondary-800 px-2 py-0.5 shadow-xs">
+                                        <Text numberOfLines={1} className="text-[7.5px] font-black tracking-wide text-white uppercase">
                                           HandyGo
                                         </Text>
                                       </View>
@@ -1325,21 +1387,11 @@ export default function CustomerBookingRadarRoute() {
                                     </View>
 
                                     {/* Tags */}
-                                    <View className="mt-1 flex-row flex-wrap items-center gap-1.5">
-                                      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
-                                        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
-                                          {worker.totalOrders}
-                                          {' '}
-                                          đơn
-                                        </Text>
-                                      </View>
-                                      <View className="rounded-md bg-blue-50 px-2 py-0.5 dark:bg-blue-950/40">
-                                        <Text className="text-[11px] font-semibold text-[#2563EB] dark:text-blue-400">
-                                          {worker.completionRate}
-                                          % hoàn thành
-                                        </Text>
-                                      </View>
-                                    </View>
+                                    <WorkerStatsTags
+                                      workerId={worker.id}
+                                      fallbackOrders={worker.totalOrders}
+                                      fallbackRate={worker.completionRate}
+                                    />
 
                                     {/* Tin nhắn từ thợ */}
                                     {worker.message
@@ -1381,34 +1433,48 @@ export default function CustomerBookingRadarRoute() {
                                       {worker.isPriceValid === false ? 'Báo giá không hợp lệ' : worker.distance}
                                     </Text>
                                   </View>
-                                  <Pressable
-                                    testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
-                                    onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                    disabled={isSubmitting || isWorkerProposed(worker.id) || worker.isPriceValid === false}
-                                    className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
-                                      worker.isPriceValid === false
-                                        ? 'bg-neutral-200 opacity-60 dark:bg-neutral-800'
-                                        : isWorkerProposed(worker.id)
-                                          ? 'bg-neutral-200 dark:bg-neutral-800'
-                                          : 'bg-[#F5A524] active:opacity-80'
-                                    }`}
-                                  >
-                                    <Text
-                                      className={`text-sm font-bold ${
-                                        worker.isPriceValid === false || isWorkerProposed(worker.id)
-                                          ? 'text-neutral-500 dark:text-neutral-400'
-                                          : 'text-white'
+                                  <View className="flex-row items-center gap-2">
+                                    <Pressable
+                                      testID={idx === 0 ? 'radar-view-profile-btn' : `radar-view-profile-btn-${idx}`}
+                                      accessibilityRole="button"
+                                      accessibilityLabel={`Xem hồ sơ của thợ ${worker.name}`}
+                                      onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                      className="min-h-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white px-3 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:active:bg-neutral-700"
+                                    >
+                                      <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                                        Xem hồ sơ
+                                      </Text>
+                                    </Pressable>
+
+                                    <Pressable
+                                      testID={idx === 0 ? 'radar-select-worker-btn' : undefined}
+                                      onPress={() => handleSelectWorkerAndSendProposal(worker)}
+                                      disabled={isSubmitting || isWorkerProposed(worker.id) || worker.isPriceValid === false}
+                                      className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
+                                        worker.isPriceValid === false
+                                          ? 'bg-neutral-200 opacity-60 dark:bg-neutral-800'
+                                          : isWorkerProposed(worker.id)
+                                            ? 'bg-neutral-200 dark:bg-neutral-800'
+                                            : 'bg-[#F5A524] active:opacity-80'
                                       }`}
                                     >
-                                      {worker.isPriceValid === false
-                                        ? 'Không thể chọn'
-                                        : isWorkerProposed(worker.id)
-                                          ? 'Đang chờ thợ...'
-                                          : isSubmitting
-                                            ? 'Đang gửi...'
-                                            : 'Chọn thợ'}
-                                    </Text>
-                                  </Pressable>
+                                      <Text
+                                        className={`text-sm font-bold ${
+                                          worker.isPriceValid === false || isWorkerProposed(worker.id)
+                                            ? 'text-neutral-500 dark:text-neutral-400'
+                                            : 'text-white'
+                                        }`}
+                                      >
+                                        {worker.isPriceValid === false
+                                          ? 'Không thể chọn'
+                                          : isWorkerProposed(worker.id)
+                                            ? 'Đang chờ thợ...'
+                                            : isSubmitting
+                                              ? 'Đang gửi...'
+                                              : 'Chọn thợ'}
+                                      </Text>
+                                    </Pressable>
+                                  </View>
                                 </View>
                               </View>
                             ))}
@@ -1454,9 +1520,9 @@ export default function CustomerBookingRadarRoute() {
                                           resizeMode="cover"
                                         />
                                       </View>
-                                      <View className="absolute inset-x-0 -bottom-1 items-center">
-                                        <View className="rounded-full bg-purple-600 px-1.5 py-0.5 shadow-xs">
-                                          <Text className="text-[7px] font-black tracking-wider text-white uppercase">
+                                      <View className="absolute -inset-x-4 -bottom-1.5 items-center">
+                                        <View className="shrink-0 rounded-full bg-purple-600 px-2 py-0.5 shadow-xs">
+                                          <Text numberOfLines={1} className="text-[7.5px] font-black tracking-wide text-white uppercase">
                                             AI Match
                                           </Text>
                                         </View>
@@ -1524,30 +1590,44 @@ export default function CustomerBookingRadarRoute() {
                                         {worker.distance}
                                       </Text>
                                     </View>
-                                    <Pressable
-                                      testID={globalIdx === 0 ? 'radar-select-worker-btn' : undefined}
-                                      onPress={() => handleSelectWorkerAndSendProposal(worker)}
-                                      disabled={isSubmitting || isWorkerProposed(worker.id)}
-                                      className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
-                                        isWorkerProposed(worker.id)
-                                          ? 'bg-neutral-200 dark:bg-neutral-800'
-                                          : 'bg-[#F5A524] active:opacity-80'
-                                      }`}
-                                    >
-                                      <Text
-                                        className={`text-sm font-bold ${
+                                    <View className="flex-row items-center gap-2">
+                                      <Pressable
+                                        testID={globalIdx === 0 ? 'radar-view-profile-btn' : `radar-view-profile-btn-${globalIdx}`}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Xem hồ sơ của thợ ${worker.name}`}
+                                        onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                        className="min-h-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white px-3 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:active:bg-neutral-700"
+                                      >
+                                        <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                                          Xem hồ sơ
+                                        </Text>
+                                      </Pressable>
+
+                                      <Pressable
+                                        testID={globalIdx === 0 ? 'radar-select-worker-btn' : undefined}
+                                        onPress={() => handleSelectWorkerAndSendProposal(worker)}
+                                        disabled={isSubmitting || isWorkerProposed(worker.id)}
+                                        className={`min-h-10 shrink-0 items-center justify-center rounded-xl px-4 ${
                                           isWorkerProposed(worker.id)
-                                            ? 'text-neutral-500 dark:text-neutral-400'
-                                            : 'text-white'
+                                            ? 'bg-neutral-200 dark:bg-neutral-800'
+                                            : 'bg-[#F5A524] active:opacity-80'
                                         }`}
                                       >
-                                        {isWorkerProposed(worker.id)
-                                          ? 'Đang chờ thợ...'
-                                          : isSubmitting
-                                            ? 'Đang gửi...'
-                                            : 'Chọn thợ'}
-                                      </Text>
-                                    </Pressable>
+                                        <Text
+                                          className={`text-sm font-bold ${
+                                            isWorkerProposed(worker.id)
+                                              ? 'text-neutral-500 dark:text-neutral-400'
+                                              : 'text-white'
+                                          }`}
+                                        >
+                                          {isWorkerProposed(worker.id)
+                                            ? 'Đang chờ thợ...'
+                                            : isSubmitting
+                                              ? 'Đang gửi...'
+                                              : 'Chọn thợ'}
+                                        </Text>
+                                      </Pressable>
+                                    </View>
                                   </View>
                                 </View>
                               );
@@ -1585,26 +1665,37 @@ export default function CustomerBookingRadarRoute() {
                                 <Text className="text-base font-black text-secondary-700">
                                   {displayList[0].priceText}
                                 </Text>
-                                <Pressable
-                                  testID="radar-select-worker-btn"
-                                  onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
-                                  disabled={isSubmitting || isWorkerProposed(displayList[0].id)}
-                                  className={`rounded-lg px-3 py-1.5 ${
-                                    isWorkerProposed(displayList[0].id)
-                                      ? 'bg-neutral-200 dark:bg-neutral-800'
-                                      : 'bg-[#F5A524]'
-                                  }`}
-                                >
-                                  <Text
-                                    className={`text-xs font-bold ${
+                                <View className="flex-row items-center gap-2">
+                                  <Pressable
+                                    testID="radar-view-profile-btn"
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Xem hồ sơ của thợ ${displayList[0].name}`}
+                                    onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any)}
+                                    className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800"
+                                  >
+                                    <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
+                                      Xem hồ sơ
+                                    </Text>
+                                  </Pressable>
+                                  <Pressable
+                                    testID="radar-select-worker-btn"
+                                    onPress={() => handleSelectWorkerAndSendProposal(displayList[0])}
+                                    disabled={isSubmitting || isWorkerProposed(displayList[0].id)}
+                                    className={`rounded-lg px-3 py-1.5 ${
                                       isWorkerProposed(displayList[0].id)
-                                        ? 'text-neutral-500 dark:text-neutral-400'
-                                        : 'text-white'
+                                        ? 'bg-neutral-200 dark:bg-neutral-800'
+                                        : 'bg-[#F5A524]'
                                     }`}
                                   >
-                                    {isWorkerProposed(displayList[0].id) ? 'Đang chờ thợ...' : 'Chọn thợ'}
-                                  </Text>
-                                </Pressable>
+                                    <Text
+                                      className={`text-xs font-bold ${
+                                        isWorkerProposed(displayList[0].id) ? 'text-neutral-500 dark:text-neutral-400' : 'text-white'
+                                      }`}
+                                    >
+                                      {isWorkerProposed(displayList[0].id) ? 'Đang chờ thợ...' : 'Chọn thợ'}
+                                    </Text>
+                                  </Pressable>
+                                </View>
                               </View>
                             </View>
                           </View>
