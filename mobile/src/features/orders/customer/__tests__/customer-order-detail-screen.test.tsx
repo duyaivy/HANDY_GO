@@ -3,6 +3,7 @@ import { Alert, Linking } from 'react-native';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { PaymentApi } from '@/features/wallet/api/payment.api';
 import { WalletApi } from '@/features/wallet/api/wallet.api';
+import { queryClient } from '@/lib/api/query-client';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
@@ -61,6 +62,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  queryClient.clear();
   useAuthStore.setState(initialAuthState, true);
   jest.restoreAllMocks();
   jest.clearAllMocks();
@@ -283,7 +285,11 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     } as any);
 
     const confirmCompletionSpy = jest.spyOn(OrdersApi, 'confirmCompletion').mockImplementation(async () => {
-      const updated = { ...awaitingOrder, status: 'completed' };
+      const updated = {
+        ...awaitingOrder,
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      };
       jest.mocked(OrdersApi.getOrderDetail).mockResolvedValue({ data: updated, statusCode: 200, message: 'OK' } as any);
       return { data: updated, statusCode: 200, message: 'OK' } as any;
     });
@@ -347,8 +353,10 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({ data: { ...baseOrder, status: 'completed' }, statusCode: 200, message: 'OK' } as any);
     jest.mocked(PaymentApi.getPaymentByOrder).mockResolvedValue({ data: { ...testPayment, method: 'cash', status: 'pending' }, statusCode: 200, message: 'OK' } as any);
     render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
-    const changeMethod = await screen.findByTestId('customer-retry-payment-btn');
-    expect(changeMethod).toHaveTextContent('Đổi phương thức thanh toán');
+    await waitFor(() => {
+      expect(screen.getByTestId('customer-retry-payment-btn')).toHaveTextContent('Đổi phương thức thanh toán');
+    });
+    const changeMethod = screen.getByTestId('customer-retry-payment-btn');
     fireEvent.press(changeMethod);
     expect(screen.getByTestId('order-payment-cash')).toHaveProp('accessibilityState', { checked: true, disabled: false });
     fireEvent.press(screen.getByTestId('order-payment-point'));

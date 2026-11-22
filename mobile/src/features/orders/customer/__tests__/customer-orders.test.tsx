@@ -260,8 +260,36 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
             completedAt: new Date(Date.now() - 16 * 24 * 60 * 60 * 1000).toISOString(), // > 14 days unreviewed
             createdAt: new Date(Date.now() - 17 * 24 * 60 * 60 * 1000).toISOString(),
           },
+          {
+            id: 'ord-comp-no-completed-at',
+            orderCode: 'ORD-COMP-05',
+            serviceRequestId: 'req-05',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 180000,
+            agreedScope: 'Sửa bồn rửa mặt',
+            addressText: '55 Hùng Vương, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: null,
+            createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          },
+          {
+            id: 'ord-comp-invalid-completed-at',
+            orderCode: 'ORD-COMP-06',
+            serviceRequestId: 'req-06',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 190000,
+            agreedScope: 'Thay vòi xịt vệ sinh',
+            addressText: '88 Bạch Đằng, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: 'not-a-valid-date',
+            createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+          },
         ],
-        total: 4,
+        total: 6,
         page: 1,
         limit: 10,
         totalPages: 1,
@@ -331,6 +359,54 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
 
     // 4. Unreviewed order completed > 14 days hides "⭐ Đánh giá" button
     expect(screen.queryByTestId('order-card-review-btn-ord-comp-over-14d')).toBeNull();
+
+    // 5. Completed order with null or invalid completedAt hides "⭐ Đánh giá" button
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-no-completed-at')).toBeNull();
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-invalid-completed-at')).toBeNull();
+  });
+
+  it('does not prematurely display review CTA while review status is loading in order list', async () => {
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      data: {
+        items: [
+          {
+            id: 'ord-comp-unreviewed',
+            orderCode: 'ORD-COMP-01',
+            serviceRequestId: 'req-01',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 300000,
+            agreedScope: 'Sửa vòi nước rửa chén',
+            addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    // Keep review query in pending state
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockImplementation(() => new Promise(() => {}));
+
+    render(<CustomerOrdersScreen />);
+
+    const finishedTab = screen.getByTestId('activity-filter-tab-finished');
+    fireEvent.press(finishedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa vòi nước rửa chén')).toBeOnTheScreen();
+    });
+
+    // Review button must not be displayed while review query is loading
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-unreviewed')).toBeNull();
   });
 });
 

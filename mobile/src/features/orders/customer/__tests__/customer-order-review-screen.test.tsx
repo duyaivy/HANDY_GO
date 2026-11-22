@@ -717,4 +717,41 @@ describe('CustomerOrderDetailScreen review integration', () => {
       expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
     });
   });
+
+  it('hides review invite banner and review button when completed order has null, undefined, or invalid completedAt', async () => {
+    const orderNoCompletedAt = {
+      ...completedOrder,
+      id: 'ord-no-completed-at',
+      completedAt: null,
+    };
+
+    jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+      statusCode: 200,
+      data: orderNoCompletedAt,
+      message: 'OK',
+    } as any);
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(null);
+
+    render(<CustomerOrderDetailScreen orderId="ord-no-completed-at" />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
+      expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
+    });
+  });
+
+  it('does not prematurely display review CTA while review status is loading in order detail', async () => {
+    // Keep review query pending
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockImplementation(() => new Promise(() => {}));
+
+    render(<CustomerOrderDetailScreen orderId="ord-completed-456" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa chữa điện nước')).toBeOnTheScreen();
+    });
+
+    // While review status is resolving, review invite banner & button must not flash prematurely
+    expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
+    expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
+  });
 });

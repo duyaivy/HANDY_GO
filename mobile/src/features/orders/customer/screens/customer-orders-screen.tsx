@@ -254,7 +254,12 @@ function OrderCardReviewAction({
   completedAt?: string | null;
 }) {
   const router = useRouter();
-  const { canEdit, hasReviewed } = useOrderReview(orderId);
+  const { canEdit, hasReviewed, isLoading: isLoadingReview } = useOrderReview(orderId);
+
+  // Đang tải trạng thái đánh giá: tránh hiển thị CTA tạo mới quá sớm
+  if (isLoadingReview) {
+    return null;
+  }
 
   // Đã đánh giá
   if (hasReviewed) {
@@ -278,8 +283,8 @@ function OrderCardReviewAction({
     return null;
   }
 
-  // Chưa đánh giá: kiểm tra thời hạn đánh giá 14 ngày kể từ khi hoàn tất đơn
-  if (completedAt && !isWithinReviewWindow(completedAt)) {
+  // Chưa đánh giá: chỉ hiển thị nút tạo mới khi có completedAt và trong thời hạn 14 ngày
+  if (!isWithinReviewWindow(completedAt)) {
     return null;
   }
 
