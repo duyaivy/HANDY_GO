@@ -27,6 +27,7 @@ export const ORDER_ERROR_CODES = {
   ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
   EVIDENCE_NOT_FOUND: 'EVIDENCE_NOT_FOUND',
   MEDIA_NOT_FOUND: 'MEDIA_NOT_FOUND',
+  RECONCILIATION_EVENT_NOT_FOUND: 'RECONCILIATION_EVENT_NOT_FOUND',
 
   // 409 Conflict
   ORDER_ALREADY_EXISTS: 'ORDER_ALREADY_EXISTS',
@@ -37,7 +38,12 @@ export const ORDER_ERROR_CODES = {
   SCHEDULE_CONFLICT: 'SCHEDULE_CONFLICT',
   WORKER_ALREADY_BUSY: 'WORKER_ALREADY_BUSY',
   DISPUTE_ALREADY_DECIDED: 'DISPUTE_ALREADY_DECIDED',
+  DISPUTE_REFUND_ALREADY_COMPLETED: 'DISPUTE_REFUND_ALREADY_COMPLETED',
+  DISPUTE_REFUND_CANCELLATION_UNSAFE: 'DISPUTE_REFUND_CANCELLATION_UNSAFE',
+  ORDER_ALREADY_FULLY_REFUNDED: 'ORDER_ALREADY_FULLY_REFUNDED',
   PAYMENT_NOT_REFUNDABLE: 'PAYMENT_NOT_REFUNDABLE',
+  RECONCILIATION_REPLAY_NOT_ALLOWED: 'RECONCILIATION_REPLAY_NOT_ALLOWED',
+  RECONCILIATION_REPLAY_STILL_MISMATCHED: 'RECONCILIATION_REPLAY_STILL_MISMATCHED',
 
   // 422 Unprocessable Entity
   INCOMPLETE_PUBLISH_PAYLOAD: 'INCOMPLETE_PUBLISH_PAYLOAD',
@@ -94,6 +100,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'The requested order evidence could not be found',
   MEDIA_NOT_FOUND:
     'The requested service request media could not be found',
+  RECONCILIATION_EVENT_NOT_FOUND:
+    'The requested reconciliation event could not be found',
 
   ORDER_ALREADY_EXISTS:
     'An order has already been finalized for this service request',
@@ -110,7 +118,17 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
   WORKER_ALREADY_BUSY:
     'Bạn đang thi công một đơn khác. Vui lòng hoàn thành đơn hiện tại trước khi bắt đầu đơn mới!',
   DISPUTE_ALREADY_DECIDED: 'This dispute already has an Admin decision',
+  DISPUTE_REFUND_ALREADY_COMPLETED:
+    'The previous dispute refund has already been completed in Payment and cannot be overridden',
+  DISPUTE_REFUND_CANCELLATION_UNSAFE:
+    'The previous dispute refund is still in progress or unverified with Wallet and cannot be overridden yet',
+  ORDER_ALREADY_FULLY_REFUNDED:
+    'Đơn hàng đã được hoàn tiền toàn phần, không thể mở thêm khiếu nại.',
   PAYMENT_NOT_REFUNDABLE: 'Payment is not settled or has no refundable balance',
+  RECONCILIATION_REPLAY_NOT_ALLOWED:
+    'Only recoverable pending_reconciliation events can be replayed',
+  RECONCILIATION_REPLAY_STILL_MISMATCHED:
+    'Replayed event still fails order reconciliation guards',
 
   INCOMPLETE_PUBLISH_PAYLOAD:
     'Service request must include serviceId, addressText, coordinates, description, and future scheduledAt to be published',

@@ -84,6 +84,14 @@ function fixture() {
             (where.idempotencyKey && r.idempotencyKey === where.idempotencyKey),
         ) ?? null,
       ),
+      findFirst: vi.fn(async ({ where }: any) =>
+        resolutions.find(
+          (r) =>
+            r.orderId === where.orderId &&
+            r.disputedAt?.getTime() === where.disputedAt?.getTime() &&
+            (where.state?.not ? r.state !== where.state.not : true),
+        ) ?? null,
+      ),
       findMany: vi.fn(async ({ where }: any) =>
         resolutions.filter((r) =>
           where?.state?.not ? r.state !== where.state.not : true,
@@ -92,7 +100,18 @@ function fixture() {
     },
     $transaction: vi.fn(async (callback: any) => callback(tx)),
   };
-  const payment = { byOrder: vi.fn().mockResolvedValue({ paymentId, status: 'succeeded', refundableAmountVnd: 300000n }) };
+  const payment = {
+    byOrder: vi.fn().mockResolvedValue({ paymentId, status: 'succeeded', refundableAmountVnd: 300000n }),
+    cancelDisputeRefundForOverride: vi.fn().mockResolvedValue({
+      safeToOverride: true,
+      outcome: 'cancelled',
+      refundId: randomUUID(),
+      refundStatus: 'cancelled',
+      paymentId,
+      paymentStatus: 'succeeded',
+      refundAmountVnd: '200000',
+    }),
+  };
   const service = new OrdersService(db as unknown as PrismaService, outbox as unknown as OrderOutboxRepository, payment as unknown as PaymentRefundClient);
   return { service, db, tx, outbox, payment, get order() { return order; }, get resolutions() { return resolutions; } };
 }
@@ -240,8 +259,151 @@ describe('HG-82 Admin resolution', () => {
       const queue = await f.service.adminFindDisputes({} as any, ['Admin']);
       expect(queue.items[0].resolution?.resolutionId).toBe(second.resolutionId);
       expect(queue.items[0].resolution?.state).toBe(second.state);
+      expect(f.payment.cancelDisputeRefundForOverride).toHaveBeenCalledWith(
+        first.resolutionId,
+        expect.objectContaining({
+          orderId,
+          adminUserId,
+          reason: 'Phán quyết thay thế sau khi rà soát',
+        }),
+      );
     },
   );
+
+  it('refuses overriding a needs_review refund when Payment reports the old refund already completed or unsafe', async () => {
+    const f = fixture();
+    const first = await f.service.resolveCompletedDispute(
+      orderId,
+      adminUserId,
+      {
+        action: 'refund',
+        resolutionNote: 'Hoàn 200k lần đầu',
+        refundAmountVnd: '200000',
+        idempotencyKey: randomUUID(),
+      },
+      ['Admin'],
+    );
+    f.resolutions[0].state = 'needs_review';
+    f.payment.byOrder.mockClear();
+
+    f.payment.cancelDisputeRefundForOverride.mockResolvedValueOnce({
+      safeToOverride: false,
+      outcome: 'already_completed',
+      refundId: randomUUID(),
+      refundStatus: 'completed',
+      paymentId,
+      paymentStatus: 'partially_refunded',
+      refundAmountVnd: '200000',
+    });
+
+    await expect(
+      f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'refund',
+          resolutionNote: 'Thử hoàn tiền lần hai',
+          refundAmountVnd: '100000',
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'DISPUTE_REFUND_ALREADY_COMPLETED',
+      }),
+    });
+    expect(f.resolutions[0].state).toBe('needs_review');
+    expect(f.resolutions).toHaveLength(1);
+    expect(f.payment.byOrder).not.toHaveBeenCalled();
+
+    f.payment.cancelDisputeRefundForOverride.mockResolvedValueOnce({
+      safeToOverride: false,
+      outcome: 'wallet_uncertain',
+      refundId: randomUUID(),
+      refundStatus: 'needs_review',
+      paymentId,
+      paymentStatus: 'succeeded',
+      refundAmountVnd: '200000',
+    });
+
+    await expect(
+      f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'dismiss',
+          resolutionNote: 'Thử bác bỏ khi ví chưa rõ kết quả',
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'DISPUTE_REFUND_CANCELLATION_UNSAFE',
+      }),
+    });
+    expect(f.resolutions[0].state).toBe('needs_review');
+    expect(f.resolutions).toHaveLength(1);
+    expect(f.payment.cancelDisputeRefundForOverride).toHaveBeenCalledWith(
+      first.resolutionId,
+      expect.objectContaining({ orderId, adminUserId }),
+    );
+  });
+
+  it('calls cancelDisputeRefundForOverride before preflight byOrder so released reservation is visible on override', async () => {
+    const f = fixture();
+    const callOrder: string[] = [];
+    const first = await f.service.resolveCompletedDispute(
+      orderId,
+      adminUserId,
+      {
+        action: 'refund',
+        resolutionNote: 'Hoàn 300k bị Wallet từ chối 422',
+        refundAmountVnd: '300000',
+        idempotencyKey: randomUUID(),
+      },
+      ['Admin'],
+    );
+    f.resolutions[0].state = 'needs_review';
+    f.resolutions[0].failureCode = 'WALLET_REJECTED_422';
+
+    f.payment.cancelDisputeRefundForOverride.mockImplementationOnce(async () => {
+      callOrder.push('cancel');
+      return {
+        safeToOverride: true,
+        outcome: 'already_terminal',
+        refundId: randomUUID(),
+        refundStatus: 'failed',
+        paymentId,
+        paymentStatus: 'succeeded',
+        refundAmountVnd: '300000',
+      };
+    });
+    f.payment.byOrder.mockImplementationOnce(async () => {
+      callOrder.push('preflight');
+      return { paymentId, status: 'succeeded', refundableAmountVnd: 300000n };
+    });
+
+    const second = await f.service.resolveCompletedDispute(
+      orderId,
+      adminUserId,
+      {
+        action: 'refund',
+        resolutionNote: 'Override hoàn 100k sau khi giải phóng hạn mức',
+        refundAmountVnd: '100000',
+        idempotencyKey: randomUUID(),
+      },
+      ['Admin'],
+    );
+
+    expect(callOrder).toEqual(['cancel', 'preflight']);
+    expect(f.resolutions[0].state).toBe('superseded');
+    expect(second.resolutionId).not.toBe(first.resolutionId);
+    expect(second.refundAmountVnd).toBe('100000');
+  });
 
   it('emits order.warranty.completed (not order.completed) when legacy resolveDispute completes a warranty rework dispute', async () => {
     const f = fixture();

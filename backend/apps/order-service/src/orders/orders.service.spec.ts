@@ -1252,6 +1252,45 @@ describe('OrdersService', () => {
       );
     });
 
+    it('rejects opening a new post-completion dispute when the order is already fully refunded (paymentState=refunded)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        paymentState: 'refunded',
+        completedAt: now,
+      });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Thử khiếu nại lại sau khi đã hoàn tiền 100%',
+        }),
+      ).rejects.toMatchObject({
+        response: {
+          code: ORDER_ERROR_CODES.ORDER_ALREADY_FULLY_REFUNDED,
+        },
+        status: 409,
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('still allows opening a post-completion dispute within 7 days after a partial refund (paymentState=partially_refunded)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        paymentState: 'partially_refunded',
+        completedAt: now,
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-partial' });
+
+      const result = await service.dispute(mockOrderId, mockCustomerId, {
+        reason: 'Vẫn còn lỗi nghiêm trọng sau hoàn tiền một phần',
+      });
+
+      expect(result.status).toBe('disputed');
+      expect(txMock.order.updateMany).toHaveBeenCalled();
+    });
+
     it.each([
       ['expired', new Date(now.getTime() - sevenDaysMs - 1)],
       ['missing completion time', null],

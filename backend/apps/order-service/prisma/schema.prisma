@@ -280,3 +280,27 @@ model ConsumedEvent {
   @@map("consumed_events")
   @@schema("order_service")
 }
+
+model InboundEventReconciliation {
+  eventId          String    @id @map("event_id") @db.VarChar(100)
+  eventType        String    @map("event_type") @db.VarChar(100)
+  orderId          String?   @map("order_id") @db.Uuid
+  resolutionId     String?   @map("resolution_id") @db.Uuid
+  classification   String    @db.VarChar(30)
+  reasonCode       String    @map("reason_code") @db.VarChar(80)
+  reasonDetail     String    @map("reason_detail") @db.Text
+  safePayload      Json      @map("safe_payload")
+  status           String    @default("pending_reconciliation") @db.VarChar(30)
+  attempts         Int       @default(1)
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  replayedAt       DateTime? @map("replayed_at") @db.Timestamptz(6)
+  replayedByUserId String?   @map("replayed_by_user_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@index([orderId, status])
+  @@index([resolutionId])
+  @@map("inbound_event_reconciliations")
+  @@schema("order_service")
+}

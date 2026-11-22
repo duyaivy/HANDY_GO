@@ -1148,6 +1148,13 @@ export class OrdersService {
           });
         }
 
+        if (order.paymentState === 'refunded') {
+          throw new ConflictException({
+            code: ORDER_ERROR_CODES.ORDER_ALREADY_FULLY_REFUNDED,
+            message: ORDER_ERROR_MESSAGES.ORDER_ALREADY_FULLY_REFUNDED,
+          });
+        }
+
         const completedAtMs = order.completedAt?.getTime();
         if (
           completedAtMs === undefined ||
@@ -1312,7 +1319,8 @@ export class OrdersService {
     const snapshot = await this.getOrderOrThrow(orderId);
     if (
       snapshot.status !== 'disputed' ||
-      snapshot.disputePreviousStatus !== 'completed'
+      snapshot.disputePreviousStatus !== 'completed' ||
+      !snapshot.disputedAt
     ) {
       throw new ConflictException({
         code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -1324,6 +1332,51 @@ export class OrdersService {
         code: ORDER_ERROR_CODES.REFUND_SELF_APPROVAL_FORBIDDEN,
         message: ORDER_ERROR_MESSAGES.REFUND_SELF_APPROVAL_FORBIDDEN,
       });
+    }
+
+    let verifiedSupersededResolutionId: string | null = null;
+    const preTxActiveResolution =
+      await this.prisma.orderDisputeResolution.findFirst({
+        where: {
+          orderId,
+          disputedAt: snapshot.disputedAt,
+          state: { not: 'superseded' },
+        },
+      });
+    if (preTxActiveResolution) {
+      if (preTxActiveResolution.state !== 'needs_review') {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+          message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+        });
+      }
+      if (preTxActiveResolution.action === 'refund') {
+        if (!this.paymentRefundClient) {
+          throw new ServiceUnavailableException(
+            'Payment refundability client is unavailable',
+          );
+        }
+        const cancelCheck =
+          await this.paymentRefundClient.cancelDisputeRefundForOverride(
+            preTxActiveResolution.id,
+            {
+              orderId,
+              adminUserId,
+              reason: note,
+            },
+          );
+        if (!cancelCheck.safeToOverride) {
+          const code =
+            cancelCheck.outcome === 'already_completed'
+              ? ORDER_ERROR_CODES.DISPUTE_REFUND_ALREADY_COMPLETED
+              : ORDER_ERROR_CODES.DISPUTE_REFUND_CANCELLATION_UNSAFE;
+          throw new ConflictException({
+            code,
+            message: ORDER_ERROR_MESSAGES[code],
+          });
+        }
+        verifiedSupersededResolutionId = preTxActiveResolution.id;
+      }
     }
 
     const { paymentId, refundAmount } =
@@ -1342,6 +1395,7 @@ export class OrdersService {
           hash,
           paymentId,
           refundAmount,
+          verifiedSupersededResolutionId,
         }),
       );
     } catch (error) {
@@ -1484,6 +1538,7 @@ export class OrdersService {
       hash: string;
       paymentId: string | null;
       refundAmount: bigint | null;
+      verifiedSupersededResolutionId: string | null;
     },
   ): Promise<
     OrderResponseDto & {
@@ -1501,6 +1556,7 @@ export class OrdersService {
       hash,
       paymentId,
       refundAmount,
+      verifiedSupersededResolutionId,
     } = params;
     const order = await this.lockAndGetOrderOrThrow(orderId, tx);
 
@@ -1526,6 +1582,15 @@ export class OrdersService {
         throw new ConflictException({
           code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
           message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+        });
+      }
+      if (
+        activeResolution.action === 'refund' &&
+        activeResolution.id !== verifiedSupersededResolutionId
+      ) {
+        throw new ConflictException({
+          code: ORDER_ERROR_CODES.DISPUTE_REFUND_CANCELLATION_UNSAFE,
+          message: ORDER_ERROR_MESSAGES.DISPUTE_REFUND_CANCELLATION_UNSAFE,
         });
       }
       await tx.orderDisputeResolution.update({

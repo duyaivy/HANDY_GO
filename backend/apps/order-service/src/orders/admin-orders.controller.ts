@@ -4,11 +4,13 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
   Res,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -26,9 +28,11 @@ import {
 } from '../common/decorators/current-user.decorator.js';
 import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { AdminGuard } from '../common/guards/admin.guard.js';
+import { DisputeRefundReconciliationService } from '../common/inbox/dispute-refund-reconciliation.service.js';
 import { OrdersService } from './orders.service.js';
 import { AdminQueryOrderDto } from './dto/admin-query-order.dto.js';
 import { AdminQueryDisputesDto } from './dto/admin-query-disputes.dto.js';
+import { AdminQueryReconciliationsDto } from './dto/admin-query-reconciliations.dto.js';
 import { AdminDisputeListResponseDto } from './dto/admin-dispute-list-response.dto.js';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto.js';
 import { OrderResponseDto } from './dto/order-response.dto.js';
@@ -39,7 +43,11 @@ import { AdminDisputeDecisionResponseDto } from './dto/admin-dispute-decision-re
 @UseGuards(TrustedGatewayGuard, AdminGuard)
 @Controller('admin/orders')
 export class AdminOrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    @Optional()
+    private readonly reconciliationService?: DisputeRefundReconciliationService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -115,6 +123,51 @@ export class AdminOrdersController {
     const status = dto.action === 'refund' ? HttpStatus.ACCEPTED : HttpStatus.OK;
     response?.status(status);
     return buildSuccessResponse(data, dto.action === 'refund' ? 'Refund decision recorded' : 'Dispute resolved successfully', status);
+  }
+
+  @Get('dispute-reconciliations')
+  @ApiOperation({
+    summary:
+      'List durable dispute refund payment event reconciliation items (HG-82)',
+  })
+  async listDisputeReconciliations(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query() query: AdminQueryReconciliationsDto,
+  ) {
+    if (!this.reconciliationService) {
+      throw new ServiceUnavailableException(
+        'Dispute refund reconciliation service is unavailable',
+      );
+    }
+    return buildSuccessResponse(
+      await this.reconciliationService.listReconciliations(query, user.roles),
+      'Dispute reconciliations retrieved successfully',
+    );
+  }
+
+  @Post('dispute-reconciliations/:eventId/replay')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Replay a recoverable payment dispute refund event after data remediation (HG-82)',
+  })
+  async replayDisputeReconciliation(
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: RequestUserIdentity,
+  ) {
+    if (!this.reconciliationService) {
+      throw new ServiceUnavailableException(
+        'Dispute refund reconciliation service is unavailable',
+      );
+    }
+    return buildSuccessResponse(
+      await this.reconciliationService.replayEvent(
+        eventId,
+        user.userId,
+        user.roles,
+      ),
+      'Dispute reconciliation event replayed successfully',
+    );
   }
 
   @Get('dispute-resolutions/:resolutionId')

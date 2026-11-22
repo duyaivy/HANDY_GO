@@ -18,6 +18,10 @@ describe('AdminOrdersController', () => {
     resolveDispute: ReturnType<typeof vi.fn>;
     resolveCompletedDispute: ReturnType<typeof vi.fn>;
   };
+  let reconciliationMock: {
+    listReconciliations: ReturnType<typeof vi.fn>;
+    replayEvent: ReturnType<typeof vi.fn>;
+  };
 
   const mockAdminId = '99999999-9999-9999-9999-999999999999';
   const mockOrderId = '55555555-5555-5555-5555-555555555555';
@@ -30,9 +34,14 @@ describe('AdminOrdersController', () => {
       resolveDispute: vi.fn(),
       resolveCompletedDispute: vi.fn(),
     };
+    reconciliationMock = {
+      listReconciliations: vi.fn(),
+      replayEvent: vi.fn(),
+    };
 
     controller = new AdminOrdersController(
       serviceMock as unknown as OrdersService,
+      reconciliationMock as any,
     );
   });
 
@@ -156,6 +165,47 @@ describe('AdminOrdersController', () => {
       );
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.data).toEqual(detail);
+    });
+  });
+
+  describe('dispute reconciliations', () => {
+    it('lists durable reconciliation items for admin', async () => {
+      const list = {
+        items: [{ eventId: 'evt-1', status: 'pending_reconciliation' }],
+        pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      };
+      reconciliationMock.listReconciliations.mockResolvedValue(list);
+      const user = { userId: mockAdminId, roles: ['Admin'], permissions: [] };
+
+      const response = await controller.listDisputeReconciliations(user, {
+        status: 'pending_reconciliation',
+      });
+
+      expect(reconciliationMock.listReconciliations).toHaveBeenCalledWith(
+        { status: 'pending_reconciliation' },
+        ['Admin'],
+      );
+      expect(response.statusCode).toBe(HttpStatus.OK);
+      expect(response.data).toEqual(list);
+    });
+
+    it('replays a recoverable reconciliation event for admin', async () => {
+      const replayed = { eventId: 'evt-1', outcome: 'processed' };
+      reconciliationMock.replayEvent.mockResolvedValue(replayed);
+      const user = { userId: mockAdminId, roles: ['Admin'], permissions: [] };
+
+      const response = await controller.replayDisputeReconciliation(
+        'evt-1',
+        user,
+      );
+
+      expect(reconciliationMock.replayEvent).toHaveBeenCalledWith(
+        'evt-1',
+        mockAdminId,
+        ['Admin'],
+      );
+      expect(response.statusCode).toBe(HttpStatus.OK);
+      expect(response.data).toEqual(replayed);
     });
   });
 });

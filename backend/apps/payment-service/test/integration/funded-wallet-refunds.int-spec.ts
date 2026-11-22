@@ -16,6 +16,7 @@ import { OrdersService } from '../../../order-service/src/orders/orders.service.
 import { OrderOutboxRepository } from '../../../order-service/src/common/outbox/order-outbox.repository.js';
 import { PaymentEventsConsumer } from '../../../order-service/src/consumers/payment-events.consumer.js';
 import { ConsumedEventRepository } from '../../../order-service/src/common/inbox/consumed-event.repository.js';
+import { DisputeRefundReconciliationService } from '../../../order-service/src/common/inbox/dispute-refund-reconciliation.service.js';
 import { WalletPrismaService } from '../../../wallet-service/src/wallet-ledger/wallet-prisma.service.js';
 import { WalletLedgerService } from '../../../wallet-service/src/wallet-ledger/wallet-ledger.service.js';
 import { RefundAdjustmentService } from '../../../wallet-service/src/refund-adjustment/refund-adjustment.service.js';
@@ -188,6 +189,8 @@ describe('Funded refunds using real Payment/Wallet DB and internal HTTP', () => 
         const result = await query.refundableByOrder(id);
         return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
       },
+      cancelDisputeRefundForOverride: (resId: string, body: { orderId: string; adminUserId: string; reason: string }) =>
+        refunds.cancelDisputeRefundForOverride(resId, body),
     } as never);
     const dto = { action: 'refund' as const, resolutionNote: 'Hoàn tiền sau khiếu nại', idempotencyKey: randomUUID() };
     const candidates = [dto, { ...dto, idempotencyKey: randomUUID() }];
@@ -237,9 +240,233 @@ describe('Funded refunds using real Payment/Wallet DB and internal HTTP', () => 
     expect(final.status).toBe('completed');
     expect(final.paymentState).toBe('refunded');
     expect(await orderDb.outboxEvent.count({ where: { aggregateId: order.id, eventType: 'order.dispute.resolved' } })).toBe(1);
+    // Policy check: fully refunded order cannot open a new dispute even within 7 days
+    await expect(
+      orderService.dispute(order.id, customer, { reason: 'Thử khiếu nại lại sau khi hoàn 100%' }),
+    ).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'ORDER_ALREADY_FULLY_REFUNDED' }) });
     const replay = await orderService.resolveCompletedDispute(order.id, admin, winningDto, ['Admin']);
     expect(replay.resolutionId).toBe(decision.resolutionId);
     expect(await paymentDb.client.refund.count({ where: { disputeResolutionId: decision.resolutionId } })).toBe(1);
+  });
+
+  it('releases reservation after verified Wallet 4xx rejection and completes Admin override with smaller refund', async () => {
+    const payment = await settled('cash');
+    await walletDb.wallet.update({ where: { id: platformId }, data: { balance: 50n } });
+    const serviceId = randomUUID();
+    const request = await orderDb.serviceRequest.create({ data: {
+      requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
+    } });
+    const proposal = await orderDb.bookingProposal.create({ data: {
+      serviceRequestId: request.id, customerUserId: customer, workerUserId: worker,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test 4xx override',
+      expiresAt: new Date(Date.now() + 60000),
+    } });
+    const completedAt = new Date(Date.now() - 86400000);
+    const order = await orderDb.order.create({ data: {
+      id: payment.orderId, orderCode: randomUUID().slice(0, 24),
+      serviceRequestId: request.id, bookingProposalId: proposal.id,
+      customerUserId: customer, workerUserId: worker, serviceId,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test 4xx override',
+      addressText: 'Test', latitude: 10, longitude: 106,
+      status: 'disputed', paymentState: 'paid', disputePreviousStatus: 'completed',
+      disputedAt: new Date(), completedAt, firstCompletedAt: completedAt,
+    } });
+    const orderOutbox = new OrderOutboxRepository(orderDb);
+    const query = new PaymentQueryService(paymentDb);
+    const orderService = new OrdersService(orderDb, orderOutbox, {
+      byOrder: async (id: string) => {
+        const result = await query.refundableByOrder(id);
+        return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
+      },
+      cancelDisputeRefundForOverride: (resId: string, body: { orderId: string; adminUserId: string; reason: string }) =>
+        refunds.cancelDisputeRefundForOverride(resId, body),
+    } as never);
+    const paymentOutbox = new PaymentOutboxService(paymentDb);
+    const inbox = new PaymentInboxService(paymentDb, {} as never);
+    const dispute = new DisputeRefundService(inbox, paymentDb, paymentOutbox, new AdminAuditService(paymentDb), refunds);
+    dispute.onModuleInit();
+    const consumer = new PaymentEventsConsumer(orderDb, new ConsumedEventRepository(orderDb), orderOutbox);
+
+    // 1. First decision: 100 VND exceeds PLATFORM_FEES balance (50) -> Wallet rejects 409
+    const first = await orderService.resolveCompletedDispute(order.id, admin, {
+      action: 'refund', resolutionNote: 'Hoàn 100k lần đầu', refundAmountVnd: '100', idempotencyKey: randomUUID(),
+    }, ['Admin']);
+    const firstEvent = await orderDb.outboxEvent.findFirstOrThrow({
+      where: { aggregateId: order.id, eventType: 'order.dispute.decision.recorded' },
+    });
+    expect(await inbox.handle('order.dispute.decision.recorded', { eventId: firstEvent.id, payload: firstEvent.payload })).toBe('processed');
+    const firstRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: first.resolutionId } });
+    await refunds.execute(firstRefund.id);
+
+    // Refund must be terminal failed and reservation released!
+    expect((await paymentDb.client.refund.findUniqueOrThrow({ where: { id: firstRefund.id } })).status).toBe('failed');
+    expect((await query.refundableByOrder(order.id)).refundableAmountVnd).toBe('100');
+
+    const needsReviewEvent = await paymentDb.client.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'payment.dispute.refund.needs_review', payload: { path: ['resolutionId'], equals: first.resolutionId } },
+    });
+    await consumer.handleDisputeRefundNeedsReview({ eventId: needsReviewEvent.id, payload: needsReviewEvent.payload });
+    expect((await orderDb.orderDisputeResolution.findUniqueOrThrow({ where: { id: first.resolutionId } })).state).toBe('needs_review');
+
+    // 2. Admin overrides with smaller refund (40 VND) -> succeeds end-to-end!
+    const customerBefore = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+    const second = await orderService.resolveCompletedDispute(order.id, admin, {
+      action: 'refund', resolutionNote: 'Override hoàn 40k theo quỹ khả dụng', refundAmountVnd: '40', idempotencyKey: randomUUID(),
+    }, ['Admin']);
+    expect((await orderDb.orderDisputeResolution.findUniqueOrThrow({ where: { id: first.resolutionId } })).state).toBe('superseded');
+    const secondEvent = await orderDb.outboxEvent.findFirstOrThrow({
+      where: { aggregateId: order.id, eventType: 'order.dispute.decision.recorded', payload: { path: ['resolutionId'], equals: second.resolutionId } },
+    });
+    expect(await inbox.handle('order.dispute.decision.recorded', { eventId: secondEvent.id, payload: secondEvent.payload })).toBe('processed');
+    const secondRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: second.resolutionId } });
+    await refunds.execute(secondRefund.id);
+
+    const completedEvent = await paymentDb.client.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'payment.dispute.refund.completed', payload: { path: ['resolutionId'], equals: second.resolutionId } },
+    });
+    await consumer.handleDisputeRefundCompleted({ eventId: completedEvent.id, payload: completedEvent.payload });
+
+    const finalOrder = await orderDb.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(finalOrder.status).toBe('completed');
+    expect(finalOrder.paymentState).toBe('partially_refunded');
+    expect((await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance).toBe(customerBefore + 40n);
+    expect((await query.refundableByOrder(order.id)).refundableAmountVnd).toBe('60');
+    await walletDb.wallet.update({ where: { id: platformId }, data: { balance: 1000n } });
+  });
+
+  it('parks mismatched payment outcome durably and replays original eventId once after repair', async () => {
+    const payment = await settled('point');
+    const serviceId = randomUUID();
+    const request = await orderDb.serviceRequest.create({ data: {
+      requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
+    } });
+    const proposal = await orderDb.bookingProposal.create({ data: {
+      serviceRequestId: request.id, customerUserId: customer, workerUserId: worker,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test replay',
+      expiresAt: new Date(Date.now() + 60000),
+    } });
+    const completedAt = new Date(Date.now() - 86400000);
+    const order = await orderDb.order.create({ data: {
+      id: payment.orderId, orderCode: randomUUID().slice(0, 24),
+      serviceRequestId: request.id, bookingProposalId: proposal.id,
+      customerUserId: customer, workerUserId: worker, serviceId,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test replay',
+      addressText: 'Test', latitude: 10, longitude: 106,
+      status: 'in_progress', paymentState: 'paid', disputePreviousStatus: 'completed',
+      disputedAt: new Date(), completedAt, firstCompletedAt: completedAt,
+    } });
+    const resolutionId = randomUUID();
+    await orderDb.orderDisputeResolution.create({ data: {
+      id: resolutionId, orderId: order.id, disputedAt: order.disputedAt!,
+      idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64), adminUserId: admin,
+      action: 'refund', resolutionNote: 'Hoàn 100k', state: 'refund_pending',
+      refundAmountVnd: 100n, paymentId: payment.id,
+    } });
+    const orderOutbox = new OrderOutboxRepository(orderDb);
+    const consumedRepo = new ConsumedEventRepository(orderDb);
+    const reconService = new DisputeRefundReconciliationService(orderDb, consumedRepo, orderOutbox);
+    const consumer = new PaymentEventsConsumer(orderDb, consumedRepo, orderOutbox, reconService);
+    const originalEventId = randomUUID();
+    const fakeRefundId = randomUUID();
+
+    // Order is temporarily not 'disputed' -> event must be parked, NOT consumed
+    await consumer.handleDisputeRefundCompleted({
+      eventId: originalEventId,
+      payload: { resolutionId, orderId: order.id, paymentId: payment.id, refundId: fakeRefundId, refundAmountVnd: '100', paymentStatus: 'refunded' },
+    });
+    expect(await consumedRepo.isEventConsumed(originalEventId)).toBe(false);
+    expect(await orderDb.inboundEventReconciliation.findUniqueOrThrow({ where: { eventId: originalEventId } })).toMatchObject({
+      classification: 'recoverable', reasonCode: 'ORDER_STATUS_NOT_DISPUTED', status: 'pending_reconciliation',
+    });
+
+    // Repair order status & replay original eventId via Admin reconciliation service
+    await orderDb.order.update({ where: { id: order.id }, data: { status: 'disputed' } });
+    const replayed = await reconService.replayEvent(originalEventId, admin, ['Admin']);
+    expect(replayed.outcome).toBe('processed');
+    expect((await orderDb.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe('completed');
+    expect((await orderDb.inboundEventReconciliation.findUniqueOrThrow({ where: { eventId: originalEventId } })).status).toBe('replayed');
+    expect(await orderDb.outboxEvent.count({ where: { aggregateId: order.id, eventType: 'order.dispute.resolved' } })).toBe(1);
+    await expect(reconService.replayEvent(originalEventId, admin, ['Admin'])).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('prevents double-refund when Wallet commits old needs_review refund before Admin override', async () => {
+    const payment = await settled('point');
+    const serviceId = randomUUID();
+    const request = await orderDb.serviceRequest.create({ data: {
+      requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
+    } });
+    const proposal = await orderDb.bookingProposal.create({ data: {
+      serviceRequestId: request.id, customerUserId: customer, workerUserId: worker,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test race',
+      expiresAt: new Date(Date.now() + 60000),
+    } });
+    const completedAt = new Date(Date.now() - 86400000);
+    const order = await orderDb.order.create({ data: {
+      id: payment.orderId, orderCode: randomUUID().slice(0, 24),
+      serviceRequestId: request.id, bookingProposalId: proposal.id,
+      customerUserId: customer, workerUserId: worker, serviceId,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test race',
+      addressText: 'Test', latitude: 10, longitude: 106,
+      status: 'disputed', paymentState: 'paid', disputePreviousStatus: 'completed',
+      disputedAt: new Date(), completedAt, firstCompletedAt: completedAt,
+    } });
+    const orderOutbox = new OrderOutboxRepository(orderDb);
+    const query = new PaymentQueryService(paymentDb);
+    const orderService = new OrdersService(orderDb, orderOutbox, {
+      byOrder: async (id: string) => {
+        const result = await query.refundableByOrder(id);
+        return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
+      },
+      cancelDisputeRefundForOverride: (resId: string, body: { orderId: string; adminUserId: string; reason: string }) =>
+        refunds.cancelDisputeRefundForOverride(resId, body),
+    } as never);
+
+    // 1. Old refund approved in Order & Payment, Wallet commits but response was lost -> Payment stays needs_review
+    const first = await orderService.resolveCompletedDispute(order.id, admin, {
+      action: 'refund', resolutionNote: 'Hoàn 60k lần đầu', refundAmountVnd: '60', idempotencyKey: randomUUID(),
+    }, ['Admin']);
+    const paymentOutbox = new PaymentOutboxService(paymentDb);
+    const dispute = new DisputeRefundService({} as never, paymentDb, paymentOutbox, new AdminAuditService(paymentDb), refunds);
+    await paymentDb.client.$transaction((tx) => dispute.recordDecision({
+      action: 'refund', resolutionId: first.resolutionId, orderId: order.id, paymentId: payment.id,
+      customerUserId: customer, workerUserId: worker, adminUserId: admin, refundAmountVnd: '60', resolutionNote: 'Hoàn 60k lần đầu',
+    }, tx));
+    const oldRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: first.resolutionId } });
+
+    class LostResponseClient extends WalletClient {
+      override async refundCredit(...args: Parameters<WalletClient['refundCredit']>) {
+        const res = await super.refundCredit(...args);
+        return res.outcome === 'ok' ? { outcome: 'unknown' as const, message: 'Lost response' } : res;
+      }
+    }
+    const lostRefunds = new RefundsService(paymentDb, new AdminAuditService(paymentDb), new LostResponseClient(walletConfig), paymentOutbox);
+    const beforeBal = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+    await lostRefunds.execute(oldRefund.id);
+    // Wallet actually committed 60, Payment still shows needs_review!
+    expect((await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance).toBe(beforeBal + 60n);
+    expect((await paymentDb.client.refund.findUniqueOrThrow({ where: { id: oldRefund.id } })).status).toBe('needs_review');
+
+    // Simulate Order resolution flagged needs_review, then Admin tries to override with another refund!
+    await orderDb.orderDisputeResolution.update({ where: { id: first.resolutionId }, data: { state: 'needs_review' } });
+    await expect(
+      orderService.resolveCompletedDispute(order.id, admin, {
+        action: 'refund', resolutionNote: 'Thử override hoàn 40k mới', refundAmountVnd: '40', idempotencyKey: randomUUID(),
+      }, ['Admin']),
+    ).rejects.toMatchObject({ status: 409, response: expect.objectContaining({ code: 'DISPUTE_REFUND_ALREADY_COMPLETED' }) });
+
+    // Payment reconciled old refund to completed and emitted completion event; Order consumes it and stays in sync!
+    expect((await paymentDb.client.refund.findUniqueOrThrow({ where: { id: oldRefund.id } })).status).toBe('completed');
+    const reconciledEvent = await paymentDb.client.outboxEvent.findFirstOrThrow({
+      where: { eventType: 'payment.dispute.refund.completed', payload: { path: ['resolutionId'], equals: first.resolutionId } },
+    });
+    const consumer = new PaymentEventsConsumer(orderDb, new ConsumedEventRepository(orderDb), orderOutbox);
+    await consumer.handleDisputeRefundCompleted({ eventId: reconciledEvent.id, payload: reconciledEvent.payload });
+
+    const syncedOrder = await orderDb.order.findUniqueOrThrow({ where: { id: order.id } });
+    expect(syncedOrder.status).toBe('completed');
+    expect(syncedOrder.paymentState).toBe('partially_refunded');
+    expect(await paymentDb.client.refund.count({ where: { paymentId: payment.id } })).toBe(1);
+    expect((await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance).toBe(beforeBal + 60n);
   });
 
   it('completes an HG-82 dispute refund after a real Wallet posting and reuses its resolution ID', async () => {

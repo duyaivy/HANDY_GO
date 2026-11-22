@@ -186,4 +186,91 @@ describe('PaymentRefundClient', () => {
       'x-internal-secret': 'shared-internal-secret',
     });
   });
+
+  describe('cancelDisputeRefundForOverride', () => {
+    const resolutionId = randomUUID();
+    const adminUserId = randomUUID();
+    const refundId = randomUUID();
+    const payload = { orderId, adminUserId, reason: 'Override needs_review' };
+
+    it('sends POST with x-internal-secret and parses valid override check result', async () => {
+      const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              safeToOverride: true,
+              outcome: 'cancelled',
+              refundId,
+              refundStatus: 'cancelled',
+              paymentId,
+              paymentStatus: 'succeeded',
+              refundAmountVnd: '200000',
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      const client = new PaymentRefundClient(createConfig());
+
+      const result = await client.cancelDisputeRefundForOverride(
+        resolutionId,
+        payload,
+      );
+
+      expect(result).toEqual({
+        safeToOverride: true,
+        outcome: 'cancelled',
+        refundId,
+        refundStatus: 'cancelled',
+        paymentId,
+        paymentStatus: 'succeeded',
+        refundAmountVnd: '200000',
+      });
+      const [calledUrl, calledInit] = fetchSpy.mock.calls[0];
+      expect((calledUrl as URL).toString()).toBe(
+        `http://payment-service:3006/api/v1/internal/payments/dispute-resolutions/${resolutionId}/cancel-for-override`,
+      );
+      expect(calledInit?.method).toBe('POST');
+      expect(calledInit?.headers).toEqual({
+        'x-internal-secret': 'shared-internal-secret',
+        'content-type': 'application/json',
+      });
+    });
+
+    it('rejects non-200 status and invalid override payload', async () => {
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'err' }), { status: 503 }),
+      );
+      const client = new PaymentRefundClient(createConfig());
+      await expect(
+        client.cancelDisputeRefundForOverride(resolutionId, payload),
+      ).rejects.toThrowError(
+        new ServiceUnavailableException(
+          'Payment override reconciliation is unavailable',
+        ),
+      );
+
+      vi.spyOn(global, 'fetch').mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              safeToOverride: true,
+              outcome: 'unexpected_outcome',
+              refundId: null,
+              refundStatus: null,
+              paymentId: null,
+              paymentStatus: null,
+              refundAmountVnd: null,
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+      await expect(
+        client.cancelDisputeRefundForOverride(resolutionId, payload),
+      ).rejects.toThrowError(
+        new ServiceUnavailableException('Payment response is invalid'),
+      );
+    });
+  });
 });

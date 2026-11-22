@@ -5,7 +5,8 @@
 - **Nhánh phát triển:** `feature/HG-82-order-dispute-7-days-admin-resolution`
 - **Base Branch:** `main` (`origin/main`)
 - **Dịch vụ liên quan:** `order-service`, `user-trust-service`, `payment-service`, `notification-service`, `api-gateway`
-- **Tài liệu tham chiếu:** `docs/order-service/PLAN_ORDER_SERVICE.md`
+- **Tài liệu tham chiếu:** `docs/order-service/PLAN_ORDER_SERVICE.md`, `docs/HG-82/TASK-3-ADMIN-RESOLVE-DISPUTE.md`
+  > **Lưu ý đồng bộ thiết kế:** Đặc tả triển khai chi tiết (bao gồm máy trạng thái `disputed → completed` khi hoàn tiền, `refundAmountVnd` dạng chuỗi VND, `order.dispute.decision.recorded`, cơ chế override an toàn, bảng đối soát `inbound_event_reconciliations` và chính sách chặn mở khiếu nại mới sau hoàn tiền 100% `paymentState = 'refunded'`) được chuẩn hóa tại `docs/HG-82/TASK-3-ADMIN-RESOLVE-DISPUTE.md`.
 
 ---
 
