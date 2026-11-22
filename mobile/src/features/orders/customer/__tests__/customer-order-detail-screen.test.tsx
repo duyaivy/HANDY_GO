@@ -181,7 +181,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText('TỔNG THANH TOÁN')).toBeOnTheScreen();
 
       // 5. Evidence Gallery
-      expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
+      expect(screen.getByText('Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
 
       // 6. Timeline
       expect(screen.getByText(/Lịch sử trạng thái đơn hàng/)).toBeOnTheScreen();
@@ -255,7 +255,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
 
     await waitFor(() => {
-      expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
+      expect(screen.getByText('Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
     });
 
     const thumbnail = screen.getByLabelText('Bằng chứng ảnh 1');

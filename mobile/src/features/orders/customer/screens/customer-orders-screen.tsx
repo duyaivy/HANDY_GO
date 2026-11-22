@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
+import { MapPinIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
@@ -489,6 +490,13 @@ export function CustomerOrdersScreen({
                     {req.requestCode || req.id.slice(0, 8)}
                   </Text>
 
+                  <View className="mt-1 flex-row items-center gap-1.5">
+                    <MapPinIcon size={13} color="#9CA3AF" />
+                    <Text className="flex-1 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={2}>
+                      {req.addressText || 'Đà Nẵng'}
+                    </Text>
+                  </View>
+
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
                       Hủy lúc:
@@ -497,11 +505,8 @@ export function CustomerOrdersScreen({
                     </Text>
                   )}
 
-                  <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
-                      {req.addressText || 'Đà Nẵng'}
-                    </Text>
-                    {isSearch && (
+                  {isSearch && (
+                    <View className="mt-3 flex-row items-center justify-end gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
                       <Button
                         label="Xem Radar thợ →"
                         variant="default"
@@ -518,8 +523,8 @@ export function CustomerOrdersScreen({
                           },
                         } as any)}
                       />
-                    )}
-                  </View>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -588,6 +593,15 @@ export function CustomerOrdersScreen({
                     {formatVND(ord.agreedPrice)}
                   </Text>
 
+                  {Boolean(ord.addressText) && (
+                    <View className="mt-1 flex-row items-center gap-1.5">
+                      <MapPinIcon size={13} color="#9CA3AF" />
+                      <Text className="flex-1 text-xs text-neutral-500 dark:text-neutral-400" numberOfLines={2}>
+                        {ord.addressText}
+                      </Text>
+                    </View>
+                  )}
+
                   {isCancelledTab && (
                     <Text className="mt-0.5 text-xs text-rose-600 dark:text-rose-400">
                       Hủy lúc:
@@ -597,31 +611,26 @@ export function CustomerOrdersScreen({
                     </Text>
                   )}
 
-                  <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
-                      {ord.addressText}
-                    </Text>
-                    <View className="flex-row items-center gap-1.5">
-                      {ord.status === 'completed' && (
-                        <OrderCardReviewAction orderId={ord.id} completedAt={ord.completedAt} />
-                      )}
-                      <Button
-                        testID={`order-card-detail-btn-${ord.id}`}
-                        label="Chi tiết đơn"
-                        variant={ord.status === 'completed' ? 'outline' : 'default'}
-                        className={`h-8 shrink-0 rounded-xl px-3 ${
-                          ord.status === 'completed'
-                            ? 'border-neutral-300 dark:border-neutral-700'
-                            : 'bg-primary'
-                        }`}
-                        textClassName={`text-[11px] font-bold ${
-                          ord.status === 'completed'
-                            ? 'text-neutral-700 dark:text-neutral-300'
-                            : 'text-white'
-                        }`}
-                        onPress={() => router.push(RouteNames.CUSTOMER_ORDER_DETAIL(ord.id) as any)}
-                      />
-                    </View>
+                  <View className="mt-3 flex-row items-center justify-end gap-1.5 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                    {ord.status === 'completed' && (
+                      <OrderCardReviewAction orderId={ord.id} completedAt={ord.completedAt} />
+                    )}
+                    <Button
+                      testID={`order-card-detail-btn-${ord.id}`}
+                      label="Chi tiết đơn"
+                      variant={ord.status === 'completed' ? 'outline' : 'default'}
+                      className={`h-8 shrink-0 rounded-xl px-3 ${
+                        ord.status === 'completed'
+                          ? 'border-neutral-300 dark:border-neutral-700'
+                          : 'bg-primary'
+                      }`}
+                      textClassName={`text-[11px] font-bold ${
+                        ord.status === 'completed'
+                          ? 'text-neutral-700 dark:text-neutral-300'
+                          : 'text-white'
+                      }`}
+                      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_DETAIL(ord.id) as any)}
+                    />
                   </View>
                 </View>
               );

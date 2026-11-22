@@ -97,7 +97,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
       expect(screen.getByText('Chi tiết đơn hàng')).toBeOnTheScreen();
       expect(screen.getByText('Mã đơn: #ORD-REAL-001')).toBeOnTheScreen();
       expect(screen.getByText('Trần Văn Chuyên Nghiệp')).toBeOnTheScreen();
-      expect(screen.getByText('📷 Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
+      expect(screen.getByText('Bằng chứng hoàn thành do Thợ nộp:')).toBeOnTheScreen();
     });
 
     const workerProfileBtn = screen.getByTestId('worker-profile-btn');

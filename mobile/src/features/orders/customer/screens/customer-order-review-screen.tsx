@@ -669,7 +669,7 @@ export function CustomerOrderReviewScreen({
       <ScrollView
         testID={testID}
         className="flex-1 p-4"
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 130 }}
         keyboardShouldPersistTaps="handled"
       >
         {/* Loading Indicator when fetching review */}
@@ -820,9 +820,9 @@ export function CustomerOrderReviewScreen({
             <View className="flex-row gap-2">
               {(
                 [
-                  { value: 'good', label: '👍 Thân thiện / Tốt' },
-                  { value: 'neutral', label: '😐 Bình thường' },
-                  { value: 'bad', label: '👎 Chưa tốt' },
+                  { value: 'good', icon: '👍', label: 'Thân thiện' },
+                  { value: 'neutral', icon: '😐', label: 'Bình thường' },
+                  { value: 'bad', icon: '👎', label: 'Chưa tốt' },
                 ] as const
               ).map(opt => (
                 <Pressable
@@ -834,16 +834,22 @@ export function CustomerOrderReviewScreen({
                       setAttitudeRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${attitudeRating === opt.value
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`min-h-[58px] flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
+                    attitudeRating === opt.value
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
+                  <Text className="text-base leading-none">
+                    {opt.icon}
+                  </Text>
                   <Text
-                    className={`text-xs font-semibold ${attitudeRating === opt.value
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-neutral-600 dark:text-neutral-400'
+                    className={`mt-1 text-center text-[11px] leading-tight font-semibold ${
+                      attitudeRating === opt.value
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-neutral-600 dark:text-neutral-400'
                     }`}
+                    numberOfLines={1}
                   >
                     {opt.label}
                   </Text>
@@ -860,9 +866,9 @@ export function CustomerOrderReviewScreen({
             <View className="flex-row gap-2">
               {(
                 [
-                  { value: 'good', label: '⭐ Đạt chuẩn / Tốt' },
-                  { value: 'neutral', label: '😐 Chấp nhận được' },
-                  { value: 'bad', label: '👎 Chưa đạt' },
+                  { value: 'good', icon: '⭐', label: 'Đạt chuẩn' },
+                  { value: 'neutral', icon: '😐', label: 'Tạm được' },
+                  { value: 'bad', icon: '👎', label: 'Chưa đạt' },
                 ] as const
               ).map(opt => (
                 <Pressable
@@ -874,16 +880,22 @@ export function CustomerOrderReviewScreen({
                       setQualityRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${qualityRating === opt.value
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`min-h-[58px] flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
+                    qualityRating === opt.value
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
+                  <Text className="text-base leading-none">
+                    {opt.icon}
+                  </Text>
                   <Text
-                    className={`text-xs font-semibold ${qualityRating === opt.value
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-neutral-600 dark:text-neutral-400'
+                    className={`mt-1 text-center text-[11px] leading-tight font-semibold ${
+                      qualityRating === opt.value
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-neutral-600 dark:text-neutral-400'
                     }`}
+                    numberOfLines={1}
                   >
                     {opt.label}
                   </Text>
@@ -900,9 +912,9 @@ export function CustomerOrderReviewScreen({
             <View className="flex-row gap-2">
               {(
                 [
-                  { value: 'good', label: '⚡ Nhanh chóng' },
-                  { value: 'neutral', label: '⏱️ Đúng hẹn' },
-                  { value: 'bad', label: '⏳ Chậm trễ' },
+                  { value: 'good', icon: '⚡', label: 'Nhanh chóng' },
+                  { value: 'neutral', icon: '⏱️', label: 'Đúng hẹn' },
+                  { value: 'bad', icon: '⏳', label: 'Chậm trễ' },
                 ] as const
               ).map(opt => (
                 <Pressable
@@ -914,16 +926,22 @@ export function CustomerOrderReviewScreen({
                       setSpeedRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${speedRating === opt.value
-                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`min-h-[58px] flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
+                    speedRating === opt.value
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
+                  <Text className="text-base leading-none">
+                    {opt.icon}
+                  </Text>
                   <Text
-                    className={`text-xs font-semibold ${speedRating === opt.value
-                      ? 'text-emerald-700 dark:text-emerald-400'
-                      : 'text-neutral-600 dark:text-neutral-400'
+                    className={`mt-1 text-center text-[11px] leading-tight font-semibold ${
+                      speedRating === opt.value
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : 'text-neutral-600 dark:text-neutral-400'
                     }`}
+                    numberOfLines={1}
                   >
                     {opt.label}
                   </Text>
