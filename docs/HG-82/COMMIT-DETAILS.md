@@ -15,7 +15,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`3826c826`** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
 | **`07523e7d`** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
 | **`ef6edaca`** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
-| **Review Fix #04** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
+| **`65c49fcf`** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
+| **Review Fix #05** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
 
 ---
 
@@ -401,6 +402,36 @@ Bảng `order_evidences` lưu chung bằng chứng thi công của thợ (`evide
   3. `addEvidence()` truyền `evidenceType: 'work'` vào `tx.orderEvidence.findFirst` khi kiểm tra trùng `mediaUrl`.
 - **Kết quả chạy kiểm tra local:**
   - `pnpm exec vitest run apps/order-service/src/orders/orders.service.spec.ts apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 11. Review Fix #05: Chống Nuốt Event Âm Thầm Và Ghi Log Cảnh Báo Đối Soát Trong `PaymentEventsConsumer`
+
+### 11.1. Nguyên nhân & phạm vi sửa
+
+Trong `PaymentEventsConsumer.processDisputeRefund`:
+1. Kiểm tra `typeof eventId !== 'string'` chưa loại bỏ chuỗi rỗng hoặc toàn khoảng trắng (`"   "`), và khi NACK message hỏng chưa ghi log cảnh báo.
+2. `consumedEventRepo.recordEventIfNew` được gọi trước khi kiểm tra sự tồn tại của `resolution` và `order`, làm event bị đánh dấu đã tiêu thụ vĩnh viễn ngay cả khi chưa tìm thấy `resolution`/`order`.
+3. Các nhánh guard từ chối do lệch `paymentId`, `refundAmountVnd`, `order.status` hoặc `resolution.state` chỉ `return` im lặng mà không ghi `logger.warn`.
+
+### 11.2. Thay đổi mã nguồn (`backend/apps/order-service`)
+
+- **`src/consumers/payment-events.consumer.ts` (`processDisputeRefund`):**
+  - Chuẩn hóa `const normalizedEventId = typeof eventId === 'string' ? eventId.trim() : ''`; nếu rỗng hoặc `resolutionId`/`orderId` không phải UUID thì ghi `this.logger.warn` kèm thông tin envelope trước khi `nackMessage(context, false)`.
+  - Trong transaction, khóa `order` và đọc `resolution`, `order` trước: nếu thiếu `resolution` hoặc `order` thì ghi `this.logger.warn` và thoát mà **không** gọi `consumedEventRepo.recordEventIfNew`.
+  - Sau khi `recordEventIfNew(normalizedEventId, eventType, tx)` xác nhận event mới, tách rõ 2 cụm guard (kiểm tra khớp `resolution` và kiểm tra điều kiện hoàn tất `completed`) và ghi `this.logger.warn` đầy đủ `eventId`, `resolutionId`, `orderId`, `expectedPaymentId`/`actualPaymentId`, `expectedAmount`/`actualAmount`, `orderStatus`, `state` trước khi `return`.
+
+### 11.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/consumers/hg82-payment-events.spec.ts`:**
+  1. Event có `eventId: "   "` $\rightarrow$ ghi `logger.warn`, gọi `nack(msg, false, false)`, không mở transaction hay ghi `consumed_events`.
+  2. Event không tìm thấy `resolution` $\rightarrow$ ghi `logger.warn` và không gọi `recordEventIfNew`.
+  3. Event lệch `paymentId`, thiếu `refundId`, hoặc lệch `refundAmountVnd` $\rightarrow$ ghi `logger.warn` chứa đúng `eventId`, `resolutionId`, `orderId` và không cập nhật `orders`.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/order-service/src/consumers apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
   - `pnpm exec nest build order-service`: **PASS**.

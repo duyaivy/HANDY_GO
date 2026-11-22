@@ -85,13 +85,74 @@ describe('Order HG-82 Payment outcome', () => {
 
   it('ignores a completion for another payment or a missing refund ID', async () => {
     const f = fixture();
-    await f.consumer.handleDisputeRefundCompleted({ eventId: randomUUID(), payload: {
+    const warnSpy = vi.spyOn((f.consumer as any).logger, 'warn');
+    const mismatchedPaymentEventId = randomUUID();
+    const missingRefundEventId = randomUUID();
+    await f.consumer.handleDisputeRefundCompleted({ eventId: mismatchedPaymentEventId, payload: {
       ...f.data.payload, paymentId: randomUUID(),
     } });
-    await f.consumer.handleDisputeRefundCompleted({ eventId: randomUUID(), payload: {
+    await f.consumer.handleDisputeRefundCompleted({ eventId: missingRefundEventId, payload: {
       ...f.data.payload, refundId: undefined,
     } });
     expect(f.tx.order.updateMany).not.toHaveBeenCalled();
     expect(f.outbox.createEvent).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(mismatchedPaymentEventId));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(missingRefundEventId));
+  });
+
+  it('rejects a blank or whitespace eventId with nack(requeue=false) and logs a warning without querying DB', async () => {
+    const f = fixture();
+    const warnSpy = vi.spyOn((f.consumer as any).logger, 'warn');
+    const nack = vi.fn();
+    const msg = {};
+    const ctx = {
+      getChannelRef: () => ({ nack, ack: vi.fn() }),
+      getMessage: () => msg,
+    };
+
+    await f.consumer.handleDisputeRefundCompleted(
+      { eventId: '   ', payload: f.data.payload },
+      ctx,
+    );
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Rejected malformed dispute refund event (completed)'),
+    );
+    expect(nack).toHaveBeenCalledWith(msg, false, false);
+    expect(f.db.$transaction).not.toHaveBeenCalled();
+    expect(f.inbox.recordEventIfNew).not.toHaveBeenCalled();
+  });
+
+  it('does not record eventId in consumed_events and logs a warning when resolution is missing', async () => {
+    const f = fixture();
+    const warnSpy = vi.spyOn((f.consumer as any).logger, 'warn');
+    f.tx.orderDisputeResolution.findUnique.mockResolvedValueOnce(null);
+
+    await f.consumer.handleDisputeRefundCompleted(f.data);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`missing resolution=false or order=true (resolutionId=${resolutionId}, orderId=${orderId})`),
+    );
+    expect(f.inbox.recordEventIfNew).not.toHaveBeenCalled();
+    expect(f.tx.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('logs a detailed warning when order is not disputed or refundAmountVnd mismatches', async () => {
+    const f = fixture();
+    const warnSpy = vi.spyOn((f.consumer as any).logger, 'warn');
+    const amountMismatchEventId = randomUUID();
+
+    await f.consumer.handleDisputeRefundCompleted({
+      eventId: amountMismatchEventId,
+      payload: { ...f.data.payload, refundAmountVnd: '999999' },
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Ignored ${ORDER_CONSTANTS.EVENT_PAYMENT_DISPUTE_REFUND_COMPLETED} (eventId=${amountMismatchEventId}): completion guard failed`),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`resolutionId=${resolutionId}, orderId=${orderId}`),
+    );
+    expect(f.tx.order.updateMany).not.toHaveBeenCalled();
   });
 });

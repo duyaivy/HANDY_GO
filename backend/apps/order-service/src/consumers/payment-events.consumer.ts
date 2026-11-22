@@ -43,29 +43,59 @@ export class PaymentEventsConsumer {
     const eventId = envelope.eventId ?? envelope.id;
     const resolutionId = body?.resolutionId;
     const orderId = body?.orderId;
-    if (typeof eventId !== 'string' || !isUUID(String(resolutionId)) || !isUUID(String(orderId))) {
+    const normalizedEventId = typeof eventId === 'string' ? eventId.trim() : '';
+    if (!normalizedEventId || !isUUID(String(resolutionId)) || !isUUID(String(orderId))) {
+      this.logger.warn(
+        `Rejected malformed dispute refund event (${kind}): eventId=${String(eventId)}, resolutionId=${String(resolutionId)}, orderId=${String(orderId)}`,
+      );
       this.nackMessage(context, false);
       return;
     }
     const eventType = kind === 'completed' ? ORDER_CONSTANTS.EVENT_PAYMENT_DISPUTE_REFUND_COMPLETED : ORDER_CONSTANTS.EVENT_PAYMENT_DISPUTE_REFUND_NEEDS_REVIEW;
     try {
       await this.prisma.$transaction(async (tx) => {
-        const isNew = await this.consumedEventRepo.recordEventIfNew(eventId, eventType, tx);
-        if (!isNew) return;
         await tx.$queryRaw`SELECT id FROM order_service.orders WHERE id = ${orderId}::uuid FOR UPDATE`;
         const resolution = await tx.orderDisputeResolution.findUnique({ where: { id: resolutionId as string } });
         const order = await tx.order.findUnique({ where: { id: orderId as string } });
-        if (!resolution || !order || resolution.orderId !== orderId || resolution.action !== 'refund' ||
-            resolution.paymentId !== body.paymentId || !['refund_pending', 'needs_review'].includes(resolution.state)) return;
+        if (!resolution || !order) {
+          this.logger.warn(
+            `Ignoring ${eventType} (eventId=${normalizedEventId}): missing resolution=${Boolean(resolution)} or order=${Boolean(order)} (resolutionId=${String(resolutionId)}, orderId=${String(orderId)})`,
+          );
+          return;
+        }
+        const isNew = await this.consumedEventRepo.recordEventIfNew(normalizedEventId, eventType, tx);
+        if (!isNew) return;
+        if (
+          resolution.orderId !== orderId ||
+          resolution.action !== 'refund' ||
+          resolution.paymentId !== body.paymentId ||
+          !['refund_pending', 'needs_review'].includes(resolution.state)
+        ) {
+          this.logger.warn(
+            `Ignored ${eventType} (eventId=${normalizedEventId}): resolution mismatch or non-pending state ` +
+              `(resolutionId=${resolution.id}, orderId=${orderId}, expectedPaymentId=${resolution.paymentId}, actualPaymentId=${String(body.paymentId)}, state=${resolution.state}, action=${resolution.action})`,
+          );
+          return;
+        }
         if (kind === 'needs_review') {
           await tx.orderDisputeResolution.update({ where: { id: resolution.id }, data: {
             state: 'needs_review', failureCode: typeof body.failureCode === 'string' ? body.failureCode.slice(0, 100) : 'PAYMENT_REVIEW_REQUIRED',
           } });
           return;
         }
-        if (order.status !== 'disputed' || !isUUID(String(body.refundId)) ||
-            !['partially_refunded', 'refunded'].includes(String(body.paymentStatus)) ||
-            body.refundAmountVnd !== resolution.refundAmountVnd?.toString()) return;
+        const expectedAmount = resolution.refundAmountVnd?.toString();
+        if (
+          order.status !== 'disputed' ||
+          !isUUID(String(body.refundId)) ||
+          !['partially_refunded', 'refunded'].includes(String(body.paymentStatus)) ||
+          body.refundAmountVnd !== expectedAmount
+        ) {
+          this.logger.warn(
+            `Ignored ${eventType} (eventId=${normalizedEventId}): completion guard failed ` +
+              `(resolutionId=${resolution.id}, orderId=${order.id}, orderStatus=${order.status}, refundId=${String(body.refundId)}, paymentStatus=${String(body.paymentStatus)}, expectedAmount=${String(expectedAmount)}, actualAmount=${String(body.refundAmountVnd)})`,
+          );
+          return;
+        }
         const now = new Date();
         const changed = await tx.order.updateMany({ where: { id: order.id, status: 'disputed', version: order.version }, data: {
           status: 'completed', paymentState: body.paymentStatus as 'partially_refunded' | 'refunded',
