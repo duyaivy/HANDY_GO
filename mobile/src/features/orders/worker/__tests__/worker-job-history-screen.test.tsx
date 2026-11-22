@@ -33,7 +33,7 @@ const mockWorkerOrders = [
   },
 ];
 
-let mockHookReturn = {
+let mockHookReturn: any = {
   orders: mockWorkerOrders,
   stats: {
     completedCount: 1,
@@ -115,6 +115,7 @@ describe('workerJobHistoryScreen', () => {
         totalEarnings: 0,
       },
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: false,
       isFetchingNextPage: false,
@@ -139,6 +140,7 @@ describe('workerJobHistoryScreen', () => {
         totalEarnings: 350000,
       },
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: true,
       isFetchingNextPage: false,
@@ -168,6 +170,7 @@ describe('workerJobHistoryScreen', () => {
         totalEarnings: 350000,
       },
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: true,
       isFetchingNextPage: true,

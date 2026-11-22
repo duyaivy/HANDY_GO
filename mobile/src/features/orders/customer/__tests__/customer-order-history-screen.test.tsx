@@ -48,7 +48,7 @@ const mockRequests = [
   },
 ];
 
-let mockHookReturn = {
+let mockHookReturn: any = {
   orders: mockOrders,
   requests: mockRequests,
   isLoading: false,
@@ -148,6 +148,7 @@ describe('customerOrderHistoryScreen', () => {
       orders: [],
       requests: [],
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: false,
       isFetchingNextPage: false,
@@ -168,6 +169,7 @@ describe('customerOrderHistoryScreen', () => {
       orders: mockOrders,
       requests: mockRequests,
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: true,
       isFetchingNextPage: false,
@@ -193,6 +195,7 @@ describe('customerOrderHistoryScreen', () => {
       orders: mockOrders,
       requests: mockRequests,
       isLoading: false,
+      isError: false,
       refetch: mockRefetch,
       hasNextPage: true,
       isFetchingNextPage: true,
