@@ -252,7 +252,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
     expect(screen.getByTestId('worker-complete-job-nav-btn')).toBeOnTheScreen();
   });
 
-  it('handles Completion event: triggers congrats Alert and transitions screen to completed', () => {
+  it('handles completion without claiming payment has already settled', () => {
     const { rerender } = render(<WorkerJobDetailScreen jobId="job-123" />);
 
     act(() => {
@@ -271,7 +271,7 @@ describe('WorkerJobDetailScreen Tracking & Realtime Event Integration', () => {
 
     expect(alertSpy).toHaveBeenCalledWith(
       '🎉 Nghiệm thu thành công!',
-      expect.stringContaining('Tiền công đang được quyết toán vào ví của bạn'),
+      expect.stringContaining('kiểm tra trạng thái thanh toán'),
       expect.any(Array),
     );
     act(() => capturedEventHandler?.({

@@ -63,7 +63,7 @@ export function CustomerProfileScreen() {
   };
 
   return (
-    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen edges={['top', 'left', 'right']} scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
         hideBackButton

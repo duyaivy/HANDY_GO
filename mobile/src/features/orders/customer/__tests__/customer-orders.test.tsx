@@ -25,6 +25,13 @@ jest.mock('expo-router', () => ({
 
 const initialAuthState = useAuthStore.getState();
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getMyRequests').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'getStatusHistory').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'cancelOrder').mockResolvedValue({ statusCode: 200, message: 'OK', data: { status: 'cancelled' } } as any);
+});
+
 afterEach(() => {
   cleanup();
   useAuthStore.setState(initialAuthState, true);
@@ -113,7 +120,8 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/customer/booking/select-address');
   });
 
-  it('renders CustomerOrderCancelDialog and handles cancel dismissal and confirm action', () => {
+  it('renders CustomerOrderCancelDialog and handles cancel dismissal and confirm action', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     render(<CustomerOrderCancelDialog orderId="demo-001" />);
 
     expect(screen.getByText('Hủy đơn #demo-001')).toBeOnTheScreen();
@@ -121,6 +129,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
 
     const confirmCancelBtn = screen.getByTestId('cancel-dialog-confirm-btn');
     fireEvent.press(confirmCancelBtn);
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Đã hủy đơn', expect.any(String), expect.any(Array)));
 
     const dismissBtn = screen.getByTestId('cancel-dialog-dismiss-btn');
     fireEvent.press(dismissBtn);

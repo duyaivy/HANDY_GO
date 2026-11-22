@@ -1,0 +1,143 @@
+import { Alert } from 'react-native';
+import { StorageKeys } from '@/constants/storage-keys';
+import { fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { ApiError } from '@/services/api/api-error';
+import { PaymentApi } from '../../api/payment.api';
+import { WalletApi } from '../../api/wallet.api';
+import { WithdrawalItem } from '../components/withdrawal-item';
+import { WorkerBalanceScreen } from '../screens/worker-balance-screen';
+import { WorkerWalletScreen } from '../screens/worker-wallet-screen';
+import { WorkerWithdrawScreen } from '../screens/worker-withdraw-screen';
+import { bankAccount, response, withdrawal, workerPayment, workerWallet } from './fixtures';
+
+const mockPush = jest.fn();
+const mockStored = new Map<string, unknown>();
+jest.mock('expo-router', () => ({ useRouter: () => ({ push: mockPush, back: jest.fn() }) }));
+jest.mock('@shopify/flash-list', () => ({ FlashList: require('react-native').FlatList }));
+jest.mock('@shopify/flash-list/jestSetup', () => ({}));
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'withdraw-key' }));
+jest.mock('@/stores/use-auth-store', () => ({ useAuthStore: { use: { user: () => ({ id: 'worker-1' }) } } }));
+jest.mock('@/services/storage/storage-service', () => ({ StorageService: { getItem: (key: string) => mockStored.get(key) ?? null, setItem: (key: string, value: unknown) => mockStored.set(key, value), removeItem: (key: string) => mockStored.delete(key) } }));
+jest.mock('../../api/wallet.api', () => ({ WalletApi: { getMyWallet: jest.fn(), getBankAccounts: jest.fn(), addBankAccount: jest.fn(), getMyWithdrawals: jest.fn(), createWithdrawal: jest.fn(), cancelWithdrawal: jest.fn(), getMyTransactions: jest.fn() } }));
+jest.mock('../../api/payment.api', () => ({ PaymentApi: { getMyPayments: jest.fn() } }));
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockStored.clear();
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response(workerWallet));
+  jest.mocked(WalletApi.getBankAccounts).mockResolvedValue(response([bankAccount]));
+  jest.mocked(WalletApi.getMyWithdrawals).mockResolvedValue(response([]));
+  jest.mocked(WalletApi.createWithdrawal).mockResolvedValue(response(withdrawal));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+});
+it('validates min/max against backend available balance and supports withdrawing all', async () => {
+  render(<WorkerWithdrawScreen />);
+  await screen.findByTestId('withdraw-bank-bank-1');
+  fireEvent.changeText(screen.getByTestId('withdraw-amount-input'), '49000');
+  expect(screen.getByText('Số tiền rút tối thiểu là 50.000 đ.')).toBeOnTheScreen();
+  fireEvent.press(screen.getByTestId('withdraw-confirm-btn'));
+  expect(WalletApi.createWithdrawal).not.toHaveBeenCalled();
+  fireEvent.changeText(screen.getByTestId('withdraw-amount-input'), '400000');
+  expect(screen.getByText('Số tiền rút vượt quá số dư khả dụng.')).toBeOnTheScreen();
+  fireEvent.press(screen.getByTestId('withdraw-all-btn'));
+  expect(screen.getByTestId('withdraw-amount-input')).toHaveProp('value', '300.000');
+  expect(screen.getByTestId('withdraw-confirm-btn')).toHaveProp('accessibilityState', { disabled: false });
+});
+it('requires a bank account and can add an owned account through the real form', async () => {
+  jest.mocked(WalletApi.getBankAccounts).mockResolvedValue(response([]));
+  jest.mocked(WalletApi.addBankAccount).mockImplementation(async () => {
+    jest.mocked(WalletApi.getBankAccounts).mockResolvedValue(response([bankAccount]));
+    return response(bankAccount);
+  });
+  render(<WorkerWithdrawScreen />);
+  await screen.findByText('Chưa có tài khoản ngân hàng. Thêm tài khoản chính chủ trước khi rút.');
+  fireEvent.press(screen.getByTestId('withdraw-amount-100000'));
+  expect(screen.getByTestId('withdraw-confirm-btn')).toHaveProp('accessibilityState', { disabled: true });
+  fireEvent.press(screen.getByTestId('withdraw-add-bank-btn'));
+  fireEvent.changeText(screen.getByTestId('withdraw-bank-code-input'), 'vcb');
+  fireEvent.changeText(screen.getByTestId('withdraw-bank-name-input'), 'Vietcombank');
+  fireEvent.changeText(screen.getByTestId('withdraw-bank-number-input'), '0123456789');
+  fireEvent.changeText(screen.getByTestId('withdraw-bank-holder-input'), 'nguyen van a');
+  fireEvent.press(screen.getByTestId('withdraw-bank-save-btn'));
+  await screen.findByTestId('withdraw-bank-bank-1');
+  expect(WalletApi.addBankAccount).toHaveBeenCalledWith({ bankCode: 'VCB', bankName: 'Vietcombank', accountNumber: '0123456789', accountHolderName: 'NGUYEN VAN A' });
+  expect(screen.getByText('•••• 6789')).toBeOnTheScreen();
+});
+it('blocks a frozen wallet and never displays a fabricated balance for 404', async () => {
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response({ ...workerWallet, status: 'frozen' }));
+  const view = render(<WorkerWithdrawScreen />);
+  await screen.findByText('Ví hiện không hoạt động');
+  fireEvent.press(screen.getByTestId('withdraw-amount-100000'));
+  expect(screen.getByTestId('withdraw-confirm-btn')).toHaveProp('accessibilityState', { disabled: true });
+  view.unmount();
+  jest.mocked(WalletApi.getMyWallet).mockRejectedValue(new ApiError('NOT_FOUND', 'Wallet missing', { statusCode: 404 }));
+  render(<WorkerWalletScreen />);
+  await screen.findByText('Ví của bạn chưa sẵn sàng');
+  expect(screen.queryByTestId('worker-wallet-available')).toBeNull();
+});
+it('does not report a withdrawal as submitted after a disabled-service error', async () => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  jest.mocked(WalletApi.createWithdrawal).mockRejectedValue(new ApiError('SERVER_ERROR', 'Withdrawals are not available yet', { statusCode: 503 }));
+  render(<WorkerWithdrawScreen />);
+  await screen.findByTestId('withdraw-bank-bank-1');
+  fireEvent.press(screen.getByTestId('withdraw-amount-100000'));
+  fireEvent.press(screen.getByTestId('withdraw-confirm-btn'));
+  await screen.findByText('Withdrawals are not available yet');
+  expect(alert).not.toHaveBeenCalled();
+  alert.mockRestore();
+});
+it('shows backend balances, privacy persistence, and working wallet routes', async () => {
+  render(<WorkerWalletScreen />);
+  await screen.findByTestId('worker-wallet-available');
+  fireEvent.press(screen.getByTestId('worker-wallet-privacy-btn'));
+  expect(screen.getByTestId('worker-wallet-available')).toHaveTextContent('••••••');
+  fireEvent.press(screen.getByTestId('worker-wallet-privacy-btn'));
+  expect(screen.getByTestId('worker-wallet-available')).toHaveTextContent('300.000 đ');
+  fireEvent.press(screen.getByTestId('worker-wallet-withdraw-btn'));
+  expect(mockPush).toHaveBeenLastCalledWith('/worker/wallet/withdraw');
+  fireEvent.press(screen.getByTestId('worker-wallet-deposit-btn'));
+  expect(mockPush).toHaveBeenLastCalledWith('/worker/wallet/deposit');
+  fireEvent.press(screen.getByTestId('worker-wallet-details-btn'));
+  expect(mockPush).toHaveBeenLastCalledWith('/worker/balance');
+  expect(await screen.findByText('Thu nhập ghi nhận tuần này: 0 đ')).toBeOnTheScreen();
+});
+it('shows recent transactions but no partial financial totals when history spans multiple pages', async () => {
+  const payments = Array.from({ length: 100 }, (_, index) => ({ ...workerPayment, id: `payment-${index}` }));
+  const transactions = Array.from({ length: 100 }, (_, index) => ({
+    id: `tx-${index}`,
+    type: 'topup' as const,
+    amount: '10000',
+    status: 'completed' as const,
+    referenceId: null,
+    description: null,
+    createdAt: '2026-11-20',
+  }));
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: payments, page: 1, limit: 100, total: 150, totalPages: 2 }));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: transactions, page: 1, limit: 100, total: 150, totalPages: 2 }));
+
+  const view = render(<WorkerWalletScreen />);
+  await screen.findByTestId('worker-financials-unavailable');
+  expect(screen.getByTestId('transaction-item-tx-0')).toBeOnTheScreen();
+  expect(screen.queryByText(/Thu nhập ghi nhận tuần này:/)).toBeNull();
+  expect(screen.queryByText(/Tổng phí nền tảng đã nộp:/)).toBeNull();
+  view.unmount();
+
+  render(<WorkerBalanceScreen />);
+  await screen.findByTestId('worker-financials-unavailable');
+  expect(screen.queryByTestId('worker-cash-commission-due')).toBeNull();
+});
+it('retries the original withdrawal after timeout even if its hold reduced available balance', async () => {
+  mockStored.set(StorageKeys.PENDING_WITHDRAWAL('worker-1'), { amount: '100000', bankAccountId: bankAccount.id, idempotencyKey: 'original-key' });
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response({ ...workerWallet, availableBalance: '0', reservedBalance: '300000' }));
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  render(<WorkerWithdrawScreen />);
+  await screen.findByTestId('withdraw-bank-bank-1');
+  expect(screen.getByTestId('withdraw-confirm-btn')).toHaveProp('accessibilityState', { disabled: false });
+  fireEvent.press(screen.getByTestId('withdraw-confirm-btn'));
+  await waitFor(() => expect(WalletApi.createWithdrawal).toHaveBeenCalledWith({ amount: '100000', bankAccountId: bankAccount.id, idempotencyKey: 'original-key' }));
+  alert.mockRestore();
+});
+it.each(['processing', 'succeeded', 'failed', 'cancelled', 'needs_review'] as const)('never offers cancellation for %s', (status) => {
+  render(<WithdrawalItem item={{ ...withdrawal, status }} onCancel={jest.fn()} cancelling={false} />);
+  expect(screen.queryByTestId('cancel-withdrawal-withdrawal-1')).toBeNull();
+});

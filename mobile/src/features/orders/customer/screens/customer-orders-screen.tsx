@@ -362,7 +362,7 @@ export function CustomerOrdersScreen({
 
   return (
     <Screen
-      safeArea={false}
+      edges={['top', 'left', 'right']}
       scrollable
       className="bg-neutral-50 dark:bg-neutral-950"
       refreshControl={(

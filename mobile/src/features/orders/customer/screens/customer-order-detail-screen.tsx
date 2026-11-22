@@ -1,4 +1,6 @@
 import type { OrderStatusHistoryItem } from '../../types/order.types';
+import type { OrderPaymentRecord } from '@/features/wallet/types/payment.types';
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -21,6 +23,9 @@ import {
   useTrackingEvents,
   useTrackingSummary,
 } from '@/features/tracking';
+import { PaymentApi } from '@/features/wallet/api/payment.api';
+import { OrderPaymentModal } from '@/features/wallet/customer/components/order-payment-modal';
+import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import {
   OrderEvidenceGallery,
   OrderPaymentCard,
@@ -268,16 +273,7 @@ export function CustomerOrderDetailScreen({
     }
   };
 
-  const handleConfirmCompletion = async () => {
-    try {
-      await confirmCompletion();
-      Alert.alert('Thành công', 'Đã nghiệm thu hoàn tất đơn hàng!');
-    }
-    catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Không thể nghiệm thu đơn hàng. Vui lòng thử lại sau.';
-      Alert.alert('Lỗi nghiệm thu', message);
-    }
-  };
+  const handleConfirmCompletion = () => setIsPaymentOpen(true);
 
   const handleRequestRework = async () => {
     try {
@@ -364,8 +360,9 @@ export function CustomerOrderDetailScreen({
 
         {/* 4. Pricing & Payment Breakdown Card */}
         <OrderPaymentCard
-          agreedPrice={order?.agreedPrice || (isPlumberOrder ? 250000 : 0)}
-          paymentState={order?.paymentState}
+          agreedPrice={payment?.amount ?? order?.agreedPrice ?? (isPlumberOrder ? 250000 : 0)}
+          paymentState={paymentState}
+          paymentMethod={payment?.method}
         />
 
         {/* 4b. Customer Review Section (When order is completed) */}
@@ -474,11 +471,16 @@ export function CustomerOrderDetailScreen({
             Chức năng đang được phát triển
           </Text>
         </View>
-        {order?.serviceRequestId && <Button label="Lịch sử trò chuyện" onPress={() => router.push(`/customer/chat?requestId=${encodeURIComponent(order.serviceRequestId!)}` as any)} />}
+        {order?.serviceRequestId ? <Button label="Lịch sử trò chuyện" onPress={() => router.push({ pathname: RouteNames.CUSTOMER_CHAT, params: { requestId: order.serviceRequestId } } as any)} /> : null}
       </ScrollView>
 
       {/* 8. Sticky Bottom Action Bar (Cố định ở đáy màn hình) */}
       <View className="border-t border-neutral-200 bg-white p-4 pb-6 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+        {currentStatus === 'completed' && (paymentState === 'unpaid' || paymentState === 'failed' || payment?.status === 'pending')
+          ? (
+              <Button testID="customer-retry-payment-btn" label={payment?.status === 'pending' && payment.method === 'cash' ? 'Đổi phương thức thanh toán' : 'Thanh toán đơn hàng'} onPress={() => setIsPaymentOpen(true)} />
+            )
+          : null}
         {currentStatus === 'awaiting_customer_confirmation' && (
           <View className="gap-2.5">
             <Button
@@ -595,6 +597,22 @@ export function CustomerOrderDetailScreen({
           </View>
         )}
       </View>
+      {isPaymentOpen && order
+        ? (
+            <OrderPaymentModal
+              key={orderId}
+              orderId={orderId}
+              amount={payment?.amount ?? order.agreedPrice}
+              serviceName={resolvedServiceName}
+              workerName={displayWorkerName}
+              initialMethod={payment?.method}
+              needsConfirmation={currentStatus === 'awaiting_customer_confirmation'}
+              onConfirmCompletion={confirmCompletion}
+              onResult={handlePaymentResult}
+              onClose={() => setIsPaymentOpen(false)}
+            />
+          )
+        : null}
     </Screen>
   );
 }

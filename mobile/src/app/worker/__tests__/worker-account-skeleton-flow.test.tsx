@@ -1,9 +1,14 @@
 import * as React from 'react';
 import { WorkerProfileScreen, WorkerSettingsScreen, WorkerSkillsScreen } from '@/features/profile/worker';
+import { WalletApi } from '@/features/wallet/api/wallet.api';
 import { WorkerBalanceScreen } from '@/features/wallet/worker';
+import { response, workerWallet } from '@/features/wallet/worker/__tests__/fixtures';
 import { WorkerProfessionAnalysisScreen } from '@/features/worker-application';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { useAuthStore } from '@/stores/use-auth-store';
+
+jest.mock('@/features/wallet/api/wallet.api', () => ({ WalletApi: { getMyWallet: jest.fn() } }));
+beforeEach(() => jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response(workerWallet)));
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -49,11 +54,12 @@ describe('worker Account Skeleton & Navigation Flow (Vua Thợ)', () => {
       expect(mockPush).toHaveBeenCalledWith('/worker/balance');
     });
 
-    it('2. renders HANDY_GO balance skeleton with title and development notice', () => {
+    it('2. renders HANDY_GO balance with the backend balance', async () => {
       render(<WorkerBalanceScreen />);
 
       expect(screen.getByText('HANDY_GO balance')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(await screen.findByText('Tổng số dư ví: 300.000 đ')).toBeOnTheScreen();
+      expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
       expect(screen.getByTestId('worker-balance-screen')).toBeOnTheScreen();
     });
 
