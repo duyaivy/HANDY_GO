@@ -95,7 +95,7 @@ export class OrderResponseDto {
 
   @ApiProperty({
     description: 'Payment settlement projection state',
-    enum: ['unpaid', 'pending', 'paid', 'refunded', 'failed'],
+    enum: ['unpaid', 'pending', 'paid', 'partially_refunded', 'refunded', 'failed'],
   })
   paymentState: string;
 
@@ -111,6 +111,9 @@ export class OrderResponseDto {
   @ApiPropertyOptional({ description: 'Timestamp customer confirmed completion' })
   completedAt?: Date | null;
 
+  @ApiPropertyOptional({ description: 'First accepted completion, preserved across warranty cycles' })
+  firstCompletedAt?: Date | null;
+
   @ApiPropertyOptional({ description: 'Timestamp order was cancelled' })
   cancelledAt?: Date | null;
 
@@ -122,6 +125,9 @@ export class OrderResponseDto {
 
   @ApiPropertyOptional({ description: 'Reason for opening dispute' })
   disputeReason?: string | null;
+
+  @ApiPropertyOptional({ description: 'Dispute category' })
+  disputeCategory?: string | null;
 
   @ApiPropertyOptional({ description: 'Previous status before dispute' })
   disputePreviousStatus?: string | null;

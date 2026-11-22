@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
+  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -43,9 +44,11 @@ export default function CustomerBookingSummaryRoute() {
     aiRefPriceMax,
     aiRefPriceMin,
     description,
+    isEstimatingPrice,
     latitude,
     longitude,
     mediaUrls,
+    priceEstimateReason,
     scheduledAt,
     serviceId,
     serviceName,
@@ -55,6 +58,7 @@ export default function CustomerBookingSummaryRoute() {
 
   const [isOptionalExpanded, setIsOptionalExpanded] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const isPublishing = React.useRef(false);
   const [submissionError, setSubmissionError] = React.useState<string | null>(null);
 
   // Format thời gian hiển thị: 12:53 - 25/10/2026
@@ -76,12 +80,46 @@ export default function CustomerBookingSummaryRoute() {
   }, [scheduledAt]);
 
   const handleStartFinding = async () => {
+    if (isSubmitting || isPublishing.current) {
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmissionError(null);
+
+    const publishAndNavigate = async (requestId: string) => {
+      if (isPublishing.current) {
+        return;
+      }
+      isPublishing.current = true;
+      setIsSubmitting(true);
+      try {
+        await OrdersApi.publishRequest(requestId);
+        setCreatedRequestId(requestId);
+        useBookingDraftStore.getState().setIsPriceConfirmed(true);
+        router.push({
+          pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
+          params: { requestId, serviceName },
+        } as any);
+      }
+      catch (error) {
+        console.log('[BOOKING_SUMMARY] Publish request error:', error);
+        setCreatedRequestId(requestId);
+        setSubmissionError('Yêu cầu đã được tạo nhưng chưa thể tìm thợ. Vui lòng bấm Tìm thợ ngay để thử lại.');
+      }
+      finally {
+        isPublishing.current = false;
+        setIsSubmitting(false);
+      }
+    };
+
     try {
+      const currentDraft = useBookingDraftStore.getState();
+
       const validServiceId = await resolveValidServiceId(serviceId, serviceName);
       if (!validServiceId) {
         setSubmissionError('Dịch vụ này hiện chưa được hỗ trợ. Vui lòng chọn lại dịch vụ từ danh mục.');
+        setIsSubmitting(false);
         return;
       }
 
@@ -108,44 +146,181 @@ export default function CustomerBookingSummaryRoute() {
         finalDescription = `Tôi cần người ${serviceName.trim()}: ${finalDescription}`;
       }
 
-      const createRes = await OrdersApi.createRequest({
+      const payloadData = {
         serviceId: validServiceId,
         description: finalDescription,
         addressText: addressText || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
         latitude: typeof latitude === 'number' && !Number.isNaN(latitude) ? latitude : 16.0748,
         longitude: typeof longitude === 'number' && !Number.isNaN(longitude) ? longitude : 108.1499,
         scheduledAt: effectiveScheduledAt,
-        aiRefPriceMin: aiRefPriceMin || 150000,
-        aiRefPriceMax: aiRefPriceMax || 350000,
         media: mediaUrls.map(url => ({
           mediaUrl: url,
           mediaType: 'image',
         })),
-      });
+      };
+      const currentSnapshot = JSON.stringify(payloadData);
+      const isDraftDirty = !currentDraft.lastSyncedDraftSnapshot || currentDraft.lastSyncedDraftSnapshot !== currentSnapshot;
 
-      const newId = createRes?.data?.id;
-      if (newId) {
+      // Case 1: Draft already created, data NOT dirty, and price is confirmed -> Retry publish directly (HG96-REM-05)
+      if (currentDraft.createdRequestId && !isDraftDirty && currentDraft.isPriceConfirmed) {
+        await publishAndNavigate(currentDraft.createdRequestId);
+        return;
+      }
+
+      // Case 2: Draft already created, data NOT dirty, but price NOT confirmed (user selected "Xem lại" earlier)
+      // Must prompt for price confirmation again before publishing (HG96-REM-05 Scenario A)
+      if (currentDraft.createdRequestId && !isDraftDirty && !currentDraft.isPriceConfirmed) {
+        setIsSubmitting(false);
+        const currentMin = currentDraft.aiRefPriceMin || 150000;
+        const currentMax = currentDraft.aiRefPriceMax || 350000;
+        Alert.alert(
+          'Cập nhật khoảng giá tham khảo',
+          `Khoảng giá chính thức do hệ thống xác nhận là ${currentMin.toLocaleString('vi-VN')}đ - ${currentMax.toLocaleString('vi-VN')}đ (thay đổi so với mức xem trước). Bạn có muốn tiếp tục tìm thợ?`,
+          [
+            {
+              text: 'Xem lại',
+              style: 'cancel',
+              onPress: () => {
+                setIsSubmitting(false);
+              },
+            },
+            {
+              text: 'Tiếp tục tìm thợ',
+              onPress: () => {
+                useBookingDraftStore.getState().setIsPriceConfirmed(true);
+                void publishAndNavigate(currentDraft.createdRequestId!);
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+        return;
+      }
+
+      // Check whether serviceId or description changed compared to last sync
+      const isServiceOrDescriptionChanged
+        = Boolean(currentDraft.lastSyncedDraftSnapshot)
+          && (() => {
+            try {
+              const lastSynced = JSON.parse(currentDraft.lastSyncedDraftSnapshot!);
+              return (
+                lastSynced.serviceId !== payloadData.serviceId
+                || lastSynced.description !== payloadData.description
+              );
+            }
+            catch {
+              return false;
+            }
+          })();
+
+      // Ensure in-flight pricing estimate completes or falls back (safeguard timeout: 2500ms)
+      const draftStore = useBookingDraftStore.getState();
+      if (draftStore.isEstimatingPrice && typeof draftStore.waitForEstimate === 'function') {
         try {
-          await OrdersApi.publishRequest(newId);
+          await Promise.race([
+            draftStore.waitForEstimate(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('estimate timeout')), 2500)),
+          ]);
         }
         catch {
-          // ignore
+          // Timeout or estimation error: proceeds safely with current fallback prices
         }
-        setCreatedRequestId(newId);
-        router.push({
-          pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
-          params: { requestId: newId, serviceName },
-        } as any);
+      }
+
+      const latestDraft = useBookingDraftStore.getState();
+      const effectiveAiRefPriceMin = latestDraft.aiRefPriceMin || 150000;
+      const effectiveAiRefPriceMax = latestDraft.aiRefPriceMax || 350000;
+
+      let responseDraft: any;
+      if (currentDraft.createdRequestId) {
+        // Sync modified booking data to existing draft on server (HG96-REM-05 Scenario B)
+        try {
+          const updateRes = await OrdersApi.updateRequest(currentDraft.createdRequestId, payloadData);
+          responseDraft = updateRes?.data;
+        }
+        catch (updateError) {
+          console.log('[BOOKING_SUMMARY] Update draft error:', updateError);
+          setSubmissionError('Không thể cập nhật yêu cầu. Vui lòng thử lại sau.');
+          setIsSubmitting(false);
+          return;
+        }
       }
       else {
-        router.push(RouteNames.CUSTOMER_BOOKING_RADAR as any);
+        // Create new draft on server
+        const createRes = await OrdersApi.createRequest({
+          ...payloadData,
+          aiRefPriceMin: effectiveAiRefPriceMin,
+          aiRefPriceMax: effectiveAiRefPriceMax,
+        });
+        responseDraft = createRes?.data;
+      }
+
+      const activeRequestId = responseDraft?.id || currentDraft.createdRequestId;
+      if (!activeRequestId) {
+        throw new Error('Không thể nhận diện mã đơn từ máy chủ');
+      }
+
+      // Mark draft as synchronized with server
+      useBookingDraftStore.getState().setLastSyncedDraftSnapshot(currentSnapshot);
+      setCreatedRequestId(activeRequestId);
+
+      // Sync authoritative pricing from server response (HG96-REM-05)
+      const serverMin = Number(responseDraft?.aiRefPriceMin);
+      const serverMax = Number(responseDraft?.aiRefPriceMax);
+      const hasServerPrice
+        = !Number.isNaN(serverMin) && !Number.isNaN(serverMax) && serverMin > 0 && serverMin < serverMax;
+
+      const finalMin = hasServerPrice ? Math.round(serverMin) : effectiveAiRefPriceMin;
+      const finalMax = hasServerPrice ? Math.round(serverMax) : effectiveAiRefPriceMax;
+
+      const isPriceDifferent
+        = hasServerPrice
+          && (finalMin !== effectiveAiRefPriceMin || finalMax !== effectiveAiRefPriceMax);
+
+      // If price was already unconfirmed (user previously clicked "Xem lại") and service/description didn't change,
+      // user still needs to confirm this price!
+      const shouldPromptConfirmation
+        = isPriceDifferent
+          || (!currentDraft.isPriceConfirmed && !isServiceOrDescriptionChanged && Boolean(currentDraft.createdRequestId));
+
+      // Always synchronize authoritative backend price into local state/UI
+      if (hasServerPrice) {
+        useBookingDraftStore.getState().acceptServerPrices(finalMin, finalMax);
+      }
+
+      if (shouldPromptConfirmation) {
+        useBookingDraftStore.getState().setIsPriceConfirmed(false);
+        setIsSubmitting(false);
+        Alert.alert(
+          'Cập nhật khoảng giá tham khảo',
+          `Khoảng giá chính thức do hệ thống xác nhận là ${finalMin.toLocaleString('vi-VN')}đ - ${finalMax.toLocaleString('vi-VN')}đ (thay đổi so với mức xem trước). Bạn có muốn tiếp tục tìm thợ?`,
+          [
+            {
+              text: 'Xem lại',
+              style: 'cancel',
+              onPress: () => {
+                setIsSubmitting(false);
+              },
+            },
+            {
+              text: 'Tiếp tục tìm thợ',
+              onPress: () => {
+                useBookingDraftStore.getState().setIsPriceConfirmed(true);
+                void publishAndNavigate(activeRequestId);
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+      }
+      else {
+        useBookingDraftStore.getState().setIsPriceConfirmed(true);
+        await publishAndNavigate(activeRequestId);
       }
     }
     catch (error) {
       console.log('[BOOKING_SUMMARY] Request creation error:', error);
       setSubmissionError('Không thể tạo yêu cầu. Vui lòng thử lại sau.');
-    }
-    finally {
       setIsSubmitting(false);
     }
   };
@@ -376,9 +551,16 @@ export default function CustomerBookingSummaryRoute() {
 
         {/* Khối khoảng giá tham khảo */}
         <View className="mb-4 rounded-2xl border border-amber-200/80 bg-primary-50 p-4 dark:border-amber-900/60 dark:bg-neutral-900">
-          <Text className="text-xs font-bold text-primary-600">
-            💡 Khoảng giá tham khảo ước tính:
-          </Text>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-xs font-bold text-primary-600">
+              💡 Khoảng giá tham khảo (xem trước):
+            </Text>
+            {isEstimatingPrice && (
+              <Text className="text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                Đang tính toán...
+              </Text>
+            )}
+          </View>
           <Text className="mt-1 text-base font-black text-neutral-900 dark:text-white">
             {aiRefPriceMin.toLocaleString('vi-VN')}
             đ -
@@ -386,8 +568,17 @@ export default function CustomerBookingSummaryRoute() {
             {aiRefPriceMax.toLocaleString('vi-VN')}
             đ
           </Text>
-          <Text className="mt-0.5 text-[11px] text-neutral-500">
-            Giá cuối cùng được thợ khảo sát và thống nhất trước khi làm.
+          {Boolean(priceEstimateReason) && (
+            <View className="mt-1.5 self-start rounded-md bg-amber-100/80 px-2 py-0.5 dark:bg-amber-950/80">
+              <Text className="text-[11px] font-medium text-amber-800 dark:text-amber-200">
+                Phù hợp:
+                {' '}
+                {priceEstimateReason}
+              </Text>
+            </View>
+          )}
+          <Text className="mt-1 text-[11px] text-neutral-500">
+            Khoảng giá chính thức do hệ thống xác nhận khi tạo đơn. Giá cuối cùng do thợ và bạn thống nhất trước khi làm.
           </Text>
         </View>
       </ScrollView>

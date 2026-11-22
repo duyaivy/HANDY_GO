@@ -17,6 +17,21 @@ from database_plan import (
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_global_direct_url_matches_prisma_precedence(self):
+        values = {
+            "DATABASE_URL": "postgresql://u:p@runtime/db",
+            "DIRECT_URL": "postgresql://u:p@session/db",
+            "DB_DDL_VERIFIED_AUTH": "true",
+        }
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "session")
+        values["DIRECT_URL"] = "postgresql://u:p@aws.pooler.supabase.com:6543/db"
+        with self.assertRaisesRegex(ValueError, "transaction pooler"):
+            migration_endpoint(values, "auth", True)
+        values["DATABASE_URL_AUTH"] = "postgresql://u:p@override/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "override")
+        values["DIRECT_URL_AUTH"] = "postgresql://u:p@explicit/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "explicit")
+
     def test_message_direct_migration_url_uses_the_declared_message_schema(self):
         values = {
             "DIRECT_URL_MESSAGE": "postgresql://u:p@db/db?schema=message",
@@ -403,6 +418,14 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             }
             later_migrations = {
                 "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
+                "apps/catalog-service/prisma/migrations/20261121000000_add_service_base_prices/migration.sql",
+                "apps/order-service/prisma/migrations/20261121000000_add_dispute_evidence_metadata/migration.sql",
+                "apps/order-service/prisma/migrations/20261121001000_add_dispute_queue_index/migration.sql",
+                "apps/order-service/prisma/migrations/20261121002000_admin_dispute_resolutions/migration.sql",
+                "apps/order-service/prisma/migrations/20261122000000_active_dispute_resolution_unique/migration.sql",
+                "apps/order-service/prisma/migrations/20261122001000_add_order_dispute_category/migration.sql",
+                "apps/order-service/prisma/migrations/20261122002000_add_inbound_event_reconciliations/migration.sql",
+                "apps/payment-service/prisma/migrations/20261121002000_dispute_refund_link/migration.sql",
             }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"

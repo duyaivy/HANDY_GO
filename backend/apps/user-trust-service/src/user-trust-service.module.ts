@@ -14,6 +14,7 @@ import { WorkersModule } from './workers/index.js';
 import { InternalServiceGuard } from './common/guards/internal-service.guard.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { OrderClient } from './clients/order.client.js';
+import { AuthClient } from './clients/auth.client.js';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { OrderClient } from './clients/order.client.js';
     WorkersModule,
   ],
   controllers: [UserTrustServiceController],
-  providers: [UserTrustServiceService, InternalServiceGuard, CatalogClient, OrderClient],
+  providers: [UserTrustServiceService, InternalServiceGuard, CatalogClient, OrderClient, AuthClient],
   exports: [UserTrustServiceService, InternalServiceGuard, CatalogClient, OrderClient],
 })
 export class UserTrustServiceModule {}

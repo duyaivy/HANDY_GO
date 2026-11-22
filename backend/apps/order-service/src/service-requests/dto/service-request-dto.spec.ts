@@ -170,4 +170,64 @@ describe('ServiceRequest DTO GPS Validation', () => {
       expect(errors[0].constraints).toHaveProperty('isProjectCloudinaryUrl');
     });
   });
+
+  describe('CreateServiceRequestDto Pricing validation', () => {
+    it('should validate successfully when aiRefPriceMin < aiRefPriceMax', async () => {
+      const dto = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 150000,
+        aiRefPriceMax: 300000,
+      });
+
+      const errors = await validate(dto);
+      const priceErrors = errors.filter((e) => ['aiRefPriceMin', 'aiRefPriceMax'].includes(e.property));
+      expect(priceErrors).toHaveLength(0);
+    });
+
+    it('should reject when aiRefPriceMin >= aiRefPriceMax', async () => {
+      const dtoEqual = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 200000,
+      });
+      const errorsEqual = await validate(dtoEqual);
+      const minErrorEqual = errorsEqual.find((e) => e.property === 'aiRefPriceMin');
+      expect(minErrorEqual?.constraints).toHaveProperty('isAiRefPriceMinLessThanMax');
+
+      const dtoGreater = plainToInstance(CreateServiceRequestDto, {
+        aiRefPriceMin: 350000,
+        aiRefPriceMax: 200000,
+      });
+      const errorsGreater = await validate(dtoGreater);
+      const minErrorGreater = errorsGreater.find((e) => e.property === 'aiRefPriceMin');
+      expect(minErrorGreater?.constraints).toHaveProperty('isAiRefPriceMinLessThanMax');
+    });
+
+    it('should allow optional pricing fields for draft creation', async () => {
+      const dto = plainToInstance(CreateServiceRequestDto, {
+        description: 'Chưa có giá ước tính',
+      });
+
+      const errors = await validate(dto);
+      const priceErrors = errors.filter((e) => ['aiRefPriceMin', 'aiRefPriceMax'].includes(e.property));
+      expect(priceErrors).toHaveLength(0);
+    });
+  });
+
+  describe('UpdateServiceRequestDto Exclusions (HG96-REM-04)', () => {
+    it('should exclude aiRefPriceMin and aiRefPriceMax when transforming UpdateServiceRequestDto', async () => {
+      const dto = plainToInstance(UpdateServiceRequestDto, {
+        description: 'Mô tả cập nhật',
+        addressText: '123 Nguyễn Lương Bằng, Đà Nẵng',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      });
+
+      expect((dto as any).aiRefPriceMin).toBeUndefined();
+      expect((dto as any).aiRefPriceMax).toBeUndefined();
+      expect(dto.description).toBe('Mô tả cập nhật');
+      expect(dto.addressText).toBe('123 Nguyễn Lương Bằng, Đà Nẵng');
+
+      const errors = await validate(dto, { whitelist: true });
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

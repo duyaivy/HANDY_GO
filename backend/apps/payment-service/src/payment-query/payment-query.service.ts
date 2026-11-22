@@ -74,6 +74,25 @@ export class PaymentQueryService {
     return this.serialize(payment);
   }
 
+  /** Internal, read-only preflight. The consumer repeats this check under a Payment lock. */
+  async refundableByOrder(orderId: string) {
+    const payment = await this.database.client.payment.findUnique({
+      where: { orderId },
+      select: { id: true, status: true, amount: true },
+    });
+    if (!payment) return { paymentId: null, status: 'missing', refundableAmountVnd: '0' };
+    const reserved = await this.database.client.refund.aggregate({
+      where: { paymentId: payment.id, status: { in: ['pending', 'processing', 'needs_review', 'completed'] } },
+      _sum: { amountVnd: true },
+    });
+    const remaining = payment.amount - (reserved._sum.amountVnd ?? 0n);
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      refundableAmountVnd: remaining > 0n ? remaining.toString() : '0',
+    };
+  }
+
   async list(userId: string, query: PaymentQueryDto, admin = false) {
     const statusWhere: Prisma.PaymentWhereInput['status'] = query.status
       ? Array.isArray(query.status)

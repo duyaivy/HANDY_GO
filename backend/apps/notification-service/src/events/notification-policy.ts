@@ -33,6 +33,9 @@ export const DEFAULT_PRODUCTION_POLICIES: Partial<
   'matching.eligible_workers.ready': { mode: 'optional', roles: ['worker'] },
   'booking_proposal.created': { mode: 'mandatory', roles: ['worker'] },
   'matching.completed': { mode: 'optional', roles: ['customer'] },
+  'order.dispute.decision.recorded': { mode: 'mandatory', roles: ['customer', 'worker'] },
+  'order.dispute.resolved': { mode: 'mandatory', roles: ['customer', 'worker'] },
+  'order.warranty.completed': { mode: 'mandatory', roles: ['customer', 'worker'] },
 };
 
 /** Illustrative choices only. Explicit opt-in and NODE_ENV guard are mandatory. */
@@ -144,6 +147,7 @@ export class NotificationPolicy {
     skipReason?: string;
   } {
     if (event.eventType === 'order.status.changed') {
+      if ('resolutionId' in event.data) return { skipReason: 'DEDICATED_DISPUTE_EVENT' };
       if (event.data.notificationKind !== 'status_update')
         return { skipReason: 'DEDICATED_LIFECYCLE_EVENT' };
       const policy =
@@ -151,6 +155,12 @@ export class NotificationPolicy {
           `${event.data.previousStatus}->${event.data.nextStatus}`
         ];
       return policy ? { policy } : { skipReason: 'TRANSITION_POLICY_PENDING' };
+    }
+    if (event.eventType === 'order.dispute.decision.recorded' && event.data.action !== 'refund') {
+      return { skipReason: 'DEDICATED_DISPUTE_EVENT' };
+    }
+    if (event.eventType === 'payment.refunded' && event.data.resolutionId) {
+      return { skipReason: 'DEDICATED_DISPUTE_EVENT' };
     }
     const policy = this.policies.events[event.eventType];
     // Preserve unapproved events for review/replay instead of applying guessed rules.

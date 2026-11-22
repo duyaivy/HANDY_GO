@@ -1,10 +1,12 @@
-import type { WorkerPublicProfileData, WorkerReviewItem } from '@/services/workers/workers-api';
-import { useQuery } from '@tanstack/react-query';
+import type { WorkerPublicProfileData, WorkerReviewMediaItem } from '@/services/workers/workers-api';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
   BackHandler,
+  Linking,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,6 +17,7 @@ import { ArrowLeft } from '@/components/ui/icons/arrow-left';
 import {
   CheckCircleIcon,
   OrdersIcon,
+  PlayIcon,
   SparklesIcon,
   StarIcon,
   UserIcon,
@@ -62,6 +65,43 @@ function StarRatingRow({ rating, size = 14 }: { rating: number; size?: number })
   );
 }
 
+function formatCriteriaValue(type: 'quality' | 'attitude' | 'speed', value?: string | number | null): string {
+  if (!value) {
+    return '';
+  }
+  const raw = String(value).toLowerCase().trim();
+  if (raw === 'good') {
+    return type === 'speed' ? 'Nhanh' : 'Tốt';
+  }
+  if (raw === 'neutral') {
+    return 'Bình thường';
+  }
+  if (raw === 'bad') {
+    return type === 'speed' ? 'Chậm' : 'Chưa tốt';
+  }
+  return String(value);
+}
+
+function getCriteriaBadgeStyle(value?: string | number | null) {
+  const raw = String(value || '').toLowerCase().trim();
+  if (raw === 'good') {
+    return {
+      bg: 'bg-emerald-50 dark:bg-emerald-950/40',
+      text: 'text-emerald-700 dark:text-emerald-300',
+    };
+  }
+  if (raw === 'bad') {
+    return {
+      bg: 'bg-rose-50 dark:bg-rose-950/40',
+      text: 'text-rose-700 dark:text-rose-300',
+    };
+  }
+  return {
+    bg: 'bg-neutral-100 dark:bg-neutral-800',
+    text: 'text-neutral-600 dark:text-neutral-400',
+  };
+}
+
 export function WorkerReviewsScreen() {
   const router = useRouter();
   const user = useAuthStore.use.user();
@@ -71,6 +111,7 @@ export function WorkerReviewsScreen() {
   const workerIdentifier = profile?.workerProfile?.id || userId;
   const [selectedRating, setSelectedRating] = React.useState<number | null>(null);
   const [refreshing, setRefreshing] = React.useState(false);
+  const [selectedMedia, setSelectedMedia] = React.useState<WorkerReviewMediaItem | null>(null);
 
   const handleBack = React.useCallback(() => {
     if (router.canGoBack()) {
@@ -104,32 +145,49 @@ export function WorkerReviewsScreen() {
     staleTime: 30 * 1000,
   });
 
-  // Fetch Reviews with Rating Filter from real backend
-  const reviewsQuery = useQuery<WorkerReviewItem[]>({
+  // Fetch Reviews with Infinite Pagination & Rating Filter from real backend
+  const reviewsInfiniteQuery = useInfiniteQuery({
     queryKey: ['worker-reviews', workerIdentifier, selectedRating],
-    queryFn: async () => {
+    queryFn: async ({ pageParam = 1 }) => {
       if (!workerIdentifier) {
-        return [];
+        return { items: [], pagination: { page: 1, limit: 15, total: 0, totalPages: 0 } };
       }
       const res = await WorkersApi.getWorkerReviews(workerIdentifier, {
         rating: selectedRating ?? undefined,
-        limit: 30,
+        page: pageParam,
+        limit: 15,
       });
-      return res.data;
+      const items = Array.isArray(res.data) ? res.data : [];
+      const pagination = res.pagination || {
+        page: pageParam,
+        limit: 15,
+        total: items.length,
+        totalPages: 1,
+      };
+      return { items, pagination };
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => {
+      const { page, totalPages } = lastPage.pagination;
+      return page < totalPages ? page + 1 : undefined;
     },
     enabled: Boolean(workerIdentifier),
     staleTime: 30 * 1000,
   });
 
+  const reviewsList = React.useMemo(() => {
+    return reviewsInfiniteQuery.data?.pages.flatMap(p => p.items) ?? [];
+  }, [reviewsInfiniteQuery.data]);
+
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([profileQuery.refetch(), reviewsQuery.refetch()]);
+      await Promise.all([profileQuery.refetch(), reviewsInfiniteQuery.refetch()]);
     }
     finally {
       setRefreshing(false);
     }
-  }, [profileQuery, reviewsQuery]);
+  }, [profileQuery, reviewsInfiniteQuery]);
 
   const stats = profileQuery.data?.stats;
   const workerProfile = profile?.workerProfile;
@@ -149,8 +207,7 @@ export function WorkerReviewsScreen() {
   const totalRatingCount = stats?.ratingCount ?? workerProfile?.ratingCount ?? 0;
   const distribution = stats?.ratingDistribution ?? { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
-  const reviewsList = reviewsQuery.data ?? [];
-  const isLoading = profileQuery.isLoading || reviewsQuery.isLoading;
+  const isLoading = profileQuery.isLoading || reviewsInfiniteQuery.isLoading;
 
   return (
     <Screen
@@ -339,15 +396,13 @@ export function WorkerReviewsScreen() {
                     key={chip.label}
                     testID={`filter-chip-${chip.value ?? 'all'}`}
                     onPress={() => setSelectedRating(chip.value)}
-                    className={`mr-2 flex-row items-center rounded-full border px-3 py-1.5 ${
-                      isActive
-                        ? 'border-blue-600 bg-blue-600'
-                        : 'border-neutral-200 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900'
+                    className={`mr-2 flex-row items-center rounded-full border px-3 py-1.5 ${isActive
+                      ? 'border-blue-600 bg-blue-600'
+                      : 'border-neutral-200 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900'
                     }`}
                   >
                     <Text
-                      className={`text-xs font-semibold ${
-                        isActive ? 'text-white' : 'text-neutral-700 dark:text-neutral-300'
+                      className={`text-xs font-semibold ${isActive ? 'text-white' : 'text-neutral-700 dark:text-neutral-300'
                       }`}
                     >
                       {chip.label}
@@ -410,44 +465,115 @@ export function WorkerReviewsScreen() {
                         {review.comment || 'Khách hàng không để lại nhận xét chi tiết.'}
                       </Text>
 
-                      {/* Detail criteria badges if present */}
-                      {(review.qualityRating || review.attitudeRating || review.speedRating) && (
-                        <View className="mt-2.5 flex-row flex-wrap gap-2 border-t border-neutral-100 pt-2 dark:border-neutral-800">
-                          {review.qualityRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Chất lượng:
-                                {' '}
-                                {review.qualityRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
-                          {review.attitudeRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Thái độ:
-                                {' '}
-                                {review.attitudeRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
-                          {review.speedRating && (
-                            <View className="rounded-md bg-neutral-100 px-2 py-0.5 dark:bg-neutral-800">
-                              <Text className="text-[10px] text-neutral-600 dark:text-neutral-400">
-                                Tốc độ:
-                                {' '}
-                                {review.speedRating}
-                                ★
-                              </Text>
-                            </View>
-                          )}
+                      {/* Review Attached Media/Images */}
+                      {review.media && review.media.length > 0 && (
+                        <View testID={`review-media-gallery-${review.id}`} className="mt-3 flex-row flex-wrap gap-2">
+                          {review.media.map((mediaItem, imgIndex) => {
+                            const isVideo = (mediaItem.mediaType || '').toLowerCase() === 'video';
+                            const displayUri = isVideo
+                              ? (mediaItem.thumbnailUrl || mediaItem.mediaUrl)
+                              : mediaItem.mediaUrl;
+                            return (
+                              <Pressable
+                                key={mediaItem.id || mediaItem.mediaUrl || imgIndex}
+                                testID={`review-media-item-${review.id}-${imgIndex}`}
+                                onPress={() => setSelectedMedia(mediaItem)}
+                                className="relative size-16 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-100 active:opacity-80 dark:border-neutral-800 dark:bg-neutral-800"
+                              >
+                                <Image
+                                  source={{ uri: displayUri }}
+                                  className="size-full"
+                                  contentFit="cover"
+                                />
+                                {isVideo && (
+                                  <View className="absolute inset-0 items-center justify-center bg-black/40">
+                                    <PlayIcon size={20} color="#FFFFFF" />
+                                  </View>
+                                )}
+                              </Pressable>
+                            );
+                          })}
                         </View>
                       )}
+
+                      {/* Detail criteria card: 3 structured columns on 1 row with clean label & status badge */}
+                      {(() => {
+                        const criteriaItems = [
+                          review.qualityRating && {
+                            testID: `review-criteria-quality-${review.id}`,
+                            label: 'Chất lượng',
+                            value: formatCriteriaValue('quality', review.qualityRating),
+                            style: getCriteriaBadgeStyle(review.qualityRating),
+                          },
+                          review.attitudeRating && {
+                            testID: `review-criteria-attitude-${review.id}`,
+                            label: 'Thái độ',
+                            value: formatCriteriaValue('attitude', review.attitudeRating),
+                            style: getCriteriaBadgeStyle(review.attitudeRating),
+                          },
+                          review.speedRating && {
+                            testID: `review-criteria-speed-${review.id}`,
+                            label: 'Tốc độ',
+                            value: formatCriteriaValue('speed', review.speedRating),
+                            style: getCriteriaBadgeStyle(review.speedRating),
+                          },
+                        ].filter(Boolean) as Array<{
+                          testID: string;
+                          label: string;
+                          value: string;
+                          style: { bg: string; text: string };
+                        }>;
+
+                        if (criteriaItems.length === 0) {
+                          return null;
+                        }
+
+                        return (
+                          <View
+                            testID={`review-criteria-row-${review.id}`}
+                            className="mt-3 flex-row items-center justify-between rounded-xl border border-neutral-100 bg-neutral-50/90 p-2 dark:border-neutral-800 dark:bg-neutral-800/50"
+                          >
+                            {criteriaItems.map((item, index) => (
+                              <React.Fragment key={item.label}>
+                                {index > 0 && (
+                                  <View className="h-6 w-px bg-neutral-200 dark:bg-neutral-700" />
+                                )}
+                                <View
+                                  testID={item.testID}
+                                  className="flex-1 items-center justify-center px-1"
+                                >
+                                  <Text className="text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+                                    {item.label}
+                                  </Text>
+                                  <View className={`mt-1 items-center justify-center rounded-md px-2 py-0.5 ${item.style.bg}`}>
+                                    <Text className={`text-[11px] font-bold ${item.style.text}`}>
+                                      {item.value}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </React.Fragment>
+                            ))}
+                          </View>
+                        );
+                      })()}
                     </View>
                   );
                 })}
+              </View>
+            )}
+
+            {/* Load More Reviews Button */}
+            {!isLoading && reviewsInfiniteQuery.hasNextPage && (
+              <View className="mt-4 items-center">
+                <Button
+                  testID="worker-reviews-load-more-btn"
+                  label={reviewsInfiniteQuery.isFetchingNextPage ? 'Đang tải thêm nhận xét...' : 'Xem thêm nhận xét'}
+                  variant="outline"
+                  disabled={reviewsInfiniteQuery.isFetchingNextPage}
+                  className="rounded-xl border-neutral-300 px-4 py-2 dark:border-neutral-700"
+                  textClassName="text-xs font-semibold text-neutral-700 dark:text-neutral-300"
+                  onPress={() => reviewsInfiniteQuery.fetchNextPage()}
+                />
               </View>
             )}
 
@@ -483,7 +609,7 @@ export function WorkerReviewsScreen() {
                   variant="outline"
                   onPress={() => {
                     profileQuery.refetch();
-                    reviewsQuery.refetch();
+                    reviewsInfiniteQuery.refetch();
                   }}
                   className="mt-2 self-start"
                 />
@@ -492,6 +618,66 @@ export function WorkerReviewsScreen() {
           </View>
         </View>
       </View>
+
+      {/* Lightbox Modal for Full Image/Video View */}
+      <Modal
+        visible={Boolean(selectedMedia)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMedia(null)}
+      >
+        <Pressable
+          testID="review-media-lightbox"
+          className="flex-1 items-center justify-center bg-black/90 p-4"
+          onPress={() => setSelectedMedia(null)}
+        >
+          {selectedMedia && (
+            (selectedMedia.mediaType || '').toLowerCase() === 'video'
+              ? (
+                  <View className="w-full items-center justify-center">
+                    <View className="relative h-72 w-full overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-900">
+                      <Image
+                        source={{ uri: selectedMedia.thumbnailUrl || selectedMedia.mediaUrl }}
+                        className="size-full"
+                        contentFit="contain"
+                      />
+                      <View className="absolute inset-0 items-center justify-center bg-black/40">
+                        <PlayIcon size={56} color="#FFFFFF" />
+                      </View>
+                      <View className="absolute top-3 left-3 rounded-md bg-black/70 px-2 py-1">
+                        <Text className="text-[10px] font-bold text-white">VIDEO ĐÁNH GIÁ</Text>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      testID="lightbox-play-video-btn"
+                      onPress={() => {
+                        if (selectedMedia.mediaUrl) {
+                          void Linking.openURL(selectedMedia.mediaUrl);
+                        }
+                      }}
+                      className="mt-5 flex-row items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 active:bg-blue-700"
+                    >
+                      <PlayIcon size={18} color="#FFFFFF" />
+                      <Text className="text-sm font-bold text-white">
+                        Phát video toàn màn hình
+                      </Text>
+                    </Pressable>
+                  </View>
+                )
+              : (
+                  <Image
+                    source={{ uri: selectedMedia.mediaUrl }}
+                    className="h-3/4 w-full"
+                    contentFit="contain"
+                  />
+                )
+          )}
+          <Text className="mt-4 text-xs font-semibold text-white/80">
+            Nhấn ra ngoài để đóng
+          </Text>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }

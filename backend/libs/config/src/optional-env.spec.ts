@@ -1,6 +1,6 @@
 import { ConfigService as NestConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfigService } from './config.service.js';
 import { ConfigModule, validateEnvironment } from './config.module.js';
 import { optionalValue } from './optional-env.js';
@@ -10,6 +10,9 @@ import { eventTransportOptions } from '../../../apps/notification-service/src/ev
 import { NotificationPolicy } from '../../../apps/notification-service/src/events/notification-policy.js';
 
 const services = ['auth', 'user-trust', 'catalog', 'order', 'bidding', 'matching', 'tracking', 'notification', 'wallet'];
+beforeEach(() => {
+  vi.stubEnv('DIRECT_URL', undefined);
+});
 afterEach(() => vi.unstubAllEnvs());
 
 describe('optional environment configuration', () => {
@@ -103,5 +106,15 @@ describe('optional environment configuration', () => {
     vi.stubEnv('DATABASE_URL', url);
     if (port === '6543') expect(() => migrationUrl('order', 'order_service')).toThrow('transaction pooler');
     else expect(migrationUrl('order', 'order_service')).toContain(':5432/');
+  });
+
+  it('prioritizes service-specific database config over global DIRECT_URL in migrationUrl', () => {
+    vi.stubEnv('DIRECT_URL', 'postgresql://global:p@direct-global:5432/db');
+    vi.stubEnv('DATABASE_URL', 'postgresql://global:p@db-global:5432/db');
+    vi.stubEnv('DIRECT_URL_ORDER', undefined);
+    vi.stubEnv('DATABASE_URL_ORDER', 'postgresql://order:p@order-db:5432/db');
+
+    expect(migrationUrl('order', 'order_service')).toContain('@order-db:5432/');
+    expect(migrationUrl('order', 'order_service')).not.toContain('@direct-global:5432/');
   });
 });

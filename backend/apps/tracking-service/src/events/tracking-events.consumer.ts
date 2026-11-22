@@ -283,6 +283,21 @@ export class TrackingEventsConsumer {
     await this.processEvent(data, context, EVENT_PATTERNS.ORDER_DISPUTED);
   }
 
+  @EventPattern(EVENT_PATTERNS.ORDER_DISPUTE_DECISION_RECORDED)
+  async handleDisputeDecision(@Payload() data: EventEnvelope, @Ctx() context: any): Promise<void> {
+    await this.processEvent(data, context, EVENT_PATTERNS.ORDER_DISPUTE_DECISION_RECORDED);
+  }
+
+  @EventPattern(EVENT_PATTERNS.ORDER_DISPUTE_RESOLVED)
+  async handleDisputeResolved(@Payload() data: EventEnvelope, @Ctx() context: any): Promise<void> {
+    await this.processEvent(data, context, EVENT_PATTERNS.ORDER_DISPUTE_RESOLVED);
+  }
+
+  @EventPattern(EVENT_PATTERNS.ORDER_WARRANTY_COMPLETED)
+  async handleWarrantyCompleted(@Payload() data: EventEnvelope, @Ctx() context: any): Promise<void> {
+    await this.processEvent(data, context, EVENT_PATTERNS.ORDER_WARRANTY_COMPLETED);
+  }
+
   @EventPattern(EVENT_PATTERNS.ORDER_REWORK_REQUESTED)
   async handleOrderReworkRequested(
     @Payload() data: EventEnvelope,
