@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { AppException, ERROR_CODES } from '@app/common';
-import type { Refund } from '@prisma/payment-client';
+import type { Prisma, Refund } from '@prisma/payment-client';
 import { AdminAuditService } from '../common/audit/admin-audit.service.js';
 import { PaymentPrismaService } from '../common/database/payment-prisma.service.js';
 import { parseOrderAmount } from '../common/money/payment-money.js';
@@ -9,7 +9,11 @@ import { paymentRefundedEvent } from '../common/outbox/payment-events.js';
 import { PaymentOutboxService } from '../common/outbox/payment-outbox.service.js';
 import { WalletClient } from '../common/clients/wallet.client.js';
 import type { PaymentPaginationDto } from '../payment-query/dto/payment-query.dto.js';
-import type { CreateRefundDto, DecideRefundDto } from './dto/refunds.dto.js';
+import type {
+  AdminRefundQueryDto,
+  CreateRefundDto,
+  DecideRefundDto,
+} from './dto/refunds.dto.js';
 
 const reservedStatuses = [
   'pending',
@@ -29,10 +33,25 @@ function missing(): never {
   );
 }
 
-function serialize(row: Refund) {
+function serialize(
+  row: Refund & {
+    payment?: {
+      orderId?: string;
+      customerUserId?: string;
+      workerUserId?: string;
+    } | null;
+  },
+) {
   return {
     id: row.id,
     paymentId: row.paymentId,
+    ...(row.payment?.orderId ? { orderId: row.payment.orderId } : {}),
+    ...(row.payment?.customerUserId
+      ? { customerUserId: row.payment.customerUserId }
+      : {}),
+    ...(row.payment?.workerUserId
+      ? { workerUserId: row.payment.workerUserId }
+      : {}),
     amount: row.amountVnd.toString(),
     status: row.status,
     destination: 'point' as const,
@@ -148,6 +167,46 @@ export class RefundsService {
     const [rows, total] = await this.database.client.$transaction([
       this.database.client.refund.findMany({
         where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: query.limit,
+        skip: (query.page - 1) * query.limit,
+      }),
+      this.database.client.refund.count({ where }),
+    ]);
+    return {
+      items: rows.map(serialize),
+      total,
+      page: query.page,
+      limit: query.limit,
+      totalPages: Math.ceil(total / query.limit),
+    };
+  }
+
+  async listAll(_actor: string, query: AdminRefundQueryDto) {
+    const statusWhere: Prisma.RefundWhereInput['status'] = query.status
+      ? Array.isArray(query.status)
+        ? query.status.length > 0
+          ? { in: query.status }
+          : undefined
+        : { in: [query.status] }
+      : undefined;
+
+    const where: Prisma.RefundWhereInput = {
+      ...(statusWhere ? { status: statusWhere } : {}),
+      ...(query.paymentId ? { paymentId: query.paymentId } : {}),
+    };
+    const [rows, total] = await this.database.client.$transaction([
+      this.database.client.refund.findMany({
+        where,
+        include: {
+          payment: {
+            select: {
+              orderId: true,
+              customerUserId: true,
+              workerUserId: true,
+            },
+          },
+        },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: query.limit,
         skip: (query.page - 1) * query.limit,
