@@ -151,6 +151,19 @@ export type CreateServiceRequestPayload = {
   }>;
 };
 
+export type UpdateServiceRequestPayload = {
+  serviceId?: string;
+  description?: string;
+  scheduledAt?: string | null;
+  addressText?: string;
+  latitude?: number;
+  longitude?: number;
+  media?: Array<{
+    mediaUrl: string;
+    mediaType: string;
+  }>;
+};
+
 export type CreateBookingProposalPayload = {
   serviceRequestId: string;
   workerUserId: string;

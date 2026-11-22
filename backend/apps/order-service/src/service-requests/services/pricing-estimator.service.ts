@@ -23,6 +23,8 @@ interface AiPricingApiResponse {
 
 const SYSTEM_FALLBACK_MIN = 150000;
 const SYSTEM_FALLBACK_MAX = 350000;
+// Leave room for persistence and the response within the caller's 15s deadline.
+const MAX_AI_PRICING_TIMEOUT_MS = 5000;
 
 function resolveValidPriceRange(
   min: unknown,
@@ -64,9 +66,11 @@ export class PricingEstimatorService {
 
     const rawTimeout =
       process.env.AI_PRICING_TIMEOUT_MS || process.env.AI_SERVICE_TIMEOUT_MS;
-    const parsedTimeout = rawTimeout ? parseInt(rawTimeout, 10) : 15000;
+    const parsedTimeout = rawTimeout ? parseInt(rawTimeout, 10) : MAX_AI_PRICING_TIMEOUT_MS;
     this.timeoutMs =
-      !isNaN(parsedTimeout) && parsedTimeout > 0 ? parsedTimeout : 15000;
+      !isNaN(parsedTimeout) && parsedTimeout > 0
+        ? Math.min(parsedTimeout, MAX_AI_PRICING_TIMEOUT_MS)
+        : MAX_AI_PRICING_TIMEOUT_MS;
 
     this.internalServiceSecret =
       process.env.INTERNAL_SERVICE_SECRET ||

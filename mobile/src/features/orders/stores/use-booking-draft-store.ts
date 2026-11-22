@@ -18,6 +18,8 @@ export type BookingDraftState = {
   selectedWorkerId: string;
   agreedPrice: number;
   createdRequestId: string | null;
+  isPriceConfirmed: boolean;
+  lastSyncedDraftSnapshot: string | null;
 
   setService: (id: string, name?: string) => void;
   setDescription: (desc: string) => void;
@@ -28,8 +30,11 @@ export type BookingDraftState = {
   replaceMediaUrl: (oldUrl: string, newUrl: string) => void;
   setSelectedWorker: (workerId: string, price?: number) => void;
   setCreatedRequestId: (id: string | null) => void;
+  setIsPriceConfirmed: (confirmed: boolean) => void;
+  setLastSyncedDraftSnapshot: (snapshot: string | null) => void;
   fetchEstimatedPrice: (serviceId?: string, description?: string) => Promise<void>;
   waitForEstimate: () => Promise<void>;
+  acceptServerPrices: (min: number, max: number) => void;
   resetDraft: () => void;
 };
 
@@ -64,6 +69,8 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   selectedWorkerId: '',
   agreedPrice: 300000,
   createdRequestId: null,
+  isPriceConfirmed: false,
+  lastSyncedDraftSnapshot: null,
 
   setService: (serviceId, serviceName) => {
     const prevServiceId = get().serviceId;
@@ -90,6 +97,7 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
         aiRefPriceMax: DEFAULT_MAX_PRICE,
         isEstimatingPrice: false,
         priceEstimateReason: null,
+        isPriceConfirmed: false,
       }));
     }
     else {
@@ -131,6 +139,7 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       aiRefPriceMax: DEFAULT_MAX_PRICE,
       isEstimatingPrice: false,
       priceEstimateReason: null,
+      isPriceConfirmed: false,
     });
   },
 
@@ -156,6 +165,23 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
     set({ selectedWorkerId, agreedPrice }),
 
   setCreatedRequestId: createdRequestId => set({ createdRequestId }),
+
+  setIsPriceConfirmed: isPriceConfirmed => set({ isPriceConfirmed }),
+
+  setLastSyncedDraftSnapshot: lastSyncedDraftSnapshot => set({ lastSyncedDraftSnapshot }),
+
+  acceptServerPrices: (min, max) => {
+    latestRequestId++;
+    activeAbortController?.abort();
+    activeAbortController = null;
+    activeEstimatePromise = null;
+    set({
+      aiRefPriceMin: min,
+      aiRefPriceMax: max,
+      isEstimatingPrice: false,
+      priceEstimateReason: null,
+    });
+  },
 
   fetchEstimatedPrice: async (overrideServiceId?: string, overrideDescription?: string) => {
     const currentServiceId = overrideServiceId ?? get().serviceId;
@@ -271,6 +297,8 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       selectedWorkerId: '',
       agreedPrice: 300000,
       createdRequestId: null,
+      isPriceConfirmed: false,
+      lastSyncedDraftSnapshot: null,
     });
   },
 }));

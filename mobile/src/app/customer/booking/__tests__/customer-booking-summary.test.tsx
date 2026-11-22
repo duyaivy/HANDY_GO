@@ -20,6 +20,7 @@ jest.mock('@/features/catalog/api/catalog.api', () => ({
 jest.mock('@/features/orders/api/orders.api', () => ({
   OrdersApi: {
     createRequest: jest.fn().mockResolvedValue({ data: { id: 'req-transport' } }),
+    updateRequest: jest.fn().mockResolvedValue({ data: { id: 'req-transport' } }),
     publishRequest: jest.fn().mockResolvedValue({}),
   },
 }));
@@ -228,9 +229,21 @@ describe('HG96-REM-05: Backend Price Synchronization & Confirmation', () => {
     const confirmButton = alertButtons.find(b => b.text === 'Tiếp tục tìm thợ');
     expect(confirmButton).toBeDefined();
 
+    let finishPublish!: () => void;
+    jest.mocked(OrdersApi.publishRequest).mockImplementationOnce(() => new Promise((resolve) => {
+      finishPublish = () => resolve({} as any);
+    }));
     await act(async () => {
       await confirmButton.onPress();
     });
+
+    expect(screen.getByTestId('booking-start-finding-btn')).toBeDisabled();
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+    await act(async () => {
+      await confirmButton.onPress();
+    });
+    expect(OrdersApi.publishRequest).toHaveBeenCalledTimes(1);
+    await act(async () => finishPublish());
 
     expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-server-diff');
     expect(mockPush).toHaveBeenCalledWith({
@@ -313,5 +326,319 @@ describe('HG96-REM-05: Backend Price Synchronization & Confirmation', () => {
       pathname: '/customer/booking/radar',
       params: { requestId: 'req-fail-publish', serviceName: transportService.name },
     });
+  });
+
+  it('does not publish when user selects "Xem lại", and requires confirmation again on next submit (Scenario A)', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+    });
+
+    jest.mocked(OrdersApi.createRequest).mockResolvedValueOnce({
+      statusCode: 201,
+      message: 'Created',
+      data: {
+        id: 'req-scen-a',
+        aiRefPriceMin: 150000,
+        aiRefPriceMax: 450000,
+      } as any,
+    });
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Customer clicks "Xem lại"
+    const alertButtons = alertSpy.mock.calls[0][2] as any[];
+    const reviewButton = alertButtons.find(b => b.text === 'Xem lại');
+    expect(reviewButton).toBeDefined();
+
+    act(() => {
+      reviewButton.onPress();
+    });
+
+    // Should NOT publish
+    expect(OrdersApi.publishRequest).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(useBookingDraftStore.getState().isPriceConfirmed).toBe(false);
+
+    // Second click: Customer clicks "Tìm thợ ngay" again without changing anything
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    // Alert MUST be displayed again to confirm price before publish
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledTimes(2);
+    });
+    expect(OrdersApi.publishRequest).not.toHaveBeenCalled();
+
+    // Now customer confirms
+    const secondAlertButtons = alertSpy.mock.calls[1][2] as any[];
+    const confirmButton = secondAlertButtons.find(b => b.text === 'Tiếp tục tìm thợ');
+    expect(confirmButton).toBeDefined();
+
+    await act(async () => {
+      await confirmButton.onPress();
+    });
+
+    expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-scen-a');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/booking/radar',
+      params: { requestId: 'req-scen-a', serviceName: transportService.name },
+    });
+  });
+
+  it('synchronizes modified description via updateRequest before publishing (Scenario B)', async () => {
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      description: 'Mô tả ban đầu',
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+    });
+
+    jest.mocked(OrdersApi.createRequest).mockResolvedValueOnce({
+      statusCode: 201,
+      message: 'Created',
+      data: {
+        id: 'req-scen-b1',
+        description: 'Tôi cần người Bốc xếp hàng hoá: Mô tả ban đầu',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 350000,
+      } as any,
+    });
+
+    const { rerender } = render(<CustomerBookingSummaryScreen />);
+
+    // Step 1: Initial create draft
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+    await waitFor(() => {
+      expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1);
+    });
+
+    // Step 2: Customer modifies description
+    act(() => {
+      useBookingDraftStore.getState().setDescription('Mô tả mới đã chỉnh sửa chi tiết');
+    });
+    rerender(<CustomerBookingSummaryScreen />);
+
+    jest.mocked(OrdersApi.updateRequest).mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'Updated',
+      data: {
+        id: 'req-scen-b1',
+        description: 'Tôi cần người Bốc xếp hàng hoá: Mô tả mới đã chỉnh sửa chi tiết',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 350000,
+      } as any,
+    });
+
+    // Step 3: Customer presses start finding again
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(OrdersApi.updateRequest).toHaveBeenCalledWith(
+        'req-scen-b1',
+        expect.objectContaining({
+          description: expect.stringContaining('Mô tả mới đã chỉnh sửa chi tiết'),
+        }),
+      );
+    });
+
+    // Published with updated data
+    expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-scen-b1');
+    expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1); // No duplicate create
+  });
+
+  it('synchronizes updated serviceId via updateRequest and recalculates server price', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      createdRequestId: 'req-service-change',
+      lastSyncedDraftSnapshot: JSON.stringify({
+        serviceId: transportService.id,
+        description: 'Tôi cần người Bốc xếp hàng hoá',
+        addressText: '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
+        latitude: 16.0748,
+        longitude: 108.1499,
+        scheduledAt: '2026-11-25T09:00:00.000Z',
+        media: [],
+      }),
+      scheduledAt: '2026-11-25T09:00:00.000Z',
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+      isPriceConfirmed: true,
+    });
+
+    // User changes service to another valid service
+    const newServiceId = 'cbb1b85c-32f9-4041-a0fd-df5cde04784f';
+    useBookingDraftStore.getState().setService(newServiceId, 'Sửa điều hoà');
+
+    jest.mocked(OrdersApi.updateRequest).mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'Updated',
+      data: {
+        id: 'req-service-change',
+        serviceId: newServiceId,
+        aiRefPriceMin: 350000,
+        aiRefPriceMax: 600000, // New recalculated price
+      } as any,
+    });
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(OrdersApi.updateRequest).toHaveBeenCalledWith(
+        'req-service-change',
+        expect.objectContaining({ serviceId: newServiceId }),
+      );
+    });
+
+    // Price changed -> Alert shown
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Cập nhật khoảng giá tham khảo',
+        expect.stringContaining('350.000đ - 600.000đ'),
+        expect.any(Array),
+        { cancelable: false },
+      );
+    });
+  });
+
+  it('synchronizes updated address and scheduled time without creating duplicate draft', async () => {
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      createdRequestId: 'req-sync-address',
+      lastSyncedDraftSnapshot: JSON.stringify({
+        serviceId: transportService.id,
+        description: 'Tôi cần người Bốc xếp hàng hoá',
+        addressText: '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
+        latitude: 16.0748,
+        longitude: 108.1499,
+        scheduledAt: '2026-11-25T09:00:00.000Z',
+        media: [],
+      }),
+      scheduledAt: '2026-11-25T09:00:00.000Z',
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 350000,
+      isPriceConfirmed: true,
+    });
+
+    // User changes address
+    useBookingDraftStore.getState().setAddress('999 Nguyễn Văn Linh, Đà Nẵng', 16.06, 108.22);
+
+    jest.mocked(OrdersApi.updateRequest).mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'Updated',
+      data: {
+        id: 'req-sync-address',
+        addressText: '999 Nguyễn Văn Linh, Đà Nẵng',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 350000,
+      } as any,
+    });
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(OrdersApi.updateRequest).toHaveBeenCalledWith(
+        'req-sync-address',
+        expect.objectContaining({
+          addressText: '999 Nguyễn Văn Linh, Đà Nẵng',
+          latitude: 16.06,
+          longitude: 108.22,
+        }),
+      );
+    });
+
+    expect(OrdersApi.publishRequest).toHaveBeenCalledWith('req-sync-address');
+    expect(OrdersApi.createRequest).not.toHaveBeenCalled();
+  });
+
+  it('stops flow and does not publish stale draft when updateRequest fails', async () => {
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    useBookingDraftStore.setState({
+      createdRequestId: 'req-fail-update',
+      lastSyncedDraftSnapshot: JSON.stringify({
+        serviceId: transportService.id,
+        description: 'Mô tả cũ',
+        addressText: '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
+        latitude: 16.0748,
+        longitude: 108.1499,
+        scheduledAt: '2026-11-25T09:00:00.000Z',
+        media: [],
+      }),
+      scheduledAt: '2026-11-25T09:00:00.000Z',
+      description: 'Mô tả mới',
+    });
+
+    jest.mocked(OrdersApi.updateRequest).mockRejectedValueOnce(new Error('Internal server error on update'));
+
+    render(<CustomerBookingSummaryScreen />);
+    fireEvent.press(screen.getByTestId('booking-start-finding-btn'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Không thể cập nhật yêu cầu. Vui lòng thử lại sau.')).toBeOnTheScreen();
+    });
+
+    expect(OrdersApi.publishRequest).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('blocks duplicate submissions when start finding button is pressed repeatedly', async () => {
+    let resolveCreate: (value: any) => void;
+    const createPromise = new Promise((resolve) => {
+      resolveCreate = resolve;
+    });
+
+    useBookingDraftStore.getState().setService(transportService.id, transportService.name);
+    jest.mocked(OrdersApi.createRequest).mockImplementation(() => createPromise as any);
+
+    render(<CustomerBookingSummaryScreen />);
+    const submitBtn = screen.getByTestId('booking-start-finding-btn');
+
+    // First click initiates submission
+    fireEvent.press(submitBtn);
+
+    await waitFor(() => {
+      expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1);
+    });
+
+    // Subsequent clicks while in flight should be blocked by isSubmitting
+    fireEvent.press(submitBtn);
+    fireEvent.press(submitBtn);
+
+    expect(OrdersApi.createRequest).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCreate!({
+        statusCode: 201,
+        data: {
+          id: 'req-rapid-click',
+          aiRefPriceMin: 150000,
+          aiRefPriceMax: 350000,
+        },
+      });
+    });
+  });
+
+  it('clears price confirmation and synced snapshot state upon resetDraft', () => {
+    useBookingDraftStore.setState({
+      createdRequestId: 'req-to-reset',
+      isPriceConfirmed: true,
+      lastSyncedDraftSnapshot: '{"serviceId":"xyz"}',
+    });
+
+    useBookingDraftStore.getState().resetDraft();
+
+    const state = useBookingDraftStore.getState();
+    expect(state.createdRequestId).toBeNull();
+    expect(state.isPriceConfirmed).toBe(false);
+    expect(state.lastSyncedDraftSnapshot).toBeNull();
   });
 });

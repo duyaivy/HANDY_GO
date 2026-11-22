@@ -58,6 +58,7 @@ export default function CustomerBookingSummaryRoute() {
 
   const [isOptionalExpanded, setIsOptionalExpanded] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const isPublishing = React.useRef(false);
   const [submissionError, setSubmissionError] = React.useState<string | null>(null);
 
   // Format thời gian hiển thị: 12:53 - 25/10/2026
@@ -79,7 +80,7 @@ export default function CustomerBookingSummaryRoute() {
   }, [scheduledAt]);
 
   const handleStartFinding = async () => {
-    if (isSubmitting) {
+    if (isSubmitting || isPublishing.current) {
       return;
     }
 
@@ -87,9 +88,15 @@ export default function CustomerBookingSummaryRoute() {
     setSubmissionError(null);
 
     const publishAndNavigate = async (requestId: string) => {
+      if (isPublishing.current) {
+        return;
+      }
+      isPublishing.current = true;
+      setIsSubmitting(true);
       try {
         await OrdersApi.publishRequest(requestId);
         setCreatedRequestId(requestId);
+        useBookingDraftStore.getState().setIsPriceConfirmed(true);
         router.push({
           pathname: RouteNames.CUSTOMER_BOOKING_RADAR,
           params: { requestId, serviceName },
@@ -101,17 +108,13 @@ export default function CustomerBookingSummaryRoute() {
         setSubmissionError('Yêu cầu đã được tạo nhưng chưa thể tìm thợ. Vui lòng bấm Tìm thợ ngay để thử lại.');
       }
       finally {
+        isPublishing.current = false;
         setIsSubmitting(false);
       }
     };
 
     try {
       const currentDraft = useBookingDraftStore.getState();
-      // Retry publish directly if draft request was already created in a previous attempt (HG96-REM-05)
-      if (currentDraft.createdRequestId) {
-        await publishAndNavigate(currentDraft.createdRequestId);
-        return;
-      }
 
       const validServiceId = await resolveValidServiceId(serviceId, serviceName);
       if (!validServiceId) {
@@ -143,6 +146,73 @@ export default function CustomerBookingSummaryRoute() {
         finalDescription = `Tôi cần người ${serviceName.trim()}: ${finalDescription}`;
       }
 
+      const payloadData = {
+        serviceId: validServiceId,
+        description: finalDescription,
+        addressText: addressText || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
+        latitude: typeof latitude === 'number' && !Number.isNaN(latitude) ? latitude : 16.0748,
+        longitude: typeof longitude === 'number' && !Number.isNaN(longitude) ? longitude : 108.1499,
+        scheduledAt: effectiveScheduledAt,
+        media: mediaUrls.map(url => ({
+          mediaUrl: url,
+          mediaType: 'image',
+        })),
+      };
+      const currentSnapshot = JSON.stringify(payloadData);
+      const isDraftDirty = !currentDraft.lastSyncedDraftSnapshot || currentDraft.lastSyncedDraftSnapshot !== currentSnapshot;
+
+      // Case 1: Draft already created, data NOT dirty, and price is confirmed -> Retry publish directly (HG96-REM-05)
+      if (currentDraft.createdRequestId && !isDraftDirty && currentDraft.isPriceConfirmed) {
+        await publishAndNavigate(currentDraft.createdRequestId);
+        return;
+      }
+
+      // Case 2: Draft already created, data NOT dirty, but price NOT confirmed (user selected "Xem lại" earlier)
+      // Must prompt for price confirmation again before publishing (HG96-REM-05 Scenario A)
+      if (currentDraft.createdRequestId && !isDraftDirty && !currentDraft.isPriceConfirmed) {
+        setIsSubmitting(false);
+        const currentMin = currentDraft.aiRefPriceMin || 150000;
+        const currentMax = currentDraft.aiRefPriceMax || 350000;
+        Alert.alert(
+          'Cập nhật khoảng giá tham khảo',
+          `Khoảng giá chính thức do hệ thống xác nhận là ${currentMin.toLocaleString('vi-VN')}đ - ${currentMax.toLocaleString('vi-VN')}đ (thay đổi so với mức xem trước). Bạn có muốn tiếp tục tìm thợ?`,
+          [
+            {
+              text: 'Xem lại',
+              style: 'cancel',
+              onPress: () => {
+                setIsSubmitting(false);
+              },
+            },
+            {
+              text: 'Tiếp tục tìm thợ',
+              onPress: () => {
+                useBookingDraftStore.getState().setIsPriceConfirmed(true);
+                void publishAndNavigate(currentDraft.createdRequestId!);
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+        return;
+      }
+
+      // Check whether serviceId or description changed compared to last sync
+      const isServiceOrDescriptionChanged
+        = Boolean(currentDraft.lastSyncedDraftSnapshot)
+          && (() => {
+            try {
+              const lastSynced = JSON.parse(currentDraft.lastSyncedDraftSnapshot!);
+              return (
+                lastSynced.serviceId !== payloadData.serviceId
+                || lastSynced.description !== payloadData.description
+              );
+            }
+            catch {
+              return false;
+            }
+          })();
+
       // Ensure in-flight pricing estimate completes or falls back (safeguard timeout: 2500ms)
       const draftStore = useBookingDraftStore.getState();
       if (draftStore.isEstimatingPrice && typeof draftStore.waitForEstimate === 'function') {
@@ -161,29 +231,42 @@ export default function CustomerBookingSummaryRoute() {
       const effectiveAiRefPriceMin = latestDraft.aiRefPriceMin || 150000;
       const effectiveAiRefPriceMax = latestDraft.aiRefPriceMax || 350000;
 
-      const createRes = await OrdersApi.createRequest({
-        serviceId: validServiceId,
-        description: finalDescription,
-        addressText: addressText || '123 Nguyễn Lương Bằng, Hòa Khánh Bắc, Liên Chiểu, Đà Nẵng',
-        latitude: typeof latitude === 'number' && !Number.isNaN(latitude) ? latitude : 16.0748,
-        longitude: typeof longitude === 'number' && !Number.isNaN(longitude) ? longitude : 108.1499,
-        scheduledAt: effectiveScheduledAt,
-        aiRefPriceMin: effectiveAiRefPriceMin,
-        aiRefPriceMax: effectiveAiRefPriceMax,
-        media: mediaUrls.map(url => ({
-          mediaUrl: url,
-          mediaType: 'image',
-        })),
-      });
+      let responseDraft: any;
+      if (currentDraft.createdRequestId) {
+        // Sync modified booking data to existing draft on server (HG96-REM-05 Scenario B)
+        try {
+          const updateRes = await OrdersApi.updateRequest(currentDraft.createdRequestId, payloadData);
+          responseDraft = updateRes?.data;
+        }
+        catch (updateError) {
+          console.log('[BOOKING_SUMMARY] Update draft error:', updateError);
+          setSubmissionError('Không thể cập nhật yêu cầu. Vui lòng thử lại sau.');
+          setIsSubmitting(false);
+          return;
+        }
+      }
+      else {
+        // Create new draft on server
+        const createRes = await OrdersApi.createRequest({
+          ...payloadData,
+          aiRefPriceMin: effectiveAiRefPriceMin,
+          aiRefPriceMax: effectiveAiRefPriceMax,
+        });
+        responseDraft = createRes?.data;
+      }
 
-      const newId = createRes?.data?.id;
-      if (!newId) {
+      const activeRequestId = responseDraft?.id || currentDraft.createdRequestId;
+      if (!activeRequestId) {
         throw new Error('Không thể nhận diện mã đơn từ máy chủ');
       }
 
+      // Mark draft as synchronized with server
+      useBookingDraftStore.getState().setLastSyncedDraftSnapshot(currentSnapshot);
+      setCreatedRequestId(activeRequestId);
+
       // Sync authoritative pricing from server response (HG96-REM-05)
-      const serverMin = Number(createRes?.data?.aiRefPriceMin);
-      const serverMax = Number(createRes?.data?.aiRefPriceMax);
+      const serverMin = Number(responseDraft?.aiRefPriceMin);
+      const serverMax = Number(responseDraft?.aiRefPriceMax);
       const hasServerPrice
         = !Number.isNaN(serverMin) && !Number.isNaN(serverMax) && serverMin > 0 && serverMin < serverMax;
 
@@ -194,18 +277,19 @@ export default function CustomerBookingSummaryRoute() {
         = hasServerPrice
           && (finalMin !== effectiveAiRefPriceMin || finalMax !== effectiveAiRefPriceMax);
 
+      // If price was already unconfirmed (user previously clicked "Xem lại") and service/description didn't change,
+      // user still needs to confirm this price!
+      const shouldPromptConfirmation
+        = isPriceDifferent
+          || (!currentDraft.isPriceConfirmed && !isServiceOrDescriptionChanged && Boolean(currentDraft.createdRequestId));
+
       // Always synchronize authoritative backend price into local state/UI
       if (hasServerPrice) {
-        useBookingDraftStore.setState({
-          aiRefPriceMin: finalMin,
-          aiRefPriceMax: finalMax,
-          ...(isPriceDifferent ? { priceEstimateReason: null } : {}),
-        });
+        useBookingDraftStore.getState().acceptServerPrices(finalMin, finalMax);
       }
 
-      setCreatedRequestId(newId);
-
-      if (isPriceDifferent) {
+      if (shouldPromptConfirmation) {
+        useBookingDraftStore.getState().setIsPriceConfirmed(false);
         setIsSubmitting(false);
         Alert.alert(
           'Cập nhật khoảng giá tham khảo',
@@ -221,7 +305,8 @@ export default function CustomerBookingSummaryRoute() {
             {
               text: 'Tiếp tục tìm thợ',
               onPress: () => {
-                void publishAndNavigate(newId);
+                useBookingDraftStore.getState().setIsPriceConfirmed(true);
+                void publishAndNavigate(activeRequestId);
               },
             },
           ],
@@ -229,7 +314,8 @@ export default function CustomerBookingSummaryRoute() {
         );
       }
       else {
-        await publishAndNavigate(newId);
+        useBookingDraftStore.getState().setIsPriceConfirmed(true);
+        await publishAndNavigate(activeRequestId);
       }
     }
     catch (error) {

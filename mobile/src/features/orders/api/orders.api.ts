@@ -9,6 +9,7 @@ import type {
   OrderStatusHistoryItem,
   PaginatedList,
   ServiceRequest,
+  UpdateServiceRequestPayload,
   UploadEvidencePayload,
 } from '../types/order.types';
 import { ApiClient } from '@/services/api/api-client';
@@ -41,6 +42,13 @@ export const OrdersApi = {
   createRequest: async (payload: CreateServiceRequestPayload) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       '/service-requests',
+      payload,
+    );
+  },
+
+  updateRequest: async (id: string, payload: UpdateServiceRequestPayload) => {
+    return ApiClient.patch<{ statusCode: number; message: string; data: ServiceRequest }>(
+      `/service-requests/${id}`,
       payload,
     );
   },

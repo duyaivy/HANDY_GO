@@ -15,6 +15,30 @@ describe('PricingEstimatorService', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
+
+  it.each([undefined, '15000', 'invalid'])('returns catalog fallback within 5s with timeout %s', async (timeout) => {
+    vi.useFakeTimers();
+    vi.stubEnv('AI_PRICING_TIMEOUT_MS', timeout);
+    vi.stubEnv('AI_SERVICE_TIMEOUT_MS', timeout);
+    service = new PricingEstimatorService(mockPrisma);
+    mockPrisma.$queryRaw.mockResolvedValueOnce([
+      { id: 'service-1', name: 'Repair', base_price_min: 150000, base_price_max: 450000 },
+    ]);
+    vi.stubGlobal('fetch', vi.fn((_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(options.signal.reason));
+    })));
+    try {
+      const pending = service.estimatePrice({ serviceId: 'service-1', description: 'Repair' });
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(pending).resolves.toMatchObject({
+        aiRefPriceMin: 150000, aiRefPriceMax: 450000, isFallback: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('successfully returns estimated price range from AI Service', async () => {

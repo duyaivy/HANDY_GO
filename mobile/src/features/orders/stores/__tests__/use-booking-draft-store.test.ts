@@ -18,6 +18,25 @@ function createDeferred<T>() {
 }
 
 describe('useBookingDraftStore - Pricing Estimation & Concurrency', () => {
+  it('keeps server prices when an aborted preview still returns a response', async () => {
+    const preview = createDeferred<any>();
+    jest.mocked(OrdersApi.estimatePrice).mockReturnValueOnce(preview.promise);
+    const pending = useBookingDraftStore.getState().fetchEstimatedPrice('srv-a', 'Description A');
+    const signal = jest.mocked(OrdersApi.estimatePrice).mock.calls[0][1]?.signal;
+
+    useBookingDraftStore.getState().acceptServerPrices(200000, 450000);
+    expect(signal?.aborted).toBe(true);
+    preview.resolve({ data: { aiRefPriceMin: 100000, aiRefPriceMax: 300000, matchedReason: 'stale' } });
+    await pending;
+
+    expect(useBookingDraftStore.getState()).toMatchObject({
+      aiRefPriceMin: 200000,
+      aiRefPriceMax: 450000,
+      isEstimatingPrice: false,
+      priceEstimateReason: null,
+    });
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     useBookingDraftStore.getState().resetDraft();
