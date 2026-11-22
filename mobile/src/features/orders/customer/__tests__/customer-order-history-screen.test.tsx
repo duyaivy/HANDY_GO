@@ -51,6 +51,7 @@ const mockRequests = [
 let mockHookReturn: any = {
   orders: mockOrders,
   requests: mockRequests,
+  totalCompletedCount: 1,
   isLoading: false,
   isError: false,
   refetch: mockRefetch,
@@ -59,8 +60,10 @@ let mockHookReturn: any = {
   fetchNextPage: mockFetchNextPage,
 };
 
-jest.mock('../../hooks/use-customer-orders', () => ({
-  useCustomerOrders: () => mockHookReturn,
+const mockHookFn = jest.fn((..._args: any[]) => mockHookReturn);
+
+jest.mock('../../hooks/use-customer-order-history', () => ({
+  useCustomerOrderHistory: (...args: any[]) => mockHookFn(...args),
 }));
 
 jest.mock('expo-router', () => ({
@@ -276,5 +279,121 @@ describe('customerOrderHistoryScreen', () => {
 
     fireEvent.press(screen.getByTestId('history-retry-btn'));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders expired service request with "Đã hết hạn" badge and expiration timestamp (HG-72 P2)', () => {
+    mockHookReturn = {
+      orders: [],
+      requests: [
+        {
+          id: 'req-exp-1',
+          requestCode: 'REQ-EXP-99',
+          serviceId: 'srv-01',
+          description: 'Yêu cầu sửa khóa cửa đã hết hạn',
+          status: 'expired',
+          selectionExpiresAt: '2026-11-21T18:00:00.000Z',
+          createdAt: '2026-11-21T10:00:00.000Z',
+          addressText: '456 Hoàng Diệu, Đà Nẵng',
+        },
+      ],
+      totalCompletedCount: 0,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    expect(screen.getByText('Đã hết hạn')).toBeOnTheScreen();
+    expect(screen.getByText(/Hết hạn lúc:/)).toBeOnTheScreen();
+    expect(screen.getByTestId('history-request-card-req-exp-1')).toBeOnTheScreen();
+  });
+
+  it('falls back to "Không rõ thời gian" when expired request has no expiration timestamp (HG-72 P2)', () => {
+    mockHookReturn = {
+      orders: [],
+      requests: [
+        {
+          id: 'req-exp-no-time',
+          requestCode: 'REQ-EXP-00',
+          serviceId: 'srv-01',
+          description: 'Hết hạn không có mốc giờ',
+          status: 'expired',
+          createdAt: '2026-11-21T10:00:00.000Z',
+          addressText: 'Đà Nẵng',
+        },
+      ],
+      totalCompletedCount: 0,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    expect(screen.getByText('Đã hết hạn')).toBeOnTheScreen();
+    expect(screen.getByText(/Hết hạn lúc: Không rõ thời gian/)).toBeOnTheScreen();
+  });
+
+  it('renders completed order when server filters 10 active + 1 completed order (HG-72 P1)', () => {
+    mockHookReturn = {
+      orders: [
+        {
+          id: 'ord-comp-old',
+          orderCode: 'HDG-OLDER',
+          serviceId: 'srv-01',
+          agreedPrice: 500000,
+          agreedScope: 'Bảo trì đường điện cũ',
+          addressText: 'Đà Nẵng',
+          status: 'completed',
+          paymentState: 'paid',
+          completedAt: '2026-11-01T10:00:00.000Z',
+          createdAt: '2026-11-01T08:00:00.000Z',
+        },
+      ],
+      requests: [],
+      totalCompletedCount: 1,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    expect(screen.getByTestId('history-order-card-ord-comp-old')).toBeOnTheScreen();
+    expect(screen.getByText(/HDG-OLDER/)).toBeOnTheScreen();
+    expect(screen.queryByTestId('history-empty-state')).toBeNull();
+  });
+
+  it('keeps totalCompletedCount stable across tab switches (HG-72 P1)', () => {
+    mockHookReturn = {
+      orders: mockOrders,
+      requests: mockRequests,
+      totalCompletedCount: 42,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    // In 'all' tab
+    expect(screen.getByText('42 dịch vụ')).toBeOnTheScreen();
+
+    // Switch to 'cancelled' tab
+    fireEvent.press(screen.getByTestId('history-tab-cancelled'));
+    expect(screen.getByText('42 dịch vụ')).toBeOnTheScreen();
   });
 });

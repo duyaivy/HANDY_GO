@@ -34,4 +34,24 @@ export const ordersQueryKeys = {
     const st = typeof tabOrFilter === 'object' ? tabOrFilter.status ?? '' : status ?? '';
     return [...ordersQueryKeys.all, 'worker', 'orders', tab, st] as const;
   },
+  orderSummary: (params?: { role?: string }) =>
+    [...ordersQueryKeys.all, 'summary', params?.role ?? 'all'] as const,
+  customerHistory: (params?: { tab?: string; status?: string; search?: string }) =>
+    [
+      ...ordersQueryKeys.all,
+      'customer',
+      'history',
+      params?.tab ?? 'all',
+      params?.status ?? '',
+      params?.search ?? '',
+    ] as const,
+  workerHistory: (params?: { tab?: string; status?: string; search?: string }) =>
+    [
+      ...ordersQueryKeys.all,
+      'worker',
+      'history',
+      params?.tab ?? 'all',
+      params?.status ?? '',
+      params?.search ?? '',
+    ] as const,
 };

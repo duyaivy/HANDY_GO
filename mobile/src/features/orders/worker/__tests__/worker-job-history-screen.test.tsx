@@ -48,8 +48,10 @@ let mockHookReturn: any = {
   fetchNextPage: mockFetchNextPage,
 };
 
+const mockHookFn = jest.fn((..._args: any[]) => mockHookReturn);
+
 jest.mock('../../hooks/use-worker-job-history', () => ({
-  useWorkerJobHistory: () => mockHookReturn,
+  useWorkerJobHistory: (...args: any[]) => mockHookFn(...args),
 }));
 
 jest.mock('expo-router', () => ({
@@ -255,5 +257,66 @@ describe('workerJobHistoryScreen', () => {
 
     fireEvent.press(screen.getByTestId('worker-history-retry-btn'));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('displays "Tổng giá trị đơn hoàn thành" and "Giá thỏa thuận" distinguishing gross vs net (HG-72 P1)', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    // Top overview card gross label
+    expect(screen.getByText('Tổng giá trị đơn hoàn thành')).toBeOnTheScreen();
+    // Job card gross agreedPrice label
+    expect(screen.getAllByText('Giá thỏa thuận').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Tiền công nhận')).toBeNull();
+  });
+
+  it('keeps stats stable across 3 tabs (all, completed, cancelled) and independent of pagination (HG-72 P1)', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    // In 'all' tab
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('1 việc');
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('1 việc');
+
+    // Switch to 'completed' tab: cancelled count must still be 1 (not 0)
+    fireEvent.press(screen.getByTestId('worker-history-tab-completed'));
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('1 việc');
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('1 việc');
+
+    // Switch to 'cancelled' tab: completed count and earnings must remain stable
+    fireEvent.press(screen.getByTestId('worker-history-tab-cancelled'));
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('1 việc');
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('1 việc');
+    expect(screen.getAllByText('350.000 đ').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('displays independent summary stats correctly with >10 orders (HG-72 P1)', () => {
+    mockHookReturn = {
+      orders: mockWorkerOrders,
+      stats: {
+        completedCount: 28,
+        cancelledCount: 6,
+        totalEarnings: 15400000,
+      },
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('28 việc');
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('6 việc');
+    expect(screen.getByText('15.400.000 đ')).toBeOnTheScreen();
+  });
+
+  it('passes search query to useWorkerJobHistory for server-side search (HG-72 P2)', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    const searchInput = screen.getByTestId('worker-history-search-input');
+    fireEvent.changeText(searchInput, 'điều hòa');
+
+    expect(mockHookFn).toHaveBeenCalledWith('all', 'điều hòa');
   });
 });

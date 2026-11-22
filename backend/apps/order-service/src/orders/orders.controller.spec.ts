@@ -24,6 +24,7 @@ describe('OrdersController', () => {
     getEvidences: ReturnType<typeof vi.fn>;
     deleteEvidence: ReturnType<typeof vi.fn>;
     dispute: ReturnType<typeof vi.fn>;
+    getOrderSummary: ReturnType<typeof vi.fn>;
   };
 
   const mockUserId = '11111111-1111-1111-1111-111111111111';
@@ -46,6 +47,7 @@ describe('OrdersController', () => {
       getEvidences: vi.fn(),
       deleteEvidence: vi.fn(),
       dispute: vi.fn(),
+      getOrderSummary: vi.fn(),
     };
 
     controller = new OrdersController(serviceMock as unknown as OrdersService);
@@ -75,6 +77,29 @@ describe('OrdersController', () => {
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.message).toBe('Orders retrieved successfully');
       expect(response.data).toEqual(paginated);
+    });
+  });
+
+  describe('getSummary', () => {
+    it('should return order summary statistics with 200 status (HG-72)', async () => {
+      const summaryData = {
+        completedCount: 3,
+        cancelledCount: 1,
+        totalCompletedAmount: 1500000,
+      };
+      serviceMock.getOrderSummary.mockResolvedValue(summaryData);
+
+      const user = { userId: mockUserId, roles: ['Worker'], permissions: [] };
+      const response = await controller.getSummary(user, 'worker');
+
+      expect(serviceMock.getOrderSummary).toHaveBeenCalledWith(
+        mockUserId,
+        'worker',
+        ['Worker'],
+      );
+      expect(response.statusCode).toBe(HttpStatus.OK);
+      expect(response.message).toBe('Order summary retrieved successfully');
+      expect(response.data).toEqual(summaryData);
     });
   });
 

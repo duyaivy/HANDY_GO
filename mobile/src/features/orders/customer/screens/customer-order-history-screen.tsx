@@ -21,7 +21,7 @@ import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
 import { RouteNames } from '@/constants/route-names';
 import { KNOWN_SERVICES_BY_ID, resolveServiceName } from '@/constants/services';
-import { useCustomerOrders } from '../../hooks/use-customer-orders';
+import { useCustomerOrderHistory } from '../../hooks/use-customer-order-history';
 
 export type CustomerHistoryTab = 'all' | 'completed' | 'cancelled';
 
@@ -93,29 +93,17 @@ export function CustomerOrderHistoryScreen({
   const [searchQuery, setSearchQuery] = React.useState('');
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
 
-  // Map our UI tab to the hook tab
-  const hookTab = React.useMemo(() => {
-    switch (activeTab) {
-      case 'completed':
-        return 'Finished';
-      case 'cancelled':
-        return 'Cancelled';
-      case 'all':
-      default:
-        return 'All';
-    }
-  }, [activeTab]);
-
   const {
     orders,
     requests,
+    totalCompletedCount,
     isLoading,
     isError,
     refetch,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useCustomerOrders(hookTab);
+  } = useCustomerOrderHistory(activeTab, searchQuery);
 
   // Filter items based on tab for history view
   const filteredOrders = React.useMemo(() => {
@@ -123,9 +111,9 @@ export function CustomerOrderHistoryScreen({
       return orders.filter(o => o.status === 'completed');
     }
     if (activeTab === 'cancelled') {
-      return orders.filter(o => o.status === 'cancelled');
+      return orders.filter(o => o.status === 'cancelled' || o.status === 'disputed');
     }
-    // 'all' in history view shows completed and cancelled
+    // 'all' in history view shows completed, cancelled, and disputed
     return orders.filter(o => o.status === 'completed' || o.status === 'cancelled' || o.status === 'disputed');
   }, [orders, activeTab]);
 
@@ -164,10 +152,6 @@ export function CustomerOrderHistoryScreen({
       return title.includes(q) || code.includes(q) || desc.includes(q) || addr.includes(q);
     });
   }, [filteredRequests, searchQuery]);
-
-  const totalCompletedCount = React.useMemo(() => {
-    return orders.filter(o => o.status === 'completed').length;
-  }, [orders]);
 
   const handleManualRefresh = React.useCallback(async () => {
     setIsManualRefreshing(true);
@@ -496,65 +480,78 @@ export function CustomerOrderHistoryScreen({
             </View>
           )}
 
-          {/* Cancelled Service Requests list */}
+          {/* Closed Service Requests list (cancelled / expired) */}
           {!isLoading && searchedRequests.length > 0 && (
             <View className="mt-4 gap-3">
               <Text className="text-xs font-bold tracking-wider text-neutral-500 uppercase">
-                Yêu cầu tìm thợ đã hủy (
+                Yêu cầu tìm thợ đã đóng (
                 {searchedRequests.length}
                 )
               </Text>
-              {searchedRequests.map((req: ServiceRequest) => (
-                <View
-                  key={req.id}
-                  testID={`history-request-card-${req.id}`}
-                  className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900"
-                >
-                  <View className="flex-row items-center justify-between gap-2">
-                    <Text className="flex-1 text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
-                      {getRequestServiceTitle(req)}
-                    </Text>
-                    <View className="shrink-0 rounded-full bg-neutral-100 px-2.5 py-0.5 dark:bg-neutral-800">
-                      <Text className="text-[10px] font-bold text-neutral-600 dark:text-neutral-400">
-                        Đã hủy
+              {searchedRequests.map((req: ServiceRequest) => {
+                const isExpired = req.status === 'expired';
+                return (
+                  <View
+                    key={req.id}
+                    testID={`history-request-card-${req.id}`}
+                    className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900"
+                  >
+                    <View className="flex-row items-center justify-between gap-2">
+                      <Text className="flex-1 text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
+                        {getRequestServiceTitle(req)}
                       </Text>
+                      <View className={`shrink-0 rounded-full px-2.5 py-0.5 ${isExpired ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-neutral-100 dark:bg-neutral-800'}`}>
+                        <Text className={`text-[10px] font-bold ${isExpired ? 'text-amber-700 dark:text-amber-400' : 'text-neutral-600 dark:text-neutral-400'}`}>
+                          {isExpired ? 'Đã hết hạn' : 'Đã hủy'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text className="mt-1 text-xs text-neutral-500">
+                      Mã yêu cầu: #
+                      {req.requestCode || req.id.slice(0, 8)}
+                    </Text>
+
+                    {isExpired
+                      ? (
+                          <Text className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
+                            Hết hạn lúc:
+                            {' '}
+                            {req.selectionExpiresAt || req.biddingClosesAt ? formatDate(req.selectionExpiresAt || req.biddingClosesAt) : 'Không rõ thời gian'}
+                          </Text>
+                        )
+                      : (
+                          <Text className="mt-0.5 text-xs text-rose-500">
+                            Hủy lúc:
+                            {' '}
+                            {req.cancelledAt ? formatDate(req.cancelledAt) : (req.updatedAt ? formatDate(req.updatedAt) : 'Không rõ thời gian')}
+                          </Text>
+                        )}
+
+                    <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+                      <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
+                        {req.addressText || 'Đà Nẵng'}
+                      </Text>
+                      <Button
+                        label="Đặt lại"
+                        className="h-8 rounded-xl bg-primary px-3"
+                        textClassName="text-xs font-bold text-white"
+                        onPress={() => {
+                          if (req.serviceId) {
+                            router.push({
+                              pathname: RouteNames.CUSTOMER_BOOKING as any,
+                              params: { serviceId: req.serviceId },
+                            });
+                          }
+                          else {
+                            router.push(RouteNames.CUSTOMER_BOOKING as any);
+                          }
+                        }}
+                      />
                     </View>
                   </View>
-
-                  <Text className="mt-1 text-xs text-neutral-500">
-                    Mã yêu cầu: #
-                    {req.requestCode || req.id.slice(0, 8)}
-                  </Text>
-
-                  <Text className="mt-0.5 text-xs text-rose-500">
-                    Hủy lúc:
-                    {' '}
-                    {formatDate(req.cancelledAt || req.updatedAt)}
-                  </Text>
-
-                  <View className="mt-3 flex-row items-center justify-between gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-                    <Text className="flex-1 text-xs text-neutral-400" numberOfLines={1}>
-                      {req.addressText || 'Đà Nẵng'}
-                    </Text>
-                    <Button
-                      label="Đặt lại"
-                      className="h-8 rounded-xl bg-primary px-3"
-                      textClassName="text-xs font-bold text-white"
-                      onPress={() => {
-                        if (req.serviceId) {
-                          router.push({
-                            pathname: RouteNames.CUSTOMER_BOOKING as any,
-                            params: { serviceId: req.serviceId },
-                          });
-                        }
-                        else {
-                          router.push(RouteNames.CUSTOMER_BOOKING as any);
-                        }
-                      }}
-                    />
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           )}
 

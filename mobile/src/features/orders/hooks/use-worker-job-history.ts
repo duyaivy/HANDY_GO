@@ -1,5 +1,5 @@
 import type { Order } from '../types/order.types';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
 import { ordersQueryKeys } from './orders-query-keys';
@@ -52,26 +52,45 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
   return meta.page < meta.totalPages ? meta.page + 1 : undefined;
 }
 
-export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
+export function useWorkerJobHistory(
+  activeTab: WorkerJobHistoryTab = 'all',
+  searchQuery = '',
+) {
+  const trimmedSearch = searchQuery.trim();
   const statusFilter
     = activeTab === 'completed'
       ? 'completed'
       : activeTab === 'cancelled'
-        ? 'cancelled'
-        : 'completed,cancelled';
+        ? 'cancelled,disputed'
+        : 'completed,cancelled,disputed';
 
   const query = useInfiniteQuery({
-    queryKey: ordersQueryKeys.workerOrders({ tab: `history-${activeTab}`, status: statusFilter }),
+    queryKey: ordersQueryKeys.workerHistory({
+      tab: activeTab,
+      status: statusFilter,
+      search: trimmedSearch,
+    }),
     queryFn: async ({ pageParam = 1 }) => {
       const res = await OrdersApi.getMyOrders({
         page: pageParam,
         limit: 10,
         status: statusFilter,
+        role: 'worker',
+        search: trimmedSearch || undefined,
       });
       return res.data;
     },
     initialPageParam: 1,
     getNextPageParam: getNextPageFromResponse,
+    staleTime: 30000,
+  });
+
+  const summaryQuery = useQuery({
+    queryKey: ordersQueryKeys.orderSummary({ role: 'worker' }),
+    queryFn: async () => {
+      const res = await OrdersApi.getOrderSummary({ role: 'worker' });
+      return res.data;
+    },
     staleTime: 30000,
   });
 
@@ -81,11 +100,19 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     }
     const all = query.data.pages.flatMap(p => extractItems<Order>(p));
     // Filter out active states just in case backend returns broader results
-    return all.filter(o => o.status === 'completed' || o.status === 'cancelled');
+    return all.filter(o => o.status === 'completed' || o.status === 'cancelled' || o.status === 'disputed');
   }, [query.data]);
 
-  // Quick stats
+  // Quick stats: independent of active tab and pagination
   const stats = React.useMemo(() => {
+    if (summaryQuery.data) {
+      return {
+        completedCount: summaryQuery.data.completedCount ?? 0,
+        cancelledCount: summaryQuery.data.cancelledCount ?? 0,
+        totalEarnings: summaryQuery.data.totalCompletedAmount ?? 0,
+      };
+    }
+
     let completedCount = 0;
     let cancelledCount = 0;
     let totalEarnings = 0;
@@ -99,13 +126,13 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
             : Number(order.agreedPrice) || 0;
         totalEarnings += price;
       }
-      else if (order.status === 'cancelled') {
+      else if (order.status === 'cancelled' || order.status === 'disputed') {
         cancelledCount++;
       }
     }
 
     return { completedCount, cancelledCount, totalEarnings };
-  }, [orders]);
+  }, [summaryQuery.data, orders]);
 
   return {
     orders,
@@ -113,7 +140,9 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     isLoading: query.isLoading,
     isError: query.isError,
     isRefetching: query.isRefetching,
-    refetch: query.refetch,
+    refetch: async () => {
+      await Promise.all([query.refetch(), summaryQuery.refetch()]);
+    },
     hasNextPage: Boolean(query.hasNextPage),
     isFetchingNextPage: Boolean(query.isFetchingNextPage),
     fetchNextPage: () => {

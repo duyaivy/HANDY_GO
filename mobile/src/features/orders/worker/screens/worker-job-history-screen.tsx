@@ -91,7 +91,7 @@ export function WorkerJobHistoryScreen({
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useWorkerJobHistory(activeTab);
+  } = useWorkerJobHistory(activeTab, searchQuery);
 
   // Search filter across jobs
   const searchedOrders = React.useMemo(() => {
@@ -199,7 +199,7 @@ export function WorkerJobHistoryScreen({
                   {formatVND(stats.totalEarnings)}
                 </Text>
                 <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                  Tổng thu nhập từ đơn hoàn thành
+                  Tổng giá trị đơn hoàn thành
                 </Text>
               </View>
               <View className="size-11 items-center justify-center rounded-2xl bg-emerald-50 dark:bg-emerald-950/40">
@@ -434,7 +434,7 @@ export function WorkerJobHistoryScreen({
                     <View className="mt-3.5 flex-row items-center justify-between border-t border-neutral-100 pt-3 dark:border-neutral-800">
                       <View>
                         <Text className="text-[10px] text-neutral-400 uppercase">
-                          {isCompleted ? 'Tiền công nhận' : 'Giá thỏa thuận'}
+                          Giá thỏa thuận
                         </Text>
                         <Text
                           className={`text-sm font-bold ${
