@@ -689,15 +689,17 @@ describe('OrdersService', () => {
   });
 
   describe('confirmCompletion', () => {
-    it('should complete order and emit order.completed event for payment settlement', async () => {
+    it('should complete order, set firstCompletedAt, and emit order.completed event for first completion', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'awaiting_customer_confirmation',
+        firstCompletedAt: null,
       });
       txMock.order.update.mockResolvedValue({
         ...validBaseOrder,
         status: 'completed',
         completedAt: new Date(),
+        firstCompletedAt: new Date(),
       });
       txMock.orderStatusHistory.create.mockResolvedValue({
         id: 'hist-1',
@@ -709,9 +711,14 @@ describe('OrdersService', () => {
         mockCustomerId,
       );
 
-      expect(txMock.order.update).toHaveBeenCalledWith(
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: 'completed' }),
+          where: { id: mockOrderId, status: 'awaiting_customer_confirmation' },
+          data: expect.objectContaining({
+            status: 'completed',
+            completedAt: expect.any(Date),
+            firstCompletedAt: expect.any(Date),
+          }),
         }),
       );
       expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
@@ -726,6 +733,44 @@ describe('OrdersService', () => {
         txMock,
       );
       expect(result.status).toBe('completed');
+    });
+
+    it('should preserve firstCompletedAt and emit order.warranty.completed (not order.completed) after warranty rework', async () => {
+      const initialFirstCompletedAt = new Date('2026-11-15T10:00:00.000Z');
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'awaiting_customer_confirmation',
+        firstCompletedAt: initialFirstCompletedAt,
+        completedAt: null,
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({
+        id: 'hist-2',
+        toStatus: 'completed',
+      });
+
+      const result = await service.confirmCompletion(
+        mockOrderId,
+        mockCustomerId,
+      );
+
+      const updateData = txMock.order.updateMany.mock.calls[0][0].data;
+      expect(updateData.status).toBe('completed');
+      expect(updateData.completedAt).toBeInstanceOf(Date);
+      expect(updateData.firstCompletedAt).toBeUndefined();
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(1);
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            agreedPrice: validBaseOrder.agreedPrice.toString(),
+            currency: 'VND',
+          }),
+        }),
+        txMock,
+      );
+      expect(result.status).toBe('completed');
+      expect(result.firstCompletedAt).toEqual(initialFirstCompletedAt);
     });
 
     it('should throw ForbiddenException if caller is not the customer owner', async () => {

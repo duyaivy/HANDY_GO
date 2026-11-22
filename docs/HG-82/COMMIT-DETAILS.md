@@ -19,7 +19,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`2f1110f9`** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
 | **`7b698974`** | `fix(HG-82): tighten dispute DTO input length, URL protocol, and refund amount bounds` | **Review Fix #06** | Bổ sung `@MaxLength(2000)` cho `reason` và `resolutionNote`; giới hạn `evidenceUrls` tối đa 10 phần tử, mỗi URL tối đa 2048 ký tự và bắt buộc protocol `http`/`https`; giới hạn `refundAmountVnd` theo regex `/^[1-9]\d{0,18}$/` ở DTO và `OrdersService`. Chi tiết tại mục 12. |
 | **`d8fb7f98`** | `fix(HG-82): persist disputeCategory, fix resolveDispute status check order, and allow partially_refunded filter` | **Review Fix #07** | Thêm cột `orders.dispute_category` để lưu và trả về `disputeCategory` trong `OrderResponseDto` & `adminFindDisputes`; đảo thứ tự kiểm tra `order.status !== 'disputed'` trước `order.disputePreviousStatus === 'completed'` trong `resolveDispute`; bổ sung `'partially_refunded'` vào `QueryOrderDto.paymentState`. Chi tiết tại mục 13. |
-| **Review Fix #08** | `refactor(HG-82): extract resolveCompletedDispute helpers and centralize HG-82 constants` | **Review Fix #08** | Gom các magic numbers của HG-82 vào `ORDER_CONSTANTS` và tách `OrdersService.resolveCompletedDispute` thành 4 helper có trách nhiệm đơn lẻ (`validateCompletedDisputeInput`, `findIdempotentDisputeResolution`, `preflightRefundEligibility`, `commitCompletedDisputeTx`). Chi tiết tại mục 14. |
+| **`df57b720`** | `refactor(HG-82): extract resolveCompletedDispute helpers and centralize HG-82 constants` | **Review Fix #08** | Gom các magic numbers của HG-82 vào `ORDER_CONSTANTS` và tách `OrdersService.resolveCompletedDispute` thành 4 helper có trách nhiệm đơn lẻ (`validateCompletedDisputeInput`, `findIdempotentDisputeResolution`, `preflightRefundEligibility`, `commitCompletedDisputeTx`). Chi tiết tại mục 14. |
+| **Review Fix #09** | `test(HG-82): add unit tests for PaymentRefundClient, dispute resolution lookup, warranty completion, and tracking consumer` | **Review Fix #09** | Bổ sung unit test cho 5 đường dẫn trọng yếu của HG-82: `PaymentRefundClient.byOrder` (`payment-refund.client.spec.ts`), `GET /admin/orders/dispute-resolutions/:resolutionId` (200/403/404), `confirmCompletion` cho bảo hành (`order.warranty.completed`), 3 handler ở `TrackingEventsConsumer` và `SummaryService`. Chi tiết tại mục 15. |
 
 ---
 
@@ -530,3 +531,34 @@ Trong `PaymentEventsConsumer.processDisputeRefund`:
 - `pnpm run typecheck`: **PASS**.
 - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
 - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 15. Review Fix #09: Bổ Sung Unit Test Cho 5 Đường Dẫn Trọng Yếu Của HG-82
+
+### 15.1. Phạm vi bổ sung test
+
+1. **Tạo mới `backend/apps/order-service/src/orders/payment-refund.client.spec.ts`:**
+   - Kiểm tra đầy đủ các nhánh của `PaymentRefundClient.byOrder`:
+     - Thiếu `internalServiceSecret` $\rightarrow$ ném `ServiceUnavailableException('Payment internal authentication is not configured')`.
+     - `PAYMENT_SERVICE_URL` không hợp lệ hoặc sai giao thức (`ftp://...`) $\rightarrow$ ném `ServiceUnavailableException('Payment URL is invalid')`.
+     - `fetch` lỗi mạng / timeout (`AbortError`) $\rightarrow$ ném `ServiceUnavailableException('Payment is unreachable')`.
+     - HTTP status khác `200` (`401`, `404`, `500`, `503`) $\rightarrow$ ném `ServiceUnavailableException('Payment refundability is unavailable')`.
+     - Response JSON hỏng, thiếu `data`, `paymentId` không phải UUID, hoặc `refundableAmountVnd` âm / số thập phân / có số 0 đứng đầu (`"-1"`, `"100.5"`, `"01"`) $\rightarrow$ ném `ServiceUnavailableException('Payment response is invalid')`.
+     - Happy path: trả `{ paymentId, status: 'succeeded', refundableAmountVnd: 250000n }`, gửi đúng header `'x-internal-secret'` và không nối lặp `apiPrefix` khi base URL đã có `/api/v1/`.
+2. **Bổ sung test tra cứu tiến độ phán quyết (`GET /admin/orders/dispute-resolutions/:resolutionId`):**
+   - `backend/apps/order-service/src/orders/admin-orders.controller.spec.ts`: kiểm tra `findDisputeResolution` gọi `ordersService.adminFindDisputeResolution` và trả envelope 200.
+   - `backend/apps/order-service/src/orders/hg82-resolution.spec.ts`: kiểm tra `adminFindDisputeResolution` với 3 trường hợp 403 (`FORBIDDEN_ROLE` khi không phải Admin), 404 (`NotFoundException` khi không tồn tại) và 200 (trả đầy đủ thông tin phán quyết và `refundAmountVnd` dạng chuỗi).
+3. **Bổ sung test nghiệm thu bảo hành trong `OrdersService.confirmCompletion` (`backend/apps/order-service/src/orders/orders.service.spec.ts`):**
+   - Khi `order.firstCompletedAt === null`: gán `firstCompletedAt`, phát `order.completed`.
+   - Khi `order.firstCompletedAt !== null` (sau `rework`): giữ nguyên `firstCompletedAt`, cập nhật `completedAt`, phát `order.warranty.completed` (không phát `order.completed`).
+4. **Bổ sung test cho 3 handler mới của `TrackingEventsConsumer` (`backend/apps/tracking-service/src/events/tracking-events.consumer.spec.ts`):**
+   - Kiểm tra `handleDisputeDecision`, `handleDisputeResolved`, `handleWarrantyCompleted` ủy quyền tới `eventsService.recordDomainEvent` với đúng event pattern (`order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`) và ACK message.
+5. **Test `SummaryService` cho 4 trạng thái cuối HG-82 (`backend/apps/tracking-service/src/summary/summary.service.spec.ts`):**
+   - Đã được bổ sung và khóa chặt hồi quy cùng Review Fix #01.
+
+### 15.2. Kết quả kiểm chứng
+
+- `pnpm exec vitest run apps/order-service apps/tracking-service apps/payment-service`: **PASS**.
+- `pnpm run typecheck`: **PASS**.
+- `pnpm exec oxlint apps/order-service apps/tracking-service`: **PASS** (0 warnings, 0 errors).

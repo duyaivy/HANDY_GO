@@ -78,7 +78,11 @@ function fixture() {
     },
     orderDisputeResolution: {
       findUnique: vi.fn(async ({ where }: any) =>
-        resolutions.find((r) => r.idempotencyKey === where.idempotencyKey) ?? null,
+        resolutions.find(
+          (r) =>
+            (where.id && r.id === where.id) ||
+            (where.idempotencyKey && r.idempotencyKey === where.idempotencyKey),
+        ) ?? null,
       ),
       findMany: vi.fn(async ({ where }: any) =>
         resolutions.filter((r) =>
@@ -385,6 +389,61 @@ describe('HG-82 Admin resolution', () => {
       response: expect.objectContaining({
         code: 'INVALID_STATE_TRANSITION',
       }),
+    });
+  });
+
+  describe('adminFindDisputeResolution', () => {
+    it('rejects non-admin callers with 403 FORBIDDEN_ROLE', async () => {
+      const f = fixture();
+      await expect(
+        f.service.adminFindDisputeResolution(randomUUID(), ['Customer']),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({
+          code: 'FORBIDDEN_ROLE',
+        }),
+      });
+    });
+
+    it('throws 404 NotFoundException when resolutionId does not exist', async () => {
+      const f = fixture();
+      await expect(
+        f.service.adminFindDisputeResolution(randomUUID(), ['Admin']),
+      ).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+
+    it('returns the formatted dispute resolution details when found', async () => {
+      const f = fixture();
+      const created = await f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'refund',
+          resolutionNote: 'Hoàn 150k để kiểm tra tra cứu',
+          refundAmountVnd: '150000',
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      );
+
+      const found = await f.service.adminFindDisputeResolution(
+        created.resolutionId,
+        ['Admin'],
+      );
+
+      expect(found).toEqual(
+        expect.objectContaining({
+          resolutionId: created.resolutionId,
+          orderId,
+          disputedAt,
+          action: 'refund',
+          state: 'refund_pending',
+          refundAmountVnd: '150000',
+          paymentId,
+        }),
+      );
     });
   });
 });

@@ -14,6 +14,7 @@ describe('AdminOrdersController', () => {
   let serviceMock: {
     adminFindAll: ReturnType<typeof vi.fn>;
     adminFindDisputes: ReturnType<typeof vi.fn>;
+    adminFindDisputeResolution: ReturnType<typeof vi.fn>;
     resolveDispute: ReturnType<typeof vi.fn>;
     resolveCompletedDispute: ReturnType<typeof vi.fn>;
   };
@@ -25,6 +26,7 @@ describe('AdminOrdersController', () => {
     serviceMock = {
       adminFindAll: vi.fn(),
       adminFindDisputes: vi.fn(),
+      adminFindDisputeResolution: vi.fn(),
       resolveDispute: vi.fn(),
       resolveCompletedDispute: vi.fn(),
     };
@@ -124,6 +126,36 @@ describe('AdminOrdersController', () => {
       expect(response.statusCode).toBe(HttpStatus.OK);
       expect(response.message).toBe('Dispute resolved successfully');
       expect(response.data).toEqual(order);
+    });
+  });
+
+  describe('findDisputeResolution', () => {
+    it('returns the dispute resolution progress in the standard response envelope', async () => {
+      const resolutionId = '88888888-8888-8888-8888-888888888888';
+      const detail = {
+        resolutionId,
+        orderId: mockOrderId,
+        action: 'refund',
+        state: 'completed',
+        refundAmountVnd: '150000',
+        paymentId: '12121212-1212-1212-1212-121212121212',
+        refundId: '34343434-3434-3434-3434-343434343434',
+        failureCode: null,
+      };
+      serviceMock.adminFindDisputeResolution.mockResolvedValue(detail);
+      const user = { userId: mockAdminId, roles: ['Admin'], permissions: [] };
+
+      const response = await controller.findDisputeResolution(
+        resolutionId,
+        user,
+      );
+
+      expect(serviceMock.adminFindDisputeResolution).toHaveBeenCalledWith(
+        resolutionId,
+        ['Admin'],
+      );
+      expect(response.statusCode).toBe(HttpStatus.OK);
+      expect(response.data).toEqual(detail);
     });
   });
 });
