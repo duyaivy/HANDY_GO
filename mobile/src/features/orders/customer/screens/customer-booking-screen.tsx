@@ -699,8 +699,13 @@ export function CustomerBookingScreen({
       return;
     }
 
+    const finalDesc = description.trim() || generateQuickDescription(serviceName);
     if (!description.trim()) {
-      setDescription(generateQuickDescription(serviceName));
+      setDescription(finalDesc);
+    }
+    const currentServiceId = serviceId || useBookingDraftStore.getState().serviceId;
+    if (currentServiceId) {
+      useBookingDraftStore.getState().fetchEstimatedPrice(currentServiceId, finalDesc).catch(() => {});
     }
     isProceedingToNextStepRef.current = true;
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_ADDRESS as any);

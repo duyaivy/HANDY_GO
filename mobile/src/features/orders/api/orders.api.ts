@@ -2,11 +2,14 @@ import type {
   BookingProposal,
   CreateBookingProposalPayload,
   CreateServiceRequestPayload,
+  EstimatePricePayload,
+  EstimatePriceResponse,
   Order,
   OrderEvidence,
   OrderStatusHistoryItem,
   PaginatedList,
   ServiceRequest,
+  UpdateServiceRequestPayload,
   UploadEvidencePayload,
 } from '../types/order.types';
 import { ApiClient } from '@/services/api/api-client';
@@ -28,9 +31,24 @@ export type UploadImageOptions = {
 
 export const OrdersApi = {
   // --- Service Requests ---
+  estimatePrice: async (payload: EstimatePricePayload, options?: { signal?: AbortSignal }) => {
+    return ApiClient.post<{ statusCode: number; message: string; data: EstimatePriceResponse }>(
+      '/service-requests/estimate-price',
+      payload,
+      options?.signal ? { signal: options.signal } : undefined,
+    );
+  },
+
   createRequest: async (payload: CreateServiceRequestPayload) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       '/service-requests',
+      payload,
+    );
+  },
+
+  updateRequest: async (id: string, payload: UpdateServiceRequestPayload) => {
+    return ApiClient.patch<{ statusCode: number; message: string; data: ServiceRequest }>(
+      `/service-requests/${id}`,
       payload,
     );
   },

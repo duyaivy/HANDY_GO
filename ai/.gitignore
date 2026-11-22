@@ -74,6 +74,7 @@ storage/
 uploads/
 results/
 data/
+!app/domains/pricing/data/
 *.db
 *.sqlite
 *.sqlite3
