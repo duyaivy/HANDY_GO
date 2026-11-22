@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
 import { Linking } from 'react-native';
 import { render } from '@/lib/test-utils';
+import { WorkersApi } from '@/services/workers/workers-api';
 import { WorkerDetailScreen } from '../worker-detail-screen';
 
 const mockBack = jest.fn();
@@ -262,6 +263,61 @@ describe('WorkerDetailScreen', () => {
       );
 
       expect(screen.getByText('0977 888 999')).toBeOnTheScreen();
+    });
+  });
+
+  describe('Reviews fallback & error handling for real worker vs mock', () => {
+    it('shows empty reviews state and NO mock reviews for real worker with 0 reviews', async () => {
+      jest.spyOn(WorkersApi, 'getWorkerReviews').mockResolvedValueOnce({
+        statusCode: 200,
+        data: [],
+        pagination: { page: 1, limit: 15, total: 0, totalPages: 0 },
+      });
+
+      render(
+        <WorkerDetailScreen
+          workerId="worker-real-zero-reviews"
+          workerName="Thợ Thật Chưa Review"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('worker-reviews-empty')).toBeOnTheScreen();
+      });
+
+      // Must NOT display fake mock review authors
+      expect(screen.queryByText('Nguyễn Văn Hùng')).toBeNull();
+      expect(screen.queryByText('Trần Thị Mai')).toBeNull();
+      expect(screen.queryByText('Lê Hoàng Nam')).toBeNull();
+    });
+
+    it('shows error retry block when reviews API rejects for real worker', async () => {
+      jest.spyOn(WorkersApi, 'getWorkerReviews').mockRejectedValueOnce(new Error('Internal Server Error (500)'));
+
+      render(
+        <WorkerDetailScreen
+          workerId="worker-real-review-error"
+          workerName="Thợ Thật Lỗi Review"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId('worker-reviews-error')).toBeOnTheScreen();
+      });
+      expect(screen.getByTestId('worker-reviews-retry-btn')).toBeOnTheScreen();
+      expect(screen.queryByText('Nguyễn Văn Hùng')).toBeNull();
+    });
+
+    it('renders sample mock reviews for demo mock worker (w-101)', () => {
+      render(
+        <WorkerDetailScreen
+          workerId="w-101"
+          workerName="Nguyễn Văn Thợ"
+        />,
+      );
+
+      expect(screen.getByTestId('worker-reviews-list')).toBeOnTheScreen();
+      expect(screen.getByText('Nguyễn Văn Hùng')).toBeOnTheScreen();
     });
   });
 });

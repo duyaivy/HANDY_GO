@@ -324,7 +324,9 @@ export function WorkerDetailScreen({
           : { 5: 22, 4: 3, 3: 0, 2: 0, 1: 0 }));
 
   // Reviews List
-  const fetchedReviews = reviewsInfiniteQuery.data?.pages.flatMap(p => p.items) ?? [];
+  const fetchedReviews = React.useMemo(() => {
+    return reviewsInfiniteQuery.data?.pages.flatMap(p => p.items) ?? [];
+  }, [reviewsInfiniteQuery.data?.pages]);
   const mockReviews: WorkerReviewItem[] = React.useMemo(() => [
     {
       id: 'rev-01',
@@ -370,11 +372,15 @@ export function WorkerDetailScreen({
     },
   ], []);
 
-  const allReviews = fetchedReviews.length > 0
-    ? fetchedReviews
-    : (profileData?.recentReviews && profileData.recentReviews.length > 0
-        ? profileData.recentReviews
-        : mockReviews);
+  const allReviews = React.useMemo(() => {
+    if (fetchedReviews.length > 0) {
+      return fetchedReviews;
+    }
+    if (profileData?.recentReviews && profileData.recentReviews.length > 0) {
+      return profileData.recentReviews;
+    }
+    return isMockWorker ? mockReviews : [];
+  }, [fetchedReviews, profileData?.recentReviews, isMockWorker, mockReviews]);
 
   const reviewsList = React.useMemo(() => {
     if (!selectedRating) {
@@ -959,7 +965,7 @@ export function WorkerDetailScreen({
           )}
 
           {/* Empty Reviews State */}
-          {!isLoading && reviewsList.length === 0 && (
+          {!isLoading && !reviewsInfiniteQuery.isError && reviewsList.length === 0 && (
             <View
               testID="worker-reviews-empty"
               className="mt-4 items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white p-8 dark:border-neutral-800 dark:bg-neutral-900"
@@ -978,7 +984,25 @@ export function WorkerDetailScreen({
             </View>
           )}
 
-          {/* Error Retry */}
+          {/* Reviews Fetch Error Notice */}
+          {reviewsInfiniteQuery.isError && !isMockWorker && (
+            <View testID="worker-reviews-error" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-900/60 dark:bg-rose-950/40">
+              <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                Không thể tải danh sách đánh giá của thợ.
+              </Text>
+              <Button
+                testID="worker-reviews-retry-btn"
+                label="Thử lại"
+                size="sm"
+                variant="outline"
+                onPress={() => reviewsInfiniteQuery.refetch()}
+                className="mt-2.5 self-start border-rose-300 bg-white"
+                textClassName="text-xs text-rose-700"
+              />
+            </View>
+          )}
+
+          {/* Error Retry for Profile */}
           {profileQuery.isError && (
             <View className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/60 dark:bg-red-950/40">
               <Text className="text-xs text-red-700 dark:text-red-300">
