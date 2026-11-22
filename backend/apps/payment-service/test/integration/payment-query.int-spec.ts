@@ -16,7 +16,9 @@ const ruleId = randomUUID();
 const paymentId = randomUUID();
 const orderId = randomUUID();
 const attemptId = randomUUID();
-const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
 const jwt = new JwtService();
 let app: INestApplication;
 let db: Client;
@@ -26,8 +28,20 @@ let dbConnected = false;
 
 function token(userId: string): string {
   return jwt.sign(
-    { sub: randomUUID(), userId, sid: randomUUID(), roles: [], permissions: [], tokenType: 'access' },
-    { privateKey, algorithm: 'RS256', issuer: JWT_ISSUER, audience: JWT_AUDIENCE },
+    {
+      sub: randomUUID(),
+      userId,
+      sid: randomUUID(),
+      roles: [],
+      permissions: [],
+      tokenType: 'access',
+    },
+    {
+      privateKey,
+      algorithm: 'RS256',
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    },
   );
 }
 
@@ -35,8 +49,13 @@ beforeAll(async () => {
   const rawUrl = process.env.PAYMENT_TEST_DATABASE_URL;
   if (!rawUrl) throw new Error('PAYMENT_TEST_DATABASE_URL is required');
   const url = new URL(rawUrl);
-  if (!['localhost', '127.0.0.1'].includes(url.hostname) || url.pathname !== '/handygo_hg51_payment_test') {
-    throw new Error('Payment HTTP tests require the isolated local handygo_hg51_payment_test database');
+  if (
+    !['localhost', '127.0.0.1'].includes(url.hostname) ||
+    url.pathname !== '/handygo_hg51_payment_test'
+  ) {
+    throw new Error(
+      'Payment HTTP tests require the isolated local handygo_hg51_payment_test database',
+    );
   }
   process.env.DATABASE_URL_PAYMENT = rawUrl;
   url.searchParams.delete('schema');
@@ -61,9 +80,17 @@ beforeAll(async () => {
      VALUES ($1, $2, 1, 'point', 'wallet_internal', 'sensitive-reference', 'sensitive-provider-detail')`,
     [attemptId, paymentId],
   );
-  process.env.JWT_PUBLIC_KEY = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  process.env.JWT_PUBLIC_KEY = publicKey
+    .export({ type: 'spki', format: 'pem' })
+    .toString();
   const module = await Test.createTestingModule({
-    imports: [ConfigModule.forRoot({ serviceName: 'payment-service', defaultPort: 3007 }), PaymentQueryModule],
+    imports: [
+      ConfigModule.forRoot({
+        serviceName: 'payment-service',
+        defaultPort: 3007,
+      }),
+      PaymentQueryModule,
+    ],
   }).compile();
   app = module.createNestApplication();
   app.setGlobalPrefix('api/v1');
@@ -76,9 +103,17 @@ afterAll(async () => {
     if (app) await app.close();
     if (dbConnected) {
       try {
-        await db.query('DELETE FROM payment_service.payment_attempts WHERE id = $1', [attemptId]);
-        await db.query('DELETE FROM payment_service.payments WHERE id = $1', [paymentId]);
-        await db.query('DELETE FROM payment_service.commission_rules WHERE id = $1', [ruleId]);
+        await db.query(
+          'DELETE FROM payment_service.payment_attempts WHERE id = $1',
+          [attemptId],
+        );
+        await db.query('DELETE FROM payment_service.payments WHERE id = $1', [
+          paymentId,
+        ]);
+        await db.query(
+          'DELETE FROM payment_service.commission_rules WHERE id = $1',
+          [ruleId],
+        );
       } finally {
         await db.end();
       }
@@ -86,15 +121,21 @@ afterAll(async () => {
   } finally {
     if (originalPublicKey === undefined) delete process.env.JWT_PUBLIC_KEY;
     else process.env.JWT_PUBLIC_KEY = originalPublicKey;
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL_PAYMENT;
+    if (originalDatabaseUrl === undefined)
+      delete process.env.DATABASE_URL_PAYMENT;
     else process.env.DATABASE_URL_PAYMENT = originalDatabaseUrl;
   }
 });
 
 describe('Payment query HTTP', () => {
   it('requires a valid access token', async () => {
-    await request(app.getHttpServer()).get(`/api/v1/payments/${paymentId}`).expect(401);
-    await request(app.getHttpServer()).get(`/api/v1/payments/${paymentId}`).set('Authorization', 'Bearer invalid').expect(401);
+    await request(app.getHttpServer())
+      .get(`/api/v1/payments/${paymentId}`)
+      .expect(401);
+    await request(app.getHttpServer())
+      .get(`/api/v1/payments/${paymentId}`)
+      .set('Authorization', 'Bearer invalid')
+      .expect(401);
   });
 
   it('allows the customer and worker and serializes BIGINT precisely', async () => {
@@ -113,8 +154,15 @@ describe('Payment query HTTP', () => {
   });
 
   it('does not disclose a payment or attempts to an unrelated user', async () => {
-    for (const route of [`/api/v1/payments/${paymentId}`, `/api/v1/payments/order/${orderId}`, `/api/v1/payments/${paymentId}/attempts`]) {
-      await request(app.getHttpServer()).get(route).set('Authorization', `Bearer ${token(otherId)}`).expect(404);
+    for (const route of [
+      `/api/v1/payments/${paymentId}`,
+      `/api/v1/payments/order/${orderId}`,
+      `/api/v1/payments/${paymentId}/attempts`,
+    ]) {
+      await request(app.getHttpServer())
+        .get(route)
+        .set('Authorization', `Bearer ${token(otherId)}`)
+        .expect(404);
     }
   });
 
@@ -123,14 +171,45 @@ describe('Payment query HTTP', () => {
       .get('/api/v1/payments/me?status=pending&limit=1')
       .set('Authorization', `Bearer ${token(customerId)}`)
       .expect(200);
-    expect(response.body.data).toMatchObject({ total: 1, page: 1, limit: 1, items: [{ id: paymentId }] });
+    expect(response.body.data).toMatchObject({
+      total: 1,
+      page: 1,
+      limit: 1,
+      items: [{ id: paymentId }],
+    });
+    const multiResponse = await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=pending,succeeded')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(200);
+    expect(multiResponse.body.data.items).toHaveLength(1);
+    const nonMatching = await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=failed&status=cancelled')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(200);
+    expect(nonMatching.body.data.items).toEqual([]);
     const unrelated = await request(app.getHttpServer())
       .get('/api/v1/payments/me')
       .set('Authorization', `Bearer ${token(otherId)}`)
       .expect(200);
     expect(unrelated.body.data.items).toEqual([]);
-    await request(app.getHttpServer()).get('/api/v1/payments/me?limit=101').set('Authorization', `Bearer ${token(customerId)}`).expect(400);
-    await request(app.getHttpServer()).get('/api/v1/payments/me?status=unknown').set('Authorization', `Bearer ${token(customerId)}`).expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/me?limit=101')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=unknown')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/me?status=,,,')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(400);
+    await request(app.getHttpServer()).get('/api/v1/payments/me?status=').set('Authorization', `Bearer ${token(customerId)}`).expect(400);
+    await request(app.getHttpServer()).get('/api/v1/payments/me?status=,,,').set('Authorization', `Bearer ${token(customerId)}`).expect(400);
   });
 
   it('returns attempts without provider reference or failure details', async () => {
@@ -139,7 +218,11 @@ describe('Payment query HTTP', () => {
       .set('Authorization', `Bearer ${token(customerId)}`)
       .expect(200);
     expect(response.body.data.items).toHaveLength(1);
-    expect(response.body.data.items[0]).toMatchObject({ id: attemptId, attemptNo: 1, method: 'point' });
+    expect(response.body.data.items[0]).toMatchObject({
+      id: attemptId,
+      attemptNo: 1,
+      method: 'point',
+    });
     expect(JSON.stringify(response.body)).not.toContain('sensitive');
   });
 
@@ -149,6 +232,9 @@ describe('Payment query HTTP', () => {
       .set('Authorization', `Bearer ${token(workerId)}`)
       .expect(200);
     expect(response.body.data.id).toBe(paymentId);
-    await request(app.getHttpServer()).get('/api/v1/payments/not-a-uuid').set('Authorization', `Bearer ${token(customerId)}`).expect(400);
+    await request(app.getHttpServer())
+      .get('/api/v1/payments/not-a-uuid')
+      .set('Authorization', `Bearer ${token(customerId)}`)
+      .expect(400);
   });
 });

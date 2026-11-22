@@ -94,9 +94,17 @@ export class PaymentQueryService {
   }
 
   async list(userId: string, query: PaymentQueryDto, admin = false) {
+    const statusWhere: Prisma.PaymentWhereInput['status'] = query.status
+      ? Array.isArray(query.status)
+        ? query.status.length > 0
+          ? { in: query.status }
+          : undefined
+        : { in: [query.status] }
+      : undefined;
+
     const where: Prisma.PaymentWhereInput = {
       ...(admin ? {} : this.visibleTo(userId)),
-      ...(query.status ? { status: query.status } : {}),
+      ...(statusWhere ? { status: statusWhere } : {}),
       ...(query.method ? { method: query.method } : {}),
     };
     const [items, total] = await this.database.client.$transaction([
