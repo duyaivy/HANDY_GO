@@ -8,12 +8,14 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { ClockIcon, OrdersIcon } from '@/components/ui/icons/handy-icons';
+import { ClockIcon, CloseIcon, OrdersIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { PRIMARY_COLOR } from '@/constants/colors';
@@ -87,6 +89,7 @@ export function CustomerOrderHistoryScreen({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = React.useState<CustomerHistoryTab>('all');
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
 
   // Map our UI tab to the hook tab
@@ -131,6 +134,35 @@ export function CustomerOrderHistoryScreen({
     return requests.filter((r) => r.status === 'cancelled' || r.status === 'expired');
   }, [requests, activeTab]);
 
+  // Search filter across orders and requests
+  const searchedOrders = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      return filteredOrders;
+    }
+    return filteredOrders.filter((o) => {
+      const title = getOrderServiceTitle(o).toLowerCase();
+      const code = (o.orderCode || o.id).toLowerCase();
+      const scope = (o.agreedScope || '').toLowerCase();
+      const addr = (o.addressText || '').toLowerCase();
+      return title.includes(q) || code.includes(q) || scope.includes(q) || addr.includes(q);
+    });
+  }, [filteredOrders, searchQuery]);
+
+  const searchedRequests = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) {
+      return filteredRequests;
+    }
+    return filteredRequests.filter((r) => {
+      const title = getRequestServiceTitle(r).toLowerCase();
+      const code = (r.requestCode || r.id).toLowerCase();
+      const desc = (r.description || '').toLowerCase();
+      const addr = (r.addressText || '').toLowerCase();
+      return title.includes(q) || code.includes(q) || desc.includes(q) || addr.includes(q);
+    });
+  }, [filteredRequests, searchQuery]);
+
   const totalCompletedCount = React.useMemo(() => {
     return orders.filter((o) => o.status === 'completed').length;
   }, [orders]);
@@ -156,7 +188,8 @@ export function CustomerOrderHistoryScreen({
     [hasNextPage, isFetchingNextPage, fetchNextPage],
   );
 
-  const isEmpty = !isLoading && filteredOrders.length === 0 && filteredRequests.length === 0;
+  const isEmpty = !isLoading && !searchQuery.trim() && filteredOrders.length === 0 && filteredRequests.length === 0;
+  const isSearchEmpty = !isLoading && searchQuery.trim().length > 0 && searchedOrders.length === 0 && searchedRequests.length === 0;
 
   return (
     <Screen
@@ -188,6 +221,27 @@ export function CustomerOrderHistoryScreen({
         }
       >
         <View testID={testID} className="flex-1 p-4">
+        {/* Search Bar */}
+        <View className="mb-4 flex-row items-center rounded-2xl border border-neutral-200 bg-white px-3.5 py-2.5 shadow-2xs dark:border-neutral-800 dark:bg-neutral-900">
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth={2} className="mr-2">
+            <Circle cx="11" cy="11" r="8" />
+            <Path d="m21 21-4.3-4.3" />
+          </Svg>
+          <TextInput
+            testID="history-search-input"
+            placeholder="Tìm theo dịch vụ, mã đơn, địa chỉ..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            className="flex-1 text-xs text-neutral-900 dark:text-white"
+          />
+          {searchQuery.length > 0 && (
+            <Pressable testID="clear-search-btn" onPress={() => setSearchQuery('')} className="p-1">
+              <CloseIcon size={14} color="#9CA3AF" />
+            </Pressable>
+          )}
+        </View>
+
         {/* Quick summary banner */}
         <View className="mb-4 flex-row items-center justify-between rounded-2xl bg-primary/10 p-4 dark:bg-primary/20">
           <View className="flex-row items-center">
@@ -247,7 +301,7 @@ export function CustomerOrderHistoryScreen({
           </View>
         )}
 
-        {/* Empty state */}
+        {/* Empty state when no orders at all */}
         {isEmpty && (
           <View testID="history-empty-state" className="items-center justify-center py-16">
             <View className="mb-4 size-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
@@ -273,10 +327,33 @@ export function CustomerOrderHistoryScreen({
           </View>
         )}
 
+        {/* Empty state when search produces no results */}
+        {isSearchEmpty && (
+          <View testID="search-empty-state" className="items-center justify-center py-16">
+            <View className="mb-4 size-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800">
+              <OrdersIcon color="#9CA3AF" size={32} />
+            </View>
+            <Text className="text-base font-bold text-neutral-900 dark:text-white">
+              Không tìm thấy kết quả
+            </Text>
+            <Text className="mt-1 text-center text-xs text-neutral-500 dark:text-neutral-400">
+              {`Không tìm thấy đơn hàng nào khớp với "${searchQuery}".`}
+            </Text>
+            <Button
+              testID="clear-search-result-btn"
+              label="Xóa bộ lọc tìm kiếm"
+              variant="outline"
+              className="mt-6 h-10 rounded-2xl border-neutral-300 px-6 dark:border-neutral-700"
+              textClassName="text-xs font-semibold text-neutral-700 dark:text-neutral-200"
+              onPress={() => setSearchQuery('')}
+            />
+          </View>
+        )}
+
         {/* Orders list */}
-        {!isLoading && filteredOrders.length > 0 && (
+        {!isLoading && searchedOrders.length > 0 && (
           <View className="gap-3">
-            {filteredOrders.map((order: Order) => {
+            {searchedOrders.map((order: Order) => {
               const isCompleted = order.status === 'completed';
               const isCancelled = order.status === 'cancelled';
               const badge = isCompleted
@@ -353,12 +430,12 @@ export function CustomerOrderHistoryScreen({
         )}
 
         {/* Cancelled Service Requests list */}
-        {!isLoading && filteredRequests.length > 0 && (
+        {!isLoading && searchedRequests.length > 0 && (
           <View className="mt-4 gap-3">
             <Text className="text-xs font-bold tracking-wider text-neutral-500 uppercase">
-              Yêu cầu tìm thợ đã hủy ({filteredRequests.length})
+              Yêu cầu tìm thợ đã hủy ({searchedRequests.length})
             </Text>
-            {filteredRequests.map((req: ServiceRequest) => (
+            {searchedRequests.map((req: ServiceRequest) => (
               <View
                 key={req.id}
                 testID={`history-request-card-${req.id}`}

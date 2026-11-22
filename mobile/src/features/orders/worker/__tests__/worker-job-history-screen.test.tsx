@@ -176,5 +176,40 @@ describe('workerJobHistoryScreen', () => {
     expect(screen.getByTestId('worker-history-loading-more-indicator')).toBeOnTheScreen();
     expect(screen.getByText('Đang tải thêm công việc...')).toBeOnTheScreen();
   });
+
+  it('filters worker jobs by search keyword and clears search when clear button is pressed', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    const searchInput = screen.getByTestId('worker-history-search-input');
+    fireEvent.changeText(searchInput, 'điều hòa');
+
+    // Only job-canc-1 (Bảo dưỡng điều hòa) should remain
+    expect(screen.getByTestId('worker-history-card-job-canc-1')).toBeOnTheScreen();
+    expect(screen.queryByTestId('worker-history-card-job-comp-1')).toBeNull();
+
+    // Clear search
+    const clearBtn = screen.getByTestId('worker-clear-search-btn');
+    fireEvent.press(clearBtn);
+
+    // All jobs restored
+    expect(screen.getByTestId('worker-history-card-job-comp-1')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-history-card-job-canc-1')).toBeOnTheScreen();
+  });
+
+  it('shows search-empty-state when no jobs match keyword and clears search on button tap', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    const searchInput = screen.getByTestId('worker-history-search-input');
+    fireEvent.changeText(searchInput, 'từ khóa không tồn tại');
+
+    expect(screen.getByTestId('worker-search-empty-state')).toBeOnTheScreen();
+    expect(screen.getByText('Không tìm thấy kết quả')).toBeOnTheScreen();
+
+    // Tap clear button in empty state
+    fireEvent.press(screen.getByTestId('worker-clear-search-result-btn'));
+
+    expect(screen.queryByTestId('worker-search-empty-state')).toBeNull();
+    expect(screen.getByTestId('worker-history-card-job-comp-1')).toBeOnTheScreen();
+  });
 });
 

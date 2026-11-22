@@ -201,5 +201,40 @@ describe('customerOrderHistoryScreen', () => {
     expect(screen.getByTestId('history-loading-more-indicator')).toBeOnTheScreen();
     expect(screen.getByText('Đang tải thêm đơn hàng...')).toBeOnTheScreen();
   });
+
+  it('filters orders by search keyword and clears search when clear button is pressed', () => {
+    render(<CustomerOrderHistoryScreen />);
+
+    const searchInput = screen.getByTestId('history-search-input');
+    fireEvent.changeText(searchInput, 'máy lạnh');
+
+    // Only ord-canc-1 (Sửa máy lạnh) should remain
+    expect(screen.getByTestId('history-order-card-ord-canc-1')).toBeOnTheScreen();
+    expect(screen.queryByTestId('history-order-card-ord-comp-1')).toBeNull();
+
+    // Clear search
+    const clearBtn = screen.getByTestId('clear-search-btn');
+    fireEvent.press(clearBtn);
+
+    // All orders restored
+    expect(screen.getByTestId('history-order-card-ord-comp-1')).toBeOnTheScreen();
+    expect(screen.getByTestId('history-order-card-ord-canc-1')).toBeOnTheScreen();
+  });
+
+  it('shows search-empty-state when no orders match keyword and clears search on button tap', () => {
+    render(<CustomerOrderHistoryScreen />);
+
+    const searchInput = screen.getByTestId('history-search-input');
+    fireEvent.changeText(searchInput, 'từ khóa không tồn tại');
+
+    expect(screen.getByTestId('search-empty-state')).toBeOnTheScreen();
+    expect(screen.getByText('Không tìm thấy kết quả')).toBeOnTheScreen();
+
+    // Tap clear button in empty state
+    fireEvent.press(screen.getByTestId('clear-search-result-btn'));
+
+    expect(screen.queryByTestId('search-empty-state')).toBeNull();
+    expect(screen.getByTestId('history-order-card-ord-comp-1')).toBeOnTheScreen();
+  });
 });
 
