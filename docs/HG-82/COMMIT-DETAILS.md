@@ -12,6 +12,7 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`592aded`** | `feat(HG-82): add admin dispute queue` | **Task 2** | Xây dựng API `GET /admin/orders/disputes` cho Admin tra cứu danh sách khiếu nại; thêm migration tạo index DB `(status, disputed_at)`; DTO query & response; test proxy API Gateway. |
 | **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
 | **`a1388415`** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
+| **Review Fix #01** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
 
 ---
 
@@ -258,3 +259,46 @@ File: `backend/apps/api-gateway/src/proxy/proxy.constants.spec.ts`
 - Với database đã vận hành, `prisma migrate deploy` dựa vào lịch sử `_prisma_migrations` của từng schema và chỉ áp dụng migration còn thiếu. Nếu tất cả migration trước HG-82 đã được ghi nhận thì tối đa 4 file HG-82 còn chờ; nếu Task 1/2 đã áp dụng thì ít hơn. Cần kiểm tra trạng thái migration trên đúng database đích trước khi triển khai; schema đã có cột/bảng nhưng thiếu lịch sử migration phải được đối soát riêng.
 - Backfill được kiểm tra bằng SQL cùng điều kiện migration trên PostgreSQL test sau khi migration đã áp dụng; chưa phục dựng dữ liệu lịch sử thực tế trước migration. Event sai thứ tự và `needs_review` được kiểm tra bằng unit test; notification/tracking HG-82 qua broker và timeline trên app/deploy chưa được xác minh.
 - Chỉ dùng container/database test cô lập; không chạy migration hoặc thay đổi DB deploy, không xác nhận refund trên app/deploy, không push hay tạo PR. Container test được dọn sau lần chạy cuối.
+
+---
+
+## 7. Review Fix #01: Sửa `order.status` và `currentPhase` Trong Tracking Summary Cho 3 Event HG-82
+
+### 7.1. Nguyên nhân & phạm vi sửa
+
+Khi `tracking-service` nhận 3 event cuối luồng HG-82 (`order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`), `TrackingEventsService` chưa trích xuất `resolvedStatus`, `adminUserId`, `resolutionNote` và `SummaryService` rơi vào nhánh mặc định `latestOrderEvent.eventType.replace('order.', '')`, làm `order.status` mang giá trị `'dispute.decision.recorded'` / `'dispute.resolved'` / `'warranty.completed'` và `currentPhase` bị lùi về `'ORDER_CREATED'`.
+
+### 7.2. Thay đổi mã nguồn (`backend/apps/tracking-service`)
+
+1. **`src/events/tracking-events.service.ts`:**
+   - Trong `recordDomainEvent`:
+     - Bổ sung `rawPayload.adminUserId` khi xác định `rawActorId`.
+     - Bổ sung `rawPayload.resolvedStatus` khi xác định `toStatus`.
+     - Bổ sung `rawPayload.resolutionNote` khi xác định `reason`.
+   - Trong `sanitizeMetadata`:
+     - Thêm `'workerUserId'`, `'customerUserId'`, `'action'`, `'resolutionId'`, `'resolvedStatus'`, `'decidedAt'`, `'paymentStatus'`, `'refundAmountVnd'` vào danh sách `safeKeys` để không làm mất ngữ cảnh phán quyết và quyền truy cập của thợ được giao đơn.
+
+2. **`src/summary/summary.service.ts`:**
+   - Cập nhật `orderCompleted` nhận cả `e.eventType === 'order.completed'` và `e.eventType === 'order.warranty.completed'` để `order.completedAt` phản ánh đúng mốc nghiệm thu bảo hành mới nhất.
+   - Bổ sung `meta?.resolvedStatus` vào `targetStatus`.
+   - Xử lý rõ các nhánh `latestOrderEvent.eventType`:
+     - `'order.completed'` hoặc `'order.warranty.completed'` $\rightarrow$ `orderStatus = 'completed'`, `currentPhase = 'COMPLETED'`.
+     - `'order.disputed'`, `'order.dispute.decision.recorded'` hoặc `targetStatus === 'disputed'` $\rightarrow$ `orderStatus = 'disputed'`, `currentPhase = 'DISPUTED'`.
+     - `'order.dispute.resolved'` $\rightarrow$ ưu tiên `targetStatus`; nếu không có thì kiểm tra `meta?.action === 'rework'` (`'in_progress'`) hoặc fallback ngược về `order.status.changed` liền trước (backward-compatible với dữ liệu event cũ trong DB), mặc định `'completed'`.
+
+### 7.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/events/tracking-events.service.spec.ts`:**
+  - Kiểm tra `recordDomainEvent` với `order.dispute.resolved` lưu đúng `toStatus = 'in_progress'`, `actorUserId = adminUserId`, `reason = resolutionNote` và giữ nguyên `resolutionId`, `action`, `resolvedStatus`, `decidedAt`, `paymentStatus`, `refundAmountVnd`, `customerUserId`, `workerUserId` trong `metadata`.
+- **`src/summary/summary.service.spec.ts`:**
+  - Kiểm tra 5 kịch bản:
+    1. Event cuối là `order.dispute.decision.recorded` (chờ hoàn tiền) $\rightarrow$ `order.status = 'disputed'`, `currentPhase = 'DISPUTED'`.
+    2. Event cuối là `order.dispute.resolved` (`dismiss` và `refund`) $\rightarrow$ `order.status = 'completed'`, `currentPhase = 'COMPLETED'`.
+    3. Event cuối là `order.dispute.resolved` (`rework`) $\rightarrow$ `order.status = 'in_progress'`, `currentPhase = 'ORDER_IN_PROGRESS'`.
+    4. Event cuối là `order.warranty.completed` $\rightarrow$ `order.status = 'completed'`, `currentPhase = 'COMPLETED'`, `order.completedAt` cập nhật theo mốc nghiệm thu bảo hành.
+    5. Backward-compatibility: `order.dispute.resolved` cũ không có `toStatus`/`resolvedStatus` vẫn fallback chính xác về `order.status.changed` liền trước.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/tracking-service`: **PASS** (9 test files passed, 4 skipped; 108 tests passed, 13 skipped).
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/tracking-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build tracking-service`: **PASS**.
