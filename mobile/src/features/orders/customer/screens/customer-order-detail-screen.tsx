@@ -118,6 +118,39 @@ export function CustomerOrderDetailScreen({
     worker,
   } = useCustomerOrderDetail(orderId);
 
+  const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
+  const paymentQuery = useQuery({
+    queryKey: walletQueryKeys.paymentByOrder(orderId),
+    queryFn: async () => (await PaymentApi.getPaymentByOrder(orderId)).data,
+    enabled: order?.status === 'completed',
+    retry: false,
+    refetchInterval: query => ['pending', 'processing'].includes(query.state.data?.status ?? '') ? 2500 : false,
+  });
+  const payment = paymentQuery.data;
+  const paymentState = payment?.status === 'succeeded'
+    ? 'paid'
+    : payment?.status === 'refunded' || payment?.status === 'partially_refunded'
+      ? 'refunded'
+      : payment?.status === 'pending' || payment?.status === 'processing'
+        ? 'pending'
+        : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+  const handlePaymentResult = (result: OrderPaymentRecord) => {
+    setIsPaymentOpen(false);
+    void refetch();
+    if (result.status === 'succeeded') {
+      Alert.alert('Thành công', 'Thanh toán thành công! Đơn hàng đã hoàn tất.');
+    }
+    else if (result.status === 'refunded' || result.status === 'partially_refunded') {
+      Alert.alert('Thông tin thanh toán', 'Giao dịch đã được hoàn tiền.');
+    }
+    else if (result.method === 'cash') {
+      Alert.alert('Chờ xác nhận', 'Đã ghi nhận phương thức tiền mặt. Vui lòng gửi tiền cho thợ.');
+    }
+    else {
+      Alert.alert('Đang xử lý', 'Thanh toán đang được xác nhận. Vui lòng không thanh toán lại.');
+    }
+  };
+
   const {
     canEdit: canEditReview,
     hasReviewed,
@@ -379,33 +412,33 @@ export function CustomerOrderDetailScreen({
                   } as any)}
                 />
               )
-            : isWithinReviewWindow(order?.completedAt)
-              ? (
-                  <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
-                    <View className="flex-row items-center gap-3">
-                      <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
-                        <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+            : (!order?.completedAt || isWithinReviewWindow(order?.completedAt))
+                ? (
+                    <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
+                      <View className="flex-row items-center gap-3">
+                        <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
+                          <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+                        </View>
+                        <View className="flex-1">
+                          <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                            Đơn hàng đã hoàn thành!
+                          </Text>
+                          <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+                            Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
+                          </Text>
+                        </View>
                       </View>
-                      <View className="flex-1">
-                        <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                          Đơn hàng đã hoàn thành!
-                        </Text>
-                        <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
-                          Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
-                        </Text>
-                      </View>
+                      <Button
+                        testID="cta-review-banner-btn"
+                        label="⭐ Đánh giá ngay"
+                        variant="default"
+                        className="mt-3 h-9 w-full rounded-xl bg-primary"
+                        textClassName="text-xs font-bold text-white"
+                        onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+                      />
                     </View>
-                    <Button
-                      testID="cta-review-banner-btn"
-                      label="⭐ Đánh giá ngay"
-                      variant="default"
-                      className="mt-3 h-9 w-full rounded-xl bg-primary"
-                      textClassName="text-xs font-bold text-white"
-                      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
-                    />
-                  </View>
-                )
-              : null
+                  )
+                : null
         )}
 
         {/* 5. Evidence Gallery with Lightbox Viewer */}
@@ -535,7 +568,7 @@ export function CustomerOrderDetailScreen({
 
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
-            {(hasReviewed || isWithinReviewWindow(order?.completedAt)) && (
+            {(hasReviewed || !order?.completedAt || isWithinReviewWindow(order?.completedAt)) && (
               <Button
                 testID="customer-review-order-btn"
                 label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
