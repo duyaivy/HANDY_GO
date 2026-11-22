@@ -198,4 +198,144 @@ describe('useBookingDraftStore - Pricing Estimation & Concurrency', () => {
     expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(220000);
     expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(420000);
   });
+
+  describe('HG96-REM-03 - Description change invalidation & concurrency', () => {
+    it('invalidates pending request when setDescription is called with different text', async () => {
+      const deferredA = createDeferred<any>();
+      jest.mocked(OrdersApi.estimatePrice).mockImplementationOnce(() => deferredA.promise);
+
+      useBookingDraftStore.getState().setService('srv-1', 'Sửa máy lạnh');
+      useBookingDraftStore.getState().setDescription('Description A');
+
+      const promiseA = useBookingDraftStore.getState().fetchEstimatedPrice('srv-1', 'Description A');
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(true);
+
+      // Customer edits description while request A is pending
+      useBookingDraftStore.getState().setDescription('Description B');
+
+      // State immediately invalidates active estimate and resets to defaults
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(false);
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(150000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(350000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBeNull();
+
+      // Request A finishes late
+      deferredA.resolve({
+        data: {
+          aiRefPriceMin: 280000,
+          aiRefPriceMax: 500000,
+          matchedReason: 'Estimate for Description A',
+        },
+      });
+      await promiseA;
+
+      // Must NOT apply Description A results
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(150000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(350000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBeNull();
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(false);
+    });
+
+    it('clears prior price reason and resets to default when description changes after completion', async () => {
+      const deferredA = createDeferred<any>();
+      jest.mocked(OrdersApi.estimatePrice).mockImplementationOnce(() => deferredA.promise);
+
+      useBookingDraftStore.getState().setService('srv-1', 'Sửa máy lạnh');
+      useBookingDraftStore.getState().setDescription('Description A');
+
+      const promiseA = useBookingDraftStore.getState().fetchEstimatedPrice('srv-1', 'Description A');
+      deferredA.resolve({
+        data: {
+          aiRefPriceMin: 220000,
+          aiRefPriceMax: 380000,
+          matchedReason: 'Benchmark Description A',
+        },
+      });
+      await promiseA;
+
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(220000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(380000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBe('Benchmark Description A');
+
+      // User modifies description
+      useBookingDraftStore.getState().setDescription('Description B');
+
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(150000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(350000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBeNull();
+    });
+
+    it('handles same service concurrent estimates for different descriptions properly', async () => {
+      const deferredA = createDeferred<any>();
+      const deferredB = createDeferred<any>();
+
+      jest.mocked(OrdersApi.estimatePrice)
+        .mockImplementationOnce(() => deferredA.promise)
+        .mockImplementationOnce(() => deferredB.promise);
+
+      useBookingDraftStore.getState().setService('srv-1', 'Sửa máy lạnh');
+
+      const promiseA = useBookingDraftStore.getState().fetchEstimatedPrice('srv-1', 'Description A');
+      const promiseB = useBookingDraftStore.getState().fetchEstimatedPrice('srv-1', 'Description B');
+
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(true);
+
+      // B finishes first
+      deferredB.resolve({
+        data: {
+          aiRefPriceMin: 310000,
+          aiRefPriceMax: 620000,
+          matchedReason: 'Benchmark B',
+        },
+      });
+      await promiseB;
+
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(310000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(620000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBe('Benchmark B');
+
+      // A finishes late
+      deferredA.resolve({
+        data: {
+          aiRefPriceMin: 180000,
+          aiRefPriceMax: 350000,
+          matchedReason: 'Benchmark A',
+        },
+      });
+      await promiseA;
+
+      // Final state must remain B
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(310000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(620000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBe('Benchmark B');
+    });
+
+    it('does not invalidate active estimate if description change is whitespace-only', async () => {
+      const deferred = createDeferred<any>();
+      jest.mocked(OrdersApi.estimatePrice).mockImplementationOnce(() => deferred.promise);
+
+      useBookingDraftStore.getState().setService('srv-1', 'Sửa ống nước');
+      useBookingDraftStore.getState().setDescription('Mô tả');
+
+      const promise = useBookingDraftStore.getState().fetchEstimatedPrice('srv-1', 'Mô tả');
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(true);
+
+      // Whitespace only
+      useBookingDraftStore.getState().setDescription('  Mô tả  ');
+      expect(useBookingDraftStore.getState().isEstimatingPrice).toBe(true);
+
+      deferred.resolve({
+        data: {
+          aiRefPriceMin: 200000,
+          aiRefPriceMax: 400000,
+          matchedReason: 'Hợp lệ',
+        },
+      });
+      await promise;
+
+      expect(useBookingDraftStore.getState().aiRefPriceMin).toBe(200000);
+      expect(useBookingDraftStore.getState().aiRefPriceMax).toBe(400000);
+      expect(useBookingDraftStore.getState().priceEstimateReason).toBe('Hợp lệ');
+    });
+  });
 });

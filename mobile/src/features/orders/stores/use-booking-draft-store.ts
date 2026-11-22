@@ -103,7 +103,36 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
     }
   },
 
-  setDescription: description => set({ description }),
+  setDescription: (description) => {
+    const prevDescription = get().description;
+    const normalizedNew = description.trim();
+    const normalizedPrev = prevDescription.trim();
+
+    if (normalizedNew === normalizedPrev) {
+      set({ description });
+      return;
+    }
+
+    latestRequestId++;
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      }
+      catch {
+        // ignore
+      }
+      activeAbortController = null;
+    }
+    activeEstimatePromise = null;
+
+    set({
+      description,
+      aiRefPriceMin: DEFAULT_MIN_PRICE,
+      aiRefPriceMax: DEFAULT_MAX_PRICE,
+      isEstimatingPrice: false,
+      priceEstimateReason: null,
+    });
+  },
 
   setAddress: (addressText, latitude = 16.0748, longitude = 108.1499) =>
     set({ addressText, latitude, longitude }),
@@ -148,6 +177,8 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
 
     const thisDraftToken = currentDraftToken;
     const thisRequestId = ++latestRequestId;
+    const thisServiceId = currentServiceId;
+    const thisDescription = currentDescription.trim();
 
     set({ isEstimatingPrice: true });
 
@@ -162,6 +193,14 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
         );
 
         if (thisDraftToken !== currentDraftToken || thisRequestId !== latestRequestId) {
+          return;
+        }
+
+        const currentState = get();
+        if (
+          (currentState.serviceId && currentState.serviceId !== thisServiceId)
+          || (currentState.description && currentState.description.trim() !== thisDescription)
+        ) {
           return;
         }
 
@@ -182,9 +221,7 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       finally {
         if (thisDraftToken === currentDraftToken && thisRequestId === latestRequestId) {
           set({ isEstimatingPrice: false });
-          if (activeEstimatePromise === promise) {
-            activeEstimatePromise = null;
-          }
+          activeEstimatePromise = null;
         }
       }
     })();

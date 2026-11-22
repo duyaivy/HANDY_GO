@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { AppException } from '@app/common';
 import {
   BookingProposalStatus,
@@ -19,6 +19,7 @@ import {
 } from './dto/create-service-request.dto.js';
 import { UpdateServiceRequestDto } from './dto/update-service-request.dto.js';
 import { QueryServiceRequestDto } from './dto/query-service-request.dto.js';
+import { PricingEstimatorService } from './services/pricing-estimator.service.js';
 
 @Injectable()
 export class ServiceRequestsService {
@@ -27,6 +28,8 @@ export class ServiceRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outboxRepo: OrderOutboxRepository,
+    @Optional()
+    private readonly pricingEstimator?: PricingEstimatorService,
   ) { }
 
   /**
@@ -36,43 +39,74 @@ export class ServiceRequestsService {
   async createDraft(userId: string, dto: CreateServiceRequestDto) {
     const requestCode = generateRequestCode();
 
-    let resolvedMin = dto.aiRefPriceMin;
-    let resolvedMax = dto.aiRefPriceMax;
+    let resolvedMin: number | undefined;
+    let resolvedMax: number | undefined;
 
-    const hasValidRange =
-      typeof resolvedMin === 'number' &&
-      typeof resolvedMax === 'number' &&
-      Number.isFinite(resolvedMin) &&
-      Number.isFinite(resolvedMax) &&
-      resolvedMin > 0 &&
-      resolvedMin < resolvedMax;
-
-    if (!hasValidRange && dto.serviceId) {
-      try {
-        const rows = await this.prisma.$queryRaw<
-          Array<{
-            base_price_min: number | null;
-            base_price_max: number | null;
-          }>
-        >`
-          SELECT base_price_min, base_price_max
-          FROM services
-          WHERE id = ${dto.serviceId}::uuid
-          LIMIT 1
-        `;
-        if (rows.length > 0) {
-          const bMin = rows[0].base_price_min != null ? Number(rows[0].base_price_min) : undefined;
-          const bMax = rows[0].base_price_max != null ? Number(rows[0].base_price_max) : undefined;
-          if (bMin !== undefined && bMax !== undefined && bMin > 0 && bMin < bMax) {
-            resolvedMin = Math.round(bMin);
-            resolvedMax = Math.round(bMax);
+    // 1. Authoritative server-side resolution via PricingEstimatorService (HG96-REM-01)
+    // Never trust client-supplied reference prices as authoritative.
+    if (dto.serviceId) {
+      if (this.pricingEstimator) {
+        try {
+          const estimate = await this.pricingEstimator.estimatePrice({
+            serviceId: dto.serviceId,
+            description: dto.description || '',
+          });
+          if (
+            typeof estimate.aiRefPriceMin === 'number' &&
+            typeof estimate.aiRefPriceMax === 'number' &&
+            Number.isFinite(estimate.aiRefPriceMin) &&
+            Number.isFinite(estimate.aiRefPriceMax) &&
+            estimate.aiRefPriceMin > 0 &&
+            estimate.aiRefPriceMin < estimate.aiRefPriceMax
+          ) {
+            resolvedMin = Math.round(estimate.aiRefPriceMin);
+            resolvedMax = Math.round(estimate.aiRefPriceMax);
           }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to derive price via PricingEstimatorService for service ${dto.serviceId}: ${err?.message || err}`,
+          );
         }
-      } catch (err: any) {
-        this.logger.warn(`Failed to resolve catalog base prices for service ${dto.serviceId}: ${err?.message || err}`);
+      }
+
+      // 2. Direct catalog fallback using schema-qualified catalog_service.services table (HG96-REM-02)
+      if (
+        resolvedMin === undefined ||
+        resolvedMax === undefined ||
+        !Number.isFinite(resolvedMin) ||
+        !Number.isFinite(resolvedMax) ||
+        resolvedMin <= 0 ||
+        resolvedMin >= resolvedMax
+      ) {
+        try {
+          const rows = await this.prisma.$queryRaw<
+            Array<{
+              base_price_min: number | null;
+              base_price_max: number | null;
+            }>
+          >`
+            SELECT base_price_min, base_price_max
+            FROM "catalog_service"."services"
+            WHERE id = ${dto.serviceId}::uuid
+            LIMIT 1
+          `;
+          if (rows.length > 0) {
+            const bMin = rows[0].base_price_min != null ? Number(rows[0].base_price_min) : undefined;
+            const bMax = rows[0].base_price_max != null ? Number(rows[0].base_price_max) : undefined;
+            if (bMin !== undefined && bMax !== undefined && bMin > 0 && bMin < bMax) {
+              resolvedMin = Math.round(bMin);
+              resolvedMax = Math.round(bMax);
+            }
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to resolve catalog base prices for service ${dto.serviceId}: ${err?.message || err}`,
+          );
+        }
       }
     }
 
+    // 3. Documented system fallback (150,000 - 350,000 VND) when AI & Catalog are unavailable or serviceId is absent
     if (
       resolvedMin === undefined ||
       resolvedMax === undefined ||
