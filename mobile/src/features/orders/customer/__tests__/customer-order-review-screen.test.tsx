@@ -818,4 +818,24 @@ describe('CustomerOrderDetailScreen review integration', () => {
     expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
     expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
   });
+
+  it('does NOT display review CTA when getOrderReview rejects with error, and renders retry error banner', async () => {
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockRejectedValueOnce(new Error('Network/500 error'));
+
+    render(<CustomerOrderDetailScreen orderId="ord-completed-456" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa chữa điện nước')).toBeOnTheScreen();
+    });
+
+    // Error banner must be displayed with retry button
+    await waitFor(() => {
+      expect(screen.getByTestId('customer-order-review-error-banner')).toBeOnTheScreen();
+    });
+    expect(screen.getByTestId('customer-order-review-retry-btn')).toBeOnTheScreen();
+
+    // Review invite banner and review button must NOT appear
+    expect(screen.queryByTestId('order-review-invite-banner')).toBeNull();
+    expect(screen.queryByTestId('customer-review-order-btn')).toBeNull();
+  });
 });

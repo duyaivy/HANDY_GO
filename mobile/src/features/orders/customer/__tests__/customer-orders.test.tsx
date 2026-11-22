@@ -408,6 +408,49 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
     // Review button must not be displayed while review query is loading
     expect(screen.queryByTestId('order-card-review-btn-ord-comp-unreviewed')).toBeNull();
   });
+
+  it('does not display review button when getOrderReview rejects with error in order list', async () => {
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValueOnce({
+      data: {
+        items: [
+          {
+            id: 'ord-comp-error',
+            orderCode: 'ORD-ERR-01',
+            serviceRequestId: 'req-err-01',
+            customerUserId: 'cust-1',
+            workerUserId: 'worker-1',
+            agreedPrice: 200000,
+            agreedScope: 'Sửa bồn rửa mặt',
+            addressText: '123 Nguyễn Văn Linh, Đà Nẵng',
+            status: 'completed',
+            paymentState: 'paid',
+            completedAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 10,
+        totalPages: 1,
+      },
+      statusCode: 200,
+      message: 'OK',
+    } as any);
+
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockRejectedValueOnce(new Error('Server error'));
+
+    render(<CustomerOrdersScreen />);
+
+    const finishedTab = screen.getByTestId('activity-filter-tab-finished');
+    fireEvent.press(finishedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('Sửa bồn rửa mặt')).toBeOnTheScreen();
+    });
+
+    // When review fetch fails, review button must not be displayed
+    expect(screen.queryByTestId('order-card-review-btn-ord-comp-error')).toBeNull();
+  });
 });
 
 describe('booking photo upload', () => {

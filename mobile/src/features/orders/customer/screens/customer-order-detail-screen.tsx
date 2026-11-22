@@ -155,6 +155,7 @@ export function CustomerOrderDetailScreen({
     canEdit: canEditReview,
     hasReviewed,
     hoursRemainingToEdit,
+    isError: isReviewError,
     isLoading: isLoadingReview,
     refetch: refetchReview,
     review,
@@ -400,7 +401,7 @@ export function CustomerOrderDetailScreen({
         />
 
         {/* 4b. Customer Review Section (When order is completed) */}
-        {currentStatus === 'completed' && !isLoadingReview && (
+        {currentStatus === 'completed' && !isLoadingReview && !isReviewError && (
           hasReviewed && review
             ? (
                 <OrderReviewCard
@@ -440,6 +441,34 @@ export function CustomerOrderDetailScreen({
                   </View>
                 )
               : null
+        )}
+
+        {/* 4c. Review Fetch Error Banner with Retry */}
+        {currentStatus === 'completed' && !isLoadingReview && isReviewError && (
+          <View
+            testID="customer-order-review-error-banner"
+            className="mb-4 rounded-2xl border border-rose-200 bg-rose-50/80 p-4 shadow-xs dark:border-rose-900/60 dark:bg-rose-950/20"
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="min-w-0 flex-1 pr-3">
+                <Text className="text-sm font-bold text-rose-900 dark:text-rose-200">
+                  Không thể tải thông tin đánh giá
+                </Text>
+                <Text className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                  Đã xảy ra lỗi khi kiểm tra trạng thái đánh giá của đơn hàng.
+                </Text>
+              </View>
+              <Button
+                testID="customer-order-review-retry-btn"
+                label="Thử lại"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 rounded-xl border-rose-300 bg-white px-3 active:bg-rose-100 dark:border-rose-700 dark:bg-rose-900"
+                textClassName="text-xs font-bold text-rose-700 dark:text-rose-200"
+                onPress={() => refetchReview()}
+              />
+            </View>
+          </View>
         )}
 
         {/* 5. Evidence Gallery with Lightbox Viewer */}
@@ -569,7 +598,7 @@ export function CustomerOrderDetailScreen({
 
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
-            {!isLoadingReview && (hasReviewed || isWithinReviewWindow(order?.completedAt)) && (
+            {!isLoadingReview && !isReviewError && (hasReviewed || isWithinReviewWindow(order?.completedAt)) && (
               <Button
                 testID="customer-review-order-btn"
                 label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
@@ -599,7 +628,7 @@ export function CustomerOrderDetailScreen({
               label="Đặt Lại Dịch Vụ"
               variant="outline"
               className={`h-11 rounded-2xl border-primary ${
-                !isLoadingReview && (hasReviewed || isWithinReviewWindow(order?.completedAt)) ? 'flex-1' : 'w-full'
+                !isLoadingReview && !isReviewError && (hasReviewed || isWithinReviewWindow(order?.completedAt)) ? 'flex-1' : 'w-full'
               }`}
               textClassName="text-xs font-bold text-primary"
               onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}

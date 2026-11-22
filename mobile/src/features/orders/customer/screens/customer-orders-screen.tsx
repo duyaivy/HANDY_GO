@@ -255,10 +255,15 @@ function OrderCardReviewAction({
   completedAt?: string | null;
 }) {
   const router = useRouter();
-  const { canEdit, hasReviewed, isLoading: isLoadingReview } = useOrderReview(orderId);
+  const {
+    canEdit,
+    hasReviewed,
+    isError: isReviewError,
+    isLoading: isLoadingReview,
+  } = useOrderReview(orderId);
 
-  // Đang tải trạng thái đánh giá: tránh hiển thị CTA tạo mới quá sớm
-  if (isLoadingReview) {
+  // Đang tải trạng thái hoặc gặp lỗi API: tránh hiển thị CTA tạo mới sai
+  if (isLoadingReview || isReviewError) {
     return null;
   }
 
