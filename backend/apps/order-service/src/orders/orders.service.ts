@@ -1292,10 +1292,10 @@ export class OrdersService {
     }
     const key = dto.idempotencyKey?.trim();
     const note = dto.resolutionNote?.trim();
-    if (!key || key.length > 150 || !note || note.length < 5 || (dto.action !== 'refund' && dto.refundAmountVnd !== undefined)) {
+    if (!key || key.length > 150 || !note || note.length < 5 || note.length > 2000 || (dto.action !== 'refund' && dto.refundAmountVnd !== undefined)) {
       throw new BadRequestException({ code: ORDER_ERROR_CODES.RESOLUTION_REASON_REQUIRED, message: 'A valid note and idempotency key are required; amount is refund-only' });
     }
-    if (dto.refundAmountVnd !== undefined && !/^[1-9][0-9]*$/.test(dto.refundAmountVnd)) {
+    if (dto.refundAmountVnd !== undefined && !/^[1-9]\d{0,18}$/.test(dto.refundAmountVnd)) {
       throw new BadRequestException({ code: ORDER_ERROR_CODES.REFUND_AMOUNT_EXCEEDS_REFUNDABLE, message: 'Refund amount must be an exact positive whole VND string' });
     }
     const hash = createHash('sha256').update(JSON.stringify({ orderId, adminUserId, action: dto.action, note, requestedAmount: dto.refundAmountVnd ?? null })).digest('hex');

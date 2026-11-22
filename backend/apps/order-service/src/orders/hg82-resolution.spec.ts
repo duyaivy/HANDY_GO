@@ -323,4 +323,45 @@ describe('HG-82 Admin resolution', () => {
     expect(f.tx.order.updateMany).not.toHaveBeenCalled();
     expect(f.outbox.createEvent).not.toHaveBeenCalled();
   });
+
+  it('rejects oversized resolutionNote (> 2000 chars) or 20-digit refundAmountVnd in service guard', async () => {
+    const f = fixture();
+    await expect(
+      f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'dismiss',
+          resolutionNote: 'x'.repeat(2001),
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({
+        code: 'RESOLUTION_REASON_REQUIRED',
+      }),
+    });
+
+    await expect(
+      f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'refund',
+          resolutionNote: 'Hoàn tiền vượt ngưỡng int8',
+          refundAmountVnd: '10000000000000000000',
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({
+        code: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE',
+      }),
+    });
+    expect(f.tx.orderDisputeResolution.create).not.toHaveBeenCalled();
+  });
 });

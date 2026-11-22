@@ -16,7 +16,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`07523e7d`** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
 | **`ef6edaca`** | `fix(HG-82): enforce warranty invariants in legacy resolveDispute after rework` | **Review Fix #03** | Bảo toàn bất biến bảo hành trong `OrdersService.resolveDispute` khi đơn đã có `firstCompletedAt`: chặn `action: 'cancel'` (`LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION`) và phát `order.warranty.completed` thay vì `order.completed` khi `action: 'complete'`. Chi tiết tại mục 9. |
 | **`65c49fcf`** | `fix(HG-82): filter work evidence type in ORD-10 finish guard and addEvidence dedup` | **Review Fix #04** | Sửa `OrdersService.finish` đếm trực tiếp `orderEvidence` có `evidenceType: 'work'` và sửa `OrdersService.addEvidence` lọc `evidenceType: 'work'` khi dedup theo `mediaUrl`. Chi tiết tại mục 10. |
-| **Review Fix #05** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
+| **`2f1110f9`** | `fix(HG-82): prevent silent consumption and log guard mismatches in PaymentEventsConsumer` | **Review Fix #05** | Siết kiểm tra `eventId` rỗng/khoảng trắng trước khi NACK, kiểm tra sự tồn tại của `resolution` và `order` trước khi ghi `consumed_events`, và ghi `logger.warn` chi tiết cho mọi nhánh lệch đối soát trong `PaymentEventsConsumer.processDisputeRefund`. Chi tiết tại mục 11. |
+| **Review Fix #06** | `fix(HG-82): tighten dispute DTO input length, URL protocol, and refund amount bounds` | **Review Fix #06** | Bổ sung `@MaxLength(2000)` cho `reason` và `resolutionNote`; giới hạn `evidenceUrls` tối đa 10 phần tử, mỗi URL tối đa 2048 ký tự và bắt buộc protocol `http`/`https`; giới hạn `refundAmountVnd` theo regex `/^[1-9]\d{0,18}$/` ở DTO và `OrdersService`. Chi tiết tại mục 12. |
 
 ---
 
@@ -432,6 +433,36 @@ Trong `PaymentEventsConsumer.processDisputeRefund`:
   3. Event lệch `paymentId`, thiếu `refundId`, hoặc lệch `refundAmountVnd` $\rightarrow$ ghi `logger.warn` chứa đúng `eventId`, `resolutionId`, `orderId` và không cập nhật `orders`.
 - **Kết quả chạy kiểm tra local:**
   - `pnpm exec vitest run apps/order-service/src/consumers apps/order-service/src/orders/hg82-resolution.spec.ts`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service`: **PASS**.
+
+---
+
+## 12. Review Fix #06: Siết Giới Hạn Độ Dài Input, Giao Thức URL Bằng Chứng Và Biên Số Chữ Số `refundAmountVnd`
+
+### 12.1. Nguyên nhân & phạm vi sửa
+
+1. `DisputeOrderDto.evidenceUrls` dùng `@IsUrl({})` mặc định của `class-validator`, cho phép `ftp://` hoặc URL thiếu protocol (`evil.com/a.jpg`), đồng thời thiếu `@ArrayMaxSize` và `@MaxLength` cho từng URL.
+2. `DisputeOrderDto.reason` và `ResolveDisputeDto.resolutionNote` chưa có `@MaxLength(2000)`.
+3. `ResolveDisputeDto.refundAmountVnd` và guard trong `OrdersService.resolveCompletedDispute` dùng `/^[1-9][0-9]*$/` không giới hạn số chữ số (chuỗi $\ge 20$ chữ số vượt kiểu `BIGINT` 64-bit của PostgreSQL).
+
+### 12.2. Thay đổi mã nguồn (`backend/apps/order-service`)
+
+1. **`src/orders/dto/dispute-order.dto.ts`:**
+   - Thêm `@MaxLength(2000)` cho `reason`.
+   - Thêm `@ArrayMaxSize(10)`, `@MaxLength(2048, { each: true })` và `@IsUrl({ protocols: ['http', 'https'], require_protocol: true }, { each: true })` cho `evidenceUrls`.
+2. **`src/orders/dto/resolve-dispute.dto.ts` & `src/orders/orders.service.ts`:**
+   - Thêm `@MaxLength(2000)` cho `ResolveDisputeDto.resolutionNote` và kiểm tra `note.length > 2000` trong `OrdersService.resolveCompletedDispute`.
+   - Đổi regex `refundAmountVnd` từ `/^[1-9][0-9]*$/` sang `/^[1-9]\d{0,18}$/` ở cả `ResolveDisputeDto` và `OrdersService.resolveCompletedDispute`.
+
+### 12.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`src/orders/dto/dispute-order.dto.spec.ts` & `src/orders/hg82-resolution.spec.ts`:**
+  - Kiểm tra `DisputeOrderDto`: chấp nhận URL `https://storage.handygo.vn/a.jpg`; từ chối `ftp://evil.com/a.jpg`, `evil.com/a.jpg` (thiếu protocol), `javascript:alert(1)`, mảng 11 phần tử, URL dài > 2048 ký tự, và `reason` dài 2001 ký tự.
+  - Kiểm tra `ResolveDisputeDto` & `OrdersService.resolveCompletedDispute`: chấp nhận `refundAmountVnd: '50000'`; từ chối `resolutionNote` dài 2001 ký tự và `refundAmountVnd` 20 chữ số (`'10000000000000000000'`).
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm exec vitest run apps/order-service/src/orders`: **PASS**.
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/order-service`: **PASS** (0 warnings, 0 errors).
   - `pnpm exec nest build order-service`: **PASS**.

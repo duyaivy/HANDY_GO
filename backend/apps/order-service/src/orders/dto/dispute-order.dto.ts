@@ -1,11 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
   IsArray,
   IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
@@ -28,6 +30,9 @@ export class DisputeOrderDto {
   @MinLength(5, {
     message: 'Dispute reason must be at least 5 characters long',
   })
+  @MaxLength(2000, {
+    message: 'Dispute reason must be at most 2000 characters long',
+  })
   reason: string;
 
   @ApiPropertyOptional({
@@ -46,6 +51,16 @@ export class DisputeOrderDto {
   })
   @IsOptional()
   @IsArray()
-  @IsUrl({}, { each: true, message: 'Mỗi bằng chứng phải là một URL hợp lệ' })
+  @ArrayMaxSize(10, {
+    message: 'Tối đa 10 bằng chứng cho mỗi lần khiếu nại',
+  })
+  @MaxLength(2048, {
+    each: true,
+    message: 'Mỗi URL bằng chứng không được vượt quá 2048 ký tự',
+  })
+  @IsUrl(
+    { protocols: ['http', 'https'], require_protocol: true },
+    { each: true, message: 'Mỗi bằng chứng phải là một URL hợp lệ' },
+  )
   evidenceUrls?: string[];
 }

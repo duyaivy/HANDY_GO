@@ -29,12 +29,15 @@ export class ResolveDisputeDto {
   @MinLength(5, {
     message: 'Resolution note must be at least 5 characters long',
   })
+  @MaxLength(2000, {
+    message: 'Resolution note must be at most 2000 characters long',
+  })
   resolutionNote: string;
 
   @ApiPropertyOptional({ description: 'Exact whole VND amount as a decimal string; refund only' })
   @IsOptional()
   @IsString()
-  @Matches(/^[1-9][0-9]*$/)
+  @Matches(/^[1-9]\d{0,18}$/)
   refundAmountVnd?: string;
 
   @ApiPropertyOptional({ description: 'Required for completed-order disputes' })
