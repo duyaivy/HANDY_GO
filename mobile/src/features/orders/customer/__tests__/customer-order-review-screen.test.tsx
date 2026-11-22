@@ -189,6 +189,10 @@ describe('CustomerOrderReviewScreen', () => {
 
     render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
 
+    await waitFor(() => {
+      expect(screen.getByTestId('submit-review-btn')).not.toBeDisabled();
+    });
+
     // Type comment
     fireEvent.changeText(screen.getByTestId('review-comment-input'), 'Làm việc rất có tâm');
 
@@ -310,6 +314,10 @@ describe('CustomerOrderReviewScreen', () => {
 
     render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
 
+    await waitFor(() => {
+      expect(screen.getByTestId('submit-review-btn')).not.toBeDisabled();
+    });
+
     fireEvent.press(screen.getByTestId('submit-review-btn'));
 
     await waitFor(() => {
@@ -332,6 +340,10 @@ describe('CustomerOrderReviewScreen', () => {
     } as any);
 
     render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('submit-review-btn')).not.toBeDisabled();
+    });
 
     // Add video attachment
     fireEvent.press(screen.getByTestId('add-review-photo-btn'));
@@ -570,6 +582,58 @@ describe('CustomerOrderReviewScreen', () => {
     );
 
     delete (globalThis as any).__MOCK_VIDEO_PICKER__;
+  });
+
+  it('disables submit button and displays loading indicator while review status is loading', async () => {
+    // Keep getOrderReview pending
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockImplementation(() => new Promise(() => {}));
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    expect(screen.getByTestId('review-loading-indicator')).toBeOnTheScreen();
+    const submitBtn = screen.getByTestId('submit-review-btn');
+    expect(submitBtn).toBeOnTheScreen();
+    expect(submitBtn).toHaveTextContent('Đang kiểm tra...');
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it('displays error banner with retry button and disables submit button when review query fails', async () => {
+    const getReviewSpy = jest.spyOn(ReviewsApi, 'getOrderReview').mockRejectedValue(new Error('Network request failed'));
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('review-fetch-error-banner')).toBeOnTheScreen();
+    });
+
+    const submitBtn = screen.getByTestId('submit-review-btn');
+    expect(submitBtn).toBeDisabled();
+
+    // Clicking retry button triggers refetch
+    getReviewSpy.mockResolvedValueOnce(null);
+    fireEvent.press(screen.getByTestId('review-fetch-retry-btn'));
+    expect(getReviewSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('guards handleSubmit against duplicate review creation when already reviewed', async () => {
+    const existingReview = {
+      id: 'rev-existing-999',
+      orderId: 'ord-completed-123',
+      rating: 5,
+      comment: 'Tuyệt vời',
+      isEdited: false,
+      createdAt: new Date().toISOString(),
+    };
+    jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue(existingReview as any);
+    const createReviewSpy = jest.spyOn(ReviewsApi, 'createReview').mockResolvedValue({} as any);
+
+    render(<CustomerOrderReviewScreen orderId="ord-completed-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Lưu thay đổi đánh giá')).toBeOnTheScreen();
+    });
+
+    expect(createReviewSpy).not.toHaveBeenCalled();
   });
 });
 

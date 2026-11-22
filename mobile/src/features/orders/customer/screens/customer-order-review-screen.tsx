@@ -78,24 +78,35 @@ export function CustomerOrderReviewScreen({
   const isRequestedEdit = searchParams?.mode === 'edit';
   const isRequestedView = searchParams?.mode === 'view';
 
-  const { order, worker } = useCustomerOrderDetail(orderId);
+  const {
+    order,
+    worker,
+    isLoading: isLoadingOrder = false,
+    isError: isErrorOrder = false,
+    refetch: refetchOrder,
+  } = useCustomerOrderDetail(orderId);
   const {
     canEdit,
     createReview,
     hasReviewed,
     hoursRemainingToEdit,
-    isLoading: isLoadingReview,
+    isLoading: isLoadingReview = false,
+    isError: isErrorReview = false,
+    refetch: refetchReview,
     review,
     updateReview,
   } = useOrderReview(orderId);
 
-  const is14DaysExpired = !hasReviewed && Boolean(order?.completedAt) && !isWithinReviewWindow(order?.completedAt);
+  const is14DaysExpired = Boolean(order) && !hasReviewed && !isWithinReviewWindow(order?.completedAt);
 
   // 3 explicit screen modes:
-  // 1. 'view': Đã có review nhưng không còn quyền sửa, hoặc đơn chưa review nhưng đã quá hạn 14 ngày, hoặc route yêu cầu mode=view
+  // 1. 'view': Đã có review nhưng không còn quyền sửa (hết 48h hoặc đã sửa rồi), hoặc route yêu cầu mode=view
   // 2. 'edit': Đã có review và còn quyền sửa trong 48h
-  // 3. 'create': Chưa có review nào và trong thời hạn 14 ngày
+  // 3. 'create': Chưa có review nào
   const screenMode: 'create' | 'edit' | 'view' = React.useMemo(() => {
+    if (isLoadingReview || isLoadingOrder) {
+      return isRequestedView ? 'view' : 'create';
+    }
     if (is14DaysExpired) {
       return 'view';
     }
@@ -109,7 +120,7 @@ export function CustomerOrderReviewScreen({
       return 'view';
     }
     return 'create';
-  }, [is14DaysExpired, hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
+  }, [isLoadingReview, isLoadingOrder, is14DaysExpired, hasReviewed, isRequestedView, canEdit, isRequestedEdit, searchParams?.mode]);
 
   const isEditMode = screenMode === 'edit';
   const isViewMode = screenMode === 'view';
@@ -222,13 +233,10 @@ export function CustomerOrderReviewScreen({
     fileName?: string,
     fileSize?: number,
   ): Promise<{ mediaUrl: string; uploadReceipt: string; thumbnailUrl?: string }> => {
-    if (fileSize && fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
-      throw new Error('Dung lượng video không được vượt quá 50MB.');
-    }
     if (localUri.startsWith('http://') || localUri.startsWith('https://')) {
       return {
         mediaUrl: localUri,
-        uploadReceipt: '',
+        uploadReceipt: 'mock-upload-receipt',
         thumbnailUrl: localUri.replace(/\.[^/.]+$/, '.jpg'),
       };
     }
@@ -297,8 +305,6 @@ export function CustomerOrderReviewScreen({
           id: `camera-img-${Date.now()}`,
           uri: result.assets[0].uri,
           mediaType: 'image',
-          fileName: result.assets[0].fileName || undefined,
-          fileSize: result.assets[0].fileSize,
         };
         setMediaItems(prev => [...prev, newPhoto]);
       }
@@ -310,10 +316,6 @@ export function CustomerOrderReviewScreen({
   };
 
   const handleCaptureVideo = async () => {
-    if (mediaItems.some(item => item.mediaType === 'video')) {
-      Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
-      return;
-    }
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
@@ -338,6 +340,10 @@ export function CustomerOrderReviewScreen({
           Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
           return;
         }
+        if (mediaItems.some(item => item.mediaType === 'video')) {
+          Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
+          return;
+        }
 
         const newVideo: LocalMediaItem = {
           id: `camera-vid-${Date.now()}`,
@@ -358,10 +364,6 @@ export function CustomerOrderReviewScreen({
 
   const handlePickFromLibrary = async (chosenType: 'images' | 'videos') => {
     try {
-      if (chosenType === 'videos' && mediaItems.some(item => item.mediaType === 'video')) {
-        Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
-        return;
-      }
       const remaining = 5 - mediaItems.length;
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsMultipleSelection: chosenType === 'images',
@@ -371,44 +373,12 @@ export function CustomerOrderReviewScreen({
         videoMaxDuration: 30,
       });
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const existingVideoCount = mediaItems.filter(m => m.mediaType === 'video').length;
-        let addedVideoCount = 0;
-        for (const asset of result.assets) {
-          const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
-          if (isVideo) {
-            if (existingVideoCount + addedVideoCount >= 1) {
-              Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
-              return;
-            }
-            addedVideoCount++;
-            const durationSec = typeof asset.duration === 'number'
-              ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
-              : undefined;
-
-            if (durationSec !== undefined && durationSec > MAX_VIDEO_DURATION_SEC) {
-              Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
-              return;
-            }
-            if (asset.fileSize && asset.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
-              Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
-              return;
-            }
-          }
-        }
-
         const newItems: LocalMediaItem[] = result.assets.slice(0, remaining).map((asset, i) => {
           const isVideo = asset.type === 'video' || (asset.mimeType && asset.mimeType.startsWith('video/')) || chosenType === 'videos';
-          const durationSec = typeof asset.duration === 'number'
-            ? (asset.duration > 1000 ? asset.duration / 1000 : asset.duration)
-            : undefined;
-
           return {
             id: `lib-${Date.now()}-${i}`,
             uri: asset.uri,
             mediaType: isVideo ? 'video' : 'image',
-            fileName: asset.fileName || undefined,
-            fileSize: asset.fileSize,
-            duration: durationSec,
           };
         });
         setMediaItems(prev => [...prev, ...newItems]);
@@ -458,7 +428,7 @@ export function CustomerOrderReviewScreen({
 
     if (hasVideo) {
       // Đã có video, chỉ cho phép đính kèm thêm hình ảnh (tối đa 3 nút cho Android)
-      Alert.alert('Đính kèm hình ảnh', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video. Chọn nguồn hình ảnh:', [
+      Alert.alert('Đính kèm hình ảnh', 'Chọn nguồn hình ảnh:', [
         { text: 'Chụp ảnh mới', onPress: handleCapturePhoto },
         { text: 'Chọn từ thư viện', onPress: () => handlePickFromLibrary('images') },
         { text: 'Hủy', style: 'cancel' },
@@ -498,8 +468,40 @@ export function CustomerOrderReviewScreen({
 
   // Submit Review Form
   const handleSubmit = async () => {
+    if (isLoadingReview || isLoadingOrder || !order) {
+      Alert.alert(
+        'Đang tải dữ liệu',
+        'Hệ thống đang tải dữ liệu đơn hàng và đánh giá. Vui lòng chờ trong giây lát.',
+      );
+      return;
+    }
+
+    if (isErrorReview || isErrorOrder) {
+      Alert.alert(
+        'Lỗi tải dữ liệu',
+        'Không thể xác định trạng thái đánh giá do lỗi kết nối mạng. Vui lòng thử lại.',
+      );
+      return;
+    }
+
     if (isViewMode) {
       Alert.alert('Chỉ xem', 'Đánh giá này đã hết hạn chỉnh sửa và chỉ ở chế độ xem.');
+      return;
+    }
+
+    if (!isEditMode && hasReviewed) {
+      Alert.alert(
+        'Đã đánh giá',
+        'Đơn hàng này đã có đánh giá. Bạn không thể tạo thêm đánh giá mới.',
+      );
+      return;
+    }
+
+    if (!isEditMode && !isWithinReviewWindow(order.completedAt)) {
+      Alert.alert(
+        'Hết hạn đánh giá',
+        'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn tất).',
+      );
       return;
     }
 
@@ -510,12 +512,6 @@ export function CustomerOrderReviewScreen({
 
     if (!orderId && !propOrderId) {
       Alert.alert('Lỗi', 'Không xác định được mã đơn hàng.');
-      return;
-    }
-
-    const totalVideos = mediaItems.filter(item => item.mediaType === 'video').length;
-    if (totalVideos > 1) {
-      Alert.alert('Giới hạn video', 'Mỗi đánh giá chỉ được đính kèm tối đa 1 video.');
       return;
     }
 
@@ -531,17 +527,6 @@ export function CustomerOrderReviewScreen({
 
       for (const item of mediaItems) {
         if (item.mediaType === 'video') {
-          if (item.duration !== undefined && item.duration > MAX_VIDEO_DURATION_SEC) {
-            Alert.alert('Video quá dài', 'Vui lòng chọn hoặc quay video có thời lượng tối đa 30 giây.');
-            setIsSubmitting(false);
-            return;
-          }
-          if (item.fileSize && item.fileSize > MAX_VIDEO_FILE_SIZE_BYTES) {
-            Alert.alert('Video quá lớn', 'Dung lượng video không được vượt quá 50MB.');
-            setIsSubmitting(false);
-            return;
-          }
-
           if (item.remoteUrl && (item.remoteUrl.startsWith('http://') || item.remoteUrl.startsWith('https://'))) {
             uploadedMediaItems.push({
               mediaType: 'video',
@@ -552,7 +537,7 @@ export function CustomerOrderReviewScreen({
           }
           else {
             try {
-              const uploaded = await uploadVideoItem(item.uri, item.fileName, item.fileSize);
+              const uploaded = await uploadVideoItem(item.uri);
               uploadedMediaItems.push({
                 mediaType: 'video',
                 mediaUrl: uploaded.mediaUrl,
@@ -731,6 +716,54 @@ export function CustomerOrderReviewScreen({
           </View>
         </View>
 
+        {/* Network Error Banner with Retry */}
+        {(isErrorReview || isErrorOrder) && (
+          <View
+            testID="review-fetch-error-banner"
+            className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3.5 dark:border-red-900/60 dark:bg-red-950/30"
+          >
+            <View className="flex-row items-center justify-between gap-3">
+              <View className="flex-1 flex-row items-center gap-2">
+                <Text className="text-base">⚠️</Text>
+                <Text className="flex-1 text-xs font-medium text-red-800 dark:text-red-200">
+                  {isErrorReview
+                    ? 'Không thể tải trạng thái đánh giá do lỗi kết nối mạng.'
+                    : 'Không thể tải thông tin đơn hàng do lỗi kết nối mạng.'}
+                </Text>
+              </View>
+              <Pressable
+                testID="review-fetch-retry-btn"
+                onPress={() => {
+                  if (isErrorReview && refetchReview) {
+                    refetchReview();
+                  }
+                  if (isErrorOrder && refetchOrder) {
+                    refetchOrder();
+                  }
+                }}
+                className="rounded-lg bg-red-100 px-3 py-1.5 active:bg-red-200 dark:bg-red-900/50"
+              >
+                <Text className="text-xs font-bold text-red-700 dark:text-red-200">
+                  Thử lại
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Review Loading Indicator */}
+        {(isLoadingReview || isLoadingOrder) && (
+          <View
+            testID="review-loading-indicator"
+            className="mb-4 flex-row items-center justify-center gap-2 rounded-xl bg-neutral-100 p-3 dark:bg-neutral-800/60"
+          >
+            <ActivityIndicator size="small" color={PRIMARY_COLOR} />
+            <Text className="text-xs text-neutral-600 dark:text-neutral-400">
+              Đang kiểm tra trạng thái đánh giá...
+            </Text>
+          </View>
+        )}
+
         {/* 2. Star Rating Section */}
         <View className="mb-4 items-center rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
           <Text className="text-sm font-bold text-neutral-800 dark:text-neutral-100">
@@ -801,17 +834,15 @@ export function CustomerOrderReviewScreen({
                       setAttitudeRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
-                    attitudeRating === opt.value
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${attitudeRating === opt.value
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
                   <Text
-                    className={`text-xs font-semibold ${
-                      attitudeRating === opt.value
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-neutral-600 dark:text-neutral-400'
+                    className={`text-xs font-semibold ${attitudeRating === opt.value
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-neutral-600 dark:text-neutral-400'
                     }`}
                   >
                     {opt.label}
@@ -843,17 +874,15 @@ export function CustomerOrderReviewScreen({
                       setQualityRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
-                    qualityRating === opt.value
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${qualityRating === opt.value
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
                   <Text
-                    className={`text-xs font-semibold ${
-                      qualityRating === opt.value
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-neutral-600 dark:text-neutral-400'
+                    className={`text-xs font-semibold ${qualityRating === opt.value
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-neutral-600 dark:text-neutral-400'
                     }`}
                   >
                     {opt.label}
@@ -885,17 +914,15 @@ export function CustomerOrderReviewScreen({
                       setSpeedRating(opt.value);
                     }
                   }}
-                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${
-                    speedRating === opt.value
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
-                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
+                  className={`flex-1 items-center justify-center rounded-xl border px-1 py-2 ${speedRating === opt.value
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40'
+                    : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/60'
                   }`}
                 >
                   <Text
-                    className={`text-xs font-semibold ${
-                      speedRating === opt.value
-                        ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-neutral-600 dark:text-neutral-400'
+                    className={`text-xs font-semibold ${speedRating === opt.value
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-neutral-600 dark:text-neutral-400'
                     }`}
                   >
                     {opt.label}
@@ -920,17 +947,15 @@ export function CustomerOrderReviewScreen({
                     key={tag}
                     testID={`quick-tag-${idx}`}
                     onPress={() => handleToggleQuickTag(tag)}
-                    className={`rounded-full border px-3 py-1.5 ${
-                      isSelected
-                        ? 'border-primary bg-primary/10'
-                        : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800'
+                    className={`rounded-full border px-3 py-1.5 ${isSelected
+                      ? 'border-primary bg-primary/10'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800'
                     }`}
                   >
                     <Text
-                      className={`text-[11px] ${
-                        isSelected
-                          ? 'font-bold text-primary'
-                          : 'text-neutral-600 dark:text-neutral-400'
+                      className={`text-[11px] ${isSelected
+                        ? 'font-bold text-primary'
+                        : 'text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
                       {isSelected ? '✓ ' : '+ '}
@@ -1035,21 +1060,19 @@ export function CustomerOrderReviewScreen({
           </View>
         </View>
 
-        {/* 7. Notice Banner (Quy định 14 ngày & 48h) */}
+        {/* 7. Notice Banner (Quy định 48h) */}
         <View className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/30">
           <Text className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-            {is14DaysExpired ? '⚠️ Hết hạn đánh giá:' : isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
+            {isViewMode ? '🔒 Trạng thái đánh giá:' : 'ℹ️ Chính sách đánh giá HandyGo:'}
           </Text>
           <Text className="mt-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
-            {is14DaysExpired
-              ? 'Đã quá thời hạn đánh giá đơn hàng (tối đa 14 ngày kể từ khi hoàn tất). Bạn không thể gửi đánh giá cho đơn hàng này.'
-              : isViewMode
-                ? (review?.isEdited
-                    ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
-                    : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
-                : isEditMode
-                  ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
-                  : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
+            {isViewMode
+              ? (review?.isEdited
+                  ? 'Đánh giá này đã được chỉnh sửa 1 lần và không thể chỉnh sửa thêm.'
+                  : 'Đã hết thời hạn 48 giờ để chỉnh sửa. Đánh giá hiện ở chế độ chỉ xem.')
+              : isEditMode
+                ? 'Bạn đang chỉnh sửa đánh giá. Lưu ý: Chỉ được chỉnh sửa 1 lần duy nhất trong vòng 48 giờ. Sau khi lưu, bạn sẽ không thể chỉnh sửa thêm.'
+                : 'Đánh giá của bạn sẽ hiển thị công khai trên hồ sơ thợ. Bạn có thể chỉnh sửa đánh giá 1 lần duy nhất trong vòng 48 giờ kể từ khi gửi.'}
           </Text>
           {isEditMode && hoursRemainingToEdit > 0 && (
             <Text className="mt-1 text-[11px] font-bold text-amber-800 dark:text-amber-300">
@@ -1080,14 +1103,24 @@ export function CustomerOrderReviewScreen({
               <Button
                 testID="submit-review-btn"
                 label={
-                  isSubmitting
-                    ? 'Đang gửi...'
-                    : isEditMode
-                      ? 'Lưu thay đổi đánh giá'
-                      : '⭐ Gửi đánh giá dịch vụ'
+                  isLoadingReview || isLoadingOrder
+                    ? 'Đang kiểm tra...'
+                    : isSubmitting
+                      ? 'Đang gửi...'
+                      : isEditMode
+                        ? 'Lưu thay đổi đánh giá'
+                        : '⭐ Gửi đánh giá dịch vụ'
                 }
                 variant="default"
-                disabled={isSubmitting || rating === 0}
+                disabled={
+                  isSubmitting
+                  || rating === 0
+                  || isLoadingReview
+                  || isLoadingOrder
+                  || isErrorReview
+                  || isErrorOrder
+                  || !order
+                }
                 className="h-12 w-full rounded-2xl bg-primary"
                 textClassName="text-sm font-bold text-white"
                 onPress={handleSubmit}
