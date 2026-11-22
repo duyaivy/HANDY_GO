@@ -20,10 +20,10 @@ function extractItems<T>(data: unknown): T[] {
         return nested;
       }
       if (
-        nested &&
-        typeof nested === 'object' &&
-        'items' in nested &&
-        Array.isArray((nested as { items: unknown }).items)
+        nested
+        && typeof nested === 'object'
+        && 'items' in nested
+        && Array.isArray((nested as { items: unknown }).items)
       ) {
         return (nested as { items: T[] }).items;
       }
@@ -36,13 +36,13 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
   if (!lastPage || typeof lastPage !== 'object') {
     return undefined;
   }
-  const meta: any =
-    'items' in lastPage
+  const meta: any
+    = 'items' in lastPage
       ? lastPage
-      : 'data' in lastPage &&
-          lastPage.data &&
-          typeof lastPage.data === 'object' &&
-          'items' in (lastPage.data as any)
+      : 'data' in lastPage
+        && lastPage.data
+        && typeof lastPage.data === 'object'
+        && 'items' in (lastPage.data as any)
         ? (lastPage as any).data
         : null;
 
@@ -53,8 +53,8 @@ function getNextPageFromResponse(lastPage: unknown): number | undefined {
 }
 
 export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
-  const statusFilter =
-    activeTab === 'completed'
+  const statusFilter
+    = activeTab === 'completed'
       ? 'completed'
       : activeTab === 'cancelled'
         ? 'cancelled'
@@ -79,9 +79,9 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     if (!query.data?.pages) {
       return [];
     }
-    const all = query.data.pages.flatMap((p) => extractItems<Order>(p));
+    const all = query.data.pages.flatMap(p => extractItems<Order>(p));
     // Filter out active states just in case backend returns broader results
-    return all.filter((o) => o.status === 'completed' || o.status === 'cancelled');
+    return all.filter(o => o.status === 'completed' || o.status === 'cancelled');
   }, [query.data]);
 
   // Quick stats
@@ -93,12 +93,13 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     for (const order of orders) {
       if (order.status === 'completed') {
         completedCount++;
-        const price =
-          typeof order.agreedPrice === 'string'
+        const price
+          = typeof order.agreedPrice === 'string'
             ? Number.parseFloat(order.agreedPrice) || 0
             : Number(order.agreedPrice) || 0;
         totalEarnings += price;
-      } else if (order.status === 'cancelled') {
+      }
+      else if (order.status === 'cancelled') {
         cancelledCount++;
       }
     }
@@ -122,4 +123,3 @@ export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
     },
   };
 }
-

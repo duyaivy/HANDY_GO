@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { WorkerJobHistoryScreen } from '../screens/worker-job-history-screen';
 
 const mockPush = jest.fn();
@@ -250,10 +250,7 @@ describe('workerJobHistoryScreen', () => {
     expect(screen.getByTestId('worker-history-error-state')).toBeOnTheScreen();
     expect(screen.getByText('Không thể tải dữ liệu')).toBeOnTheScreen();
 
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('worker-history-retry-btn'));
-    });
+    fireEvent.press(screen.getByTestId('worker-history-retry-btn'));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 });
-

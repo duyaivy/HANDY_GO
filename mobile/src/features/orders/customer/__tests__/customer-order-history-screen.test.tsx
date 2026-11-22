@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { act, cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 import { CustomerOrderHistoryScreen } from '../screens/customer-order-history-screen';
 
 const mockPush = jest.fn();
@@ -271,10 +271,7 @@ describe('customerOrderHistoryScreen', () => {
     expect(screen.getByTestId('history-error-state')).toBeOnTheScreen();
     expect(screen.getByText('Không thể tải dữ liệu')).toBeOnTheScreen();
 
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('history-retry-btn'));
-    });
+    fireEvent.press(screen.getByTestId('history-retry-btn'));
     expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 });
-
