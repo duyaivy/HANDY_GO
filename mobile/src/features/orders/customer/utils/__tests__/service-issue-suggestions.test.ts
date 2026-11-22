@@ -216,34 +216,33 @@ describe('service-issue-suggestions utility (HG-95)', () => {
       const chip1 = 'Tình trạng: Không vắt / không quay lồng';
       const step1 = mergeDescriptionWithSuggestions({
         currentDescription: '',
-        previousChipText: '',
+        previousGeneratedText: '',
         nextChipText: chip1,
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step1).toBe('Tôi cần người Sửa máy giặt: Tình trạng: Không vắt / không quay lồng');
-      expect(step1).not.toContain('Cần thợ kiểm tra');
+      expect(step1.description).toBe('Tôi cần người Sửa máy giặt: Tình trạng: Không vắt / không quay lồng');
+      expect(step1.generatedText).toBe(step1.description);
+      expect(step1.description).not.toContain('Cần thợ kiểm tra');
 
       const chip2 = 'Tình trạng: Không vắt / không quay lồng - Loại máy: Cửa ngang (Lồng ngang)';
       const step2 = mergeDescriptionWithSuggestions({
-        currentDescription: step1,
-        previousChipText: chip1,
+        currentDescription: step1.description,
+        previousGeneratedText: step1.generatedText,
         nextChipText: chip2,
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step2).toBe(
+      expect(step2.description).toBe(
         'Tôi cần người Sửa máy giặt: Tình trạng: Không vắt / không quay lồng - Loại máy: Cửa ngang (Lồng ngang)',
       );
 
       const step3 = mergeDescriptionWithSuggestions({
-        currentDescription: step2,
-        previousChipText: chip2,
+        currentDescription: step2.description,
+        previousGeneratedText: step2.generatedText,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step3).toBe('');
+      expect(step3.description).toBe('');
+      expect(step3.generatedText).toBe('');
     });
 
     it('preserves 100% of user custom typed text across selecting, updating, and clearing dynamic chips', () => {
@@ -252,31 +251,83 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const step1 = mergeDescriptionWithSuggestions({
         currentDescription: customText,
-        previousChipText: '',
+        previousGeneratedText: '',
         nextChipText: chip1,
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step1).toBe(`${customText}. ${chip1}`);
+      expect(step1.description).toBe(`${customText}. ${chip1}`);
 
       const chip2 = 'Tình trạng: Không vắt / không quay lồng - Loại máy: Cửa ngang (Lồng ngang)';
       const step2 = mergeDescriptionWithSuggestions({
-        currentDescription: step1,
-        previousChipText: chip1,
+        currentDescription: step1.description,
+        previousGeneratedText: step1.generatedText,
         nextChipText: chip2,
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step2).toBe(`${customText}. ${chip2}`);
+      expect(step2.description).toBe(`${customText}. ${chip2}`);
 
       const step3 = mergeDescriptionWithSuggestions({
-        currentDescription: step2,
-        previousChipText: chip2,
+        currentDescription: step2.description,
+        previousGeneratedText: step2.generatedText,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
-        groups,
       });
-      expect(step3).toBe(customText);
+      expect(step3.description).toBe(customText);
+    });
+
+    it.each([
+      'Sự cố: máy giặt bị chập điện mỗi tối',
+      'Vị trí: tầng 2',
+      'Tình trạng: kêu to. Cần thợ kiểm tra và xử lý sớm.',
+      'Máy giặt kêu to.',
+    ])('never deletes user-typed text that looks like a suggestion prefix: %s', (userText) => {
+      const chipA = 'Tình trạng: Kêu to và rung lắc mạnh';
+      const chipB = 'Tình trạng: Kêu to và rung lắc mạnh - Loại máy: Cửa trên (Lồng đứng)';
+
+      const select = mergeDescriptionWithSuggestions({
+        currentDescription: userText,
+        previousGeneratedText: '',
+        nextChipText: chipA,
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(select.description.startsWith(userText)).toBe(true);
+      expect(select.description.endsWith(chipA)).toBe(true);
+
+      const change = mergeDescriptionWithSuggestions({
+        currentDescription: select.description,
+        previousGeneratedText: select.generatedText,
+        nextChipText: chipB,
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(change.description.startsWith(userText)).toBe(true);
+      expect(change.description.endsWith(chipB)).toBe(true);
+      expect(change.description).not.toContain(`${chipA}.`);
+
+      const unselect = mergeDescriptionWithSuggestions({
+        currentDescription: change.description,
+        previousGeneratedText: change.generatedText,
+        nextChipText: '',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(unselect.description).toBe(userText);
+    });
+
+    it('keeps text the user appended after the generated chip segment', () => {
+      const step1 = mergeDescriptionWithSuggestions({
+        currentDescription: 'Máy giặt hỏng',
+        previousGeneratedText: '',
+        nextChipText: 'Loại máy: Cửa ngang (Lồng ngang)',
+        serviceName: 'Sửa máy giặt',
+      });
+      const edited = `${step1.description}, đã dùng 5 năm`;
+
+      const cleared = mergeDescriptionWithSuggestions({
+        currentDescription: edited,
+        previousGeneratedText: step1.generatedText,
+        nextChipText: '',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(cleared.description).toBe('Máy giặt hỏng, đã dùng 5 năm');
     });
   });
 

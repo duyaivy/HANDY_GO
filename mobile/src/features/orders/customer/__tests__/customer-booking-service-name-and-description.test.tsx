@@ -280,4 +280,62 @@ describe('customerBookingScreen - Service Name Preservation and Dynamic Service 
       'Tôi cần người Vệ sinh máy lạnh: Nhu cầu: Vệ sinh định kỳ',
     );
   });
+
+  it('keeps API suggestionGroups when entering booking with a createdRequestId from a previous order', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+    const serverGroups = [
+      {
+        key: 'custom_symptoms',
+        label: 'Triệu chứng từ Server',
+        descriptionPrefix: 'Triệu chứng',
+        selectionMode: 'multiple' as const,
+        options: ['Báo lỗi E1', 'Chưa rõ'],
+      },
+    ];
+    const categoryGroups = [
+      { key: 'cat_group', label: 'Nhóm danh mục từ Server', options: ['C1'] },
+    ];
+    const store = useBookingDraftStore.getState();
+    store.setService('34ec7df5-20db-401e-804a-6feee5b48184', 'Sửa máy lạnh', {
+      serviceSuggestionGroups: serverGroups,
+      categorySuggestionGroups: categoryGroups,
+    });
+    store.setDescription('Mô tả đơn cũ');
+    store.setCreatedRequestId('req-previous');
+
+    render(
+      <CustomerBookingScreen serviceId="34ec7df5-20db-401e-804a-6feee5b48184" />,
+    );
+
+    const state = useBookingDraftStore.getState();
+    expect(state.createdRequestId).toBeNull();
+    expect(state.description).toBe('');
+    expect(state.serviceSuggestionGroups).toEqual(serverGroups);
+    expect(state.categorySuggestionGroups).toEqual(categoryGroups);
+    expect(screen.getByText('Triệu chứng từ Server')).toBeOnTheScreen();
+    expect(screen.getByText('Báo lỗi E1')).toBeOnTheScreen();
+  });
+
+  it('never deletes user-typed text that looks like a suggestion prefix when toggling chips', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+
+    render(
+      <CustomerBookingScreen serviceId="b1026b8e-dd6c-478b-aeab-1afb582bcfd0" />,
+    );
+
+    const userText = 'Sự cố: máy giặt bị chập điện mỗi tối';
+    fireEvent.changeText(screen.getByTestId('booking-description-input'), userText);
+
+    fireEvent.press(screen.getByText('Rò rỉ nước'));
+    expect(useBookingDraftStore.getState().description).toBe(`${userText}. Sự cố: Rò rỉ nước`);
+
+    fireEvent.press(screen.getByText('Nhà tắm'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      `${userText}. Sự cố: Rò rỉ nước - Vị trí: Nhà tắm`,
+    );
+
+    fireEvent.press(screen.getByText('Nhà tắm'));
+    fireEvent.press(screen.getByText('Rò rỉ nước'));
+    expect(useBookingDraftStore.getState().description).toBe(userText);
+  });
 });

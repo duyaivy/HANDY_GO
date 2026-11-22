@@ -75,7 +75,7 @@ export function CustomerHomeScreen() {
       const categoryId = service?.categoryId;
       const categoryName = service?.category?.name;
 
-      useBookingDraftStore.getState().setService(targetId, targetName, {
+      useBookingDraftStore.getState().startBookingForService(targetId, targetName, {
         categoryId,
         categoryName,
         serviceSuggestionGroups: service?.suggestionGroups ?? null,

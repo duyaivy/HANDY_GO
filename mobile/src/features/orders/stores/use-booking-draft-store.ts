@@ -34,6 +34,12 @@ export type BookingDraftState = {
   lastSyncedDraftSnapshot: string | null;
 
   setService: (id: string, name?: string, meta?: BookingServiceMeta) => void;
+  /**
+   * Entry point for starting a booking from catalog/home. Atomically resets booking-dependent
+   * data (description, media, address, schedule, worker, request...) when the service changes or
+   * a previous request was already created, then sets the service and its suggestion metadata.
+   */
+  startBookingForService: (id: string, name?: string, meta?: BookingServiceMeta) => void;
   setSuggestionMetadata: (meta: BookingServiceMeta) => void;
   setDescription: (desc: string) => void;
   setAddress: (address: string, lat?: number, lng?: number) => void;
@@ -157,6 +163,18 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
           : {}),
       }));
     }
+  },
+
+  startBookingForService: (serviceId, serviceName, meta) => {
+    const state = get();
+    const shouldReset = Boolean(
+      state.createdRequestId
+      || (state.serviceId && serviceId && serviceId !== state.serviceId),
+    );
+    if (shouldReset) {
+      get().resetDraft();
+    }
+    get().setService(serviceId, serviceName, meta);
   },
 
   setSuggestionMetadata: meta =>

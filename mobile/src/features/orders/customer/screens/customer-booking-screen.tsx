@@ -130,7 +130,7 @@ export function CustomerBookingScreen({
 
   // Selected chips state keyed by group.key
   const [selectedByGroup, setSelectedByGroup] = React.useState<Record<string, string[]>>({});
-  const prevChipTextRef = React.useRef('');
+  const prevGeneratedTextRef = React.useRef('');
 
   const resolvedSuggestions = React.useMemo(
     () =>
@@ -238,7 +238,7 @@ export function CustomerBookingScreen({
 
     if (shouldReset || didTargetServiceChange) {
       setSelectedByGroup({});
-      prevChipTextRef.current = '';
+      prevGeneratedTextRef.current = '';
     }
 
     const metaPatch = {
@@ -248,13 +248,24 @@ export function CustomerBookingScreen({
     const hasMetaPatch = Object.keys(metaPatch).length > 0;
 
     if (shouldReset) {
+      // Keep API suggestion metadata that already belongs to the target service so
+      // resetDraft() does not drop it and force a local preset/fallback.
+      const isMetaForTarget = Boolean(targetServiceId && store.serviceId === targetServiceId);
+      const preservedSuggestionMeta = isMetaForTarget
+        ? {
+            serviceSuggestionGroups: store.serviceSuggestionGroups,
+            categorySuggestionGroups: store.categorySuggestionGroups,
+            ...(targetCategoryId === undefined && store.categoryId ? { categoryId: store.categoryId } : {}),
+            ...(targetCategoryName === undefined && store.categoryName ? { categoryName: store.categoryName } : {}),
+          }
+        : {};
+
       store.resetDraft();
       if (targetServiceId) {
-        store.setService(
-          targetServiceId,
-          targetServiceName,
-          hasMetaPatch ? metaPatch : undefined,
-        );
+        store.setService(targetServiceId, targetServiceName, {
+          ...preservedSuggestionMeta,
+          ...metaPatch,
+        });
       }
     }
     else if (
@@ -511,21 +522,20 @@ export function CustomerBookingScreen({
       nextSelectedByGroup,
     );
     const currentDesc = useBookingDraftStore.getState().description || '';
-    const combined = mergeDescriptionWithSuggestions({
+    const merged = mergeDescriptionWithSuggestions({
       currentDescription: currentDesc,
-      previousChipText: prevChipTextRef.current,
+      previousGeneratedText: prevGeneratedTextRef.current,
       nextChipText,
       serviceName: serviceName || targetServiceName,
-      groups: resolvedSuggestions.groups,
     });
 
-    prevChipTextRef.current = nextChipText;
-    setDescription(combined);
+    prevGeneratedTextRef.current = merged.generatedText;
+    setDescription(merged.description);
   };
 
   const handleQuickFill = () => {
     setSelectedByGroup({});
-    prevChipTextRef.current = '';
+    prevGeneratedTextRef.current = '';
     const quickText = generateQuickDescription(serviceName || targetServiceName);
     setDescription(quickText);
   };
@@ -536,7 +546,7 @@ export function CustomerBookingScreen({
       item.abortController?.abort();
     });
     setSelectedByGroup({});
-    prevChipTextRef.current = '';
+    prevGeneratedTextRef.current = '';
     useBookingDraftStore.getState().resetDraft();
     setImageItems([]);
     if (onBack) {

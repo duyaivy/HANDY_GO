@@ -142,7 +142,7 @@ export function CategoryScreen() {
     const categorySuggestionGroups
       = service?.category?.suggestionGroups ?? matchedCategory?.suggestionGroups ?? null;
 
-    useBookingDraftStore.getState().setService(targetId, service?.name, {
+    useBookingDraftStore.getState().startBookingForService(targetId, service?.name, {
       categoryId: service?.categoryId,
       categoryName,
       serviceSuggestionGroups: service?.suggestionGroups ?? null,
