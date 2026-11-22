@@ -20,7 +20,7 @@ function fixture() {
     disputedAt, completedAt, firstCompletedAt: completedAt, workerFinishedAt: completedAt,
     customerUserId, workerUserId, version: 3, agreedPrice: { toString: () => '350000' },
   };
-  let resolution: Record<string, any> | null = null;
+  let resolutions: Record<string, any>[] = [];
   const outbox = { createEvent: vi.fn().mockResolvedValue(undefined) };
   const tx = {
     $queryRaw: vi.fn(),
@@ -33,20 +33,58 @@ function fixture() {
       }),
     },
     orderDisputeResolution: {
-      findUnique: vi.fn(async ({ where }: any) => where.idempotencyKey === resolution?.idempotencyKey ||
-        (where.orderId_disputedAt?.orderId === resolution?.orderId && where.orderId_disputedAt?.disputedAt?.getTime() === disputedAt.getTime()) ? resolution : null),
-      create: vi.fn(async ({ data }: any) => (resolution = { id: randomUUID(), ...data })),
+      findUnique: vi.fn(async ({ where }: any) =>
+        resolutions.find((r) =>
+          (where.id && r.id === where.id) ||
+          (where.idempotencyKey && r.idempotencyKey === where.idempotencyKey) ||
+          (where.orderId_disputedAt &&
+            r.orderId === where.orderId_disputedAt.orderId &&
+            r.disputedAt?.getTime() === where.orderId_disputedAt.disputedAt?.getTime()),
+        ) ?? null,
+      ),
+      findFirst: vi.fn(async ({ where }: any) =>
+        resolutions.find((r) =>
+          r.orderId === where.orderId &&
+          r.disputedAt?.getTime() === where.disputedAt?.getTime() &&
+          (where.state?.not ? r.state !== where.state.not : true),
+        ) ?? null,
+      ),
+      update: vi.fn(async ({ where, data }: any) => {
+        const target = resolutions.find((r) => r.id === where.id);
+        if (!target) throw new Error('Resolution not found');
+        Object.assign(target, data);
+        return target;
+      }),
+      create: vi.fn(async ({ data }: any) => {
+        const created = { id: randomUUID(), decidedAt: new Date(), ...data };
+        resolutions.push(created);
+        return created;
+      }),
     },
     orderStatusHistory: { create: vi.fn() },
   };
   const db = {
-    order: { findUnique: vi.fn(async () => order), findUniqueOrThrow: vi.fn(async () => order) },
-    orderDisputeResolution: { findUnique: vi.fn(async ({ where }: any) => where.idempotencyKey === resolution?.idempotencyKey ? resolution : null) },
+    order: {
+      findUnique: vi.fn(async () => order),
+      findUniqueOrThrow: vi.fn(async () => order),
+      count: vi.fn(async () => 1),
+      findMany: vi.fn(async () => [{ ...order, evidences: [] }]),
+    },
+    orderDisputeResolution: {
+      findUnique: vi.fn(async ({ where }: any) =>
+        resolutions.find((r) => r.idempotencyKey === where.idempotencyKey) ?? null,
+      ),
+      findMany: vi.fn(async ({ where }: any) =>
+        resolutions.filter((r) =>
+          where?.state?.not ? r.state !== where.state.not : true,
+        ),
+      ),
+    },
     $transaction: vi.fn(async (callback: any) => callback(tx)),
   };
   const payment = { byOrder: vi.fn().mockResolvedValue({ paymentId, status: 'succeeded', refundableAmountVnd: 300000n }) };
   const service = new OrdersService(db as unknown as PrismaService, outbox as unknown as OrderOutboxRepository, payment as unknown as PaymentRefundClient);
-  return { service, db, tx, outbox, payment, get order() { return order; } };
+  return { service, db, tx, outbox, payment, get order() { return order; }, get resolutions() { return resolutions; } };
 }
 
 describe('HG-82 Admin resolution', () => {
@@ -147,4 +185,51 @@ describe('HG-82 Admin resolution', () => {
     expect(f.order.completedAt).toBeNull();
     expect(f.order.workerFinishedAt).toBeNull();
   });
+
+  it.each(['dismiss', 'rework', 'refund'] as const)(
+    'allows superseding a needs_review resolution with a new %s decision and hides the superseded row in adminFindDisputes',
+    async (replacementAction) => {
+      const f = fixture();
+      const first = await f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: 'refund',
+          resolutionNote: 'Hoàn 200k lần đầu bị kẹt',
+          refundAmountVnd: '200000',
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      );
+      f.resolutions[0].state = 'needs_review';
+      f.resolutions[0].failureCode = 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE';
+      f.payment.byOrder.mockResolvedValue({
+        paymentId,
+        status: 'partially_refunded',
+        refundableAmountVnd: 100000n,
+      });
+
+      const second = await f.service.resolveCompletedDispute(
+        orderId,
+        adminUserId,
+        {
+          action: replacementAction,
+          resolutionNote: 'Phán quyết thay thế sau khi rà soát',
+          ...(replacementAction === 'refund' ? { refundAmountVnd: '100000' } : {}),
+          idempotencyKey: randomUUID(),
+        },
+        ['Admin'],
+      );
+
+      expect(f.resolutions[0].state).toBe('superseded');
+      expect(second.resolutionId).not.toBe(first.resolutionId);
+      expect(second.state).toBe(
+        replacementAction === 'refund' ? 'refund_pending' : 'completed',
+      );
+
+      const queue = await f.service.adminFindDisputes({} as any, ['Admin']);
+      expect(queue.items[0].resolution?.resolutionId).toBe(second.resolutionId);
+      expect(queue.items[0].resolution?.state).toBe(second.state);
+    },
+  );
 });

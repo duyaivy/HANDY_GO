@@ -12,7 +12,8 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`592aded`** | `feat(HG-82): add admin dispute queue` | **Task 2** | Xây dựng API `GET /admin/orders/disputes` cho Admin tra cứu danh sách khiếu nại; thêm migration tạo index DB `(status, disputed_at)`; DTO query & response; test proxy API Gateway. |
 | **`7310df9`** | `feat(HG-82): resolve completed-order disputes across Order and Payment` | **Task 3** | Thêm phán quyết `dismiss`/`rework`/`refund`, migration Order/Payment, refund có idempotency qua Wallet, projection Admin, event Notification/Tracking và test. Xem mục 5 để biết từng thay đổi và giới hạn kiểm thử. |
 | **`a1388415`** | `test(HG-82): verify dispute resolution flows and document QA results` | **Task 4** | Bổ sung unit/integration test cho queue, idempotency, hạn mức và Payment outcome; xác minh local qua PostgreSQL/RabbitMQ/Wallet test; cập nhật ma trận và kết quả tại mục 6. |
-| **Review Fix #01** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
+| **`3826c826`** | `fix(HG-82): preserve order status and phase in tracking summary for dispute and warranty events` | **Review Fix #01** | Cập nhật `TrackingEventsService` và `SummaryService` để trích xuất đúng `toStatus`, `actorUserId`, `reason`, giữ metadata HG-82 và tính đúng `order.status`, `order.completedAt`, `currentPhase` cho 3 event `order.dispute.decision.recorded`, `order.dispute.resolved`, `order.warranty.completed`. Chi tiết tại mục 7. |
+| **Review Fix #02** | `fix(HG-82): allow superseding needs_review dispute decisions and handle wallet 4xx refund rejections` | **Review Fix #02** | Thêm migration partial unique index `WHERE state <> 'superseded'` cho `order_dispute_resolutions`; cho phép Admin thay thế quyết định khi ở `needs_review`; lọc bỏ bản ghi `superseded` trong `adminFindDisputes`; xử lý `wallet.refundCredit` trả 4xx (`outcome === 'rejected'`) bằng cách ghi `failureReason` và phát `payment.dispute.refund.needs_review` về Order. Chi tiết tại mục 8. |
 
 ---
 
@@ -302,3 +303,46 @@ Khi `tracking-service` nhận 3 event cuối luồng HG-82 (`order.dispute.decis
   - `pnpm run typecheck`: **PASS**.
   - `pnpm exec oxlint apps/tracking-service`: **PASS** (0 warnings, 0 errors).
   - `pnpm exec nest build tracking-service`: **PASS**.
+
+---
+
+## 8. Review Fix #02: Giải Quyết Dead-End Tại `needs_review` Và Xử Lý Wallet Trả 4xx (`rejected`) Cho Hoàn Tiền Khiếu Nại
+
+### 8.1. Nguyên nhân & phạm vi sửa
+
+1. **Dead-end tại `needs_review` (`order-service`):** Khi Payment trả `payment.dispute.refund.needs_review`, bản ghi `OrderDisputeResolution` chuyển sang `state = 'needs_review'` và đơn hàng vẫn ở `status = 'disputed'`. Ràng buộc cứng `@@unique([orderId, disputedAt])` cùng kiểm tra trùng trong `OrdersService.resolveCompletedDispute` chặn Admin gửi phán quyết thay thế (`dismiss`, `rework`, hoặc `refund` mức tiền hợp lệ hơn) bằng lỗi `409 DISPUTE_ALREADY_DECIDED`.
+2. **Treo `refund_pending` khi Wallet trả 4xx (`payment-service`):** Trong `RefundsService.execute`, khi `wallet.refundCredit` trả `{ outcome: 'rejected', status: 4xx }`, hàm thoát sớm mà không ghi mã lỗi từ chối và không phát `payment.dispute.refund.needs_review` về `order-service`, khiến đơn hàng treo ở `refund_pending`.
+
+### 8.2. Thay đổi mã nguồn & Migration
+
+1. **Database Migration & Prisma Schema (`backend/apps/order-service`):**
+   - File migration mới: `prisma/migrations/20261122000000_active_dispute_resolution_unique/migration.sql`:
+     - Xóa constraint/index unique cứng `order_dispute_resolutions_order_id_disputed_at_key`.
+     - Tạo partial unique index `order_dispute_resolutions_active_unique` trên `(order_id, disputed_at) WHERE state <> 'superseded'`.
+     - Tạo index tra cứu `order_dispute_resolutions_order_id_disputed_at_idx` trên `(order_id, disputed_at)`.
+   - Cập nhật `prisma/schema.prisma`: đổi `@@unique([orderId, disputedAt])` thành `@@index([orderId, disputedAt])` trên model `OrderDisputeResolution`.
+   - Cập nhật `backend/deploy/production/tests/test_database_incident.py`: bổ sung migration mới vào danh sách `later_migrations` của bài kiểm tra baseline onboarding.
+
+2. **`backend/apps/order-service/src/orders/orders.service.ts`:**
+   - Trong `resolveCompletedDispute`: truy vấn bản ghi active (`state: { not: 'superseded' }`) cho `(orderId, order.disputedAt)`. Nếu tồn tại bản ghi có `state !== 'needs_review'` thì giữ nguyên lỗi `409 DISPUTE_ALREADY_DECIDED`; nếu đang ở `state === 'needs_review'` thì cập nhật bản ghi cũ sang `state: 'superseded'` trong cùng transaction trước khi tạo bản ghi phán quyết mới.
+   - Trong `adminFindDisputes`: lọc `state: { not: 'superseded' }` để chỉ ghép phán quyết active hiện hành cho từng đơn khiếu nại.
+
+3. **`backend/apps/payment-service/src/refunds/refunds.service.ts`:**
+   - Trong `execute`: khi `wallet.refundCredit` trả `credit.outcome === 'rejected'`, tạo mã `failureCode = WALLET_REJECTED_${credit.status ?? 400}`, cập nhật `Refund.failureReason` (`${failureCode}: ${credit.message}`, tối đa 255 ký tự) và nếu có `row.disputeResolutionId` thì enqueue `payment.dispute.refund.needs_review` vào outbox trong cùng transaction.
+   - Chặn retry lặp vô hạn và chống spam event `needs_review` cho các bản ghi đã có `failureReason` bắt đầu bằng `WALLET_REJECTED_` trong `execute` (với dispute refund) và `resumeApproved`.
+
+### 8.3. Unit test bổ sung & kết quả kiểm chứng
+
+- **`backend/apps/order-service/src/orders/hg82-resolution.spec.ts` & `orders.service.spec.ts`:**
+  - Kiểm tra khi resolution hiện tại ở `needs_review`, Admin gọi `resolveCompletedDispute` với `idempotencyKey` mới (`dismiss`, `rework`, hoặc `refund` số tiền hợp lệ) $\rightarrow$ bản ghi cũ chuyển sang `superseded`, bản ghi mới tạo thành công.
+  - Kiểm tra khi resolution ở `refund_pending` hoặc `completed`, gọi với `idempotencyKey` mới vẫn bị chặn `409 DISPUTE_ALREADY_DECIDED`.
+  - Kiểm tra `adminFindDisputes` bỏ qua bản ghi `superseded` và chỉ hiển thị bản ghi active.
+- **`backend/apps/payment-service/src/refunds/hg82-refund-outcome.spec.ts`:**
+  - Kiểm tra khi `wallet.refundCredit` trả `{ outcome: 'rejected', status: 422, message: 'Insufficient reserve' }` $\rightarrow$ cập nhật `failureReason = 'WALLET_REJECTED_422: Insufficient reserve'`, phát `payment.dispute.refund.needs_review` (`failureCode: 'WALLET_REJECTED_422'`), và không retry/spam ở lần gọi tiếp theo.
+  - Kiểm tra khi `wallet.refundCredit` trả `{ outcome: 'unknown', message: 'timeout' }` $\rightarrow$ không phát `needs_review`, giữ nguyên để reconciliation retry.
+- **Kết quả chạy kiểm tra local:**
+  - `pnpm run prisma:generate:order` & `prisma validate`: **PASS**.
+  - `pnpm exec vitest run apps/order-service apps/payment-service`: **PASS**.
+  - `pnpm run typecheck`: **PASS**.
+  - `pnpm exec oxlint apps/order-service apps/payment-service`: **PASS** (0 warnings, 0 errors).
+  - `pnpm exec nest build order-service` & `pnpm exec nest build payment-service`: **PASS**.

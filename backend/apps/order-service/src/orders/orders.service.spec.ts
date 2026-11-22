@@ -1577,11 +1577,54 @@ describe('OrdersService', () => {
 
       const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
 
-      expect(findResolutions).toHaveBeenCalledWith({ where: { OR: [{ orderId: mockOrderId, disputedAt }] } });
+      expect(findResolutions).toHaveBeenCalledWith({
+        where: { state: { not: 'superseded' }, OR: [{ orderId: mockOrderId, disputedAt }] },
+        orderBy: { decidedAt: 'asc' },
+      });
       expect(result.items[0].resolution).toEqual(expect.objectContaining({
         resolutionId, state, refundAmountVnd: '200000',
       }));
       expect(result.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
+    });
+
+    it('ignores superseded resolutions and projects only the active decision for the current dispute', async () => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const activeResolutionId = '99999999-9999-9999-9999-999999999999';
+      const findResolutions = vi.fn().mockResolvedValue([
+        {
+          id: '77777777-7777-7777-7777-777777777777',
+          orderId: mockOrderId,
+          disputedAt,
+          action: 'refund',
+          state: 'superseded',
+          refundAmountVnd: 200000n,
+          decidedAt: new Date('2026-11-20T10:00:00.000Z'),
+          failureCode: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE',
+        },
+        {
+          id: activeResolutionId,
+          orderId: mockOrderId,
+          disputedAt,
+          action: 'refund',
+          state: 'refund_pending',
+          refundAmountVnd: 100000n,
+          decidedAt: new Date('2026-11-20T10:05:00.000Z'),
+          failureCode: null,
+        },
+      ]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(result.items[0].resolution).toEqual(expect.objectContaining({
+        resolutionId: activeResolutionId,
+        state: 'refund_pending',
+        refundAmountVnd: '100000',
+      }));
     });
 
     it('does not project a decision from an earlier dispute cycle', async () => {

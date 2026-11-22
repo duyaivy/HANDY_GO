@@ -210,7 +210,7 @@ model OrderDisputeResolution {
   updatedAt                DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   order                    Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
-  @@unique([orderId, disputedAt])
+  @@index([orderId, disputedAt])
   @@index([state, decidedAt])
   @@map("order_dispute_resolutions")
   @@schema("order_service")

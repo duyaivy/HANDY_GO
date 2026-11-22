@@ -1340,8 +1340,26 @@ export class OrdersService {
           }
           throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
         }
-        if (order.disputedAt && await tx.orderDisputeResolution.findUnique({ where: { orderId_disputedAt: { orderId, disputedAt: order.disputedAt } } })) {
-          throw new ConflictException({ code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED, message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED });
+        const activeResolution = order.disputedAt
+          ? await tx.orderDisputeResolution.findFirst({
+              where: {
+                orderId,
+                disputedAt: order.disputedAt,
+                state: { not: 'superseded' },
+              },
+            })
+          : null;
+        if (activeResolution) {
+          if (activeResolution.state !== 'needs_review') {
+            throw new ConflictException({
+              code: ORDER_ERROR_CODES.DISPUTE_ALREADY_DECIDED,
+              message: ORDER_ERROR_MESSAGES.DISPUTE_ALREADY_DECIDED,
+            });
+          }
+          await tx.orderDisputeResolution.update({
+            where: { id: activeResolution.id },
+            data: { state: 'superseded' },
+          });
         }
         if (order.status !== 'disputed' || order.disputePreviousStatus !== 'completed' || !order.disputedAt) {
           throw new ConflictException({ code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION, message: 'Only a post-completion dispute can use this action' });
@@ -1798,11 +1816,16 @@ export class OrdersService {
       orderId: order.id, disputedAt: order.disputedAt!,
     }));
     const resolutions = currentDisputes.length && this.prisma.orderDisputeResolution?.findMany
-      ? await this.prisma.orderDisputeResolution.findMany({ where: { OR: currentDisputes } })
+      ? await this.prisma.orderDisputeResolution.findMany({
+          where: { state: { not: 'superseded' }, OR: currentDisputes },
+          orderBy: { decidedAt: 'asc' },
+        })
       : [];
-    const resolutionByDispute = new Map(resolutions.map((row) => [
-      `${row.orderId}:${row.disputedAt.toISOString()}`, row,
-    ]));
+    const resolutionByDispute = new Map(
+      resolutions
+        .filter((row) => row.state !== 'superseded')
+        .map((row) => [`${row.orderId}:${row.disputedAt.toISOString()}`, row]),
+    );
 
     return {
       items: orders.map((order) => ({

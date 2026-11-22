@@ -237,6 +237,11 @@ export class RefundsService {
     });
     if (!row.approvedAt || !['needs_review', 'processing'].includes(row.status))
       return;
+    if (
+      row.disputeResolutionId &&
+      row.failureReason?.startsWith('WALLET_REJECTED_')
+    )
+      return;
     const payment = row.payment;
     if (payment.method !== 'cash' && payment.method !== 'point') return;
     await this.database.client.refund.updateMany({
@@ -257,6 +262,33 @@ export class RefundsService {
         method: payment.method,
         grossAmount: payment.amount.toString(),
       });
+      if (credit.outcome === 'rejected') {
+        const failureCode = `WALLET_REJECTED_${credit.status ?? 400}`;
+        await this.database.client.$transaction(async (tx) => {
+          await tx.refund.updateMany({
+            where: { id, status: { in: ['needs_review', 'processing'] } },
+            data: {
+              status: 'needs_review',
+              failureReason: `${failureCode}: ${credit.message}`.slice(0, 255),
+              updatedAt: new Date(),
+            },
+          });
+          if (row.disputeResolutionId) {
+            await this.outbox.enqueue(tx, {
+              aggregateType: 'payment',
+              aggregateId: payment.id,
+              eventType: EVENT_PATTERNS.PAYMENT_DISPUTE_REFUND_NEEDS_REVIEW,
+              payload: {
+                resolutionId: row.disputeResolutionId,
+                orderId: payment.orderId,
+                paymentId: payment.id,
+                failureCode,
+              },
+            });
+          }
+        });
+        return;
+      }
       if (credit.outcome !== 'ok') return;
       result = await this.wallet.getOperation(operationId);
     }
@@ -334,6 +366,10 @@ export class RefundsService {
       where: {
         approvedAt: { not: null },
         status: { in: ['needs_review', 'processing'] },
+        OR: [
+          { failureReason: null },
+          { NOT: { failureReason: { startsWith: 'WALLET_REJECTED_' } } },
+        ],
       },
       orderBy: { updatedAt: 'asc' },
       take: limit,

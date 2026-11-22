@@ -22,10 +22,11 @@ function fixture(walletResult: unknown) {
     $queryRaw: vi.fn(),
     payment: { findUnique: vi.fn().mockResolvedValue(payment), update: vi.fn().mockResolvedValue({ ...payment, status: 'partially_refunded' }) },
     refund: { findUniqueOrThrow: vi.fn().mockResolvedValue(refund), update: vi.fn().mockResolvedValue(refund),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       aggregate: vi.fn().mockResolvedValue({ _sum: { amountVnd: 150000n } }) },
   };
   const db = { client: {
-    refund: { findUniqueOrThrow: vi.fn().mockResolvedValue(refund), updateMany: vi.fn() },
+    refund: { findUniqueOrThrow: vi.fn().mockResolvedValue(refund), updateMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(async (run: any) => run(tx)),
   } };
   const audit = { record: vi.fn() };
@@ -56,6 +57,74 @@ describe('HG-82 refund outcome', () => {
     const f = fixture({ outcome: 'unknown' });
     await f.service.execute(refundId);
     expect(f.tx.refund.update).not.toHaveBeenCalled();
+    expect(f.outbox.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('records failureReason and emits payment.dispute.refund.needs_review when Wallet refundCredit returns rejected 4xx', async () => {
+    const f = fixture({ outcome: 'missing' });
+    f.wallet.refundCredit.mockResolvedValue({
+      outcome: 'rejected',
+      status: 422,
+      message: 'Insufficient reserve',
+    });
+
+    await f.service.execute(refundId);
+
+    expect(f.tx.refund.updateMany).toHaveBeenCalledWith({
+      where: { id: refundId, status: { in: ['needs_review', 'processing'] } },
+      data: expect.objectContaining({
+        status: 'needs_review',
+        failureReason: 'WALLET_REJECTED_422: Insufficient reserve',
+      }),
+    });
+    expect(f.outbox.enqueue).toHaveBeenCalledTimes(1);
+    expect(f.outbox.enqueue).toHaveBeenCalledWith(
+      f.tx,
+      expect.objectContaining({
+        aggregateType: 'payment',
+        aggregateId: paymentId,
+        eventType: EVENT_PATTERNS.PAYMENT_DISPUTE_REFUND_NEEDS_REVIEW,
+        payload: {
+          resolutionId,
+          orderId: payment.orderId,
+          paymentId,
+          failureCode: 'WALLET_REJECTED_422',
+        },
+      }),
+    );
+
+    // Subsequent execute or resumeApproved must not retry or spam needs_review
+    f.db.client.refund.findUniqueOrThrow.mockResolvedValueOnce({
+      ...refund,
+      failureReason: 'WALLET_REJECTED_422: Insufficient reserve',
+    });
+    await f.service.execute(refundId);
+    expect(f.wallet.refundCredit).toHaveBeenCalledTimes(1);
+    expect(f.outbox.enqueue).toHaveBeenCalledTimes(1);
+
+    await f.service.resumeApproved(10);
+    expect(f.db.client.refund.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { failureReason: null },
+            { NOT: { failureReason: { startsWith: 'WALLET_REJECTED_' } } },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it('does not emit needs_review when Wallet refundCredit returns unknown (timeout/5xx)', async () => {
+    const f = fixture({ outcome: 'missing' });
+    f.wallet.refundCredit.mockResolvedValue({
+      outcome: 'unknown',
+      message: 'timeout',
+    });
+
+    await f.service.execute(refundId);
+
+    expect(f.tx.refund.updateMany).not.toHaveBeenCalled();
     expect(f.outbox.enqueue).not.toHaveBeenCalled();
   });
 });
