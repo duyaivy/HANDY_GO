@@ -1,0 +1,124 @@
+import type { Order } from '../types/order.types';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import * as React from 'react';
+import { OrdersApi } from '../api/orders.api';
+import { ordersQueryKeys } from './orders-query-keys';
+
+export type WorkerJobHistoryTab = 'all' | 'completed' | 'cancelled';
+
+function extractItems<T>(data: unknown): T[] {
+  if (Array.isArray(data)) {
+    return data;
+  }
+  if (data && typeof data === 'object') {
+    if ('items' in data && Array.isArray((data as { items: unknown }).items)) {
+      return (data as { items: T[] }).items;
+    }
+    if ('data' in data && (data as { data: unknown }).data) {
+      const nested = (data as { data: unknown }).data;
+      if (Array.isArray(nested)) {
+        return nested;
+      }
+      if (
+        nested &&
+        typeof nested === 'object' &&
+        'items' in nested &&
+        Array.isArray((nested as { items: unknown }).items)
+      ) {
+        return (nested as { items: T[] }).items;
+      }
+    }
+  }
+  return [];
+}
+
+function getNextPageFromResponse(lastPage: unknown): number | undefined {
+  if (!lastPage || typeof lastPage !== 'object') {
+    return undefined;
+  }
+  const meta: any =
+    'items' in lastPage
+      ? lastPage
+      : 'data' in lastPage &&
+          lastPage.data &&
+          typeof lastPage.data === 'object' &&
+          'items' in (lastPage.data as any)
+        ? (lastPage as any).data
+        : null;
+
+  if (!meta || typeof meta.page !== 'number' || typeof meta.totalPages !== 'number') {
+    return undefined;
+  }
+  return meta.page < meta.totalPages ? meta.page + 1 : undefined;
+}
+
+export function useWorkerJobHistory(activeTab: WorkerJobHistoryTab = 'all') {
+  const statusFilter =
+    activeTab === 'completed'
+      ? 'completed'
+      : activeTab === 'cancelled'
+        ? 'cancelled'
+        : 'completed,cancelled';
+
+  const query = useInfiniteQuery({
+    queryKey: ordersQueryKeys.workerOrders({ tab: `history-${activeTab}`, status: statusFilter }),
+    queryFn: async ({ pageParam = 1 }) => {
+      const res = await OrdersApi.getMyOrders({
+        page: pageParam,
+        limit: 10,
+        status: statusFilter,
+      });
+      return res.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: getNextPageFromResponse,
+    staleTime: 30000,
+  });
+
+  const orders: Order[] = React.useMemo(() => {
+    if (!query.data?.pages) {
+      return [];
+    }
+    const all = query.data.pages.flatMap((p) => extractItems<Order>(p));
+    // Filter out active states just in case backend returns broader results
+    return all.filter((o) => o.status === 'completed' || o.status === 'cancelled');
+  }, [query.data]);
+
+  // Quick stats
+  const stats = React.useMemo(() => {
+    let completedCount = 0;
+    let cancelledCount = 0;
+    let totalEarnings = 0;
+
+    for (const order of orders) {
+      if (order.status === 'completed') {
+        completedCount++;
+        const price =
+          typeof order.agreedPrice === 'string'
+            ? Number.parseFloat(order.agreedPrice) || 0
+            : Number(order.agreedPrice) || 0;
+        totalEarnings += price;
+      } else if (order.status === 'cancelled') {
+        cancelledCount++;
+      }
+    }
+
+    return { completedCount, cancelledCount, totalEarnings };
+  }, [orders]);
+
+  return {
+    orders,
+    stats,
+    isLoading: query.isLoading,
+    isRefetching: query.isRefetching,
+    refetch: query.refetch,
+    hasNextPage: Boolean(query.hasNextPage),
+    isFetchingNextPage: Boolean(query.isFetchingNextPage),
+    fetchNextPage: () => {
+      if (query.hasNextPage && !query.isFetchingNextPage) {
+        return query.fetchNextPage();
+      }
+    },
+  };
+}
+

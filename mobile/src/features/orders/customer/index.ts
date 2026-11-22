@@ -13,3 +13,7 @@ export {
   CustomerOrdersScreen,
   type CustomerOrdersScreenProps,
 } from './screens/customer-orders-screen';
+export {
+  CustomerOrderHistoryScreen,
+  type CustomerOrderHistoryScreenProps,
+} from './screens/customer-order-history-screen';

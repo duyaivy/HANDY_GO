@@ -1,0 +1,180 @@
+import * as React from 'react';
+import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
+import { WorkerJobHistoryScreen } from '../screens/worker-job-history-screen';
+
+const mockPush = jest.fn();
+const mockBack = jest.fn();
+const mockRefetch = jest.fn();
+const mockFetchNextPage = jest.fn();
+
+const mockWorkerOrders = [
+  {
+    id: 'job-comp-1',
+    orderCode: 'HDG-2001',
+    serviceId: 'srv-01',
+    agreedPrice: 350000,
+    agreedScope: 'Sửa đường ống nước',
+    addressText: '150 Hùng Vương, Đà Nẵng',
+    status: 'completed',
+    completedAt: '2026-11-21T11:00:00.000Z',
+    createdAt: '2026-11-21T09:00:00.000Z',
+  },
+  {
+    id: 'job-canc-1',
+    orderCode: 'HDG-2002',
+    serviceId: 'srv-ac',
+    agreedPrice: 500000,
+    agreedScope: 'Bảo dưỡng điều hòa',
+    addressText: '88 Nguyễn Văn Thoại, Đà Nẵng',
+    status: 'cancelled',
+    cancelledAt: '2026-11-20T16:00:00.000Z',
+    createdAt: '2026-11-20T15:00:00.000Z',
+  },
+];
+
+let mockHookReturn = {
+  orders: mockWorkerOrders,
+  stats: {
+    completedCount: 1,
+    cancelledCount: 1,
+    totalEarnings: 350000,
+  },
+  isLoading: false,
+  refetch: mockRefetch,
+  hasNextPage: false,
+  isFetchingNextPage: false,
+  fetchNextPage: mockFetchNextPage,
+};
+
+jest.mock('../../hooks/use-worker-job-history', () => ({
+  useWorkerJobHistory: () => mockHookReturn,
+}));
+
+jest.mock('expo-router', () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: jest.fn(),
+    back: mockBack,
+  }),
+}));
+
+afterEach(() => {
+  cleanup();
+  jest.clearAllMocks();
+  mockHookReturn = {
+    orders: mockWorkerOrders,
+    stats: {
+      completedCount: 1,
+      cancelledCount: 1,
+      totalEarnings: 350000,
+    },
+    isLoading: false,
+    refetch: mockRefetch,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: mockFetchNextPage,
+  };
+});
+
+describe('workerJobHistoryScreen', () => {
+  it('renders app bar, performance overview stats, tabs and job cards', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByText('Lịch sử công việc')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-job-history-app-bar')).toBeOnTheScreen();
+    expect(screen.getByText('Tổng quan hiệu suất')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('1 việc');
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('1 việc');
+
+    // Check tabs
+    expect(screen.getByTestId('worker-history-tab-all')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-history-tab-completed')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-history-tab-cancelled')).toBeOnTheScreen();
+
+    // Check job cards
+    expect(screen.getByTestId('worker-history-card-job-comp-1')).toBeOnTheScreen();
+    expect(screen.getByTestId('worker-history-card-job-canc-1')).toBeOnTheScreen();
+  });
+
+  it('navigates to job detail when pressing "Xem chi tiết"', () => {
+    render(<WorkerJobHistoryScreen />);
+
+    fireEvent.press(screen.getByTestId('worker-job-detail-btn-job-comp-1'));
+    expect(mockPush).toHaveBeenCalledWith('/worker/jobs/job-comp-1');
+  });
+
+  it('renders empty state when there are no jobs in history', () => {
+    mockHookReturn = {
+      orders: [],
+      stats: {
+        completedCount: 0,
+        cancelledCount: 0,
+        totalEarnings: 0,
+      },
+      isLoading: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByTestId('worker-history-empty-state')).toBeOnTheScreen();
+    expect(screen.getByText('Chưa có công việc nào')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByTestId('worker-history-find-jobs-btn'));
+    expect(mockPush).toHaveBeenCalledWith('/worker/jobs');
+  });
+
+  it('triggers auto infinite scroll when scrolling close to bottom', () => {
+    mockHookReturn = {
+      orders: mockWorkerOrders,
+      stats: {
+        completedCount: 1,
+        cancelledCount: 1,
+        totalEarnings: 350000,
+      },
+      isLoading: false,
+      refetch: mockRefetch,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    const scrollView = screen.getByTestId('worker-history-scroll-view');
+    fireEvent.scroll(scrollView, {
+      nativeEvent: {
+        contentOffset: { y: 600 },
+        contentSize: { height: 1000, width: 400 },
+        layoutMeasurement: { height: 500, width: 400 },
+      },
+    });
+
+    expect(mockFetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders auto infinite loading indicator when isFetchingNextPage is true', () => {
+    mockHookReturn = {
+      orders: mockWorkerOrders,
+      stats: {
+        completedCount: 1,
+        cancelledCount: 1,
+        totalEarnings: 350000,
+      },
+      isLoading: false,
+      refetch: mockRefetch,
+      hasNextPage: true,
+      isFetchingNextPage: true,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByTestId('worker-history-loading-more-indicator')).toBeOnTheScreen();
+    expect(screen.getByText('Đang tải thêm công việc...')).toBeOnTheScreen();
+  });
+});
+

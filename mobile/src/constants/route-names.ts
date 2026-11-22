@@ -60,6 +60,8 @@ export const RouteNames = {
   WORKER_WALLET: '/worker/wallet',
   WORKER_WALLET_HISTORY: '/worker/wallet/history',
   WORKER_WALLET_CASH_PAYMENTS: '/worker/wallet/cash-payments',
+  WORKER_HISTORY: '/worker/history',
+  WORKER_JOB_HISTORY: '/worker/history',
   WORKER_PROFILE: '/worker/profile',
   WORKER_PROFILE_DETAIL: '/worker/profile/detail',
   WORKER_JOB_DETAIL: (id: string) => `/worker/jobs/${id}` as const,
