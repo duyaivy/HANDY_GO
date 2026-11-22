@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -19,6 +20,13 @@ export class ServicesService {
     private readonly outboxPublisher: OutboxPublisherService,
     private readonly redis: RedisService,
   ) {}
+
+  async getDashboardSummaries(ids: string[]) {
+    return this.prisma.service.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, iconUrl: true },
+    });
+  }
 
   async create(dto: CreateServiceDto) {
     const category = await this.prisma.category.findUnique({
@@ -42,6 +50,18 @@ export class ServicesService {
       );
     }
 
+    if (
+      dto.basePriceMin !== undefined &&
+      dto.basePriceMax !== undefined &&
+      dto.basePriceMin != null &&
+      dto.basePriceMax != null &&
+      dto.basePriceMin >= dto.basePriceMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
+      );
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
       const created = await tx.service.create({
         data: {
@@ -50,6 +70,8 @@ export class ServicesService {
           description: dto.description,
           iconUrl: dto.iconUrl,
           isActive: dto.isActive ?? true,
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
@@ -68,6 +90,8 @@ export class ServicesService {
             description: created.description,
             iconUrl: created.iconUrl,
             isActive: created.isActive,
+            basePriceMin: (created as any).basePriceMin,
+            basePriceMax: (created as any).basePriceMax,
             createdAt: created.createdAt.toISOString(),
           },
         },
@@ -219,6 +243,34 @@ export class ServicesService {
       }
     }
 
+    const targetMin =
+      dto.basePriceMin !== undefined
+        ? dto.basePriceMin != null
+          ? Number(dto.basePriceMin)
+          : null
+        : service.basePriceMin != null
+          ? Number(service.basePriceMin)
+          : null;
+
+    const targetMax =
+      dto.basePriceMax !== undefined
+        ? dto.basePriceMax != null
+          ? Number(dto.basePriceMax)
+          : null
+        : service.basePriceMax != null
+          ? Number(service.basePriceMax)
+          : null;
+
+    if (
+      targetMin != null &&
+      targetMax != null &&
+      targetMin >= targetMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
+      );
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const res = await tx.service.update({
         where: { id },
@@ -228,6 +280,8 @@ export class ServicesService {
           ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
@@ -246,6 +300,8 @@ export class ServicesService {
             description: res.description,
             iconUrl: res.iconUrl,
             isActive: res.isActive,
+            basePriceMin: (res as any).basePriceMin,
+            basePriceMax: (res as any).basePriceMax,
             updatedAt: res.updatedAt.toISOString(),
           },
         },

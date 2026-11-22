@@ -636,6 +636,69 @@ describe('TrackingEventsService', () => {
       );
       expect(passedMetadata.secretInternalKey).toBeUndefined();
     });
+
+    it('should extract resolvedStatus, adminUserId, resolutionNote and retain HG-82 metadata for order.dispute.resolved', async () => {
+      const serviceRequestId = randomUUID();
+      const orderId = randomUUID();
+      const adminUserId = randomUUID();
+      const customerUserId = randomUUID();
+      const workerUserId = randomUUID();
+      const resolutionId = randomUUID();
+
+      prismaMock.consumedEvent.findUnique.mockResolvedValue(null);
+      prismaMock.trackingFlow.upsert.mockResolvedValue({
+        id: randomUUID(),
+        serviceRequestId,
+        orderId,
+      });
+
+      const result = await service.recordDomainEvent({
+        eventId: randomUUID(),
+        eventType: 'order.dispute.resolved',
+        serviceRequestId,
+        orderId,
+        payload: {
+          resolutionId,
+          orderId,
+          adminUserId,
+          customerUserId,
+          workerUserId,
+          action: 'rework',
+          resolutionNote: 'Yêu cầu thợ bảo hành lại hạng mục ống nước',
+          resolvedStatus: 'in_progress',
+          decidedAt: '2026-11-21T08:00:00.000Z',
+          resolvedAt: '2026-11-21T08:00:00.000Z',
+          refundAmountVnd: null,
+          paymentStatus: 'paid',
+        },
+      });
+
+      expect(result.recorded).toBe(true);
+      expect(prismaMock.trackingEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            eventType: 'order.dispute.resolved',
+            entityType: TrackingEntityType.order,
+            entityId: orderId,
+            toStatus: 'in_progress',
+            actorUserId: adminUserId,
+            reason: 'Yêu cầu thợ bảo hành lại hạng mục ống nước',
+            metadata: expect.objectContaining({
+              resolutionId,
+              action: 'rework',
+              resolvedStatus: 'in_progress',
+              resolutionNote: 'Yêu cầu thợ bảo hành lại hạng mục ống nước',
+              decidedAt: '2026-11-21T08:00:00.000Z',
+              resolvedAt: '2026-11-21T08:00:00.000Z',
+              refundAmountVnd: null,
+              paymentStatus: 'paid',
+              customerUserId,
+              workerUserId,
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe('Cache Invalidation', () => {

@@ -349,7 +349,7 @@ def validate_env(path):
     if any(not values.get(key, '').strip() for key in required) or values.get('NODE_ENV') != 'production':
         raise ValueError('Missing required production configuration')
     for key, value in values.items():
-        if key == 'DATABASE_URL' or key.startswith(('DATABASE_URL_', 'DIRECT_URL_')):
+        if key in ('DATABASE_URL', 'DIRECT_URL') or key.startswith(('DATABASE_URL_', 'DIRECT_URL_')):
             if not value.strip():
                 continue
             try:

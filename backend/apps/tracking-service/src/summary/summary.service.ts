@@ -267,7 +267,11 @@ export class SummaryService {
         .find((e) => e.eventType === 'order.cancelled');
       const orderCompleted = [...events]
         .reverse()
-        .find((e) => e.eventType === 'order.completed');
+        .find(
+          (e) =>
+            e.eventType === 'order.completed' ||
+            e.eventType === 'order.warranty.completed',
+        );
       const orderFinished = [...events]
         .reverse()
         .find(
@@ -286,17 +290,41 @@ export class SummaryService {
           meta?.nextStatus ||
           meta?.toStatus ||
           meta?.newStatus ||
+          meta?.resolvedStatus ||
           meta?.status;
 
         if (latestOrderEvent.eventType === 'order.cancelled') {
           orderStatus = 'cancelled';
-        } else if (latestOrderEvent.eventType === 'order.completed') {
+        } else if (
+          latestOrderEvent.eventType === 'order.completed' ||
+          latestOrderEvent.eventType === 'order.warranty.completed'
+        ) {
           orderStatus = 'completed';
         } else if (
           latestOrderEvent.eventType === 'order.disputed' ||
+          latestOrderEvent.eventType === 'order.dispute.decision.recorded' ||
           targetStatus === 'disputed'
         ) {
           orderStatus = 'disputed';
+        } else if (latestOrderEvent.eventType === 'order.dispute.resolved') {
+          if (targetStatus) {
+            orderStatus = targetStatus;
+          } else if (meta?.action === 'rework') {
+            orderStatus = 'in_progress';
+          } else {
+            const prevStatusEvent = [...events]
+              .reverse()
+              .find(
+                (e) =>
+                  e.entityType === TrackingEntityType.order &&
+                  e.eventType === 'order.status.changed' &&
+                  Boolean(e.toStatus || (e.metadata as any)?.nextStatus),
+              );
+            orderStatus =
+              prevStatusEvent?.toStatus ||
+              (prevStatusEvent?.metadata as any)?.nextStatus ||
+              'completed';
+          }
         } else if (
           latestOrderEvent.eventType === 'order.rework_requested' ||
           meta?.notificationKind === 'rework_requested' ||

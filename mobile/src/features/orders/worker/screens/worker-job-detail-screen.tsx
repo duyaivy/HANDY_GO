@@ -19,6 +19,7 @@ import {
   useTrackingEvents,
   useTrackingSummary,
 } from '@/features/tracking';
+import { WorkerCashPaymentCard } from '@/features/wallet/worker/components/worker-cash-payment-card';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
 
 function formatVND(amount: number | string | undefined | null): string {
@@ -160,7 +161,7 @@ export function WorkerJobDetailScreen({
     if (event.eventType === 'order.completed') {
       Alert.alert(
         '🎉 Nghiệm thu thành công!',
-        'Khách hàng đã xác nhận hoàn thành công việc. Tiền công đang được quyết toán vào ví của bạn.',
+        'Khách hàng đã xác nhận hoàn thành công việc. Vui lòng kiểm tra trạng thái thanh toán trong chi tiết đơn hàng.',
         [{ text: 'Tuyệt vời', style: 'default' }],
       );
     }
@@ -235,7 +236,7 @@ export function WorkerJobDetailScreen({
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen safeArea className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
         title="Chi tiết đơn việc"
@@ -244,6 +245,7 @@ export function WorkerJobDetailScreen({
       />
 
       <ScrollView testID="worker-job-detail-screen" className="flex-1 p-4">
+        {order?.id && jobId !== 'JOB-1020' ? <WorkerCashPaymentCard key={order.id} orderId={order.id} completed={order.status === 'completed'} /> : null}
         {isLoading && (
           <View className="items-center justify-center py-4">
             <ActivityIndicator size="small" color={PRIMARY_COLOR} />
@@ -488,13 +490,16 @@ export function WorkerJobDetailScreen({
           )}
         </View>
 
-        {/* Tương thích automated test cũ */}
-        <View className="mt-6 items-center justify-center py-2">
-          <Text className="text-center text-xs font-medium text-neutral-400 opacity-60">
-            Chức năng đang được phát triển
-          </Text>
-        </View>
-        {order?.serviceRequestId && <Button label="Lịch sử trò chuyện" onPress={() => router.push(`/worker/chat?requestId=${encodeURIComponent(order.serviceRequestId!)}` as any)} />}
+        {jobId === 'JOB-1020'
+          ? (
+              <View className="mt-6 items-center justify-center py-2">
+                <Text className="text-center text-xs font-medium text-neutral-400 opacity-60">
+                  Chức năng đang được phát triển
+                </Text>
+              </View>
+            )
+          : null}
+        {order?.serviceRequestId ? <Button label="Lịch sử trò chuyện" onPress={() => router.push({ pathname: RouteNames.WORKER_CHAT, params: { requestId: order.serviceRequestId } } as never)} /> : null}
       </ScrollView>
     </Screen>
   );

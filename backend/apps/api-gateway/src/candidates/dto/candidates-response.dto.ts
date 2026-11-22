@@ -31,6 +31,18 @@ export class WorkerProfileSummaryDto {
   completedOrderCount?: number;
 
   @ApiPropertyOptional({
+    description: 'Tổng số đơn hàng đã nhận',
+    example: 40,
+  })
+  orderCountTotal?: number;
+
+  @ApiPropertyOptional({
+    description: 'Tỉ lệ hoàn thành đơn hàng (%)',
+    example: 95,
+  })
+  completionRate?: number;
+
+  @ApiPropertyOptional({
     description: 'Khoảng cách ước tính tới địa chỉ yêu cầu (km)',
     example: 2.5,
     nullable: true,

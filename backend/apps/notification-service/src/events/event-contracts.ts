@@ -14,6 +14,9 @@ export const NOTIFICATION_EVENTS = [
   'order.status.changed',
   'order.cancelled',
   'order.completed',
+  'order.warranty.completed',
+  'order.dispute.decision.recorded',
+  'order.dispute.resolved',
   'payment.succeeded',
   'payment.failed',
   'payment.refunded',
@@ -65,12 +68,16 @@ export interface EventDataMap {
   };
   'order.cancelled': OrderData;
   'order.completed': OrderData;
+  'order.warranty.completed': OrderData;
+  'order.dispute.decision.recorded': OrderData & { resolutionId: string; action: 'dismiss' | 'rework' | 'refund' };
+  'order.dispute.resolved': OrderData & { resolutionId: string; action: 'dismiss' | 'rework' | 'refund' };
   'payment.succeeded': { paymentId: string; payerId: string };
   'payment.failed': { paymentId: string; payerId: string };
   'payment.refunded': {
     paymentId: string;
     refundId: string;
     recipientId: string;
+    resolutionId?: string;
   };
   'wallet.credited': WalletData;
   'wallet.debited': WalletData;
@@ -130,6 +137,9 @@ export const EVENT_CONTRACTS = {
   'order.status.changed': { source: 'order-service', ids: order },
   'order.cancelled': { source: 'order-service', ids: order },
   'order.completed': { source: 'order-service', ids: order },
+  'order.warranty.completed': { source: 'order-service', ids: order },
+  'order.dispute.decision.recorded': { source: 'order-service', ids: [...order, 'resolutionId'] },
+  'order.dispute.resolved': { source: 'order-service', ids: [...order, 'resolutionId'] },
   'payment.succeeded': {
     source: 'payment-service',
     ids: ['paymentId', 'payerId'],
@@ -296,6 +306,15 @@ export function validateNotificationEvent(
     )
       throw new PermanentEventError('INVALID_TRANSITION_KIND');
     data.notificationKind = rawData.notificationKind;
+    if (typeof rawData.resolutionId === 'string' && isUUID(rawData.resolutionId)) data.resolutionId = rawData.resolutionId;
+  }
+  if (type === 'payment.refunded' && typeof rawData.resolutionId === 'string') {
+    if (!isUUID(rawData.resolutionId)) throw new PermanentEventError('INVALID_RESOLUTION_ID');
+    data.resolutionId = rawData.resolutionId;
+  }
+  if (type === 'order.dispute.decision.recorded' || type === 'order.dispute.resolved') {
+    if (!['dismiss', 'rework', 'refund'].includes(String(rawData.action))) throw new PermanentEventError('INVALID_DISPUTE_ACTION');
+    data.action = rawData.action;
   }
   if (type.startsWith('wallet.')) {
     if (typeof rawData.reason === 'string') data.reason = rawData.reason;

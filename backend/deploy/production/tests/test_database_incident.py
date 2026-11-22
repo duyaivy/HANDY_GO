@@ -17,6 +17,21 @@ from database_plan import (
 
 
 class DatabaseIncidentTests(unittest.TestCase):
+    def test_global_direct_url_matches_prisma_precedence(self):
+        values = {
+            "DATABASE_URL": "postgresql://u:p@runtime/db",
+            "DIRECT_URL": "postgresql://u:p@session/db",
+            "DB_DDL_VERIFIED_AUTH": "true",
+        }
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "session")
+        values["DIRECT_URL"] = "postgresql://u:p@aws.pooler.supabase.com:6543/db"
+        with self.assertRaisesRegex(ValueError, "transaction pooler"):
+            migration_endpoint(values, "auth", True)
+        values["DATABASE_URL_AUTH"] = "postgresql://u:p@override/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "override")
+        values["DIRECT_URL_AUTH"] = "postgresql://u:p@explicit/db"
+        self.assertEqual(migration_endpoint(values, "auth", True).hostname, "explicit")
+
     def test_message_direct_migration_url_uses_the_declared_message_schema(self):
         values = {
             "DIRECT_URL_MESSAGE": "postgresql://u:p@db/db?schema=message",
@@ -392,17 +407,36 @@ class DatabaseIncidentTests(unittest.TestCase):
 class OnboardingMigrationProofTests(unittest.TestCase):
     def test_exact_delta_and_unexecuted_sql_are_bound_to_baseline(self):
         import tempfile
-        import shutil
         from database_plan import onboarding_migration_proof
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            dashboard_migrations = {
+                "apps/order-service/prisma/migrations/20261115000000_dashboard_overview_indexes/migration.sql",
+                "apps/bidding-service/prisma/migrations/20261115000000_dashboard_bid_activity_indexes/migration.sql",
+                "apps/auth-service/prisma/migrations/20261118000000_preserve_customer_registration_history/migration.sql",
+            }
+            later_migrations = {
+                "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
+                "apps/catalog-service/prisma/migrations/20261121000000_add_service_base_prices/migration.sql",
+                "apps/order-service/prisma/migrations/20261121000000_add_dispute_evidence_metadata/migration.sql",
+                "apps/order-service/prisma/migrations/20261121001000_add_dispute_queue_index/migration.sql",
+                "apps/order-service/prisma/migrations/20261121002000_admin_dispute_resolutions/migration.sql",
+                "apps/order-service/prisma/migrations/20261122000000_active_dispute_resolution_unique/migration.sql",
+                "apps/order-service/prisma/migrations/20261122001000_add_order_dispute_category/migration.sql",
+                "apps/order-service/prisma/migrations/20261122002000_add_inbound_event_reconciliations/migration.sql",
+                "apps/payment-service/prisma/migrations/20261121002000_dispute_refund_link/migration.sql",
+            }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
             ):
-                destination = root / source.relative_to(PROD.parents[1])
+                relative = source.relative_to(PROD.parents[1])
+                if relative.as_posix() in dashboard_migrations | later_migrations:
+                    continue  # Reconstruct the historical three-host release baseline.
+                destination = root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination)
+                # Release archives use Git's LF bytes, including on Windows checkouts.
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
             proof = onboarding_migration_proof(root, host.MIGRATIONS)
             self.assertEqual(proof["policy"], "vps4-additive-v3")
             self.assertEqual(
@@ -421,6 +455,17 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "migration_hash": proof["baseline_hash"],
             }
             self.assertTrue(host.rollback_migrations_compatible(current, previous))
+            for relative in dashboard_migrations:
+                source = PROD.parents[1] / relative
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
+            changed = onboarding_migration_proof(root, host.MIGRATIONS)
+            current.update(
+                migration_hash=changed["inventory_hash"],
+                migration_compatibility=changed,
+            )
+            self.assertFalse(host.rollback_migrations_compatible(current, previous))
             extra = (
                 root
                 / "apps/wallet-service/prisma/migrations/20990101000000_bad/migration.sql"

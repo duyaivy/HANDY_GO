@@ -19,6 +19,7 @@ export const ordersQueryKeys = {
     return [...ordersQueryKeys.all, 'customer', 'orders', tab, st] as const;
   },
   orderDetail: (id: string) => [...ordersQueryKeys.all, 'detail', id] as const,
+  orderReview: (id: string) => [...ordersQueryKeys.all, 'detail', id, 'review'] as const,
   orderStatusHistory: (id: string) =>
     [...ordersQueryKeys.all, 'detail', id, 'status-history'] as const,
   workerProposals: (filter?: string | { status?: string }) => {

@@ -162,4 +162,21 @@ describe('ordersApi.uploadImage', () => {
 
     expect(capturedConfig?.signal).toBe(controller.signal);
   });
+
+  it('returns full payload including uploadReceipt in uploadImageDetailed', async () => {
+    jest.spyOn(ApiClient, 'post').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
+        uploadReceipt: 'receipt-hmac-123',
+        publicId: 'sample',
+        assetId: 'asset-1',
+      },
+    } as any);
+
+    const result = await OrdersApi.uploadImageDetailed('file:///test.jpg', 'review_photo');
+    expect(result.url).toBe('https://res.cloudinary.com/demo/image/upload/sample.jpg');
+    expect(result.uploadReceipt).toBe('receipt-hmac-123');
+  });
 });

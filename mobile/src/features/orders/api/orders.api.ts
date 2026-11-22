@@ -2,11 +2,14 @@ import type {
   BookingProposal,
   CreateBookingProposalPayload,
   CreateServiceRequestPayload,
+  EstimatePricePayload,
+  EstimatePriceResponse,
   Order,
   OrderEvidence,
   OrderStatusHistoryItem,
   PaginatedList,
   ServiceRequest,
+  UpdateServiceRequestPayload,
   UploadEvidencePayload,
 } from '../types/order.types';
 import { ApiClient } from '@/services/api/api-client';
@@ -28,9 +31,24 @@ export type UploadImageOptions = {
 
 export const OrdersApi = {
   // --- Service Requests ---
+  estimatePrice: async (payload: EstimatePricePayload, options?: { signal?: AbortSignal }) => {
+    return ApiClient.post<{ statusCode: number; message: string; data: EstimatePriceResponse }>(
+      '/service-requests/estimate-price',
+      payload,
+      options?.signal ? { signal: options.signal } : undefined,
+    );
+  },
+
   createRequest: async (payload: CreateServiceRequestPayload) => {
     return ApiClient.post<{ statusCode: number; message: string; data: ServiceRequest }>(
       '/service-requests',
+      payload,
+    );
+  },
+
+  updateRequest: async (id: string, payload: UpdateServiceRequestPayload) => {
+    return ApiClient.patch<{ statusCode: number; message: string; data: ServiceRequest }>(
+      `/service-requests/${id}`,
       payload,
     );
   },
@@ -264,11 +282,11 @@ export const OrdersApi = {
   },
 
   // --- Media Upload Helper ---
-  uploadImage: async (
+  uploadImageDetailed: async (
     uri: string,
     nameOrOptions: string | UploadImageOptions = 'order_media',
     maybeOptions?: UploadImageOptions,
-  ): Promise<string> => {
+  ): Promise<{ url: string; uploadReceipt?: string; publicId?: string; assetId?: string }> => {
     const name = typeof nameOrOptions === 'string' ? nameOrOptions : 'order_media';
     const options = typeof nameOrOptions === 'object' ? nameOrOptions : maybeOptions;
 
@@ -278,7 +296,7 @@ export const OrdersApi = {
     const response = await ApiClient.post<{
       statusCode: number;
       message: string;
-      data: { url: string };
+      data: { url: string; uploadReceipt?: string; publicId?: string; assetId?: string };
     }>('/uploads/image', formData, {
       signal: options?.signal,
       onUploadProgress: (event) => {
@@ -296,6 +314,15 @@ export const OrdersApi = {
       throw new Error('Upload ảnh thất bại.');
     }
 
-    return response.data.url;
+    return response.data;
+  },
+
+  uploadImage: async (
+    uri: string,
+    nameOrOptions: string | UploadImageOptions = 'order_media',
+    maybeOptions?: UploadImageOptions,
+  ): Promise<string> => {
+    const res = await OrdersApi.uploadImageDetailed(uri, nameOrOptions, maybeOptions);
+    return res.url;
   },
 };

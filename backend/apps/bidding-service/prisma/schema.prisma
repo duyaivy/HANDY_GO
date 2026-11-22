@@ -69,6 +69,7 @@ model Bid {
   @@unique([biddingRoundId, workerId])
   @@index([serviceRequestId, status])
   @@index([workerId])
+  @@index([submittedAt, workerId])
   @@map("bids")
   @@schema("bidding_service")
 }
@@ -86,6 +87,7 @@ model BidRevision {
   bid             Bid      @relation(fields: [bidId], references: [id], onDelete: Cascade)
 
   @@unique([bidId, revisionNo])
+  @@index([revisedAt, bidId])
   @@map("bid_revisions")
   @@schema("bidding_service")
 }

@@ -6,19 +6,18 @@ coverage
 .history
 .env
 .env.*
-!.env.example
-!apps/*/.env.example
 *.log
 .DS_Store
 keys
 *.pem
+**/*firebase-adminsdk*.json
+**/*service-account*.json
 
 **/*.env
 **/*.key
 **/*.pem
 **/.env
 **/.env.*
-!**/.env.example
 **/__pycache__
 .aws
 .codex

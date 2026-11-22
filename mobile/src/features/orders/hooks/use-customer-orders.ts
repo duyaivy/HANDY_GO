@@ -467,6 +467,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
+    isError: orderQuery.isError,
+    error: orderQuery.error,
     refetch: async () => {
       await Promise.all([orderQuery.refetch(), historyQuery.refetch(), workerProfileQuery.refetch()]);
     },

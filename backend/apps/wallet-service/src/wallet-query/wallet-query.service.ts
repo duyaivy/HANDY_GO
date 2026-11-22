@@ -17,6 +17,8 @@ export interface WalletTransactionRecord {
   walletId: string;
   type: string;
   amount: bigint;
+  balanceBefore?: bigint | null;
+  balanceAfter?: bigint | null;
   status: string;
   referenceId?: string | null;
   description?: string | null;
@@ -118,6 +120,8 @@ export class WalletQueryService {
       id: transaction.id,
       type: transaction.type,
       amount: transaction.amount.toString(),
+      balanceBefore: transaction.balanceBefore?.toString() ?? null,
+      balanceAfter: transaction.balanceAfter?.toString() ?? null,
       status: transaction.status,
       referenceId: transaction.referenceId,
       description: transaction.description,
