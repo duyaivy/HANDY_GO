@@ -7,7 +7,13 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CurrentUser, JwtAuthGuard, type AuthenticatedUser } from '@app/auth';
 import { buildSuccessResponse } from '@app/common';
 import { isUUID } from 'class-validator';
@@ -35,6 +41,15 @@ export class PaymentQueryController {
   }
 
   @Get('me')
+  @ApiOperation({
+    summary: 'Lấy danh sách giao dịch thanh toán của người dùng hiện tại',
+    description:
+      'Trả về danh sách thanh toán mà người dùng đang đăng nhập là Customer (người trả) hoặc Worker (người nhận). Hỗ trợ lọc theo trạng thái và phân trang.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy danh sách thanh toán thành công',
+  })
   async list(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Query() query: PaymentQueryDto,
@@ -46,6 +61,16 @@ export class PaymentQueryController {
   }
 
   @Get('admin/records')
+  @ApiOperation({
+    summary: 'Admin xem danh sách toàn bộ giao dịch thanh toán',
+    description:
+      'Dành cho Admin tra cứu tất cả các đơn thanh toán trên hệ thống. Hỗ trợ lọc theo nhiều trạng thái (status), phương thức (cash/point) và phân trang. Yêu cầu quyền payment:read:all.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy danh sách thanh toán thành công',
+  })
+  @ApiResponse({ status: 403, description: 'Thiếu quyền payment:read:all' })
   async adminList(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Query() query: PaymentQueryDto,
@@ -58,6 +83,24 @@ export class PaymentQueryController {
   }
 
   @Get('admin/records/:id')
+  @ApiOperation({
+    summary: 'Admin xem chi tiết một giao dịch thanh toán',
+    description:
+      'Dành cho Admin xem đầy đủ thông tin giao dịch thanh toán gồm phí sàn, thu nhập thợ, trạng thái thanh toán theo paymentId. Yêu cầu quyền payment:read:all.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    format: 'uuid',
+    description: 'ID của giao dịch thanh toán (paymentId)',
+    example: '185e13db-2aca-4305-a249-e1fe937a4a12',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy chi tiết thanh toán thành công',
+  })
+  @ApiResponse({ status: 403, description: 'Thiếu quyền payment:read:all' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thanh toán' })
   async adminById(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Param('id', ParseUUIDPipe) id: string,
@@ -70,6 +113,26 @@ export class PaymentQueryController {
   }
 
   @Get('order/:orderId')
+  @ApiOperation({
+    summary: 'Tra cứu thông tin thanh toán theo mã đơn hàng (orderId)',
+    description:
+      'Customer hoặc Worker liên quan đến đơn hàng tra cứu thông tin thanh toán theo orderId.',
+  })
+  @ApiParam({
+    name: 'orderId',
+    type: String,
+    format: 'uuid',
+    description: 'ID của đơn hàng (orderId)',
+    example: '7f8b9c1d-1234-4567-89ab-cdef01234567',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy thông tin thanh toán thành công',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Không tìm thấy giao dịch thanh toán cho đơn hàng này',
+  })
   async byOrder(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Param('orderId', ParseUUIDPipe) orderId: string,
@@ -81,6 +144,20 @@ export class PaymentQueryController {
   }
 
   @Get(':id/attempts')
+  @ApiOperation({
+    summary: 'Lấy danh sách các lần thử thanh toán của giao dịch',
+    description:
+      'Người dùng liên quan xem lịch sử các lần thử thanh toán (attempts) theo paymentId, sắp xếp theo số lần thử mới nhất.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    format: 'uuid',
+    description: 'ID của giao dịch thanh toán (paymentId)',
+    example: '185e13db-2aca-4305-a249-e1fe937a4a12',
+  })
+  @ApiResponse({ status: 200, description: 'Lấy danh sách attempt thành công' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thanh toán' })
   async attempts(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Param('id', ParseUUIDPipe) id: string,
@@ -93,6 +170,23 @@ export class PaymentQueryController {
   }
 
   @Get(':id')
+  @ApiOperation({
+    summary: 'Người dùng xem chi tiết giao dịch thanh toán của mình',
+    description:
+      'Customer hoặc Worker của đơn hàng xem thông tin chi tiết thanh toán theo paymentId.',
+  })
+  @ApiParam({
+    name: 'id',
+    type: String,
+    format: 'uuid',
+    description: 'ID của giao dịch thanh toán (paymentId)',
+    example: '185e13db-2aca-4305-a249-e1fe937a4a12',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lấy chi tiết thanh toán thành công',
+  })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy thanh toán' })
   async byId(
     @CurrentUser() user: AuthenticatedUser | undefined,
     @Param('id', ParseUUIDPipe) id: string,
