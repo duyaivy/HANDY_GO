@@ -6,6 +6,8 @@ import {
   IsOptional,
   IsString,
   ValidateBy,
+  ValidateIf,
+  ValidationArguments,
   IsUUID,
   Max,
   MaxLength,
@@ -85,6 +87,17 @@ export class CreateServiceRequestDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @ValidateIf((o: CreateServiceRequestDto) => o.aiRefPriceMin !== undefined && o.aiRefPriceMax !== undefined)
+  @ValidateBy({
+    name: 'isAiRefPriceMinLessThanMax',
+    validator: {
+      validate(value: number, args: ValidationArguments) {
+        const obj = args.object as CreateServiceRequestDto;
+        return obj.aiRefPriceMax === undefined || value < obj.aiRefPriceMax;
+      },
+      defaultMessage: () => 'aiRefPriceMin phải nhỏ hơn aiRefPriceMax',
+    },
+  })
   aiRefPriceMin?: number;
 
   @ApiPropertyOptional({

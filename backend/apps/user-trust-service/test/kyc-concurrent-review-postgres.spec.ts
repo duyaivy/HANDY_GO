@@ -224,7 +224,7 @@ describe('KYC Admin Concurrent Review Integration with PostgreSQL', () => {
     expect(histories[0].toStatus).toBe(winningDecision);
   });
 
-  it('atomically resolves race condition between AI consumer and Admin review on PostgreSQL (Admin decision is never overwritten)', async (ctx) => {
+  it('preserves the winning AI or Admin decision on PostgreSQL and reports an admin conflict when AI wins', async (ctx) => {
     if (!isPostgresAvailable) {
       ctx.skip();
       return;
@@ -334,21 +334,30 @@ describe('KYC Admin Concurrent Review Integration with PostgreSQL', () => {
       where: { id: kycCaseId },
     });
     expect(finalCase).not.toBeNull();
-    // Case version must be at least 2
-    expect(finalCase!.version).toBeGreaterThanOrEqual(2);
 
     const finalWorker = await prisma.workerProfile.findUnique({
       where: { id: workerProfileId },
     });
     expect(finalWorker).not.toBeNull();
 
-    // The state of WorkerProfile MUST match the case status.
-    // If Admin rejection finalized the case, worker profile MUST NOT be overwritten to 'verified'.
-    if (finalCase!.status === 'rejected') {
+    const histories = await prisma.kycReviewHistory.findMany({
+      where: { kycCaseId, action: { in: ['admin_approved', 'admin_rejected'] } },
+    });
+
+    // Tie the persisted state to the actual winner, so accepting a conflict
+    // cannot hide an AI event overwriting a successful admin decision.
+    expect(finalCase!.version).toBe(2);
+    if (adminResult.status === 'fulfilled') {
+      expect(finalCase!.status).toBe('rejected');
+      expect(finalCase!.reviewedByUserId).toBe(adminId);
       expect(finalWorker!.status).toBe('rejected');
+      expect(histories).toHaveLength(1);
+      expect(histories[0].action).toBe('admin_rejected');
     } else {
       expect(finalCase!.status).toBe('approved');
+      expect(finalCase!.reviewedByUserId).toBeNull();
       expect(finalWorker!.status).toBe('verified');
+      expect(histories).toHaveLength(0);
     }
   });
 });

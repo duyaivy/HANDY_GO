@@ -32,6 +32,8 @@ model Service {
   description String?  @db.Text
   iconUrl     String?  @map("icon_url") @db.Text
   isActive    Boolean  @default(true) @map("is_active")
+  basePriceMin Decimal? @map("base_price_min") @db.Decimal(12, 2)
+  basePriceMax Decimal? @map("base_price_max") @db.Decimal(12, 2)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamp(6)
 
