@@ -43,6 +43,12 @@ export class ServiceResponseDto {
   @ApiProperty({ example: true })
   isActive!: boolean;
 
+  @ApiPropertyOptional({ example: 150000, nullable: true })
+  basePriceMin?: number | null;
+
+  @ApiPropertyOptional({ example: 400000, nullable: true })
+  basePriceMax?: number | null;
+
   @ApiProperty({ example: '2026-10-01T00:00:00.000Z' })
   createdAt!: Date;
 

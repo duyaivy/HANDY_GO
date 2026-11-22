@@ -151,6 +151,19 @@ export type CreateServiceRequestPayload = {
   }>;
 };
 
+export type UpdateServiceRequestPayload = {
+  serviceId?: string;
+  description?: string;
+  scheduledAt?: string | null;
+  addressText?: string;
+  latitude?: number;
+  longitude?: number;
+  media?: Array<{
+    mediaUrl: string;
+    mediaType: string;
+  }>;
+};
+
 export type CreateBookingProposalPayload = {
   serviceRequestId: string;
   workerUserId: string;
@@ -188,4 +201,16 @@ export type PaginatedList<T> = {
   page: number;
   limit?: number;
   totalPages: number;
+};
+
+export type EstimatePricePayload = {
+  serviceId: string;
+  description?: string;
+};
+
+export type EstimatePriceResponse = {
+  aiRefPriceMin: number;
+  aiRefPriceMax: number;
+  matchedReason?: string;
+  isFallback: boolean;
 };
