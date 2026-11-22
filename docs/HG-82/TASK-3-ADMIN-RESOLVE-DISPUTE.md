@@ -1,8 +1,8 @@
 # [HG-82] Task 3: Admin phán quyết khiếu nại sau hoàn thành
 
 - **Mã công việc:** HG-82-TASK-03
-- **Phân hệ:** `order-service`, `payment-service`, `notification-service`, `tracking-service`
-- **Trạng thái:** Đã triển khai code local; chưa xác minh tích hợp DB/RabbitMQ/Wallet vì Docker local chưa chạy
+- **Phân hệ:** `order-service`, `payment-service`, `wallet-service`, `notification-service`, `tracking-service`
+- **Trạng thái:** Đã triển khai và xác minh tích hợp local (PostgreSQL, RabbitMQ, Wallet HTTP thật qua `pnpm run test:payment:docker`); chưa kiểm chứng trên môi trường deploy
 - **Nhánh phát triển:** `feature/HG-82-order-dispute-7-days-admin-resolution`
 - **Tài liệu liên quan:** `docs/HG-82/README.md`, Task 1 và Task 2 trong cùng thư mục
 
@@ -21,13 +21,19 @@ Các sự thật cần giữ khi triển khai:
 
 - Phạm vi HG-82 bao gồm **cả `order-service` và `payment-service` trên nhánh HG-82**: Order ghi quyết định, Payment tiêu thụ event và thực hiện refund, Order nhận kết quả cuối. Hai phần đã được code trong cùng nhánh. Contract liên dịch vụ gồm `order.dispute.decision.recorded`, `GET /api/v1/internal/payments/order/:orderId/refundable`, `POST /api/v1/internal/payments/dispute-resolutions/:resolutionId/cancel-for-override`, `payment.dispute.refund.completed` và `payment.dispute.refund.needs_review`, đều gắn `resolutionId`.
 - **Chính sách mở lại khiếu nại sau hoàn tiền (Policy):** Đơn đã hoàn tiền toàn phần (`paymentState = 'refunded'`) kết thúc quyền mở khiếu nại sau hoàn thành (trả HTTP 409 `ORDER_ALREADY_FULLY_REFUNDED`). Đơn hoàn tiền một phần (`paymentState = 'partially_refunded'`) vẫn được phép mở khiếu nại trong cửa sổ 7 ngày từ `completedAt`.
-- **Đối soát & Override an toàn:**
-  - Khi Wallet từ chối 4xx (`credit.outcome === 'rejected'`), Payment gọi lại `getOperation(operationId)` để xác thực chắc chắn không có ledger commit rồi mới chuyển dispute refund sang trạng thái terminal `failed` (giải phóng hạn mức hoàn tiền cho phán quyết thay thế) và phát `payment.dispute.refund.needs_review`. Nếu trạng thái Wallet chưa xác định (`unknown`), giữ nguyên `needs_review` và giữ chỗ reservation.
-  - Trước khi supersede một phán quyết `needs_review` (`action = refund`), Order bắt buộc gọi `POST /api/v1/internal/payments/dispute-resolutions/:resolutionId/cancel-for-override`. Payment chỉ trả `safeToOverride = true` sau khi xác nhận Wallet không ghi nhận chuyển tiền và chuyển refund cũ sang trạng thái terminal `cancelled`/`failed` dưới khóa Payment; nếu Wallet đã commit, Payment đối soát hoàn tất ngay và chặn override (`409 DISPUTE_REFUND_ALREADY_COMPLETED`). Nếu có completion đến muộn sau khi cancel, Payment vẫn đồng bộ `completed` và Order đồng bộ `paymentState` + ghi bản ghi `reconciled_late`.
+- **Đối soát & Override an toàn (Atomic Wallet Cancellation Fence):**
+  - Không bao giờ coi timeout, `processing` stale, HTTP 4xx đơn lẻ hay `getOperation === 'missing'` là điều kiện đủ để hủy refund và nhả reservation.
+  - Wallet cung cấp endpoint nội bộ nguyên tử `POST /api/v1/internal/wallets/refund-operations/cancel` chạy trong transaction `Serializable` dưới cùng `pg_advisory_xact_lock(hashtext(paymentId))` và ràng buộc unique `wallet_transfers(operation_id, idempotency_key)` với `refundCredit`:
+    - Nếu `operationId` đã `completed` ở Wallet: trả `already_completed` kèm `transferId`/`amount` để Payment đối soát hoàn tất ngay và chặn override (`409 DISPUTE_REFUND_ALREADY_COMPLETED`).
+    - Nếu chưa tồn tại: ghi bền vững bản ghi tombstone `status = 'failed'` (giữ `totalAmount = amount` thỏa `wallet_transfers_total_amount_check` và `metadata.failureCode`), ghi `wallet_audit_logs`, trả `cancelled`. Mọi request `refundCredit` đang in-flight hoặc retry muộn cho cùng `operationId` khi vào cùng lock sẽ thấy tombstone và bị Wallet từ chối ngay (`409 Conflict`) mà không ghi sổ và không phát `wallet.refund.needs_review`.
+    - Các truy vấn tổng hoàn tiền ở `wallet-service` (cả `point` và `cash`) chỉ tính các `wallet_transfers` có `status = 'completed'`.
+  - Khi Wallet từ chối 4xx (`credit.outcome === 'rejected'`) đối với dispute refund (hoặc lỗi 4xx non-409), Payment gọi `cancelRefundOperation` để cắm fence nguyên tử trước khi chuyển refund sang terminal `failed` (nhả reservation) và phát `payment.dispute.refund.needs_review`. Nếu fence trả `already_completed`, Payment đối soát `completed`; nếu fence trả `unknown`/lỗi không chắc chắn, giữ nguyên `needs_review` và giữ reservation.
+  - Trước khi supersede một phán quyết `needs_review` (`action = refund`), Order bắt buộc gọi `POST /api/v1/internal/payments/dispute-resolutions/:resolutionId/cancel-for-override`. Payment chỉ trả `safeToOverride = true` sau khi Wallet xác nhận tombstone `cancelled` (`status = 'failed'`) và Payment cập nhật refund cũ sang `cancelled` dưới khóa Payment (giữ nguyên `approvedByUserId`/`approvedAt` để thỏa `refunds_decision_check`, lưu actor override trong `admin_audit_logs`).
   - Event kết quả hoàn tiền lệch guard ở Order **không** bị ghi vào `consumed_events`; thay vào đó được phân loại (`recoverable` / `invalid`) và lưu bền vững vào `order_service.inbound_event_reconciliations` với `safe_payload` chỉ gồm các trường cho phép. Admin xem qua `GET /api/v1/admin/orders/dispute-reconciliations` và phát lại `eventId` gốc sau khi sửa dữ liệu qua `POST /api/v1/admin/orders/dispute-reconciliations/:eventId/replay`.
-- **Tổng hợp Prisma Migrations trên nhánh HG-82 (7 migrations additive):**
-  - `order-service` (6): `20261121000000_add_dispute_evidence_metadata`, `20261121001000_add_dispute_queue_index`, `20261121002000_admin_dispute_resolutions`, `20261122000000_active_dispute_resolution_unique`, `20261122001000_add_order_dispute_category`, `20261122002000_add_inbound_event_reconciliations` (3 migration ngày 22/11 cần chạy `prisma migrate deploy` trước khi khởi chạy code mới).
-  - `payment-service` (1): `20261121002000_dispute_refund_link`.
+- **Tổng hợp Prisma Migrations trên nhánh HG-82 (7 migrations additive, 0 migration mới cho Wallet):**
+  - `order-service` (6): `20261121000000_add_dispute_evidence_metadata`, `20261121001000_add_dispute_queue_index`, `20261121002000_admin_dispute_resolutions` (đã apply trên Prod trước đó), cùng 3 migration mới ngày 22/11 **chưa apply trên Prod**: `20261122000000_active_dispute_resolution_unique`, `20261122001000_add_order_dispute_category`, `20261122002000_add_inbound_event_reconciliations` (bắt buộc chạy `prisma migrate deploy` / workflow `run_migrations=true` trước khi khởi chạy `order-service` mới).
+  - `payment-service` (1): `20261121002000_dispute_refund_link` (đã apply trên Prod).
+  - `wallet-service` (0): tái sử dụng bảng `wallet_transfers` (`status = 'failed'`) và `wallet_audit_logs` hiện có.
 
 ## 2. Action và chuyển trạng thái
 
@@ -125,4 +131,4 @@ Payload quyết định gồm `resolutionId`, `orderId`, `orderCode`, `disputedA
 - [x] Tích hợp Payment consumer/refund có idempotency, phê duyệt/audit và event sau xác nhận Wallet.
 - [x] Tích hợp Order inbox, Notification và Tracking cho trạng thái chờ/kết thúc.
 - [x] Chạy unit test, typecheck, build, lint và Prisma schema validate local.
-- [ ] Chạy migration/test tích hợp trên DB, RabbitMQ và Wallet test local khi Docker khả dụng; chưa kiểm chứng trên deploy.
+- [x] Chạy migration và full integration test local trên PostgreSQL, RabbitMQ và Wallet HTTP thật (`pnpm run test:payment:docker`: 9 files / 83 tests PASS, gồm barrier concurrency & linearizability race tests); chưa kiểm chứng trên deploy.

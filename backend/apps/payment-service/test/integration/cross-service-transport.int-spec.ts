@@ -536,7 +536,9 @@ describe('Gateway + real HTTP + RabbitMQ + isolated service schemas', () => {
     ], `payment-hg82-${randomUUID()}`);
     try {
       const orderPublisher = new OrderOutboxPublisherService(orderOutbox, rabbit);
-      await orderPublisher.triggerPublish();
+      for (let i = 0; i < 10; i++) {
+        if ((await orderPublisher.triggerPublish()) === 0) break;
+      }
       await eventually(async () => (await paymentDb.client.refund.count({ where: { disputeResolutionId: decision.resolutionId } })) === 1);
       await eventually(async () => (await paymentDb.client.outboxEvent.count({ where: {
         eventType: 'payment.dispute.refund.completed',

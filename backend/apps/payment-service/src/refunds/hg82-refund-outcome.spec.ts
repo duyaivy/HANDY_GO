@@ -143,6 +143,7 @@ function fixture(
   const wallet = {
     getOperation: vi.fn().mockResolvedValue(walletResult),
     refundCredit: vi.fn(),
+    cancelRefundOperation: vi.fn(),
   };
   const outbox = { enqueue: vi.fn() };
   const service = new RefundsService(
@@ -211,12 +212,26 @@ describe('HG-82 refund outcome', () => {
     expect(preflight.refundableAmountVnd).toBe('0');
   });
 
-  it('marks dispute refund terminal failed and releases reservation after verifying Wallet 422 rejected without ledger commit', async () => {
+  it('marks dispute refund terminal failed and releases reservation only after Wallet fences the operationId', async () => {
     const f = fixture({ outcome: 'missing' });
     f.wallet.refundCredit.mockResolvedValue({
       outcome: 'rejected',
       status: 422,
       message: 'Insufficient reserve',
+    });
+    f.wallet.cancelRefundOperation.mockResolvedValue({
+      outcome: 'ok',
+      status: 200,
+      data: {
+        outcome: 'cancelled',
+        operationId: `${paymentId}:refund:${refundId}`,
+        transferId: randomUUID(),
+        kind: 'refund',
+        status: 'failed',
+        amount: '0',
+        failureCode: 'WALLET_REJECTED_422',
+        idempotentReplay: false,
+      },
     });
 
     // Before execution: full 500k is reserved
@@ -224,8 +239,15 @@ describe('HG-82 refund outcome', () => {
 
     await f.service.execute(refundId);
 
-    // Must verify getOperation twice: once before refundCredit, once after 422 rejection
-    expect(f.wallet.getOperation).toHaveBeenCalledTimes(2);
+    // Must call atomic Wallet fence before marking terminal failed & releasing reservation
+    expect(f.wallet.cancelRefundOperation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentId,
+        refundId,
+        customerUserId: f.payment.customerUserId,
+        failureCode: 'WALLET_REJECTED_422',
+      }),
+    );
     expect(f.refundRow.status).toBe('failed');
     expect(f.refundRow.failureReason).toBe('WALLET_REJECTED_422: Insufficient reserve');
     expect(f.outbox.enqueue).toHaveBeenCalledTimes(1);
@@ -281,15 +303,16 @@ describe('HG-82 refund outcome', () => {
     expect((await f.queryService.refundableByOrder(orderId)).refundableAmountVnd).toBe('400000');
   });
 
-  it('keeps reservation held in needs_review when Wallet 422 verification getOperation returns unknown', async () => {
+  it('keeps reservation held in needs_review when Wallet 422 cancellation fence returns unknown', async () => {
     const f = fixture({ outcome: 'missing' });
-    f.wallet.getOperation
-      .mockResolvedValueOnce({ outcome: 'missing' })
-      .mockResolvedValueOnce({ outcome: 'unknown', message: 'Wallet timeout' });
     f.wallet.refundCredit.mockResolvedValue({
       outcome: 'rejected',
       status: 422,
       message: 'Conflict',
+    });
+    f.wallet.cancelRefundOperation.mockResolvedValue({
+      outcome: 'unknown',
+      message: 'Wallet timeout',
     });
 
     await f.service.execute(refundId);
@@ -299,24 +322,24 @@ describe('HG-82 refund outcome', () => {
     expect((await f.queryService.refundableByOrder(orderId)).refundableAmountVnd).toBe('0');
   });
 
-  it('completes the refund if Wallet 4xx verification getOperation reveals a committed transfer', async () => {
+  it('completes the refund if Wallet 4xx cancellation fence reveals an already committed transfer', async () => {
     const f = fixture({ outcome: 'missing' }, { amountVnd: 150000n });
-    f.wallet.getOperation
-      .mockResolvedValueOnce({ outcome: 'missing' })
-      .mockResolvedValueOnce({
-        outcome: 'ok',
-        data: {
-          operationId: `${paymentId}:refund:${refundId}`,
-          kind: 'refund',
-          status: 'completed',
-          amount: '150000',
-          transferId,
-        },
-      });
     f.wallet.refundCredit.mockResolvedValue({
       outcome: 'rejected',
       status: 409,
       message: 'Already processed',
+    });
+    f.wallet.cancelRefundOperation.mockResolvedValue({
+      outcome: 'ok',
+      status: 200,
+      data: {
+        outcome: 'already_completed',
+        operationId: `${paymentId}:refund:${refundId}`,
+        kind: 'refund',
+        status: 'completed',
+        amount: '150000',
+        transferId,
+      },
     });
 
     await f.service.execute(refundId);
@@ -328,6 +351,34 @@ describe('HG-82 refund outcome', () => {
         eventType: EVENT_PATTERNS.PAYMENT_DISPUTE_REFUND_COMPLETED,
       }),
     );
+  });
+
+  it('marks refund cancelled without emitting needs_review when execute hits an override cancellation fence', async () => {
+    const f = fixture({ outcome: 'missing' }, { amountVnd: 200000n });
+    f.wallet.refundCredit.mockResolvedValue({
+      outcome: 'rejected',
+      status: 409,
+      message: 'Refund operation was cancelled',
+    });
+    f.wallet.cancelRefundOperation.mockResolvedValue({
+      outcome: 'ok',
+      status: 200,
+      data: {
+        outcome: 'cancelled',
+        operationId: `${paymentId}:refund:${refundId}`,
+        transferId: randomUUID(),
+        kind: 'refund',
+        status: 'failed',
+        amount: '0',
+        failureCode: 'CANCELLED_FOR_OVERRIDE',
+        idempotentReplay: true,
+      },
+    });
+
+    await f.service.execute(refundId);
+
+    expect(f.refundRow.status).toBe('cancelled');
+    expect(f.outbox.enqueue).not.toHaveBeenCalled();
   });
 
   it('does not emit needs_review when Wallet refundCredit returns unknown (timeout/5xx)', async () => {
@@ -343,15 +394,39 @@ describe('HG-82 refund outcome', () => {
     expect(f.outbox.enqueue).not.toHaveBeenCalled();
   });
 
-  describe('cancelDisputeRefundForOverride & late completion safety', () => {
-    it('cancels a needs_review refund and releases reservation after confirming Wallet has no operation', async () => {
+  describe('cancelDisputeRefundForOverride & atomic Wallet fence safety', () => {
+    it('cancels a needs_review refund and releases reservation only after Wallet commits the cancellation fence', async () => {
       const f = fixture({ outcome: 'missing' });
+      f.wallet.cancelRefundOperation.mockResolvedValue({
+        outcome: 'ok',
+        status: 200,
+        data: {
+          outcome: 'cancelled',
+          operationId: `${paymentId}:refund:${refundId}`,
+          transferId: randomUUID(),
+          kind: 'refund',
+          status: 'failed',
+          amount: '0',
+          failureCode: 'CANCELLED_FOR_OVERRIDE',
+          idempotentReplay: false,
+        },
+      });
       const res = await f.service.cancelDisputeRefundForOverride(resolutionId, {
         orderId,
         adminUserId,
         reason: 'Override to smaller refund',
       });
 
+      expect(f.wallet.cancelRefundOperation).toHaveBeenCalledWith({
+        paymentId,
+        refundId,
+        customerUserId: f.payment.customerUserId,
+        amount: '500000',
+        actorUserId: adminUserId,
+        reason: 'Override to smaller refund',
+        failureCode: 'CANCELLED_FOR_OVERRIDE',
+      });
+      expect(f.wallet.getOperation).not.toHaveBeenCalled();
       expect(res).toMatchObject({
         safeToOverride: true,
         outcome: 'cancelled',
@@ -368,20 +443,21 @@ describe('HG-82 refund outcome', () => {
       );
     });
 
-    it('blocks override and immediately reconciles when Wallet already committed the old refund', async () => {
-      const f = fixture(
-        {
-          outcome: 'ok',
-          data: {
-            operationId: `${paymentId}:refund:${refundId}`,
-            kind: 'refund',
-            status: 'completed',
-            amount: '200000',
-            transferId,
-          },
+    it('blocks override and immediately reconciles when Wallet fence reports already_completed', async () => {
+      const f = fixture({ outcome: 'missing' }, { amountVnd: 200000n });
+      f.wallet.cancelRefundOperation.mockResolvedValue({
+        outcome: 'ok',
+        status: 200,
+        data: {
+          outcome: 'already_completed',
+          operationId: `${paymentId}:refund:${refundId}`,
+          kind: 'refund',
+          status: 'completed',
+          amount: '200000',
+          transferId,
+          idempotentReplay: true,
         },
-        { amountVnd: 200000n },
-      );
+      });
 
       const res = await f.service.cancelDisputeRefundForOverride(resolutionId, {
         orderId,
@@ -405,7 +481,7 @@ describe('HG-82 refund outcome', () => {
       );
     });
 
-    it('blocks override while refund execution is actively processing or Wallet status is uncertain', async () => {
+    it('blocks override while refund execution is actively processing or Wallet fence is uncertain/rejected', async () => {
       const inFlight = fixture(
         { outcome: 'missing' },
         { status: 'processing', updatedAt: new Date() },
@@ -418,9 +494,13 @@ describe('HG-82 refund outcome', () => {
         safeToOverride: false,
         outcome: 'refund_in_progress',
       });
-      expect(inFlight.wallet.getOperation).not.toHaveBeenCalled();
+      expect(inFlight.wallet.cancelRefundOperation).not.toHaveBeenCalled();
 
-      const uncertain = fixture({ outcome: 'unknown', message: 'timeout' });
+      const uncertain = fixture({ outcome: 'missing' });
+      uncertain.wallet.cancelRefundOperation.mockResolvedValue({
+        outcome: 'unknown',
+        message: 'timeout',
+      });
       const resUncertain = await uncertain.service.cancelDisputeRefundForOverride(
         resolutionId,
         { orderId, adminUserId, reason: 'Try override while wallet down' },
@@ -430,6 +510,22 @@ describe('HG-82 refund outcome', () => {
         outcome: 'wallet_uncertain',
       });
       expect(uncertain.refundRow.status).toBe('needs_review');
+
+      const rejected = fixture({ outcome: 'missing' });
+      rejected.wallet.cancelRefundOperation.mockResolvedValue({
+        outcome: 'rejected',
+        status: 409,
+        message: 'Cannot cancel pending operation',
+      });
+      const resRejected = await rejected.service.cancelDisputeRefundForOverride(
+        resolutionId,
+        { orderId, adminUserId, reason: 'Try override when fence rejected' },
+      );
+      expect(resRejected).toMatchObject({
+        safeToOverride: false,
+        outcome: 'wallet_uncertain',
+      });
+      expect(rejected.refundRow.status).toBe('needs_review');
     });
 
     it('reconciles a late Wallet completion even if the refund was cancelled concurrently during execute', async () => {

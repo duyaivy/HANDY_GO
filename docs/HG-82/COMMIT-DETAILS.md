@@ -21,6 +21,9 @@ Tài liệu này ghi nhận thay đổi kỹ thuật trên nhánh `feature/HG-82
 | **`d8fb7f98`** | `fix(HG-82): persist disputeCategory, fix resolveDispute status check order, and allow partially_refunded filter` | **Review Fix #07** | Thêm cột `orders.dispute_category` để lưu và trả về `disputeCategory` trong `OrderResponseDto` & `adminFindDisputes`; đảo thứ tự kiểm tra `order.status !== 'disputed'` trước `order.disputePreviousStatus === 'completed'` trong `resolveDispute`; bổ sung `'partially_refunded'` vào `QueryOrderDto.paymentState`. Chi tiết tại mục 13. |
 | **`df57b720`** | `refactor(HG-82): extract resolveCompletedDispute helpers and centralize HG-82 constants` | **Review Fix #08** | Gom các magic numbers của HG-82 vào `ORDER_CONSTANTS` và tách `OrdersService.resolveCompletedDispute` thành 4 helper có trách nhiệm đơn lẻ (`validateCompletedDisputeInput`, `findIdempotentDisputeResolution`, `preflightRefundEligibility`, `commitCompletedDisputeTx`). Chi tiết tại mục 14. |
 | **`6c6064dc`** | `test(HG-82): add unit tests for PaymentRefundClient, dispute resolution lookup, warranty completion, and tracking consumer` | **Review Fix #09** | Bổ sung unit test cho 5 đường dẫn trọng yếu của HG-82: `PaymentRefundClient.byOrder` (`payment-refund.client.spec.ts`), `GET /admin/orders/dispute-resolutions/:resolutionId` (200/403/404), `confirmCompletion` cho bảo hành (`order.warranty.completed`), 3 handler ở `TrackingEventsConsumer` và `SummaryService`. Chi tiết tại mục 15. |
+| **`682d74e0`** | `fix(HG-82): reconcile mismatched refund events, prevent override double-refund, and enforce full-refund policy` | **Review Fix #10 (P1/P2)** | Bổ sung bảng `order_service.inbound_event_reconciliations` + API replay, phối hợp `cancel-for-override` trước khi supersede `needs_review`, giải phóng reservation sau 4xx và khóa khiếu nại mới khi `paymentState = 'refunded'`. |
+| **`71e10c74`** / **`6f9fd04a`** | `test(deploy): register HG-82 reconciliation migration in onboarding proof` & merge `origin/main` | **CI & Merge Sync** | Đăng ký migration `20261122002000_add_inbound_event_reconciliations` vào `OnboardingMigrationProofTests` và merge `origin/main` (`0bd37b7f`, PR #96). |
+| ***(HEAD commit)*** | `fix(HG-82): add linearizable Wallet cancellation fence for refund overrides` | **Review Fix #11 (P1 Blocking)** | Bổ sung atomic Wallet cancellation handshake (`POST /internal/wallets/refund-operations/cancel`, tombstone `status = 'failed'` dưới cùng `pg_advisory_xact_lock(hashtext(paymentId))` + `Serializable` retry), bỏ phụ thuộc `getOperation === 'missing'`/stale timeout khi hủy refund, sửa `refunds_decision_check` khi cancel refund đã duyệt, và thêm barrier concurrency + linearizability race integration tests trên PostgreSQL/Wallet thật. Chi tiết tại mục 16. |
 
 ---
 
@@ -562,3 +565,46 @@ Trong `PaymentEventsConsumer.processDisputeRefund`:
 - `pnpm exec vitest run apps/order-service apps/tracking-service apps/payment-service`: **PASS**.
 - `pnpm run typecheck`: **PASS**.
 - `pnpm exec oxlint apps/order-service apps/tracking-service`: **PASS** (0 warnings, 0 errors).
+
+---
+
+## 16. Review Fix #11 (P1 Blocking): Atomic Wallet Cancellation Fence Cho Refund Override & 4xx Release
+
+### 16.1. Nguyên nhân gốc (Concurrency / Financial Safety)
+
+- Trước đây `RefundsService.cancelDisputeRefundForOverride()` coi `wallet.getOperation(operationId) === 'missing'` (kể cả khi `processing` đã stale > 30s) là điều kiện đủ để hủy refund cũ và nhả reservation (`safeToOverride = true`), đồng thời `RefundsService.execute()` cũng chỉ kiểm tra `getOperation === 'missing'` sau HTTP 4xx trước khi gọi `markFailedTerminal`.
+- Nếu một lời gọi `wallet.refundCredit()` cũ vẫn đang in-flight (chậm mạng/xử lý trước khi commit ở Wallet), admin override có thể hủy refund cũ, tạo và commit refund mới, rồi request cũ đến Wallet sau đó và commit thêm lần nữa $\rightarrow$ khách hàng nhận vượt hạn mức được duyệt (double-refund / overspend).
+- Ngoài ra, khi `cancelDisputeRefundForOverride` hủy một bản ghi `Refund` đã được duyệt (`approvedByUserId IS NOT NULL`), việc gán thêm `rejectedByUserId`/`rejectedAt` vi phạm CHECK constraint `refunds_decision_check` của PostgreSQL (`"approved_by_user_id" IS NULL OR "rejected_by_user_id" IS NULL`).
+
+### 16.2. Thay đổi mã nguồn (`wallet-service` & `payment-service`)
+
+1. **`backend/apps/wallet-service` (0 migration mới — tái sử dụng `wallet_transfers` `status = 'failed'`):**
+   - Thêm DTO `CancelRefundOperationDto` (`src/refund-adjustment/dto/cancel-refund-operation.dto.ts`) và endpoint nội bộ `POST /api/v1/internal/wallets/refund-operations/cancel` (`RefundAdjustmentController`, bảo vệ bởi `assertTrustedSecret`).
+   - Thêm `RefundAdjustmentService.cancelRefundOperation(dto)` chạy trong transaction `Serializable` có retry (`P2034` / `P2002` / `40001` / `40P01`), khóa cùng `pg_advisory_xact_lock(hashtext(paymentId))` với `refundTx`:
+     - Nếu `wallet_transfers` cho `operationId` / `idempotencyKey` đã `completed`: trả `{ outcome: 'already_completed', transferId, amount, ... }`, không bao giờ ghi đè.
+     - Nếu đã `failed`: trả `{ outcome: 'cancelled', failureCode, idempotentReplay: true }` (idempotent).
+     - Nếu chưa có: tạo nguyên tử bản ghi tombstone `wallet_transfers` (`status = 'failed'`, `totalAmount = BigInt(dto.amount)` thỏa `wallet_transfers_total_amount_check`, `metadata.failureCode`) và ghi `wallet_audit_logs` (`wallet.refund.cancelled`).
+   - Cập nhật `RefundAdjustmentService.refundTx`:
+     - Bọc trong `runSerializableWithRetry` và cho phép propagate `P2002`/`P2034`/`40001`/`40P01` qua khối `catch` của `createBalancedTransferInTx` để đọc lại snapshot sau khi đối thủ commit.
+     - Khi thấy `existing.status === 'failed'`, từ chối ngay với HTTP `409 Conflict` (`Refund operation was cancelled`) **không** ghi sổ và **không** phát `wallet.refund.needs_review`.
+     - Lọc `status: 'completed'` trong cả hai truy vấn cộng dồn refund cũ (Cash `findMany` và Point `aggregate`) để tombstone `failed` không bao giờ làm lệch hạn mức hay snapshot funding.
+2. **`backend/apps/payment-service`:**
+   - Thêm `WalletClient.cancelRefundOperation()` (`src/common/clients/wallet.client.ts`).
+   - Cập nhật `RefundsService.cancelDisputeRefundForOverride()`: bắt buộc chạy handshake `wallet.cancelRefundOperation(...)` khi `existing.approvedAt` tồn tại; chỉ trả `safeToOverride = true` khi Wallet xác nhận tombstone `cancelled` (`status = 'failed'`); nếu Wallet trả `already_completed` thì đối soát hoàn tất ngay và chặn override; nếu Wallet trả `unknown`/lỗi thì trả `wallet_uncertain` và giữ nguyên reservation. Đồng thời không ghi `rejectedByUserId`/`rejectedAt` lên refund đã có `approvedByUserId` (thỏa `refunds_decision_check`, vẫn ghi đầy đủ actor override trong `admin_audit_logs`).
+   - Cập nhật `RefundsService.execute()`: trước khi gọi `markFailedTerminal` giải phóng reservation sau lỗi 4xx (cho dispute refund hoặc lỗi non-409), gọi `wallet.cancelRefundOperation(...)` để cắm tombstone ở Wallet trước; thêm helper `markCancelledByWalletFence` xử lý sạch trường hợp refund cũ gặp tombstone `CANCELLED_FOR_OVERRIDE` mà không phát trùng `needs_review`.
+3. **Kiểm thử bổ sung:**
+   - Unit tests: `refund-adjustment.service.spec.ts` (tombstone, idempotent replay, `already_completed`, `refund()` bị chặn 409 khi gặp fence) và `hg82-refund-outcome.spec.ts` (fence handshake cho cả override lẫn 4xx release).
+   - Real PostgreSQL + Wallet HTTP integration tests (`funded-wallet-refunds.int-spec.ts`):
+     - **Barrier concurrency test:** giữ `refundCredit` (60 VND) của refund cũ tại barrier ngay trước commit Wallet + ép `processing` stale > 30s; chạy đồng thời Admin override tạo refund mới (40 VND); thả barrier và khẳng định refund cũ bị tombstone Wallet chặn (`409`, status `cancelled`), chỉ refund mới (40 VND) commit, số dư khách tăng đúng `+40n` (không bao giờ `+100n`).
+     - **Linearizability race tests (Point & Cash, 3 vòng mỗi loại):** dùng barrier đồng bộ bắn `refundCredit` (60 VND) và `cancel-for-override` (40 VND) cùng lúc vào Postgres/Wallet thật; kiểm chứng bất biến tuyến tính ở mọi vòng: chỉ **đúng 1** trong hai khoản commit, không bao giờ overspend.
+   - Sửa `cross-service-transport.int-spec.ts` drain hết các batch outbox của `OrderOutboxPublisherService` (giới hạn 20 bản ghi/batch) khi chạy song song trong cùng DB test.
+
+### 16.3. Kết quả kiểm chứng
+
+- `pnpm exec vitest run apps/wallet-service/src/ apps/payment-service/src/ apps/order-service/src/`: **PASS** (`78` test files / `680` tests passed; 2 DB-gated files skipped).
+- `pnpm run typecheck` & `pnpm run typecheck:payment`: **PASS**.
+- `pnpm exec oxlint` trên toàn bộ file chạm vào: **PASS** (0 warnings, 0 errors).
+- `pnpm exec nest build wallet-service` & `pnpm exec nest build payment-service`: **PASS**.
+- `pnpm run test:payment:docker` (PostgreSQL 16 + RabbitMQ + Wallet HTTP thật + toàn bộ Prisma migrations): **PASS** (`9/9` test files, `83/83` tests passed).
+- `OnboardingMigrationProofTests` (`backend/deploy/production/tests/test_database_incident.py`): **PASS** (không phát sinh migration mới; nhánh HG-82 giữ nguyên tổng 7 migrations: 6 `order-service`, 1 `payment-service`, 0 `wallet-service`).
+

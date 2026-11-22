@@ -322,6 +322,41 @@ export class RefundsService {
     });
   }
 
+  private async markCancelledByWalletFence(params: {
+    id: string;
+    paymentId: string;
+    approvedByUserId: string | null;
+    failureCode: string;
+  }): Promise<void> {
+    const { id, paymentId, approvedByUserId, failureCode } = params;
+    await this.database.client.$transaction(async (tx) => {
+      const locked = await this.lockPayment(tx, paymentId);
+      if (!locked) return;
+      const updated = await tx.refund.updateMany({
+        where: { id, status: { in: ['needs_review', 'processing'] } },
+        data: {
+          status: 'cancelled',
+          failureReason: failureCode.slice(0, 255),
+          updatedAt: new Date(),
+        },
+      });
+      if (updated.count !== 1) return;
+      if (approvedByUserId) {
+        await this.audit.record(tx, {
+          actorUserId: approvedByUserId,
+          action: 'refund.cancelled_by_wallet_fence',
+          entityType: 'refund',
+          entityId: id,
+          after: {
+            status: 'cancelled',
+            failureCode,
+          },
+          reason: failureCode,
+        });
+      }
+    });
+  }
+
   private async markFailedTerminal(params: {
     id: string;
     paymentId: string;
@@ -518,34 +553,72 @@ export class RefundsService {
         grossAmount: payment.amount.toString(),
       });
       if (credit.outcome === 'rejected') {
-        // Never assume HTTP 4xx alone proves Wallet did not commit; verify via getOperation first.
-        const verified = await this.wallet.getOperation(operationId);
-        if (verified.outcome === 'ok') {
-          result = verified;
-        } else if (verified.outcome === 'missing') {
-          const failureCode = `WALLET_REJECTED_${credit.status ?? 400}`;
-          const failureReason = `${failureCode}: ${credit.message}`.slice(
-            0,
-            255,
-          );
-          if (row.disputeResolutionId || credit.status !== 409) {
-            await this.markFailedTerminal({
-              id,
-              paymentId: payment.id,
-              orderId: payment.orderId,
-              disputeResolutionId: row.disputeResolutionId ?? null,
-              approvedByUserId: row.approvedByUserId ?? null,
-              failureCode,
-              failureReason,
-            });
+        const failureCode = `WALLET_REJECTED_${credit.status ?? 400}`;
+        const failureReason = `${failureCode}: ${credit.message}`.slice(0, 255);
+        if (row.disputeResolutionId || credit.status !== 409) {
+          // Never release a refund reservation based on HTTP 4xx or getOperation === 'missing'.
+          // Atomically fence the operationId at Wallet first so no concurrent/retried refundCredit can commit later.
+          const fence = await this.wallet.cancelRefundOperation({
+            paymentId: payment.id,
+            refundId: id,
+            customerUserId: payment.customerUserId,
+            amount: row.amountVnd.toString(),
+            actorUserId: row.approvedByUserId ?? undefined,
+            reason: failureReason,
+            failureCode,
+          });
+          if (fence.outcome === 'ok') {
+            if (fence.data.outcome === 'already_completed') {
+              result = { outcome: 'ok', status: fence.status, data: fence.data };
+            } else if (
+              fence.data.outcome === 'cancelled' &&
+              fence.data.operationId === operationId &&
+              fence.data.kind === 'refund' &&
+              fence.data.status === 'failed'
+            ) {
+              if (
+                fence.data.idempotentReplay &&
+                fence.data.failureCode === 'CANCELLED_FOR_OVERRIDE'
+              ) {
+                await this.markCancelledByWalletFence({
+                  id,
+                  paymentId: payment.id,
+                  approvedByUserId: row.approvedByUserId ?? null,
+                  failureCode: 'CANCELLED_FOR_OVERRIDE',
+                });
+                return;
+              }
+              await this.markFailedTerminal({
+                id,
+                paymentId: payment.id,
+                orderId: payment.orderId,
+                disputeResolutionId: row.disputeResolutionId ?? null,
+                approvedByUserId: row.approvedByUserId ?? null,
+                failureCode,
+                failureReason,
+              });
+              return;
+            } else {
+              await this.restoreNeedsReview(id, fundingBlocked);
+              return;
+            }
+          } else {
+            // Uncertain fence outcome: keep reservation held for reconciliation.
+            await this.restoreNeedsReview(id, fundingBlocked);
             return;
           }
-          await this.restoreNeedsReview(id, failureReason);
-          return;
         } else {
-          // Uncertain verification outcome: keep reservation held for reconciliation.
-          await this.restoreNeedsReview(id, fundingBlocked);
-          return;
+          // Non-dispute 409 (e.g. temporary Cash treasury shortfall): keep reservation held so the same operationId can resume.
+          const verified = await this.wallet.getOperation(operationId);
+          if (verified.outcome === 'ok') {
+            result = verified;
+          } else {
+            await this.restoreNeedsReview(
+              id,
+              verified.outcome === 'missing' ? failureReason : fundingBlocked,
+            );
+            return;
+          }
         }
       } else if (credit.outcome !== 'ok') {
         await this.restoreNeedsReview(id, fundingBlocked);
@@ -564,6 +637,15 @@ export class RefundsService {
       committed.operationId === operationId &&
       committed.kind === 'refund'
     ) {
+      if (committed.failureCode === 'CANCELLED_FOR_OVERRIDE') {
+        await this.markCancelledByWalletFence({
+          id,
+          paymentId: payment.id,
+          approvedByUserId: row.approvedByUserId ?? null,
+          failureCode: 'CANCELLED_FOR_OVERRIDE',
+        });
+        return;
+      }
       if (row.disputeResolutionId) {
         const failureCode = (
           typeof committed.failureCode === 'string' && committed.failureCode.trim()
@@ -655,17 +737,39 @@ export class RefundsService {
       };
     }
 
+    let walletFenced = false;
     if (existing.approvedAt) {
       const operationId = `${existing.paymentId}:refund:${existing.id}`;
-      const op = await this.wallet.getOperation(operationId);
-      if (op.outcome === 'ok') {
+      // Atomic cancellation handshake at Wallet: never rely on getOperation === 'missing'
+      // or stale processing timeout, because an in-flight refundCredit could still commit late.
+      const fence = await this.wallet.cancelRefundOperation({
+        paymentId: existing.paymentId,
+        refundId: existing.id,
+        customerUserId: existing.payment.customerUserId,
+        amount: existing.amountVnd.toString(),
+        actorUserId: params.adminUserId,
+        reason: params.reason.trim(),
+        failureCode: 'CANCELLED_FOR_OVERRIDE',
+      });
+      if (fence.outcome !== 'ok') {
+        return {
+          safeToOverride: false,
+          outcome: 'wallet_uncertain',
+          refundId: existing.id,
+          refundStatus: existing.status,
+          paymentId: existing.paymentId,
+          paymentStatus: existing.payment.status,
+          refundAmountVnd: existing.amountVnd.toString(),
+        };
+      }
+      if (fence.data.outcome === 'already_completed') {
         if (
-          this.isVerifiedWalletCommit(op.data, operationId, existing.amountVnd)
+          this.isVerifiedWalletCommit(fence.data, operationId, existing.amountVnd)
         ) {
           const reconciled = await this.completeRefundFromWalletCommit(
             existing.paymentId,
             existing.id,
-            op.data.transferId,
+            fence.data.transferId,
           );
           return {
             safeToOverride: false,
@@ -678,18 +782,6 @@ export class RefundsService {
             refundAmountVnd: existing.amountVnd.toString(),
           };
         }
-        if (op.data.status !== 'failed') {
-          return {
-            safeToOverride: false,
-            outcome: 'wallet_uncertain',
-            refundId: existing.id,
-            refundStatus: existing.status,
-            paymentId: existing.paymentId,
-            paymentStatus: existing.payment.status,
-            refundAmountVnd: existing.amountVnd.toString(),
-          };
-        }
-      } else if (op.outcome !== 'missing') {
         return {
           safeToOverride: false,
           outcome: 'wallet_uncertain',
@@ -700,6 +792,23 @@ export class RefundsService {
           refundAmountVnd: existing.amountVnd.toString(),
         };
       }
+      if (
+        fence.data.outcome !== 'cancelled' ||
+        fence.data.operationId !== operationId ||
+        fence.data.kind !== 'refund' ||
+        fence.data.status !== 'failed'
+      ) {
+        return {
+          safeToOverride: false,
+          outcome: 'wallet_uncertain',
+          refundId: existing.id,
+          refundStatus: existing.status,
+          paymentId: existing.paymentId,
+          paymentStatus: existing.payment.status,
+          refundAmountVnd: existing.amountVnd.toString(),
+        };
+      }
+      walletFenced = true;
     }
 
     if (['failed', 'cancelled'].includes(existing.status)) {
@@ -731,6 +840,17 @@ export class RefundsService {
           refundAmountVnd: current.amountVnd.toString(),
         };
       }
+      if (!walletFenced && current.approvedAt) {
+        return {
+          safeToOverride: false,
+          outcome: 'wallet_uncertain' as const,
+          refundId: current.id,
+          refundStatus: current.status,
+          paymentId: locked.id,
+          paymentStatus: locked.status,
+          refundAmountVnd: current.amountVnd.toString(),
+        };
+      }
       if (['failed', 'cancelled'].includes(current.status)) {
         return {
           safeToOverride: true,
@@ -742,29 +862,17 @@ export class RefundsService {
           refundAmountVnd: current.amountVnd.toString(),
         };
       }
-      if (
-        current.status === 'processing' &&
-        Date.now() - current.updatedAt.getTime() < PROCESSING_STALE_MS
-      ) {
-        return {
-          safeToOverride: false,
-          outcome: 'refund_in_progress' as const,
-          refundId: current.id,
-          refundStatus: 'processing',
-          paymentId: locked.id,
-          paymentStatus: locked.status,
-          refundAmountVnd: current.amountVnd.toString(),
-        };
-      }
       const now = new Date();
       const cancelled = await tx.refund.update({
         where: { id: current.id },
         data: {
           status: 'cancelled',
-          rejectedByUserId: params.adminUserId,
-          rejectedAt: now,
+          ...(current.approvedByUserId
+            ? {}
+            : { rejectedByUserId: params.adminUserId, rejectedAt: now }),
           decisionNote: params.reason.trim().slice(0, 2000),
           failureReason: 'SUPERSEDED_BY_ADMIN_OVERRIDE',
+          updatedAt: now,
         },
       });
       await this.audit.record(tx, {

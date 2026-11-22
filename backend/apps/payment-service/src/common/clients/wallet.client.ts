@@ -17,6 +17,17 @@ export interface WalletOperationStatus {
   failureCode?: string;
 }
 
+export interface WalletRefundCancelResult {
+  outcome: 'cancelled' | 'already_completed';
+  operationId: string;
+  transferId?: string;
+  kind?: string;
+  status: string;
+  amount?: string;
+  failureCode?: string;
+  idempotentReplay?: boolean;
+}
+
 @Injectable()
 export class WalletClient {
   private readonly logger = new Logger(WalletClient.name);
@@ -38,6 +49,22 @@ export class WalletClient {
 
   refundCredit(userId: string, body: { paymentId: string; refundId: string; amount: string; method: 'point' | 'cash'; grossAmount: string }) {
     return this.post(`/internal/wallets/${userId}/refund-credit`, body);
+  }
+
+  cancelRefundOperation(body: {
+    paymentId: string;
+    refundId: string;
+    customerUserId: string;
+    amount: string;
+    actorUserId?: string;
+    reason: string;
+    failureCode?: string;
+  }) {
+    return this.call<WalletRefundCancelResult>(
+      'POST',
+      '/internal/wallets/refund-operations/cancel',
+      body,
+    );
   }
 
   collectCommission(body: { paymentId: string; workerUserId: string; amount: string; idempotencyKey: string }) {

@@ -252,6 +252,7 @@ describe('Funded refunds using real Payment/Wallet DB and internal HTTP', () => 
   it('releases reservation after verified Wallet 4xx rejection and completes Admin override with smaller refund', async () => {
     const payment = await settled('cash');
     await walletDb.wallet.update({ where: { id: platformId }, data: { balance: 50n } });
+    try {
     const serviceId = randomUUID();
     const request = await orderDb.serviceRequest.create({ data: {
       requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
@@ -331,7 +332,9 @@ describe('Funded refunds using real Payment/Wallet DB and internal HTTP', () => 
     expect(finalOrder.paymentState).toBe('partially_refunded');
     expect((await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance).toBe(customerBefore + 40n);
     expect((await query.refundableByOrder(order.id)).refundableAmountVnd).toBe('60');
-    await walletDb.wallet.update({ where: { id: platformId }, data: { balance: 1000n } });
+    } finally {
+      await walletDb.wallet.update({ where: { id: platformId }, data: { balance: 1000n } });
+    }
   });
 
   it('parks mismatched payment outcome durably and replays original eventId once after repair', async () => {
@@ -468,6 +471,233 @@ describe('Funded refunds using real Payment/Wallet DB and internal HTTP', () => 
     expect(await paymentDb.client.refund.count({ where: { paymentId: payment.id } })).toBe(1);
     expect((await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance).toBe(beforeBal + 60n);
   });
+
+  it('barrier concurrency: in-flight old refundCredit held before Wallet commit cannot double-credit when Admin overrides with a new refund', async () => {
+    const payment = await settled('point');
+    const serviceId = randomUUID();
+    const request = await orderDb.serviceRequest.create({ data: {
+      requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
+    } });
+    const proposal = await orderDb.bookingProposal.create({ data: {
+      serviceRequestId: request.id, customerUserId: customer, workerUserId: worker,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test barrier fence',
+      expiresAt: new Date(Date.now() + 60000),
+    } });
+    const completedAt = new Date(Date.now() - 86400000);
+    const order = await orderDb.order.create({ data: {
+      id: payment.orderId, orderCode: randomUUID().slice(0, 24),
+      serviceRequestId: request.id, bookingProposalId: proposal.id,
+      customerUserId: customer, workerUserId: worker, serviceId,
+      selectionSource: 'bid', agreedPrice: '100', agreedScope: 'Test barrier fence',
+      addressText: 'Test', latitude: 10, longitude: 106,
+      status: 'disputed', paymentState: 'paid', disputePreviousStatus: 'completed',
+      disputedAt: new Date(), completedAt, firstCompletedAt: completedAt,
+    } });
+    const orderOutbox = new OrderOutboxRepository(orderDb);
+    const query = new PaymentQueryService(paymentDb);
+    const orderService = new OrdersService(orderDb, orderOutbox, {
+      byOrder: async (id: string) => {
+        const result = await query.refundableByOrder(id);
+        return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
+      },
+      cancelDisputeRefundForOverride: (resId: string, body: { orderId: string; adminUserId: string; reason: string }) =>
+        refunds.cancelDisputeRefundForOverride(resId, body),
+    } as never);
+
+    // 1. Admin records old refund (60 VND); Payment creates refund reservation.
+    const first = await orderService.resolveCompletedDispute(order.id, admin, {
+      action: 'refund', resolutionNote: 'Hoàn 60k lần đầu (sẽ kẹt in-flight)', refundAmountVnd: '60', idempotencyKey: randomUUID(),
+    }, ['Admin']);
+    const paymentOutbox = new PaymentOutboxService(paymentDb);
+    const dispute = new DisputeRefundService({} as never, paymentDb, paymentOutbox, new AdminAuditService(paymentDb), refunds);
+    await paymentDb.client.$transaction((tx) => dispute.recordDecision({
+      action: 'refund', resolutionId: first.resolutionId, orderId: order.id, paymentId: payment.id,
+      customerUserId: customer, workerUserId: worker, adminUserId: admin, refundAmountVnd: '60', resolutionNote: 'Hoàn 60k lần đầu',
+    }, tx));
+    const oldRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: first.resolutionId } });
+
+    // 2. Barrier holds the old refundCredit HTTP call right before reaching Wallet commit!
+    let signalAtBarrier!: () => void;
+    const reachedBarrier = new Promise<void>((resolve) => { signalAtBarrier = resolve; });
+    let releaseBarrier!: () => void;
+    const barrierReleased = new Promise<void>((resolve) => { releaseBarrier = resolve; });
+
+    class BarrierWalletClient extends WalletClient {
+      override async refundCredit(...args: Parameters<WalletClient['refundCredit']>) {
+        signalAtBarrier();
+        await barrierReleased;
+        return super.refundCredit(...args);
+      }
+    }
+    const stalledRefunds = new RefundsService(
+      paymentDb,
+      new AdminAuditService(paymentDb),
+      new BarrierWalletClient(walletConfig),
+      paymentOutbox,
+    );
+    const customerBefore = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+
+    // Launch old execute() and wait until it has claimed `processing` and is in-flight right before Wallet commit.
+    const oldExecutePromise = stalledRefunds.execute(oldRefund.id);
+    await reachedBarrier;
+
+    // Simulate >30s stale processing + Order resolution in needs_review while old refundCredit is STILL in-flight!
+    await paymentDb.client.refund.update({
+      where: { id: oldRefund.id },
+      data: { updatedAt: new Date(Date.now() - 60_000) },
+    });
+    await orderDb.orderDisputeResolution.update({
+      where: { id: first.resolutionId },
+      data: { state: 'needs_review' },
+    });
+
+    // 3. Concurrently run Admin override (40 VND) while old refundCredit (60 VND) is held at barrier.
+    // Override calls cancel-for-override -> Wallet atomically commits tombstone for oldRefund.
+    const second = await orderService.resolveCompletedDispute(order.id, admin, {
+      action: 'refund', resolutionNote: 'Override hoàn 40k', refundAmountVnd: '40', idempotencyKey: randomUUID(),
+    }, ['Admin']);
+    await paymentDb.client.$transaction((tx) => dispute.recordDecision({
+      action: 'refund', resolutionId: second.resolutionId, orderId: order.id, paymentId: payment.id,
+      customerUserId: customer, workerUserId: worker, adminUserId: admin, refundAmountVnd: '40', resolutionNote: 'Override hoàn 40k',
+    }, tx));
+    const newRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: second.resolutionId } });
+
+    // 4. Release the barrier so old in-flight refundCredit (60 VND) races directly with new refund (40 VND)!
+    releaseBarrier();
+    await Promise.all([oldExecutePromise, refunds.execute(newRefund.id)]);
+
+    // 5. Prove strict financial safety: old refund was blocked by Wallet tombstone; ONLY new 40 VND committed!
+    const customerAfter = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+    expect(customerAfter - customerBefore).toBe(40n);
+    expect((await paymentDb.client.refund.findUniqueOrThrow({ where: { id: oldRefund.id } })).status).toBe('cancelled');
+    expect((await paymentDb.client.refund.findUniqueOrThrow({ where: { id: newRefund.id } })).status).toBe('completed');
+
+    const walletTransfers = await walletDb.walletTransfer.findMany({
+      where: { kind: 'refund', operationId: { startsWith: `${payment.id}:refund:` } },
+      orderBy: { createdAt: 'asc' },
+    });
+    const completedTransfers = walletTransfers.filter((t) => t.status === 'completed');
+    const failedTombstones = walletTransfers.filter((t) => t.status === 'failed');
+    expect(completedTransfers).toHaveLength(1);
+    expect(completedTransfers[0]?.operationId).toBe(`${payment.id}:refund:${newRefund.id}`);
+    expect(completedTransfers[0]?.totalAmount).toBe(40n);
+    expect(failedTombstones).toHaveLength(1);
+    expect(failedTombstones[0]?.operationId).toBe(`${payment.id}:refund:${oldRefund.id}`);
+    expect(failedTombstones[0]?.totalAmount).toBe(60n);
+  });
+
+  it.each(['point', 'cash'] as const)(
+    'linearizability race (%s): concurrent in-flight refundCredit vs cancel-for-override + new refund can never commit both',
+    async (method) => {
+      for (let round = 0; round < 3; round++) {
+        const payment = await settled(method);
+        const serviceId = randomUUID();
+        const request = await orderDb.serviceRequest.create({ data: {
+          requestCode: randomUUID().slice(0, 24), customerUserId: customer, serviceId,
+        } });
+        const proposal = await orderDb.bookingProposal.create({ data: {
+          serviceRequestId: request.id, customerUserId: customer, workerUserId: worker,
+          selectionSource: 'bid', agreedPrice: '100', agreedScope: `Race ${method} #${round}`,
+          expiresAt: new Date(Date.now() + 60000),
+        } });
+        const completedAt = new Date(Date.now() - 86400000);
+        const order = await orderDb.order.create({ data: {
+          id: payment.orderId, orderCode: randomUUID().slice(0, 24),
+          serviceRequestId: request.id, bookingProposalId: proposal.id,
+          customerUserId: customer, workerUserId: worker, serviceId,
+          selectionSource: 'bid', agreedPrice: '100', agreedScope: `Race ${method} #${round}`,
+          addressText: 'Test', latitude: 10, longitude: 106,
+          status: 'disputed', paymentState: 'paid', disputePreviousStatus: 'completed',
+          disputedAt: new Date(), completedAt, firstCompletedAt: completedAt,
+        } });
+        const orderOutbox = new OrderOutboxRepository(orderDb);
+        const query = new PaymentQueryService(paymentDb);
+        const orderService = new OrdersService(orderDb, orderOutbox, {
+          byOrder: async (id: string) => {
+            const result = await query.refundableByOrder(id);
+            return { ...result, refundableAmountVnd: BigInt(result.refundableAmountVnd) };
+          },
+          cancelDisputeRefundForOverride: (resId: string, body: { orderId: string; adminUserId: string; reason: string }) =>
+            refunds.cancelDisputeRefundForOverride(resId, body),
+        } as never);
+        const paymentOutbox = new PaymentOutboxService(paymentDb);
+        const dispute = new DisputeRefundService({} as never, paymentDb, paymentOutbox, new AdminAuditService(paymentDb), refunds);
+
+        const first = await orderService.resolveCompletedDispute(order.id, admin, {
+          action: 'refund', resolutionNote: 'Hoàn 60k cũ', refundAmountVnd: '60', idempotencyKey: randomUUID(),
+        }, ['Admin']);
+        await paymentDb.client.$transaction((tx) => dispute.recordDecision({
+          action: 'refund', resolutionId: first.resolutionId, orderId: order.id, paymentId: payment.id,
+          customerUserId: customer, workerUserId: worker, adminUserId: admin, refundAmountVnd: '60', resolutionNote: 'Hoàn 60k cũ',
+        }, tx));
+        const oldRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: first.resolutionId } });
+        await orderDb.orderDisputeResolution.update({ where: { id: first.resolutionId }, data: { state: 'needs_review' } });
+
+        // Synchronized start barrier: fire old refundCredit (60) and cancel-for-override (40) simultaneously!
+        let signalReady!: () => void;
+        const ready = new Promise<void>((resolve) => { signalReady = resolve; });
+        let fire!: () => void;
+        const go = new Promise<void>((resolve) => { fire = resolve; });
+        class SyncWalletClient extends WalletClient {
+          override async refundCredit(...args: Parameters<WalletClient['refundCredit']>) {
+            signalReady();
+            await go;
+            return super.refundCredit(...args);
+          }
+        }
+        const syncRefunds = new RefundsService(
+          paymentDb,
+          new AdminAuditService(paymentDb),
+          new SyncWalletClient(walletConfig),
+          paymentOutbox,
+        );
+        const beforeBal = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+
+        const oldRun = syncRefunds.execute(oldRefund.id);
+        await ready;
+        await paymentDb.client.refund.update({
+          where: { id: oldRefund.id },
+          data: { updatedAt: new Date(Date.now() - 60_000) },
+        });
+
+        const overrideRun = (async () => {
+          await go;
+          return orderService.resolveCompletedDispute(order.id, admin, {
+            action: 'refund', resolutionNote: 'Override hoàn 40k đồng thời', refundAmountVnd: '40', idempotencyKey: randomUUID(),
+          }, ['Admin']);
+        })();
+
+        // Release both at the exact same instant!
+        fire();
+        const [, overrideOutcome] = await Promise.allSettled([oldRun, overrideRun]);
+
+        if (overrideOutcome.status === 'fulfilled') {
+          // Fence won: execute the replacement 40 VND refund.
+          const replacement = overrideOutcome.value;
+          await paymentDb.client.$transaction((tx) => dispute.recordDecision({
+            action: 'refund', resolutionId: replacement.resolutionId, orderId: order.id, paymentId: payment.id,
+            customerUserId: customer, workerUserId: worker, adminUserId: admin, refundAmountVnd: '40', resolutionNote: 'Override hoàn 40k đồng thời',
+          }, tx));
+          const newRefund = await paymentDb.client.refund.findUniqueOrThrow({ where: { disputeResolutionId: replacement.resolutionId } });
+          await refunds.execute(newRefund.id);
+        } else {
+          // Old refundCredit won the lock: override MUST have been rejected with 409!
+          expect(overrideOutcome.reason).toMatchObject({ status: 409 });
+        }
+
+        const afterBal = (await walletDb.wallet.findUniqueOrThrow({ where: { userId: customer } })).balance;
+        const delta = afterBal - beforeBal;
+        const completedTransfers = await walletDb.walletTransfer.findMany({
+          where: { kind: 'refund', status: 'completed', operationId: { startsWith: `${payment.id}:refund:` } },
+        });
+        expect(completedTransfers).toHaveLength(1);
+        expect([40n, 60n]).toContain(delta);
+        expect(delta).toBe(completedTransfers[0]?.totalAmount);
+        // Never overspend (impossible for both 60 + 40 = 100 to commit)
+        expect(delta).toBeLessThanOrEqual(60n);
+      }
+    },
+  );
 
   it('completes an HG-82 dispute refund after a real Wallet posting and reuses its resolution ID', async () => {
     const payment = await settled('point');
