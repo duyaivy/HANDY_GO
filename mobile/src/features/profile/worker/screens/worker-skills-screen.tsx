@@ -166,7 +166,7 @@ export function WorkerSkillsScreen() {
     queryKey: ['worker-skills-orders', userId],
     queryFn: async () => {
       try {
-        const res = await OrdersApi.getMyOrders({ limit: 100 });
+        const res = await OrdersApi.getMyOrders({ limit: 50 });
         const raw = res.data;
         if (Array.isArray(raw)) {
           return raw;
@@ -194,6 +194,19 @@ export function WorkerSkillsScreen() {
       setRefreshing(false);
     }
   }, [profileQuery, registrationsQuery, ordersQuery]);
+
+  const handleSelectTab = React.useCallback(
+    (tab: MainTab) => {
+      setActiveTab(tab);
+      if (tab === 'registrations') {
+        registrationsQuery.refetch();
+      }
+      else {
+        profileQuery.refetch();
+      }
+    },
+    [registrationsQuery, profileQuery],
+  );
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
 
@@ -230,10 +243,12 @@ export function WorkerSkillsScreen() {
   const approvedServices: WorkerServiceOfferingItem[] = React.useMemo(() => {
     return profileQuery.data?.services ?? [];
   }, [profileQuery.data?.services]);
-  // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
+  // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn đã được duyệt hoặc thợ đã chủ động hủy)
   const registrations: WorkerServiceRegistrationItem[] = React.useMemo(() => {
     return (registrationsQuery.data ?? []).filter(
-      reg => reg.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
+      reg =>
+        reg.status !== 'approved'
+        && reg.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
     );
   }, [registrationsQuery.data]);
 
@@ -435,7 +450,7 @@ export function WorkerSkillsScreen() {
             <View className="flex-row border-b border-neutral-200 bg-white px-2 pt-1 dark:border-neutral-800 dark:bg-neutral-900">
               <Pressable
                 testID="tab-my-services"
-                onPress={() => setActiveTab('my_services')}
+                onPress={() => handleSelectTab('my_services')}
                 className={`mr-5 border-b-2 pb-3 ${
                   activeTab === 'my_services'
                     ? 'border-blue-600'
@@ -458,7 +473,7 @@ export function WorkerSkillsScreen() {
 
               <Pressable
                 testID="tab-registrations"
-                onPress={() => setActiveTab('registrations')}
+                onPress={() => handleSelectTab('registrations')}
                 className={`border-b-2 pb-3 ${
                   activeTab === 'registrations'
                     ? 'border-blue-600'
