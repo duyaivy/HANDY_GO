@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { searchCatalogPage } from '../common/catalog-search.js';
+import { toPrismaSuggestionGroups } from '../common/dto/suggestion-group.dto.js';
 import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateCategoryDto } from './dto/create-category.dto.js';
@@ -14,6 +15,13 @@ import { QueryCategoryDto } from './dto/query-category.dto.js';
 
 import { RedisService } from '@app/redis';
 
+const CATALOG_CACHE_PATTERNS = [
+  'catalog:categories:*',
+  'catalog:category:*',
+  'catalog:services:*',
+  'catalog:service:*',
+] as const;
+
 @Injectable()
 export class CategoriesService {
   constructor(
@@ -21,6 +29,14 @@ export class CategoriesService {
     private readonly outboxPublisher: OutboxPublisherService,
     private readonly redis: RedisService,
   ) {}
+
+  private async invalidateCatalogCache(): Promise<void> {
+    await Promise.all(
+      CATALOG_CACHE_PATTERNS.map((pattern) =>
+        this.redis.delByPattern(pattern),
+      ),
+    );
+  }
 
   async create(dto: CreateCategoryDto) {
     if (dto.parentId) {
@@ -51,6 +67,8 @@ export class CategoriesService {
       );
     }
 
+    const suggestionGroups = toPrismaSuggestionGroups(dto.suggestionGroups);
+
     const category = await this.prisma.$transaction(async (tx) => {
       const created = await tx.category.create({
         data: {
@@ -59,6 +77,7 @@ export class CategoriesService {
           imageUrl: dto.imageUrl,
           parentId: dto.parentId ?? null,
           isActive: dto.isActive ?? true,
+          ...(suggestionGroups !== undefined && { suggestionGroups }),
         },
       });
 
@@ -81,12 +100,12 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:categories:*');
+    await this.invalidateCatalogCache();
     return category;
   }
 
   async findAll(query: QueryCategoryDto) {
-    const cacheKey = `catalog:categories:list:v2:${JSON.stringify([
+    const cacheKey = `catalog:categories:list:v3:${JSON.stringify([
       query.isActive ?? null,
       query.search ?? '',
       query.parentId ?? null,
@@ -114,7 +133,10 @@ export class CategoriesService {
     const load = async (db: Prisma.TransactionClient) => {
       const matched = query.search
         ? await searchCatalogPage(db, 'categories', {
-            ...query, search: query.search, page, limit,
+            ...query,
+            search: query.search,
+            page,
+            limit,
           })
         : undefined;
       const [total, hydrated] = await Promise.all([
@@ -128,7 +150,7 @@ export class CategoriesService {
               select: { id: true, name: true },
             },
             _count: {
-               select: { children: true, services: true },
+              select: { children: true, services: true },
             },
           },
         }),
@@ -165,7 +187,7 @@ export class CategoriesService {
   }
 
   async findOne(id: string) {
-    const cacheKey = `catalog:category:${id}`;
+    const cacheKey = `catalog:category:v2:${id}`;
     const cached = await this.redis.get<unknown>(cacheKey);
     if (cached) {
       return cached;
@@ -175,7 +197,12 @@ export class CategoriesService {
       where: { id },
       include: {
         parent: {
-          select: { id: true, name: true, imageUrl: true },
+          select: {
+            id: true,
+            name: true,
+            imageUrl: true,
+            suggestionGroups: true,
+          },
         },
         children: {
           orderBy: { name: 'asc' },
@@ -257,15 +284,20 @@ export class CategoriesService {
       }
     }
 
+    const suggestionGroups = toPrismaSuggestionGroups(dto.suggestionGroups);
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.category.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
-          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.description !== undefined && {
+            description: dto.description,
+          }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.parentId !== undefined && { parentId: dto.parentId }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(suggestionGroups !== undefined && { suggestionGroups }),
         },
       });
 
@@ -288,7 +320,7 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:categories:*');
+    await this.invalidateCatalogCache();
     return updated;
   }
 
@@ -334,7 +366,7 @@ export class CategoriesService {
       });
 
       void this.outboxPublisher.triggerPublish();
-      await this.redis.delByPattern('catalog:categories:*');
+      await this.invalidateCatalogCache();
       return { message: `Category '${category.name}' deleted successfully` };
     }
 
@@ -361,7 +393,7 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:*');
+    await this.invalidateCatalogCache();
     return {
       message: `Category '${category.name}' deactivated successfully`,
       data: updated,
@@ -400,7 +432,7 @@ export class CategoriesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:categories:*');
+    await this.invalidateCatalogCache();
     return updated;
   }
 

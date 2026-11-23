@@ -358,3 +358,77 @@ describe('useBookingDraftStore - Pricing Estimation & Concurrency', () => {
     });
   });
 });
+
+describe('useBookingDraftStore - startBookingForService (HG-95)', () => {
+  const groupsB = [
+    { key: 'issue_b', label: 'Tình trạng B', selectionMode: 'single' as const, options: ['B1', 'B2'] },
+  ];
+
+  beforeEach(() => {
+    useBookingDraftStore.getState().resetDraft();
+  });
+
+  function fillDraftForServiceA() {
+    const store = useBookingDraftStore.getState();
+    store.startBookingForService('srv-a', 'Dịch vụ A', { categoryId: 'cat-a', categoryName: 'Danh mục A' });
+    store.setDescription('Mô tả của dịch vụ A');
+    store.addMediaUrl('https://cdn.example.com/a.jpg');
+    store.setAddress('12 Đường A', 16.1, 108.2);
+    store.setScheduledAt('2030-01-01T02:00:00.000Z');
+  }
+
+  it('does not carry booking data of service A over to service B (no request created yet)', () => {
+    fillDraftForServiceA();
+    expect(useBookingDraftStore.getState().createdRequestId).toBeNull();
+
+    useBookingDraftStore.getState().startBookingForService('srv-b', 'Dịch vụ B', {
+      categoryId: 'cat-b',
+      categoryName: 'Danh mục B',
+      serviceSuggestionGroups: groupsB,
+      categorySuggestionGroups: null,
+    });
+
+    const state = useBookingDraftStore.getState();
+    expect(state).toMatchObject({
+      serviceId: 'srv-b',
+      serviceName: 'Dịch vụ B',
+      categoryId: 'cat-b',
+      categoryName: 'Danh mục B',
+      serviceSuggestionGroups: groupsB,
+      description: '',
+      mediaUrls: [],
+      addressText: '',
+    });
+    expect(state.scheduledAt).not.toBe('2030-01-01T02:00:00.000Z');
+  });
+
+  it('keeps the in-progress draft when re-entering the same service without a created request', () => {
+    fillDraftForServiceA();
+
+    useBookingDraftStore.getState().startBookingForService('srv-a', 'Dịch vụ A');
+
+    expect(useBookingDraftStore.getState()).toMatchObject({
+      serviceId: 'srv-a',
+      description: 'Mô tả của dịch vụ A',
+      mediaUrls: ['https://cdn.example.com/a.jpg'],
+      addressText: '12 Đường A',
+    });
+  });
+
+  it('resets a draft whose request was already created, while keeping new API suggestion metadata', () => {
+    fillDraftForServiceA();
+    useBookingDraftStore.getState().setCreatedRequestId('req-old');
+
+    useBookingDraftStore.getState().startBookingForService('srv-a', 'Dịch vụ A', {
+      serviceSuggestionGroups: groupsB,
+    });
+
+    expect(useBookingDraftStore.getState()).toMatchObject({
+      serviceId: 'srv-a',
+      createdRequestId: null,
+      description: '',
+      mediaUrls: [],
+      serviceSuggestionGroups: groupsB,
+    });
+  });
+});
