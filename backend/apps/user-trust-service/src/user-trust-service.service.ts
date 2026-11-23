@@ -3107,19 +3107,31 @@ export class UserTrustServiceService {
           });
         }
 
-        // 4. Lưu outbox event cho notification
+        // 4. Lưu outbox event cho notification với chuẩn CloudEvent envelope (khớp event-contracts)
+        const eventId = crypto.randomUUID();
+        const envelope = {
+          eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+          eventVersion: 1,
+          source: 'user-trust-service',
+          producer: 'user-trust-service',
+          occurredAt: now.toISOString(),
+          data: {
+            registrationId,
+            workerProfileId: currentReg.workerProfileId,
+            userId: registration.workerProfile?.userId,
+            decision: 'approved',
+            reviewedBy: reviewerId,
+            reviewedAt: now.toISOString(),
+          },
+        };
+
         await tx.outboxEvent.create({
           data: {
+            id: eventId,
             eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
             eventVersion: 1,
-            payload: {
-              registrationId,
-              workerProfileId: currentReg.workerProfileId,
-              userId: registration.workerProfile?.userId,
-              decision: 'approved',
-              reviewedBy: reviewerId,
-              reviewedAt: now.toISOString(),
-            },
+            payload: envelope,
             status: 'pending',
           },
         });
@@ -3127,9 +3139,14 @@ export class UserTrustServiceService {
 
       if (this.rabbitmq) {
         try {
-          await this.rabbitmq.emit(
-            EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
-            {
+          const approvedEnvelope = {
+            eventId: crypto.randomUUID(),
+            eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+            eventVersion: 1,
+            source: 'user-trust-service',
+            producer: 'user-trust-service',
+            occurredAt: now.toISOString(),
+            data: {
               registrationId,
               workerProfileId: registration.workerProfileId,
               userId: registration.workerProfile?.userId,
@@ -3137,6 +3154,10 @@ export class UserTrustServiceService {
               reviewedBy: reviewerId,
               reviewedAt: now.toISOString(),
             },
+          };
+          await this.rabbitmq.emit(
+            EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+            approvedEnvelope,
           );
         } catch (err: any) {
           this.logger.warn(
@@ -3180,19 +3201,31 @@ export class UserTrustServiceService {
         );
       }
 
+      const eventId = crypto.randomUUID();
+      const envelope = {
+        eventId,
+        eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+        eventVersion: 1,
+        source: 'user-trust-service',
+        producer: 'user-trust-service',
+        occurredAt: now.toISOString(),
+        data: {
+          registrationId,
+          workerProfileId: registration.workerProfileId,
+          userId: registration.workerProfile?.userId,
+          decision: 'rejected',
+          reason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedBy: reviewerId,
+          reviewedAt: now.toISOString(),
+        },
+      };
+
       await tx.outboxEvent.create({
         data: {
+          id: eventId,
           eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
           eventVersion: 1,
-          payload: {
-            registrationId,
-            workerProfileId: registration.workerProfileId,
-            userId: registration.workerProfile?.userId,
-            decision: 'rejected',
-            reason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
-            reviewedBy: reviewerId,
-            reviewedAt: now.toISOString(),
-          },
+          payload: envelope,
           status: 'pending',
         },
       });
@@ -3200,9 +3233,14 @@ export class UserTrustServiceService {
 
     if (this.rabbitmq) {
       try {
-        await this.rabbitmq.emit(
-          EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
-          {
+        const rejectedEnvelope = {
+          eventId: crypto.randomUUID(),
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+          eventVersion: 1,
+          source: 'user-trust-service',
+          producer: 'user-trust-service',
+          occurredAt: now.toISOString(),
+          data: {
             registrationId,
             workerProfileId: registration.workerProfileId,
             userId: registration.workerProfile?.userId,
@@ -3211,6 +3249,10 @@ export class UserTrustServiceService {
             reviewedBy: reviewerId,
             reviewedAt: now.toISOString(),
           },
+        };
+        await this.rabbitmq.emit(
+          EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+          rejectedEnvelope,
         );
       } catch (err: any) {
         this.logger.warn(
