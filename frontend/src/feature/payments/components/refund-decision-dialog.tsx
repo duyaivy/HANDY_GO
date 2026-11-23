@@ -1,70 +1,375 @@
+"use client";
+
 import { useState, type FormEvent } from "react";
+import { AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { useRefundDecision } from "../hooks/use-refunds";
-import { getRefundErrorMessage } from "../refund-utils";
+
 import type { Refund } from "../types/refund";
+import { formatPaymentAmount } from "../payment-utils";
+
+type RefundDecision = {
+  refund: Refund;
+  approve: boolean;
+};
+
+type RefundDecisionDialogProps = {
+  decision: RefundDecision | null;
+  onClose: () => void;
+};
+
+type ApiErrorResponse = {
+  statusCode?: number;
+  code?: string;
+  message?: string;
+  data?: unknown;
+};
+
+const FOCUS_RING =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]";
+
+function isOwnRefundError(status: number, payload: ApiErrorResponse) {
+  if (status !== 403) return false;
+
+  const message = (payload.message ?? "").toLowerCase();
+
+  return (
+    message.includes("cannot decide their own refund") ||
+    message.includes("own refund")
+  );
+}
 
 export default function RefundDecisionDialog({
   decision,
   onClose,
-}: {
-  decision: { refund: Refund; approve: boolean } | null;
-  onClose: () => void;
-}) {
-  const [formError, setFormError] = useState("");
-  const mutation = useRefundDecision();
-  const approve = decision?.approve ?? false;
+}: RefundDecisionDialogProps) {
+  const queryClient = useQueryClient();
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!decision || mutation.isPending) return;
-    const reason = String(new FormData(event.currentTarget).get("reason") ?? "").trim();
-    if (!reason || reason.length > 1000) {
-      setFormError("Nhập lý do quyết định từ 1 đến 1.000 ký tự.");
-      return;
-    }
+  const [reason, setReason] = useState("");
+  const [formError, setFormError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const isOpen = Boolean(decision);
+  const isApprove = decision?.approve ?? false;
+  const refund = decision?.refund;
+
+  function handleClose() {
+    if (isSubmitting) return;
+
+    setReason("");
     setFormError("");
-    mutation.reset();
-    mutation.mutate(
-      { refundId: decision.refund.id, input: { approve, reason } },
-      {
-        onSuccess: () => {
-          toast.success(approve ? "Đã duyệt yêu cầu hoàn tiền" : "Đã từ chối yêu cầu hoàn tiền");
-          onClose();
-        },
-      },
-    );
+    onClose();
   }
 
-  const error = formError || (mutation.error && getRefundErrorMessage(mutation.error, "Không thể ghi nhận quyết định."));
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!decision || isSubmitting) return;
+
+    const normalizedReason = reason.trim();
+
+    setFormError("");
+
+    if (!normalizedReason) {
+      setFormError("Vui lòng nhập lý do xử lý hoàn tiền.");
+      return;
+    }
+
+    if (normalizedReason.length > 1000) {
+      setFormError("Lý do không được vượt quá 1.000 ký tự.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch(
+        `/api/payments/refunds/${encodeURIComponent(
+          decision.refund.id,
+        )}/decision`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            approve: decision.approve,
+            reason: normalizedReason,
+          }),
+        },
+      );
+
+      const payload: ApiErrorResponse = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        if (isOwnRefundError(response.status, payload)) {
+          toast.error("Không thể xử lý yêu cầu", {
+            description:
+              "Bạn không thể tự duyệt hoặc từ chối yêu cầu hoàn tiền do chính mình tạo. Vui lòng để Admin khác xử lý.",
+            duration: 5000,
+          });
+          return;
+        }
+
+        if (response.status === 403) {
+          toast.error("Bạn không có quyền thực hiện", {
+            description:
+              "Tài khoản hiện tại không được phép xử lý yêu cầu hoàn tiền này.",
+            duration: 5000,
+          });
+          return;
+        }
+
+        if (response.status === 404) {
+          toast.error("Không tìm thấy yêu cầu", {
+            description:
+              "Yêu cầu hoàn tiền không tồn tại hoặc không còn khả dụng.",
+          });
+          return;
+        }
+
+        if (response.status === 409) {
+          toast.error("Không thể xử lý yêu cầu", {
+            description:
+              "Yêu cầu có thể đã được xử lý trước đó. Vui lòng tải lại danh sách.",
+          });
+          return;
+        }
+
+        if (response.status === 401) {
+          toast.error("Phiên đăng nhập không hợp lệ", {
+            description: "Vui lòng đăng nhập lại để tiếp tục.",
+          });
+          return;
+        }
+
+        toast.error("Xử lý hoàn tiền thất bại", {
+          description:
+            payload.message || "Đã xảy ra lỗi. Vui lòng thử lại sau.",
+        });
+        return;
+      }
+
+      toast.success(
+        decision.approve
+          ? "Đã duyệt yêu cầu hoàn tiền"
+          : "Đã từ chối yêu cầu hoàn tiền",
+        {
+          description: decision.approve
+            ? "Yêu cầu đã được phê duyệt và chuyển sang bước xử lý hoàn tiền."
+            : "Yêu cầu hoàn tiền đã được từ chối.",
+        },
+      );
+
+      // Làm mới dữ liệu sau khi xử lý thành công
+      await queryClient.invalidateQueries();
+
+      setReason("");
+      setFormError("");
+      onClose();
+    } catch (error) {
+      console.error("[refund/decision]", error);
+
+      toast.error("Không thể kết nối đến máy chủ", {
+        description: "Vui lòng kiểm tra kết nối mạng và thử lại.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <Dialog open={Boolean(decision)} onOpenChange={(open) => !open && !mutation.isPending && onClose()}>
-      <DialogContent className="rounded-2xl bg-white sm:max-w-md" showCloseButton={false}>
-        <DialogHeader>
-          <DialogTitle className="text-lg font-semibold text-slate-900">{approve ? "Duyệt yêu cầu hoàn tiền" : "Từ chối yêu cầu hoàn tiền"}</DialogTitle>
-          <DialogDescription>{approve ? "Hệ thống sẽ tiếp tục xử lý hoàn tiền sau khi ghi nhận quyết định." : "Yêu cầu hoàn tiền sẽ được chuyển sang trạng thái từ chối."}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5">
-            <label htmlFor="refund-decision-reason" className="block font-medium text-slate-700">Lý do quyết định</label>
-            <Textarea id="refund-decision-reason" name="reason" required maxLength={1000} rows={4} placeholder="Nhập lý do" />
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogContent
+        showCloseButton={!isSubmitting}
+        className="
+          w-[calc(100%-2rem)]
+          max-w-[480px]
+          gap-0 overflow-hidden
+          rounded-2xl border border-slate-200
+          bg-white p-0
+          font-['Inter',sans-serif]
+        "
+      >
+        <DialogHeader className="border-b border-slate-100 px-5 py-5 sm:px-6">
+          <div className="flex items-start gap-3">
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                isApprove
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-red-50 text-red-600"
+              }`}
+            >
+              {isApprove ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
+            </div>
+
+            <div className="min-w-0 flex-1 pr-4">
+              <DialogTitle className="text-[17px] font-semibold text-slate-900">
+                {isApprove
+                  ? "Duyệt yêu cầu hoàn tiền"
+                  : "Từ chối yêu cầu hoàn tiền"}
+              </DialogTitle>
+
+              <DialogDescription className="mt-1 text-[13px] leading-5 text-slate-500">
+                {isApprove
+                  ? "Xác nhận phê duyệt yêu cầu hoàn tiền này."
+                  : "Xác nhận từ chối yêu cầu hoàn tiền này."}
+              </DialogDescription>
+            </div>
           </div>
-          {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-          <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-            <DialogClose disabled={mutation.isPending} render={<Button type="button" variant="outline" />}>Hủy</DialogClose>
-            <Button type="submit" disabled={mutation.isPending} className={approve ? "bg-[#FF5E14] text-white hover:bg-[#E65310]" : "bg-slate-700 text-white hover:bg-slate-800"}>
-              {mutation.isPending ? "Đang lưu..." : approve ? "Xác nhận duyệt" : "Xác nhận từ chối"}
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-5 px-5 py-5 sm:px-6">
+            {refund && (
+              <div className="space-y-3 rounded-xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[12px] text-slate-500">
+                    Số tiền hoàn
+                  </span>
+
+                  <span className="text-[17px] font-semibold text-slate-900">
+                    {formatPaymentAmount(refund.amount, "VND")}
+                  </span>
+                </div>
+
+                <div className="h-px bg-slate-200/70" />
+
+                <div className="space-y-1">
+                  <p className="text-[12px] text-slate-500">Mã yêu cầu</p>
+
+                  <p className="break-all font-mono text-[12px] text-slate-700">
+                    {refund.id}
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[12px] text-slate-500">
+                    Lý do yêu cầu hoàn tiền
+                  </p>
+
+                  <p className="break-words text-[13px] leading-5 text-slate-700">
+                    {refund.reason || "Không có lý do"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label
+                htmlFor="refund-decision-reason"
+                className="text-[13px] font-semibold text-slate-700"
+              >
+                {isApprove ? "Ghi chú phê duyệt" : "Lý do từ chối"}
+                <span className="ml-1 text-red-500">*</span>
+              </label>
+
+              <Textarea
+                id="refund-decision-reason"
+                value={reason}
+                onChange={(event) => {
+                  setReason(event.target.value);
+                  if (formError) setFormError("");
+                }}
+                placeholder={
+                  isApprove
+                    ? "Nhập ghi chú phê duyệt..."
+                    : "Nhập lý do từ chối yêu cầu..."
+                }
+                maxLength={1000}
+                rows={4}
+                disabled={isSubmitting}
+                className={`
+                  min-h-[110px] resize-none
+                  rounded-xl border-slate-200
+                  text-[13px]
+                  focus-visible:border-[#FF5E14]
+                  focus-visible:ring-orange-100
+                  ${FOCUS_RING}
+                `}
+              />
+
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12px] text-slate-500">
+                  Tối đa 1.000 ký tự
+                </span>
+
+                <span className="text-[12px] text-slate-400">
+                  {reason.length}/1000
+                </span>
+              </div>
+
+              {formError && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 text-[12px] text-red-600"
+                >
+                  <AlertCircle size={15} className="mt-0.5 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-start gap-2.5 rounded-xl border border-orange-100 bg-orange-50/60 p-3">
+              <AlertCircle
+                size={17}
+                className="mt-0.5 shrink-0 text-[#FF5E14]"
+              />
+
+              <p className="text-[12px] leading-5 text-amber-800">
+                {isApprove
+                  ? "Sau khi phê duyệt, hệ thống sẽ tiếp tục xử lý hoàn tiền theo quy trình."
+                  : "Sau khi xác nhận, yêu cầu hoàn tiền sẽ bị từ chối."}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isSubmitting}
+              onClick={handleClose}
+              className="h-10 rounded-lg border-slate-200 px-5 text-[13px]"
+            >
+              Hủy
+            </Button>
+
+            <Button
+              type="submit"
+              disabled={isSubmitting || !reason.trim()}
+              className={`h-10 rounded-lg px-5 text-[13px] font-semibold text-white ${
+                isApprove
+                  ? "bg-[#FF5E14] hover:bg-[#E65310]"
+                  : "bg-red-600 hover:bg-red-700"
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={16} className="mr-2 animate-spin" />
+                  Đang xử lý...
+                </>
+              ) : isApprove ? (
+                "Xác nhận duyệt"
+              ) : (
+                "Xác nhận từ chối"
+              )}
             </Button>
           </div>
         </form>

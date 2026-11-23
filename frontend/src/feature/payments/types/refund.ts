@@ -31,6 +31,13 @@ export type RefundListResponse = {
   totalPages: number;
 };
 
+export type RefundListParams = {
+  page: number;
+  limit: number;
+  paymentId?: string;
+  statuses?: RefundStatus[];
+};
+
 export type CreateRefundInput = {
   amount: string;
   reason: string;

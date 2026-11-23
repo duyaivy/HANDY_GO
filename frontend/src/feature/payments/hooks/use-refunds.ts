@@ -1,15 +1,13 @@
-import { skipToken, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import refundsApi from "../api/refunds.api";
-import type { CreateRefundInput, RefundDecisionInput } from "../types/refund";
+import type { CreateRefundInput, RefundDecisionInput, RefundListParams } from "../types/refund";
 
 const REFUND_QUERY_KEY = ["payments", "refunds"] as const;
 
-export const useRefundListQuery = (paymentId: string | null, page: number, limit: number) =>
+export const useRefundListQuery = (params: RefundListParams) =>
   useQuery({
-    queryKey: [...REFUND_QUERY_KEY, paymentId, page, limit],
-    queryFn: paymentId
-      ? async () => (await refundsApi.list(paymentId, page, limit)).payload.data
-      : skipToken,
+    queryKey: [...REFUND_QUERY_KEY, "list", params],
+    queryFn: async () => (await refundsApi.list(params)).payload.data,
     retry: false,
   });
 

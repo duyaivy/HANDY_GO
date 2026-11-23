@@ -1,6 +1,6 @@
 import { skipToken, useQuery } from "@tanstack/react-query";
 import paymentsApiRequest from "../api/payments.api";
-import type { PaymentQuery } from "../types";
+import type { PaymentQuery, PaymentStatus } from "../types";
 
 const PAYMENT_QUERY_KEY = ["payments"] as const;
 
@@ -28,12 +28,12 @@ export const usePaymentStatisticsQuery = () =>
         limit: 1,
       };
 
-      const count = async (status?: PaymentQuery["status"]) => {
+      const count = async (status?: PaymentStatus) => {
         try {
           return (
             await paymentsApiRequest.list({
               ...baseQuery,
-              ...(status ? { status } : {}),
+              ...(status ? { status: [status] } : {}),
             })
           ).payload.data.total;
         } catch {

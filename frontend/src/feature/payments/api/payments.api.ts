@@ -6,11 +6,13 @@ import type { PaymentListResponse, PaymentQuery, PaymentRecord } from "../types"
 const BASE_PATH = "/api/payments";
 
 const paymentsApiRequest = {
-  list: (query: PaymentQuery) =>
-    http.get<SuccessResponse<PaymentListResponse>>(
-      `${BASE_PATH}?${queryString.stringify(query)}`,
+  list: (query: PaymentQuery) => {
+    const status = query.status?.length ? query.status.join(",") : undefined;
+    return http.get<SuccessResponse<PaymentListResponse>>(
+      `${BASE_PATH}?${queryString.stringify({ ...query, status })}`,
       { baseUrl: "", cache: "no-store" },
-    ),
+    );
+  },
 
   detail: (id: string) =>
     http.get<SuccessResponse<PaymentRecord>>(

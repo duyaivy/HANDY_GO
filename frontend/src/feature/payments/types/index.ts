@@ -29,7 +29,7 @@ export type PaymentRecord = {
 export type PaymentQuery = {
   page: number;
   limit: number;
-  status?: PaymentStatus;
+  status?: PaymentStatus[];
   method?: PaymentMethod;
 };
 
