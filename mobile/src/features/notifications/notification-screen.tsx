@@ -138,7 +138,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
         if (userRoles.includes('Worker') && mode !== 'Worker') {
           useAuthStore.getState().setActiveMode('Worker');
         }
-        router.push(RouteNames.WORKER_SKILLS as any);
+        router.push('/worker/skills' as any);
       }
     }
     catch (err) {
