@@ -290,6 +290,175 @@ describe('UserTrustServiceService', () => {
     });
   });
 
+  describe('handleOrderCompleted', () => {
+    const workerUserId = 'worker-uuid-1';
+    const orderId = 'order-uuid-1';
+    const event = {
+      eventId: 'evt-order-completed-1',
+      eventType: 'order.completed',
+      producer: 'order-service',
+      occurredAt: new Date(),
+      data: {
+        orderId,
+        workerUserId,
+      },
+    };
+
+    it('increments completedOrderCount and ensures orderCountTotal >= completedOrderCount', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        completedOrderCount: 5,
+        orderCountTotal: 5,
+      });
+
+      const result = await service.handleOrderCompleted(event);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(false);
+      expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wp-1' },
+          data: expect.objectContaining({
+            completedOrderCount: 6,
+            orderCountTotal: 6,
+          }),
+        }),
+      );
+      expect(dbMock.eventInbox.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            id: 'evt-order-completed-1',
+            eventType: 'order.completed',
+          }),
+        }),
+      );
+    });
+
+    it('keeps orderCountTotal unchanged if it was already greater than new completed count', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        completedOrderCount: 2,
+        orderCountTotal: 10,
+      });
+
+      const result = await service.handleOrderCompleted(event);
+
+      expect(result.processed).toBe(true);
+      expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wp-1' },
+          data: expect.objectContaining({
+            completedOrderCount: 3,
+            orderCountTotal: 10,
+          }),
+        }),
+      );
+    });
+
+    it('is idempotent and skips if event is already in eventInbox', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue({ id: 'evt-order-completed-1' });
+
+      const result = await service.handleOrderCompleted(event);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(true);
+      expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+      expect(dbMock.eventInbox.create).not.toHaveBeenCalled();
+    });
+
+    it('handles payload format with payloadObj or top-level workerId', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        completedOrderCount: 0,
+        orderCountTotal: 0,
+      });
+
+      const outboxStyleEvent = {
+        id: 'evt-outbox-1',
+        eventType: 'order.completed',
+        payload: {
+          orderId: 'order-123',
+          workerId: workerUserId,
+        },
+      };
+
+      const result = await service.handleOrderCompleted(outboxStyleEvent);
+
+      expect(result.processed).toBe(true);
+      expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wp-1' },
+          data: expect.objectContaining({
+            completedOrderCount: 1,
+            orderCountTotal: 1,
+          }),
+        }),
+      );
+    });
+
+    it('returns processed false when workerUserId is missing', async () => {
+      const invalidEvent = {
+        eventId: 'evt-no-worker',
+        data: {},
+      };
+
+      const result = await service.handleOrderCompleted(invalidEvent);
+
+      expect(result.processed).toBe(false);
+      expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleOrderCreated', () => {
+    const workerUserId = 'worker-uuid-1';
+    const event = {
+      eventId: 'evt-order-created-1',
+      eventType: 'order.created',
+      data: {
+        orderId: 'order-1',
+        workerUserId,
+      },
+    };
+
+    it('increments orderCountTotal when an order is created', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue(null);
+      dbMock.workerProfile.findFirst.mockResolvedValue({
+        id: 'wp-1',
+        userId: workerUserId,
+        orderCountTotal: 3,
+      });
+
+      const result = await service.handleOrderCreated(event);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(false);
+      expect(dbMock.workerProfile.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'wp-1' },
+          data: expect.objectContaining({
+            orderCountTotal: 4,
+          }),
+        }),
+      );
+    });
+
+    it('is idempotent on duplicate order.created event', async () => {
+      dbMock.eventInbox.findUnique.mockResolvedValue({ id: 'evt-order-created-1' });
+
+      const result = await service.handleOrderCreated(event);
+
+      expect(result.processed).toBe(true);
+      expect(result.idempotent).toBe(true);
+      expect(dbMock.workerProfile.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('getUserAuthStatus', () => {
     it('should return user status and provisioned flag', async () => {
       dbMock.user.findUnique.mockResolvedValue({

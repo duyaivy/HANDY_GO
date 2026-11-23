@@ -416,6 +416,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
@@ -430,6 +432,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
@@ -444,6 +448,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
@@ -458,6 +464,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 

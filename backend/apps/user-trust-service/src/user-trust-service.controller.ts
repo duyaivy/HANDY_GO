@@ -159,6 +159,74 @@ export class UserTrustServiceController {
   }
 
   /**
+   * RabbitMQ Event Consumer for 'order.completed'.
+   * Synchronizes worker completed order count and total order count in WorkerProfile.
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_COMPLETED)
+  async handleOrderCompleted(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleOrderCompleted(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle order.completed event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'order.created'.
+   * Synchronizes worker total order count in WorkerProfile.
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
+  async handleOrderCreated(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    try {
+      const result = await this.userTrustService.handleOrderCreated(event);
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.ack(originalMsg);
+        }
+      }
+      return result;
+    } catch (err) {
+      this.logger.error(
+        `Failed to handle order.created event: ${(err as Error).message}`,
+      );
+      if (context && typeof context.getChannelRef === 'function') {
+        const channel = context.getChannelRef();
+        const originalMsg = context.getMessage();
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Internal RabbitMQ RPC to provide user status to Auth Service.
    */
   @MessagePattern('user.auth-status')

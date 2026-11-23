@@ -14,6 +14,8 @@ describe('UserTrustServiceController', () => {
     serviceMock = {
       getHello: vi.fn().mockReturnValue('Hello World!'),
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
+      handleOrderCompleted: vi.fn().mockResolvedValue({ processed: true }),
+      handleOrderCreated: vi.fn().mockResolvedValue({ processed: true }),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       listUsers: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
@@ -75,6 +77,53 @@ describe('UserTrustServiceController', () => {
     const result = await controller.handleUserRegistered(event, undefined as any);
     expect(result).toEqual({ processed: true });
     expect(serviceMock.handleUserRegistered).toHaveBeenCalledWith(event);
+  });
+
+  it('should handle order.completed event and ack channel', async () => {
+    const event = {
+      eventId: 'evt-order-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    const result = await controller.handleOrderCompleted(event, contextMock);
+    expect(result).toEqual({ processed: true });
+    expect(serviceMock.handleOrderCompleted).toHaveBeenCalledWith(event);
+    expect(channelMock.ack).toHaveBeenCalled();
+  });
+
+  it('should nack channel on error in handleOrderCompleted', async () => {
+    const event = { eventId: 'evt-order-err' } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('DB error'));
+
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('DB error');
+    expect(channelMock.nack).toHaveBeenCalled();
+  });
+
+  it('should handle order.created event and ack channel', async () => {
+    const event = {
+      eventId: 'evt-order-created-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    const result = await controller.handleOrderCreated(event, contextMock);
+    expect(result).toEqual({ processed: true });
+    expect(serviceMock.handleOrderCreated).toHaveBeenCalledWith(event);
+    expect(channelMock.ack).toHaveBeenCalled();
   });
 
   it('should return profile for authenticated user', async () => {

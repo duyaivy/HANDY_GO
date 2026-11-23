@@ -384,6 +384,168 @@ export class UserTrustServiceService {
     return { processed: true, idempotent: false };
   }
 
+  async handleOrderCompleted(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-completed-${orderId}` : null);
+    const eventType = 'order.completed';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId) {
+      this.logger.warn(
+        `Ignoring order.completed event: missing workerUserId (orderId=${orderId})`,
+      );
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        this.logger.log(
+          `Event ${eventId} (${eventType}) has already been processed. Skipping idempotently.`,
+        );
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      if (eventId) {
+        const inTx = await tx.eventInbox.findUnique({
+          where: { id: eventId },
+        });
+        if (inTx) return;
+
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const worker = await tx.workerProfile.findFirst({
+        where: {
+          OR: [{ id: workerUserId }, { userId: workerUserId }],
+        },
+      });
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId})`,
+        );
+        return;
+      }
+
+      const newCompleted = (worker.completedOrderCount || 0) + 1;
+      const newTotal =
+        (worker.orderCountTotal || 0) >= newCompleted
+          ? worker.orderCountTotal
+          : newCompleted;
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: {
+          completedOrderCount: newCompleted,
+          orderCountTotal: newTotal,
+          updatedAt: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Incremented completed orders for worker ${worker.userId}: completedOrderCount=${newCompleted}, orderCountTotal=${newTotal}`,
+      );
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
+  async handleOrderCreated(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-created-${orderId}` : null);
+    const eventType = 'order.created';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId) {
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing) {
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      if (eventId) {
+        const inTx = await tx.eventInbox.findUnique({
+          where: { id: eventId },
+        });
+        if (inTx) return;
+
+        await tx.eventInbox.create({
+          data: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+        });
+      }
+
+      const worker = await tx.workerProfile.findFirst({
+        where: {
+          OR: [{ id: workerUserId }, { userId: workerUserId }],
+        },
+      });
+
+      if (!worker) {
+        return;
+      }
+
+      await tx.workerProfile.update({
+        where: { id: worker.id },
+        data: {
+          orderCountTotal: (worker.orderCountTotal || 0) + 1,
+          updatedAt: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `Incremented total orders for worker ${worker.userId}: orderCountTotal=${(worker.orderCountTotal || 0) + 1}`,
+      );
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
   async getUserAuthStatus(
     userId: string,
     roles: string[],

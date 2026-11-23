@@ -179,6 +179,8 @@ export function useWorkerJobDetail(jobId?: string) {
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
@@ -193,6 +195,8 @@ export function useWorkerJobDetail(jobId?: string) {
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
@@ -255,6 +259,8 @@ export function useWorkerJobDetail(jobId?: string) {
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
       queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
     },
   });
 
