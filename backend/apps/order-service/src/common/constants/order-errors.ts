@@ -4,16 +4,22 @@ export const ORDER_ERROR_CODES = {
   DEADLINE_EXPIRED: 'DEADLINE_EXPIRED',
   MISSING_EVIDENCE: 'MISSING_EVIDENCE',
   DISPUTE_REASON_REQUIRED: 'DISPUTE_REASON_REQUIRED',
+  COMPLAINT_WINDOW_EXPIRED: 'COMPLAINT_WINDOW_EXPIRED',
   REWORK_REASON_REQUIRED: 'REWORK_REASON_REQUIRED',
   CANCEL_REASON_REQUIRED: 'CANCEL_REASON_REQUIRED',
   RESOLUTION_REASON_REQUIRED: 'RESOLUTION_REASON_REQUIRED',
+  LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION: 'LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION',
+  REFUND_AMOUNT_EXCEEDS_REFUNDABLE: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE',
   TOO_EARLY_TO_START: 'TOO_EARLY_TO_START',
 
   // 403 Forbidden
   NOT_ORDER_OWNER: 'NOT_ORDER_OWNER',
+  DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION:
+    'DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION',
   NOT_REQUEST_OWNER: 'NOT_REQUEST_OWNER',
   NOT_PROPOSAL_PARTICIPANT: 'NOT_PROPOSAL_PARTICIPANT',
   FORBIDDEN_ROLE: 'FORBIDDEN_ROLE',
+  REFUND_SELF_APPROVAL_FORBIDDEN: 'REFUND_SELF_APPROVAL_FORBIDDEN',
 
   // 404 Not Found
   SERVICE_REQUEST_NOT_FOUND: 'SERVICE_REQUEST_NOT_FOUND',
@@ -21,6 +27,7 @@ export const ORDER_ERROR_CODES = {
   ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
   EVIDENCE_NOT_FOUND: 'EVIDENCE_NOT_FOUND',
   MEDIA_NOT_FOUND: 'MEDIA_NOT_FOUND',
+  RECONCILIATION_EVENT_NOT_FOUND: 'RECONCILIATION_EVENT_NOT_FOUND',
 
   // 409 Conflict
   ORDER_ALREADY_EXISTS: 'ORDER_ALREADY_EXISTS',
@@ -30,6 +37,13 @@ export const ORDER_ERROR_CODES = {
   WORKER_CAPACITY_EXCEEDED: 'WORKER_CAPACITY_EXCEEDED',
   SCHEDULE_CONFLICT: 'SCHEDULE_CONFLICT',
   WORKER_ALREADY_BUSY: 'WORKER_ALREADY_BUSY',
+  DISPUTE_ALREADY_DECIDED: 'DISPUTE_ALREADY_DECIDED',
+  DISPUTE_REFUND_ALREADY_COMPLETED: 'DISPUTE_REFUND_ALREADY_COMPLETED',
+  DISPUTE_REFUND_CANCELLATION_UNSAFE: 'DISPUTE_REFUND_CANCELLATION_UNSAFE',
+  ORDER_ALREADY_FULLY_REFUNDED: 'ORDER_ALREADY_FULLY_REFUNDED',
+  PAYMENT_NOT_REFUNDABLE: 'PAYMENT_NOT_REFUNDABLE',
+  RECONCILIATION_REPLAY_NOT_ALLOWED: 'RECONCILIATION_REPLAY_NOT_ALLOWED',
+  RECONCILIATION_REPLAY_STILL_MISMATCHED: 'RECONCILIATION_REPLAY_STILL_MISMATCHED',
 
   // 422 Unprocessable Entity
   INCOMPLETE_PUBLISH_PAYLOAD: 'INCOMPLETE_PUBLISH_PAYLOAD',
@@ -50,23 +64,31 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'At least one proof of work image or video evidence is required before finishing the order',
   DISPUTE_REASON_REQUIRED:
     'A dispute reason is strictly required to open a dispute',
+  COMPLAINT_WINDOW_EXPIRED:
+    'Đã quá thời hạn 7 ngày kể từ khi hoàn tất đơn hàng, không thể mở khiếu nại.',
   REWORK_REASON_REQUIRED:
     'A rework reason is required when requesting rework',
   CANCEL_REASON_REQUIRED:
     'A reason is required when cancelling the order',
   RESOLUTION_REASON_REQUIRED:
     'An admin resolution reason is required to resolve a dispute',
+  LEGACY_ACTION_NOT_ALLOWED_AFTER_COMPLETION: 'Legacy actions cannot resolve a completed-order dispute',
+  REFUND_AMOUNT_EXCEEDS_REFUNDABLE: 'Refund amount exceeds the remaining refundable amount',
   TOO_EARLY_TO_START:
     'Chưa tới giờ hẹn! Bạn chỉ có thể bấm bắt đầu trước giờ hẹn tối đa 30 phút.',
 
   NOT_ORDER_OWNER:
     'You are not authorized to access or modify this order',
+  DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION:
+    'Chỉ khách hàng của đơn hàng mới có quyền mở khiếu nại sau khi đơn đã hoàn tất.',
   NOT_REQUEST_OWNER:
     'You are not authorized to modify this service request',
   NOT_PROPOSAL_PARTICIPANT:
     'You are not a participant in this booking proposal',
   FORBIDDEN_ROLE:
     'You do not have the required role to perform this action',
+  REFUND_SELF_APPROVAL_FORBIDDEN:
+    'An Admin cannot approve a refund for their own payment',
 
   SERVICE_REQUEST_NOT_FOUND:
     'The requested service request could not be found',
@@ -78,6 +100,8 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'The requested order evidence could not be found',
   MEDIA_NOT_FOUND:
     'The requested service request media could not be found',
+  RECONCILIATION_EVENT_NOT_FOUND:
+    'The requested reconciliation event could not be found',
 
   ORDER_ALREADY_EXISTS:
     'An order has already been finalized for this service request',
@@ -93,6 +117,18 @@ export const ORDER_ERROR_MESSAGES: Record<OrderErrorCode, string> = {
     'Lịch hẹn bị trùng hoặc khoảng cách giữa các đơn nhỏ hơn 60 phút.',
   WORKER_ALREADY_BUSY:
     'Bạn đang thi công một đơn khác. Vui lòng hoàn thành đơn hiện tại trước khi bắt đầu đơn mới!',
+  DISPUTE_ALREADY_DECIDED: 'This dispute already has an Admin decision',
+  DISPUTE_REFUND_ALREADY_COMPLETED:
+    'The previous dispute refund has already been completed in Payment and cannot be overridden',
+  DISPUTE_REFUND_CANCELLATION_UNSAFE:
+    'The previous dispute refund is still in progress or unverified with Wallet and cannot be overridden yet',
+  ORDER_ALREADY_FULLY_REFUNDED:
+    'Đơn hàng đã được hoàn tiền toàn phần, không thể mở thêm khiếu nại.',
+  PAYMENT_NOT_REFUNDABLE: 'Payment is not settled or has no refundable balance',
+  RECONCILIATION_REPLAY_NOT_ALLOWED:
+    'Only recoverable pending_reconciliation events can be replayed',
+  RECONCILIATION_REPLAY_STILL_MISMATCHED:
+    'Replayed event still fails order reconciliation guards',
 
   INCOMPLETE_PUBLISH_PAYLOAD:
     'Service request must include serviceId, addressText, coordinates, description, and future scheduledAt to be published',

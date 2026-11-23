@@ -5,6 +5,7 @@ import { PrismaModule } from '../prisma/prisma.module.js';
 import { OrderOutboxRepository } from './outbox/order-outbox.repository.js';
 import { OrderOutboxPublisherService } from './outbox/order-outbox-publisher.service.js';
 import { ConsumedEventRepository } from './inbox/consumed-event.repository.js';
+import { DisputeRefundReconciliationService } from './inbox/dispute-refund-reconciliation.service.js';
 
 @Global()
 @Module({
@@ -16,6 +17,7 @@ import { ConsumedEventRepository } from './inbox/consumed-event.repository.js';
       useClass: OrderOutboxRepository,
     },
     ConsumedEventRepository,
+    DisputeRefundReconciliationService,
     OutboxPublisherService,
     OrderOutboxPublisherService,
   ],
@@ -24,6 +26,7 @@ import { ConsumedEventRepository } from './inbox/consumed-event.repository.js';
     OrderOutboxRepository,
     OutboxRepository,
     ConsumedEventRepository,
+    DisputeRefundReconciliationService,
     OutboxPublisherService,
     OrderOutboxPublisherService,
   ],

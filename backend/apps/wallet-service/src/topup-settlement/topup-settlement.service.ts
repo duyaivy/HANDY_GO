@@ -45,7 +45,7 @@ export class TopupSettlementService {
         }
         return prior;
       }
-      const entry = await tx.walletTransaction.create({ data: { walletId: wallet.id, type: 'topup', direction: 'credit', amount, operationId: dto.paymentId, idempotencyKey: `topup:${dto.idempotencyKey}`, referenceId: dto.paymentId, ...(simulated ? { description: 'MOCK simulated provider confirmation; sandbox Point only' } : {}) } });
+      const entry = await tx.walletTransaction.create({ data: { walletId: wallet.id, type: 'topup', direction: 'credit', amount, balanceBefore: wallet.balance, balanceAfter: wallet.balance + amount, operationId: dto.paymentId, idempotencyKey: `topup:${dto.idempotencyKey}`, referenceId: dto.paymentId, ...(simulated ? { description: 'MOCK simulated provider confirmation; sandbox Point only' } : {}) } });
       await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: amount } } });
       const payload = { eventId: `wallet.topup.credited:${entry.id}`, transactionId: entry.id, walletId: wallet.id, userId: dto.userId, paymentId: dto.paymentId, amount: amount.toString(), provider: dto.provider ?? 'vnpay', isSimulated: simulated };
       await tx.outboxEvent.createMany({ data: [

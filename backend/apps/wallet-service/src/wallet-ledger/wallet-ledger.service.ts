@@ -208,6 +208,8 @@ export class WalletLedgerService {
                   type: posting.type,
                   direction: posting.direction,
                   amount: posting.amount,
+                  balanceBefore: wallet.balance,
+                  balanceAfter: posting.direction === 'debit' ? wallet.balance - posting.amount : wallet.balance + posting.amount,
                   operationId: input.operationId,
                   referenceId: posting.referenceId,
                 },
@@ -355,7 +357,7 @@ export class WalletLedgerService {
       if (posting.direction === 'debit' && wallet.balance - wallet.reservedBalance < posting.amount) throw new Error('Insufficient available balance');
       await tx.wallet.update({ where: { id: wallet.id }, data: { balance: posting.direction === 'debit' ? { decrement: posting.amount } : { increment: posting.amount } } });
       await tx.walletTransaction.create({
-        data: { walletId: wallet.id, transferId: transfer.id, type: posting.type, direction: posting.direction, amount: posting.amount, operationId: input.operationId, referenceId: posting.referenceId },
+        data: { walletId: wallet.id, transferId: transfer.id, type: posting.type, direction: posting.direction, amount: posting.amount, balanceBefore: wallet.balance, balanceAfter: posting.direction === 'debit' ? wallet.balance - posting.amount : wallet.balance + posting.amount, operationId: input.operationId, referenceId: posting.referenceId },
       });
       await tx.outboxEvent.create({
         data: {

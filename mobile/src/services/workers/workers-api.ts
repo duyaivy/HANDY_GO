@@ -9,16 +9,25 @@ export type WorkerReviewCustomer = {
   avatarUrl?: string | null;
 };
 
+export type WorkerReviewMediaItem = {
+  id?: string;
+  mediaType: 'image' | 'video' | string;
+  mediaUrl: string;
+  thumbnailUrl?: string | null;
+  createdAt?: string;
+};
+
 export type WorkerReviewItem = {
   id: string;
   orderId?: string | null;
   rating: number;
-  attitudeRating?: number | null;
-  qualityRating?: number | null;
-  speedRating?: number | null;
+  attitudeRating?: number | string | null;
+  qualityRating?: number | string | null;
+  speedRating?: number | string | null;
   comment?: string | null;
   createdAt: string;
   customer: WorkerReviewCustomer;
+  media?: WorkerReviewMediaItem[];
 };
 
 export type WorkerRatingDistribution = Record<number, number>;
@@ -122,6 +131,8 @@ export type WorkerPublicProfileData = {
   fullName: string;
   avatarUrl?: string | null;
   bio?: string | null;
+  phone?: string | null;
+  headline?: string | null;
   status: string;
   isVerified: boolean;
   verifiedAt?: string | null;
@@ -129,6 +140,13 @@ export type WorkerPublicProfileData = {
   memberSince?: string | null;
   stats: WorkerPublicProfileStats;
   services?: WorkerServiceOfferingItem[];
+  serviceAreas?: Array<{
+    id?: string;
+    latitude: number;
+    longitude: number;
+    radiusKm: number;
+    isActive?: boolean;
+  }>;
   recentReviews?: WorkerReviewItem[];
 };
 

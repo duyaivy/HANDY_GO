@@ -192,4 +192,33 @@ describe('TrackingEventsConsumer', () => {
     );
     expect(channelMock.ack).not.toHaveBeenCalled();
   });
+
+  it('delegates HG-82 dispute decision, dispute resolved, and warranty completed events to recordDomainEvent with exact event patterns', async () => {
+    eventsServiceMock.recordDomainEvent.mockResolvedValue({ recorded: true });
+    const decisionPayload = { eventId: randomUUID(), orderId: randomUUID() };
+    const resolvedPayload = { eventId: randomUUID(), orderId: randomUUID() };
+    const warrantyPayload = { eventId: randomUUID(), orderId: randomUUID() };
+
+    await consumer.handleDisputeDecision(decisionPayload, contextMock);
+    await consumer.handleDisputeResolved(resolvedPayload, contextMock);
+    await consumer.handleWarrantyCompleted(warrantyPayload, contextMock);
+
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenNthCalledWith(
+      1,
+      decisionPayload,
+      'order.dispute.decision.recorded',
+    );
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenNthCalledWith(
+      2,
+      resolvedPayload,
+      'order.dispute.resolved',
+    );
+    expect(eventsServiceMock.recordDomainEvent).toHaveBeenNthCalledWith(
+      3,
+      warrantyPayload,
+      'order.warranty.completed',
+    );
+    expect(channelMock.ack).toHaveBeenCalledTimes(3);
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
 });

@@ -4,6 +4,15 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { OrderStatus } from '@prisma/order-client';
 import { IsCommaSeparatedEnum } from '../../common/validators/is-comma-separated-enum.validator.js';
 
+export const PAYMENT_STATE_VALUES = [
+  'unpaid',
+  'pending',
+  'paid',
+  'partially_refunded',
+  'refunded',
+  'failed',
+] as const;
+
 export class QueryOrderDto {
   @ApiPropertyOptional({
     description: 'Page number (1-based)',
@@ -41,9 +50,9 @@ export class QueryOrderDto {
 
   @ApiPropertyOptional({
     description: 'Filter by Payment State',
-    enum: ['unpaid', 'pending', 'paid', 'refunded', 'failed'],
+    enum: PAYMENT_STATE_VALUES,
   })
   @IsOptional()
-  @IsEnum(['unpaid', 'pending', 'paid', 'refunded', 'failed'])
+  @IsEnum(PAYMENT_STATE_VALUES)
   paymentState?: string;
 }

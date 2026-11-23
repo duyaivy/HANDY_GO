@@ -1,16 +1,25 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { searchCatalogPage } from '../common/catalog-search.js';
+import { toPrismaSuggestionGroups } from '../common/dto/suggestion-group.dto.js';
 import { EVENT_PATTERNS, OutboxPublisherService } from '@app/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RedisService } from '@app/redis';
 import { CreateServiceDto } from './dto/create-service.dto.js';
 import { UpdateServiceDto } from './dto/update-service.dto.js';
 import { QueryServiceDto } from './dto/query-service.dto.js';
+
+const CATALOG_CACHE_PATTERNS = [
+  'catalog:services:*',
+  'catalog:service:*',
+  'catalog:categories:*',
+  'catalog:category:*',
+] as const;
 
 @Injectable()
 export class ServicesService {
@@ -19,6 +28,21 @@ export class ServicesService {
     private readonly outboxPublisher: OutboxPublisherService,
     private readonly redis: RedisService,
   ) {}
+
+  private async invalidateCatalogCache(): Promise<void> {
+    await Promise.all(
+      CATALOG_CACHE_PATTERNS.map((pattern) =>
+        this.redis.delByPattern(pattern),
+      ),
+    );
+  }
+
+  async getDashboardSummaries(ids: string[]) {
+    return this.prisma.service.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, iconUrl: true },
+    });
+  }
 
   async create(dto: CreateServiceDto) {
     const category = await this.prisma.category.findUnique({
@@ -42,6 +66,20 @@ export class ServicesService {
       );
     }
 
+    const suggestionGroups = toPrismaSuggestionGroups(dto.suggestionGroups);
+
+    if (
+      dto.basePriceMin !== undefined &&
+      dto.basePriceMax !== undefined &&
+      dto.basePriceMin != null &&
+      dto.basePriceMax != null &&
+      dto.basePriceMin >= dto.basePriceMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
+      );
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
       const created = await tx.service.create({
         data: {
@@ -50,10 +88,18 @@ export class ServicesService {
           description: dto.description,
           iconUrl: dto.iconUrl,
           isActive: dto.isActive ?? true,
+          ...(suggestionGroups !== undefined && { suggestionGroups }),
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
-            select: { id: true, name: true, imageUrl: true },
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              suggestionGroups: true,
+            },
           },
         },
       });
@@ -68,6 +114,8 @@ export class ServicesService {
             description: created.description,
             iconUrl: created.iconUrl,
             isActive: created.isActive,
+            basePriceMin: (created as any).basePriceMin,
+            basePriceMax: (created as any).basePriceMax,
             createdAt: created.createdAt.toISOString(),
           },
         },
@@ -77,12 +125,12 @@ export class ServicesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:services:*');
+    await this.invalidateCatalogCache();
     return result;
   }
 
   async findAll(query: QueryServiceDto) {
-    const cacheKey = `catalog:services:list:v2:${JSON.stringify([
+    const cacheKey = `catalog:services:list:v3:${JSON.stringify([
       query.isActive ?? null,
       query.search ?? '',
       query.categoryId ?? null,
@@ -110,7 +158,10 @@ export class ServicesService {
     const load = async (db: Prisma.TransactionClient) => {
       const matched = query.search
         ? await searchCatalogPage(db, 'services', {
-            ...query, search: query.search, page, limit,
+            ...query,
+            search: query.search,
+            page,
+            limit,
           })
         : undefined;
       const [total, hydrated] = await Promise.all([
@@ -121,7 +172,12 @@ export class ServicesService {
           orderBy: [{ name: 'asc' }],
           include: {
             category: {
-              select: { id: true, name: true, imageUrl: true },
+              select: {
+                id: true,
+                name: true,
+                imageUrl: true,
+                suggestionGroups: true,
+              },
             },
           },
         }),
@@ -158,7 +214,7 @@ export class ServicesService {
   }
 
   async findOne(id: string) {
-    const cacheKey = `catalog:service:${id}`;
+    const cacheKey = `catalog:service:v2:${id}`;
     const cached = await this.redis.get<unknown>(cacheKey);
     if (cached) {
       return cached;
@@ -168,7 +224,14 @@ export class ServicesService {
       where: { id },
       include: {
         category: {
-          select: { id: true, name: true, imageUrl: true, parentId: true, isActive: true },
+          select: {
+            id: true,
+            name: true,
+            imageUrl: true,
+            parentId: true,
+            isActive: true,
+            suggestionGroups: true,
+          },
         },
       },
     });
@@ -219,19 +282,59 @@ export class ServicesService {
       }
     }
 
+    const suggestionGroups = toPrismaSuggestionGroups(dto.suggestionGroups);
+
+    const targetMin =
+      dto.basePriceMin !== undefined
+        ? dto.basePriceMin != null
+          ? Number(dto.basePriceMin)
+          : null
+        : service.basePriceMin != null
+          ? Number(service.basePriceMin)
+          : null;
+
+    const targetMax =
+      dto.basePriceMax !== undefined
+        ? dto.basePriceMax != null
+          ? Number(dto.basePriceMax)
+          : null
+        : service.basePriceMax != null
+          ? Number(service.basePriceMax)
+          : null;
+
+    if (
+      targetMin != null &&
+      targetMax != null &&
+      targetMin >= targetMax
+    ) {
+      throw new BadRequestException(
+        'basePriceMin must be strictly less than basePriceMax',
+      );
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const res = await tx.service.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
-          ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.description !== undefined && {
+            description: dto.description,
+          }),
           ...(dto.iconUrl !== undefined && { iconUrl: dto.iconUrl }),
           ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(suggestionGroups !== undefined && { suggestionGroups }),
+          ...(dto.basePriceMin !== undefined && { basePriceMin: dto.basePriceMin }),
+          ...(dto.basePriceMax !== undefined && { basePriceMax: dto.basePriceMax }),
         },
         include: {
           category: {
-            select: { id: true, name: true, imageUrl: true },
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              suggestionGroups: true,
+            },
           },
         },
       });
@@ -246,6 +349,8 @@ export class ServicesService {
             description: res.description,
             iconUrl: res.iconUrl,
             isActive: res.isActive,
+            basePriceMin: (res as any).basePriceMin,
+            basePriceMax: (res as any).basePriceMax,
             updatedAt: res.updatedAt.toISOString(),
           },
         },
@@ -255,7 +360,7 @@ export class ServicesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:services:*');
+    await this.invalidateCatalogCache();
     return updated;
   }
 
@@ -285,7 +390,7 @@ export class ServicesService {
       });
 
       void this.outboxPublisher.triggerPublish();
-      await this.redis.delByPattern('catalog:services:*');
+      await this.invalidateCatalogCache();
       return { message: `Service '${service.name}' deleted successfully` };
     }
 
@@ -311,7 +416,7 @@ export class ServicesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:services:*');
+    await this.invalidateCatalogCache();
     return {
       message: `Service '${service.name}' deactivated successfully`,
       data: updated,
@@ -334,7 +439,12 @@ export class ServicesService {
         data: { isActive: nextStatus },
         include: {
           category: {
-            select: { id: true, name: true },
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              suggestionGroups: true,
+            },
           },
         },
       });
@@ -355,7 +465,7 @@ export class ServicesService {
     });
 
     void this.outboxPublisher.triggerPublish();
-    await this.redis.delByPattern('catalog:services:*');
+    await this.invalidateCatalogCache();
     return updated;
   }
 }

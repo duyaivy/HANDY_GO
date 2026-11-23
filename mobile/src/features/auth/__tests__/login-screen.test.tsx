@@ -30,6 +30,7 @@ afterEach(() => {
   cleanup();
   jest.clearAllTimers();
   jest.clearAllMocks();
+  useAuthStore.setState({ guestRole: null, activeMode: null, isAuthenticated: false, user: null });
   useAuthStore.getState().setUser(null);
   useAuthStore.getState().clearError();
   useAuthFlowStore.getState().resetFlow();
@@ -109,6 +110,36 @@ describe('loginScreen (Phase 4 Step 1 - Default Password Login)', () => {
         password: 'Password123',
       });
       expect(mockReplace).toHaveBeenCalledWith('/customer');
+    });
+  });
+
+  it('navigates to /worker when guestRole is Worker and user has Worker role', async () => {
+    useAuthStore.setState({ guestRole: 'Worker', activeMode: 'Worker' });
+    const mockLogin = jest.fn().mockImplementation(async () => {
+      const user = {
+        id: 'worker-user-1',
+        phone: '+84987654321',
+        email: 'w@example.com',
+        roles: ['Customer', 'Worker'],
+        permissions: ['jobs:bid'],
+      };
+      useAuthStore.setState({ user, activeMode: 'Worker' });
+      return {
+        accessToken: 'token',
+        refreshToken: 'refresh',
+        expiresIn: 300,
+        user,
+      };
+    });
+    useAuthStore.setState({ login: mockLogin });
+
+    render(<LoginScreen />);
+    fireEvent.changeText(screen.getByTestId('login-phone-input'), '0987654321');
+    fireEvent.changeText(screen.getByTestId('login-password-input'), 'Password123');
+    fireEvent.press(screen.getByTestId('login-submit-button'));
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith('/worker');
     });
   });
 

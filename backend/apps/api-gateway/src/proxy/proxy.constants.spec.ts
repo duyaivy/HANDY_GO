@@ -89,6 +89,18 @@ describe('AI identity proxy route', () => {
     expect(orderRoute?.excludeMatch?.('/api/v1/requests')).toBe(false);
   });
 
+  it('routes the admin dispute queue to order-service without excluding it', () => {
+    const orderRoute = SERVICE_ROUTES.find(
+      (route) => route.upstreamName === 'order-service',
+    );
+    const path = '/api/v1/admin/orders/disputes';
+
+    expect(orderRoute?.prefixes).toContain('/api/v1/admin/orders');
+    expect(path.startsWith('/api/v1/admin/orders/')).toBe(true);
+    expect(orderRoute?.excludeMatch?.(path)).toBe(false);
+    expect(orderRoute?.pathRewrite).toBeUndefined();
+  });
+
   it('correctly configures tracking-service and real-time SSE streaming route with no timeout', () => {
     const trackingRoute = SERVICE_ROUTES.find(
       (r) => r.upstreamName === 'tracking-service',

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Test, type TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
@@ -12,6 +13,7 @@ import { RegisterRole, Role, StandardPermissions } from '@app/auth';
 import { UserTrustServiceService } from './user-trust-service.service.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { OrderClient } from './clients/order.client.js';
+import { AuthClient } from './clients/auth.client.js';
 import { CloudinaryService } from '@app/cloudinary';
 
 describe('UserTrustServiceService', () => {
@@ -19,6 +21,7 @@ describe('UserTrustServiceService', () => {
   let dbMock: any;
   let catalogClientMock: any;
   let orderClientMock: any;
+  let authClientMock: { getUserPhone: ReturnType<typeof vi.fn> };
   let cloudinaryMock: any;
 
   beforeEach(async () => {
@@ -107,8 +110,11 @@ describe('UserTrustServiceService', () => {
     orderClientMock = {
       getOrder: vi.fn(),
     };
+    authClientMock = { getUserPhone: vi.fn().mockResolvedValue(null) };
 
+    const verifier = new CloudinaryService({} as any, { cloudinaryApiSecret: 'test-secret' } as any);
     cloudinaryMock = {
+      verifyReviewMedia: verifier.verifyReviewMedia.bind(verifier),
       uploadImage: vi.fn(),
       createVideoUploadSignature: vi.fn(),
     };
@@ -119,6 +125,7 @@ describe('UserTrustServiceService', () => {
         { provide: UserTrustPrismaService, useValue: dbMock },
         { provide: CatalogClient, useValue: catalogClientMock },
         { provide: OrderClient, useValue: orderClientMock },
+        { provide: AuthClient, useValue: authClientMock },
         { provide: CloudinaryService, useValue: cloudinaryMock },
       ],
     }).compile();
@@ -851,12 +858,16 @@ describe('UserTrustServiceService', () => {
         },
       ]);
 
+      authClientMock.getUserPhone.mockResolvedValue('+84912345678');
       const result: any = await service.getWorkerPublicProfile(validWorkerId);
 
       expect(result.statusCode).toBe(200);
+      expect(authClientMock.getUserPhone).toHaveBeenCalledWith(validUserId);
+      expect(result.data.phone).toBe('+84912345678');
       expect(result.data.id).toBe(validWorkerId);
       expect(result.data.fullName).toBe('Trần Thợ Lành Nghề');
       expect(result.data.bio).toBe('Thợ điện nước 10 năm kinh nghiệm, tận tâm, chu đáo.');
+      expect(result.data.headline).toBe('Sửa điện nước dân dụng');
       expect(result.data.isVerified).toBe(true);
       expect(result.data.stats.averageRating).toBe(4.85);
       expect(result.data.stats.ratingDistribution).toEqual({
@@ -1100,6 +1111,7 @@ describe('UserTrustServiceService', () => {
           {
             mediaType: 'image' as const,
             mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/img1.jpg',
+            uploadReceipt: crypto.createHmac('sha256', 'test-secret').update(`${customerUserId}:image:img1`).digest('hex'),
           },
         ],
       };

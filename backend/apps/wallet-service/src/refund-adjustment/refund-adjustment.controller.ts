@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Headers, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ConfigService } from '@app/config';
 import { AppException, ERROR_CODES, buildSuccessResponse } from '@app/common';
 import { assertTrustedSecret, requireAdminPermission, WALLET_PERMISSIONS } from '../common/utils/trusted-request.util.js';
 import { RefundAdjustmentService } from './refund-adjustment.service.js';
+import { CancelRefundOperationDto } from './dto/cancel-refund-operation.dto.js';
 import { RefundCreditDto } from './dto/refund-credit.dto.js';
 import { WalletAdjustmentDto } from './dto/wallet-adjustment.dto.js';
 
@@ -11,6 +12,19 @@ import { WalletAdjustmentDto } from './dto/wallet-adjustment.dto.js';
 @Controller('internal/wallets')
 export class RefundAdjustmentController {
   constructor(private readonly service: RefundAdjustmentService, private readonly config: ConfigService) {}
+
+  @Post('refund-operations/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancelRefundOperation(
+    @Headers('x-internal-secret') secret: string | undefined,
+    @Body() dto: CancelRefundOperationDto,
+  ) {
+    assertTrustedSecret(this.config.internalServiceSecret, secret);
+    return buildSuccessResponse(
+      await this.service.cancelRefundOperation(dto),
+      'Refund operation cancellation reconciled',
+    );
+  }
 
   @Post(':userId/refund-credit')
   async refund(@Headers('x-internal-secret') secret: string | undefined, @Param('userId') userId: string, @Body() dto: RefundCreditDto) {

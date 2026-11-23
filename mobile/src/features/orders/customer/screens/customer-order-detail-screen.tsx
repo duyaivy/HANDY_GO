@@ -1,4 +1,6 @@
 import type { OrderStatusHistoryItem } from '../../types/order.types';
+import type { OrderPaymentRecord } from '@/features/wallet/types/payment.types';
+import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
@@ -10,7 +12,7 @@ import {
 } from 'react-native';
 import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
-import { ClockIcon } from '@/components/ui/icons/handy-icons';
+import { ClockIcon, StarIcon } from '@/components/ui/icons/handy-icons';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
@@ -21,14 +23,19 @@ import {
   useTrackingEvents,
   useTrackingSummary,
 } from '@/features/tracking';
+import { PaymentApi } from '@/features/wallet/api/payment.api';
+import { OrderPaymentModal } from '@/features/wallet/customer/components/order-payment-modal';
+import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import {
   OrderEvidenceGallery,
   OrderPaymentCard,
+  OrderReviewCard,
   OrderServiceCard,
   OrderStatusStepper,
   OrderWorkerCard,
 } from '../../components';
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
+import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
 
 export type CustomerOrderDetailScreenProps = {
@@ -111,6 +118,51 @@ export function CustomerOrderDetailScreen({
     worker,
   } = useCustomerOrderDetail(orderId);
 
+  const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
+  const paymentQuery = useQuery({
+    queryKey: walletQueryKeys.paymentByOrder(orderId),
+    queryFn: async () => (await PaymentApi.getPaymentByOrder(orderId)).data,
+    enabled: order?.status === 'completed',
+    retry: false,
+    refetchInterval: query => ['pending', 'processing'].includes(query.state.data?.status ?? '') ? 2500 : false,
+  });
+  const payment = paymentQuery.data;
+  const paymentState = payment?.status === 'succeeded'
+    ? 'paid'
+    : payment?.status === 'refunded' || payment?.status === 'partially_refunded'
+      ? 'refunded'
+      : payment?.status === 'pending' || payment?.status === 'processing'
+        ? 'pending'
+        : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+  const handlePaymentResult = (result: OrderPaymentRecord) => {
+    setIsPaymentOpen(false);
+    void refetch();
+    if (result.status === 'succeeded') {
+      Alert.alert('Thành công', 'Thanh toán thành công! Đơn hàng đã hoàn tất.');
+    }
+    else if (result.status === 'refunded' || result.status === 'partially_refunded') {
+      Alert.alert('Thông tin thanh toán', 'Giao dịch đã được hoàn tiền.');
+    }
+    else if (result.method === 'cash') {
+      Alert.alert('Chờ xác nhận', 'Đã ghi nhận phương thức tiền mặt. Vui lòng gửi tiền cho thợ.');
+    }
+    else {
+      Alert.alert('Đang xử lý', 'Thanh toán đang được xác nhận. Vui lòng không thanh toán lại.');
+    }
+  };
+
+  const {
+    canEdit: canEditReview,
+    hasReviewed,
+    hoursRemainingToEdit,
+    isError: isReviewError,
+    isLoading: isLoadingReview,
+    refetch: refetchReview,
+    review,
+  } = useOrderReview(orderId);
+  const canCreateReview = canCreateOrderReview(order);
+  const showReviewAction = !isLoadingReview && !isReviewError && (hasReviewed || canCreateReview);
+
   // Lấy serviceRequestId từ chi tiết order (hoặc search params)
   const serviceRequestId = order?.serviceRequestId || (searchParams?.serviceRequestId as string | undefined);
 
@@ -130,7 +182,7 @@ export function CustomerOrderDetailScreen({
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
     try {
-      await refetch();
+      await Promise.allSettled([refetch(), refetchReview()]);
     }
     finally {
       setIsManualRefreshing(false);
@@ -258,16 +310,7 @@ export function CustomerOrderDetailScreen({
     }
   };
 
-  const handleConfirmCompletion = async () => {
-    try {
-      await confirmCompletion();
-      Alert.alert('Thành công', 'Đã nghiệm thu hoàn tất đơn hàng!');
-    }
-    catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Không thể nghiệm thu đơn hàng. Vui lòng thử lại sau.';
-      Alert.alert('Lỗi nghiệm thu', message);
-    }
-  };
+  const handleConfirmCompletion = () => setIsPaymentOpen(true);
 
   const handleRequestRework = async () => {
     try {
@@ -354,9 +397,81 @@ export function CustomerOrderDetailScreen({
 
         {/* 4. Pricing & Payment Breakdown Card */}
         <OrderPaymentCard
-          agreedPrice={order?.agreedPrice || (isPlumberOrder ? 250000 : 0)}
-          paymentState={order?.paymentState}
+          agreedPrice={payment?.amount ?? order?.agreedPrice ?? (isPlumberOrder ? 250000 : 0)}
+          paymentState={paymentState}
+          paymentMethod={payment?.method}
         />
+
+        {/* 4b. Customer Review Section (When order is completed) */}
+        {currentStatus === 'completed' && !isLoadingReview && !isReviewError && (
+          hasReviewed && review
+            ? (
+                <OrderReviewCard
+                  review={review}
+                  canEdit={canEditReview}
+                  hoursRemainingToEdit={hoursRemainingToEdit}
+                  onEditPress={() => router.push({
+                    pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                    params: { mode: 'edit' },
+                  } as any)}
+                />
+              )
+            : canCreateReview
+              ? (
+                  <View testID="order-review-invite-banner" className="mb-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/20">
+                    <View className="flex-row items-center gap-3">
+                      <View className="size-10 items-center justify-center rounded-xl bg-amber-500/15">
+                        <StarIcon size={22} color="#F59E0B" fill="#F59E0B" />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                          Đơn hàng đã hoàn thành!
+                        </Text>
+                        <Text className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-400">
+                          Hãy để lại đánh giá để giúp thợ nâng cao uy tín và tích điểm thưởng HandyGo.
+                        </Text>
+                      </View>
+                    </View>
+                    <Button
+                      testID="cta-review-banner-btn"
+                      label="⭐ Đánh giá ngay"
+                      variant="default"
+                      className="mt-3 h-9 w-full rounded-xl bg-primary"
+                      textClassName="text-xs font-bold text-white"
+                      onPress={() => router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any)}
+                    />
+                  </View>
+                )
+              : null
+        )}
+
+        {/* 4c. Review Fetch Error Banner with Retry */}
+        {currentStatus === 'completed' && !isLoadingReview && isReviewError && (
+          <View
+            testID="customer-order-review-error-banner"
+            className="mb-4 rounded-2xl border border-rose-200 bg-rose-50/80 p-4 shadow-xs dark:border-rose-900/60 dark:bg-rose-950/20"
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="min-w-0 flex-1 pr-3">
+                <Text className="text-sm font-bold text-rose-900 dark:text-rose-200">
+                  Không thể tải thông tin đánh giá
+                </Text>
+                <Text className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                  Đã xảy ra lỗi khi kiểm tra trạng thái đánh giá của đơn hàng.
+                </Text>
+              </View>
+              <Button
+                testID="customer-order-review-retry-btn"
+                label="Thử lại"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 rounded-xl border-rose-300 bg-white px-3 active:bg-rose-100 dark:border-rose-700 dark:bg-rose-900"
+                textClassName="text-xs font-bold text-rose-700 dark:text-rose-200"
+                onPress={() => refetchReview()}
+              />
+            </View>
+          </View>
+        )}
 
         {/* 5. Evidence Gallery with Lightbox Viewer */}
         <OrderEvidenceGallery evidences={order?.evidences} />
@@ -421,11 +536,16 @@ export function CustomerOrderDetailScreen({
             Chức năng đang được phát triển
           </Text>
         </View>
-        {order?.serviceRequestId && <Button label="Lịch sử trò chuyện" onPress={() => router.push(`/customer/chat?requestId=${encodeURIComponent(order.serviceRequestId!)}` as any)} />}
+        {order?.serviceRequestId ? <Button label="Lịch sử trò chuyện" onPress={() => router.push({ pathname: RouteNames.CUSTOMER_CHAT, params: { requestId: order.serviceRequestId } } as any)} /> : null}
       </ScrollView>
 
       {/* 8. Sticky Bottom Action Bar (Cố định ở đáy màn hình) */}
       <View className="border-t border-neutral-200 bg-white p-4 pb-6 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+        {currentStatus === 'completed' && (paymentState === 'unpaid' || paymentState === 'failed' || payment?.status === 'pending')
+          ? (
+              <Button testID="customer-retry-payment-btn" label={payment?.status === 'pending' && payment.method === 'cash' ? 'Đổi phương thức thanh toán' : 'Thanh toán đơn hàng'} onPress={() => setIsPaymentOpen(true)} />
+            )
+          : null}
         {currentStatus === 'awaiting_customer_confirmation' && (
           <View className="gap-2.5">
             <Button
@@ -480,17 +600,38 @@ export function CustomerOrderDetailScreen({
 
         {currentStatus === 'completed' && (
           <View className="flex-row items-center gap-2.5">
-            <Button
-              label="⭐ Đánh Giá Thợ"
-              variant="default"
-              className="h-11 flex-1 rounded-2xl bg-primary"
-              textClassName="text-xs font-bold text-white"
-              onPress={() => Alert.alert('Đánh giá', 'Cảm ơn bạn đã sẵn sàng đánh giá thợ!')}
-            />
+            {showReviewAction && (
+              <Button
+                testID="customer-review-order-btn"
+                label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
+                variant="default"
+                className="h-11 flex-1 rounded-2xl bg-primary"
+                textClassName="text-xs font-bold text-white"
+                onPress={() => {
+                  if (hasReviewed && canEditReview) {
+                    router.push({
+                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                      params: { mode: 'edit' },
+                    } as any);
+                  }
+                  else if (hasReviewed) {
+                    router.push({
+                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                      params: { mode: 'view' },
+                    } as any);
+                  }
+                  else {
+                    router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
+                  }
+                }}
+              />
+            )}
             <Button
               label="Đặt Lại Dịch Vụ"
               variant="outline"
-              className="h-11 flex-1 rounded-2xl border-primary"
+              className={`h-11 rounded-2xl border-primary ${
+                showReviewAction ? 'flex-1' : 'w-full'
+              }`}
               textClassName="text-xs font-bold text-primary"
               onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
             />
@@ -521,6 +662,22 @@ export function CustomerOrderDetailScreen({
           </View>
         )}
       </View>
+      {isPaymentOpen && order
+        ? (
+            <OrderPaymentModal
+              key={orderId}
+              orderId={orderId}
+              amount={payment?.amount ?? order.agreedPrice}
+              serviceName={resolvedServiceName}
+              workerName={displayWorkerName}
+              initialMethod={payment?.method}
+              needsConfirmation={currentStatus === 'awaiting_customer_confirmation'}
+              onConfirmCompletion={confirmCompletion}
+              onResult={handlePaymentResult}
+              onClose={() => setIsPaymentOpen(false)}
+            />
+          )
+        : null}
     </Screen>
   );
 }

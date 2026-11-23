@@ -4,10 +4,11 @@ import { AdminOrdersController } from './admin-orders.controller.js';
 import { OrdersService } from './orders.service.js';
 import { TrustedGatewayGuard } from '../common/guards/trusted-gateway.guard.js';
 import { AdminGuard } from '../common/guards/admin.guard.js';
+import { PaymentRefundClient } from './payment-refund.client.js';
 
 @Module({
   controllers: [OrdersController, AdminOrdersController],
-  providers: [OrdersService, TrustedGatewayGuard, AdminGuard],
+  providers: [OrdersService, PaymentRefundClient, TrustedGatewayGuard, AdminGuard],
   exports: [OrdersService],
 })
 export class OrdersModule {}

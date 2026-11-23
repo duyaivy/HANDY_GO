@@ -27,6 +27,7 @@ import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
+import { AuthClient } from './clients/auth.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -217,6 +218,8 @@ export class UserTrustServiceService {
     private readonly orderClient?: OrderClient,
     @Optional()
     private readonly configService?: ConfigService,
+    @Optional()
+    private readonly authClient?: AuthClient,
   ) { }
 
   async getDisplayNames(ids: string[]) {
@@ -1868,17 +1871,27 @@ export class UserTrustServiceService {
       },
     });
 
-    return workers.map((w) => ({
-      workerId: w.userId,
-      workerUserId: w.userId,
-      fullName: w.user.fullName,
-      avatarUrl: w.user.avatarUrl,
-      averageRating: Number(w.averageRating || 5.0),
-      ratingCount: w.ratingCount || 0,
-      completedOrderCount: w.completedOrderCount || 0,
-      orderCountTotal: w.orderCountTotal || 0,
-      status: w.status,
-    }));
+    return workers.map((w) => {
+      const completedOrderCount = w.completedOrderCount || 0;
+      const orderCountTotal = w.orderCountTotal || completedOrderCount;
+      const completionRate =
+        orderCountTotal > 0
+          ? Math.round((completedOrderCount / orderCountTotal) * 100)
+          : (completedOrderCount > 0 ? 100 : 0);
+
+      return {
+        workerId: w.userId,
+        workerUserId: w.userId,
+        fullName: w.user.fullName,
+        avatarUrl: w.user.avatarUrl,
+        averageRating: Number(w.averageRating || 5.0),
+        ratingCount: w.ratingCount || 0,
+        completedOrderCount,
+        orderCountTotal,
+        completionRate,
+        status: w.status,
+      };
+    });
   }
 
   /**
@@ -1983,6 +1996,13 @@ export class UserTrustServiceService {
         ? Number(Number(worker.averageRating).toFixed(2))
         : 0;
 
+    const headline =
+      worker.serviceOfferings.find((s) => s.isActive)?.title ||
+      worker.serviceOfferings[0]?.title ||
+      'Thợ kỹ thuật chuyên nghiệp';
+
+    const phone = await this.authClient?.getUserPhone(worker.userId) ?? null;
+
     return {
       statusCode: 200,
       data: {
@@ -1991,6 +2011,8 @@ export class UserTrustServiceService {
         fullName: worker.user.fullName,
         avatarUrl: worker.user.avatarUrl,
         bio: worker.user.customerProfile?.bio ?? null,
+        phone,
+        headline,
         status: worker.status,
         isVerified: worker.status === 'verified',
         verifiedAt: worker.verifiedAt,
@@ -3229,7 +3251,7 @@ export class UserTrustServiceService {
    * 1. Ràng buộc đúng CLOUDINARY_CLOUD_NAME.
    * 2. Giao thức HTTPS và đúng loại resource (image/video).
    * 3. Xác thực quyền sở hữu của caller (chặn URL tài nguyên của người dùng khác hoặc giả mạo).
-   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (thuộc user-scoped path hoặc uploadReceipt hợp lệ).
+   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (uploadReceipt hợp lệ).
    */
   private async validateReviewMedia(
     mediaItems: Array<{
@@ -3237,6 +3259,7 @@ export class UserTrustServiceService {
       mediaUrl: string;
       thumbnailUrl?: string;
       uploadReceipt?: string;
+      thumbnailUploadReceipt?: string;
     }> | undefined,
     currentUserId: string,
   ) {
@@ -3305,53 +3328,14 @@ export class UserTrustServiceService {
       const publicIdWithExt = assetSegments.join('/');
       const publicId = publicIdWithExt.replace(/\.[^/.]+$/, '');
 
-      // 1. Kiểm tra nếu đường dẫn asset chứa ID của người dùng khác (không thuộc caller)
-      const userPattern =
-        /(?:users|user|reviews|videos|chat|evidence)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-      const match = publicIdWithExt.match(userPattern);
-      if (
-        match &&
-        match[1] &&
-        match[1].toLowerCase() !== currentUserId.toLowerCase()
-      ) {
+      if (!this.cloudinaryService || !(await this.cloudinaryService.verifyReviewMedia({
+        publicId, ownerId: currentUserId, mediaType: type, uploadReceipt: item.uploadReceipt,
+      }))) {
         throw new BadRequestException(
-          'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
+          item.uploadReceipt
+            ? `Mã xác thực upload (uploadReceipt) của ${type} không hợp lệ hoặc không thuộc caller`
+            : 'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
         );
-      }
-
-      // 2. Đối với video: bắt buộc phải có chứng thực quyền sở hữu từ direct upload signature
-      if (type === 'video') {
-        const secret =
-          this.configService?.cloudinaryApiSecret ||
-          process.env.CLOUDINARY_API_SECRET ||
-          'handygo-review-secret';
-
-        let isReceiptValid = false;
-        if (item.uploadReceipt) {
-          const expectedProof = crypto
-            .createHmac('sha256', secret)
-            .update(`${currentUserId}:${publicId}`)
-            .digest('hex');
-          isReceiptValid = item.uploadReceipt === expectedProof;
-          if (!isReceiptValid) {
-            throw new BadRequestException(
-              'Mã xác thực upload (uploadReceipt) của video không hợp lệ hoặc không thuộc caller',
-            );
-          }
-        }
-
-        const isUserScopedPath =
-          publicIdWithExt.includes(`/videos/${currentUserId}`) ||
-          publicIdWithExt.includes(`/reviews/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`reviews/videos/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`handy-go/reviews/videos/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`handygo/reviews/videos/${currentUserId}`);
-
-        if (!isUserScopedPath && !isReceiptValid) {
-          throw new BadRequestException(
-            'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller hoặc thiếu xác thực direct upload)',
-          );
-        }
       }
 
       // 3. Kiểm tra thumbnail nếu có
@@ -3367,7 +3351,8 @@ export class UserTrustServiceService {
         if (
           thumbParsed.protocol !== 'https:' ||
           thumbParsed.hostname !== 'res.cloudinary.com' ||
-          !thumbParsed.pathname.includes('/image/upload/')
+          !/^\/[^/]+\/(image|video)\/upload\//.test(thumbParsed.pathname) ||
+          !/\.(jpg|jpeg|png|webp)$/i.test(thumbParsed.pathname)
         ) {
           throw new BadRequestException(
             'Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary (/image/upload/...)',
@@ -3380,15 +3365,15 @@ export class UserTrustServiceService {
           );
         }
 
-        const thumbMatch = thumbParsed.pathname.match(userPattern);
-        if (
-          thumbMatch &&
-          thumbMatch[1] &&
-          thumbMatch[1].toLowerCase() !== currentUserId.toLowerCase()
-        ) {
-          throw new BadRequestException(
-            'Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng (không thuộc caller)',
-          );
+        const thumbAfterUpload = thumbSegments.slice(3);
+        const thumbKey = (/^v\d+$/.test(thumbAfterUpload[0] || '')
+          ? thumbAfterUpload.slice(1) : thumbAfterUpload).join('/').replace(/\.[^/.]+$/, '');
+        const derivedFromVideo = type === 'video' && thumbSegments[1] === 'video' && thumbKey === publicId;
+        const ownedImage = thumbSegments[1] === 'image' && await this.cloudinaryService.verifyReviewMedia({
+          publicId: thumbKey, ownerId: currentUserId, mediaType: 'image', uploadReceipt: item.thumbnailUploadReceipt,
+        });
+        if (!derivedFromVideo && !ownedImage) {
+          throw new BadRequestException('Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng');
         }
       }
     }
@@ -3512,10 +3497,6 @@ export class UserTrustServiceService {
       );
     }
 
-    if (dto.media && dto.media.length > 0) {
-      await this.validateReviewMedia(dto.media, currentUserId);
-    }
-
     const imgFromDto = (dto.media || []).filter(
       (m) => (m.mediaType || '').toLowerCase() === 'image',
     ).length;
@@ -3539,6 +3520,10 @@ export class UserTrustServiceService {
     }
     if (totalVideos > 1) {
       throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+    }
+
+    if (dto.media && dto.media.length > 0) {
+      await this.validateReviewMedia(dto.media, currentUserId);
     }
 
     const mediaItems: Array<{
@@ -3783,9 +3768,13 @@ export class UserTrustServiceService {
       );
     }
 
-    if (dto.media && dto.media.length > 0) {
-      await this.validateReviewMedia(dto.media, currentUserId);
-    }
+    // The authorized review establishes ownership only for exact persisted attachments.
+    const newMedia = dto.media?.filter((item) => !(review.media || []).some((existing) =>
+      existing.mediaType === item.mediaType.toLowerCase() &&
+      existing.mediaUrl === item.mediaUrl &&
+      (existing.thumbnailUrl || undefined) === (item.thumbnailUrl || undefined),
+    ));
+    await this.validateReviewMedia(newMedia, currentUserId);
 
     let updatedMediaItems: Array<{
       mediaType: 'image' | 'video';
@@ -4224,27 +4213,12 @@ export class UserTrustServiceService {
       },
       userId,
     );
-    const secret =
-      this.configService?.cloudinaryApiSecret ||
-      process.env.CLOUDINARY_API_SECRET ||
-      'handygo-review-secret';
-    const publicId =
-      signature?.publicId ||
-      `handy-go/reviews/videos/${userId}/${crypto.randomUUID()}`;
-    const uploadReceipt =
-      signature?.uploadReceipt ||
-      crypto
-        .createHmac('sha256', secret)
-        .update(`${userId}:${publicId}`)
-        .digest('hex');
 
     return {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký upload video đánh giá thành công',
       data: {
-        ...(signature || {}),
-        publicId,
-        uploadReceipt,
+        ...signature,
       },
     };
   }

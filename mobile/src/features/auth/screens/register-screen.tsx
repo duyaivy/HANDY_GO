@@ -8,11 +8,18 @@ import { Input } from '@/components/ui/input';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { ERROR_CODES } from '@/services/api/api-error';
 import { AuthApi } from '@/services/auth/auth-api';
 
 export function RegisterScreen() {
   const router = useRouter();
+  const keyboard = useAndroidKeyboardInset();
+
+  const phoneInputRef = React.useRef<any>(null);
+  const emailInputRef = React.useRef<any>(null);
+  const passwordInputRef = React.useRef<any>(null);
+  const confirmPasswordInputRef = React.useRef<any>(null);
 
   const [fullName, setFullName] = React.useState('');
   const [phone, setPhone] = React.useState('');
@@ -192,189 +199,213 @@ export function RegisterScreen() {
       keyboardAware
       bottomOffset={70}
       className="bg-neutral-50 dark:bg-neutral-950"
-      contentContainerStyle={{ flexGrow: 1, justifyContent: 'center' }}
+      contentContainerStyle={{ flexGrow: 1 }}
     >
-      <View testID="auth-register-screen" className="p-6">
-        {/* Navigation back button */}
-        <View className="mb-2 w-full flex-row items-center">
-          <Pressable
-            testID="register-back-btn"
-            accessibilityRole="button"
-            accessibilityLabel="Quay lại"
-            onPress={handleBack}
-            className="size-9 items-center justify-center rounded-2xl border border-neutral-200/80 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
-          >
-            <ChevronLeftIcon size={18} color="#171717" />
-          </Pressable>
-        </View>
-
-        {/* Header Branding */}
-        <View className="mb-6 items-center">
-          <View className="mb-3 size-20 items-center justify-center rounded-3xl bg-amber-500/10 p-2 shadow-2xs dark:bg-amber-500/20">
-            <BrandLogo size={76} />
-          </View>
-          <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
-            Tạo tài khoản mới
-          </Text>
-          <Text className="mt-1.5 text-center text-xs text-neutral-500 dark:text-neutral-400">
-            Một tài khoản dùng cho cả App Khách và App Thợ trên HANDY GO
-          </Text>
-        </View>
-
-        {/* Form Card */}
-        <View className="rounded-3xl border border-neutral-200/80 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          {serverError
-            ? (
-                <View testID="auth-register-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
-                  <Text className="text-sm font-medium text-red-700 dark:text-red-300">
-                    {serverError}
-                  </Text>
-                </View>
-              )
-            : null}
-
-          <Input
-            testID="register-fullname-input"
-            label="Họ và tên"
-            placeholder="Ví dụ: Nguyễn Văn A"
-            value={fullName}
-            onChangeText={(text) => {
-              setFullName(text);
-              if (errors.fullName)
-                setErrors(prev => ({ ...prev, fullName: undefined }));
-              if (serverError)
-                setServerError(null);
-            }}
-            error={errors.fullName}
-          />
-
-          <View className="mt-3">
-            <Input
-              testID="register-phone-input"
-              label="Số điện thoại"
-              placeholder="Ví dụ: 0912345678"
-              keyboardType="phone-pad"
-              value={phone}
-              onChangeText={(text) => {
-                setPhone(text);
-                if (errors.phone)
-                  setErrors(prev => ({ ...prev, phone: undefined }));
-                if (serverError)
-                  setServerError(null);
-              }}
-              error={errors.phone}
-            />
-          </View>
-
-          <View className="mt-3">
-            <Input
-              testID="register-email-input"
-              label="Địa chỉ Email"
-              placeholder="example@gmail.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={email}
-              onChangeText={(text) => {
-                setEmail(text);
-                if (errors.email)
-                  setErrors(prev => ({ ...prev, email: undefined }));
-                if (serverError)
-                  setServerError(null);
-              }}
-              error={errors.email}
-            />
-          </View>
-
-          <View className="mt-3">
-            <Input
-              testID="register-password-input"
-              label="Mật khẩu"
-              placeholder="Tối thiểu 8 ký tự"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={(text) => {
-                setPassword(text);
-                if (errors.password)
-                  setErrors(prev => ({ ...prev, password: undefined }));
-                if (serverError)
-                  setServerError(null);
-              }}
-              error={errors.password}
-              rightAccessory={(
-                <Pressable
-                  testID="register-toggle-password-btn"
-                  onPress={() => setShowPassword(!showPassword)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  className="py-1"
-                >
-                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
-                    {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          </View>
-
-          <View className="mt-3">
-            <Input
-              testID="register-confirm-password-input"
-              label="Xác nhận mật khẩu"
-              placeholder="Nhập lại mật khẩu"
-              secureTextEntry={!showConfirmPassword}
-              value={confirmPassword}
-              onChangeText={(text) => {
-                setConfirmPassword(text);
-                if (errors.confirmPassword)
-                  setErrors(prev => ({ ...prev, confirmPassword: undefined }));
-                if (serverError)
-                  setServerError(null);
-              }}
-              error={errors.confirmPassword}
-              rightAccessory={(
-                <Pressable
-                  testID="register-toggle-confirm-password-btn"
-                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  className="py-1"
-                >
-                  <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
-                    {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                  </Text>
-                </Pressable>
-              )}
-            />
-          </View>
-
-          {/* Submit Button in signature HANDY GO Orange (#F5A524) */}
-          <View className="mt-6">
-            <Button
-              testID="register-submit-button"
-              label="Đăng ký tài khoản"
-              variant="default"
-              loading={isLoading}
-              disabled={isLoading}
-              className="h-12 rounded-2xl bg-[#F5A524] shadow-md shadow-amber-500/25 active:bg-primary-600"
-              textClassName="text-base font-bold text-neutral-950"
-              onPress={handleRegister}
-            />
-          </View>
-        </View>
-
-        {/* Footer Actions */}
-        <View className="mt-6 items-center">
-          <View className="flex-row items-center justify-center">
-            <Text className="text-sm text-neutral-600 dark:text-neutral-400">
-              Đã có tài khoản?
-              {' '}
-            </Text>
+      <View
+        ref={keyboard.containerRef}
+        onLayout={keyboard.onLayout}
+        style={{ flex: 1, paddingBottom: keyboard.bottomInset }}
+      >
+        <View testID="auth-register-screen" className="p-6">
+          {/* Navigation back button */}
+          <View className="mb-2 w-full flex-row items-center">
             <Pressable
-              testID="register-to-login-btn"
-              onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
+              testID="register-back-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Quay lại"
+              onPress={handleBack}
+              className="size-9 items-center justify-center rounded-2xl border border-neutral-200/80 bg-white active:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-900"
             >
-              <Text className="text-sm font-bold text-primary-600 dark:text-[#F5A524]">
-                Đăng nhập
-              </Text>
+              <ChevronLeftIcon size={18} color="#171717" />
             </Pressable>
+          </View>
+
+          {/* Header Branding */}
+          <View className="mb-6 items-center">
+            <View className="mb-3 size-20 items-center justify-center rounded-3xl bg-amber-500/10 p-2 shadow-2xs dark:bg-amber-500/20">
+              <BrandLogo size={76} />
+            </View>
+            <Text className="text-center text-2xl font-bold tracking-tight text-neutral-900 dark:text-white">
+              Tạo tài khoản mới
+            </Text>
+            <Text className="mt-1.5 text-center text-xs text-neutral-500 dark:text-neutral-400">
+              Một tài khoản dùng cho cả App Khách và App Thợ trên HANDY GO
+            </Text>
+          </View>
+
+          {/* Form Card */}
+          <View className="rounded-3xl border border-neutral-200/80 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+            {serverError
+              ? (
+                  <View testID="auth-register-error" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
+                    <Text className="text-sm font-medium text-red-700 dark:text-red-300">
+                      {serverError}
+                    </Text>
+                  </View>
+                )
+              : null}
+
+            <Input
+              testID="register-fullname-input"
+              label="Họ và tên"
+              placeholder="Ví dụ: Nguyễn Văn A"
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => phoneInputRef.current?.focus()}
+              value={fullName}
+              onChangeText={(text) => {
+                setFullName(text);
+                if (errors.fullName)
+                  setErrors(prev => ({ ...prev, fullName: undefined }));
+                if (serverError)
+                  setServerError(null);
+              }}
+              error={errors.fullName}
+            />
+
+            <View className="mt-3">
+              <Input
+                ref={phoneInputRef}
+                testID="register-phone-input"
+                label="Số điện thoại"
+                placeholder="Ví dụ: 0912345678"
+                keyboardType="phone-pad"
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => emailInputRef.current?.focus()}
+                value={phone}
+                onChangeText={(text) => {
+                  setPhone(text);
+                  if (errors.phone)
+                    setErrors(prev => ({ ...prev, phone: undefined }));
+                  if (serverError)
+                    setServerError(null);
+                }}
+                error={errors.phone}
+              />
+            </View>
+
+            <View className="mt-3">
+              <Input
+                ref={emailInputRef}
+                testID="register-email-input"
+                label="Địa chỉ Email"
+                placeholder="example@gmail.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => passwordInputRef.current?.focus()}
+                value={email}
+                onChangeText={(text) => {
+                  setEmail(text);
+                  if (errors.email)
+                    setErrors(prev => ({ ...prev, email: undefined }));
+                  if (serverError)
+                    setServerError(null);
+                }}
+                error={errors.email}
+              />
+            </View>
+
+            <View className="mt-3">
+              <Input
+                ref={passwordInputRef}
+                testID="register-password-input"
+                label="Mật khẩu"
+                placeholder="Tối thiểu 8 ký tự"
+                secureTextEntry={!showPassword}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text);
+                  if (errors.password)
+                    setErrors(prev => ({ ...prev, password: undefined }));
+                  if (serverError)
+                    setServerError(null);
+                }}
+                error={errors.password}
+                rightAccessory={(
+                  <Pressable
+                    testID="register-toggle-password-btn"
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    className="py-1"
+                  >
+                    <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
+                      {showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+
+            <View className="mt-3">
+              <Input
+                ref={confirmPasswordInputRef}
+                testID="register-confirm-password-input"
+                label="Xác nhận mật khẩu"
+                placeholder="Nhập lại mật khẩu"
+                secureTextEntry={!showConfirmPassword}
+                returnKeyType="done"
+                onSubmitEditing={handleRegister}
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  if (errors.confirmPassword)
+                    setErrors(prev => ({ ...prev, confirmPassword: undefined }));
+                  if (serverError)
+                    setServerError(null);
+                }}
+                error={errors.confirmPassword}
+                rightAccessory={(
+                  <Pressable
+                    testID="register-toggle-confirm-password-btn"
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    className="py-1"
+                  >
+                    <Text className="text-xs font-bold text-primary-600 dark:text-primary-400">
+                      {showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    </Text>
+                  </Pressable>
+                )}
+              />
+            </View>
+
+            {/* Submit Button in signature HANDY GO Orange (#F5A524) */}
+            <View className="mt-6">
+              <Button
+                testID="register-submit-button"
+                label="Đăng ký tài khoản"
+                variant="default"
+                loading={isLoading}
+                disabled={isLoading}
+                className="h-12 rounded-2xl bg-[#F5A524] shadow-md shadow-amber-500/25 active:bg-primary-600"
+                textClassName="text-base font-bold text-neutral-950"
+                onPress={handleRegister}
+              />
+            </View>
+          </View>
+
+          {/* Footer Actions */}
+          <View className="mt-6 items-center">
+            <View className="flex-row items-center justify-center">
+              <Text className="text-sm text-neutral-600 dark:text-neutral-400">
+                Đã có tài khoản?
+                {' '}
+              </Text>
+              <Pressable
+                testID="register-to-login-btn"
+                onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
+              >
+                <Text className="text-sm font-bold text-primary-600 dark:text-[#F5A524]">
+                  Đăng nhập
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </View>

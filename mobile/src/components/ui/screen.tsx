@@ -20,6 +20,7 @@ export type ScreenProps = {
   contentContainerStyle?: ViewStyle;
   bottomOffset?: number;
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled';
+  keyboardDismissMode?: 'none' | 'on-drag' | 'interactive';
   refreshControl?: ReactElement<RefreshControlProps>;
 };
 
@@ -34,6 +35,7 @@ export function Screen({
   contentContainerStyle,
   bottomOffset = 60,
   keyboardShouldPersistTaps = 'handled',
+  keyboardDismissMode = 'on-drag',
   refreshControl,
 }: ScreenProps) {
   const Container = safeArea ? StyledSafeAreaView : View;
@@ -55,6 +57,7 @@ export function Screen({
           contentContainerStyle={[{ flexGrow: 1 }, contentContainerStyle]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+          keyboardDismissMode={keyboardDismissMode}
           bottomOffset={bottomOffset}
           refreshControl={refreshControl}
         >
@@ -70,6 +73,7 @@ export function Screen({
         contentContainerStyle={[{ flexGrow: 1 }, contentContainerStyle]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}
+        keyboardDismissMode={keyboardDismissMode}
         refreshControl={refreshControl}
       >
         {children}

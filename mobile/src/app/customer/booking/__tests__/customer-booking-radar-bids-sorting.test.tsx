@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
@@ -23,8 +24,15 @@ jest.mock('@/components/map/handy-map', () => ({
   HandyMap: () => null,
 }));
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getRequestDetail').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
+  jest.spyOn(OrdersApi, 'getProposalsForRequest').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+});
+
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   useBookingDraftStore.getState().resetDraft();
 });
@@ -46,6 +54,8 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
               fullName: 'Nguyễn Văn Đắt',
               averageRating: 4.8,
               completedOrderCount: 45,
+              orderCountTotal: 50,
+              completionRate: 90,
               distanceKm: 3.5,
               avatarUrl: 'https://example.com/avatar-dat.jpg',
             },
@@ -61,6 +71,8 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
               fullName: 'Trần Văn Rẻ',
               averageRating: 4.9,
               completedOrderCount: 120,
+              orderCountTotal: 125,
+              completionRate: 96,
               distanceKm: 1.2,
               avatarUrl: 'https://example.com/avatar-re.jpg',
             },
@@ -76,6 +88,8 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
               fullName: 'Lê Văn Vừa',
               averageRating: 5.0,
               completedOrderCount: 88,
+              orderCountTotal: 88,
+              completionRate: 100,
               distanceKm: 2.1,
               avatarUrl: 'https://example.com/avatar-vua.jpg',
             },
@@ -119,6 +133,11 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
     expect(screen.getByText('88 đơn')).toBeOnTheScreen();
     expect(screen.getByText('45 đơn')).toBeOnTheScreen();
 
+    // Verify accurate completion rates calculated from worker data
+    expect(screen.getByText('96% hoàn thành')).toBeOnTheScreen();
+    expect(screen.getByText('100% hoàn thành')).toBeOnTheScreen();
+    expect(screen.getByText('90% hoàn thành')).toBeOnTheScreen();
+
     expect(screen.getByText('1.2km')).toBeOnTheScreen();
     expect(screen.getByText('2.1km')).toBeOnTheScreen();
     expect(screen.getByText('3.5km')).toBeOnTheScreen();
@@ -139,6 +158,12 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
     const topSelectBtn = screen.getByTestId('radar-select-worker-btn');
     expect(topSelectBtn).toBeOnTheScreen();
 
+    // Verify "Xem hồ sơ" CTA button is rendered and navigates to worker profile
+    const viewProfileBtns = screen.getAllByText('Xem hồ sơ');
+    expect(viewProfileBtns.length).toBe(3);
+    fireEvent.press(viewProfileBtns[0]);
+    expect(mockPush).toHaveBeenCalledWith('/customer/workers/th-01');
+
     // Selecting top worker creates proposal with cheapest worker
     fireEvent.press(topSelectBtn);
 
@@ -153,6 +178,11 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
         }),
       );
     });
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Đã gửi đề xuất dịch vụ!',
+      expect.any(String),
+      expect.any(Array),
+    ));
   });
 
   it('P2-06: places invalid or missing bid prices at the end of the list and does not tag invalid prices as Giá tốt nhất', async () => {

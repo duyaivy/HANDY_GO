@@ -8,6 +8,13 @@ import {
   IsUUID,
   MaxLength,
 } from 'class-validator';
+import {
+  IsValidSuggestionGroups,
+  normalizeSuggestionGroups,
+  ServiceSuggestionGroupDto,
+  SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  validateSuggestionGroupsValue,
+} from '../../common/dto/suggestion-group.dto.js';
 
 export class CreateCategoryDto {
   @ApiProperty({
@@ -58,4 +65,20 @@ export class CreateCategoryDto {
   @IsOptional()
   @IsBoolean({ message: 'isActive must be a boolean' })
   isActive?: boolean = true;
+
+  @ApiPropertyOptional({
+    description:
+      'Default service condition suggestion groups inherited by all services in this category (1..6 groups, or null to clear)',
+    type: () => [ServiceSuggestionGroupDto],
+    nullable: true,
+    example: SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    Array.isArray(value) && validateSuggestionGroupsValue(value) === null
+      ? normalizeSuggestionGroups(value as ServiceSuggestionGroupDto[])
+      : value,
+  )
+  @IsValidSuggestionGroups()
+  suggestionGroups?: ServiceSuggestionGroupDto[] | null;
 }

@@ -27,6 +27,7 @@ import {
 } from '../common/decorators/current-user.decorator.js';
 import { ServiceRequestsService } from './service-requests.service.js';
 import { BookingProposalsService } from '../booking-proposals/booking-proposals.service.js';
+import { PricingEstimatorService } from './services/pricing-estimator.service.js';
 import {
   CreateServiceRequestDto,
   ServiceRequestMediaDto,
@@ -37,6 +38,10 @@ import {
   ServiceRequestMediaResponseDto,
   ServiceRequestResponseDto,
 } from './dto/service-request-response.dto.js';
+import {
+  EstimatePriceDto,
+  EstimatePriceResponseDto,
+} from './dto/estimate-price.dto.js';
 
 @ApiTags('Service Requests')
 @ApiBearerAuth()
@@ -45,7 +50,29 @@ export class ServiceRequestsController {
   constructor(
     private readonly serviceRequestsService: ServiceRequestsService,
     private readonly bookingProposalsService: BookingProposalsService,
+    private readonly pricingEstimatorService: PricingEstimatorService,
   ) {}
+
+  @Post('estimate-price')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Estimate reference price range for a service request',
+    description:
+      'Calculates dynamic reference price range (aiRefPriceMin, aiRefPriceMax) based on problem description using AI semantic similarity or catalog base prices fallback.',
+  })
+  @ApiBody({ type: EstimatePriceDto })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Price estimation calculated successfully',
+    type: EstimatePriceResponseDto,
+  })
+  async estimatePrice(@Body() dto: EstimatePriceDto) {
+    const data = await this.pricingEstimatorService.estimatePrice(dto);
+    return buildSuccessResponse(
+      data,
+      'Price estimation calculated successfully',
+    );
+  }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)

@@ -54,8 +54,10 @@ def migration_schema(service):
 
 def migration_endpoint(values, service, migrating=False):
     suffix = service.upper().replace('-', '_')
-    direct = values.get('DIRECT_URL_' + suffix, '').strip()
-    raw = direct or values.get('DATABASE_URL_' + suffix, '').strip() or values.get('DATABASE_URL', '').strip()
+    override = values.get('DATABASE_URL_' + suffix, '').strip()
+    direct = values.get('DIRECT_URL_' + suffix, '').strip() or (
+        values.get('DIRECT_URL', '').strip() if not override else '')
+    raw = direct or override or values.get('DATABASE_URL', '').strip()
     url, _ = endpoint(raw, 'DIRECT_URL_' + suffix if direct else service)
     schema = parse_qs(url.query).get('schema', [migration_schema(service)])
     if direct and schema != [migration_schema(service)]:

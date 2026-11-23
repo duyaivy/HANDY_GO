@@ -4,6 +4,8 @@ export type WorkerProfileSummary = {
   averageRating?: number | null;
   ratingCount?: number;
   completedOrderCount?: number;
+  orderCountTotal?: number;
+  completionRate?: number | null;
   distanceKm?: number | null;
 };
 

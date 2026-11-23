@@ -1,5 +1,9 @@
 /* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
 import type { BookingImageItem } from '../components/booking-image-thumbnail';
+import type {
+  DescriptionSuggestionProvenance,
+  ServiceSuggestionGroup,
+} from '../utils/service-issue-suggestions';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,6 +13,7 @@ import {
   Alert,
   BackHandler,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -22,6 +27,7 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { resolveServiceName } from '@/constants/services';
+import { useAndroidKeyboardInset } from '@/hooks/use-android-keyboard-inset';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { OrdersApi } from '../../api/orders.api';
 import { useBookingDraftStore } from '../../stores/use-booking-draft-store';
@@ -29,36 +35,23 @@ import {
 
   BookingImageThumbnail,
 } from '../components/booking-image-thumbnail';
+import {
+  createQuickFillProvenance,
+  EMPTY_DESCRIPTION_PROVENANCE,
+  formatSuggestionSelection,
+  mergeDescriptionWithSuggestions,
+  reconcileDescriptionProvenanceOnEdit,
+  resolveServiceSuggestions,
+} from '../utils/service-issue-suggestions';
 
 export type { BookingImageItem };
 
 export type CustomerBookingScreenProps = {
   serviceId?: string;
+  serviceName?: string;
+  categoryId?: string;
+  categoryName?: string;
   onBack?: () => void;
-};
-
-// Preset suggestions for Plumber / Home Repair (Vua Thợ style)
-const SUGGESTION_CATEGORIES = {
-  issueTypes: [
-    'Rò rỉ nước',
-    'Tắc nghẽn',
-    'Vòi/thiết bị hỏng',
-    'Lắp đặt mới',
-    'Chưa rõ',
-  ],
-  locations: [
-    'Nhà bếp',
-    'Nhà tắm',
-    'Sân vườn',
-    'Tầng hầm',
-    'Chưa rõ',
-  ],
-  severities: [
-    'Nhẹ (ít ảnh hưởng)',
-    'Trung bình',
-    'Nặng (ngập/nguy hiểm)',
-    'Chưa rõ',
-  ],
 };
 
 const SAMPLE_PHOTO_URLS = [
@@ -73,10 +66,21 @@ function generateQuickDescription(serviceName?: string | null): string {
 
 export function CustomerBookingScreen({
   serviceId: propServiceId,
+  serviceName: propServiceName,
+  categoryId: propCategoryId,
+  categoryName: propCategoryName,
   onBack,
 }: CustomerBookingScreenProps = {}) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ serviceId?: string; serviceName?: string }>();
+  const keyboard = useAndroidKeyboardInset();
+  const scrollViewRef = React.useRef<ScrollView>(null);
+  const descriptionInputRef = React.useRef<TextInput>(null);
+  const searchParams = useLocalSearchParams<{
+    serviceId?: string;
+    serviceName?: string;
+    categoryId?: string;
+    categoryName?: string;
+  }>();
 
   const targetServiceId = React.useMemo(() => {
     const raw = propServiceId ?? searchParams?.serviceId;
@@ -84,7 +88,7 @@ export function CustomerBookingScreen({
   }, [propServiceId, searchParams?.serviceId]);
 
   const targetServiceName = React.useMemo(() => {
-    const raw = searchParams?.serviceName;
+    const raw = propServiceName ?? searchParams?.serviceName;
     const name = Array.isArray(raw) ? raw[0] : raw;
     if (name && name.trim()) {
       return name.trim();
@@ -96,27 +100,69 @@ export function CustomerBookingScreen({
       }
     }
     return undefined;
-  }, [searchParams?.serviceName, targetServiceId]);
+  }, [propServiceName, searchParams?.serviceName, targetServiceId]);
+
+  const targetCategoryId = React.useMemo(() => {
+    const raw = propCategoryId ?? searchParams?.categoryId;
+    const id = Array.isArray(raw) ? raw[0] : raw;
+    return id && id.trim() ? id.trim() : undefined;
+  }, [propCategoryId, searchParams?.categoryId]);
+
+  const targetCategoryName = React.useMemo(() => {
+    const raw = propCategoryName ?? searchParams?.categoryName;
+    const name = Array.isArray(raw) ? raw[0] : raw;
+    return name && name.trim() ? name.trim() : undefined;
+  }, [propCategoryName, searchParams?.categoryName]);
 
   const serviceId = targetServiceId;
 
   const {
     addMediaUrl,
+    categoryName: storeCategoryName,
+    categorySuggestionGroups,
     description,
     mediaUrls,
     removeMediaUrl,
     replaceMediaUrl,
+    serviceId: storeServiceId,
     serviceName,
+    serviceSuggestionGroups,
     setDescription,
   } = useBookingDraftStore();
 
   const isAuthenticated = useAuthStore.use.isAuthenticated();
+  // Confirmed UX decision: Suggestion card is expanded by default
   const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(false);
 
-  // Selected chips state (mặc định chưa chọn để tránh mang data cũ)
-  const [selectedIssueType, setSelectedIssueType] = React.useState<string>('');
-  const [selectedLocation, setSelectedLocation] = React.useState<string>('');
-  const [selectedSeverity, setSelectedSeverity] = React.useState<string>('');
+  // Selected chips state keyed by group.key
+  const [selectedByGroup, setSelectedByGroup] = React.useState<Record<string, string[]>>({});
+  const descriptionProvenanceRef = React.useRef<DescriptionSuggestionProvenance>(
+    EMPTY_DESCRIPTION_PROVENANCE,
+  );
+  const lastTrackedDescriptionRef = React.useRef<string>(
+    useBookingDraftStore.getState().description || '',
+  );
+
+  const resolvedSuggestions = React.useMemo(
+    () =>
+      resolveServiceSuggestions({
+        serviceId: targetServiceId || storeServiceId,
+        serviceName: serviceName || targetServiceName,
+        categoryName: targetCategoryName || storeCategoryName,
+        serviceSuggestionGroups,
+        categorySuggestionGroups,
+      }),
+    [
+      targetServiceId,
+      storeServiceId,
+      serviceName,
+      targetServiceName,
+      targetCategoryName,
+      storeCategoryName,
+      serviceSuggestionGroups,
+      categorySuggestionGroups,
+    ],
+  );
 
   // Enhanced image items tracking with progress, status, and abort controllers
   const [imageItems, setImageItems] = React.useState<BookingImageItem[]>(() => {
@@ -187,26 +233,82 @@ export function CustomerBookingScreen({
     });
   }, [mediaUrls, isAnyLoading]);
 
+  const prevTargetServiceIdRef = React.useRef(targetServiceId);
+
   React.useEffect(() => {
     const store = useBookingDraftStore.getState();
+    const didTargetServiceChange = prevTargetServiceIdRef.current !== targetServiceId;
+    prevTargetServiceIdRef.current = targetServiceId;
+
+    const isSwitchingFromExistingService = Boolean(
+      targetServiceId && store.serviceId && targetServiceId !== store.serviceId,
+    );
     const shouldReset = Boolean(
-      store.createdRequestId
-      || (targetServiceId && targetServiceId !== store.serviceId),
+      store.createdRequestId || isSwitchingFromExistingService,
     );
 
+    if (shouldReset || didTargetServiceChange) {
+      setSelectedByGroup({});
+      descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
+    }
+
+    const metaPatch = {
+      ...(targetCategoryId !== undefined ? { categoryId: targetCategoryId } : {}),
+      ...(targetCategoryName !== undefined ? { categoryName: targetCategoryName } : {}),
+    };
+    const hasMetaPatch = Object.keys(metaPatch).length > 0;
+
     if (shouldReset) {
+      // Keep API suggestion metadata that already belongs to the target service so
+      // resetDraft() does not drop it and force a local preset/fallback.
+      const isMetaForTarget = Boolean(targetServiceId && store.serviceId === targetServiceId);
+      const preservedSuggestionMeta = isMetaForTarget
+        ? {
+            serviceSuggestionGroups: store.serviceSuggestionGroups,
+            categorySuggestionGroups: store.categorySuggestionGroups,
+            ...(targetCategoryId === undefined && store.categoryId ? { categoryId: store.categoryId } : {}),
+            ...(targetCategoryName === undefined && store.categoryName ? { categoryName: store.categoryName } : {}),
+          }
+        : {};
+
       store.resetDraft();
       if (targetServiceId) {
-        store.setService(targetServiceId, targetServiceName);
+        store.setService(targetServiceId, targetServiceName, {
+          ...preservedSuggestionMeta,
+          ...metaPatch,
+        });
       }
     }
-    else if (targetServiceId && (!store.serviceId || targetServiceId !== store.serviceId || (targetServiceName && store.serviceName !== targetServiceName))) {
-      store.setService(targetServiceId, targetServiceName);
+    else if (
+      targetServiceId
+      && (
+        !store.serviceId
+        || targetServiceId !== store.serviceId
+        || (targetServiceName && store.serviceName !== targetServiceName)
+        || hasMetaPatch
+      )
+    ) {
+      store.setService(
+        targetServiceId,
+        targetServiceName,
+        hasMetaPatch ? metaPatch : undefined,
+      );
     }
     else if (targetServiceName && store.serviceName !== targetServiceName) {
-      store.setService(store.serviceId || targetServiceId || '', targetServiceName);
+      store.setService(
+        store.serviceId || targetServiceId || '',
+        targetServiceName,
+        hasMetaPatch ? metaPatch : undefined,
+      );
     }
-  }, [targetServiceId, targetServiceName]);
+    else if (hasMetaPatch) {
+      store.setSuggestionMetadata(metaPatch);
+    }
+
+    if (shouldReset || didTargetServiceChange) {
+      lastTrackedDescriptionRef.current = useBookingDraftStore.getState().description || '';
+    }
+  }, [targetServiceId, targetServiceName, targetCategoryId, targetCategoryName]);
 
   // Sequential Upload Queue Runner
   React.useEffect(() => {
@@ -397,69 +499,92 @@ export function CustomerBookingScreen({
     [addMediaUrl],
   );
 
-  const prevChipTextRef = React.useRef('');
+  const handleDescriptionChange = React.useCallback(
+    (nextText: string) => {
+      const storeDesc = useBookingDraftStore.getState().description || '';
+      let provenance = descriptionProvenanceRef.current;
+      if (storeDesc !== lastTrackedDescriptionRef.current) {
+        provenance = reconcileDescriptionProvenanceOnEdit(
+          lastTrackedDescriptionRef.current,
+          storeDesc,
+          provenance,
+        );
+      }
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        storeDesc,
+        nextText,
+        provenance,
+      );
+      lastTrackedDescriptionRef.current = nextText;
+      setDescription(nextText);
+    },
+    [setDescription],
+  );
 
   // Re-generate formatted description when selecting suggestions
   const handleSelectChip = (
-    type: 'issue' | 'location' | 'severity',
+    group: ServiceSuggestionGroup,
     value: string,
   ) => {
-    let issue = selectedIssueType;
-    let loc = selectedLocation;
-    let sev = selectedSeverity;
+    const currentSelection = selectedByGroup[group.key] ?? [];
+    const isAlreadySelected = currentSelection.includes(value);
 
-    if (type === 'issue') {
-      issue = issue === value ? '' : value;
-      setSelectedIssueType(issue);
-    }
-    else if (type === 'location') {
-      loc = loc === value ? '' : value;
-      setSelectedLocation(loc);
-    }
-    else if (type === 'severity') {
-      sev = sev === value ? '' : value;
-      setSelectedSeverity(sev);
-    }
-
-    const parts: string[] = [];
-    if (issue && issue !== 'Chưa rõ')
-      parts.push(`Sự cố: ${issue}`);
-    if (loc && loc !== 'Chưa rõ')
-      parts.push(`Vị trí: ${loc}`);
-    if (sev && sev !== 'Chưa rõ')
-      parts.push(`Mức độ: ${sev}`);
-
-    const newChipText = parts.length > 0
-      ? `${parts.join(' - ')}. Cần thợ kiểm tra và xử lý sớm.`
-      : '';
-
-    // Extract user custom text by stripping previous chip suggestions
-    const currentDesc = useBookingDraftStore.getState().description || '';
-    let baseText = currentDesc;
-    if (prevChipTextRef.current && baseText.includes(prevChipTextRef.current)) {
-      baseText = baseText.replace(prevChipTextRef.current, '');
-    }
-    // Also remove any existing chip pattern if present
-    baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|$)/gi, '');
-    baseText = baseText.trim().replace(/\s*\.\s*$/, '').trim();
-
-    let combined = '';
-    if (baseText && newChipText) {
-      combined = `${baseText}. ${newChipText}`;
-    }
-    else if (baseText) {
-      combined = baseText;
+    let nextGroupSelection: string[];
+    if (group.selectionMode === 'multiple') {
+      if (isAlreadySelected) {
+        nextGroupSelection = currentSelection.filter(item => item !== value);
+      }
+      else if (value.trim().toLowerCase() === 'chưa rõ') {
+        nextGroupSelection = [value];
+      }
+      else {
+        nextGroupSelection = [
+          ...currentSelection.filter(item => item.trim().toLowerCase() !== 'chưa rõ'),
+          value,
+        ];
+      }
     }
     else {
-      combined = newChipText;
+      nextGroupSelection = isAlreadySelected ? [] : [value];
     }
 
-    prevChipTextRef.current = newChipText;
-    setDescription(combined);
+    const nextSelectedByGroup: Record<string, string[]> = {
+      ...selectedByGroup,
+      [group.key]: nextGroupSelection,
+    };
+    setSelectedByGroup(nextSelectedByGroup);
+
+    const nextChipText = formatSuggestionSelection(
+      resolvedSuggestions.groups,
+      nextSelectedByGroup,
+    );
+    const currentDesc = useBookingDraftStore.getState().description || '';
+    if (currentDesc !== lastTrackedDescriptionRef.current) {
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        lastTrackedDescriptionRef.current,
+        currentDesc,
+        descriptionProvenanceRef.current,
+      );
+      lastTrackedDescriptionRef.current = currentDesc;
+    }
+
+    const merged = mergeDescriptionWithSuggestions({
+      currentDescription: currentDesc,
+      previousProvenance: descriptionProvenanceRef.current,
+      nextChipText,
+      serviceName: serviceName || targetServiceName,
+    });
+
+    descriptionProvenanceRef.current = merged.provenance;
+    lastTrackedDescriptionRef.current = merged.description;
+    setDescription(merged.description);
   };
 
   const handleQuickFill = () => {
-    const quickText = generateQuickDescription(serviceName);
+    setSelectedByGroup({});
+    const quickText = generateQuickDescription(serviceName || targetServiceName);
+    descriptionProvenanceRef.current = createQuickFillProvenance();
+    lastTrackedDescriptionRef.current = quickText;
     setDescription(quickText);
   };
 
@@ -468,6 +593,9 @@ export function CustomerBookingScreen({
     imageItemsRef.current.forEach((item) => {
       item.abortController?.abort();
     });
+    setSelectedByGroup({});
+    descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
+    lastTrackedDescriptionRef.current = '';
     useBookingDraftStore.getState().resetDraft();
     setImageItems([]);
     if (onBack) {
@@ -480,6 +608,12 @@ export function CustomerBookingScreen({
 
   React.useEffect(() => {
     const onHardwareBack = () => {
+      const input = TextInput.State.currentlyFocusedInput();
+      if (input || Keyboard.isVisible()) {
+        input?.blur();
+        Keyboard.dismiss();
+        return true;
+      }
       handleBack();
       return true;
     };
@@ -679,15 +813,22 @@ export function CustomerBookingScreen({
       return;
     }
 
+    const finalDesc = description.trim() || generateQuickDescription(serviceName);
     if (!description.trim()) {
-      setDescription(generateQuickDescription(serviceName));
+      descriptionProvenanceRef.current = createQuickFillProvenance();
+      lastTrackedDescriptionRef.current = finalDesc;
+      setDescription(finalDesc);
+    }
+    const currentServiceId = serviceId || useBookingDraftStore.getState().serviceId;
+    if (currentServiceId) {
+      useBookingDraftStore.getState().fetchEstimatedPrice(currentServiceId, finalDesc).catch(() => {});
     }
     isProceedingToNextStepRef.current = true;
     router.push(RouteNames.CUSTOMER_BOOKING_SELECT_ADDRESS as any);
   };
 
   return (
-    <Screen safeArea scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen safeArea scrollable={false} className="bg-neutral-50 dark:bg-neutral-950">
       {/* 1. Thanh điều hướng trên cùng: Nút Quay lại & Tiêu đề quy trình */}
       <View className="flex-row items-center justify-between border-b border-neutral-100 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
         <Pressable
@@ -710,272 +851,231 @@ export function CustomerBookingScreen({
         <View className="w-16" />
       </View>
 
-      <ScrollView
-        testID="customer-booking-screen"
-        className="flex-1 p-4"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
+      <View
+        ref={keyboard.containerRef}
+        onLayout={keyboard.onLayout}
+        style={{ flex: 1, paddingBottom: keyboard.bottomInset }}
       >
-        {/* Khối tương thích ngầm cho test suite */}
-        <View className="sr-only h-0 overflow-hidden opacity-0" accessible={false} pointerEvents="none">
-          <Text>Đặt lịch thợ</Text>
-          {serviceId ? <Text>{`Mã dịch vụ: ${serviceId}`}</Text> : null}
-          <Text>Chức năng đang được phát triển</Text>
-        </View>
-
-        {/* Thẻ hiển thị dịch vụ đã chọn */}
-        <View
-          testID="booking-service-badge"
-          className="mb-4 rounded-3xl border border-primary-200/70 bg-primary-50/50 p-4 shadow-xs dark:border-amber-900/40 dark:bg-amber-950/20"
+        <ScrollView
+          ref={scrollViewRef}
+          testID="customer-booking-screen"
+          className="flex-1 p-4"
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: Math.max(32, keyboard.keyboardVisible ? 24 : 0) }}
         >
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <View className="mr-3 size-10 items-center justify-center rounded-2xl bg-primary-100 dark:bg-amber-900/40">
-                <Text className="text-xl">🛠️</Text>
-              </View>
-              <View>
-                <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-                  Dịch vụ đã chọn
-                </Text>
-                <Text
-                  testID="booking-service-title"
-                  className="mt-0.5 text-base font-bold text-neutral-900 dark:text-white"
-                >
-                  {serviceName || 'Dịch vụ tiện ích'}
-                </Text>
-              </View>
-            </View>
+          {/* Khối tương thích ngầm cho test suite */}
+          <View className="sr-only h-0 overflow-hidden opacity-0" accessible={false} pointerEvents="none">
+            <Text>Đặt lịch thợ</Text>
+            {serviceId ? <Text>{`Mã dịch vụ: ${serviceId}`}</Text> : null}
+            <Text>Chức năng đang được phát triển</Text>
           </View>
-        </View>
 
-        {/* 3. Thẻ gợi ý: Gợi ý cho dịch vụ này (Thu gọn / Mở rộng) */}
-        <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <Pressable
-            onPress={() => setIsSuggestionsCollapsed(!isSuggestionsCollapsed)}
-            className="flex-row items-center justify-between active:opacity-70"
+          {/* Thẻ hiển thị dịch vụ đã chọn */}
+          <View
+            testID="booking-service-badge"
+            className="mb-4 rounded-3xl border border-primary-200/70 bg-primary-50/50 p-4 shadow-xs dark:border-amber-900/40 dark:bg-amber-950/20"
           >
-            <View className="flex-row items-center">
-              <Text className="mr-2 text-base">📋</Text>
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Gợi ý cho dịch vụ này
-              </Text>
-            </View>
-            <Text className="text-base font-bold text-[#F5A524]">
-              {isSuggestionsCollapsed ? '⌄' : '⌃'}
-            </Text>
-          </Pressable>
-
-          {!isSuggestionsCollapsed && (
-            <View className="mt-3.5">
-              <Text className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-                Mô tả vấn đề của bạn để thợ đến khắc phục:
-              </Text>
-
-              {/* Nhóm 1: Loại sự cố */}
-              <View className="mb-3.5">
-                <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                  Loại sự cố
-                </Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {SUGGESTION_CATEGORIES.issueTypes.map((item) => {
-                    const isSelected = selectedIssueType === item;
-                    return (
-                      <Pressable
-                        key={item}
-                        onPress={() => handleSelectChip('issue', item)}
-                        className={`rounded-full border px-3.5 py-2 ${
-                          isSelected
-                            ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                            : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                        }`}
-                      >
-                        <Text
-                          className={`text-xs ${
-                            isSelected
-                              ? 'font-bold text-primary-600 dark:text-primary-200'
-                              : 'font-medium text-neutral-700 dark:text-neutral-300'
-                          }`}
-                        >
-                          {item}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <View className="mr-3 size-10 items-center justify-center rounded-2xl bg-primary-100 dark:bg-amber-900/40">
+                  <Text className="text-xl">🛠️</Text>
                 </View>
-              </View>
-
-              {/* Nhóm 2: Vị trí */}
-              <View className="mb-3.5">
-                <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                  Vị trí
-                </Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {SUGGESTION_CATEGORIES.locations.map((item) => {
-                    const isSelected = selectedLocation === item;
-                    return (
-                      <Pressable
-                        key={item}
-                        onPress={() => handleSelectChip('location', item)}
-                        className={`rounded-full border px-3.5 py-2 ${
-                          isSelected
-                            ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                            : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                        }`}
-                      >
-                        <Text
-                          className={`text-xs ${
-                            isSelected
-                              ? 'font-bold text-primary-600 dark:text-primary-200'
-                              : 'font-medium text-neutral-700 dark:text-neutral-300'
-                          }`}
-                        >
-                          {item}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-
-              {/* Nhóm 3: Mức độ */}
-              <View className="mb-1">
-                <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                  Mức độ
-                </Text>
-                <View className="flex-row flex-wrap gap-2">
-                  {SUGGESTION_CATEGORIES.severities.map((item) => {
-                    const isSelected = selectedSeverity === item;
-                    return (
-                      <Pressable
-                        key={item}
-                        onPress={() => handleSelectChip('severity', item)}
-                        className={`rounded-full border px-3.5 py-2 ${
-                          isSelected
-                            ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                            : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                        }`}
-                      >
-                        <Text
-                          className={`text-xs ${
-                            isSelected
-                              ? 'font-bold text-primary-600 dark:text-primary-200'
-                              : 'font-medium text-neutral-700 dark:text-neutral-300'
-                          }`}
-                        >
-                          {item}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
+                <View>
+                  <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                    Dịch vụ đã chọn
+                  </Text>
+                  <Text
+                    testID="booking-service-title"
+                    className="mt-0.5 text-base font-bold text-neutral-900 dark:text-white"
+                  >
+                    {serviceName || 'Dịch vụ tiện ích'}
+                  </Text>
                 </View>
               </View>
             </View>
-          )}
-        </View>
-
-        {/* 4. Thẻ chi tiết vấn đề & Điền nhanh */}
-        <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <View className="mb-2 flex-row items-center">
-            <View className="mr-1.5 size-4 items-center justify-center rounded-full bg-[#F5A524]">
-              <Text className="text-[10px] font-extrabold text-white">?</Text>
-            </View>
-            <Text className="text-xs font-bold text-primary-600 dark:text-primary-200">
-              Mẹo hay
-            </Text>
           </View>
 
-          <Text className="mb-2 text-sm font-bold text-neutral-900 dark:text-white">
-            Chi tiết sự cố
-          </Text>
-
-          <TextInput
-            testID="booking-description-input"
-            multiline
-            numberOfLines={4}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Mô tả chi tiết sự cố bạn đang gặp phải..."
-            placeholderTextColor="#9CA3AF"
-            className="min-h-[110px] rounded-2xl bg-neutral-100 p-4 text-sm text-neutral-900 dark:bg-neutral-800 dark:text-white"
-            textAlignVertical="top"
-          />
-
-          {/* Điền nhanh */}
-          <View className="mt-3.5">
-            <Text className="mb-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-              Điền nhanh
-            </Text>
+          {/* 3. Thẻ gợi ý: Gợi ý cho dịch vụ này (Thu gọn / Mở rộng) */}
+          <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
             <Pressable
-              onPress={handleQuickFill}
-              className="flex-row items-center self-start rounded-full border border-primary-200 bg-primary-50 px-3.5 py-2 active:bg-primary-100 dark:border-amber-800 dark:bg-amber-950/40"
+              testID="booking-suggestions-toggle-btn"
+              onPress={() => setIsSuggestionsCollapsed(!isSuggestionsCollapsed)}
+              className="flex-row items-center justify-between active:opacity-70"
             >
-              <Text className="mr-1 text-xs">⚡</Text>
-              <Text className="text-xs font-bold text-primary-600 dark:text-primary-200">
-                Tôi cần người
-                {' '}
-                {serviceName || 'dịch vụ tiện ích'}
+              <View className="flex-row items-center">
+                <Text className="mr-2 text-base">📋</Text>
+                <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                  Gợi ý cho dịch vụ này
+                </Text>
+              </View>
+              <Text className="text-base font-bold text-[#F5A524]">
+                {isSuggestionsCollapsed ? '⌄' : '⌃'}
               </Text>
             </Pressable>
-          </View>
-        </View>
 
-        {/* 5. Khối đính kèm ảnh hiện trường */}
-        <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
-          <View className="mb-3 flex-row items-center justify-between">
-            <View className="flex-1 pr-2">
-              <Text className="text-sm font-bold text-neutral-900 dark:text-white">
-                Hình ảnh hiện trường (Tùy chọn)
+            {!isSuggestionsCollapsed && (
+              <View className="mt-3.5" testID="booking-suggestions-content">
+                <Text className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+                  Mô tả vấn đề của bạn để thợ đến khắc phục:
+                </Text>
+
+                {resolvedSuggestions.groups.map((group, groupIndex) => {
+                  const selectedOptions = selectedByGroup[group.key] ?? [];
+                  const isLastGroup = groupIndex === resolvedSuggestions.groups.length - 1;
+                  return (
+                    <View
+                      key={group.key}
+                      testID={`booking-suggestion-group-${group.key}`}
+                      className={isLastGroup ? 'mb-1' : 'mb-3.5'}
+                    >
+                      <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                        {group.label}
+                      </Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        {group.options.map((item) => {
+                          const isSelected = selectedOptions.includes(item);
+                          return (
+                            <Pressable
+                              key={`${group.key}-${item}`}
+                              onPress={() => handleSelectChip(group, item)}
+                              className={`rounded-full border px-3.5 py-2 ${
+                                isSelected
+                                  ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
+                                  : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
+                              }`}
+                            >
+                              <Text
+                                className={`text-xs ${
+                                  isSelected
+                                    ? 'font-bold text-primary-600 dark:text-primary-200'
+                                    : 'font-medium text-neutral-700 dark:text-neutral-300'
+                                }`}
+                              >
+                                {item}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* 4. Thẻ chi tiết vấn đề & Điền nhanh */}
+          <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            <View className="mb-2 flex-row items-center">
+              <View className="mr-1.5 size-4 items-center justify-center rounded-full bg-[#F5A524]">
+                <Text className="text-[10px] font-extrabold text-white">?</Text>
+              </View>
+              <Text className="text-xs font-bold text-primary-600 dark:text-primary-200">
+                Mẹo hay
               </Text>
-              <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                Chụp ảnh rõ nơi bị hỏng để thợ chuẩn bị đồ nghề (
-                {imageItems.length}
-                /5)
+            </View>
+
+            <Text className="mb-2 text-sm font-bold text-neutral-900 dark:text-white">
+              Chi tiết sự cố
+            </Text>
+
+            <TextInput
+              ref={descriptionInputRef}
+              testID="booking-description-input"
+              multiline
+              numberOfLines={4}
+              value={description}
+              onChangeText={handleDescriptionChange}
+              onFocus={() => {
+                setTimeout(() => {
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                }, 150);
+              }}
+              placeholder="Mô tả chi tiết sự cố bạn đang gặp phải..."
+              placeholderTextColor="#9CA3AF"
+              className="min-h-[110px] rounded-2xl bg-neutral-100 p-4 text-sm text-neutral-900 dark:bg-neutral-800 dark:text-white"
+              textAlignVertical="top"
+            />
+
+            {/* Điền nhanh */}
+            <View className="mt-3.5">
+              <Text className="mb-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                Điền nhanh
               </Text>
+              <Pressable
+                onPress={handleQuickFill}
+                className="flex-row items-center self-start rounded-full border border-primary-200 bg-primary-50 px-3.5 py-2 active:bg-primary-100 dark:border-amber-800 dark:bg-amber-950/40"
+              >
+                <Text className="mr-1 text-xs">⚡</Text>
+                <Text className="text-xs font-bold text-primary-600 dark:text-primary-200">
+                  Tôi cần người
+                  {' '}
+                  {serviceName || 'dịch vụ tiện ích'}
+                </Text>
+              </Pressable>
             </View>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} className="gap-3">
-            {imageItems.map((item, index) => (
-              <BookingImageThumbnail
-                key={item.id}
-                item={item}
-                index={index}
-                onRemove={handleRemoveItem}
-                onRetry={handleRetryItem}
-              />
-            ))}
+          {/* 5. Khối đính kèm ảnh hiện trường */}
+          <View className="mb-4 rounded-3xl border border-neutral-100 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
+            <View className="mb-3 flex-row items-center justify-between">
+              <View className="flex-1 pr-2">
+                <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                  Hình ảnh hiện trường (Tùy chọn)
+                </Text>
+                <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Chụp ảnh rõ nơi bị hỏng để thợ chuẩn bị đồ nghề (
+                  {imageItems.length}
+                  /5)
+                </Text>
+              </View>
+            </View>
 
-            {imageItems.length < 5 && (
-              <Pressable
-                testID="booking-add-photo-btn"
-                onPress={handleAddPhotoPress}
-                className="size-20 items-center justify-center rounded-2xl border-2 border-dashed border-primary-200 bg-primary-50/40 active:bg-primary-50 active:opacity-75 dark:border-amber-800 dark:bg-amber-950/20"
-              >
-                <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
-                  <Circle cx="12" cy="13" r="3" />
-                </Svg>
-                <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
-              </Pressable>
-            )}
-          </ScrollView>
-        </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="gap-3">
+              {imageItems.map((item, index) => (
+                <BookingImageThumbnail
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  onRemove={handleRemoveItem}
+                  onRetry={handleRetryItem}
+                />
+              ))}
 
-        {/* 6. Nút Tiếp tục: vô hiệu hóa tương tác khi đang tải hoặc xử lý ảnh */}
-        <Button
-          testID="booking-next-btn"
-          label="Tiếp tục"
-          accessibilityState={{ disabled: isAnyLoading }}
-          aria-disabled={isAnyLoading}
-          className={`mb-8 h-13 w-full rounded-full ${
-            isAnyLoading
-              ? 'bg-neutral-400 opacity-60 dark:bg-neutral-600'
-              : 'bg-[#F5A524] shadow-md shadow-amber-200 active:bg-primary-600'
-          }`}
-          textClassName="text-base font-bold text-white"
-          onPress={handleNext}
-        />
-      </ScrollView>
+              {imageItems.length < 5 && (
+                <Pressable
+                  testID="booking-add-photo-btn"
+                  onPress={handleAddPhotoPress}
+                  className="size-20 items-center justify-center rounded-2xl border-2 border-dashed border-primary-200 bg-primary-50/40 active:bg-primary-50 active:opacity-75 dark:border-amber-800 dark:bg-amber-950/20"
+                >
+                  <Svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#D9820A" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                    <Path d="M14 4h-4L8 7H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2-3Z" />
+                    <Circle cx="12" cy="13" r="3" />
+                  </Svg>
+                  <Text className="mt-1 text-[10px] font-bold text-primary-600">+ Thêm ảnh</Text>
+                </Pressable>
+              )}
+            </ScrollView>
+          </View>
+
+          {/* 6. Nút Tiếp tục: vô hiệu hóa tương tác khi đang tải hoặc xử lý ảnh */}
+          <Button
+            testID="booking-next-btn"
+            label="Tiếp tục"
+            accessibilityState={{ disabled: isAnyLoading }}
+            aria-disabled={isAnyLoading}
+            className={`mb-8 h-13 w-full rounded-full ${
+              isAnyLoading
+                ? 'bg-neutral-400 opacity-60 dark:bg-neutral-600'
+                : 'bg-[#F5A524] shadow-md shadow-amber-200 active:bg-primary-600'
+            }`}
+            textClassName="text-base font-bold text-white"
+            onPress={handleNext}
+          />
+        </ScrollView>
+      </View>
 
       {/* 7. Modal Máy ảnh In-App chụp ảnh thật hiện trường */}
       <Modal
