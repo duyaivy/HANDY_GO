@@ -127,6 +127,18 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
         else {
           router.push('/customer/payment' as any);
         }
+        return;
+      }
+
+      // System notification -> Worker skills / profile if relevant
+      if (
+        eventType.startsWith('worker.service_registration.')
+        || (category === 'system' && (worker || mode === 'Worker' || userRoles.includes('Worker')))
+      ) {
+        if (userRoles.includes('Worker') && mode !== 'Worker') {
+          useAuthStore.getState().setActiveMode('Worker');
+        }
+        router.push(RouteNames.WORKER_SKILLS as any);
       }
     }
     catch (err) {

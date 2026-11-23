@@ -76,6 +76,16 @@ export function NotificationLifecycle() {
             router.push('/worker' as Href);
           }
         }
+        // Route service registration review notifications to Worker Skills
+        else if (
+          eventType.startsWith('worker.service_registration.')
+          || (category === 'system' && (mode === 'Worker' || userRoles.includes('Worker')))
+        ) {
+          if (userRoles.includes('Worker') && mode !== 'Worker') {
+            useAuthStore.getState().setActiveMode('Worker');
+          }
+          router.push('/worker/skills' as Href);
+        }
         else {
           router.push((mode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications') as Href);
         }
@@ -175,6 +185,8 @@ export function NotificationLifecycle() {
           void refreshNotifications(id);
           void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
           void queryClient.invalidateQueries({ queryKey: ['chat', id, 'list'] });
+          void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+          void queryClient.invalidateQueries({ queryKey: ['worker-public-profile-services'] });
         }
       }));
       subscriptions.push(Notifications.addNotificationResponseReceivedListener(handleResponse));

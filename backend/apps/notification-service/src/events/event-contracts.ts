@@ -23,6 +23,8 @@ export const NOTIFICATION_EVENTS = [
   'wallet.credited',
   'wallet.debited',
   'wallet.balance.adjusted',
+  'worker.service_registration.approved',
+  'worker.service_registration.rejected',
 ] as const;
 
 export type NotificationEventType = (typeof NOTIFICATION_EVENTS)[number];
@@ -82,6 +84,19 @@ export interface EventDataMap {
   'wallet.credited': WalletData;
   'wallet.debited': WalletData;
   'wallet.balance.adjusted': WalletData;
+  'worker.service_registration.approved': {
+    registrationId: string;
+    userId: string;
+    workerProfileId?: string;
+    decision?: string;
+  };
+  'worker.service_registration.rejected': {
+    registrationId: string;
+    userId: string;
+    workerProfileId?: string;
+    decision?: string;
+    reason?: string;
+  };
 }
 
 export type NotificationEvent = {
@@ -155,6 +170,14 @@ export const EVENT_CONTRACTS = {
   'wallet.credited': { source: 'wallet-service', ids: wallet },
   'wallet.debited': { source: 'wallet-service', ids: wallet },
   'wallet.balance.adjusted': { source: 'wallet-service', ids: wallet },
+  'worker.service_registration.approved': {
+    source: 'user-trust-service',
+    ids: ['registrationId', 'userId'],
+  },
+  'worker.service_registration.rejected': {
+    source: 'user-trust-service',
+    ids: ['registrationId', 'userId'],
+  },
 } satisfies Record<NotificationEventType, { source: string; ids: string[] }>;
 
 export const MAX_EVENT_BYTES = 128 * 1024;
@@ -328,6 +351,15 @@ export function validateNotificationEvent(
     const customerId = resolveField(rawData, 'customerId');
     if (typeof customerId === 'string' && isUUID(customerId)) {
       data.customerId = customerId.toLowerCase();
+    }
+  }
+  if (type === 'worker.service_registration.rejected') {
+    if (typeof rawData.reason === 'string') data.reason = rawData.reason;
+  }
+  if (type.startsWith('worker.service_registration.')) {
+    if (typeof rawData.decision === 'string') data.decision = rawData.decision;
+    if (typeof rawData.workerProfileId === 'string' && isUUID(rawData.workerProfileId)) {
+      data.workerProfileId = rawData.workerProfileId.toLowerCase();
     }
   }
   // Whitelist metadata; unknown business fields and secrets never reach storage/logs.

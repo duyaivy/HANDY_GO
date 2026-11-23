@@ -159,7 +159,23 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      const list = (query.state.data as WorkerServiceRegistrationItem[]) ?? [];
+      const hasPending = list.some(r => r.status === 'pending');
+      return hasPending ? 10000 : false;
+    },
   });
+
+  const hasPendingRegistrations = (registrationsQuery.data ?? []).some(r => r.status === 'pending');
+  const prevHasPendingRef = React.useRef(hasPendingRegistrations);
+
+  React.useEffect(() => {
+    if (prevHasPendingRef.current && !hasPendingRegistrations) {
+      // Khi đơn vừa được duyệt xong, tự động cập nhật danh sách nghiệp vụ đã kích hoạt
+      profileQuery.refetch();
+    }
+    prevHasPendingRef.current = hasPendingRegistrations;
+  }, [hasPendingRegistrations, profileQuery]);
 
   // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
   const ordersQuery = useQuery({
