@@ -1,11 +1,14 @@
 import { KNOWN_SERVICES_BY_ID } from '@/constants/services';
 import {
+  createQuickFillProvenance,
+  EMPTY_DESCRIPTION_PROVENANCE,
   formatSuggestionSelection,
   GENERIC_FALLBACK_SUGGESTION_GROUPS,
   mergeDescriptionWithSuggestions,
   normalizeSuggestionGroups,
   normalizeVietnameseText,
   PLUMBING_SUGGESTION_GROUPS,
+  reconcileDescriptionProvenanceOnEdit,
   resolveServiceSuggestions,
   startsWithSuggestionPrefix,
 } from '../service-issue-suggestions';
@@ -216,18 +219,22 @@ describe('service-issue-suggestions utility (HG-95)', () => {
       const chip1 = 'Tình trạng: Không vắt / không quay lồng';
       const step1 = mergeDescriptionWithSuggestions({
         currentDescription: '',
-        previousGeneratedText: '',
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
         nextChipText: chip1,
         serviceName: 'Sửa máy giặt',
       });
       expect(step1.description).toBe('Tôi cần người Sửa máy giặt: Tình trạng: Không vắt / không quay lồng');
-      expect(step1.generatedText).toBe(step1.description);
+      expect(step1.provenance.segment).toEqual({
+        start: 0,
+        end: step1.description.length,
+        text: step1.description,
+      });
       expect(step1.description).not.toContain('Cần thợ kiểm tra');
 
       const chip2 = 'Tình trạng: Không vắt / không quay lồng - Loại máy: Cửa ngang (Lồng ngang)';
       const step2 = mergeDescriptionWithSuggestions({
         currentDescription: step1.description,
-        previousGeneratedText: step1.generatedText,
+        previousProvenance: step1.provenance,
         nextChipText: chip2,
         serviceName: 'Sửa máy giặt',
       });
@@ -237,12 +244,12 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const step3 = mergeDescriptionWithSuggestions({
         currentDescription: step2.description,
-        previousGeneratedText: step2.generatedText,
+        previousProvenance: step2.provenance,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
       });
       expect(step3.description).toBe('');
-      expect(step3.generatedText).toBe('');
+      expect(step3.provenance).toEqual(EMPTY_DESCRIPTION_PROVENANCE);
     });
 
     it('preserves 100% of user custom typed text across selecting, updating, and clearing dynamic chips', () => {
@@ -251,7 +258,7 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const step1 = mergeDescriptionWithSuggestions({
         currentDescription: customText,
-        previousGeneratedText: '',
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
         nextChipText: chip1,
         serviceName: 'Sửa máy giặt',
       });
@@ -260,7 +267,7 @@ describe('service-issue-suggestions utility (HG-95)', () => {
       const chip2 = 'Tình trạng: Không vắt / không quay lồng - Loại máy: Cửa ngang (Lồng ngang)';
       const step2 = mergeDescriptionWithSuggestions({
         currentDescription: step1.description,
-        previousGeneratedText: step1.generatedText,
+        previousProvenance: step1.provenance,
         nextChipText: chip2,
         serviceName: 'Sửa máy giặt',
       });
@@ -268,7 +275,7 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const step3 = mergeDescriptionWithSuggestions({
         currentDescription: step2.description,
-        previousGeneratedText: step2.generatedText,
+        previousProvenance: step2.provenance,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
       });
@@ -280,13 +287,14 @@ describe('service-issue-suggestions utility (HG-95)', () => {
       'Vị trí: tầng 2',
       'Tình trạng: kêu to. Cần thợ kiểm tra và xử lý sớm.',
       'Máy giặt kêu to.',
-    ])('never deletes user-typed text that looks like a suggestion prefix: %s', (userText) => {
+      'Tôi cần người Sửa máy giặt',
+    ])('never deletes user-typed text that looks like a suggestion prefix or quick-fill: %s', (userText) => {
       const chipA = 'Tình trạng: Kêu to và rung lắc mạnh';
       const chipB = 'Tình trạng: Kêu to và rung lắc mạnh - Loại máy: Cửa trên (Lồng đứng)';
 
       const select = mergeDescriptionWithSuggestions({
         currentDescription: userText,
-        previousGeneratedText: '',
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
         nextChipText: chipA,
         serviceName: 'Sửa máy giặt',
       });
@@ -295,7 +303,7 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const change = mergeDescriptionWithSuggestions({
         currentDescription: select.description,
-        previousGeneratedText: select.generatedText,
+        previousProvenance: select.provenance,
         nextChipText: chipB,
         serviceName: 'Sửa máy giặt',
       });
@@ -305,29 +313,177 @@ describe('service-issue-suggestions utility (HG-95)', () => {
 
       const unselect = mergeDescriptionWithSuggestions({
         currentDescription: change.description,
-        previousGeneratedText: change.generatedText,
+        previousProvenance: change.provenance,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
       });
       expect(unselect.description).toBe(userText);
     });
 
-    it('keeps text the user appended after the generated chip segment', () => {
+    it('merges quick-fill provenance with ": " and restores quick-fill text when chips are cleared, unless edited by user', () => {
+      const quickFill = 'Tôi cần người Sửa máy giặt';
+      const quickProv = createQuickFillProvenance();
+
+      // Selecting a chip right after pressing quick-fill formats with ": "
       const step1 = mergeDescriptionWithSuggestions({
-        currentDescription: 'Máy giặt hỏng',
-        previousGeneratedText: '',
-        nextChipText: 'Loại máy: Cửa ngang (Lồng ngang)',
+        currentDescription: quickFill,
+        previousProvenance: quickProv,
+        nextChipText: 'Tình trạng: Kêu to và rung lắc mạnh',
         serviceName: 'Sửa máy giặt',
       });
-      const edited = `${step1.description}, đã dùng 5 năm`;
+      expect(step1.description).toBe('Tôi cần người Sửa máy giặt: Tình trạng: Kêu to và rung lắc mạnh');
+      expect(step1.provenance.isQuickFillBase).toBe(true);
 
-      const cleared = mergeDescriptionWithSuggestions({
-        currentDescription: edited,
-        previousGeneratedText: step1.generatedText,
+      // Unselecting chips returns to the quick-fill base that user explicitly tapped
+      const step2 = mergeDescriptionWithSuggestions({
+        currentDescription: step1.description,
+        previousProvenance: step1.provenance,
         nextChipText: '',
         serviceName: 'Sửa máy giặt',
       });
-      expect(cleared.description).toBe('Máy giặt hỏng, đã dùng 5 năm');
+      expect(step2.description).toBe(quickFill);
+      expect(step2.provenance.isQuickFillBase).toBe(true);
+
+      // If user manually edits after quick-fill, provenance becomes user-owned
+      const edited = `${quickFill} ở tầng 2`;
+      const editedProv = reconcileDescriptionProvenanceOnEdit(quickFill, edited, step2.provenance);
+      expect(editedProv.isQuickFillBase).toBe(false);
+
+      const step3 = mergeDescriptionWithSuggestions({
+        currentDescription: edited,
+        previousProvenance: editedProv,
+        nextChipText: 'Loại máy: Cửa ngang (Lồng ngang)',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step3.description).toBe(`${edited}. Loại máy: Cửa ngang (Lồng ngang)`);
+
+      const step4 = mergeDescriptionWithSuggestions({
+        currentDescription: step3.description,
+        previousProvenance: step3.provenance,
+        nextChipText: '',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step4.description).toBe(edited);
+    });
+
+    it('does not delete user text that matches a chip when user manually deletes the generated suffix and selects another chip', () => {
+      const userText = 'Máy giặt. Tình trạng: Kêu to';
+      const step1 = mergeDescriptionWithSuggestions({
+        currentDescription: userText,
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
+        nextChipText: 'Tình trạng: Kêu to',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step1.description).toBe('Máy giặt. Tình trạng: Kêu to. Tình trạng: Kêu to');
+
+      // Case A: user selects and deletes the entire generated suffix at once
+      const provAfterBulkDelete = reconcileDescriptionProvenanceOnEdit(
+        step1.description,
+        userText,
+        step1.provenance,
+      );
+      expect(provAfterBulkDelete.segment).toBeNull();
+
+      const step2Bulk = mergeDescriptionWithSuggestions({
+        currentDescription: userText,
+        previousProvenance: provAfterBulkDelete,
+        nextChipText: 'Tình trạng: Không quay',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step2Bulk.description).toBe('Máy giặt. Tình trạng: Kêu to. Tình trạng: Không quay');
+
+      // Case B: user backspaces the generated suffix character by character
+      let curText = step1.description;
+      let curProv = step1.provenance;
+      while (curText.length > userText.length) {
+        const next = curText.slice(0, -1);
+        curProv = reconcileDescriptionProvenanceOnEdit(curText, next, curProv);
+        curText = next;
+      }
+      expect(curText).toBe(userText);
+      expect(curProv.segment).toBeNull();
+
+      const step2CharByChar = mergeDescriptionWithSuggestions({
+        currentDescription: curText,
+        previousProvenance: curProv,
+        nextChipText: 'Tình trạng: Không quay',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step2CharByChar.description).toBe('Máy giặt. Tình trạng: Kêu to. Tình trạng: Không quay');
+    });
+
+    it('preserves user edits made in the middle of a generated segment when changing or clearing chips', () => {
+      const step1 = mergeDescriptionWithSuggestions({
+        currentDescription: 'Máy giặt hỏng',
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
+        nextChipText: 'Tình trạng: Kêu to',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step1.description).toBe('Máy giặt hỏng. Tình trạng: Kêu to');
+
+      // User edits inside the generated segment ("Kêu to" -> "Kêu rất to")
+      const edited = 'Máy giặt hỏng. Tình trạng: Kêu rất to';
+      const provAfterMiddleEdit = reconcileDescriptionProvenanceOnEdit(
+        step1.description,
+        edited,
+        step1.provenance,
+      );
+      expect(provAfterMiddleEdit.segment).toBeNull();
+
+      const step2 = mergeDescriptionWithSuggestions({
+        currentDescription: edited,
+        previousProvenance: provAfterMiddleEdit,
+        nextChipText: 'Tình trạng: Không quay',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step2.description).toBe('Máy giặt hỏng. Tình trạng: Kêu rất to. Tình trạng: Không quay');
+
+      const step3 = mergeDescriptionWithSuggestions({
+        currentDescription: step2.description,
+        previousProvenance: step2.provenance,
+        nextChipText: '',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(step3.description).toBe(edited);
+    });
+
+    it('shifts tracked generated range when user edits strictly before it, and keeps text appended strictly after it', () => {
+      const step1 = mergeDescriptionWithSuggestions({
+        currentDescription: 'Máy giặt hỏng',
+        previousProvenance: EMPTY_DESCRIPTION_PROVENANCE,
+        nextChipText: 'Loại máy: Cửa ngang (Lồng ngang)',
+        serviceName: 'Sửa máy giặt',
+      });
+
+      // Edit strictly before generated segment
+      const editedBefore = 'Máy giặt LG hỏng. Loại máy: Cửa ngang (Lồng ngang)';
+      const provBefore = reconcileDescriptionProvenanceOnEdit(
+        step1.description,
+        editedBefore,
+        step1.provenance,
+      );
+      expect(provBefore.segment).toEqual({
+        start: 16,
+        end: editedBefore.length,
+        text: '. Loại máy: Cửa ngang (Lồng ngang)',
+      });
+
+      // Edit strictly after generated segment
+      const editedAfter = `${editedBefore}, đã dùng 5 năm`;
+      const provAfter = reconcileDescriptionProvenanceOnEdit(
+        editedBefore,
+        editedAfter,
+        provBefore,
+      );
+      expect(provAfter.segment).toEqual(provBefore.segment);
+
+      const cleared = mergeDescriptionWithSuggestions({
+        currentDescription: editedAfter,
+        previousProvenance: provAfter,
+        nextChipText: '',
+        serviceName: 'Sửa máy giặt',
+      });
+      expect(cleared.description).toBe('Máy giặt LG hỏng, đã dùng 5 năm');
     });
   });
 

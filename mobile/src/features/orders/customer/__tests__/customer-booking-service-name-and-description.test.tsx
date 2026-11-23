@@ -338,4 +338,74 @@ describe('customerBookingScreen - Service Name Preservation and Dynamic Service 
     fireEvent.press(screen.getByText('Rò rỉ nước'));
     expect(useBookingDraftStore.getState().description).toBe(userText);
   });
+
+  it('preserves manually typed quick-fill phrase on chip toggle while distinguishing actual Điền nhanh tap', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+
+    render(
+      <CustomerBookingScreen serviceId="cbb1b85c-32f9-4041-a0fd-df5cde04784f" />,
+    );
+
+    const input = screen.getByTestId('booking-description-input');
+    const typedText = 'Tôi cần người Sửa máy giặt';
+
+    // 1. User types the exact quick-fill text manually (no Điền nhanh tap)
+    fireEvent.changeText(input, typedText);
+    fireEvent.press(screen.getByText('Không vắt / không quay lồng'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      `${typedText}. Tình trạng: Không vắt / không quay lồng`,
+    );
+
+    // Unselecting chip must restore the manually typed text verbatim (never cleared to '')
+    fireEvent.press(screen.getByText('Không vắt / không quay lồng'));
+    expect(useBookingDraftStore.getState().description).toBe(typedText);
+
+    // 2. Pressing actual Điền nhanh marks quick-fill provenance -> formats with ": " and restores on clear
+    fireEvent.press(screen.getByText('Tôi cần người Sửa máy giặt'));
+    expect(useBookingDraftStore.getState().description).toBe(typedText);
+
+    fireEvent.press(screen.getByText('Không vắt / không quay lồng'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      'Tôi cần người Sửa máy giặt: Tình trạng: Không vắt / không quay lồng',
+    );
+
+    fireEvent.press(screen.getByText('Không vắt / không quay lồng'));
+    expect(useBookingDraftStore.getState().description).toBe(typedText);
+  });
+
+  it('preserves user text matching a chip after manually deleting the generated suffix or editing inside it', () => {
+    useAuthStore.setState({ isAuthenticated: true });
+
+    render(
+      <CustomerBookingScreen serviceId="cbb1b85c-32f9-4041-a0fd-df5cde04784f" />,
+    );
+
+    const input = screen.getByTestId('booking-description-input');
+    const userText = 'Máy giặt. Loại máy: Cửa ngang (Lồng ngang)';
+
+    // 1. User types text that matches a chip, selects that chip, deletes the generated suffix, then picks another chip
+    fireEvent.changeText(input, userText);
+    fireEvent.press(screen.getByText('Cửa ngang (Lồng ngang)'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      `${userText}. Loại máy: Cửa ngang (Lồng ngang)`,
+    );
+
+    // User manually deletes only the generated suffix at the end
+    fireEvent.changeText(input, userText);
+
+    // Switching to another chip in the single-select group must NOT delete userText
+    fireEvent.press(screen.getByText('Cửa trên (Lồng đứng)'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      `${userText}. Loại máy: Cửa trên (Lồng đứng)`,
+    );
+
+    // 2. User edits inside the newly generated segment ("Cửa trên" -> "Cửa trên 9kg"), then switches chip
+    const editedMiddle = `${userText}. Loại máy: Cửa trên 9kg (Lồng đứng)`;
+    fireEvent.changeText(input, editedMiddle);
+
+    fireEvent.press(screen.getByText('Cửa ngang (Lồng ngang)'));
+    expect(useBookingDraftStore.getState().description).toBe(
+      `${editedMiddle}. Loại máy: Cửa ngang (Lồng ngang)`,
+    );
+  });
 });

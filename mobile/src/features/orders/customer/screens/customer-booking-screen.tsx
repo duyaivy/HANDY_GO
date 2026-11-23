@@ -1,6 +1,9 @@
 /* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
 import type { BookingImageItem } from '../components/booking-image-thumbnail';
-import type { ServiceSuggestionGroup } from '../utils/service-issue-suggestions';
+import type {
+  DescriptionSuggestionProvenance,
+  ServiceSuggestionGroup,
+} from '../utils/service-issue-suggestions';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -33,8 +36,11 @@ import {
   BookingImageThumbnail,
 } from '../components/booking-image-thumbnail';
 import {
+  createQuickFillProvenance,
+  EMPTY_DESCRIPTION_PROVENANCE,
   formatSuggestionSelection,
   mergeDescriptionWithSuggestions,
+  reconcileDescriptionProvenanceOnEdit,
   resolveServiceSuggestions,
 } from '../utils/service-issue-suggestions';
 
@@ -130,7 +136,12 @@ export function CustomerBookingScreen({
 
   // Selected chips state keyed by group.key
   const [selectedByGroup, setSelectedByGroup] = React.useState<Record<string, string[]>>({});
-  const prevGeneratedTextRef = React.useRef('');
+  const descriptionProvenanceRef = React.useRef<DescriptionSuggestionProvenance>(
+    EMPTY_DESCRIPTION_PROVENANCE,
+  );
+  const lastTrackedDescriptionRef = React.useRef<string>(
+    useBookingDraftStore.getState().description || '',
+  );
 
   const resolvedSuggestions = React.useMemo(
     () =>
@@ -238,7 +249,7 @@ export function CustomerBookingScreen({
 
     if (shouldReset || didTargetServiceChange) {
       setSelectedByGroup({});
-      prevGeneratedTextRef.current = '';
+      descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
     }
 
     const metaPatch = {
@@ -292,6 +303,10 @@ export function CustomerBookingScreen({
     }
     else if (hasMetaPatch) {
       store.setSuggestionMetadata(metaPatch);
+    }
+
+    if (shouldReset || didTargetServiceChange) {
+      lastTrackedDescriptionRef.current = useBookingDraftStore.getState().description || '';
     }
   }, [targetServiceId, targetServiceName, targetCategoryId, targetCategoryName]);
 
@@ -484,6 +499,28 @@ export function CustomerBookingScreen({
     [addMediaUrl],
   );
 
+  const handleDescriptionChange = React.useCallback(
+    (nextText: string) => {
+      const storeDesc = useBookingDraftStore.getState().description || '';
+      let provenance = descriptionProvenanceRef.current;
+      if (storeDesc !== lastTrackedDescriptionRef.current) {
+        provenance = reconcileDescriptionProvenanceOnEdit(
+          lastTrackedDescriptionRef.current,
+          storeDesc,
+          provenance,
+        );
+      }
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        storeDesc,
+        nextText,
+        provenance,
+      );
+      lastTrackedDescriptionRef.current = nextText;
+      setDescription(nextText);
+    },
+    [setDescription],
+  );
+
   // Re-generate formatted description when selecting suggestions
   const handleSelectChip = (
     group: ServiceSuggestionGroup,
@@ -522,21 +559,32 @@ export function CustomerBookingScreen({
       nextSelectedByGroup,
     );
     const currentDesc = useBookingDraftStore.getState().description || '';
+    if (currentDesc !== lastTrackedDescriptionRef.current) {
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        lastTrackedDescriptionRef.current,
+        currentDesc,
+        descriptionProvenanceRef.current,
+      );
+      lastTrackedDescriptionRef.current = currentDesc;
+    }
+
     const merged = mergeDescriptionWithSuggestions({
       currentDescription: currentDesc,
-      previousGeneratedText: prevGeneratedTextRef.current,
+      previousProvenance: descriptionProvenanceRef.current,
       nextChipText,
       serviceName: serviceName || targetServiceName,
     });
 
-    prevGeneratedTextRef.current = merged.generatedText;
+    descriptionProvenanceRef.current = merged.provenance;
+    lastTrackedDescriptionRef.current = merged.description;
     setDescription(merged.description);
   };
 
   const handleQuickFill = () => {
     setSelectedByGroup({});
-    prevGeneratedTextRef.current = '';
     const quickText = generateQuickDescription(serviceName || targetServiceName);
+    descriptionProvenanceRef.current = createQuickFillProvenance();
+    lastTrackedDescriptionRef.current = quickText;
     setDescription(quickText);
   };
 
@@ -546,7 +594,8 @@ export function CustomerBookingScreen({
       item.abortController?.abort();
     });
     setSelectedByGroup({});
-    prevGeneratedTextRef.current = '';
+    descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
+    lastTrackedDescriptionRef.current = '';
     useBookingDraftStore.getState().resetDraft();
     setImageItems([]);
     if (onBack) {
@@ -766,6 +815,8 @@ export function CustomerBookingScreen({
 
     const finalDesc = description.trim() || generateQuickDescription(serviceName);
     if (!description.trim()) {
+      descriptionProvenanceRef.current = createQuickFillProvenance();
+      lastTrackedDescriptionRef.current = finalDesc;
       setDescription(finalDesc);
     }
     const currentServiceId = serviceId || useBookingDraftStore.getState().serviceId;
@@ -936,7 +987,7 @@ export function CustomerBookingScreen({
               multiline
               numberOfLines={4}
               value={description}
-              onChangeText={setDescription}
+              onChangeText={handleDescriptionChange}
               onFocus={() => {
                 setTimeout(() => {
                   scrollViewRef.current?.scrollToEnd({ animated: true });
