@@ -13,6 +13,7 @@ import { ErrorState, LoadingState } from '@/components/ui';
 import { RouteNames } from '@/constants/route-names';
 import { useCategories } from '@/features/catalog/hooks/use-categories';
 import { useServices } from '@/features/catalog/hooks/use-services';
+import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import {
   CategoryAiBanner,
   CategorySearchHeader,
@@ -135,11 +136,29 @@ export function CategoryScreen() {
   }, []);
 
   const handleServiceSelect = React.useCallback((serviceId: string, service: ServiceResponseDto) => {
+    const targetId = serviceId || service?.id;
+    const matchedCategory = categories.find(cat => cat.id === service?.categoryId);
+    const categoryName = service?.category?.name || matchedCategory?.name;
+    const categorySuggestionGroups
+      = service?.category?.suggestionGroups ?? matchedCategory?.suggestionGroups ?? null;
+
+    useBookingDraftStore.getState().startBookingForService(targetId, service?.name, {
+      categoryId: service?.categoryId,
+      categoryName,
+      serviceSuggestionGroups: service?.suggestionGroups ?? null,
+      categorySuggestionGroups,
+    });
+
     router.push({
       pathname: RouteNames.CUSTOMER_BOOKING,
-      params: { serviceId: serviceId || service?.id, serviceName: service?.name },
+      params: {
+        serviceId: targetId,
+        serviceName: service?.name,
+        ...(service?.categoryId ? { categoryId: service.categoryId } : {}),
+        ...(categoryName ? { categoryName } : {}),
+      },
     } as any);
-  }, [router]);
+  }, [categories, router]);
 
   const renderItem = React.useCallback(
     ({ item }: { item: CategoryWithServices }) => (

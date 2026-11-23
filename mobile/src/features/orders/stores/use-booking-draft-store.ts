@@ -1,10 +1,22 @@
+import type { ServiceSuggestionGroup } from '@/features/catalog/types';
 import { create } from 'zustand';
 import { resolveServiceName } from '@/constants/services';
 import { OrdersApi } from '../api/orders.api';
 
+export type BookingServiceMeta = {
+  categoryId?: string | null;
+  categoryName?: string | null;
+  serviceSuggestionGroups?: ServiceSuggestionGroup[] | null;
+  categorySuggestionGroups?: ServiceSuggestionGroup[] | null;
+};
+
 export type BookingDraftState = {
   serviceId: string;
   serviceName: string;
+  categoryId: string;
+  categoryName: string;
+  serviceSuggestionGroups: ServiceSuggestionGroup[] | null;
+  categorySuggestionGroups: ServiceSuggestionGroup[] | null;
   description: string;
   addressText: string;
   latitude: number;
@@ -21,7 +33,14 @@ export type BookingDraftState = {
   isPriceConfirmed: boolean;
   lastSyncedDraftSnapshot: string | null;
 
-  setService: (id: string, name?: string) => void;
+  setService: (id: string, name?: string, meta?: BookingServiceMeta) => void;
+  /**
+   * Entry point for starting a booking from catalog/home. Atomically resets booking-dependent
+   * data (description, media, address, schedule, worker, request...) when the service changes or
+   * a previous request was already created, then sets the service and its suggestion metadata.
+   */
+  startBookingForService: (id: string, name?: string, meta?: BookingServiceMeta) => void;
+  setSuggestionMetadata: (meta: BookingServiceMeta) => void;
   setDescription: (desc: string) => void;
   setAddress: (address: string, lat?: number, lng?: number) => void;
   setScheduledAt: (dateIso: string) => void;
@@ -56,6 +75,10 @@ let activeEstimatePromise: Promise<void> | null = null;
 export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   serviceId: '',
   serviceName: 'Dịch vụ tiện ích',
+  categoryId: '',
+  categoryName: '',
+  serviceSuggestionGroups: null,
+  categorySuggestionGroups: null,
   description: '',
   addressText: '',
   latitude: 16.0748,
@@ -72,8 +95,10 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
   isPriceConfirmed: false,
   lastSyncedDraftSnapshot: null,
 
-  setService: (serviceId, serviceName) => {
+  setService: (serviceId, serviceName, meta) => {
     const prevServiceId = get().serviceId;
+    const isSwitchingService = Boolean(prevServiceId && serviceId && serviceId !== prevServiceId);
+
     if (serviceId !== prevServiceId) {
       latestRequestId++;
       if (activeAbortController) {
@@ -87,18 +112,39 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
       }
       activeEstimatePromise = null;
 
-      set(state => ({
-        serviceId,
-        serviceName: resolveServiceName(
+      set((state) => {
+        const fallbackPreviousName = !isSwitchingService && state.serviceName !== 'Dịch vụ tiện ích'
+          ? state.serviceName
+          : undefined;
+        return {
           serviceId,
-          serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
-        ),
-        aiRefPriceMin: DEFAULT_MIN_PRICE,
-        aiRefPriceMax: DEFAULT_MAX_PRICE,
-        isEstimatingPrice: false,
-        priceEstimateReason: null,
-        isPriceConfirmed: false,
-      }));
+          serviceName: resolveServiceName(
+            serviceId,
+            serviceName || fallbackPreviousName,
+          ),
+          categoryId:
+            meta?.categoryId !== undefined
+              ? (meta.categoryId ?? '')
+              : (isSwitchingService ? '' : state.categoryId),
+          categoryName:
+            meta?.categoryName !== undefined
+              ? (meta.categoryName ?? '')
+              : (isSwitchingService ? '' : state.categoryName),
+          serviceSuggestionGroups:
+            meta?.serviceSuggestionGroups !== undefined
+              ? (meta.serviceSuggestionGroups ?? null)
+              : (isSwitchingService ? null : state.serviceSuggestionGroups),
+          categorySuggestionGroups:
+            meta?.categorySuggestionGroups !== undefined
+              ? (meta.categorySuggestionGroups ?? null)
+              : (isSwitchingService ? null : state.categorySuggestionGroups),
+          aiRefPriceMin: DEFAULT_MIN_PRICE,
+          aiRefPriceMax: DEFAULT_MAX_PRICE,
+          isEstimatingPrice: false,
+          priceEstimateReason: null,
+          isPriceConfirmed: false,
+        };
+      });
     }
     else {
       set(state => ({
@@ -107,9 +153,43 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
           serviceId,
           serviceName || (state.serviceName !== 'Dịch vụ tiện ích' ? state.serviceName : undefined),
         ),
+        ...(meta?.categoryId !== undefined ? { categoryId: meta.categoryId ?? '' } : {}),
+        ...(meta?.categoryName !== undefined ? { categoryName: meta.categoryName ?? '' } : {}),
+        ...(meta?.serviceSuggestionGroups !== undefined
+          ? { serviceSuggestionGroups: meta.serviceSuggestionGroups ?? null }
+          : {}),
+        ...(meta?.categorySuggestionGroups !== undefined
+          ? { categorySuggestionGroups: meta.categorySuggestionGroups ?? null }
+          : {}),
       }));
     }
   },
+
+  startBookingForService: (serviceId, serviceName, meta) => {
+    const state = get();
+    const shouldReset = Boolean(
+      state.createdRequestId
+      || (state.serviceId && serviceId && serviceId !== state.serviceId),
+    );
+    if (shouldReset) {
+      get().resetDraft();
+    }
+    get().setService(serviceId, serviceName, meta);
+  },
+
+  setSuggestionMetadata: meta =>
+    set(state => ({
+      categoryId: meta.categoryId !== undefined ? (meta.categoryId ?? '') : state.categoryId,
+      categoryName: meta.categoryName !== undefined ? (meta.categoryName ?? '') : state.categoryName,
+      serviceSuggestionGroups:
+        meta.serviceSuggestionGroups !== undefined
+          ? (meta.serviceSuggestionGroups ?? null)
+          : state.serviceSuggestionGroups,
+      categorySuggestionGroups:
+        meta.categorySuggestionGroups !== undefined
+          ? (meta.categorySuggestionGroups ?? null)
+          : state.categorySuggestionGroups,
+    })),
 
   setDescription: (description) => {
     const prevDescription = get().description;
@@ -284,6 +364,10 @@ export const useBookingDraftStore = create<BookingDraftState>((set, get) => ({
     set({
       serviceId: '',
       serviceName: 'Dịch vụ tiện ích',
+      categoryId: '',
+      categoryName: '',
+      serviceSuggestionGroups: null,
+      categorySuggestionGroups: null,
       description: '',
       addressText: '',
       latitude: 16.0748,

@@ -1,5 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../common/dto/pagination-query.dto.js';
+import {
+  ServiceSuggestionGroupDto,
+  SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+} from '../../common/dto/suggestion-group.dto.js';
 
 export class ServiceCategorySummaryDto {
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
@@ -16,6 +20,15 @@ export class ServiceCategorySummaryDto {
 
   @ApiPropertyOptional({ example: true })
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Default suggestion groups configured on the parent category',
+    type: () => [ServiceSuggestionGroupDto],
+    nullable: true,
+    example: SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  })
+  suggestionGroups?: ServiceSuggestionGroupDto[] | null;
 }
 
 export class ServiceResponseDto {
@@ -39,6 +52,15 @@ export class ServiceResponseDto {
     nullable: true,
   })
   iconUrl!: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Service-specific suggestion groups override (null inherits from parent category)',
+    type: () => [ServiceSuggestionGroupDto],
+    nullable: true,
+    example: SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  })
+  suggestionGroups?: ServiceSuggestionGroupDto[] | null;
 
   @ApiProperty({ example: true })
   isActive!: boolean;
