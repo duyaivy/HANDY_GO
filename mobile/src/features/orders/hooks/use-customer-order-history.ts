@@ -63,8 +63,8 @@ export function useCustomerOrderHistory(
     = activeTab === 'completed'
       ? 'completed'
       : activeTab === 'cancelled'
-        ? 'cancelled,disputed'
-        : 'completed,cancelled,disputed';
+        ? 'cancelled'
+        : 'completed,cancelled';
 
   const requestsStatusFilter
     = activeTab === 'completed'
@@ -98,6 +98,7 @@ export function useCustomerOrderHistory(
     queryKey: ordersQueryKeys.customerRequests({
       tab: `history-${activeTab}`,
       status: requestsStatusFilter ?? '',
+      search: trimmedSearch,
     }),
     queryFn: async ({ pageParam = 1 }) => {
       if (!requestsStatusFilter) {
@@ -107,6 +108,7 @@ export function useCustomerOrderHistory(
         page: pageParam,
         limit: 10,
         status: requestsStatusFilter,
+        search: trimmedSearch || undefined,
       });
       return res.data;
     },
@@ -131,8 +133,8 @@ export function useCustomerOrderHistory(
       return [];
     }
     const all = ordersQuery.data.pages.flatMap(p => extractItems<Order>(p));
-    // Exclude active orders just in case
-    return all.filter(o => o.status === 'completed' || o.status === 'cancelled' || o.status === 'disputed');
+    // Exclude active orders and disputed orders from history list
+    return all.filter(o => o.status === 'completed' || o.status === 'cancelled');
   }, [ordersQuery.data]);
 
   const requests: ServiceRequest[] = React.useMemo(() => {
@@ -143,14 +145,36 @@ export function useCustomerOrderHistory(
     return all.filter(r => r.status === 'cancelled' || r.status === 'expired');
   }, [requestsQuery.data, requestsStatusFilter]);
 
+  const isStatsLoading = summaryQuery.isLoading;
+  const isStatsError = summaryQuery.isError;
   const totalCompletedCount
-    = summaryQuery.data?.completedCount
-      ?? orders.filter(o => o.status === 'completed').length;
+    = summaryQuery.isSuccess && summaryQuery.data != null
+      ? (summaryQuery.data.completedCount ?? 0)
+      : null;
+
+  const hasNextOrdersPage = Boolean(ordersQuery.hasNextPage);
+  const hasNextRequestsPage = requestsStatusFilter !== null && Boolean(requestsQuery.hasNextPage);
+  const isFetchingNextOrdersPage = Boolean(ordersQuery.isFetchingNextPage);
+  const isFetchingNextRequestsPage = requestsStatusFilter !== null && Boolean(requestsQuery.isFetchingNextPage);
+
+  const hasNextPage = hasNextOrdersPage || hasNextRequestsPage;
+  const isFetchingNextPage = isFetchingNextOrdersPage || isFetchingNextRequestsPage;
+
+  const fetchNextPage = React.useCallback(() => {
+    if (ordersQuery.hasNextPage && !ordersQuery.isFetchingNextPage) {
+      ordersQuery.fetchNextPage();
+    }
+    if (requestsStatusFilter !== null && requestsQuery.hasNextPage && !requestsQuery.isFetchingNextPage) {
+      requestsQuery.fetchNextPage();
+    }
+  }, [ordersQuery, requestsQuery, requestsStatusFilter]);
 
   return {
     orders,
     requests,
     totalCompletedCount,
+    isStatsLoading,
+    isStatsError,
     isLoading: ordersQuery.isLoading || (requestsStatusFilter !== null && requestsQuery.isLoading),
     isRefetching: ordersQuery.isRefetching || (requestsStatusFilter !== null && requestsQuery.isRefetching),
     isError: ordersQuery.isError || (requestsStatusFilter !== null && requestsQuery.isError),
@@ -161,12 +185,10 @@ export function useCustomerOrderHistory(
         summaryQuery.refetch(),
       ]);
     },
-    hasNextPage: Boolean(ordersQuery.hasNextPage),
-    isFetchingNextPage: Boolean(ordersQuery.isFetchingNextPage),
-    fetchNextPage: () => {
-      if (ordersQuery.hasNextPage && !ordersQuery.isFetchingNextPage) {
-        ordersQuery.fetchNextPage();
-      }
-    },
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextOrdersPage,
+    hasNextRequestsPage,
   };
 }

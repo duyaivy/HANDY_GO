@@ -97,6 +97,8 @@ export function CustomerOrderHistoryScreen({
     orders,
     requests,
     totalCompletedCount,
+    isStatsLoading,
+    isStatsError: _isStatsError,
     isLoading,
     isError,
     refetch,
@@ -111,10 +113,10 @@ export function CustomerOrderHistoryScreen({
       return orders.filter(o => o.status === 'completed');
     }
     if (activeTab === 'cancelled') {
-      return orders.filter(o => o.status === 'cancelled' || o.status === 'disputed');
+      return orders.filter(o => o.status === 'cancelled');
     }
-    // 'all' in history view shows completed, cancelled, and disputed
-    return orders.filter(o => o.status === 'completed' || o.status === 'cancelled' || o.status === 'disputed');
+    // 'all' in history view shows completed and cancelled
+    return orders.filter(o => o.status === 'completed' || o.status === 'cancelled');
   }, [orders, activeTab]);
 
   const filteredRequests = React.useMemo(() => {
@@ -243,10 +245,10 @@ export function CustomerOrderHistoryScreen({
                 <Text className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">
                   Tổng đơn hoàn thành
                 </Text>
-                <Text className="text-base font-bold text-neutral-900 dark:text-white">
-                  {totalCompletedCount}
-                  {' '}
-                  dịch vụ
+                <Text testID="customer-history-completed-count" className="text-base font-bold text-neutral-900 dark:text-white">
+                  {totalCompletedCount === null
+                    ? (isStatsLoading ? '...' : '--')
+                    : `${totalCompletedCount} dịch vụ`}
                 </Text>
               </View>
             </View>

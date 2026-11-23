@@ -1,12 +1,14 @@
 export const ordersQueryKeys = {
   all: ['orders'] as const,
   customerRequests: (
-    tabOrFilter?: string | { tab?: string; status?: string },
+    tabOrFilter?: string | { tab?: string; status?: string; search?: string },
     status?: string,
+    search?: string,
   ) => {
     const tab = typeof tabOrFilter === 'string' ? tabOrFilter : tabOrFilter?.tab ?? 'all';
     const st = typeof tabOrFilter === 'object' ? tabOrFilter.status ?? '' : status ?? '';
-    return [...ordersQueryKeys.all, 'customer', 'requests', tab, st] as const;
+    const srch = typeof tabOrFilter === 'object' ? tabOrFilter.search ?? '' : search ?? '';
+    return [...ordersQueryKeys.all, 'customer', 'requests', tab, st, srch] as const;
   },
   customerRequestDetail: (id: string) =>
     [...ordersQueryKeys.all, 'customer', 'requests', id] as const,

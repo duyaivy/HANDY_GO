@@ -80,6 +80,9 @@ afterEach(() => {
   mockHookReturn = {
     orders: mockOrders,
     requests: mockRequests,
+    totalCompletedCount: 1,
+    isStatsLoading: false,
+    isStatsError: false,
     isLoading: false,
     isError: false,
     refetch: mockRefetch,
@@ -395,5 +398,108 @@ describe('customerOrderHistoryScreen', () => {
     // Switch to 'cancelled' tab
     fireEvent.press(screen.getByTestId('history-tab-cancelled'));
     expect(screen.getByText('42 dịch vụ')).toBeOnTheScreen();
+  });
+
+  it('paginates requests when requests > 10 and orders = 0 (HG-72 P1)', () => {
+    mockHookReturn = {
+      orders: [],
+      requests: mockRequests,
+      totalCompletedCount: 0,
+      isStatsLoading: false,
+      isStatsError: false,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    // Load more button must be rendered for paginated requests
+    const loadMoreBtn = screen.getByTestId('history-load-more-btn');
+    expect(loadMoreBtn).toBeOnTheScreen();
+
+    fireEvent.press(loadMoreBtn);
+    expect(mockFetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes search query to useCustomerOrderHistory for server-side search across pages (HG-72 P2)', () => {
+    render(<CustomerOrderHistoryScreen />);
+
+    const searchInput = screen.getByTestId('history-search-input');
+    fireEvent.changeText(searchInput, 'vòi nước');
+
+    expect(mockHookFn).toHaveBeenCalledWith('all', 'vòi nước');
+  });
+
+  it('displays "--" when summary fails or is unavailable without falling back to currently loaded orders (HG-72 P2)', () => {
+    mockHookReturn = {
+      orders: mockOrders,
+      requests: mockRequests,
+      totalCompletedCount: null,
+      isStatsLoading: false,
+      isStatsError: true,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    const countElement = screen.getByTestId('customer-history-completed-count');
+    expect(countElement).toHaveTextContent('--');
+  });
+
+  it('excludes disputed orders from "Đã hủy" tab, strictly showing only cancelled (HG-72 P2)', () => {
+    const ordersWithDispute = [
+      {
+        id: 'ord-canc-pure',
+        orderCode: 'HDG-CANC-1',
+        serviceId: 'srv-01',
+        agreedPrice: 200000,
+        agreedScope: 'Sửa điện',
+        addressText: 'Đà Nẵng',
+        status: 'cancelled',
+        paymentState: 'refunded',
+        createdAt: '2026-11-20T10:00:00.000Z',
+      },
+      {
+        id: 'ord-disp-1',
+        orderCode: 'HDG-DISP-1',
+        serviceId: 'srv-02',
+        agreedPrice: 300000,
+        agreedScope: 'Sơn tường',
+        addressText: 'Đà Nẵng',
+        status: 'disputed',
+        paymentState: 'holding',
+        createdAt: '2026-11-20T11:00:00.000Z',
+      },
+    ];
+
+    mockHookReturn = {
+      orders: ordersWithDispute,
+      requests: [],
+      totalCompletedCount: 0,
+      isStatsLoading: false,
+      isStatsError: false,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<CustomerOrderHistoryScreen />);
+
+    fireEvent.press(screen.getByTestId('history-tab-cancelled'));
+
+    expect(screen.getByTestId('history-order-card-ord-canc-pure')).toBeOnTheScreen();
+    expect(screen.queryByTestId('history-order-card-ord-disp-1')).toBeNull();
   });
 });

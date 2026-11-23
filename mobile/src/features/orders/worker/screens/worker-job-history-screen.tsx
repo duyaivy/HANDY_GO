@@ -85,6 +85,8 @@ export function WorkerJobHistoryScreen({
   const {
     orders,
     stats,
+    isStatsLoading,
+    isStatsError: _isStatsError,
     isLoading,
     isError,
     refetch,
@@ -93,20 +95,32 @@ export function WorkerJobHistoryScreen({
     fetchNextPage,
   } = useWorkerJobHistory(activeTab, searchQuery);
 
+  // Filter items based on tab for history view
+  const filteredOrders = React.useMemo(() => {
+    if (activeTab === 'completed') {
+      return orders.filter(o => o.status === 'completed');
+    }
+    if (activeTab === 'cancelled') {
+      return orders.filter(o => o.status === 'cancelled');
+    }
+    // 'all' in history view shows completed and cancelled
+    return orders.filter(o => o.status === 'completed' || o.status === 'cancelled');
+  }, [orders, activeTab]);
+
   // Search filter across jobs
   const searchedOrders = React.useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) {
-      return orders;
+      return filteredOrders;
     }
-    return orders.filter((job) => {
+    return filteredOrders.filter((job) => {
       const title = getJobServiceTitle(job).toLowerCase();
       const code = (job.orderCode || job.id).toLowerCase();
       const scope = (job.agreedScope || '').toLowerCase();
       const addr = (job.addressText || '').toLowerCase();
       return title.includes(q) || code.includes(q) || scope.includes(q) || addr.includes(q);
     });
-  }, [orders, searchQuery]);
+  }, [filteredOrders, searchQuery]);
 
   const handleManualRefresh = React.useCallback(async () => {
     setIsManualRefreshing(true);
@@ -130,8 +144,8 @@ export function WorkerJobHistoryScreen({
     [hasNextPage, isFetchingNextPage, fetchNextPage],
   );
 
-  const isErrorState = !isLoading && isError && orders.length === 0;
-  const isEmpty = !isLoading && !isError && !searchQuery.trim() && orders.length === 0;
+  const isErrorState = !isLoading && isError && filteredOrders.length === 0;
+  const isEmpty = !isLoading && !isError && !searchQuery.trim() && filteredOrders.length === 0;
   const isSearchEmpty = !isLoading && searchQuery.trim().length > 0 && searchedOrders.length === 0;
 
   return (
@@ -195,8 +209,10 @@ export function WorkerJobHistoryScreen({
                 <Text className="text-xs font-bold tracking-wider text-neutral-400 uppercase">
                   Tổng quan hiệu suất
                 </Text>
-                <Text className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">
-                  {formatVND(stats.totalEarnings)}
+                <Text testID="worker-history-total-earnings" className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400">
+                  {stats.totalEarnings === null
+                    ? (isStatsLoading ? '...' : '--')
+                    : formatVND(stats.totalEarnings)}
                 </Text>
                 <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">
                   Tổng giá trị đơn hoàn thành
@@ -215,9 +231,9 @@ export function WorkerJobHistoryScreen({
                 <View className="flex-1">
                   <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">Hoàn thành</Text>
                   <Text testID="worker-history-completed-count" className="text-sm font-bold text-neutral-900 dark:text-white">
-                    {stats.completedCount}
-                    {' '}
-                    việc
+                    {stats.completedCount === null
+                      ? (isStatsLoading ? '...' : '--')
+                      : `${stats.completedCount} việc`}
                   </Text>
                 </View>
               </View>
@@ -231,9 +247,9 @@ export function WorkerJobHistoryScreen({
                 <View className="flex-1">
                   <Text className="text-[11px] text-neutral-500 dark:text-neutral-400">Đã hủy</Text>
                   <Text testID="worker-history-cancelled-count" className="text-sm font-bold text-neutral-700 dark:text-neutral-300">
-                    {stats.cancelledCount}
-                    {' '}
-                    việc
+                    {stats.cancelledCount === null
+                      ? (isStatsLoading ? '...' : '--')
+                      : `${stats.cancelledCount} việc`}
                   </Text>
                 </View>
               </View>

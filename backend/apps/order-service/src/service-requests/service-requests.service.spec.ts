@@ -424,6 +424,36 @@ describe('ServiceRequestsService', () => {
         }),
       );
     });
+
+    it('should filter by search keyword across requestCode, description, and addressText (HG-72)', async () => {
+      prismaMock.serviceRequest.count.mockResolvedValue(1);
+      prismaMock.serviceRequest.findMany.mockResolvedValue([
+        { id: mockRequestId, customerUserId: mockUserId, media: [] },
+      ]);
+
+      const result = await service.findAll(mockUserId, {
+        page: 1,
+        limit: 10,
+        search: 'sửa vòi nước',
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.serviceRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { requestCode: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                  { description: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                  { addressText: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                ]),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
   });
 
   describe('findById', () => {

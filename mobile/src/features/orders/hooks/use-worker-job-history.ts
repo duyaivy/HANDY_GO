@@ -61,8 +61,8 @@ export function useWorkerJobHistory(
     = activeTab === 'completed'
       ? 'completed'
       : activeTab === 'cancelled'
-        ? 'cancelled,disputed'
-        : 'completed,cancelled,disputed';
+        ? 'cancelled'
+        : 'completed,cancelled';
 
   const query = useInfiniteQuery({
     queryKey: ordersQueryKeys.workerHistory({
@@ -99,44 +99,34 @@ export function useWorkerJobHistory(
       return [];
     }
     const all = query.data.pages.flatMap(p => extractItems<Order>(p));
-    // Filter out active states just in case backend returns broader results
-    return all.filter(o => o.status === 'completed' || o.status === 'cancelled' || o.status === 'disputed');
+    // Filter out active states and disputed from history list
+    return all.filter(o => o.status === 'completed' || o.status === 'cancelled');
   }, [query.data]);
+
+  const isStatsLoading = summaryQuery.isLoading;
+  const isStatsError = summaryQuery.isError;
 
   // Quick stats: independent of active tab and pagination
   const stats = React.useMemo(() => {
-    if (summaryQuery.data) {
+    if (summaryQuery.isSuccess && summaryQuery.data != null) {
       return {
         completedCount: summaryQuery.data.completedCount ?? 0,
         cancelledCount: summaryQuery.data.cancelledCount ?? 0,
         totalEarnings: summaryQuery.data.totalCompletedAmount ?? 0,
       };
     }
-
-    let completedCount = 0;
-    let cancelledCount = 0;
-    let totalEarnings = 0;
-
-    for (const order of orders) {
-      if (order.status === 'completed') {
-        completedCount++;
-        const price
-          = typeof order.agreedPrice === 'string'
-            ? Number.parseFloat(order.agreedPrice) || 0
-            : Number(order.agreedPrice) || 0;
-        totalEarnings += price;
-      }
-      else if (order.status === 'cancelled' || order.status === 'disputed') {
-        cancelledCount++;
-      }
-    }
-
-    return { completedCount, cancelledCount, totalEarnings };
-  }, [summaryQuery.data, orders]);
+    return {
+      completedCount: null,
+      cancelledCount: null,
+      totalEarnings: null,
+    };
+  }, [summaryQuery.isSuccess, summaryQuery.data]);
 
   return {
     orders,
     stats,
+    isStatsLoading,
+    isStatsError,
     isLoading: query.isLoading,
     isError: query.isError,
     isRefetching: query.isRefetching,

@@ -72,6 +72,8 @@ afterEach(() => {
       cancelledCount: 1,
       totalEarnings: 350000,
     },
+    isStatsLoading: false,
+    isStatsError: false,
     isLoading: false,
     isError: false,
     refetch: mockRefetch,
@@ -318,5 +320,81 @@ describe('workerJobHistoryScreen', () => {
     fireEvent.changeText(searchInput, 'điều hòa');
 
     expect(mockHookFn).toHaveBeenCalledWith('all', 'điều hòa');
+  });
+
+  it('displays "--" for stats when summary fails or is unavailable without falling back to loaded orders (HG-72 P2)', () => {
+    mockHookReturn = {
+      orders: mockWorkerOrders,
+      stats: {
+        completedCount: null,
+        cancelledCount: null,
+        totalEarnings: null,
+      },
+      isStatsLoading: false,
+      isStatsError: true,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    expect(screen.getByTestId('worker-history-total-earnings')).toHaveTextContent('--');
+    expect(screen.getByTestId('worker-history-completed-count')).toHaveTextContent('--');
+    expect(screen.getByTestId('worker-history-cancelled-count')).toHaveTextContent('--');
+  });
+
+  it('excludes disputed jobs from "Đã hủy" tab, strictly showing only cancelled (HG-72 P2)', () => {
+    const jobsWithDispute = [
+      {
+        id: 'job-canc-pure',
+        orderCode: 'JOB-CANC-1',
+        serviceId: 'srv-01',
+        agreedPrice: 200000,
+        agreedScope: 'Sửa điện',
+        addressText: 'Đà Nẵng',
+        status: 'cancelled',
+        paymentState: 'refunded',
+        createdAt: '2026-11-20T10:00:00.000Z',
+      },
+      {
+        id: 'job-disp-1',
+        orderCode: 'JOB-DISP-1',
+        serviceId: 'srv-02',
+        agreedPrice: 300000,
+        agreedScope: 'Sơn tường',
+        addressText: 'Đà Nẵng',
+        status: 'disputed',
+        paymentState: 'holding',
+        createdAt: '2026-11-20T11:00:00.000Z',
+      },
+    ];
+
+    mockHookReturn = {
+      orders: jobsWithDispute,
+      stats: {
+        completedCount: 0,
+        cancelledCount: 1,
+        totalEarnings: 0,
+      },
+      isStatsLoading: false,
+      isStatsError: false,
+      isLoading: false,
+      isError: false,
+      refetch: mockRefetch,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: mockFetchNextPage,
+    };
+
+    render(<WorkerJobHistoryScreen />);
+
+    fireEvent.press(screen.getByTestId('worker-history-tab-cancelled'));
+
+    expect(screen.getByTestId('worker-history-card-job-canc-pure')).toBeOnTheScreen();
+    expect(screen.queryByTestId('worker-history-card-job-disp-1')).toBeNull();
   });
 });
