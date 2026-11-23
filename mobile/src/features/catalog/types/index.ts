@@ -8,6 +8,16 @@ export type PaginationMetaDto = {
   totalPages: number;
 };
 
+// ─── Suggestion Group DTO ────────────────────────────────────────────────────
+
+export type ServiceSuggestionGroup = {
+  key: string;
+  label: string;
+  descriptionPrefix?: string;
+  selectionMode?: 'single' | 'multiple';
+  options: string[];
+};
+
 // ─── Category DTOs ───────────────────────────────────────────────────────────
 
 export type CategoryResponseDto = {
@@ -17,6 +27,7 @@ export type CategoryResponseDto = {
   description: string | null;
   imageUrl: string | null;
   isActive: boolean;
+  suggestionGroups?: ServiceSuggestionGroup[] | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -44,6 +55,7 @@ export type ServiceCategorySummaryDto = {
   id: string;
   name: string;
   imageUrl: string | null;
+  suggestionGroups?: ServiceSuggestionGroup[] | null;
 };
 
 export type ServiceResponseDto = {
@@ -53,6 +65,7 @@ export type ServiceResponseDto = {
   description: string | null;
   iconUrl: string | null;
   isActive: boolean;
+  suggestionGroups?: ServiceSuggestionGroup[] | null;
   createdAt: string;
   updatedAt: string;
   category: ServiceCategorySummaryDto;

@@ -1,5 +1,9 @@
 /* eslint-disable react-hooks-extra/no-direct-set-state-in-use-effect */
 import type { BookingImageItem } from '../components/booking-image-thumbnail';
+import type {
+  DescriptionSuggestionProvenance,
+  ServiceSuggestionGroup,
+} from '../utils/service-issue-suggestions';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -31,36 +35,23 @@ import {
 
   BookingImageThumbnail,
 } from '../components/booking-image-thumbnail';
+import {
+  createQuickFillProvenance,
+  EMPTY_DESCRIPTION_PROVENANCE,
+  formatSuggestionSelection,
+  mergeDescriptionWithSuggestions,
+  reconcileDescriptionProvenanceOnEdit,
+  resolveServiceSuggestions,
+} from '../utils/service-issue-suggestions';
 
 export type { BookingImageItem };
 
 export type CustomerBookingScreenProps = {
   serviceId?: string;
+  serviceName?: string;
+  categoryId?: string;
+  categoryName?: string;
   onBack?: () => void;
-};
-
-// Preset suggestions for Plumber / Home Repair (Vua Thợ style)
-const SUGGESTION_CATEGORIES = {
-  issueTypes: [
-    'Rò rỉ nước',
-    'Tắc nghẽn',
-    'Vòi/thiết bị hỏng',
-    'Lắp đặt mới',
-    'Chưa rõ',
-  ],
-  locations: [
-    'Nhà bếp',
-    'Nhà tắm',
-    'Sân vườn',
-    'Tầng hầm',
-    'Chưa rõ',
-  ],
-  severities: [
-    'Nhẹ (ít ảnh hưởng)',
-    'Trung bình',
-    'Nặng (ngập/nguy hiểm)',
-    'Chưa rõ',
-  ],
 };
 
 const SAMPLE_PHOTO_URLS = [
@@ -75,13 +66,21 @@ function generateQuickDescription(serviceName?: string | null): string {
 
 export function CustomerBookingScreen({
   serviceId: propServiceId,
+  serviceName: propServiceName,
+  categoryId: propCategoryId,
+  categoryName: propCategoryName,
   onBack,
 }: CustomerBookingScreenProps = {}) {
   const router = useRouter();
   const keyboard = useAndroidKeyboardInset();
   const scrollViewRef = React.useRef<ScrollView>(null);
   const descriptionInputRef = React.useRef<TextInput>(null);
-  const searchParams = useLocalSearchParams<{ serviceId?: string; serviceName?: string }>();
+  const searchParams = useLocalSearchParams<{
+    serviceId?: string;
+    serviceName?: string;
+    categoryId?: string;
+    categoryName?: string;
+  }>();
 
   const targetServiceId = React.useMemo(() => {
     const raw = propServiceId ?? searchParams?.serviceId;
@@ -89,7 +88,7 @@ export function CustomerBookingScreen({
   }, [propServiceId, searchParams?.serviceId]);
 
   const targetServiceName = React.useMemo(() => {
-    const raw = searchParams?.serviceName;
+    const raw = propServiceName ?? searchParams?.serviceName;
     const name = Array.isArray(raw) ? raw[0] : raw;
     if (name && name.trim()) {
       return name.trim();
@@ -101,27 +100,69 @@ export function CustomerBookingScreen({
       }
     }
     return undefined;
-  }, [searchParams?.serviceName, targetServiceId]);
+  }, [propServiceName, searchParams?.serviceName, targetServiceId]);
+
+  const targetCategoryId = React.useMemo(() => {
+    const raw = propCategoryId ?? searchParams?.categoryId;
+    const id = Array.isArray(raw) ? raw[0] : raw;
+    return id && id.trim() ? id.trim() : undefined;
+  }, [propCategoryId, searchParams?.categoryId]);
+
+  const targetCategoryName = React.useMemo(() => {
+    const raw = propCategoryName ?? searchParams?.categoryName;
+    const name = Array.isArray(raw) ? raw[0] : raw;
+    return name && name.trim() ? name.trim() : undefined;
+  }, [propCategoryName, searchParams?.categoryName]);
 
   const serviceId = targetServiceId;
 
   const {
     addMediaUrl,
+    categoryName: storeCategoryName,
+    categorySuggestionGroups,
     description,
     mediaUrls,
     removeMediaUrl,
     replaceMediaUrl,
+    serviceId: storeServiceId,
     serviceName,
+    serviceSuggestionGroups,
     setDescription,
   } = useBookingDraftStore();
 
   const isAuthenticated = useAuthStore.use.isAuthenticated();
-  const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(true);
+  // Confirmed UX decision: Suggestion card is expanded by default
+  const [isSuggestionsCollapsed, setIsSuggestionsCollapsed] = React.useState(false);
 
-  // Selected chips state (mặc định chưa chọn để tránh mang data cũ)
-  const [selectedIssueType, setSelectedIssueType] = React.useState<string>('');
-  const [selectedLocation, setSelectedLocation] = React.useState<string>('');
-  const [selectedSeverity, setSelectedSeverity] = React.useState<string>('');
+  // Selected chips state keyed by group.key
+  const [selectedByGroup, setSelectedByGroup] = React.useState<Record<string, string[]>>({});
+  const descriptionProvenanceRef = React.useRef<DescriptionSuggestionProvenance>(
+    EMPTY_DESCRIPTION_PROVENANCE,
+  );
+  const lastTrackedDescriptionRef = React.useRef<string>(
+    useBookingDraftStore.getState().description || '',
+  );
+
+  const resolvedSuggestions = React.useMemo(
+    () =>
+      resolveServiceSuggestions({
+        serviceId: targetServiceId || storeServiceId,
+        serviceName: serviceName || targetServiceName,
+        categoryName: targetCategoryName || storeCategoryName,
+        serviceSuggestionGroups,
+        categorySuggestionGroups,
+      }),
+    [
+      targetServiceId,
+      storeServiceId,
+      serviceName,
+      targetServiceName,
+      targetCategoryName,
+      storeCategoryName,
+      serviceSuggestionGroups,
+      categorySuggestionGroups,
+    ],
+  );
 
   // Enhanced image items tracking with progress, status, and abort controllers
   const [imageItems, setImageItems] = React.useState<BookingImageItem[]>(() => {
@@ -192,26 +233,82 @@ export function CustomerBookingScreen({
     });
   }, [mediaUrls, isAnyLoading]);
 
+  const prevTargetServiceIdRef = React.useRef(targetServiceId);
+
   React.useEffect(() => {
     const store = useBookingDraftStore.getState();
+    const didTargetServiceChange = prevTargetServiceIdRef.current !== targetServiceId;
+    prevTargetServiceIdRef.current = targetServiceId;
+
+    const isSwitchingFromExistingService = Boolean(
+      targetServiceId && store.serviceId && targetServiceId !== store.serviceId,
+    );
     const shouldReset = Boolean(
-      store.createdRequestId
-      || (targetServiceId && targetServiceId !== store.serviceId),
+      store.createdRequestId || isSwitchingFromExistingService,
     );
 
+    if (shouldReset || didTargetServiceChange) {
+      setSelectedByGroup({});
+      descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
+    }
+
+    const metaPatch = {
+      ...(targetCategoryId !== undefined ? { categoryId: targetCategoryId } : {}),
+      ...(targetCategoryName !== undefined ? { categoryName: targetCategoryName } : {}),
+    };
+    const hasMetaPatch = Object.keys(metaPatch).length > 0;
+
     if (shouldReset) {
+      // Keep API suggestion metadata that already belongs to the target service so
+      // resetDraft() does not drop it and force a local preset/fallback.
+      const isMetaForTarget = Boolean(targetServiceId && store.serviceId === targetServiceId);
+      const preservedSuggestionMeta = isMetaForTarget
+        ? {
+            serviceSuggestionGroups: store.serviceSuggestionGroups,
+            categorySuggestionGroups: store.categorySuggestionGroups,
+            ...(targetCategoryId === undefined && store.categoryId ? { categoryId: store.categoryId } : {}),
+            ...(targetCategoryName === undefined && store.categoryName ? { categoryName: store.categoryName } : {}),
+          }
+        : {};
+
       store.resetDraft();
       if (targetServiceId) {
-        store.setService(targetServiceId, targetServiceName);
+        store.setService(targetServiceId, targetServiceName, {
+          ...preservedSuggestionMeta,
+          ...metaPatch,
+        });
       }
     }
-    else if (targetServiceId && (!store.serviceId || targetServiceId !== store.serviceId || (targetServiceName && store.serviceName !== targetServiceName))) {
-      store.setService(targetServiceId, targetServiceName);
+    else if (
+      targetServiceId
+      && (
+        !store.serviceId
+        || targetServiceId !== store.serviceId
+        || (targetServiceName && store.serviceName !== targetServiceName)
+        || hasMetaPatch
+      )
+    ) {
+      store.setService(
+        targetServiceId,
+        targetServiceName,
+        hasMetaPatch ? metaPatch : undefined,
+      );
     }
     else if (targetServiceName && store.serviceName !== targetServiceName) {
-      store.setService(store.serviceId || targetServiceId || '', targetServiceName);
+      store.setService(
+        store.serviceId || targetServiceId || '',
+        targetServiceName,
+        hasMetaPatch ? metaPatch : undefined,
+      );
     }
-  }, [targetServiceId, targetServiceName]);
+    else if (hasMetaPatch) {
+      store.setSuggestionMetadata(metaPatch);
+    }
+
+    if (shouldReset || didTargetServiceChange) {
+      lastTrackedDescriptionRef.current = useBookingDraftStore.getState().description || '';
+    }
+  }, [targetServiceId, targetServiceName, targetCategoryId, targetCategoryName]);
 
   // Sequential Upload Queue Runner
   React.useEffect(() => {
@@ -402,78 +499,92 @@ export function CustomerBookingScreen({
     [addMediaUrl],
   );
 
-  const prevChipTextRef = React.useRef('');
+  const handleDescriptionChange = React.useCallback(
+    (nextText: string) => {
+      const storeDesc = useBookingDraftStore.getState().description || '';
+      let provenance = descriptionProvenanceRef.current;
+      if (storeDesc !== lastTrackedDescriptionRef.current) {
+        provenance = reconcileDescriptionProvenanceOnEdit(
+          lastTrackedDescriptionRef.current,
+          storeDesc,
+          provenance,
+        );
+      }
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        storeDesc,
+        nextText,
+        provenance,
+      );
+      lastTrackedDescriptionRef.current = nextText;
+      setDescription(nextText);
+    },
+    [setDescription],
+  );
 
   // Re-generate formatted description when selecting suggestions
   const handleSelectChip = (
-    type: 'issue' | 'location' | 'severity',
+    group: ServiceSuggestionGroup,
     value: string,
   ) => {
-    let issue = selectedIssueType;
-    let loc = selectedLocation;
-    let sev = selectedSeverity;
+    const currentSelection = selectedByGroup[group.key] ?? [];
+    const isAlreadySelected = currentSelection.includes(value);
 
-    if (type === 'issue') {
-      issue = issue === value ? '' : value;
-      setSelectedIssueType(issue);
-    }
-    else if (type === 'location') {
-      loc = loc === value ? '' : value;
-      setSelectedLocation(loc);
-    }
-    else if (type === 'severity') {
-      sev = sev === value ? '' : value;
-      setSelectedSeverity(sev);
-    }
-
-    const parts: string[] = [];
-    if (issue && issue !== 'Chưa rõ')
-      parts.push(`Sự cố: ${issue}`);
-    if (loc && loc !== 'Chưa rõ')
-      parts.push(`Vị trí: ${loc}`);
-    if (sev && sev !== 'Chưa rõ')
-      parts.push(`Mức độ: ${sev}`);
-
-    const newChipText = parts.length > 0
-      ? parts.join(' - ')
-      : '';
-
-    // Extract user custom text by stripping previous chip suggestions
-    const currentDesc = useBookingDraftStore.getState().description || '';
-    let baseText = currentDesc;
-    if (prevChipTextRef.current && baseText.includes(prevChipTextRef.current)) {
-      baseText = baseText.replace(prevChipTextRef.current, '');
-    }
-    // Also remove any existing chip pattern if present
-    baseText = baseText.replace(/(?:\.|\s)*\b(?:Sự cố|Vị trí|Mức độ):.*?(?:\. Cần thợ kiểm tra và xử lý sớm\.?|\.|$)/gi, '');
-    baseText = baseText.trim().replace(/\s*[:.\-]\s*$/, '').trim();
-
-    const currentServiceName = (serviceName || targetServiceName || '').trim();
-    const defaultPrefix = currentServiceName ? `Tôi cần người ${currentServiceName}` : '';
-
-    // If baseText is just the defaultPrefix, treat it as prefix
-    const isBaseOnlyPrefix = Boolean(defaultPrefix && (baseText === defaultPrefix || baseText.toLowerCase() === defaultPrefix.toLowerCase()));
-
-    let combined = '';
-    if (baseText && !isBaseOnlyPrefix && newChipText) {
-      combined = `${baseText}. ${newChipText}`;
-    }
-    else if (baseText && !isBaseOnlyPrefix) {
-      combined = baseText;
-    }
-    else if (newChipText) {
-      combined = defaultPrefix ? `${defaultPrefix}: ${newChipText}` : newChipText;
+    let nextGroupSelection: string[];
+    if (group.selectionMode === 'multiple') {
+      if (isAlreadySelected) {
+        nextGroupSelection = currentSelection.filter(item => item !== value);
+      }
+      else if (value.trim().toLowerCase() === 'chưa rõ') {
+        nextGroupSelection = [value];
+      }
+      else {
+        nextGroupSelection = [
+          ...currentSelection.filter(item => item.trim().toLowerCase() !== 'chưa rõ'),
+          value,
+        ];
+      }
     }
     else {
-      combined = isBaseOnlyPrefix ? '' : baseText;
+      nextGroupSelection = isAlreadySelected ? [] : [value];
     }
 
-    prevChipTextRef.current = newChipText;
-    setDescription(combined);
+    const nextSelectedByGroup: Record<string, string[]> = {
+      ...selectedByGroup,
+      [group.key]: nextGroupSelection,
+    };
+    setSelectedByGroup(nextSelectedByGroup);
+
+    const nextChipText = formatSuggestionSelection(
+      resolvedSuggestions.groups,
+      nextSelectedByGroup,
+    );
+    const currentDesc = useBookingDraftStore.getState().description || '';
+    if (currentDesc !== lastTrackedDescriptionRef.current) {
+      descriptionProvenanceRef.current = reconcileDescriptionProvenanceOnEdit(
+        lastTrackedDescriptionRef.current,
+        currentDesc,
+        descriptionProvenanceRef.current,
+      );
+      lastTrackedDescriptionRef.current = currentDesc;
+    }
+
+    const merged = mergeDescriptionWithSuggestions({
+      currentDescription: currentDesc,
+      previousProvenance: descriptionProvenanceRef.current,
+      nextChipText,
+      serviceName: serviceName || targetServiceName,
+    });
+
+    descriptionProvenanceRef.current = merged.provenance;
+    lastTrackedDescriptionRef.current = merged.description;
+    setDescription(merged.description);
   };
 
   const handleQuickFill = () => {
-    const quickText = generateQuickDescription(serviceName);
+    setSelectedByGroup({});
+    const quickText = generateQuickDescription(serviceName || targetServiceName);
+    descriptionProvenanceRef.current = createQuickFillProvenance();
+    lastTrackedDescriptionRef.current = quickText;
     setDescription(quickText);
   };
 
@@ -482,6 +593,9 @@ export function CustomerBookingScreen({
     imageItemsRef.current.forEach((item) => {
       item.abortController?.abort();
     });
+    setSelectedByGroup({});
+    descriptionProvenanceRef.current = EMPTY_DESCRIPTION_PROVENANCE;
+    lastTrackedDescriptionRef.current = '';
     useBookingDraftStore.getState().resetDraft();
     setImageItems([]);
     if (onBack) {
@@ -701,6 +815,8 @@ export function CustomerBookingScreen({
 
     const finalDesc = description.trim() || generateQuickDescription(serviceName);
     if (!description.trim()) {
+      descriptionProvenanceRef.current = createQuickFillProvenance();
+      lastTrackedDescriptionRef.current = finalDesc;
       setDescription(finalDesc);
     }
     const currentServiceId = serviceId || useBookingDraftStore.getState().serviceId;
@@ -800,109 +916,52 @@ export function CustomerBookingScreen({
             </Pressable>
 
             {!isSuggestionsCollapsed && (
-              <View className="mt-3.5">
+              <View className="mt-3.5" testID="booking-suggestions-content">
                 <Text className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
                   Mô tả vấn đề của bạn để thợ đến khắc phục:
                 </Text>
 
-                {/* Nhóm 1: Loại sự cố */}
-                <View className="mb-3.5">
-                  <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                    Loại sự cố
-                  </Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {SUGGESTION_CATEGORIES.issueTypes.map((item) => {
-                      const isSelected = selectedIssueType === item;
-                      return (
-                        <Pressable
-                          key={item}
-                          onPress={() => handleSelectChip('issue', item)}
-                          className={`rounded-full border px-3.5 py-2 ${
-                            isSelected
-                              ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                              : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                          }`}
-                        >
-                          <Text
-                            className={`text-xs ${
-                              isSelected
-                                ? 'font-bold text-primary-600 dark:text-primary-200'
-                                : 'font-medium text-neutral-700 dark:text-neutral-300'
-                            }`}
-                          >
-                            {item}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* Nhóm 2: Vị trí */}
-                <View className="mb-3.5">
-                  <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                    Vị trí
-                  </Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {SUGGESTION_CATEGORIES.locations.map((item) => {
-                      const isSelected = selectedLocation === item;
-                      return (
-                        <Pressable
-                          key={item}
-                          onPress={() => handleSelectChip('location', item)}
-                          className={`rounded-full border px-3.5 py-2 ${
-                            isSelected
-                              ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                              : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                          }`}
-                        >
-                          <Text
-                            className={`text-xs ${
-                              isSelected
-                                ? 'font-bold text-primary-600 dark:text-primary-200'
-                                : 'font-medium text-neutral-700 dark:text-neutral-300'
-                            }`}
-                          >
-                            {item}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-
-                {/* Nhóm 3: Mức độ */}
-                <View className="mb-1">
-                  <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                    Mức độ
-                  </Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    {SUGGESTION_CATEGORIES.severities.map((item) => {
-                      const isSelected = selectedSeverity === item;
-                      return (
-                        <Pressable
-                          key={item}
-                          onPress={() => handleSelectChip('severity', item)}
-                          className={`rounded-full border px-3.5 py-2 ${
-                            isSelected
-                              ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
-                              : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                          }`}
-                        >
-                          <Text
-                            className={`text-xs ${
-                              isSelected
-                                ? 'font-bold text-primary-600 dark:text-primary-200'
-                                : 'font-medium text-neutral-700 dark:text-neutral-300'
-                            }`}
-                          >
-                            {item}
-                          </Text>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
+                {resolvedSuggestions.groups.map((group, groupIndex) => {
+                  const selectedOptions = selectedByGroup[group.key] ?? [];
+                  const isLastGroup = groupIndex === resolvedSuggestions.groups.length - 1;
+                  return (
+                    <View
+                      key={group.key}
+                      testID={`booking-suggestion-group-${group.key}`}
+                      className={isLastGroup ? 'mb-1' : 'mb-3.5'}
+                    >
+                      <Text className="mb-2 text-xs font-bold text-neutral-800 dark:text-neutral-200">
+                        {group.label}
+                      </Text>
+                      <View className="flex-row flex-wrap gap-2">
+                        {group.options.map((item) => {
+                          const isSelected = selectedOptions.includes(item);
+                          return (
+                            <Pressable
+                              key={`${group.key}-${item}`}
+                              onPress={() => handleSelectChip(group, item)}
+                              className={`rounded-full border px-3.5 py-2 ${
+                                isSelected
+                                  ? 'border-[#F5A524] bg-primary-50 dark:border-[#F5A524] dark:bg-amber-950/40'
+                                  : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
+                              }`}
+                            >
+                              <Text
+                                className={`text-xs ${
+                                  isSelected
+                                    ? 'font-bold text-primary-600 dark:text-primary-200'
+                                    : 'font-medium text-neutral-700 dark:text-neutral-300'
+                                }`}
+                              >
+                                {item}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             )}
           </View>
@@ -928,7 +987,7 @@ export function CustomerBookingScreen({
               multiline
               numberOfLines={4}
               value={description}
-              onChangeText={setDescription}
+              onChangeText={handleDescriptionChange}
               onFocus={() => {
                 setTimeout(() => {
                   scrollViewRef.current?.scrollToEnd({ animated: true });
