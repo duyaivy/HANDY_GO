@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS "user_trust_service"."worker_order_contributions" (
     "has_contributed_total" BOOLEAN NOT NULL DEFAULT false,
     "has_contributed_completed" BOOLEAN NOT NULL DEFAULT false,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(6) NOT NULL,
 
     CONSTRAINT "worker_order_contributions_pkey" PRIMARY KEY ("order_id")
 );
