@@ -476,21 +476,20 @@ export default function RefundManagement() {
 
                   {/* ===================== REFUND FORM INLINE ===================== */}
 
-                  {canCreateRefund && (
-                    <CreateRefundDialog
-                      key={payment.id}
-                      paymentId={payment.id}
-                      disabled={!canCreateRefund}
-                      refundableAmount={refundableAmount}
-                      capacityLoading={
-                        reservedQuery.isPending || reservedQuery.isFetching
-                      }
-                      capacityError={capacityError}
-                      onRetryCapacity={() => void reservedQuery.refetch()}
-                      onCreated={handleCreatedRefund}
-                      onSubmittingChange={setIsCreatingRefund}
-                    />
-                  )}
+                  {/* Render recovery kể cả khi payment đã refunded. */}
+                  <CreateRefundDialog
+                    key={payment.id}
+                    paymentId={payment.id}
+                    disabled={!canCreateRefund}
+                    refundableAmount={refundableAmount}
+                    capacityLoading={
+                      reservedQuery.isPending || reservedQuery.isFetching
+                    }
+                    capacityError={capacityError}
+                    onRetryCapacity={() => void reservedQuery.refetch()}
+                    onCreated={handleCreatedRefund}
+                    onSubmittingChange={setIsCreatingRefund}
+                  />
                 </div>
               </div>
             )}

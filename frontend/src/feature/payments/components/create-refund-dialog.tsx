@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuthUser } from "@/feature/auth/component/auth-session";
 
 import { useCreateRefund } from "../hooks/use-refunds";
 import { getRefundErrorMessage } from "../refund-utils";
@@ -23,18 +24,20 @@ type CreateRefundDialogProps = {
 };
 
 type PendingRefund = {
+  userId: string;
   paymentId: string;
   amount: string;
   reason: string;
   idempotencyKey: string;
 };
 
-// Một yêu cầu chưa xác định kết quả được giữ xuyên suốt vòng đời modal và reload.
-// Phạm vi là một origin/trình duyệt; backend vẫn phải bảo đảm idempotency.
-const STORAGE_KEY = "handygo:admin:pending-refund:v1";
+// Pending operation được scope theo tài khoản để tài khoản khác không đọc payload cũ.
+function getStorageKey(userId: string) {
+  return `handygo:refund-pending:${encodeURIComponent(userId)}:v1`;
+}
 
-function readPendingRefund(): PendingRefund | null {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+function readPendingRefund(userId: string): PendingRefund | null {
+  const raw = window.localStorage.getItem(getStorageKey(userId));
   if (!raw) return null;
 
   const value: unknown = JSON.parse(raw);
@@ -44,6 +47,7 @@ function readPendingRefund(): PendingRefund | null {
 
   const record = value as Record<string, unknown>;
   if (
+    record.userId !== userId ||
     typeof record.paymentId !== "string" ||
     !record.paymentId ||
     typeof record.amount !== "string" ||
@@ -58,6 +62,7 @@ function readPendingRefund(): PendingRefund | null {
   }
 
   return {
+    userId,
     paymentId: record.paymentId,
     amount: record.amount,
     reason: record.reason,
@@ -72,7 +77,10 @@ type InitialRefundState = {
   storageError: string;
 };
 
-function getInitialRefundState(paymentId: string): InitialRefundState {
+function getInitialRefundState(
+  userId: string,
+  paymentId: string,
+): InitialRefundState {
   // Component chỉ được render sau khi Admin mở modal. Nếu có SSR,
   // không truy cập localStorage ở phía server.
   if (typeof window === "undefined") {
@@ -80,7 +88,7 @@ function getInitialRefundState(paymentId: string): InitialRefundState {
   }
 
   try {
-    const saved = readPendingRefund();
+    const saved = readPendingRefund(userId);
     return {
       pendingRefund: saved,
       amount: saved?.paymentId === paymentId ? saved.amount : "",
@@ -99,6 +107,21 @@ function getInitialRefundState(paymentId: string): InitialRefundState {
   }
 }
 
+async function withRefundSubmitLock<T>(
+  userId: string,
+  paymentId: string,
+  operation: () => Promise<T>,
+) {
+  const lockName = `handygo:refund:${encodeURIComponent(userId)}:${encodeURIComponent(paymentId)}`;
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request(lockName, { mode: "exclusive" }, operation);
+  }
+  // Không chạy không khóa: hai tab có thể tạo hai idempotencyKey khác nhau.
+  throw new Error(
+    "Trình duyệt không hỗ trợ Web Locks; không thể gửi refund an toàn.",
+  );
+}
+
 export default function CreateRefundDialog({
   paymentId,
   disabled,
@@ -109,10 +132,11 @@ export default function CreateRefundDialog({
   onCreated,
   onSubmittingChange,
 }: CreateRefundDialogProps) {
+  const user = useAuthUser();
   // Parent render <CreateRefundDialog key={payment.id} ... /> nên khi
   // paymentId thay đổi, React sẽ khởi tạo component lại với dữ liệu tương ứng.
   // Không cần useEffect + setState đồng bộ (react-hooks/set-state-in-effect).
-  const [initial] = useState(() => getInitialRefundState(paymentId));
+  const [initial] = useState(() => getInitialRefundState(user.id, paymentId));
   const [amount, setAmount] = useState(initial.amount);
   const [reason, setReason] = useState(initial.reason);
   const [formError, setFormError] = useState("");
@@ -135,9 +159,19 @@ export default function CreateRefundDialog({
   // có thể đã giảm vì chính yêu cầu cũ đã được Backend ghi nhận.
   const capacityUnavailable =
     !pendingThisPayment &&
-    (capacityLoading || Boolean(capacityError) || refundableAmount === null || refundableAmount === "0");
+    (capacityLoading ||
+      Boolean(capacityError) ||
+      refundableAmount === null ||
+      refundableAmount === "0");
+  // Payment không còn eligible chỉ chặn request MỚI.
+  // Operation cũ vẫn phải có đường retry với đúng key đã lưu.
+  const cannotCreateNewRefund = disabled && !pendingThisPayment;
   const isBlocked =
-    disabled || isPending || Boolean(storageError) || pendingOtherPayment || capacityUnavailable;
+    cannotCreateNewRefund ||
+    isPending ||
+    Boolean(storageError) ||
+    pendingOtherPayment ||
+    capacityUnavailable;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,7 +190,9 @@ export default function CreateRefundDialog({
     }
     if (!pendingThisPayment) {
       if (refundableAmount === null || capacityLoading || capacityError) {
-        setFormError("Chưa xác định được hạn mức hoàn tiền. Vui lòng tải lại trước khi tạo.");
+        setFormError(
+          "Chưa xác định được hạn mức hoàn tiền. Vui lòng tải lại trước khi tạo.",
+        );
         return;
       }
       if (BigInt(normalizedAmount) > BigInt(refundableAmount)) {
@@ -172,104 +208,133 @@ export default function CreateRefundDialog({
       return;
     }
 
-    let operation: PendingRefund;
     try {
-      // Đọc lại storage ngay lúc submit, không dựa vào state cũ của modal.
-      const saved = readPendingRefund();
-      if (saved) {
-        setPendingRefund(saved);
-        if (saved.paymentId !== paymentId) {
-          setFormError(
-            `Yêu cầu hoàn tiền của giao dịch ${saved.paymentId} chưa xác định kết quả. Hãy xác minh trước khi tạo yêu cầu khác.`,
+      await withRefundSubmitLock(user.id, paymentId, async () => {
+        let operation: PendingRefund;
+        try {
+          // Đọc lại storage ngay lúc submit, không dựa vào state cũ của modal.
+          const saved = readPendingRefund(user.id);
+          if (saved) {
+            setPendingRefund(saved);
+            if (saved.paymentId !== paymentId) {
+              setFormError(
+                `Yêu cầu hoàn tiền của giao dịch ${saved.paymentId} chưa xác định kết quả. Hãy xác minh trước khi tạo yêu cầu khác.`,
+              );
+              return;
+            }
+            if (
+              saved.amount !== normalizedAmount ||
+              saved.reason !== normalizedReason
+            ) {
+              setAmount(saved.amount);
+              setReason(saved.reason);
+              setFormError(
+                "Yêu cầu cũ chưa xác định kết quả. Không được thay đổi nội dung khi gửi lại.",
+              );
+              return;
+            }
+            operation = saved;
+          } else {
+            // Payment đã refunded không được tạo operation mới.
+            if (disabled) {
+              setFormError(
+                "Giao dịch không còn đủ điều kiện tạo yêu cầu hoàn tiền mới.",
+              );
+              return;
+            }
+            // Nếu localStorage vừa được giải phóng, đây là request MỚI:
+            // luôn kiểm tra hạn mức trước khi tạo key mới.
+            if (
+              refundableAmount === null ||
+              capacityLoading ||
+              capacityError ||
+              BigInt(normalizedAmount) > BigInt(refundableAmount)
+            ) {
+              setFormError(
+                "Hạn mức hoàn tiền không đủ hoặc chưa được xác định. Vui lòng kiểm tra lại.",
+              );
+              return;
+            }
+            operation = {
+              userId: user.id,
+              paymentId,
+              amount: normalizedAmount,
+              reason: normalizedReason,
+              idempotencyKey: crypto.randomUUID(),
+            };
+            // Không gửi request nếu chưa lưu được key và payload.
+            window.localStorage.setItem(
+              getStorageKey(user.id),
+              JSON.stringify(operation),
+            );
+            setPendingRefund(operation);
+          }
+        } catch {
+          setStorageError(
+            "Không thể lưu/đọc yêu cầu đang chờ. Đã dừng để tránh tạo hoàn tiền trùng.",
           );
           return;
         }
-        if (
-          saved.amount !== normalizedAmount ||
-          saved.reason !== normalizedReason
-        ) {
-          setAmount(saved.amount);
-          setReason(saved.reason);
-          setFormError(
-            "Yêu cầu cũ chưa xác định kết quả. Không được thay đổi nội dung khi gửi lại.",
-          );
-          return;
-        }
-        operation = saved;
-      } else {
-        // Nếu localStorage vừa được giải phóng, đây là request MỚI:
-        // luôn kiểm tra hạn mức trước khi tạo key mới.
-        if (refundableAmount === null || capacityLoading || capacityError ||
-            BigInt(normalizedAmount) > BigInt(refundableAmount)) {
-          setFormError("Hạn mức hoàn tiền không đủ hoặc chưa được xác định. Vui lòng kiểm tra lại.");
-          return;
-        }
-        operation = {
-          paymentId,
-          amount: normalizedAmount,
-          reason: normalizedReason,
-          idempotencyKey: crypto.randomUUID(),
-        };
-        // Không gửi request nếu chưa lưu được key và payload.
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(operation));
-        setPendingRefund(operation);
-      }
-    } catch {
-      setStorageError(
-        "Không thể lưu/đọc yêu cầu đang chờ. Đã dừng để tránh tạo hoàn tiền trùng.",
-      );
-      return;
-    }
 
-    submittingRef.current = true;
-    onSubmittingChange?.(true);
-    try {
-      await mutation.mutateAsync({
-        paymentId: operation.paymentId,
-        input: {
-          amount: operation.amount,
-          reason: operation.reason,
-          idempotencyKey: operation.idempotencyKey,
-        },
+        submittingRef.current = true;
+        onSubmittingChange?.(true);
+        try {
+          await mutation.mutateAsync({
+            paymentId: operation.paymentId,
+            input: {
+              amount: operation.amount,
+              reason: operation.reason,
+              idempotencyKey: operation.idempotencyKey,
+            },
+          });
+
+          // Chỉ coi là đã kết thúc sau khi nhận response thành công từ backend.
+          try {
+            const stored = readPendingRefund(user.id);
+            if (stored?.idempotencyKey === operation.idempotencyKey) {
+              window.localStorage.removeItem(getStorageKey(user.id));
+            }
+          } catch {
+            setStorageError(
+              "Backend đã xác nhận thành công, nhưng không thể xóa trạng thái đã lưu. Hãy kiểm tra danh sách refund trước khi thao tác tiếp.",
+            );
+            toast.warning(
+              "Đã tạo refund, nhưng cần kiểm tra trạng thái đã lưu.",
+            );
+            return;
+          }
+
+          setPendingRefund(null);
+          setAmount("");
+          setReason("");
+          setFormError("");
+          toast.success("Đã tạo yêu cầu hoàn tiền");
+          // Báo cho modal cha mở khóa trước khi yêu cầu đóng modal.
+          submittingRef.current = false;
+          onSubmittingChange?.(false);
+          onCreated?.();
+        } catch (caught) {
+          const message = getRefundErrorMessage(
+            caught instanceof Error
+              ? caught
+              : new Error("Không thể xác định kết quả."),
+            "Không thể xác định kết quả tạo hoàn tiền.",
+          );
+          setFormError(
+            `${message} Yêu cầu và mã chống trùng đã được giữ lại. Hãy kiểm tra danh sách hoàn tiền trước khi thử lại; chỉ gửi lại đúng yêu cầu cũ.`,
+          );
+          // Không xóa key khi timeout/502/lỗi không rõ kết quả.
+        } finally {
+          submittingRef.current = false;
+          onSubmittingChange?.(false);
+        }
       });
-
-      // Chỉ coi là đã kết thúc sau khi nhận response thành công từ backend.
-      try {
-        const stored = readPendingRefund();
-        if (stored?.idempotencyKey === operation.idempotencyKey) {
-          window.localStorage.removeItem(STORAGE_KEY);
-        }
-      } catch {
-        setStorageError(
-          "Backend đã xác nhận thành công, nhưng không thể xóa trạng thái đã lưu. Hãy kiểm tra danh sách refund trước khi thao tác tiếp.",
-        );
-        toast.warning("Đã tạo refund, nhưng cần kiểm tra trạng thái đã lưu.");
-        return;
-      }
-
-      setPendingRefund(null);
-      setAmount("");
-      setReason("");
-      setFormError("");
-      toast.success("Đã tạo yêu cầu hoàn tiền");
-      // Báo cho modal cha mở khóa trước khi yêu cầu đóng modal.
-      submittingRef.current = false;
-      onSubmittingChange?.(false);
-      onCreated?.();
-    } catch (caught) {
-      const message = getRefundErrorMessage(
-        caught instanceof Error
-          ? caught
-          : new Error("Không thể xác định kết quả."),
-        "Không thể xác định kết quả tạo hoàn tiền.",
-      );
+    } catch (error) {
       setFormError(
-        `${message} Yêu cầu và mã chống trùng đã được giữ lại. Hãy kiểm tra danh sách hoàn tiền trước khi thử lại; chỉ gửi lại đúng yêu cầu cũ.`,
+        error instanceof Error
+          ? error.message
+          : "Không thể khóa thao tác hoàn tiền. Vui lòng thử lại.",
       );
-      // Không xóa key khi timeout/502/lỗi không rõ kết quả.
-    } finally {
-      submittingRef.current = false;
-      onSubmittingChange?.(false);
     }
   }
 
@@ -312,24 +377,42 @@ export default function CreateRefundDialog({
       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <p className="text-[12px] text-slate-500">Số tiền còn có thể hoàn</p>
         {capacityLoading && !pendingThisPayment ? (
-          <p role="status" className="mt-1 text-[13px] text-slate-600">Đang tính hạn mức...</p>
+          <p role="status" className="mt-1 text-[13px] text-slate-600">
+            Đang tính hạn mức...
+          </p>
         ) : capacityError ? (
           <div className="mt-1 space-y-2">
-            <p role="alert" className="text-[12px] text-red-700">{capacityError}</p>
-            <button type="button" onClick={onRetryCapacity} className="text-[12px] font-medium text-orange-600 underline">Thử lại</button>
+            <p role="alert" className="text-[12px] text-red-700">
+              {capacityError}
+            </p>
+            <button
+              type="button"
+              onClick={onRetryCapacity}
+              className="text-[12px] font-medium text-orange-600 underline"
+            >
+              Thử lại
+            </button>
           </div>
         ) : refundableAmount !== null ? (
           <p className="mt-1 text-[18px] font-semibold text-slate-900">
-            {new Intl.NumberFormat("vi-VN").format(BigInt(refundableAmount))} VND
+            {new Intl.NumberFormat("vi-VN").format(BigInt(refundableAmount))}{" "}
+            VND
           </p>
         ) : (
-          <p className="mt-1 text-[12px] text-slate-600">Chưa xác định hạn mức.</p>
+          <p className="mt-1 text-[12px] text-slate-600">
+            Chưa xác định hạn mức.
+          </p>
         )}
         {refundableAmount === "0" && !pendingThisPayment && (
-          <p className="mt-1 text-[12px] text-amber-700">Giao dịch đã hết hạn mức hoàn tiền.</p>
+          <p className="mt-1 text-[12px] text-amber-700">
+            Giao dịch đã hết hạn mức hoàn tiền.
+          </p>
         )}
         {pendingThisPayment && (
-          <p className="mt-1 text-[12px] text-amber-700">Yêu cầu cũ có thể gửi lại bằng mã chống trùng đã lưu, ngay cả khi hạn mức hiện tại không còn.</p>
+          <p className="mt-1 text-[12px] text-amber-700">
+            Yêu cầu cũ có thể gửi lại bằng mã chống trùng đã lưu, ngay cả khi
+            hạn mức hiện tại không còn.
+          </p>
         )}
       </div>
 
@@ -365,11 +448,14 @@ export default function CreateRefundDialog({
         <p className="text-[12px] text-[#64748B]">
           Nhập số tiền nguyên, không dùng dấu chấm hoặc dấu phẩy.
         </p>
-        {!pendingThisPayment && refundableAmount !== null &&
+        {!pendingThisPayment &&
+          refundableAmount !== null &&
           /^[1-9]\d{0,18}$/.test(amount.trim()) &&
           BigInt(amount.trim()) > BigInt(refundableAmount) && (
             <p role="alert" className="text-[12px] text-red-700">
-              Số tiền vượt hạn mức còn có thể hoàn ({new Intl.NumberFormat("vi-VN").format(BigInt(refundableAmount))} VND).
+              Số tiền vượt hạn mức còn có thể hoàn (
+              {new Intl.NumberFormat("vi-VN").format(BigInt(refundableAmount))}{" "}
+              VND).
             </p>
           )}
       </div>

@@ -1,7 +1,18 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import { useAutoRefreshToken } from "../hook/use-auto-refresh-token";
 import type { AuthUserType } from "../schemas/auth.schema";
+
+const AuthUserContext = createContext<AuthUserType | null>(null);
+
+export function useAuthUser(): AuthUserType {
+  const user = useContext(AuthUserContext);
+  if (!user) {
+    throw new Error("useAuthUser chỉ được sử dụng trong phiên đã xác thực.");
+  }
+  return user;
+}
 
 export default function AuthSession({
   children,
@@ -10,7 +21,13 @@ export default function AuthSession({
 }) {
   const { status, user, retry } = useAutoRefreshToken();
 
-  if (status === "authenticated" && user) return children(user);
+  if (status === "authenticated" && user) {
+    return (
+      <AuthUserContext.Provider value={user}>
+        {children(user)}
+      </AuthUserContext.Provider>
+    );
+  }
 
   if (status === "forbidden") {
     return (
