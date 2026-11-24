@@ -18,6 +18,12 @@ jest.mock('expo-router', () => ({
     replace: mockReplace,
     canGoBack: () => true,
   }),
+  useFocusEffect: (cb: any) => {
+    const ReactModule = require('react');
+    ReactModule.useEffect(() => {
+      return cb();
+    }, [cb]);
+  },
 }));
 
 beforeEach(() => {
@@ -591,6 +597,229 @@ describe('workerSkillsScreen', () => {
       expect(screen.getByText('2 đơn')).toBeOnTheScreen();
       // Revenue is rendered in both top summary card and this service card = 350.000 đ
       expect(screen.getAllByText('350.000 đ')).toHaveLength(2);
+    });
+  });
+
+  it('fetches all pages and aggregates stats accurately when worker has > 100 orders', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-101',
+          userId: 'worker-101',
+          status: 'verified',
+          averageRating: 5.0,
+          ratingCount: 110,
+          completedOrderCount: 110,
+          orderCountTotal: 110,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 110,
+          completedOrderCount: 110,
+          orderCountTotal: 110,
+          ratingDistribution: { 5: 110, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-ac',
+            serviceId: 'svc-uuid-ac-clean',
+            title: 'Vệ sinh điều hòa inverter',
+            experienceYears: 5,
+            isActive: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    // Mock 3 pages totaling 110 orders (50 + 50 + 10)
+    const createOrders = (count: number, startIndex: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `order-${startIndex + i}`,
+        orderCode: `ORD-${startIndex + i}`,
+        customerUserId: 'customer-1',
+        workerUserId: 'worker-101',
+        serviceId: 'svc-uuid-ac-clean',
+        agreedPrice: 100000,
+        status: 'completed' as any,
+        paymentState: 'paid' as any,
+        createdAt: new Date().toISOString(),
+      }));
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      const page = params?.page ?? 1;
+      if (page === 1) {
+        return {
+          statusCode: 200,
+          message: 'OK',
+          data: {
+            items: createOrders(50, 1),
+            total: 110,
+            totalPages: 3,
+            page: 1,
+            limit: 50,
+          } as any,
+        };
+      }
+      if (page === 2) {
+        return {
+          statusCode: 200,
+          message: 'OK',
+          data: {
+            items: createOrders(50, 51),
+            total: 110,
+            totalPages: 3,
+            page: 2,
+            limit: 50,
+          } as any,
+        };
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: createOrders(10, 101),
+          total: 110,
+          totalPages: 3,
+          page: 3,
+          limit: 50,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Vệ sinh điều hòa inverter')).toBeOnTheScreen();
+      // Should aggregate all 110 orders across the 3 pages
+      expect(screen.getByText('110 đơn')).toBeOnTheScreen();
+      // Revenue = 110 * 100,000 = 11,000,000 đ
+      expect(screen.getAllByText('11.000.000 đ')).toHaveLength(2);
+    });
+  });
+
+  it('renders error banner and allows retry when orders query fails with 500', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: {
+          id: 'wp-101',
+          userId: 'worker-101',
+          status: 'verified',
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          ratingDistribution: { 5: 1, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-ac',
+            serviceId: 'svc-uuid-ac-clean',
+            title: 'Vệ sinh điều hòa inverter',
+            experienceYears: 5,
+            isActive: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockRejectedValue(new Error('Internal Server Error 500'));
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('orders-query-error-banner')).toBeOnTheScreen();
+      expect(screen.getByText('Không thể tải thống kê đơn hàng. Vui lòng thử lại.')).toBeOnTheScreen();
+      expect(screen.getByTestId('retry-orders-query-btn')).toBeOnTheScreen();
     });
   });
 });

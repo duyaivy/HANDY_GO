@@ -21,6 +21,7 @@ export function useTrackingEvents(
     }
 
     const client = new TrackingSseClient(serviceRequestId);
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const unsubStatus = client.onStatusChange((status) => {
       setConnectionStatus(status);
@@ -36,8 +37,15 @@ export function useTrackingEvents(
       });
 
       // 2. Làm mới các query liên quan đến số đơn khi có sự kiện thay đổi trạng thái đơn
+      // Bổ sung retry invalidation sau một khoảng ngắn để tránh race condition khi SSE đến trước consumer commit
       if (typeof event.eventType === 'string' && event.eventType.startsWith('order.')) {
         invalidateOrderRelatedQueries(queryClient);
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+        }
+        retryTimer = setTimeout(() => {
+          invalidateOrderRelatedQueries(queryClient);
+        }, 1200);
       }
 
       // 3. Gọi callback nếu màn hình muốn xử lý hiệu ứng/rung chuông
@@ -47,6 +55,9 @@ export function useTrackingEvents(
     void client.connect();
 
     return () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
       unsubEvent();
       unsubStatus();
       client.disconnect();

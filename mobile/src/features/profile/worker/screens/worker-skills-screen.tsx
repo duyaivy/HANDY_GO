@@ -4,7 +4,7 @@ import type {
   WorkerServiceRegistrationItem,
 } from '@/services/workers/workers-api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
@@ -159,26 +159,34 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
   // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
+  // Phân trang tự động để thống kê đầy đủ cả khi thợ có > 100 đơn hàng
   const ordersQuery = useQuery({
     queryKey: ['worker-skills-orders', userId],
     queryFn: async () => {
-      try {
-        const res = await OrdersApi.getMyOrders({ limit: 100 });
+      let allOrders: any[] = [];
+      let page = 1;
+      const limit = 50;
+      let totalPages = 1;
+
+      do {
+        const res = await OrdersApi.getMyOrders({ page, limit });
         const raw = res.data;
-        if (Array.isArray(raw)) {
-          return raw;
-        }
-        return (raw as any)?.items ?? [];
-      }
-      catch {
-        return [];
-      }
+        const items = Array.isArray(raw) ? raw : (raw as any)?.items ?? [];
+        allOrders = allOrders.concat(items);
+        const rawTotal = (raw as any)?.totalPages ?? ((raw as any)?.total ? Math.ceil((raw as any).total / limit) : 1);
+        totalPages = rawTotal;
+        page += 1;
+      } while (page <= totalPages && page <= 20);
+
+      return allOrders;
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
   const handleRefresh = React.useCallback(async () => {
@@ -194,6 +202,16 @@ export function WorkerSkillsScreen() {
       setRefreshing(false);
     }
   }, [profileQuery, registrationsQuery, ordersQuery]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (userId) {
+        queryClient.invalidateQueries({ queryKey: ['worker-skills-orders', userId] });
+        queryClient.invalidateQueries({ queryKey: ['worker-public-profile', userId] });
+        queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+      }
+    }, [userId, queryClient]),
+  );
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
 
@@ -429,6 +447,27 @@ export function WorkerSkillsScreen() {
               <ArrowRight color="#2563EB" width={8} height={16} />
             </View>
           </Pressable>
+
+          {/* Banner lỗi khi không thể tải thống kê đơn hàng */}
+          {ordersQuery.isError && (
+            <View
+              testID="orders-query-error-banner"
+              className="mt-4 flex-row items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-3.5 dark:border-red-900/50 dark:bg-red-950/40"
+            >
+              <Text className="flex-1 text-xs text-red-700 dark:text-red-400">
+                Không thể tải thống kê đơn hàng. Vui lòng thử lại.
+              </Text>
+              <Button
+                variant="outline"
+                size="sm"
+                testID="retry-orders-query-btn"
+                onPress={() => ordersQuery.refetch()}
+                className="ml-2 border-red-300 bg-white dark:border-red-800 dark:bg-neutral-900"
+              >
+                <Text className="text-xs font-semibold text-red-600 dark:text-red-400">Thử lại</Text>
+              </Button>
+            </View>
+          )}
 
           {/* ROW 3: Cụm 2 Tabs "Nghiệp vụ của bạn" và "Chờ phê duyệt" */}
           <View className="mt-5">

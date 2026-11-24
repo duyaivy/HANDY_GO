@@ -34,6 +34,36 @@ import { RabbitMQService } from '@app/rabbitmq';
 export const WORKER_CANCELLED_REGISTRATION_SENTINEL =
   '[Thợ chủ động hủy yêu cầu]';
 
+export class WorkerProfileNotReadyException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerProfileNotReadyException';
+  }
+}
+
+export function isTransientEventError(error: any): boolean {
+  if (!error) return false;
+  if (error instanceof WorkerProfileNotReadyException) return true;
+  if (error.name === 'WorkerProfileNotReadyException') return true;
+  const msg = String(error.message || error).toLowerCase();
+  if (
+    msg.includes('connection') ||
+    msg.includes('timeout') ||
+    msg.includes('deadlock') ||
+    msg.includes('could not serialize') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('try again') ||
+    msg.includes('econnrefused') ||
+    msg.includes('not ready')
+  ) {
+    return true;
+  }
+  if (error.code === 'P2028' || error.code === 'P2034' || error.code === 'P1001') {
+    return true;
+  }
+  return false;
+}
+
 function maskIdNumber(idStr?: string | null): string {
   if (!idStr) return '';
   const clean = idStr.trim();
@@ -384,6 +414,35 @@ export class UserTrustServiceService {
     return { processed: true, idempotent: false };
   }
 
+  async recordDeadLetter(
+    eventType: string,
+    eventPayload: any,
+    errorMsg: string,
+    attempts: number,
+  ): Promise<void> {
+    try {
+      await this.db.outboxEvent.create({
+        data: {
+          eventType: `${eventType}.dead_letter`,
+          eventVersion: 1,
+          payload: {
+            event: eventPayload,
+            error: errorMsg,
+            attempts,
+            failedAt: new Date().toISOString(),
+          },
+          status: 'failed',
+          lastError: errorMsg,
+          retryCount: attempts,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to record dead letter for ${eventType}: ${(err as Error).message}`,
+      );
+    }
+  }
+
   async handleOrderCompleted(
     event: DomainEvent<any> | Record<string, any>,
   ): Promise<{ processed: boolean; idempotent: boolean }> {
@@ -399,9 +458,9 @@ export class UserTrustServiceService {
     const producer =
       (event as any).producer ?? (event as any).source ?? 'order-service';
 
-    if (!workerUserId) {
+    if (!workerUserId || !orderId) {
       this.logger.warn(
-        `Ignoring order.completed event: missing workerUserId (orderId=${orderId})`,
+        `Ignoring order.completed event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId})`,
       );
       return { processed: false, idempotent: false };
     }
@@ -410,7 +469,7 @@ export class UserTrustServiceService {
       const existing = await this.db.eventInbox.findUnique({
         where: { id: eventId },
       });
-      if (existing) {
+      if (existing && existing.processedAt) {
         this.logger.log(
           `Event ${eventId} (${eventType}) has already been processed. Skipping idempotently.`,
         );
@@ -419,14 +478,120 @@ export class UserTrustServiceService {
     }
 
     await this.db.$transaction(async (tx) => {
-      if (eventId) {
-        const inTx = await tx.eventInbox.findUnique({
-          where: { id: eventId },
-        });
-        if (inTx) return;
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
 
-        await tx.eventInbox.create({
-          data: {
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadCompleted = contribution?.hasContributedCompleted ?? false;
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaCompleted = hadCompleted ? 0 : 1;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+          },
+          update: {
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment with total >= completed invariant
+      if (deltaCompleted > 0 || deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET completed_order_count = completed_order_count + ${deltaCompleted},
+                order_count_total = GREATEST(order_count_total + ${deltaTotal}, completed_order_count + ${deltaCompleted}),
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          const nextCompleted =
+            (worker.completedOrderCount || 0) + deltaCompleted;
+          const nextTotal = Math.max(
+            (worker.orderCountTotal || 0) + deltaTotal,
+            nextCompleted,
+          );
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              completedOrderCount: nextCompleted,
+              orderCountTotal: nextTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized completed orders for worker ${worker.userId}: deltaCompleted=${deltaCompleted}, deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
             id: eventId,
             producer,
             eventType,
@@ -434,40 +599,11 @@ export class UserTrustServiceService {
             receivedAt: new Date(),
             processedAt: new Date(),
           },
+          update: {
+            processedAt: new Date(),
+          },
         });
       }
-
-      const worker = await tx.workerProfile.findFirst({
-        where: {
-          OR: [{ id: workerUserId }, { userId: workerUserId }],
-        },
-      });
-
-      if (!worker) {
-        this.logger.warn(
-          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId})`,
-        );
-        return;
-      }
-
-      const newCompleted = (worker.completedOrderCount || 0) + 1;
-      const newTotal =
-        (worker.orderCountTotal || 0) >= newCompleted
-          ? worker.orderCountTotal
-          : newCompleted;
-
-      await tx.workerProfile.update({
-        where: { id: worker.id },
-        data: {
-          completedOrderCount: newCompleted,
-          orderCountTotal: newTotal,
-          updatedAt: new Date(),
-        },
-      });
-
-      this.logger.log(
-        `Incremented completed orders for worker ${worker.userId}: completedOrderCount=${newCompleted}, orderCountTotal=${newTotal}`,
-      );
     });
 
     return { processed: true, idempotent: false };
@@ -488,7 +624,7 @@ export class UserTrustServiceService {
     const producer =
       (event as any).producer ?? (event as any).source ?? 'order-service';
 
-    if (!workerUserId) {
+    if (!workerUserId || !orderId) {
       return { processed: false, idempotent: false };
     }
 
@@ -496,20 +632,115 @@ export class UserTrustServiceService {
       const existing = await this.db.eventInbox.findUnique({
         where: { id: eventId },
       });
-      if (existing) {
+      if (existing && existing.processedAt) {
         return { processed: true, idempotent: true };
       }
     }
 
     await this.db.$transaction(async (tx) => {
-      if (eventId) {
-        const inTx = await tx.eventInbox.findUnique({
-          where: { id: eventId },
-        });
-        if (inTx) return;
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
 
-        await tx.eventInbox.create({
-          data: {
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: false,
+          },
+          update: {
+            hasContributedTotal: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment
+      if (deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET order_count_total = order_count_total + ${deltaTotal},
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              orderCountTotal: (worker.orderCountTotal || 0) + deltaTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized total orders for worker ${worker.userId}: deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
             id: eventId,
             producer,
             eventType,
@@ -517,30 +748,11 @@ export class UserTrustServiceService {
             receivedAt: new Date(),
             processedAt: new Date(),
           },
+          update: {
+            processedAt: new Date(),
+          },
         });
       }
-
-      const worker = await tx.workerProfile.findFirst({
-        where: {
-          OR: [{ id: workerUserId }, { userId: workerUserId }],
-        },
-      });
-
-      if (!worker) {
-        return;
-      }
-
-      await tx.workerProfile.update({
-        where: { id: worker.id },
-        data: {
-          orderCountTotal: (worker.orderCountTotal || 0) + 1,
-          updatedAt: new Date(),
-        },
-      });
-
-      this.logger.log(
-        `Incremented total orders for worker ${worker.userId}: orderCountTotal=${(worker.orderCountTotal || 0) + 1}`,
-      );
     });
 
     return { processed: true, idempotent: false };

@@ -57,6 +57,7 @@ import {
 } from '@app/common';
 import {
   UserTrustServiceService,
+  isTransientEventError,
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
@@ -158,6 +159,84 @@ export class UserTrustServiceController {
     }
   }
 
+  private readonly retryAttempts = new Map<string, number>();
+  private readonly MAX_EVENT_RETRIES = 3;
+
+  private async processOrderEventWithRetry(
+    eventType: 'order.completed' | 'order.created',
+    event: DomainEvent<any>,
+    context: any,
+    handler: (evt: DomainEvent<any>) => Promise<{ processed: boolean; idempotent: boolean }>,
+  ) {
+    const rawData = (event as any)?.data ?? (event as any)?.payload ?? event;
+    const workerUserId =
+      rawData?.workerUserId ?? rawData?.workerId ?? (event as any)?.workerUserId;
+    const orderId = rawData?.orderId ?? (event as any)?.orderId;
+    const eventId =
+      (event as any)?.eventId ??
+      (event as any)?.id ??
+      (orderId ? `${eventType.replace('.', '-')}-${orderId}` : null);
+    const key = eventId || `unknown-${Date.now()}`;
+
+    const channel =
+      context && typeof context.getChannelRef === 'function'
+        ? context.getChannelRef()
+        : null;
+    const originalMsg =
+      context && typeof context.getMessage === 'function'
+        ? context.getMessage()
+        : null;
+
+    if (!workerUserId || !orderId) {
+      this.logger.warn(
+        `Rejected malformed ${eventType} event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId}). Discarding without requeue.`,
+      );
+      if (channel && originalMsg) {
+        channel.nack(originalMsg, false, false);
+      }
+      return { processed: false, reason: 'MALFORMED_PAYLOAD' };
+    }
+
+    try {
+      const result = await handler(event);
+      this.retryAttempts.delete(key);
+      if (channel && originalMsg) {
+        channel.ack(originalMsg);
+      }
+      return result;
+    } catch (err) {
+      const isTransient = isTransientEventError(err);
+      const attempts = (this.retryAttempts.get(key) || 0) + 1;
+      this.retryAttempts.set(key, attempts);
+
+      if (isTransient && attempts <= this.MAX_EVENT_RETRIES) {
+        this.logger.warn(
+          `Transient error handling ${eventType} for order ${orderId} (attempt ${attempts}/${this.MAX_EVENT_RETRIES}): ${(err as Error).message}. Requeueing with backoff...`,
+        );
+        const delay = process.env.NODE_ENV === 'test' ? 10 : 300 * attempts;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, true); // REQUEUE
+        }
+      } else {
+        this.logger.error(
+          `Permanent error or retries exhausted for ${eventType} (attempt ${attempts}/${this.MAX_EVENT_RETRIES}): ${(err as Error).message}. Discarding from queue.`,
+        );
+        this.retryAttempts.delete(key);
+        await this.userTrustService.recordDeadLetter(
+          eventType,
+          event,
+          (err as Error).message,
+          attempts,
+        );
+        if (channel && originalMsg) {
+          channel.nack(originalMsg, false, false); // DROP from queue
+        }
+      }
+      throw err;
+    }
+  }
+
   /**
    * RabbitMQ Event Consumer for 'order.completed'.
    * Synchronizes worker completed order count and total order count in WorkerProfile.
@@ -167,29 +246,12 @@ export class UserTrustServiceController {
     @Payload() event: DomainEvent<any>,
     @Ctx() context: any,
   ): Promise<unknown> {
-    try {
-      const result = await this.userTrustService.handleOrderCompleted(event);
-      if (context && typeof context.getChannelRef === 'function') {
-        const channel = context.getChannelRef();
-        const originalMsg = context.getMessage();
-        if (channel && originalMsg) {
-          channel.ack(originalMsg);
-        }
-      }
-      return result;
-    } catch (err) {
-      this.logger.error(
-        `Failed to handle order.completed event: ${(err as Error).message}`,
-      );
-      if (context && typeof context.getChannelRef === 'function') {
-        const channel = context.getChannelRef();
-        const originalMsg = context.getMessage();
-        if (channel && originalMsg) {
-          channel.nack(originalMsg, false, false);
-        }
-      }
-      throw err;
-    }
+    return this.processOrderEventWithRetry(
+      'order.completed',
+      event,
+      context,
+      (evt) => this.userTrustService.handleOrderCompleted(evt),
+    );
   }
 
   /**
@@ -201,29 +263,12 @@ export class UserTrustServiceController {
     @Payload() event: DomainEvent<any>,
     @Ctx() context: any,
   ): Promise<unknown> {
-    try {
-      const result = await this.userTrustService.handleOrderCreated(event);
-      if (context && typeof context.getChannelRef === 'function') {
-        const channel = context.getChannelRef();
-        const originalMsg = context.getMessage();
-        if (channel && originalMsg) {
-          channel.ack(originalMsg);
-        }
-      }
-      return result;
-    } catch (err) {
-      this.logger.error(
-        `Failed to handle order.created event: ${(err as Error).message}`,
-      );
-      if (context && typeof context.getChannelRef === 'function') {
-        const channel = context.getChannelRef();
-        const originalMsg = context.getMessage();
-        if (channel && originalMsg) {
-          channel.nack(originalMsg, false, false);
-        }
-      }
-      throw err;
-    }
+    return this.processOrderEventWithRetry(
+      'order.created',
+      event,
+      context,
+      (evt) => this.userTrustService.handleOrderCreated(evt),
+    );
   }
 
   /**

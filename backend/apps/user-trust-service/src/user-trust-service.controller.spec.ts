@@ -16,6 +16,7 @@ describe('UserTrustServiceController', () => {
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
       handleOrderCompleted: vi.fn().mockResolvedValue({ processed: true }),
       handleOrderCreated: vi.fn().mockResolvedValue({ processed: true }),
+      recordDeadLetter: vi.fn().mockResolvedValue(undefined),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       listUsers: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
@@ -96,17 +97,92 @@ describe('UserTrustServiceController', () => {
     expect(channelMock.ack).toHaveBeenCalled();
   });
 
-  it('should nack channel on error in handleOrderCompleted', async () => {
-    const event = { eventId: 'evt-order-err' } as any;
+  it('should nack without requeue when payload is malformed (missing orderId or workerUserId)', async () => {
+    const malformedEvent = { eventId: 'evt-order-err', data: {} } as any;
     const channelMock = { ack: vi.fn(), nack: vi.fn() };
     const contextMock = {
       getChannelRef: () => channelMock,
       getMessage: () => ({}),
     };
-    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('DB error'));
 
-    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('DB error');
-    expect(channelMock.nack).toHaveBeenCalled();
+    const result = await controller.handleOrderCompleted(malformedEvent, contextMock);
+    expect(result).toEqual({ processed: false, reason: 'MALFORMED_PAYLOAD' });
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, false);
+    expect(serviceMock.handleOrderCompleted).not.toHaveBeenCalled();
+  });
+
+  it('should retry transient DB error with requeue up to max retries', async () => {
+    const event = {
+      eventId: 'evt-transient-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout to PostgreSQL'));
+
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('Connection timeout');
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true); // requeue = true
+  });
+
+  it('recovers on second retry attempt and ACKs channel', async () => {
+    const event = {
+      eventId: 'evt-retry-recover',
+      data: { orderId: 'ord-recover', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    // First attempt fails with transient DB error
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('connection terminated');
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+
+    // Second attempt recovers
+    channelMock.nack.mockClear();
+    serviceMock.handleOrderCompleted.mockResolvedValueOnce({ processed: true, idempotent: false });
+    const result = await controller.handleOrderCompleted(event, contextMock);
+
+    expect(result).toEqual({ processed: true, idempotent: false });
+    expect(channelMock.ack).toHaveBeenCalled();
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('records dead letter and drops message without requeue when retries are exhausted', async () => {
+    const event = {
+      eventId: 'evt-exhaust-retries',
+      data: { orderId: 'ord-exhaust', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    serviceMock.handleOrderCompleted.mockRejectedValue(new Error('Persistent connection refused'));
+
+    // Attempts 1, 2, 3 should requeue
+    for (let i = 1; i <= 3; i++) {
+      channelMock.nack.mockClear();
+      await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+      expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+    }
+
+    // Attempt 4 (exhausted) should drop and record dead letter
+    channelMock.nack.mockClear();
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, false);
+    expect(serviceMock.recordDeadLetter).toHaveBeenCalledWith(
+      'order.completed',
+      event,
+      expect.stringContaining('Persistent connection refused'),
+      4,
+    );
   });
 
   it('should handle order.created event and ack channel', async () => {
