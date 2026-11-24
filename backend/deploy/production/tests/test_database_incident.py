@@ -427,6 +427,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "apps/order-service/prisma/migrations/20261122001000_add_order_dispute_category/migration.sql",
                 "apps/order-service/prisma/migrations/20261122002000_add_inbound_event_reconciliations/migration.sql",
                 "apps/payment-service/prisma/migrations/20261121002000_dispute_refund_link/migration.sql",
+                "apps/user-trust-service/prisma/migrations/20261125000001_add_worker_order_contributions/migration.sql",
             }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"
