@@ -143,6 +143,64 @@ describe('notification-routing', () => {
         route: '/customer/payment',
       });
     });
+
+    it('routes booking_proposal.created to /worker?requestId=... for Worker and switches dual-role from Customer to Worker', () => {
+      expect(resolveNotificationDeepLink({
+        eventType: 'booking_proposal.created',
+        category: 'proposal',
+        requestId: 'req-prop-1',
+        recipientRole: 'worker',
+        userRoles: ['Customer', 'Worker'],
+        activeMode: 'Customer',
+      })).toEqual({
+        route: '/worker?requestId=req-prop-1',
+        targetMode: 'Worker',
+      });
+
+      expect(resolveNotificationDeepLink({
+        eventType: 'booking_proposal.created',
+        category: 'proposal',
+        userRoles: ['Worker'],
+        activeMode: 'Worker',
+      })).toEqual({
+        route: '/worker',
+        targetMode: undefined,
+      });
+    });
+
+    it('routes booking_proposal.changes_requested and booking_proposal.rejected to /customer/booking/radar?requestId=... for Customer', () => {
+      expect(resolveNotificationDeepLink({
+        eventType: 'booking_proposal.changes_requested',
+        category: 'proposal',
+        requestId: 'req-prop-2',
+        recipientRole: 'customer',
+        userRoles: ['Customer', 'Worker'],
+        activeMode: 'Worker',
+      })).toEqual({
+        route: '/customer/booking/radar?requestId=req-prop-2',
+        targetMode: 'Customer',
+      });
+
+      expect(resolveNotificationDeepLink({
+        eventType: 'booking_proposal.rejected',
+        category: 'proposal',
+        requestId: 'req-prop-3',
+        recipientRole: 'customer',
+        userRoles: ['Customer'],
+        activeMode: 'Customer',
+      })).toEqual({
+        route: '/customer/booking/radar?requestId=req-prop-3',
+        targetMode: undefined,
+      });
+
+      expect(resolveNotificationDeepLink({
+        eventType: 'booking_proposal.rejected',
+        category: 'proposal',
+        recipientRole: 'customer',
+        userRoles: ['Customer'],
+        activeMode: 'Customer',
+      })).toBeNull();
+    });
   });
 
   describe('getFallbackNotificationRoute', () => {

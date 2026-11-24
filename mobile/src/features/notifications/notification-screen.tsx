@@ -66,6 +66,7 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
         requestId,
         orderId: String(payload.entityId || payload.orderId || ''),
         conversationId: String(payload.conversationId || ''),
+        recipientRole: String(payload.recipientRole || ''),
         userRoles,
         activeMode: mode,
         isWorkerContext: worker,

@@ -20,6 +20,23 @@ function sessionUser() {
   return state.isHydrated && state.isAuthenticated ? state.user?.id ?? null : null;
 }
 
+function isOwnershipOrAuthError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+  const anyErr = err as Record<string, any>;
+  const status = anyErr?.response?.status ?? anyErr?.status ?? anyErr?.statusCode;
+  if (status === 401 || status === 403 || status === 404) {
+    return true;
+  }
+  const code = String(anyErr?.code || '').toUpperCase();
+  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || code === 'NOT_FOUND') {
+    return true;
+  }
+  const msg = String(anyErr?.message || '');
+  return /\b(?:401|403|404)\b/.test(msg);
+}
+
 // Root subscriptions and their symmetric cleanup belong to one effect.
 
 export function NotificationLifecycle() {
@@ -45,10 +62,10 @@ export function NotificationLifecycle() {
     const handleDeepLink = (
       eventType: string,
       requestId: string,
-      details?: { category?: string; conversationId?: string; orderId?: string },
+      details?: { category?: string; conversationId?: string; orderId?: string; recipientRole?: string },
     ) => {
       try {
-        const { category, conversationId, orderId } = details ?? {};
+        const { category, conversationId, orderId, recipientRole } = details ?? {};
         const mode = useAuthStore.getState().activeMode;
         const userRoles = useAuthStore.getState().user?.roles || [];
 
@@ -58,6 +75,7 @@ export function NotificationLifecycle() {
           requestId,
           orderId,
           conversationId,
+          recipientRole,
           userRoles,
           activeMode: mode,
         });
@@ -92,15 +110,25 @@ export function NotificationLifecycle() {
         category,
         conversationId: String(record?.payload?.conversationId || ''),
         orderId,
+        recipientRole: String(record?.payload?.recipientRole || pendingData?.recipientRole || ''),
       });
       void refreshNotifications(userId);
-    }).catch((_err) => {
-      // Safe fallback for cold-start or offline/failed detail fetch: navigate using notification payload
-      if (sessionUser() === userId && (fallbackEventType || fallbackRequestId || fallbackOrderId)) {
-        handleDeepLink(fallbackEventType, fallbackRequestId, {
-          category: fallbackCategory,
-          orderId: fallbackOrderId,
-        });
+    }).catch((err) => {
+      if (controller.signal.aborted || sessionUser() !== userId) {
+        return;
+      }
+      // Reject navigation if backend reports unauthorized/forbidden/not-found (unowned or stale notification)
+      if (isOwnershipOrAuthError(err)) {
+        return;
+      }
+      // Offline / transient network error where ownership could not be verified:
+      // only open generic notifications inbox instead of deep-linking into domain routes.
+      try {
+        const mode = useAuthStore.getState().activeMode;
+        router.push(getFallbackNotificationRoute(mode) as Href);
+      }
+      catch (navErr) {
+        console.warn('[NOTIF_DEEP_LINK] Fallback inbox navigation error:', navErr);
       }
     }).finally(() => {
       if (!controller.signal.aborted)

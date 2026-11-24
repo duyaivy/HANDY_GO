@@ -9,6 +9,7 @@ export type NotificationRoutingParams = {
   requestId?: string | null;
   orderId?: string | null;
   conversationId?: string | null;
+  recipientRole?: string | null;
   userRoles?: string[];
   activeMode?: 'Customer' | 'Worker' | null;
   isWorkerContext?: boolean;
@@ -30,6 +31,7 @@ export function resolveNotificationDeepLink(
     requestId = '',
     orderId = '',
     conversationId = '',
+    recipientRole = '',
     userRoles = [],
     activeMode = null,
     isWorkerContext = false,
@@ -75,6 +77,52 @@ export function resolveNotificationDeepLink(
       route: requestId ? `/worker?requestId=${encodeURIComponent(requestId)}` : '/worker',
       targetMode: userRoles.includes('Worker') && activeMode !== 'Worker' ? 'Worker' : undefined,
     };
+  }
+
+  // 4b. Booking Proposal (booking_proposal.created -> Worker; changes_requested/rejected -> Customer)
+  if (
+    eventType === 'booking_proposal.created'
+    || eventType === 'booking_proposal.changes_requested'
+    || eventType === 'booking_proposal.rejected'
+    || category === 'proposal'
+  ) {
+    const normalizedRecipientRole = String(recipientRole || '').toLowerCase();
+    const isWorkerProposal = normalizedRecipientRole === 'worker' || eventType === 'booking_proposal.created';
+    const isCustomerProposal = normalizedRecipientRole === 'customer'
+      || eventType === 'booking_proposal.changes_requested'
+      || eventType === 'booking_proposal.rejected';
+
+    if (isWorkerProposal) {
+      if (userRoles.includes('Worker') || effectiveWorker) {
+        return {
+          route: requestId ? `/worker?requestId=${encodeURIComponent(requestId)}` : '/worker',
+          targetMode: userRoles.includes('Worker') && activeMode !== 'Worker' ? 'Worker' : undefined,
+        };
+      }
+      return null;
+    }
+
+    if (isCustomerProposal) {
+      if (!requestId) {
+        return null;
+      }
+      return {
+        route: `/customer/booking/radar?requestId=${encodeURIComponent(requestId)}`,
+        targetMode: userRoles.includes('Customer') && activeMode !== 'Customer' ? 'Customer' : undefined,
+      };
+    }
+
+    if (effectiveWorker) {
+      return {
+        route: requestId ? `/worker?requestId=${encodeURIComponent(requestId)}` : '/worker',
+      };
+    }
+    if (requestId) {
+      return {
+        route: `/customer/booking/radar?requestId=${encodeURIComponent(requestId)}`,
+      };
+    }
+    return null;
   }
 
   // 5. Orders (order.* or category order)

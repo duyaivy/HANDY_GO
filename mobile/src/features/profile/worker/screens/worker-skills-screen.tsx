@@ -181,31 +181,33 @@ export function WorkerSkillsScreen() {
   const ordersQuery = useQuery({
     queryKey: ['worker-skills-orders', userId],
     queryFn: async () => {
-      try {
-        const firstRes = await OrdersApi.getMyOrders({ role: 'worker', page: 1, limit: 50 });
-        const rawFirst = firstRes.data;
-        if (Array.isArray(rawFirst)) {
-          return rawFirst;
+      const firstRes = await OrdersApi.getMyOrders({ role: 'worker', page: 1, limit: 50 });
+      const rawFirst = firstRes.data;
+      if (Array.isArray(rawFirst)) {
+        return rawFirst;
+      }
+      const firstItems = (rawFirst as any)?.items ?? [];
+      const totalPages = Number((rawFirst as any)?.totalPages) || 1;
+      if (totalPages <= 1) {
+        return firstItems;
+      }
+
+      // Giới hạn concurrency = 3 thay vì bắn toàn bộ trang cùng lúc; lỗi sẽ propagate để React Query giữ cache cũ và retry
+      const allItems = [...firstItems];
+      const CONCURRENCY = 3;
+      for (let startPage = 2; startPage <= totalPages; startPage += CONCURRENCY) {
+        const batchPromises = [];
+        for (let page = startPage; page < startPage + CONCURRENCY && page <= totalPages; page++) {
+          batchPromises.push(OrdersApi.getMyOrders({ role: 'worker', page, limit: 50 }));
         }
-        const firstItems = (rawFirst as any)?.items ?? [];
-        const totalPages = Number((rawFirst as any)?.totalPages) || 1;
-        if (totalPages <= 1) {
-          return firstItems;
-        }
-        const pageRequests = [];
-        for (let page = 2; page <= totalPages; page++) {
-          pageRequests.push(OrdersApi.getMyOrders({ role: 'worker', page, limit: 50 }));
-        }
-        const remainingResponses = await Promise.all(pageRequests);
-        const remainingItems = remainingResponses.flatMap((res) => {
+        const batchResponses = await Promise.all(batchPromises);
+        for (const res of batchResponses) {
           const data = res.data;
-          return Array.isArray(data) ? data : (data as any)?.items ?? [];
-        });
-        return [...firstItems, ...remainingItems];
+          const items = Array.isArray(data) ? data : (data as any)?.items ?? [];
+          allItems.push(...items);
+        }
       }
-      catch {
-        return [];
-      }
+      return allItems;
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
@@ -421,7 +423,7 @@ export function WorkerSkillsScreen() {
                 testID="worker-total-service-orders"
                 className="text-base font-bold text-emerald-700 dark:text-emerald-400"
               >
-                {totalOrders}
+                {ordersQuery.isError && !ordersQuery.data ? '--' : totalOrders}
               </Text>
               <Text
                 className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
@@ -445,7 +447,7 @@ export function WorkerSkillsScreen() {
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
               >
-                {formatCurrency(totalRevenue)}
+                {ordersQuery.isError && !ordersQuery.data ? '--' : formatCurrency(totalRevenue)}
               </Text>
               <Text
                 className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"

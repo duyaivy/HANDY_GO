@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '@/features/orders';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { queryClient } from '@/lib/api/query-client';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -991,5 +992,222 @@ describe('workerSkillsScreen', () => {
       // Profile query refetched to pick up newly approved services
       expect(getProfileSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
+  });
+
+  it('does not reset revenue/orders to 0 when page 2 fails with 500 on initial load', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-err-init',
+        phone: '0911222334',
+        email: 'workererr1@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-err-init',
+        fullName: 'Thợ Test',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-err-1',
+        userId: 'worker-err-init',
+        fullName: 'Thợ Test',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      if (params?.page === 2) {
+        throw new Error('Request failed with status code 500');
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: [
+            {
+              id: 'ord-p1',
+              serviceId: 'svc-1',
+              workerUserId: 'worker-err-init',
+              status: 'completed',
+              paymentState: 'paid',
+              agreedPrice: 200000,
+            },
+          ],
+          total: 60,
+          page: 1,
+          limit: 50,
+          totalPages: 2,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('--');
+    });
+    expect(screen.getByTestId('worker-total-service-orders')).toHaveTextContent('--');
+  });
+
+  it('preserves cached revenue/orders when refetch page 2 fails with 500', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-err-cache',
+        phone: '0911222335',
+        email: 'workererr2@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-err-cache',
+        fullName: 'Thợ Cache',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-err-2',
+        userId: 'worker-err-cache',
+        fullName: 'Thợ Cache',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'offering-cache-1',
+            serviceId: 'svc-1',
+            serviceName: 'Sửa điện dân dụng',
+            categoryName: 'Điện nước',
+            isActive: true,
+            experienceYears: 2,
+          } as any,
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    let failPage2 = false;
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      if (params?.page === 2) {
+        if (failPage2) {
+          throw new Error('Request failed with status code 500');
+        }
+        return {
+          statusCode: 200,
+          message: 'OK',
+          data: {
+            items: [
+              {
+                id: 'ord-c2',
+                serviceId: 'svc-1',
+                workerUserId: 'worker-err-cache',
+                status: 'completed',
+                paymentState: 'paid',
+                agreedPrice: 300000,
+              },
+            ],
+            total: 60,
+            page: 2,
+            limit: 50,
+            totalPages: 2,
+          } as any,
+        };
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: [
+            {
+              id: 'ord-c1',
+              serviceId: 'svc-1',
+              workerUserId: 'worker-err-cache',
+              status: 'completed',
+              paymentState: 'paid',
+              agreedPrice: 200000,
+            },
+          ],
+          total: 60,
+          page: 1,
+          limit: 50,
+          totalPages: 2,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('500.000 đ');
+    });
+
+    failPage2 = true;
+    // Trigger refetch via pull-to-refresh or query invalidation
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['worker-skills-orders', 'worker-err-cache'] });
+    });
+
+    // Cached revenue & order count remain preserved instead of resetting to 0
+    expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('500.000 đ');
+    expect(screen.getByText('2 đơn')).toBeOnTheScreen();
   });
 });
