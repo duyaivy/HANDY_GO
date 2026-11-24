@@ -217,6 +217,20 @@ export class ServiceRequestsService {
       }
     }
 
+    if (typeof query.search === 'string' && query.search.trim().length > 0) {
+      const keyword = query.search.trim();
+      const searchConditions: Prisma.ServiceRequestWhereInput[] = [
+        { requestCode: { contains: keyword, mode: 'insensitive' } },
+        { description: { contains: keyword, mode: 'insensitive' } },
+        { addressText: { contains: keyword, mode: 'insensitive' } },
+      ];
+      if (where.AND) {
+        (where.AND as Prisma.ServiceRequestWhereInput[]).push({ OR: searchConditions });
+      } else {
+        where.AND = [{ OR: searchConditions }];
+      }
+    }
+
     const skip = (query.page - 1) * query.limit;
     const take = query.limit;
 
