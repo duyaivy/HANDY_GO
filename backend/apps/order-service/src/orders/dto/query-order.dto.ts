@@ -29,13 +29,13 @@ export class QueryOrderDto {
     description: 'Number of items per page',
     default: 10,
     minimum: 1,
-    maximum: 50,
+    maximum: 100,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(100)
   limit?: number = 10;
 
   @ApiPropertyOptional({
