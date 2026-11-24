@@ -646,6 +646,18 @@ describe('ChatDealBar', () => {
     expect(await screen.findByText('300.000 đ')).toBeTruthy();
   });
 
+  it('does not submit when confirmation is canceled', async () => {
+    render(<ChatDealBar conversation={mockConversation} userId="customer-1" />, { wrapper });
+    fireEvent.press(await screen.findByTestId('deal-bar-select-worker-btn'));
+    const buttons = jest.mocked(Alert.alert).mock.calls.at(-1)?.[2];
+    const cancel = buttons?.find(button => button.style === 'cancel');
+    expect(cancel).toBeDefined();
+    await act(async () => {
+      cancel?.onPress?.();
+    });
+    expect(OrdersApi.createProposal).not.toHaveBeenCalled();
+  });
+
   it('requires a new confirmation if the quote changes while the confirmation is open', async () => {
     let confirm: (() => Promise<void>) | undefined;
     jest.mocked(Alert.alert).mockImplementation((_title, _message, buttons) => {

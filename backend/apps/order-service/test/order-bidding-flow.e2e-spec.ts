@@ -577,6 +577,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
         serviceRequestId: reqId,
         workerUserId: workerId,
         selectionSource: 'bid',
+        expectedBidVersion: 0,
         agreedPrice: price,
         agreedScope: 'Phạm vi thỏa thuận',
       })
@@ -604,13 +605,13 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
     logStep('1.2', '3 Thợ gửi báo giá cạnh tranh');
     const p1 = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', agreedPrice: 380000, agreedScope: 'Thay rơ le' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 380000, agreedScope: 'Thay rơ le' }).expect(201);
     const p2 = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_2_ID, selectionSource: 'bid', agreedPrice: 290000, agreedScope: 'Thay gioăng bảo hành 6 tháng' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_2_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 290000, agreedScope: 'Thay gioăng bảo hành 6 tháng' }).expect(201);
     const p3 = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_3_ID, selectionSource: 'bid', agreedPrice: 350000, agreedScope: 'Sửa nhanh 20p' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_3_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 350000, agreedScope: 'Sửa nhanh 20p' }).expect(201);
     logSuccess('3 Thợ đã gửi báo giá thành công (380k / 290k / 350k)');
 
     // 3. Đàm phán Thợ 1
@@ -619,7 +620,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
       .set('x-user-id', WORKER_1_ID).set('x-user-roles', 'worker').send({ responseNote: 'Máy lớn xin tăng giá' }).expect(200);
     const p1Rev2 = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, supersedesProposalId: p1.body.data.id, workerUserId: WORKER_1_ID, selectionSource: 'bid', agreedPrice: 330000, agreedScope: 'Khách hỗ trợ 330k' }).expect(201);
+      .send({ serviceRequestId: reqId, supersedesProposalId: p1.body.data.id, workerUserId: WORKER_1_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 330000, agreedScope: 'Khách hỗ trợ 330k' }).expect(201);
     expect(p1Rev2.body.data.revisionNo).toBe(2);
     logSuccess('Revision 2 của Thợ 1 đã được tạo thành công');
 
@@ -703,7 +704,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
     const reqId = await createAndPublish(CUSTOMER_ID, 'Bảo dưỡng máy lạnh Daikin');
     const propRes = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', agreedPrice: 400000, agreedScope: 'Bảo dưỡng' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 400000, agreedScope: 'Bảo dưỡng' }).expect(201);
     const pId = propRes.body.data.id;
 
     logStep('3.1', 'Thợ bấm Reject đề xuất kèm lý do');
@@ -728,7 +729,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
     const reqId = await createAndPublish(CUSTOMER_ID, 'Sửa bóng đèn led');
     const propRes = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', agreedPrice: 150000, agreedScope: 'Thay bóng led' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 150000, agreedScope: 'Thay bóng led' }).expect(201);
     const pId = propRes.body.data.id;
 
     logStep('4.1', 'Khách bấm Rút lại đề xuất (Withdraw)');
@@ -835,7 +836,7 @@ describe('Order Service E2E Test Suite — Comprehensive Lifecycle (8 Scenarios)
     const reqId = await createAndPublish(CUSTOMER_ID, 'Sửa ổ cắm điện âm tường');
     const propRes = await request(app.getHttpServer()).post('/api/v1/booking-proposals')
       .set('x-user-id', CUSTOMER_ID).set('x-user-roles', 'customer')
-      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', agreedPrice: 100000, agreedScope: 'Thay ổ cắm' }).expect(201);
+      .send({ serviceRequestId: reqId, workerUserId: WORKER_1_ID, selectionSource: 'bid', expectedBidVersion: 0, agreedPrice: 100000, agreedScope: 'Thay ổ cắm' }).expect(201);
 
     logStep('7.1', 'Khách hủy Service Request');
     const cancelReqRes = await request(app.getHttpServer()).post(`/api/v1/service-requests/${reqId}/cancel`)

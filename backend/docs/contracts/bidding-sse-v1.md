@@ -404,15 +404,15 @@ The authoritative screen for customer proposal management is backed by `GET /api
 | +----------------------------------------------------------+ |
 | | [Avatar] Lê Hoàng C ⭐ 4.90 • Độ phù hợp AI: 91.2% • 1.2km | |
 | | Kỹ năng: Điện tử, sửa ống nước • Điểm địa lý: 95/100       | |
-| | [Gửi đề xuất nhận việc] (Tạo Booking Proposal từ AI Rec) | |
+| | [Hỏi giá] (Mời thợ gửi báo giá thật) | |
 | +----------------------------------------------------------+ |
 +--------------------------------------------------------------+
 ```
 
 ### Action Trigger
 Clicking **[Gửi đề xuất nhận việc]** opens proposal confirmation sheet:
-- Source = `bid`: Calls `POST /api/v1/booking-proposals` with `{ selectionSource: 'bid', sourceBidId: candidate.sourceBidId, agreedPrice: candidate.amount, ... }`.
-- Source = `recommendation`: Calls `POST /api/v1/booking-proposals` with `{ selectionSource: 'recommendation', sourceMatchResultId: candidate.sourceMatchResultId, agreedPrice: customerInputPrice, ... }`.
+- Source = `bid`: Calls `POST /api/v1/booking-proposals` with `{ selectionSource: 'bid', sourceBidId: candidate.sourceBidId, expectedBidVersion: candidate.version, agreedPrice: candidate.amount, ... }`.
+- Source = `recommendation`: **Hỏi giá** opens the invitation form and calls `POST /api/v1/service-requests/:id/quote-invitations`. Wait for a real bid before confirming a proposal; an invitation does not grant chat permissions.
 - **Never calls Order creation directly.**
 
 ---
@@ -707,7 +707,7 @@ Direct conversion of a bid into an order is forbidden. The contract enforces the
 
 ```mermaid
 stateDiagram-v2
-    [*] --> proposed: Customer creates proposal\n(selectionSource: bid | recommendation)
+    [*] --> proposed: Customer confirms bid terms\n(selectionSource: bid)
     
     proposed --> changes_requested: Worker requests changes (ORD-05)
     proposed --> worker_rejected: Worker rejects
@@ -728,6 +728,7 @@ stateDiagram-v2
   "workerUserId": "c2b4d5e6-7f8a-9b0c-1d2e-3f4a5b6c7d8e",
   "selectionSource": "bid",
   "sourceBidId": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "expectedBidVersion": 0,
   "agreedPrice": 250000,
   "agreedScope": "Sửa rò rỉ van nước bồn rửa chén",
   "scheduledAt": "2026-10-29T08:00:00.000Z",
@@ -735,7 +736,9 @@ stateDiagram-v2
 }
 ```
 
-* Strict XOR Rule: If `selectionSource` is `bid`, `sourceBidId` is **required** and `sourceMatchResultId` must be omitted. If `recommendation`, `sourceMatchResultId` is **required** and `sourceBidId` must be omitted.
+* New proposals (including revisions) require `selectionSource=bid`, `sourceBidId`, `expectedBidVersion` (integer >= 0), and the confirmed `agreedPrice`. `sourceMatchResultId` must be omitted. Recommendation-backed creation returns `BID_REQUIRED`; missing/invalid versions fail DTO validation (or `BID_VERSION_REQUIRED` at the service boundary). Historical recommendation records remain readable.
+* Order verifies ownership, eligibility, amount and version with Bidding before writing. A changed amount/version or missing authoritative terms returns `409 BID_TERMS_CHANGED`; clients reload and require a fresh confirmation. Confirmation cancel never calls the proposal API.
+* Rollout: update mobile first, then deploy Order. Clients omitting the version or creating directly from recommendations must upgrade; no legacy bypass is supported. Repository callers are Radar and ChatDealBar; external/installed client versions have not been inventoried.
 * When worker calls `POST /api/v1/booking-proposals/:id/accept`, Order Service executes single transaction (ORD-06): creates order with status `created`, payment `unpaid`, marks proposal `finalized`, marks other proposals `superseded`, sets service request `converted_to_order`, and emits outbox `order.created`.
 
 ---

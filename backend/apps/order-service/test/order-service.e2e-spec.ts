@@ -635,6 +635,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           workerUserId: WORKER_1_ID,
           selectionSource: 'bid',
           sourceBidId: crypto.randomUUID(),
+          expectedBidVersion: 0,
           agreedPrice: 300000,
           agreedScope: 'Thử autoAccept',
           autoAccept: true,
@@ -651,6 +652,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           workerUserId: WORKER_1_ID,
           selectionSource: 'bid',
           sourceBidId: crypto.randomUUID(),
+          expectedBidVersion: 0,
           agreedPrice: 300000,
           agreedScope: 'Thay toàn bộ ổ khóa mới loại tay gạt Hafele',
         })

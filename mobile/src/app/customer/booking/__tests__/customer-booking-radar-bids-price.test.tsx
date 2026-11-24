@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import CustomerBookingRadarScreen from '../radar';
 
 const mockPush = jest.fn();
@@ -197,6 +197,13 @@ describe('customerBookingRadarScreen - Invalid Bid Price Handling (PR62-05-P2 / 
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     // Clicking valid candidate submits proposal with correct agreedPrice
     fireEvent.press(screen.getByTestId('radar-select-worker-btn'));
+    expect(createProposalSpy).not.toHaveBeenCalled();
+    const confirmation = jest.mocked(Alert.alert).mock.calls.find(([title]) => title === 'Xác nhận gửi đề xuất');
+    expect(confirmation?.[1]).toContain('Phạm vi:');
+    expect(confirmation?.[2]?.[0]).toMatchObject({ text: 'Quay lại', style: 'cancel' });
+    await act(async () => {
+      await confirmation?.[2]?.[1]?.onPress?.();
+    });
 
     await waitFor(() => {
       expect(createProposalSpy).toHaveBeenCalledTimes(1);
@@ -240,17 +247,74 @@ it('sends a recommendation invitation with a note and no booking proposal', asyn
   const proposal = jest.spyOn(OrdersApi, 'createProposal');
 
   render(<CustomerBookingRadarScreen />);
-  fireEvent.press(await screen.findByText('Trao đổi'));
+  fireEvent.press(await screen.findByText('Hỏi giá'));
   expect(screen.queryByText('200.000đ')).toBeNull();
   expect(screen.queryByText('Chọn thợ')).toBeNull();
   fireEvent.changeText(screen.getByLabelText('Lời nhắn cho thợ'), '  Có kiểm tra tận nơi không?  ');
   fireEvent.press(screen.getByText('Gửi hỏi giá'));
 
-  expect(await screen.findByText('Đã gửi hỏi giá')).toBeOnTheScreen();
+  expect(await screen.findByText('Chờ thợ báo giá')).toBeOnTheScreen();
   expect(invite).toHaveBeenCalledWith('req-real-price-001', {
     workerUserId: 'worker-matched',
     sourceMatchResultId: 'match-1',
     note: 'Có kiểm tra tận nơi không?',
   });
   expect(proposal).not.toHaveBeenCalled();
+});
+
+it('cancels without sending and preserves confirmed terms across a render, then reloads on stale terms', async () => {
+  const candidates = jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue({
+    bidding: { status: 'open', items: [{
+      selectionSource: 'bid',
+      sourceBidId: 'bid-snapshot',
+      version: 4,
+      workerUserId: 'worker-snapshot',
+      amount: 250000,
+      status: 'active',
+      workerProfile: { fullName: 'Thợ Snapshot' },
+    }] },
+    matching: { status: 'completed', recommendations: [] },
+  } as any);
+  const create = jest.spyOn(OrdersApi, 'createProposal').mockRejectedValue({
+    response: { status: 409, data: { code: 'BID_TERMS_CHANGED' } },
+  });
+  useBookingDraftStore.setState({
+    createdRequestId: 'req-real-price-001',
+    serviceName: 'Sửa điện',
+    scheduledAt: '2026-12-01T09:00:00.000Z',
+  });
+  render(<CustomerBookingRadarScreen />);
+  await screen.findByText('Thợ Snapshot');
+  const button = screen.getByTestId('radar-select-worker-btn');
+  fireEvent.press(button);
+  const canceled = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+  await act(async () => {
+    canceled[2]?.[0]?.onPress?.();
+  });
+  expect(create).not.toHaveBeenCalled();
+
+  fireEvent.press(button);
+  const confirmation = jest.mocked(Alert.alert).mock.calls.at(-1)!;
+  expect(confirmation[1]).toContain('Thợ Snapshot');
+  expect(confirmation[1]).toContain('250.000đ');
+  expect(confirmation[1]).toContain('Phạm vi: Sửa điện');
+  expect(confirmation[1]).toContain('Lịch hẹn:');
+  await act(async () => {
+    useBookingDraftStore.setState({ serviceName: 'Sửa nước', scheduledAt: '2026-12-02T09:00:00.000Z' });
+  });
+  const reads = candidates.mock.calls.length;
+  await act(async () => {
+    await confirmation[2]?.[1]?.onPress?.();
+  });
+  expect(create).toHaveBeenCalledTimes(1);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({
+    sourceBidId: 'bid-snapshot',
+    expectedBidVersion: 4,
+    agreedPrice: 250000,
+    agreedScope: 'Sửa điện',
+    scheduledAt: '2026-12-01T09:00:00.000Z',
+  }));
+  expect(Alert.alert).toHaveBeenCalledWith('Báo giá đã thay đổi', expect.any(String));
+  await waitFor(() => expect(candidates.mock.calls.length).toBeGreaterThan(reads));
+  expect(create).toHaveBeenCalledTimes(1);
 });

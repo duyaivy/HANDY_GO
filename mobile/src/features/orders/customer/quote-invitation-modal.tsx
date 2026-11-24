@@ -53,7 +53,7 @@ export function QuoteInvitationModal({ requestId, worker, onClose, onSent }: Quo
       <View className="flex-1 justify-center bg-black/40 px-6">
         <View className="gap-3 rounded-2xl bg-white p-5 dark:bg-neutral-800">
           <Text className="text-lg font-bold">
-            Trao đổi với
+            Hỏi giá thợ
             {' '}
             {worker.name}
           </Text>

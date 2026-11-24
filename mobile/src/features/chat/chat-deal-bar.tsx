@@ -263,11 +263,12 @@ export function ChatDealBar({
       const displayAmount = workerBid?.amount ?? (Number(latestProposal?.agreedPrice) || 0);
 
       const handleSelectWorker = () => {
+        const agreedScope = conversation.serviceName || 'Dịch vụ đã trao đổi';
         const confirmTitle = isChangesRequested ? 'Xác nhận gửi lại đề xuất' : 'Xác nhận chọn thợ';
         const formattedAmount = formatCurrency(displayAmount);
         const confirmMessage = isChangesRequested
-          ? `Bạn có đồng ý gửi lại đề xuất cho thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`
-          : `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${conversation.serviceName || 'yêu cầu'}?`;
+          ? `Bạn có đồng ý gửi lại đề xuất cho thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${agreedScope}?`
+          : `Bạn có đồng ý chọn thợ ${conversation.workerName?.trim() || 'này'} với mức giá ${formattedAmount} cho dịch vụ ${agreedScope}?`;
 
         Alert.alert(
           confirmTitle,
@@ -308,7 +309,7 @@ export function ChatDealBar({
                     sourceBidId: currentBid.sourceBidId || currentBid.id,
                     expectedBidVersion: currentBid.version,
                     agreedPrice: currentBid.amount,
-                    agreedScope: conversation.serviceName || 'Dịch vụ đã trao đổi',
+                    agreedScope,
                     supersedesProposalId,
                   });
 

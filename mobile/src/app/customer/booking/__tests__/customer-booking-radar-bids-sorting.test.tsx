@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 import { CandidatesApi } from '@/features/candidates/api/candidates.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import CustomerBookingRadarScreen from '../radar';
 
 const mockPush = jest.fn();
@@ -64,6 +64,7 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
           {
             selectionSource: 'bid',
             sourceBidId: 'bid-cheapest',
+            version: 0,
             workerUserId: 'worker-cheapest',
             amount: 150000,
             status: 'active',
@@ -166,6 +167,13 @@ describe('customerBookingRadarScreen - Bids Price Sorting & Comparison Data (TAS
 
     // Selecting top worker creates proposal with cheapest worker
     fireEvent.press(topSelectBtn);
+    expect(createProposalSpy).not.toHaveBeenCalled();
+    const confirmation = jest.mocked(Alert.alert).mock.calls.find(([title]) => title === 'Xác nhận gửi đề xuất');
+    expect(confirmation?.[1]).toContain('Phạm vi:');
+    expect(confirmation?.[2]?.[0]).toMatchObject({ text: 'Quay lại', style: 'cancel' });
+    await act(async () => {
+      await confirmation?.[2]?.[1]?.onPress?.();
+    });
 
     await waitFor(() => {
       expect(createProposalSpy).toHaveBeenCalledWith(

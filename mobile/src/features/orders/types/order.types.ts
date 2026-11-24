@@ -167,13 +167,12 @@ export type UpdateServiceRequestPayload = {
 export type CreateBookingProposalPayload = {
   serviceRequestId: string;
   workerUserId: string;
-  selectionSource: WorkerSelectionSource;
+  selectionSource: 'bid';
   agreedPrice: number;
   agreedScope: string;
   scheduledAt?: string;
-  sourceBidId?: string;
-  expectedBidVersion?: number;
-  sourceMatchResultId?: string;
+  sourceBidId: string;
+  expectedBidVersion: number;
   expiresAt?: string;
   supersedesProposalId?: string;
 };

@@ -1,9 +1,10 @@
+import { validate } from 'class-validator';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { HttpStatus } from '@nestjs/common';
 import { BookingProposalsController } from './booking-proposals.controller.js';
 import type { BookingProposalsService } from './booking-proposals.service.js';
 import type { OrdersService } from '../orders/orders.service.js';
-import type { CreateBookingProposalDto } from './dto/create-booking-proposal.dto.js';
+import { CreateBookingProposalDto } from './dto/create-booking-proposal.dto.js';
 import type { RequestChangesProposalDto } from './dto/request-changes-proposal.dto.js';
 import type { RejectProposalDto } from './dto/reject-proposal.dto.js';
 import type { QueryBookingProposalDto } from './dto/query-booking-proposal.dto.js';
@@ -58,6 +59,7 @@ describe('BookingProposalsController', () => {
         workerUserId: mockWorkerId,
         selectionSource: 'bid' as any,
         sourceBidId: '55555555-5555-5555-5555-555555555555',
+        expectedBidVersion: 0,
         agreedPrice: 200000,
         agreedScope: 'Ghi chú',
       };
@@ -78,6 +80,7 @@ describe('BookingProposalsController', () => {
         workerUserId: mockWorkerId,
         selectionSource: 'bid' as any,
         sourceBidId: '55555555-5555-5555-5555-555555555555',
+        expectedBidVersion: 0,
         agreedPrice: 200000,
         agreedScope: 'Ghi chú',
         autoAccept: true,
@@ -226,5 +229,21 @@ describe('BookingProposalsController', () => {
       );
       expect(response.data).toEqual(order);
     });
+  });
+});
+
+
+describe('CreateBookingProposalDto', () => {
+  it.each([undefined, null, -1, 0.5])('rejects missing or invalid confirmed version %s at the HTTP boundary', async (version) => {
+    const dto = Object.assign(new CreateBookingProposalDto(), {
+      serviceRequestId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      workerUserId: 'b1ffcd88-8b1a-4ef8-bb6d-7cc8bd380b22',
+      selectionSource: 'bid',
+      sourceBidId: 'c2eedf77-7a2b-4ef8-bb6d-8dd9bd380c33',
+      expectedBidVersion: version,
+      agreedPrice: 250000,
+      agreedScope: 'Sửa nước',
+    });
+    expect((await validate(dto)).map(error => error.property)).toEqual(['expectedBidVersion']);
   });
 });

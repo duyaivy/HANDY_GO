@@ -74,11 +74,13 @@ describe('ProposalSourceVerifierService (BE-10)', () => {
       serviceRequestId: 'req-1111',
       workerUserId: 'worker-2222',
       sourceBidId: 'bid-3333',
+      expectedBid: { amount: 300000, version: 2 },
     };
 
     it.each([
       { amount: 300000, version: 3 },
       { amount: 350000, version: 2 },
+      undefined,
     ])('rejects stale confirmed terms when the authoritative bid is %j', async (bid) => {
       mockFetch.mockResolvedValueOnce({
         status: 200,
@@ -97,7 +99,7 @@ describe('ProposalSourceVerifierService (BE-10)', () => {
         json: async () => ({
           data: {
             eligible: true,
-            bid: { id: 'bid-3333', amount: 300000 },
+            bid: { id: 'bid-3333', amount: 300000, version: 2 },
           },
         }),
       });

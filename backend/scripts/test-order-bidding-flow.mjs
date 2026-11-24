@@ -1,3 +1,4 @@
+// shortcut: synthetic bid IDs/versions require the dev/test mock verifier; use real Bidding quotes for cross-service verification.
 import http from 'node:http';
 import crypto from 'node:crypto';
 
@@ -148,6 +149,7 @@ async function createOrderDirect(customerId, workerId, price = 300000) {
       workerUserId: workerId,
       selectionSource: 'bid',
       sourceBidId: crypto.randomUUID(),
+      expectedBidVersion: 0,
       agreedPrice: price,
       agreedScope: 'Thi công theo yêu cầu',
     },
@@ -200,13 +202,13 @@ async function main() {
     // 1.2 3 Thợ báo giá
     logStep('1.2', '3 Thợ gửi báo giá cạnh tranh');
     const p1 = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req1Id, workerUserId: W1, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 380000, agreedScope: 'Thay rơ le áp lực',
+      serviceRequestId: req1Id, workerUserId: W1, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 380000, agreedScope: 'Thay rơ le áp lực',
     }, { 'x-user-id': C1, 'x-user-roles': 'customer' });
     const p2 = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req1Id, workerUserId: W2, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 290000, agreedScope: 'Thay gioăng, bảo hành 6 tháng',
+      serviceRequestId: req1Id, workerUserId: W2, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 290000, agreedScope: 'Thay gioăng, bảo hành 6 tháng',
     }, { 'x-user-id': C1, 'x-user-roles': 'customer' });
     const p3 = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req1Id, workerUserId: W3, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 350000, agreedScope: 'Có mặt 20p, kiểm tra ống',
+      serviceRequestId: req1Id, workerUserId: W3, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 350000, agreedScope: 'Có mặt 20p, kiểm tra ống',
     }, { 'x-user-id': C1, 'x-user-roles': 'customer' });
     logSuccess(`Thợ 1 báo: 380.000đ | Thợ 2 báo: 290.000đ | Thợ 3 báo: 350.000đ`);
     totalPassed++;
@@ -216,7 +218,7 @@ async function main() {
     logStep('1.3', 'Thợ 1 đàm phán sửa giá (Request changes) -> Khách gửi Revision 2');
     await sendRequest(`/api/v1/booking-proposals/${p1.data.data.id}/request-changes`, 'POST', { responseNote: 'Máy lớn xin tăng 400k' }, { 'x-user-id': W1, 'x-user-roles': 'worker' });
     const p1Rev2 = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req1Id, supersedesProposalId: p1.data.data.id, workerUserId: W1, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 330000, agreedScope: 'Khách hỗ trợ 330k',
+      serviceRequestId: req1Id, supersedesProposalId: p1.data.data.id, workerUserId: W1, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 330000, agreedScope: 'Khách hỗ trợ 330k',
     }, { 'x-user-id': C1, 'x-user-roles': 'customer' });
     logSuccess(`Tạo thành công Revision 2 cho Thợ 1: ${p1Rev2.data.data.id} (Giá: 330.000đ)`);
     totalPassed++;
@@ -317,7 +319,7 @@ async function main() {
     const W_Busy = crypto.randomUUID();
     const { reqId: req3Id } = await createAndPublishRequest(C3, 'Bảo dưỡng máy lạnh Daikin');
     const propRejectRes = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req3Id, workerUserId: W_Busy, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 400000, agreedScope: 'Vệ sinh 2 máy lạnh',
+      serviceRequestId: req3Id, workerUserId: W_Busy, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 400000, agreedScope: 'Vệ sinh 2 máy lạnh',
     }, { 'x-user-id': C3, 'x-user-roles': 'customer' });
     const propRejectId = propRejectRes.data.data.id;
 
@@ -349,7 +351,7 @@ async function main() {
     const W_Slow = crypto.randomUUID();
     const { reqId: req4Id } = await createAndPublishRequest(C4, 'Sửa bóng đèn phòng khách');
     const propWithdrawRes = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req4Id, workerUserId: W_Slow, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 150000, agreedScope: 'Thay bóng led',
+      serviceRequestId: req4Id, workerUserId: W_Slow, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 150000, agreedScope: 'Thay bóng led',
     }, { 'x-user-id': C4, 'x-user-roles': 'customer' });
     const propWithdrawId = propWithdrawRes.data.data.id;
 
@@ -500,7 +502,7 @@ async function main() {
     const W7 = crypto.randomUUID();
     const { reqId: req7Id } = await createAndPublishRequest(C7, 'Sửa ổ cắm điện');
     const prop7 = await sendRequest('/api/v1/booking-proposals', 'POST', {
-      serviceRequestId: req7Id, workerUserId: W7, selectionSource: 'bid', sourceBidId: crypto.randomUUID(), agreedPrice: 100000, agreedScope: 'Thay ổ cắm',
+      serviceRequestId: req7Id, workerUserId: W7, selectionSource: 'bid', expectedBidVersion: 0, sourceBidId: crypto.randomUUID(), agreedPrice: 100000, agreedScope: 'Thay ổ cắm',
     }, { 'x-user-id': C7, 'x-user-roles': 'customer' });
 
     logStep('7.1', 'Khách hủy Service Request khi chưa chốt thợ nào');

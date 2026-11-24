@@ -622,6 +622,7 @@ describe('d4 — Mobile P2 và Nghiệm thu toàn luồng (MOB-01 & MOB-02)', ()
         workerUserId: 'worker-target-id',
         selectionSource: 'bid' as const,
         sourceBidId: 'bid-uuid-1',
+        expectedBidVersion: 0,
         agreedPrice: 300000,
         agreedScope: 'Sửa đường ống nước',
       };

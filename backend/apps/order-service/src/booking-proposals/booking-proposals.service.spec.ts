@@ -88,6 +88,7 @@ describe('BookingProposalsService', () => {
         workerUserId: mockWorkerId,
         selectionSource: WorkerSelectionSource.bid,
         sourceBidId: 'bid-uuid-1',
+        expectedBidVersion: 0,
         agreedPrice: 200000,
         agreedScope: 'Sửa điện',
       };
@@ -125,6 +126,7 @@ describe('BookingProposalsService', () => {
         workerUserId: mockWorkerId,
         selectionSource: WorkerSelectionSource.bid,
         sourceBidId: 'bid-uuid-1',
+        expectedBidVersion: 0,
         agreedScope: 'Sửa điện',
       };
 
@@ -141,32 +143,51 @@ describe('BookingProposalsService', () => {
       ).rejects.toThrow('agreedPrice must be a positive number greater than 0');
     });
 
-    it('should create revision 1 proposal from recommendation source', async () => {
-      prismaMock.serviceRequest.findUnique.mockResolvedValue(mockOpenRequest);
-      prismaMock.bookingProposal.findFirst.mockResolvedValue(null);
-
-      const dto = {
+    it('rejects recommendation proposals before verifying or writing', async () => {
+      await expect(service.create(mockCustomerId, {
         serviceRequestId: mockRequestId,
         workerUserId: mockWorkerId,
         selectionSource: WorkerSelectionSource.recommendation,
         sourceMatchResultId: 'match-uuid-1',
+        expectedBidVersion: 0,
         agreedPrice: 300000,
         agreedScope: 'Sửa nước',
-      };
+      })).rejects.toMatchObject({ response: { code: 'BID_REQUIRED' } });
+      expect(verifierMock.verifyProposalSource).not.toHaveBeenCalled();
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
 
-      prismaMock.bookingProposal.create.mockResolvedValue({ id: 'prop-rec', ...dto });
+    it.each([undefined, null, -1, 1.5, '0'])('rejects invalid bid version %s before writing', async (version) => {
+      await expect(service.create(mockCustomerId, {
+        serviceRequestId: mockRequestId,
+        workerUserId: mockWorkerId,
+        selectionSource: WorkerSelectionSource.bid,
+        sourceBidId: 'bid-1',
+        expectedBidVersion: version as any,
+        agreedPrice: 300000,
+        agreedScope: 'Sửa nước',
+      })).rejects.toMatchObject({ response: { code: 'BID_VERSION_REQUIRED' } });
+      expect(verifierMock.verifyProposalSource).not.toHaveBeenCalled();
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    });
 
-      const result = await service.create(mockCustomerId, dto);
-
-      expect(prismaMock.bookingProposal.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            selectionSource: WorkerSelectionSource.recommendation,
-            sourceMatchResultId: 'match-uuid-1',
-          }),
-        }),
+    it('does not write when confirmed terms are stale', async () => {
+      verifierMock.verifyProposalSource.mockRejectedValueOnce(
+        new AppException(HttpStatus.CONFLICT, 'BID_TERMS_CHANGED', 'Báo giá đã thay đổi'),
       );
-      expect(result).toHaveProperty('id', 'prop-rec');
+      await expect(service.create(mockCustomerId, {
+        serviceRequestId: mockRequestId,
+        workerUserId: mockWorkerId,
+        selectionSource: WorkerSelectionSource.bid,
+        sourceBidId: 'bid-1',
+        expectedBidVersion: 2,
+        agreedPrice: 300000,
+        agreedScope: 'Sửa nước',
+      })).rejects.toMatchObject({ response: { code: 'BID_TERMS_CHANGED' } });
+      expect(verifierMock.verifyProposalSource).toHaveBeenCalledWith(expect.objectContaining({
+        expectedBid: { version: 2, amount: 300000 },
+      }));
+      expect(prismaMock.$transaction).not.toHaveBeenCalled();
     });
 
     it('should throw 404 if service request does not exist', async () => {
@@ -178,6 +199,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -193,6 +215,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -211,6 +234,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -229,6 +253,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -247,6 +272,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -261,6 +287,7 @@ describe('BookingProposalsService', () => {
           serviceRequestId: mockRequestId,
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -274,6 +301,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
           autoAccept: true,
@@ -294,6 +322,7 @@ describe('BookingProposalsService', () => {
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
           sourceMatchResultId: 'match-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -311,6 +340,7 @@ describe('BookingProposalsService', () => {
           serviceRequestId: mockRequestId,
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -329,6 +359,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.recommendation,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -350,6 +381,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -368,6 +400,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 100000,
           agreedScope: 'Scope',
         }),
@@ -393,6 +426,7 @@ describe('BookingProposalsService', () => {
         workerUserId: mockWorkerId,
         selectionSource: WorkerSelectionSource.bid,
         sourceBidId: 'bid-1',
+        expectedBidVersion: 0,
         agreedPrice: 250000,
         agreedScope: 'Sửa điện theo yêu cầu',
         supersedesProposalId: 'old-prop-1',
@@ -436,6 +470,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 250000,
           agreedScope: 'Scope',
           supersedesProposalId: 'old-prop-1',
@@ -461,6 +496,7 @@ describe('BookingProposalsService', () => {
           workerUserId: mockWorkerId,
           selectionSource: WorkerSelectionSource.bid,
           sourceBidId: 'bid-1',
+          expectedBidVersion: 0,
           agreedPrice: 250000,
           agreedScope: 'Scope',
           supersedesProposalId: 'old-prop-1',

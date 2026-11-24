@@ -142,8 +142,24 @@ export class BookingProposalsService {
       );
     }
 
+    if (dto.selectionSource === WorkerSelectionSource.recommendation) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'BID_REQUIRED',
+        'Vui lòng hỏi giá và nhận báo giá từ thợ trước khi gửi đề xuất.',
+      );
+    }
+
+    if (!Number.isInteger(dto.expectedBidVersion) || dto.expectedBidVersion < 0) {
+      throw new AppException(
+        HttpStatus.BAD_REQUEST,
+        'BID_VERSION_REQUIRED',
+        'expectedBidVersion must be a non-negative integer. Please confirm the current bid.',
+      );
+    }
+
     // PR62-05-P2: Đảm bảo agreedPrice phải là số dương hợp lệ (> 0)
-    if (typeof dto.agreedPrice !== 'number' || Number.isNaN(dto.agreedPrice) || dto.agreedPrice <= 0) {
+    if (typeof dto.agreedPrice !== 'number' || !Number.isFinite(dto.agreedPrice) || dto.agreedPrice <= 0) {
       throw new AppException(
         HttpStatus.BAD_REQUEST,
         ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
@@ -157,9 +173,7 @@ export class BookingProposalsService {
       serviceRequestId: dto.serviceRequestId,
       workerUserId: dto.workerUserId,
       sourceBidId: dto.sourceBidId,
-      ...((dto.selectionSource === WorkerSelectionSource.bid && dto.expectedBidVersion != null)
-        ? { expectedBid: { version: dto.expectedBidVersion, amount: dto.agreedPrice } }
-        : {}),
+      expectedBid: { version: dto.expectedBidVersion, amount: dto.agreedPrice },
       sourceMatchResultId: dto.sourceMatchResultId,
     });
 

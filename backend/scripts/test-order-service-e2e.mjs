@@ -1,3 +1,4 @@
+// shortcut: synthetic bid IDs/versions require the dev/test mock verifier; use real Bidding quotes for cross-service verification.
 import http from 'node:http';
 import crypto from 'node:crypto';
 
@@ -187,6 +188,7 @@ async function main() {
         workerUserId: WORKER_ID,
         selectionSource: 'bid',
         sourceBidId: SOURCE_BID_ID,
+        expectedBidVersion: 0,
         agreedPrice: 250000,
         agreedScope: 'Thay thế cụm van khóa và nối ống ruột gà bồn rửa',
         scheduledAt: new Date(Date.now() + 86400000).toISOString(),
@@ -241,6 +243,7 @@ async function main() {
         workerUserId: WORKER_ID,
         selectionSource: 'bid',
         sourceBidId: SOURCE_BID_ID,
+        expectedBidVersion: 0,
         agreedPrice: 300000,
         agreedScope: 'Thay thế cụm van khóa và hàn lại đoạn ống nứt',
         scheduledAt: new Date(Date.now() + 86400000).toISOString(),
@@ -271,6 +274,7 @@ async function main() {
         workerUserId: WORKER_2_ID,
         selectionSource: 'bid',
         sourceBidId: crypto.randomUUID(),
+        expectedBidVersion: 0,
         agreedPrice: 320000,
         agreedScope: 'Báo giá phụ dự phòng',
         scheduledAt: new Date(Date.now() + 86400000).toISOString(),
@@ -543,6 +547,7 @@ async function main() {
         workerUserId: WORKER_ID,
         selectionSource: 'bid',
         sourceBidId: crypto.randomUUID(),
+        expectedBidVersion: 0,
         agreedPrice: 500000,
         agreedScope: 'Bảo dưỡng điều hòa',
       },

@@ -47,7 +47,7 @@ export class CreateBookingProposalDto {
 
   @ApiProperty({
     enum: WorkerSelectionSource,
-    description: 'Source of worker selection: bid or recommendation',
+    description: 'New proposals require bid; recommendation is retained for historical records only',
     example: WorkerSelectionSource.bid,
   })
   @IsEnum(WorkerSelectionSource)
@@ -63,15 +63,14 @@ export class CreateBookingProposalDto {
   @IsUUID()
   sourceBidId?: string;
 
-  @ApiPropertyOptional({ description: 'Bid version confirmed by the customer' })
-  @IsOptional()
+  @ApiProperty({ description: 'Required bid version confirmed by the customer' })
   @IsInt()
   @Min(0)
-  expectedBidVersion?: number;
+  expectedBidVersion: number;
 
   @ApiPropertyOptional({
     description:
-      'Originating Matching Result ID from Matching Service (Required if selectionSource is recommendation)',
+      'Historical source only; new proposals from recommendations are rejected',
     example: 'd3ffea66-6b3c-4ef8-bb6d-9ee0bd380d44',
   })
   @IsOptional()

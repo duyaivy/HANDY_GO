@@ -92,6 +92,7 @@ const FALLBACK_TEST_WORKER: DisplayWorkerCandidate = {
   avatarUrl: DEFAULT_AVATAR,
   sourceBidId: 'c2eedf77-7a2b-4ef8-8b6d-8dd9bd380c33',
   isPriceValid: true,
+  bidVersion: 0,
 };
 
 async function fetchLatestActiveRequestId(): Promise<string | null> {
@@ -860,7 +861,20 @@ export default function CustomerBookingRadarRoute() {
     : (process.env.NODE_ENV === 'test' ? [FALLBACK_TEST_WORKER] : []);
 
   // Candidate selection -> Booking Proposal creation (Contract Section 7 & 17)
-  const handleSelectWorkerAndSendProposal = async (worker: DisplayWorkerCandidate) => {
+  const handleSelectWorkerAndSendProposal = (worker: DisplayWorkerCandidate) => {
+    const agreedScope = displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`;
+    const confirmedSchedule = scheduledAt || undefined;
+    Alert.alert(
+      'Xác nhận gửi đề xuất',
+      `Thợ: ${worker.name}\nGiá báo: ${worker.priceText}\nPhạm vi: ${agreedScope}${confirmedSchedule ? `\nLịch hẹn: ${new Date(confirmedSchedule).toLocaleString('vi-VN')}` : ''}`,
+      [
+        { text: 'Quay lại', style: 'cancel' },
+        { text: 'Gửi đề xuất', onPress: () => sendProposal(worker, agreedScope, confirmedSchedule) },
+      ],
+    );
+  };
+
+  const sendProposal = async (worker: DisplayWorkerCandidate, agreedScope: string, confirmedSchedule?: string) => {
     // PR62-05-P2: Báo giá không hợp lệ (null, 0, NaN, âm) không được phép tạo proposal
     if (!isValidBidPrice(worker.price) || worker.isPriceValid === false) {
       Alert.alert(
@@ -893,8 +907,8 @@ export default function CustomerBookingRadarRoute() {
         return;
       }
 
-      if (!worker.sourceBidId) {
-        throw new Error('Nguồn báo giá không hợp lệ: thiếu sourceBidId');
+      if (!worker.sourceBidId || worker.bidVersion == null) {
+        throw new Error('Báo giá thiếu thông tin xác nhận. Vui lòng tải lại.');
       }
       const proposalPayload: CreateBookingProposalPayload = {
         serviceRequestId: targetRequestId,
@@ -903,8 +917,8 @@ export default function CustomerBookingRadarRoute() {
         sourceBidId: worker.sourceBidId,
         expectedBidVersion: worker.bidVersion,
         agreedPrice: worker.price,
-        agreedScope: displayServiceName || serviceName || description || `Khách hàng chọn thợ ${worker.name}`,
-        scheduledAt: scheduledAt || undefined,
+        agreedScope,
+        scheduledAt: confirmedSchedule,
       };
 
       // Call Booking Proposal API (Never create Order directly)
@@ -949,12 +963,12 @@ export default function CustomerBookingRadarRoute() {
       const errorMsg = String(errorObj?.response?.data?.message || backendMessage || errorObj?.message || '');
 
       await queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all }).catch(() => {});
+      if (validRequestId) {
+        void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.byRequest(validRequestId) });
+      }
 
       if (errorCode === 'BID_TERMS_CHANGED' || errorMsg.includes('Báo giá đã thay đổi')) {
         fail(worker.id);
-        if (validRequestId) {
-          void queryClient.invalidateQueries({ queryKey: candidateQueryKeys.byRequest(validRequestId) });
-        }
         Alert.alert('Báo giá đã thay đổi', 'Vui lòng xem lại báo giá và xác nhận lại.');
         return;
       }
@@ -1597,8 +1611,8 @@ export default function CustomerBookingRadarRoute() {
                                         Xem hồ sơ
                                       </Text>
                                     </Pressable>
-                                    {invitedWorkerIds.has(worker.id)
-                                      ? <Text className="text-sm text-neutral-500">{invitationsClosed ? 'Đã hết hạn hỏi giá' : 'Đã gửi hỏi giá'}</Text>
+                                    {invitationsClosed || invitedWorkerIds.has(worker.id)
+                                      ? <Text className="text-sm text-neutral-500">{invitationsClosed ? 'Đã hết hạn hỏi giá' : 'Chờ thợ báo giá'}</Text>
                                       : (
                                           <Pressable
                                             accessibilityRole="button"
@@ -1609,7 +1623,7 @@ export default function CustomerBookingRadarRoute() {
                                                 setInvitedWorker({ requestId: validRequestId, worker });
                                             }}
                                           >
-                                            <Text className="text-sm font-bold text-white">Trao đổi</Text>
+                                            <Text className="text-sm font-bold text-white">Hỏi giá</Text>
                                           </Pressable>
                                         )}
                                   </View>

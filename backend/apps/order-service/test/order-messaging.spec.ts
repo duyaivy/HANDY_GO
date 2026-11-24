@@ -528,6 +528,7 @@ describe('D3 — Messaging and Integration Suite (BE-04, BE-05, BE-06, BE-07, BE
         workerUserId: WORKER_ID,
         selectionSource: WorkerSelectionSource.bid,
         sourceBidId: BID_ID,
+        expectedBidVersion: 0,
         agreedPrice: 500000,
         agreedScope: 'Thao lap bom nuoc',
       });
