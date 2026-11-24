@@ -1,3 +1,5 @@
+import type { QueryClient } from '@tanstack/react-query';
+
 export const ordersQueryKeys = {
   all: ['orders'] as const,
   customerRequests: (
@@ -35,3 +37,21 @@ export const ordersQueryKeys = {
     return [...ordersQueryKeys.all, 'worker', 'orders', tab, st] as const;
   },
 };
+
+/**
+ * Invalidate all queries related to order statistics, worker profiles, and earnings.
+ * Ensures all UI surfaces across customer and worker apps reflect updated order counts.
+ */
+export function invalidateOrderRelatedQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+  void queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-public-profile-services'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-skills-orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+  void queryClient.invalidateQueries({ queryKey: ['order-worker-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['candidates'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-bidding'] });
+  void queryClient.invalidateQueries({ queryKey: ['wallet'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-reviews'] });
+}

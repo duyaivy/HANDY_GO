@@ -2,7 +2,7 @@ import type { BookingProposal, Order, UploadEvidencePayload } from '../types/ord
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
-import { ordersQueryKeys } from './orders-query-keys';
+import { invalidateOrderRelatedQueries, ordersQueryKeys } from './orders-query-keys';
 
 function extractItems<T>(data: unknown): T[] {
   if (Array.isArray(data)) {
@@ -136,7 +136,7 @@ export function useAcceptProposal() {
       return res.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 }
@@ -178,9 +178,7 @@ export function useWorkerJobDetail(jobId?: string) {
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
-      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -194,9 +192,7 @@ export function useWorkerJobDetail(jobId?: string) {
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
-      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -258,9 +254,7 @@ export function useWorkerJobDetail(jobId?: string) {
     },
     onSuccess: (updated) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] });
-      queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 

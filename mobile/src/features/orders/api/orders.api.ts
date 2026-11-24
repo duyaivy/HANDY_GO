@@ -274,6 +274,7 @@ export const OrdersApi = {
         averageRating?: number | null;
         ratingCount?: number;
         completedOrderCount?: number;
+        orderCountTotal?: number;
         headline?: string | null;
         phoneNumber?: string | null;
         phone?: string | null;

@@ -680,6 +680,7 @@ export class UserTrustServiceService {
           averageRating: worker.ratingCount > 0 ? Number(worker.averageRating) : null,
           ratingCount: worker.ratingCount ?? 0,
           completedOrderCount: worker.completedOrderCount ?? 0,
+          orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
           headline: worker.serviceOfferings[0]?.title ?? null,
         },
       };
@@ -709,6 +710,7 @@ export class UserTrustServiceService {
         averageRating: null,
         ratingCount: 0,
         completedOrderCount: 0,
+        orderCountTotal: 0,
         headline: null,
       },
     };

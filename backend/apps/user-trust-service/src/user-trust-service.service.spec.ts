@@ -643,6 +643,7 @@ describe('UserTrustServiceService', () => {
         averageRating: 4.85,
         ratingCount: 15,
         completedOrderCount: 42,
+        orderCountTotal: 45,
         user: {
           id: 'worker-101',
           fullName: 'Trần Văn Thợ',
@@ -659,6 +660,7 @@ describe('UserTrustServiceService', () => {
       expect(result.data.avatarUrl).toBe('https://cdn.example.com/worker.jpg');
       expect(result.data.averageRating).toBe(4.85);
       expect(result.data.completedOrderCount).toBe(42);
+      expect(result.data.orderCountTotal).toBe(45);
       expect(result.data.headline).toBe('Chuyên sửa điện nước');
     });
 
@@ -677,6 +679,7 @@ describe('UserTrustServiceService', () => {
       expect(result.data.fullName).toBe('Lê Văn Thợ Mới');
       expect(result.data.averageRating).toBeNull();
       expect(result.data.completedOrderCount).toBe(0);
+      expect(result.data.orderCountTotal).toBe(0);
     });
 
     it('throws when no active worker or user exists', async () => {

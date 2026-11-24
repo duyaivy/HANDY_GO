@@ -16,6 +16,7 @@ export class WorkersService {
         averageRating: true,
         ratingCount: true,
         completedOrderCount: true,
+        orderCountTotal: true,
         user: { select: { fullName: true, avatarUrl: true } },
       },
     });
@@ -27,6 +28,7 @@ export class WorkersService {
         worker.ratingCount > 0 ? Number(worker.averageRating) : null,
       ratingCount: worker.ratingCount,
       completedOrderCount: worker.completedOrderCount,
+      orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
     }));
   }
 

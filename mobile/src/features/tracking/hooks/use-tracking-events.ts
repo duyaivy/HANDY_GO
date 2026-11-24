@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { TrackingSseClient } from '@/services/sse/tracking-sse-client';
 import { TRACKING_QUERY_KEYS } from './use-tracking-summary';
+import { invalidateOrderRelatedQueries } from '@/features/orders/hooks/orders-query-keys';
 
 export function useTrackingEvents(
   serviceRequestId?: string,
@@ -34,7 +35,12 @@ export function useTrackingEvents(
         queryKey: TRACKING_QUERY_KEYS.timelines(),
       });
 
-      // 2. Gọi callback nếu màn hình muốn xử lý hiệu ứng/rung chuông
+      // 2. Làm mới các query liên quan đến số đơn khi có sự kiện thay đổi trạng thái đơn
+      if (typeof event.eventType === 'string' && event.eventType.startsWith('order.')) {
+        invalidateOrderRelatedQueries(queryClient);
+      }
+
+      // 3. Gọi callback nếu màn hình muốn xử lý hiệu ứng/rung chuông
       onEventRef.current?.(event);
     });
 
