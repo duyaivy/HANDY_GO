@@ -293,4 +293,26 @@ describe('customerProfileScreen', () => {
     expect(settingItem.props.className).not.toContain('active:bg-');
     expect(changePasswordBtn.props.className).not.toContain('active:bg-');
   });
+
+  it('navigates to customer order history when pressing "Lịch sử đơn hàng" in utilities', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'cust-123',
+        phone: '0912345678',
+        email: 'customer@example.com',
+        roles: ['Customer'],
+        permissions: [],
+      },
+    });
+
+    render(<CustomerProfileScreen />);
+
+    const historyItem = screen.getByTestId('profile-order-history-item');
+    expect(historyItem).toBeOnTheScreen();
+    expect(screen.getByText('Lịch sử đơn hàng')).toBeOnTheScreen();
+
+    fireEvent.press(historyItem);
+    expect(mockPush).toHaveBeenCalledWith('/customer/history');
+  });
 });

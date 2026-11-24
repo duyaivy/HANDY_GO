@@ -185,6 +185,18 @@ export const OrdersApi = {
   },
 
   // --- Orders ---
+  getOrderSummary: async (params?: { role?: 'customer' | 'worker' }) => {
+    return ApiClient.get<{
+      statusCode: number;
+      message: string;
+      data: {
+        completedCount: number;
+        cancelledCount: number;
+        totalCompletedAmount: number;
+      };
+    }>('/orders/summary', { params });
+  },
+
   getMyOrders: async (params?: Record<string, unknown>) => {
     return ApiClient.get<{ statusCode: number; message: string; data: PaginatedList<Order> | Order[] }>(
       '/orders',

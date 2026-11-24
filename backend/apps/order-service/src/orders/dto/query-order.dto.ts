@@ -13,6 +13,9 @@ export const PAYMENT_STATE_VALUES = [
   'failed',
 ] as const;
 
+export const ORDER_PARTICIPANT_ROLE_VALUES = ['customer', 'worker'] as const;
+export type OrderParticipantRole = (typeof ORDER_PARTICIPANT_ROLE_VALUES)[number];
+
 export class QueryOrderDto {
   @ApiPropertyOptional({
     description: 'Page number (1-based)',
@@ -55,4 +58,19 @@ export class QueryOrderDto {
   @IsOptional()
   @IsEnum(PAYMENT_STATE_VALUES)
   paymentState?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter orders by participant role: customer or worker',
+    enum: ORDER_PARTICIPANT_ROLE_VALUES,
+  })
+  @IsOptional()
+  @IsEnum(ORDER_PARTICIPANT_ROLE_VALUES)
+  role?: OrderParticipantRole;
+
+  @ApiPropertyOptional({
+    description: 'Search orders by code, address, or agreed scope',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

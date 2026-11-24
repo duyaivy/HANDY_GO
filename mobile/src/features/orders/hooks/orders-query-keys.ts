@@ -3,12 +3,14 @@ import type { QueryClient } from '@tanstack/react-query';
 export const ordersQueryKeys = {
   all: ['orders'] as const,
   customerRequests: (
-    tabOrFilter?: string | { tab?: string; status?: string },
+    tabOrFilter?: string | { tab?: string; status?: string; search?: string },
     status?: string,
+    search?: string,
   ) => {
     const tab = typeof tabOrFilter === 'string' ? tabOrFilter : tabOrFilter?.tab ?? 'all';
     const st = typeof tabOrFilter === 'object' ? tabOrFilter.status ?? '' : status ?? '';
-    return [...ordersQueryKeys.all, 'customer', 'requests', tab, st] as const;
+    const srch = typeof tabOrFilter === 'object' ? tabOrFilter.search ?? '' : search ?? '';
+    return [...ordersQueryKeys.all, 'customer', 'requests', tab, st, srch] as const;
   },
   customerRequestDetail: (id: string) =>
     [...ordersQueryKeys.all, 'customer', 'requests', id] as const,
@@ -36,6 +38,26 @@ export const ordersQueryKeys = {
     const st = typeof tabOrFilter === 'object' ? tabOrFilter.status ?? '' : status ?? '';
     return [...ordersQueryKeys.all, 'worker', 'orders', tab, st] as const;
   },
+  orderSummary: (params?: { role?: string }) =>
+    [...ordersQueryKeys.all, 'summary', params?.role ?? 'all'] as const,
+  customerHistory: (params?: { tab?: string; status?: string; search?: string }) =>
+    [
+      ...ordersQueryKeys.all,
+      'customer',
+      'history',
+      params?.tab ?? 'all',
+      params?.status ?? '',
+      params?.search ?? '',
+    ] as const,
+  workerHistory: (params?: { tab?: string; status?: string; search?: string }) =>
+    [
+      ...ordersQueryKeys.all,
+      'worker',
+      'history',
+      params?.tab ?? 'all',
+      params?.status ?? '',
+      params?.search ?? '',
+    ] as const,
 };
 
 /**

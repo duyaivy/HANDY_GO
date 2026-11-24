@@ -11,6 +11,7 @@ export default function WorkerLayout() {
         <Stack.Screen name="profile/detail" options={{ headerShown: false }} />
         <Stack.Screen name="reviews" options={{ headerShown: false }} />
         <Stack.Screen name="skills/register" options={{ headerShown: false }} />
+        <Stack.Screen name="history" options={{ headerShown: false }} />
       </Stack>
     </>
   );

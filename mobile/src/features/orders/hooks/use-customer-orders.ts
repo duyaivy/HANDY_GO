@@ -127,6 +127,11 @@ export function useCustomerOrders(activeTab = 'Searching') {
   const isLoading = (shouldFetchRequests && requestsQuery.isLoading)
     || (shouldFetchOrders && ordersQuery.isLoading);
 
+  const isError = Boolean(
+    (shouldFetchRequests && requestsQuery.isError)
+    || (shouldFetchOrders && ordersQuery.isError),
+  );
+
   const isRefetching = requestsQuery.isRefetching || ordersQuery.isRefetching;
 
   const refetch = async () => {
@@ -170,6 +175,7 @@ export function useCustomerOrders(activeTab = 'Searching') {
 
     // Unified states
     isLoading,
+    isError,
     isRefetching,
     refetch,
     hasNextPage,
