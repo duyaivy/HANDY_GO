@@ -61,6 +61,28 @@ export class OrdersController {
     return buildSuccessResponse(data, 'Orders retrieved successfully');
   }
 
+  @Get('summary')
+  @ApiOperation({
+    summary: 'Get order statistics summary',
+    description:
+      'Retrieves completed, cancelled count and total completed gross price for current user and role.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Order summary retrieved successfully',
+  })
+  async getSummary(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query('role') role?: 'customer' | 'worker',
+  ) {
+    const data = await this.ordersService.getOrderSummary(
+      user.userId,
+      role,
+      user.roles,
+    );
+    return buildSuccessResponse(data, 'Order summary retrieved successfully');
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get details of an order',
