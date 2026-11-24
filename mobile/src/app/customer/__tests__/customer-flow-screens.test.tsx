@@ -329,9 +329,9 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerUtilityAndFeatureScreens', () => {
-    it('renders history skeleton screen', () => {
+    it('renders customer order history screen', () => {
       render(<CustomerHistoryScreen />);
-      expect(screen.getByText('Lịch sử')).toBeOnTheScreen();
+      expect(screen.getByText('Lịch sử đơn hàng')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-history-screen')).toBeOnTheScreen();
     });
 

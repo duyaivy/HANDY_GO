@@ -29,6 +29,7 @@ describe('OrdersService', () => {
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
+      aggregate: ReturnType<typeof vi.fn>;
     };
     bookingProposal: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -216,6 +217,7 @@ describe('OrdersService', () => {
           return { count: 1 };
         }),
         count: vi.fn(),
+        aggregate: vi.fn(),
       },
       bookingProposal: {
         findUnique: vi.fn(),
@@ -1671,6 +1673,99 @@ describe('OrdersService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             status: { in: ['created', 'confirmed', 'in_progress'] },
+          }),
+        }),
+      );
+    });
+
+    it('should isolate role by customerUserId when role=customer (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, role: 'customer' },
+        ['Customer', 'Worker'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerUserId: mockCustomerId,
+          }),
+        }),
+      );
+      expect(prismaMock.order.findMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockCustomerId,
+          }),
+        }),
+      );
+    });
+
+    it('should isolate role by workerUserId when role=worker (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Customer', 'Worker'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should filter by search keyword across orderCode, addressText, and agreedScope (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, search: 'Sửa điện' },
+        ['Customer'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { orderCode: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { addressText: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { agreedScope: { contains: 'Sửa điện', mode: 'insensitive' } },
+                ]),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('should return order summary statistics (HG-72)', async () => {
+      prismaMock.order.aggregate.mockResolvedValue({
+        _count: { id: 5 },
+        _sum: { agreedPrice: 2500000n as any },
+      } as any);
+      prismaMock.order.count.mockResolvedValue(2);
+
+      const summary = await service.getOrderSummary(mockWorkerId, 'worker', ['Worker']);
+      expect(summary.completedCount).toBe(5);
+      expect(summary.cancelledCount).toBe(2);
+      expect(summary.totalCompletedAmount).toBe(2500000);
+      expect(prismaMock.order.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+            status: 'completed',
           }),
         }),
       );
