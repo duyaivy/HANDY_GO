@@ -89,3 +89,91 @@ it('routes matching notification tap directly to /worker?requestId=...', async (
 
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/worker?requestId=req-match-123'));
 });
+
+it('routes service registration approval to /worker/skills and switches dual-role user to Worker', async () => {
+  useAuthStore.setState({
+    user: { id: 'dual-1', roles: ['Customer', 'Worker'] } as AuthUser,
+    isHydrated: true,
+    isAuthenticated: true,
+    isLoading: false,
+    activeMode: 'Customer',
+  });
+
+  const regResp = {
+    actionIdentifier: 'default',
+    notification: {
+      request: {
+        identifier: 'push-reg-1',
+        content: {
+          data: {
+            notificationId: '33333333-3333-4333-8333-333333333333',
+            eventType: 'worker.service_registration.approved',
+          },
+        },
+      },
+    },
+  } as unknown as NotificationResponse;
+
+  jest.mocked(NotificationApi.detail).mockResolvedValueOnce({
+    id: '33333333-3333-4333-8333-333333333333',
+    category: 'system',
+    payload: {
+      eventType: 'worker.service_registration.approved',
+      registrationId: 'reg-approved-999',
+    },
+  } as any);
+
+  render(<NotificationLifecycle />);
+  const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
+  await act(async () => tapped(regResp));
+
+  await waitFor(() => {
+    expect(useAuthStore.getState().activeMode).toBe('Worker');
+    expect(mockRouter.push).toHaveBeenCalledWith('/worker/skills');
+  });
+});
+
+it('falls back to customer inbox for generic system notification without switching mode', async () => {
+  useAuthStore.setState({
+    user: { id: 'dual-2', roles: ['Customer', 'Worker'] } as AuthUser,
+    isHydrated: true,
+    isAuthenticated: true,
+    isLoading: false,
+    activeMode: 'Customer',
+  });
+
+  const sysResp = {
+    actionIdentifier: 'default',
+    notification: {
+      request: {
+        identifier: 'push-sys-1',
+        content: {
+          data: {
+            notificationId: '44444444-4444-4444-8444-444444444444',
+            eventType: 'system.maintenance',
+            category: 'system',
+          },
+        },
+      },
+    },
+  } as unknown as NotificationResponse;
+
+  jest.mocked(NotificationApi.detail).mockResolvedValueOnce({
+    id: '44444444-4444-4444-8444-444444444444',
+    category: 'system',
+    payload: {
+      eventType: 'system.maintenance',
+    },
+  } as any);
+
+  render(<NotificationLifecycle />);
+  const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
+  await act(async () => tapped(sysResp));
+
+  await waitFor(() => {
+    // Mode must NOT change to Worker!
+    expect(useAuthStore.getState().activeMode).toBe('Customer');
+    // Must fall back to customer notifications inbox!
+    expect(mockRouter.push).toHaveBeenCalledWith('/customer/(tabs)/notifications');
+  });
+});

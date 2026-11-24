@@ -13,6 +13,7 @@ import { syncPushRegistration } from '@/services/notifications/push-registration
 import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationItem } from './components/notification-item';
 import { useNotifications, useNotificationUserId, useReadNotification, useUnreadNotifications } from './hooks/use-notifications';
+import { resolveNotificationDeepLink } from './notification-routing';
 
 const keyExtractor = (item: NotificationRecord) => item.id;
 
@@ -59,86 +60,22 @@ export function NotificationScreen({ worker = false }: { worker?: boolean }) {
       const mode = useAuthStore.getState().activeMode;
       const userRoles = useAuthStore.getState().user?.roles || [];
 
-      // Route matching job discovery notifications directly to Worker Home / Bidding
-      if (
-        eventType === 'matching.eligible_workers.ready'
-        || category === 'matching'
-        || (category === 'request' && (worker || mode === 'Worker' || userRoles.includes('Worker')))
-      ) {
-        if (userRoles.includes('Worker') && mode !== 'Worker') {
-          useAuthStore.getState().setActiveMode('Worker');
-        }
-        if (requestId) {
-          router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as any);
-        }
-        else {
-          router.push('/worker' as any);
-        }
-        return;
-      }
+      const target = resolveNotificationDeepLink({
+        eventType,
+        category,
+        requestId,
+        orderId: String(payload.entityId || payload.orderId || ''),
+        conversationId: String(payload.conversationId || ''),
+        userRoles,
+        activeMode: mode,
+        isWorkerContext: worker,
+      });
 
-      // Bid notifications -> Customer Radar
-      if (
-        (eventType === 'bid.submitted' || eventType === 'bid.revised' || category === 'bidding')
-        && requestId
-      ) {
-        if (userRoles.includes('Customer') && mode !== 'Customer') {
-          useAuthStore.getState().setActiveMode('Customer');
+      if (target) {
+        if (target.targetMode && target.targetMode !== mode) {
+          useAuthStore.getState().setActiveMode(target.targetMode);
         }
-        router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as any);
-        return;
-      }
-
-      // Proposal notification
-      if (category === 'proposal') {
-        if (worker || mode === 'Worker') {
-          if (requestId) {
-            router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as any);
-          }
-          else {
-            router.push('/worker' as any);
-          }
-        }
-        else if (requestId) {
-          router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as any);
-        }
-        return;
-      }
-
-      // Order notification -> Order detail
-      if (category === 'order') {
-        const orderId = String(payload.entityId || payload.orderId || '');
-        if (orderId) {
-          if (worker || mode === 'Worker') {
-            router.push(`/worker/jobs/${encodeURIComponent(orderId)}` as any);
-          }
-          else {
-            router.push(`/customer/orders/${encodeURIComponent(orderId)}` as any);
-          }
-        }
-        return;
-      }
-
-      // Wallet / Payment notification -> Wallet
-      if (category === 'wallet' || category === 'payment') {
-        if (worker || mode === 'Worker') {
-          router.push('/worker/wallet' as any);
-        }
-        else {
-          router.push('/customer/payment' as any);
-        }
-        return;
-      }
-
-      // System notification -> Worker skills / profile if relevant
-      if (
-        eventType.startsWith('worker.service_registration.')
-        || (category === 'system' && (worker || mode === 'Worker' || userRoles.includes('Worker')))
-      ) {
-        if (userRoles.includes('Worker') && mode !== 'Worker') {
-          useAuthStore.getState().setActiveMode('Worker');
-        }
-        router.push('/worker/skills' as any);
+        router.push(target.route as any);
       }
     }
     catch (err) {

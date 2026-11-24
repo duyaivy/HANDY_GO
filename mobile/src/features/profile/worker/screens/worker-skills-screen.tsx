@@ -82,7 +82,7 @@ export function WorkerSkillsScreen() {
               try {
                 await WorkersApi.cancelServiceRegistration(regId);
                 await queryClient.invalidateQueries({
-                  queryKey: ['worker-my-service-registrations'],
+                  queryKey: ['worker-my-service-registrations', userId],
                 });
                 Alert.alert('Đã hủy yêu cầu', 'Đơn đăng ký dịch vụ đã được hủy thành công.');
               }
@@ -95,7 +95,7 @@ export function WorkerSkillsScreen() {
         ],
       );
     },
-    [queryClient],
+    [queryClient, userId],
   );
 
   const handleEditRegistration = React.useCallback(
@@ -152,7 +152,7 @@ export function WorkerSkillsScreen() {
 
   // Query: Worker Service Registrations History
   const registrationsQuery = useQuery<WorkerServiceRegistrationItem[]>({
-    queryKey: ['worker-my-service-registrations'],
+    queryKey: ['worker-my-service-registrations', userId],
     queryFn: async () => {
       const res = await WorkersApi.getMyServiceRegistrations();
       return res.data ?? [];
@@ -177,17 +177,31 @@ export function WorkerSkillsScreen() {
     prevHasPendingRef.current = hasPendingRegistrations;
   }, [hasPendingRegistrations, profileQuery]);
 
-  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
+  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ (phân trang đủ với role worker)
   const ordersQuery = useQuery({
     queryKey: ['worker-skills-orders', userId],
     queryFn: async () => {
       try {
-        const res = await OrdersApi.getMyOrders({ limit: 50 });
-        const raw = res.data;
-        if (Array.isArray(raw)) {
-          return raw;
+        const firstRes = await OrdersApi.getMyOrders({ role: 'worker', page: 1, limit: 50 });
+        const rawFirst = firstRes.data;
+        if (Array.isArray(rawFirst)) {
+          return rawFirst;
         }
-        return (raw as any)?.items ?? [];
+        const firstItems = (rawFirst as any)?.items ?? [];
+        const totalPages = Number((rawFirst as any)?.totalPages) || 1;
+        if (totalPages <= 1) {
+          return firstItems;
+        }
+        const pageRequests = [];
+        for (let page = 2; page <= totalPages; page++) {
+          pageRequests.push(OrdersApi.getMyOrders({ role: 'worker', page, limit: 50 }));
+        }
+        const remainingResponses = await Promise.all(pageRequests);
+        const remainingItems = remainingResponses.flatMap((res) => {
+          const data = res.data;
+          return Array.isArray(data) ? data : (data as any)?.items ?? [];
+        });
+        return [...firstItems, ...remainingItems];
       }
       catch {
         return [];
@@ -268,12 +282,21 @@ export function WorkerSkillsScreen() {
     );
   }, [registrationsQuery.data]);
 
+  // Số lượng hồ sơ thực sự đang ở trạng thái chờ duyệt (loại trừ hồ sơ bị từ chối để hiển thị badge chính xác)
+  const pendingRegistrationsCount = React.useMemo(() => {
+    return registrations.filter(r => r.status === 'pending').length;
+  }, [registrations]);
+
   // Thống kê số đơn và doanh thu tổng hợp từ Order Service theo từng serviceId
   const ordersStatsByService = React.useMemo(() => {
     const rawOrders = ordersQuery.data ?? [];
     const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
     const map: Record<string, { count: number; revenue: number }> = {};
     for (const order of list) {
+      // Chỉ tính đơn của worker hiện tại (loại bỏ đơn đặt của chính tài khoản khi đóng vai trò Customer)
+      if (order.workerUserId && order.workerUserId !== userId) {
+        continue;
+      }
       const sId = order.serviceId;
       if (!sId) {
         continue;
@@ -290,7 +313,7 @@ export function WorkerSkillsScreen() {
       }
     }
     return map;
-  }, [ordersQuery.data]);
+  }, [ordersQuery.data, userId]);
 
   // Row 1 Statistics
   const totalApproved = approvedServices.length;
@@ -308,6 +331,9 @@ export function WorkerSkillsScreen() {
     const rawOrders = ordersQuery.data ?? [];
     const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
     for (const o of list) {
+      if (o.workerUserId && o.workerUserId !== userId) {
+        continue;
+      }
       const statusLower = String(o.status || '').toLowerCase();
       const paymentLower = String(o.paymentState || '').toLowerCase();
       if (statusLower === 'completed' || paymentLower === 'paid') {
@@ -322,7 +348,7 @@ export function WorkerSkillsScreen() {
       const r = s.revenue ?? stats?.revenue ?? 0;
       return sum + r;
     }, 0);
-  }, [ordersQuery.data, approvedServices, ordersStatsByService]);
+  }, [ordersQuery.data, userId, approvedServices, ordersStatsByService]);
 
   return (
     <Screen
@@ -505,7 +531,7 @@ export function WorkerSkillsScreen() {
                   }`}
                 >
                   Chờ phê duyệt (
-                  {registrations.length}
+                  {pendingRegistrationsCount}
                   )
                 </Text>
               </Pressable>
