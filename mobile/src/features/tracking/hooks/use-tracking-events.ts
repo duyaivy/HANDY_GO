@@ -2,9 +2,9 @@ import type { TrackingEventItem } from '../types/tracking.types';
 import type { TrackingConnectionStatus } from '@/services/sse/tracking-sse-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { invalidateOrderRelatedQueries } from '@/features/orders/hooks/orders-query-keys';
 import { TrackingSseClient } from '@/services/sse/tracking-sse-client';
 import { TRACKING_QUERY_KEYS } from './use-tracking-summary';
-import { invalidateOrderRelatedQueries } from '@/features/orders/hooks/orders-query-keys';
 
 export function useTrackingEvents(
   serviceRequestId?: string,
