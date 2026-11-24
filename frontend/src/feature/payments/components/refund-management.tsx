@@ -1,14 +1,7 @@
-
 "use client";
 
 import { useState } from "react";
-import {
-  AlertCircle,
-  CreditCard,
-  Plus,
-  Search,
-  X,
-} from "lucide-react";
+import { AlertCircle, CreditCard, Plus, Search, X } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -21,16 +14,11 @@ import {
 import { HttpError } from "@/shared/api/http";
 
 import { usePaymentDetailQuery } from "../hooks/use-payments";
+import { useRefundReservedAmountQuery } from "../hooks/use-refunds";
 
-import {
-  formatPaymentAmount,
-  PAYMENT_METHODS,
-} from "../payment-utils";
+import { formatPaymentAmount, PAYMENT_METHODS } from "../payment-utils";
 
-import {
-  getRefundErrorMessage,
-  REFUND_STATUSES,
-} from "../refund-utils";
+import { getRefundErrorMessage, REFUND_STATUSES } from "../refund-utils";
 
 import { PAYMENT_ID_PATTERN } from "../schemas/payment.schema";
 
@@ -64,6 +52,7 @@ export default function RefundManagement() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createSearch, setCreateSearch] = useState("");
+  const [isCreatingRefund, setIsCreatingRefund] = useState(false);
 
   // Dùng để làm mới RefundTable sau khi tạo thành công.
   const [refreshKey, setRefreshKey] = useState(0);
@@ -87,9 +76,7 @@ export default function RefundManagement() {
 
   // ===================== CREATE REFUND =====================
 
-  const createPaymentId = PAYMENT_ID_PATTERN.test(
-    createSearch.trim(),
-  )
+  const createPaymentId = PAYMENT_ID_PATTERN.test(createSearch.trim())
     ? createSearch.trim().toLowerCase()
     : undefined;
 
@@ -107,8 +94,7 @@ export default function RefundManagement() {
       : undefined;
 
   const paymentError =
-    paymentQuery.error instanceof HttpError &&
-    paymentQuery.error.status !== 404
+    paymentQuery.error instanceof HttpError && paymentQuery.error.status !== 404
       ? getRefundErrorMessage(
           paymentQuery.error,
           "Không thể tra cứu giao dịch.",
@@ -117,13 +103,38 @@ export default function RefundManagement() {
 
   const paymentNotFound = Boolean(
     createPaymentId &&
-      paymentQuery.error instanceof HttpError &&
-      paymentQuery.error.status === 404,
+    paymentQuery.error instanceof HttpError &&
+    paymentQuery.error.status === 404,
   );
 
   const canCreateRefund =
-    payment?.status === "succeeded" ||
-    payment?.status === "partially_refunded";
+    payment?.status === "succeeded" || payment?.status === "partially_refunded";
+
+  // Backend không trả refundableAmount: tải đủ mọi trang refund đang chiếm hạn mức.
+  const reservedQuery = useRefundReservedAmountQuery(
+    canCreateRefund && createOpen ? (payment?.id ?? null) : null,
+  );
+
+  let refundableAmount: string | null = null;
+  let invalidRefundAmount = false;
+  if (payment && reservedQuery.data !== undefined) {
+    try {
+      if (!/^\d+$/.test(payment.amount))
+        throw new Error("Invalid payment amount");
+      const remaining = BigInt(payment.amount) - BigInt(reservedQuery.data);
+      refundableAmount = (
+        remaining > BigInt(0) ? remaining : BigInt(0)
+      ).toString();
+    } catch {
+      invalidRefundAmount = true;
+    }
+  }
+
+  const capacityError = invalidRefundAmount
+    ? "Dữ liệu số tiền giao dịch không hợp lệ. Không thể xác định hạn mức hoàn."
+    : reservedQuery.isError
+      ? "Không thể tải đầy đủ lịch sử hoàn tiền để tính hạn mức. Vui lòng thử lại."
+      : null;
 
   // ===================== HANDLERS =====================
 
@@ -133,10 +144,12 @@ export default function RefundManagement() {
   }
 
   function closeCreateModal() {
+    if (isCreatingRefund) return;
     setCreateOpen(false);
   }
 
   function handleCreatedRefund() {
+    setIsCreatingRefund(false);
     // Đóng modal hiện tại.
     setCreateOpen(false);
 
@@ -148,6 +161,7 @@ export default function RefundManagement() {
   }
 
   function handleCreateOpenChange(open: boolean) {
+    if (isCreatingRefund) return;
     if (!open) {
       closeCreateModal();
     } else {
@@ -169,8 +183,7 @@ export default function RefundManagement() {
             </h2>
 
             <p className="mt-1 text-[12px] text-slate-500 sm:text-[13px]">
-              Tìm kiếm và quản lý các yêu cầu hoàn tiền
-              trên hệ thống.
+              Tìm kiếm và quản lý các yêu cầu hoàn tiền trên hệ thống.
             </p>
           </div>
 
@@ -206,9 +219,7 @@ export default function RefundManagement() {
               aria-label="Tìm theo mã giao dịch"
               placeholder="Tìm theo mã giao dịch..."
               value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
+              onChange={(event) => setSearch(event.target.value)}
               autoComplete="off"
               spellCheck={false}
               className="h-11 w-full rounded-xl border border-slate-200 bg-white py-2 pl-10 pr-3 text-[16px] text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#FF5E14] focus:ring-2 focus:ring-orange-100 sm:text-[13px]"
@@ -221,12 +232,10 @@ export default function RefundManagement() {
             <MultiStatusSelect
               ariaLabel="Trạng thái hoàn tiền"
               value={statuses}
-              options={STATUS_OPTIONS.map(
-                ([value, { label }]) => ({
-                  value,
-                  label,
-                }),
-              )}
+              options={STATUS_OPTIONS.map(([value, { label }]) => ({
+                value,
+                label,
+              }))}
               onChange={setStatuses}
             />
           </div>
@@ -248,8 +257,7 @@ export default function RefundManagement() {
           </h2>
 
           <p className="mt-1 text-[12px] text-slate-500 sm:text-[13px]">
-            Theo dõi, xem chi tiết và xử lý yêu cầu
-            hoàn tiền.
+            Theo dõi, xem chi tiết và xử lý yêu cầu hoàn tiền.
           </p>
         </div>
 
@@ -257,19 +265,14 @@ export default function RefundManagement() {
           key={listKey}
           paymentId={paymentId}
           statuses={statuses}
-          onDecide={(refund, approve) =>
-            setDecision({ refund, approve })
-          }
+          onDecide={(refund, approve) => setDecision({ refund, approve })}
           onViewDetails={setDetail}
         />
       </section>
 
       {/* ===================== CREATE REFUND MODAL ===================== */}
 
-      <Dialog
-        open={createOpen}
-        onOpenChange={handleCreateOpenChange}
-      >
+      <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
         <DialogContent
           showCloseButton={false}
           className="flex h-[100dvh] max-h-[100dvh] w-full max-w-full flex-col gap-0 overflow-hidden rounded-none border-0 bg-white p-0 font-['Inter',sans-serif] text-slate-900 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:max-w-[620px] sm:rounded-2xl sm:border"
@@ -288,8 +291,7 @@ export default function RefundManagement() {
                 </DialogTitle>
 
                 <DialogDescription className="mt-1 text-[12px] leading-5 text-slate-500 sm:text-[13px]">
-                  Tra cứu giao dịch đã thanh toán để
-                  khởi tạo yêu cầu hoàn tiền.
+                  Tra cứu giao dịch đã thanh toán để khởi tạo yêu cầu hoàn tiền.
                 </DialogDescription>
               </div>
             </div>
@@ -297,6 +299,7 @@ export default function RefundManagement() {
             <button
               type="button"
               aria-label="Đóng"
+              disabled={isCreatingRefund}
               onClick={closeCreateModal}
               className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900 ${FOCUS_RING}`}
             >
@@ -316,9 +319,8 @@ export default function RefundManagement() {
               />
 
               <p className="text-[12px] leading-5 text-slate-700 sm:text-[13px]">
-                Chỉ tạo yêu cầu hoàn tiền sau khi đã
-                xác minh khiếu nại, tranh chấp hoặc
-                sự cố thanh toán của khách hàng.
+                Chỉ tạo yêu cầu hoàn tiền sau khi đã xác minh khiếu nại, tranh
+                chấp hoặc sự cố thanh toán của khách hàng.
               </p>
             </div>
 
@@ -330,14 +332,11 @@ export default function RefundManagement() {
                 className="block text-[13px] font-medium text-slate-900"
               >
                 Mã giao dịch thanh toán
-                <span className="ml-1 text-rose-500">
-                  *
-                </span>
+                <span className="ml-1 text-rose-500">*</span>
               </label>
 
               <p className="mt-1 text-[12px] text-slate-500">
-                Nhập Payment ID của giao dịch cần
-                hoàn tiền.
+                Nhập Payment ID của giao dịch cần hoàn tiền.
               </p>
 
               <div className="relative mt-3">
@@ -350,9 +349,8 @@ export default function RefundManagement() {
                   id="create-refund-payment-id"
                   type="search"
                   value={createSearch}
-                  onChange={(event) =>
-                    setCreateSearch(event.target.value)
-                  }
+                  disabled={isCreatingRefund}
+                  onChange={(event) => setCreateSearch(event.target.value)}
                   placeholder="Nhập Payment ID..."
                   autoComplete="off"
                   spellCheck={false}
@@ -360,33 +358,28 @@ export default function RefundManagement() {
                 />
               </div>
 
-              {createSearch.trim() &&
-                !createPaymentId && (
-                  <p className="mt-2 text-[12px] text-slate-500">
-                    Vui lòng nhập đầy đủ Payment ID
-                    hợp lệ.
-                  </p>
-                )}
+              {createSearch.trim() && !createPaymentId && (
+                <p className="mt-2 text-[12px] text-slate-500">
+                  Vui lòng nhập đầy đủ Payment ID hợp lệ.
+                </p>
+              )}
             </div>
 
             {/* ===================== PAYMENT LOADING ===================== */}
 
-            {createPaymentId &&
-              paymentQuery.isPending && (
-                <div
-                  role="status"
-                  aria-busy="true"
-                  className="space-y-3 rounded-xl border border-slate-200 p-4"
-                >
-                  <span className="sr-only">
-                    Đang tra cứu giao dịch
-                  </span>
+            {createPaymentId && paymentQuery.isPending && (
+              <div
+                role="status"
+                aria-busy="true"
+                className="space-y-3 rounded-xl border border-slate-200 p-4"
+              >
+                <span className="sr-only">Đang tra cứu giao dịch</span>
 
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-7 w-32" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              )}
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-7 w-32" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            )}
 
             {/* ===================== PAYMENT ERROR ===================== */}
 
@@ -395,14 +388,10 @@ export default function RefundManagement() {
                 role="alert"
                 className="flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-[13px] text-red-700"
               >
-                <AlertCircle
-                  size={17}
-                  className="mt-0.5 shrink-0"
-                />
+                <AlertCircle size={17} className="mt-0.5 shrink-0" />
 
                 <span>
-                  {paymentError ||
-                    "Không tìm thấy giao dịch thanh toán này."}
+                  {paymentError || "Không tìm thấy giao dịch thanh toán này."}
                 </span>
               </div>
             )}
@@ -431,10 +420,7 @@ export default function RefundManagement() {
                       </p>
 
                       <p className="mt-1 text-[24px] font-semibold tracking-tight text-slate-900">
-                        {formatPaymentAmount(
-                          payment.amount,
-                          payment.currency,
-                        )}
+                        {formatPaymentAmount(payment.amount, payment.currency)}
                       </p>
                     </div>
 
@@ -445,9 +431,7 @@ export default function RefundManagement() {
                           : "bg-amber-50 text-amber-700"
                       }`}
                     >
-                      {canCreateRefund
-                        ? "Đã thanh toán"
-                        : "Chưa đủ điều kiện"}
+                      {canCreateRefund ? "Đã thanh toán" : "Chưa đủ điều kiện"}
                     </span>
                   </div>
 
@@ -467,9 +451,7 @@ export default function RefundManagement() {
                     </div>
 
                     <div>
-                      <p className="text-[12px] text-slate-500">
-                        Trạng thái
-                      </p>
+                      <p className="text-[12px] text-slate-500">Trạng thái</p>
 
                       <p className="mt-1 text-[13px] font-medium text-slate-900">
                         {payment.status}
@@ -487,8 +469,7 @@ export default function RefundManagement() {
                       />
 
                       <p className="text-[12px] leading-5 text-amber-700">
-                        Giao dịch chưa đủ điều kiện
-                        tạo yêu cầu hoàn tiền.
+                        Giao dịch chưa đủ điều kiện tạo yêu cầu hoàn tiền.
                       </p>
                     </div>
                   )}
@@ -500,7 +481,14 @@ export default function RefundManagement() {
                       key={payment.id}
                       paymentId={payment.id}
                       disabled={!canCreateRefund}
+                      refundableAmount={refundableAmount}
+                      capacityLoading={
+                        reservedQuery.isPending || reservedQuery.isFetching
+                      }
+                      capacityError={capacityError}
+                      onRetryCapacity={() => void reservedQuery.refetch()}
                       onCreated={handleCreatedRefund}
+                      onSubmittingChange={setIsCreatingRefund}
                     />
                   )}
                 </div>
@@ -522,8 +510,7 @@ export default function RefundManagement() {
                 </p>
 
                 <p className="mt-1 text-[12px] text-slate-500">
-                  Nhập mã giao dịch phía trên để
-                  kiểm tra thông tin thanh toán.
+                  Nhập mã giao dịch phía trên để kiểm tra thông tin thanh toán.
                 </p>
               </div>
             )}
@@ -535,6 +522,7 @@ export default function RefundManagement() {
             <button
               type="button"
               onClick={closeCreateModal}
+              disabled={isCreatingRefund}
               className={`inline-flex h-10 w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-5 text-[13px] font-medium text-slate-700 transition-colors hover:bg-slate-50 sm:w-auto ${FOCUS_RING}`}
             >
               Đóng
@@ -547,9 +535,7 @@ export default function RefundManagement() {
 
       <RefundDecisionDialog
         key={
-          decision
-            ? `${decision.refund.id}-${decision.approve}`
-            : "no-decision"
+          decision ? `${decision.refund.id}-${decision.approve}` : "no-decision"
         }
         decision={decision}
         onClose={() => setDecision(null)}
@@ -557,10 +543,7 @@ export default function RefundManagement() {
 
       {/* ===================== REFUND DETAIL ===================== */}
 
-      <RefundDetail
-        refund={detail}
-        onClose={() => setDetail(null)}
-      />
+      <RefundDetail refund={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }

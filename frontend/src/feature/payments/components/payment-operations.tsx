@@ -350,6 +350,7 @@ function DataSection({
   onRetry,
   empty,
   children,
+  footer,
 }: {
   title: string;
   description: string;
@@ -358,6 +359,7 @@ function DataSection({
   onRetry: () => void;
   empty: boolean;
   children: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -385,6 +387,8 @@ function DataSection({
       ) : (
         children
       )}
+      {/* Footer độc lập: trang rỗng vẫn có nút quay về trang trước. */}
+      {!loading && !error && footer}
     </section>
   );
 }
@@ -402,6 +406,7 @@ function Pagination({
   page,
   totalPages,
   total,
+  hasNext,
   isFetching,
   onPrevious,
   onNext,
@@ -410,12 +415,15 @@ function Pagination({
   page: number;
   totalPages?: number;
   total?: number;
+  hasNext?: boolean;
   isFetching: boolean;
   onPrevious: () => void;
   onNext: () => void;
   onPageChange?: (page: number) => void;
 }) {
-  if (totalPages !== undefined && totalPages <= 1) return null;
+  const canGoNext =
+    totalPages !== undefined ? page < totalPages : Boolean(hasNext);
+  if (page <= 1 && !canGoNext) return null;
   const pages = totalPages ? getVisiblePages(page, totalPages) : [];
   const changePage = (targetPage: number) => {
     if (onPageChange) return onPageChange(targetPage);
@@ -428,8 +436,8 @@ function Pagination({
         <div className="flex items-center gap-2">
           <span>
             {total !== undefined
-              ? `· Tổng ${total} sự kiện`
-              : `· Trang ${page}`}
+              ? `Tổng ${total} sự kiện · Trang ${page}`
+              : `Trang ${page}`}
           </span>
           {isFetching && <span>· Đang cập nhật...</span>}
         </div>
@@ -470,9 +478,7 @@ function Pagination({
           )}
           <button
             type="button"
-            disabled={
-              (totalPages !== undefined && page >= totalPages) || isFetching
-            }
+            disabled={!canGoNext || isFetching}
             onClick={() => changePage(page + 1)}
             className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
           >
@@ -619,23 +625,74 @@ function ReconciliationSummary({ result }: { result: ReconciliationResult }) {
   );
 }
 
+// Một số báo cáo cũ chưa có thông tin về nguồn dữ liệu hoặc trạng thái kiểm tra ví.
+// Không tự kết luận đã kiểm tra khi backend chưa cung cấp thông tin.
+function getReportComparisonInfo(report: unknown) {
+  const record = report as Record<string, unknown>;
+  const scope = typeof record.scope === "string" ? record.scope : null;
+  const walletCompared = record.walletLedgerCompared;
+
+  const scopeLabel =
+    scope === "payment_local_unresolved_snapshot"
+      ? "Dữ liệu thanh toán HandyGo"
+      : scope === null
+        ? "Chưa có thông tin"
+        : scope;
+
+  const walletLabel =
+    walletCompared === true
+      ? "Đã kiểm tra"
+      : walletCompared === false
+        ? "Chưa kiểm tra"
+        : "Chưa có thông tin";
+
+  return { scopeLabel, walletLabel, walletCompared };
+}
+
 export default function PaymentOperations() {
   const [deadPage, setDeadPage] = useState(1);
   const [reportPage, setReportPage] = useState(1);
   const [action, setAction] = useState<ReasonAction | null>(null);
   const [result, setResult] = useState<ReconciliationResult | null>(null);
   const deadLetters = useDeadLettersQuery(deadPage, PAGE_SIZE);
+  // Backend phân trang theo page + limit: thay limit thành 21 sẽ làm lệch
+  // offset của trang 2 trở đi. Vì thế, dùng đúng limit=20 và truy vấn
+  // trang kế tiếp để kiểm tra có dữ liệu thật hay không.
   const reports = useReportsQuery(reportPage, PAGE_SIZE);
+  const nextReports = useReportsQuery(reportPage + 1, PAGE_SIZE);
   const replay = useReplayDeadLetter();
   const reconcile = useReconcilePayments();
   const deadTotalPages = deadLetters.data
     ? Math.max(Math.ceil(deadLetters.data.total / PAGE_SIZE), 1)
     : undefined;
-  const reportTotalPages = reports.data
-    ? reports.data.length < PAGE_SIZE
-      ? reportPage
-      : undefined
-    : undefined;
+  const reportItems = reports.data ?? [];
+  const reportsHasNext = Boolean(
+    reportItems.length === PAGE_SIZE && nextReports.data?.length,
+  );
+
+  // Nếu bản ghi cuối bị xử lý/xóa, đưa Admin về trang hợp lệ.
+  // Điều kiện bảo vệ tránh cập nhật state liên tục trong render.
+  // Chờ refetch hoàn tất để không dựa trên dữ liệu cache đã cũ.
+  if (
+    !deadLetters.isPending &&
+    !deadLetters.isFetching &&
+    deadTotalPages !== undefined &&
+    deadPage > deadTotalPages
+  ) {
+    setDeadPage(deadTotalPages);
+  }
+
+  // Reports không có total: trang rỗng > 1 tự lùi một trang.
+  // Thường xảy ra khi dữ liệu backend vừa giảm.
+  if (
+    !reports.isPending &&
+    !reports.isFetching &&
+    reports.data !== undefined &&
+    reports.data.length === 0 &&
+    reportPage > 1
+  ) {
+    setReportPage(reportPage - 1);
+  }
 
   async function submitAction(reason: string) {
     if (!action) return;
@@ -688,6 +745,17 @@ export default function PaymentOperations() {
         error={deadError}
         onRetry={() => void deadLetters.refetch()}
         empty={!deadLetters.data?.items.length}
+        footer={
+          <Pagination
+            page={deadPage}
+            totalPages={deadTotalPages}
+            total={deadLetters.data?.total}
+            isFetching={deadLetters.isFetching}
+            onPrevious={() => setDeadPage((page) => Math.max(1, page - 1))}
+            onNext={() => setDeadPage((page) => page + 1)}
+            onPageChange={setDeadPage}
+          />
+        }
       >
         <div className="overflow-x-auto">
           <table
@@ -755,72 +823,95 @@ export default function PaymentOperations() {
             </tbody>
           </table>
         </div>
-        <Pagination
-          page={deadPage}
-          totalPages={deadTotalPages}
-          total={deadLetters.data?.total}
-          isFetching={deadLetters.isFetching}
-          onPrevious={() => setDeadPage((page) => page - 1)}
-          onNext={() => setDeadPage((page) => page + 1)}
-          onPageChange={setDeadPage}
-        />
       </DataSection>
       <DataSection
-        title="Báo cáo đối soát"
-        description="Tổng hợp chênh lệch dữ liệu thanh toán theo ngày."
+        title="Báo cáo kiểm tra thanh toán"
+        description="Theo dõi các khoản cần kiểm tra và xử lý trong hệ thống thanh toán HandyGo."
         loading={reports.isPending}
         error={reportError}
         onRetry={() => void reports.refetch()}
-        empty={!reports.data?.length}
+        empty={reportItems.length === 0}
+        footer={
+          <Pagination
+            page={reportPage}
+            hasNext={reportsHasNext}
+            isFetching={reports.isFetching}
+            onPrevious={() => setReportPage((page) => Math.max(1, page - 1))}
+            onNext={() => setReportPage((page) => page + 1)}
+            onPageChange={setReportPage}
+          />
+        }
       >
+        <div className="mx-4 mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900 sm:mx-5">
+          <Info size={16} className="mt-0.5 shrink-0" />
+          <p>
+            Báo cáo có thể chỉ tổng hợp các khoản cần xử lý trong hệ thống thanh
+            toán HandyGo. Ngay cả khi số mục cần kiểm tra là <strong>0</strong>,
+            điều đó không có nghĩa dữ liệu đã khớp với hệ thống ví. Hãy xem
+            trạng thái kiểm tra ví của từng báo cáo.
+          </p>
+        </div>
         <div className="overflow-x-auto">
           <table
-            aria-label="Danh sách báo cáo đối soát"
-            className="w-full min-w-[720px] text-left text-sm"
+            aria-label="Danh sách báo cáo kiểm tra thanh toán"
+            className="w-full min-w-[1000px] text-left text-sm"
           >
             <thead className="border-b border-slate-100 bg-slate-50/70 text-xs text-slate-900">
               <tr>
                 <th className="px-4 py-3.5 sm:px-5">Ngày báo cáo</th>
-                <th className="px-3 py-3.5">Chênh lệch</th>
+                <th className="px-3 py-3.5">Cần kiểm tra</th>
+                <th className="px-3 py-3.5">Nguồn dữ liệu</th>
+                <th className="px-3 py-3.5">Kiểm tra với hệ thống ví</th>
                 <th className="px-3 py-3.5">Sự kiện lỗi</th>
                 <th className="px-3 py-3.5">Hoàn tiền cần xem xét</th>
                 <th className="px-4 py-3.5 sm:px-5">Tạo lúc</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {reports.data?.map((report) => (
-                <tr
-                  key={`${report.reportDate}-${report.generatedAt}`}
-                  className="hover:bg-slate-50/60"
-                >
-                  <td className="px-4 py-4 font-medium text-slate-900 sm:px-5">
-                    {report.reportDate}
-                  </td>
-                  <td className="px-3 py-4 text-slate-600">
-                    {report.discrepancyCount}
-                  </td>
-                  <td className="px-3 py-4 text-slate-600">
-                    {String(report.summary.deadEvents ?? "—")}
-                  </td>
-                  <td className="px-3 py-4 text-slate-600">
-                    {String(report.summary.reviewRefunds ?? "—")}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-4 text-slate-600 sm:px-5">
-                    {formatPaymentDate(report.generatedAt)}
-                  </td>
-                </tr>
-              ))}
+              {reportItems.map((report) => {
+                const { scopeLabel, walletLabel, walletCompared } =
+                  getReportComparisonInfo(report);
+
+                return (
+                  <tr
+                    key={`${report.reportDate}-${report.generatedAt}`}
+                    className="hover:bg-slate-50/60"
+                  >
+                    <td className="px-4 py-4 font-medium text-slate-900 sm:px-5">
+                      {report.reportDate}
+                    </td>
+                    <td className="px-3 py-4 font-semibold tabular-nums text-slate-900">
+                      {report.discrepancyCount}
+                    </td>
+                    <td className="px-3 py-4 text-slate-600">{scopeLabel}</td>
+                    <td className="px-3 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                          walletCompared === true
+                            ? "bg-sky-50 text-sky-700"
+                            : walletCompared === false
+                              ? "bg-amber-50 text-amber-800"
+                              : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {walletLabel}
+                      </span>
+                    </td>
+                    <td className="px-3 py-4 text-slate-600">
+                      {String(report.summary.deadEvents ?? "—")}
+                    </td>
+                    <td className="px-3 py-4 text-slate-600">
+                      {String(report.summary.reviewRefunds ?? "—")}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 text-slate-600 sm:px-5">
+                      {formatPaymentDate(report.generatedAt)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        <Pagination
-          page={reportPage}
-          totalPages={reportTotalPages}
-          isFetching={reports.isFetching}
-          onPrevious={() => setReportPage((page) => page - 1)}
-          onNext={() => setReportPage((page) => page + 1)}
-          onPageChange={setReportPage}
-        />
       </DataSection>
       <ReasonDialog
         key={

@@ -192,7 +192,16 @@ export default function RefundTable({
   const { data, error, isFetching, isPending } = refundsQuery;
 
   const totalPages = data?.totalPages ?? 0;
+  const safeTotalPages = Math.max(1, totalPages);
   const refunds = data?.items ?? [];
+
+  // React Query đã có response mới và xác nhận trang hiện tại vượt giới hạn:
+  // chuyển về trang hợp lệ, kể cả khi tổng trang giảm còn 0 hoặc 1.
+  // Cập nhật state của CHÍNH component trong render có điều kiện bảo vệ,
+  // tránh useEffect + setState đồng bộ (react-hooks/set-state-in-effect).
+  if (data && !isFetching && page > safeTotalPages) {
+    setPage(safeTotalPages);
+  }
 
   const emptyState = (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
@@ -618,7 +627,7 @@ export default function RefundTable({
       </div>
 
       {/* PAGINATION */}
-      {!isPending && totalPages > 1 && (
+      {!isPending && (totalPages > 1 || page > 1) && (
         <nav
           aria-label="Phân trang yêu cầu hoàn tiền"
           className="
@@ -630,10 +639,9 @@ export default function RefundTable({
           "
         >
           <p className="text-[13px] text-[#64748B]">
-            Hiển thị {(page - 1) * PAGE_SIZE + 1}
-            {" – "}
-            {Math.min(page * PAGE_SIZE, data?.total ?? page * PAGE_SIZE)} trong
-            tổng số {data?.total ?? 0} yêu cầu
+            {refunds.length > 0
+              ? `Hiển thị ${(page - 1) * PAGE_SIZE + 1} – ${Math.min(page * PAGE_SIZE, data?.total ?? page * PAGE_SIZE)} trong tổng số ${data?.total ?? 0} yêu cầu`
+              : `Không có yêu cầu ở trang ${page} · Tổng ${data?.total ?? 0} yêu cầu`}
           </p>
 
           <div className="flex items-center gap-2">
@@ -656,12 +664,12 @@ export default function RefundTable({
             </button>
 
             <span className="px-2 text-[13px] text-slate-500">
-              {data?.page ?? page} / {totalPages}
+              {page} / {safeTotalPages}
             </span>
 
             <button
               type="button"
-              disabled={page >= totalPages || isFetching}
+              disabled={page >= safeTotalPages || isFetching}
               onClick={() => setPage((current) => current + 1)}
               className={`
                 inline-flex h-9 items-center gap-1
