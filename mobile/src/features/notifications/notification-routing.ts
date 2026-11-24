@@ -100,4 +100,3 @@ export function resolveNotificationDeepLink(
 export function getFallbackNotificationRoute(activeMode?: 'Customer' | 'Worker' | null): string {
   return activeMode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications';
 }
-

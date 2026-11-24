@@ -896,14 +896,14 @@ describe('workerSkillsScreen', () => {
     render(<WorkerSkillsScreen />);
 
     await waitFor(() => {
-      // Must query with role: 'worker'
-      expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 1, limit: 50 }));
-      expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 2, limit: 50 }));
-      // Total orders for this service = 60 (the 1 customer order of dual-role is excluded!)
-      expect(screen.getByText('60 đơn')).toBeOnTheScreen();
-      // Total revenue = 60 * 200,000 = 12,000,000 đ (customer order 500,000 is excluded!)
       expect(screen.getAllByText('12.000.000 đ')).toHaveLength(2);
     });
+
+    // Must query with role: 'worker'
+    expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 1, limit: 50 }));
+    expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 2, limit: 50 }));
+    // Total orders for this service = 60 (the 1 customer order of dual-role is excluded!)
+    expect(screen.getByText('60 đơn')).toBeOnTheScreen();
   });
 
   it('stops polling and triggers profile refresh when pending registration is approved', async () => {
@@ -979,6 +979,8 @@ describe('workerSkillsScreen', () => {
 
     await waitFor(() => {
       expect(getRegsSpy).toHaveBeenCalled();
+    });
+    await waitFor(() => {
       expect(getProfileSpy).toHaveBeenCalledTimes(1);
     });
 
