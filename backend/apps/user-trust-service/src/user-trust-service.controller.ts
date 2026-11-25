@@ -282,7 +282,11 @@ export class UserTrustServiceController {
     const existingHeaders = originalMsg?.properties?.headers ?? {};
     const previousAttempts = Number(existingHeaders['x-retry-count'] ?? 0) || 0;
     const mainQueue = RABBITMQ_QUEUES.USER_TRUST;
-    const dlqQueue = `${mainQueue}.dlq`;
+    const dlqQueue = `${mainQueue}.v2.dlq`;
+    const quorumArgs = {
+      'x-queue-type': 'quorum',
+      'x-overflow': 'reject-publish',
+    };
 
     if (!workerUserId || !orderId) {
       this.logger.warn(
@@ -299,11 +303,24 @@ export class UserTrustServiceController {
             'x-last-error': 'MALFORMED_PAYLOAD',
             'x-failed-at': new Date().toISOString(),
           },
+          quorumArgs,
         );
-        if (dlqPublished) {
+        const dbRecorded = dlqPublished
+          ? false
+          : await this.userTrustService.recordDeadLetter(
+              eventType,
+              event,
+              'MALFORMED_PAYLOAD',
+              1,
+            );
+        if (dlqPublished || dbRecorded) {
           channel.ack(originalMsg);
         } else {
-          channel.nack(originalMsg, false, false);
+          this.logger.error(
+            `Dead-letter persistence failed on both broker and DB for malformed ${eventType}; requeueing to prevent message loss.`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          channel.nack(originalMsg, false, true);
         }
       }
       return { processed: false, reason: 'MALFORMED_PAYLOAD' };
@@ -324,9 +341,9 @@ export class UserTrustServiceController {
         const delay =
           this.RETRY_DELAYS_MS[nextAttempt - 1] ?? 300 * nextAttempt;
         this.logger.warn(
-          `Transient error handling ${eventType} for order ${orderId} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Republishing to retry queue (${delay}ms)...`,
+          `Transient error handling ${eventType} for order ${orderId} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Republishing to quorum retry queue (${delay}ms)...`,
         );
-        const retryQueue = `${mainQueue}.retry.${nextAttempt}`;
+        const retryQueue = `${mainQueue}.v2.retry.${nextAttempt}`;
         const retryPublished = await this.publishToBrokerQueue(
           channel,
           retryQueue,
@@ -338,9 +355,11 @@ export class UserTrustServiceController {
             'x-last-error': errMsg,
           },
           {
-            'x-message-ttl': delay,
+            ...quorumArgs,
+            'x-dead-letter-strategy': 'at-least-once',
             'x-dead-letter-exchange': '',
             'x-dead-letter-routing-key': mainQueue,
+            'x-message-ttl': delay,
           },
         );
         if (channel && originalMsg) {
@@ -353,7 +372,7 @@ export class UserTrustServiceController {
         }
       } else {
         this.logger.error(
-          `Permanent error or retries exhausted for ${eventType} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Persisting to DLQ.`,
+          `Permanent error or retries exhausted for ${eventType} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Persisting to quorum DLQ.`,
         );
         const dlqPublished = await this.publishToBrokerQueue(
           channel,
@@ -366,6 +385,7 @@ export class UserTrustServiceController {
             'x-last-error': errMsg,
             'x-failed-at': new Date().toISOString(),
           },
+          quorumArgs,
         );
         const dbRecorded = await this.userTrustService.recordDeadLetter(
           eventType,

@@ -193,6 +193,7 @@ export const OrdersApi = {
         completedCount: number;
         cancelledCount: number;
         totalCompletedAmount: number;
+        totalServiceRevenue?: number;
         byService?: Array<{
           serviceId: string;
           orderCount: number;

@@ -193,11 +193,16 @@ export function WorkerSkillsScreen() {
       }
 
       if (Array.isArray(summaryData?.byService)) {
+        const sumByServiceRevenue = summaryData.byService.reduce(
+          (acc, item) => acc + (Number(item.revenue) || 0),
+          0,
+        );
         return {
           mode: 'aggregate' as const,
           byService: summaryData.byService,
           completedCount: summaryData.completedCount ?? 0,
-          totalCompletedAmount: summaryData.totalCompletedAmount ?? 0,
+          totalServiceRevenue:
+            summaryData.totalServiceRevenue ?? sumByServiceRevenue,
         };
       }
 
@@ -388,8 +393,8 @@ export function WorkerSkillsScreen() {
   const totalRevenue = React.useMemo(() => {
     const rawOrders = ordersQuery.data;
     if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
-      if (rawOrders.totalCompletedAmount > 0) {
-        return rawOrders.totalCompletedAmount;
+      if (rawOrders.totalServiceRevenue > 0) {
+        return rawOrders.totalServiceRevenue;
       }
       return approvedServices.reduce((sum, s) => {
         const stats = ordersStatsByService[s.serviceId || s.id];

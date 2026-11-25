@@ -97,18 +97,54 @@ describe('UserTrustServiceController', () => {
     expect(channelMock.ack).toHaveBeenCalled();
   });
 
-  it('should nack without requeue when payload is malformed (missing orderId or workerUserId)', async () => {
+  it('moves malformed payload to quorum DLQ and ACKs, or requeues if both broker DLQ and DB fail', async () => {
     const malformedEvent = { eventId: 'evt-order-err', data: {} } as any;
-    const channelMock = { ack: vi.fn(), nack: vi.fn() };
-    const contextMock = {
-      getChannelRef: () => channelMock,
-      getMessage: () => ({}),
+    const confirmChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi.fn().mockResolvedValue(undefined),
+    };
+    const contextOk = {
+      getChannelRef: () => confirmChannelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(malformedEvent)),
+        properties: { headers: {} },
+      }),
     };
 
-    const result = await controller.handleOrderCompleted(malformedEvent, contextMock);
+    const result = await controller.handleOrderCompleted(malformedEvent, contextOk);
     expect(result).toEqual({ processed: false, reason: 'MALFORMED_PAYLOAD' });
-    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, false);
+    expect(confirmChannelMock.assertQueue).toHaveBeenCalledWith(
+      'user-trust-service.v2.dlq',
+      expect.objectContaining({
+        durable: true,
+        arguments: {
+          'x-queue-type': 'quorum',
+          'x-overflow': 'reject-publish',
+        },
+      }),
+    );
+    expect(confirmChannelMock.ack).toHaveBeenCalledTimes(1);
+    expect(confirmChannelMock.nack).not.toHaveBeenCalled();
     expect(serviceMock.handleOrderCompleted).not.toHaveBeenCalled();
+
+    // When both broker DLQ and DB fail for malformed payload, must requeue (never nack(false,false))
+    const failingChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockRejectedValue(new Error('Broker down')),
+      sendToQueue: vi.fn(),
+      waitForConfirms: vi.fn(),
+    };
+    serviceMock.recordDeadLetter.mockResolvedValueOnce(false);
+    await controller.handleOrderCompleted(malformedEvent, {
+      getChannelRef: () => failingChannelMock,
+      getMessage: () => ({ content: Buffer.from('{}'), properties: { headers: {} } }),
+    });
+    expect(failingChannelMock.ack).not.toHaveBeenCalled();
+    expect(failingChannelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
   });
 
   it('should retry transient DB error with requeue up to max retries', async () => {
@@ -185,8 +221,21 @@ describe('UserTrustServiceController', () => {
       channelMock.ack.mockClear();
       channelMock.sendToQueue.mockClear();
       await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+      expect(channelMock.assertQueue).toHaveBeenCalledWith(
+        `user-trust-service.v2.retry.${i}`,
+        expect.objectContaining({
+          durable: true,
+          arguments: expect.objectContaining({
+            'x-queue-type': 'quorum',
+            'x-overflow': 'reject-publish',
+            'x-dead-letter-strategy': 'at-least-once',
+            'x-dead-letter-exchange': '',
+            'x-dead-letter-routing-key': 'user-trust-service',
+          }),
+        }),
+      );
       expect(channelMock.sendToQueue).toHaveBeenCalledWith(
-        `user-trust-service.retry.${i}`,
+        `user-trust-service.v2.retry.${i}`,
         expect.any(Buffer),
         expect.objectContaining({
           persistent: true,
@@ -202,7 +251,7 @@ describe('UserTrustServiceController', () => {
     channelMock.sendToQueue.mockClear();
     await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
     expect(channelMock.sendToQueue).toHaveBeenCalledWith(
-      'user-trust-service.dlq',
+      'user-trust-service.v2.dlq',
       expect.any(Buffer),
       expect.objectContaining({
         persistent: true,
@@ -270,7 +319,7 @@ describe('UserTrustServiceController', () => {
     serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
     await expect(restartedController.handleOrderCompleted(event, contextAttempt3)).rejects.toThrow();
     expect(channelMock.sendToQueue).toHaveBeenCalledWith(
-      'user-trust-service.retry.3',
+      'user-trust-service.v2.retry.3',
       expect.any(Buffer),
       expect.objectContaining({
         headers: expect.objectContaining({ 'x-retry-count': 3 }),
