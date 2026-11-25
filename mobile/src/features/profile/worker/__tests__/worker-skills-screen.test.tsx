@@ -1257,4 +1257,115 @@ describe('workerSkillsScreen', () => {
 
     jest.useRealTimers();
   });
+
+  it('uses lightweight getOrderSummary aggregate endpoint (1 request per 15s poll for >1,000 orders) and stops polling on blur', async () => {
+    jest.useFakeTimers();
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isHydrated: true,
+      user: {
+        id: 'worker-agg-1',
+        phone: '0900005001',
+        email: 'wagg@test.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    let completedCount = 1001;
+    let totalRevenue = 100100000;
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockImplementation(async () => ({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-agg-1',
+        userId: 'worker-agg-1',
+        fullName: 'Thợ Aggregate',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: completedCount,
+          completedOrderCount: completedCount,
+          orderCountTotal: completedCount,
+          ratingDistribution: { 5: completedCount, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-agg',
+            serviceId: 'svc-uuid-agg',
+            title: 'Vệ sinh máy lạnh',
+            experienceYears: 5,
+            isActive: true,
+          },
+        ],
+      },
+    }));
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    const summarySpy = jest
+      .spyOn(OrdersApi, 'getOrderSummary')
+      .mockImplementation(async () => ({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          completedCount,
+          cancelledCount: 0,
+          totalCompletedAmount: totalRevenue,
+          byService: [
+            {
+              serviceId: 'svc-uuid-agg',
+              orderCount: completedCount,
+              revenue: totalRevenue,
+            },
+          ],
+        },
+      }));
+
+    const getMyOrdersSpy = jest.spyOn(OrdersApi, 'getMyOrders');
+
+    const { unmount } = render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1001 đơn')).toBeOnTheScreen();
+      expect(screen.getAllByText('100.100.000 đ').length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Must NOT fall back to paginated getMyOrders when summary endpoint returns byService
+    expect(getMyOrdersSpy).not.toHaveBeenCalled();
+    const initialSummaryCalls = summarySpy.mock.calls.length;
+
+    // Simulate 2 polling cycles (15s each) while worker has 1,001 -> 1,002 orders
+    completedCount = 1002;
+    totalRevenue = 100250000;
+    jest.advanceTimersByTime(15000);
+
+    await waitFor(() => {
+      expect(screen.getByText('1002 đơn')).toBeOnTheScreen();
+      expect(screen.getAllByText('100.250.000 đ').length).toBeGreaterThanOrEqual(1);
+    });
+    expect(summarySpy.mock.calls.length).toBe(initialSummaryCalls + 1);
+    expect(getMyOrdersSpy).not.toHaveBeenCalled();
+
+    jest.advanceTimersByTime(15000);
+    await waitFor(() => {
+      expect(summarySpy.mock.calls.length).toBe(initialSummaryCalls + 2);
+    });
+    expect(getMyOrdersSpy).not.toHaveBeenCalled();
+
+    // Blur / unmount stops polling completely
+    const callsBeforeBlur = summarySpy.mock.calls.length;
+    unmount();
+    jest.advanceTimersByTime(45000);
+    expect(summarySpy.mock.calls.length).toBe(callsBeforeBlur);
+
+    jest.useRealTimers();
+  });
 });

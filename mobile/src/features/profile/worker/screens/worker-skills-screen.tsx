@@ -177,11 +177,30 @@ export function WorkerSkillsScreen() {
     retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
-  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
-  // Phân trang đầy đủ không giới hạn cứng số trang
+  // Query: Worker Orders Stats (ưu tiên endpoint aggregate nhẹ GET /orders/summary?role=worker)
   const ordersQuery = useQuery({
     queryKey: ordersQueryKeys.workerSkillsOrders(userId),
     queryFn: async () => {
+      let summaryData: Awaited<ReturnType<typeof OrdersApi.getOrderSummary>>['data'] | undefined;
+      try {
+        const summaryRes = await OrdersApi.getOrderSummary({ role: 'worker' });
+        summaryData = summaryRes?.data;
+      }
+      catch (err: any) {
+        if (err?.statusCode || err?.response?.status) {
+          throw err;
+        }
+      }
+
+      if (Array.isArray(summaryData?.byService)) {
+        return {
+          mode: 'aggregate' as const,
+          byService: summaryData.byService,
+          completedCount: summaryData.completedCount ?? 0,
+          totalCompletedAmount: summaryData.totalCompletedAmount ?? 0,
+        };
+      }
+
       let allOrders: any[] = [];
       let page = 1;
       const limit = 50;
@@ -316,8 +335,21 @@ export function WorkerSkillsScreen() {
 
   // Thống kê số đơn và doanh thu tổng hợp từ Order Service theo từng serviceId
   const ordersStatsByService = React.useMemo(() => {
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      const map: Record<string, { count: number; revenue: number }> = {};
+      for (const item of rawOrders.byService) {
+        if (item.serviceId) {
+          map[item.serviceId] = {
+            count: item.orderCount ?? 0,
+            revenue: Number(item.revenue) || 0,
+          };
+        }
+      }
+      return map;
+    }
+
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     const map: Record<string, { count: number; revenue: number }> = {};
     for (const order of list) {
       // Chỉ tính đơn của worker hiện tại (loại bỏ đơn đặt của chính tài khoản khi đóng vai trò Customer)
@@ -354,9 +386,20 @@ export function WorkerSkillsScreen() {
 
   // Tổng doanh thu tính từ Order Service (hoặc fallback theo dịch vụ)
   const totalRevenue = React.useMemo(() => {
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      if (rawOrders.totalCompletedAmount > 0) {
+        return rawOrders.totalCompletedAmount;
+      }
+      return approvedServices.reduce((sum, s) => {
+        const stats = ordersStatsByService[s.serviceId || s.id];
+        const r = s.revenue ?? stats?.revenue ?? 0;
+        return sum + r;
+      }, 0);
+    }
+
     let revFromOrders = 0;
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     for (const o of list) {
       if (o.workerUserId && o.workerUserId !== userId) {
         continue;

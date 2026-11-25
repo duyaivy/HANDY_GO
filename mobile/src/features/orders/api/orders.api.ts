@@ -193,6 +193,11 @@ export const OrdersApi = {
         completedCount: number;
         cancelledCount: number;
         totalCompletedAmount: number;
+        byService?: Array<{
+          serviceId: string;
+          orderCount: number;
+          revenue: number;
+        }>;
       };
     }>('/orders/summary', { params });
   },

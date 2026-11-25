@@ -2064,7 +2064,7 @@ export class OrdersService {
       whereRole.workerUserId = userId;
     }
 
-    const [completedAgg, cancelledCount] = await Promise.all([
+    const [completedAgg, cancelledCount, byServiceRows] = await Promise.all([
       this.prisma.order.aggregate({
         where: { ...whereRole, status: 'completed' },
         _count: { id: true },
@@ -2073,12 +2073,29 @@ export class OrdersService {
       this.prisma.order.count({
         where: { ...whereRole, status: 'cancelled' },
       }),
+      typeof (this.prisma.order as any).groupBy === 'function'
+        ? (this.prisma.order as any).groupBy({
+            by: ['serviceId'],
+            where: {
+              ...whereRole,
+              serviceId: { not: null },
+              OR: [{ status: 'completed' }, { paymentState: 'paid' }],
+            },
+            _count: { id: true },
+            _sum: { agreedPrice: true },
+          })
+        : Promise.resolve([]),
     ]);
 
     return {
       completedCount: completedAgg._count.id ?? 0,
       cancelledCount: cancelledCount ?? 0,
       totalCompletedAmount: Number(completedAgg._sum.agreedPrice || 0),
+      byService: (byServiceRows as any[]).map((row) => ({
+        serviceId: row.serviceId as string,
+        orderCount: row._count?.id ?? 0,
+        revenue: Number(row._sum?.agreedPrice || 0),
+      })),
     };
   }
 

@@ -161,7 +161,9 @@ export class UserTrustServiceController {
   }
 
   private readonly MAX_EVENT_RETRIES = 3;
+  private readonly RETRY_DELAYS_MS = [300, 600, 900] as const;
   private confirmChannel: any = null;
+  private publishChain: Promise<void> = Promise.resolve();
 
   private async getConfirmChannel(channel: any): Promise<any | null> {
     if (!channel) {
@@ -193,7 +195,7 @@ export class UserTrustServiceController {
     return null;
   }
 
-  private async publishToBrokerQueue(
+  private publishToBrokerQueue(
     channel: any,
     queueName: string,
     originalMsg: any,
@@ -201,46 +203,60 @@ export class UserTrustServiceController {
     headers: Record<string, unknown>,
     queueArgs?: Record<string, unknown>,
   ): Promise<boolean> {
-    try {
-      const confirmCh = await this.getConfirmChannel(channel);
-      if (
-        !confirmCh ||
-        typeof confirmCh.assertQueue !== 'function' ||
-        typeof confirmCh.sendToQueue !== 'function' ||
-        typeof confirmCh.waitForConfirms !== 'function'
-      ) {
-        return false;
-      }
+    const run = async (): Promise<boolean> => {
+      try {
+        const confirmCh = await this.getConfirmChannel(channel);
+        if (
+          !confirmCh ||
+          typeof confirmCh.assertQueue !== 'function' ||
+          typeof confirmCh.sendToQueue !== 'function' ||
+          typeof confirmCh.waitForConfirms !== 'function'
+        ) {
+          return false;
+        }
 
-      await confirmCh.assertQueue(
-        queueName,
-        queueArgs ? { durable: true, arguments: queueArgs } : { durable: true },
-      );
-      const rawContent =
-        originalMsg?.content instanceof Buffer
-          ? originalMsg.content
-          : Buffer.from(JSON.stringify(event ?? {}));
-      const existingProps = originalMsg?.properties ?? {};
-      const sent = confirmCh.sendToQueue(queueName, rawContent, {
-        ...existingProps,
-        persistent: true,
-        headers: {
-          ...(existingProps.headers ?? {}),
-          ...headers,
-        },
-      });
-      if (sent === false) {
+        await confirmCh.assertQueue(
+          queueName,
+          queueArgs ? { durable: true, arguments: queueArgs } : { durable: true },
+        );
+        const rawContent =
+          originalMsg?.content instanceof Buffer
+            ? originalMsg.content
+            : Buffer.from(JSON.stringify(event ?? {}));
+        const existingProps = originalMsg?.properties ?? {};
+        // Strip expiration so dead-lettered / retried messages never inherit stale TTLs
+        const { expiration: _omitExpiration, ...safeProps } = existingProps;
+        const sent = confirmCh.sendToQueue(queueName, rawContent, {
+          ...safeProps,
+          persistent: true,
+          headers: {
+            ...(safeProps.headers ?? {}),
+            ...headers,
+          },
+        });
+        if (sent === false && typeof confirmCh.once === 'function') {
+          await new Promise<void>((resolve) => {
+            confirmCh.once('drain', () => resolve());
+            setTimeout(resolve, 50);
+          });
+        }
+        await confirmCh.waitForConfirms();
+        return true;
+      } catch (publishErr) {
+        this.confirmChannel = null;
+        this.logger.error(
+          `Failed to publish message to ${queueName}: ${(publishErr as Error).message}`,
+        );
         return false;
       }
-      await confirmCh.waitForConfirms();
-      return true;
-    } catch (publishErr) {
-      this.confirmChannel = null;
-      this.logger.error(
-        `Failed to publish message to ${queueName}: ${(publishErr as Error).message}`,
-      );
-      return false;
-    }
+    };
+
+    const next = this.publishChain.then(run, run);
+    this.publishChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private async processOrderEventWithRetry(
@@ -305,7 +321,8 @@ export class UserTrustServiceController {
       const nextAttempt = previousAttempts + 1;
 
       if (isTransient && nextAttempt <= this.MAX_EVENT_RETRIES) {
-        const delay = process.env.NODE_ENV === 'test' ? 10 : 300 * nextAttempt;
+        const delay =
+          this.RETRY_DELAYS_MS[nextAttempt - 1] ?? 300 * nextAttempt;
         this.logger.warn(
           `Transient error handling ${eventType} for order ${orderId} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Republishing to retry queue (${delay}ms)...`,
         );

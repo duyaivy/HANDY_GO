@@ -1795,11 +1795,21 @@ describe('OrdersService', () => {
         _sum: { agreedPrice: 2500000n as any },
       } as any);
       prismaMock.order.count.mockResolvedValue(2);
+      (prismaMock.order as any).groupBy = vi.fn().mockResolvedValue([
+        {
+          serviceId: 'svc-1',
+          _count: { id: 5 },
+          _sum: { agreedPrice: 2500000n },
+        },
+      ]);
 
       const summary = await service.getOrderSummary(mockWorkerId, 'worker', ['Worker']);
       expect(summary.completedCount).toBe(5);
       expect(summary.cancelledCount).toBe(2);
       expect(summary.totalCompletedAmount).toBe(2500000);
+      expect(summary.byService).toEqual([
+        { serviceId: 'svc-1', orderCount: 5, revenue: 2500000 },
+      ]);
       expect(prismaMock.order.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
