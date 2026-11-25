@@ -42,7 +42,11 @@ import {
 } from "../operation-utils";
 import { formatPaymentDate } from "../payment-utils";
 import { PAYMENT_ID_PATTERN } from "../schemas/payment.schema";
-import type { DeadLetter, ReconciliationResult } from "../types/operations";
+import type {
+  DeadLetter,
+  ReconciliationReport,
+  ReconciliationResult,
+} from "../types/operations";
 
 const PAGE_SIZE = 20;
 type ReasonAction =
@@ -627,10 +631,14 @@ function ReconciliationSummary({ result }: { result: ReconciliationResult }) {
 
 // Một số báo cáo cũ chưa có thông tin về nguồn dữ liệu hoặc trạng thái kiểm tra ví.
 // Không tự kết luận đã kiểm tra khi backend chưa cung cấp thông tin.
-function getReportComparisonInfo(report: unknown) {
-  const record = report as Record<string, unknown>;
-  const scope = typeof record.scope === "string" ? record.scope : null;
-  const walletCompared = record.walletLedgerCompared;
+export function getReportComparisonInfo(
+  summary: ReconciliationReport["summary"] | null | undefined,
+) {
+  const scope = typeof summary?.scope === "string" ? summary.scope : null;
+  const walletCompared =
+    typeof summary?.walletLedgerCompared === "boolean"
+      ? summary.walletLedgerCompared
+      : null;
 
   const scopeLabel =
     scope === "payment_local_unresolved_snapshot"
@@ -870,7 +878,7 @@ export default function PaymentOperations() {
             <tbody className="divide-y divide-slate-100">
               {reportItems.map((report) => {
                 const { scopeLabel, walletLabel, walletCompared } =
-                  getReportComparisonInfo(report);
+                  getReportComparisonInfo(report.summary);
 
                 return (
                   <tr
@@ -898,10 +906,10 @@ export default function PaymentOperations() {
                       </span>
                     </td>
                     <td className="px-3 py-4 text-slate-600">
-                      {String(report.summary.deadEvents ?? "—")}
+                      {String(report.summary?.deadEvents ?? "—")}
                     </td>
                     <td className="px-3 py-4 text-slate-600">
-                      {String(report.summary.reviewRefunds ?? "—")}
+                      {String(report.summary?.reviewRefunds ?? "—")}
                     </td>
                     <td className="whitespace-nowrap px-4 py-4 text-slate-600 sm:px-5">
                       {formatPaymentDate(report.generatedAt)}

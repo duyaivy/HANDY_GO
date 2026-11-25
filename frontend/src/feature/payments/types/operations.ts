@@ -14,9 +14,20 @@ export type DeadLetterResponse = {
   limit: number;
 };
 
+export type ReconciliationReportSummary = {
+  scope?: string;
+  walletLedgerCompared?: boolean;
+  processingPayments?: number;
+  stuckTopups?: number;
+  reviewRefunds?: number;
+  reviewPayouts?: number;
+  deadEvents?: number;
+  [key: string]: unknown;
+};
+
 export type ReconciliationReport = {
   reportDate: string;
-  summary: Record<string, unknown>;
+  summary: ReconciliationReportSummary;
   discrepancyCount: number;
   generatedAt: string;
 };

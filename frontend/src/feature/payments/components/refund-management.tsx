@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { HttpError } from "@/shared/api/http";
+import { useAuthUser } from "@/feature/auth/component/auth-session";
 
 import { usePaymentDetailQuery } from "../hooks/use-payments";
 import { useRefundReservedAmountQuery } from "../hooks/use-refunds";
@@ -43,6 +44,7 @@ const FOCUS_RING =
 // ===================== MAIN COMPONENT =====================
 
 export default function RefundManagement() {
+  const user = useAuthUser();
   // ===================== FILTER STATE =====================
 
   const [search, setSearch] = useState("");
@@ -115,16 +117,39 @@ export default function RefundManagement() {
     canCreateRefund && createOpen ? (payment?.id ?? null) : null,
   );
 
+  function computeRefundableAmount(
+    paymentAmount: string,
+    reservedAmount: string,
+  ) {
+    if (!/^\d+$/.test(paymentAmount)) {
+      throw new Error("Invalid payment amount");
+    }
+    const remaining = BigInt(paymentAmount) - BigInt(reservedAmount);
+    return (remaining > BigInt(0) ? remaining : BigInt(0)).toString();
+  }
+
+  function buildCapacitySnapshot(
+    refundable: string,
+    paymentStatus: string,
+    reserved: NonNullable<typeof reservedQuery.data>,
+  ) {
+    return `${refundable}:${paymentStatus}:${reserved.totalCount}:${reserved.latestRefundId ?? "none"}:${reserved.latestRefundStatus ?? "none"}`;
+  }
+
   let refundableAmount: string | null = null;
+  let capacitySnapshot: string | null = null;
   let invalidRefundAmount = false;
   if (payment && reservedQuery.data !== undefined) {
     try {
-      if (!/^\d+$/.test(payment.amount))
-        throw new Error("Invalid payment amount");
-      const remaining = BigInt(payment.amount) - BigInt(reservedQuery.data);
-      refundableAmount = (
-        remaining > BigInt(0) ? remaining : BigInt(0)
-      ).toString();
+      refundableAmount = computeRefundableAmount(
+        payment.amount,
+        reservedQuery.data.reservedAmount,
+      );
+      capacitySnapshot = buildCapacitySnapshot(
+        refundableAmount,
+        payment.status,
+        reservedQuery.data,
+      );
     } catch {
       invalidRefundAmount = true;
     }
@@ -135,6 +160,66 @@ export default function RefundManagement() {
     : reservedQuery.isError
       ? "Không thể tải đầy đủ lịch sử hoàn tiền để tính hạn mức. Vui lòng thử lại."
       : null;
+
+  async function verifyRefundCapacity(): Promise<{
+    disabled: boolean;
+    refundableAmount: string | null;
+    capacitySnapshot: string | null;
+  }> {
+    const latestPaymentResult = await paymentQuery.refetch();
+    const latestPayment = latestPaymentResult.data;
+    if (latestPaymentResult.isError || !latestPayment) {
+      throw new Error(
+        "Không thể xác minh trạng thái giao dịch mới nhất. Vui lòng thử lại.",
+      );
+    }
+
+    const eligible =
+      latestPayment.status === "succeeded" ||
+      latestPayment.status === "partially_refunded";
+    if (!eligible) {
+      return {
+        disabled: true,
+        refundableAmount: null,
+        capacitySnapshot: null,
+      };
+    }
+
+    const latestReservedResult = await reservedQuery.refetch();
+    if (latestReservedResult.isError || latestReservedResult.data === undefined) {
+      throw new Error(
+        "Không thể tải đầy đủ lịch sử hoàn tiền để xác minh hạn mức. Vui lòng thử lại.",
+      );
+    }
+
+    try {
+      const latestRefundable = computeRefundableAmount(
+        latestPayment.amount,
+        latestReservedResult.data.reservedAmount,
+      );
+      return {
+        disabled: false,
+        refundableAmount: latestRefundable,
+        capacitySnapshot: buildCapacitySnapshot(
+          latestRefundable,
+          latestPayment.status,
+          latestReservedResult.data,
+        ),
+      };
+    } catch {
+      throw new Error(
+        "Dữ liệu số tiền giao dịch không hợp lệ. Không thể xác định hạn mức hoàn.",
+      );
+    }
+  }
+
+  function refreshRefundContext() {
+    void paymentQuery.refetch();
+    if (canCreateRefund) {
+      void reservedQuery.refetch();
+    }
+    setRefreshKey((previous) => previous + 1);
+  }
 
   // ===================== HANDLERS =====================
 
@@ -478,15 +563,18 @@ export default function RefundManagement() {
 
                   {/* Render recovery kể cả khi payment đã refunded. */}
                   <CreateRefundDialog
-                    key={payment.id}
+                    key={`${user.id}:${payment.id}`}
                     paymentId={payment.id}
                     disabled={!canCreateRefund}
                     refundableAmount={refundableAmount}
+                    capacitySnapshot={capacitySnapshot}
                     capacityLoading={
                       reservedQuery.isPending || reservedQuery.isFetching
                     }
                     capacityError={capacityError}
                     onRetryCapacity={() => void reservedQuery.refetch()}
+                    onVerifyCapacity={verifyRefundCapacity}
+                    onRefreshState={refreshRefundContext}
                     onCreated={handleCreatedRefund}
                     onSubmittingChange={setIsCreatingRefund}
                   />

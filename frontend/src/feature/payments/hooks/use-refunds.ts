@@ -23,17 +23,26 @@ const RESERVED_STATUSES = new Set<RefundStatus>([
   "completed",
 ]);
 
+export type RefundReservedSnapshot = {
+  reservedAmount: string;
+  totalCount: number;
+  latestRefundId: string | null;
+  latestRefundStatus: RefundStatus | null;
+};
+
 /** Tính tổng refund chiếm hạn mức, chỉ khi đã tải đầy đủ tất cả trang. */
 export const useRefundReservedAmountQuery = (paymentId: string | null) =>
   useQuery({
     queryKey: [...REFUND_QUERY_KEY, "reserved-amount", paymentId],
     enabled: Boolean(paymentId),
-    queryFn: async () => {
+    queryFn: async (): Promise<RefundReservedSnapshot> => {
       if (!paymentId) throw new Error("Thiếu mã giao dịch.");
       const limit = 100;
       let page = 1;
       let expectedTotal: number | null = null;
       let reserved = BigInt(0);
+      let latestRefundId: string | null = null;
+      let latestRefundStatus: RefundStatus | null = null;
       const seenIds = new Set<string>();
 
       while (true) {
@@ -55,6 +64,11 @@ export const useRefundReservedAmountQuery = (paymentId: string | null) =>
           throw new Error(
             "Danh sách refund đã thay đổi khi đang tải. Vui lòng thử lại.",
           );
+        }
+
+        if (page === 1 && result.items.length > 0) {
+          latestRefundId = result.items[0].id;
+          latestRefundStatus = result.items[0].status;
         }
 
         for (const refund of result.items) {
@@ -85,7 +99,12 @@ export const useRefundReservedAmountQuery = (paymentId: string | null) =>
           throw new Error("Không lấy đủ refund từ API.");
         page += 1;
       }
-      return reserved.toString();
+      return {
+        reservedAmount: reserved.toString(),
+        totalCount: expectedTotal ?? 0,
+        latestRefundId,
+        latestRefundStatus,
+      };
     },
     retry: false,
     staleTime: 0,
