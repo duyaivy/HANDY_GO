@@ -31,7 +31,12 @@ import { Image } from '@/components/ui/image';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import {
+  getWorkerPublicProfileQueryKey,
+  getWorkerPublicProfileServicesQueryKey,
+} from '@/features/catalog/hooks/use-worker-public-profile';
 import { OrdersApi } from '@/features/orders';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -138,7 +143,7 @@ export function WorkerSkillsScreen() {
 
   // Query: Worker Public Profile (with existing active services)
   const profileQuery = useQuery<WorkerPublicProfileData>({
-    queryKey: ['worker-public-profile-services', workerIdentifier],
+    queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier),
     queryFn: async () => {
       if (!workerIdentifier) {
         throw new Error('Chưa đăng nhập');
@@ -163,9 +168,9 @@ export function WorkerSkillsScreen() {
   });
 
   // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
-  // Phân trang tự động để thống kê đầy đủ cả khi thợ có > 100 đơn hàng
+  // Phân trang đầy đủ không giới hạn cứng số trang
   const ordersQuery = useQuery({
-    queryKey: ['worker-skills-orders', userId],
+    queryKey: ordersQueryKeys.workerSkillsOrders(userId),
     queryFn: async () => {
       let allOrders: any[] = [];
       let page = 1;
@@ -176,11 +181,14 @@ export function WorkerSkillsScreen() {
         const res = await OrdersApi.getMyOrders({ page, limit });
         const raw = res.data;
         const items = Array.isArray(raw) ? raw : (raw as any)?.items ?? [];
+        if (items.length === 0) {
+          break;
+        }
         allOrders = allOrders.concat(items);
         const rawTotal = (raw as any)?.totalPages ?? ((raw as any)?.total ? Math.ceil((raw as any).total / limit) : 1);
         totalPages = rawTotal;
         page += 1;
-      } while (page <= totalPages && page <= 20);
+      } while (page <= totalPages);
 
       return allOrders;
     },
@@ -206,11 +214,12 @@ export function WorkerSkillsScreen() {
   useFocusEffect(
     React.useCallback(() => {
       if (userId) {
-        queryClient.invalidateQueries({ queryKey: ['worker-skills-orders', userId] });
-        queryClient.invalidateQueries({ queryKey: ['worker-public-profile', userId] });
-        queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+        void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.workerSkillsOrders(userId) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
       }
-    }, [userId, queryClient]),
+    }, [userId, workerIdentifier, queryClient]),
   );
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);

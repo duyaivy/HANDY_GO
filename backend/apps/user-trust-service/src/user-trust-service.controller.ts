@@ -55,6 +55,7 @@ import {
   EVENT_PATTERNS,
   type DomainEvent,
 } from '@app/common';
+import { RABBITMQ_QUEUES } from '@app/rabbitmq';
 import {
   UserTrustServiceService,
   isTransientEventError,
@@ -159,8 +160,55 @@ export class UserTrustServiceController {
     }
   }
 
-  private readonly retryAttempts = new Map<string, number>();
   private readonly MAX_EVENT_RETRIES = 3;
+
+  private async publishToBrokerQueue(
+    channel: any,
+    queueName: string,
+    originalMsg: any,
+    event: unknown,
+    headers: Record<string, unknown>,
+    queueArgs?: Record<string, unknown>,
+  ): Promise<boolean> {
+    if (
+      !channel ||
+      typeof channel.assertQueue !== 'function' ||
+      typeof channel.sendToQueue !== 'function'
+    ) {
+      return false;
+    }
+    try {
+      await channel.assertQueue(
+        queueName,
+        queueArgs ? { durable: true, arguments: queueArgs } : { durable: true },
+      );
+      const rawContent =
+        originalMsg?.content instanceof Buffer
+          ? originalMsg.content
+          : Buffer.from(JSON.stringify(event ?? {}));
+      const existingProps = originalMsg?.properties ?? {};
+      const sent = channel.sendToQueue(queueName, rawContent, {
+        ...existingProps,
+        persistent: true,
+        headers: {
+          ...(existingProps.headers ?? {}),
+          ...headers,
+        },
+      });
+      if (sent === false) {
+        return false;
+      }
+      if (typeof channel.waitForConfirms === 'function') {
+        await channel.waitForConfirms();
+      }
+      return true;
+    } catch (publishErr) {
+      this.logger.error(
+        `Failed to publish message to ${queueName}: ${(publishErr as Error).message}`,
+      );
+      return false;
+    }
+  }
 
   private async processOrderEventWithRetry(
     eventType: 'order.completed' | 'order.created',
@@ -172,11 +220,6 @@ export class UserTrustServiceController {
     const workerUserId =
       rawData?.workerUserId ?? rawData?.workerId ?? (event as any)?.workerUserId;
     const orderId = rawData?.orderId ?? (event as any)?.orderId;
-    const eventId =
-      (event as any)?.eventId ??
-      (event as any)?.id ??
-      (orderId ? `${eventType.replace('.', '-')}-${orderId}` : null);
-    const key = eventId || `unknown-${Date.now()}`;
 
     const channel =
       context && typeof context.getChannelRef === 'function'
@@ -187,50 +230,108 @@ export class UserTrustServiceController {
         ? context.getMessage()
         : null;
 
+    const existingHeaders = originalMsg?.properties?.headers ?? {};
+    const previousAttempts = Number(existingHeaders['x-retry-count'] ?? 0) || 0;
+    const mainQueue = RABBITMQ_QUEUES.USER_TRUST;
+    const dlqQueue = `${mainQueue}.dlq`;
+
     if (!workerUserId || !orderId) {
       this.logger.warn(
-        `Rejected malformed ${eventType} event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId}). Discarding without requeue.`,
+        `Rejected malformed ${eventType} event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId}). Moving to DLQ.`,
       );
       if (channel && originalMsg) {
-        channel.nack(originalMsg, false, false);
+        const dlqPublished = await this.publishToBrokerQueue(
+          channel,
+          dlqQueue,
+          originalMsg,
+          event,
+          {
+            'x-event-type': eventType,
+            'x-last-error': 'MALFORMED_PAYLOAD',
+            'x-failed-at': new Date().toISOString(),
+          },
+        );
+        if (dlqPublished) {
+          channel.ack(originalMsg);
+        } else {
+          channel.nack(originalMsg, false, false);
+        }
       }
       return { processed: false, reason: 'MALFORMED_PAYLOAD' };
     }
 
     try {
       const result = await handler(event);
-      this.retryAttempts.delete(key);
       if (channel && originalMsg) {
         channel.ack(originalMsg);
       }
       return result;
     } catch (err) {
+      const errMsg = (err as Error).message;
       const isTransient = isTransientEventError(err);
-      const attempts = (this.retryAttempts.get(key) || 0) + 1;
-      this.retryAttempts.set(key, attempts);
+      const nextAttempt = previousAttempts + 1;
 
-      if (isTransient && attempts <= this.MAX_EVENT_RETRIES) {
+      if (isTransient && nextAttempt <= this.MAX_EVENT_RETRIES) {
+        const delay = process.env.NODE_ENV === 'test' ? 10 : 300 * nextAttempt;
         this.logger.warn(
-          `Transient error handling ${eventType} for order ${orderId} (attempt ${attempts}/${this.MAX_EVENT_RETRIES}): ${(err as Error).message}. Requeueing with backoff...`,
+          `Transient error handling ${eventType} for order ${orderId} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Republishing to retry queue (${delay}ms)...`,
         );
-        const delay = process.env.NODE_ENV === 'test' ? 10 : 300 * attempts;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const retryQueue = `${mainQueue}.retry.${nextAttempt}`;
+        const retryPublished = await this.publishToBrokerQueue(
+          channel,
+          retryQueue,
+          originalMsg,
+          event,
+          {
+            'x-retry-count': nextAttempt,
+            'x-event-type': eventType,
+            'x-last-error': errMsg,
+          },
+          {
+            'x-message-ttl': delay,
+            'x-dead-letter-exchange': '',
+            'x-dead-letter-routing-key': mainQueue,
+          },
+        );
         if (channel && originalMsg) {
-          channel.nack(originalMsg, false, true); // REQUEUE
+          if (retryPublished) {
+            channel.ack(originalMsg);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            channel.nack(originalMsg, false, true);
+          }
         }
       } else {
         this.logger.error(
-          `Permanent error or retries exhausted for ${eventType} (attempt ${attempts}/${this.MAX_EVENT_RETRIES}): ${(err as Error).message}. Discarding from queue.`,
+          `Permanent error or retries exhausted for ${eventType} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Persisting to DLQ.`,
         );
-        this.retryAttempts.delete(key);
-        await this.userTrustService.recordDeadLetter(
+        const dlqPublished = await this.publishToBrokerQueue(
+          channel,
+          dlqQueue,
+          originalMsg,
+          event,
+          {
+            'x-retry-count': nextAttempt,
+            'x-event-type': eventType,
+            'x-last-error': errMsg,
+            'x-failed-at': new Date().toISOString(),
+          },
+        );
+        const dbRecorded = await this.userTrustService.recordDeadLetter(
           eventType,
           event,
-          (err as Error).message,
-          attempts,
+          errMsg,
+          nextAttempt,
         );
         if (channel && originalMsg) {
-          channel.nack(originalMsg, false, false); // DROP from queue
+          if (dlqPublished || dbRecorded) {
+            channel.ack(originalMsg);
+          } else {
+            this.logger.error(
+              `Dead-letter persistence failed on both broker and DB for ${eventType}; requeueing message to prevent data loss.`,
+            );
+            channel.nack(originalMsg, false, true);
+          }
         }
       }
       throw err;

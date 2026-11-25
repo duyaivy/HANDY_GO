@@ -3,9 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { WorkersApi } from '@/services/workers/workers-api';
 
 export const WORKER_PUBLIC_PROFILE_QUERY_KEY = 'worker-public-profile';
+export const WORKER_PUBLIC_PROFILE_SERVICES_QUERY_KEY = 'worker-public-profile-services';
 
 export function getWorkerPublicProfileQueryKey(workerId?: string | null) {
   return [WORKER_PUBLIC_PROFILE_QUERY_KEY, workerId] as const;
+}
+
+export function getWorkerPublicProfileServicesQueryKey(workerId?: string | null) {
+  return [WORKER_PUBLIC_PROFILE_SERVICES_QUERY_KEY, workerId] as const;
 }
 
 export async function fetchWorkerPublicProfile(workerId: string): Promise<WorkerPublicProfileData> {

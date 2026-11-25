@@ -8,11 +8,6 @@ let mockStatus: (status: TrackingConnectionStatus) => void;
 let mockEventHandler: (event: any) => void;
 const mockDisconnect = jest.fn();
 const mockUnsubscribe = jest.fn();
-const mockInvalidateOrderRelatedQueries = jest.fn();
-
-jest.mock('@/features/orders/hooks/orders-query-keys', () => ({
-  invalidateOrderRelatedQueries: (...args: any[]) => mockInvalidateOrderRelatedQueries(...args),
-}));
 
 jest.mock('@/services/sse/tracking-sse-client', () => ({
   TrackingSseClient: jest.fn().mockImplementation(() => ({
@@ -43,9 +38,10 @@ it('reports disconnected immediately when the request is removed and releases th
   client.clear();
 });
 
-it('triggers immediate and staggered retry invalidations on order.* SSE events', () => {
+it('triggers immediate and staggered retry invalidations (> 1.2s) even after unmount on order.* SSE events', () => {
   jest.useFakeTimers();
   const client = new QueryClient();
+  const invalidateSpy = jest.spyOn(client, 'invalidateQueries');
   const wrapper = ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client }, children);
   const { unmount } = renderHook(({ id }: { id?: string }) => useTrackingEvents(id), { wrapper, initialProps: { id: 'request-1' } });
 
@@ -53,16 +49,32 @@ it('triggers immediate and staggered retry invalidations on order.* SSE events',
     mockEventHandler({ eventType: 'order.completed' });
   });
 
-  // Immediate invalidation
-  expect(mockInvalidateOrderRelatedQueries).toHaveBeenCalledTimes(1);
+  // Immediate invalidation includes worker-skills-orders and worker-public-profile-services
+  expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['worker-skills-orders'] });
+  expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['worker-public-profile-services'] });
+  const initialCallCount = invalidateSpy.mock.calls.length;
 
-  // Staggered retry invalidation after 1200ms
-  act(() => {
-    jest.advanceTimersByTime(1200);
-  });
-  expect(mockInvalidateOrderRelatedQueries).toHaveBeenCalledTimes(2);
-
+  // Unmount right after event (e.g. user navigates away immediately after confirming)
   unmount();
+
+  // Staggered retries at 1000ms, 2500ms, and 5000ms still run (covers consumer > 1.2s)
+  act(() => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(invalidateSpy.mock.calls.length).toBeGreaterThan(initialCallCount);
+  const after1sCount = invalidateSpy.mock.calls.length;
+
+  act(() => {
+    jest.advanceTimersByTime(1500); // total 2500ms
+  });
+  expect(invalidateSpy.mock.calls.length).toBeGreaterThan(after1sCount);
+  const after2_5sCount = invalidateSpy.mock.calls.length;
+
+  act(() => {
+    jest.advanceTimersByTime(2500); // total 5000ms
+  });
+  expect(invalidateSpy.mock.calls.length).toBeGreaterThan(after2_5sCount);
+
   client.clear();
   jest.useRealTimers();
 });

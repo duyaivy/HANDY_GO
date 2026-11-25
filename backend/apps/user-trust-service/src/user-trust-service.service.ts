@@ -419,7 +419,7 @@ export class UserTrustServiceService {
     eventPayload: any,
     errorMsg: string,
     attempts: number,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await this.db.outboxEvent.create({
         data: {
@@ -436,10 +436,12 @@ export class UserTrustServiceService {
           retryCount: attempts,
         },
       });
+      return true;
     } catch (err) {
       this.logger.error(
         `Failed to record dead letter for ${eventType}: ${(err as Error).message}`,
       );
+      return false;
     }
   }
 

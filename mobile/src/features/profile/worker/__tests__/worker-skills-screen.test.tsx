@@ -10,6 +10,7 @@ import { WorkerSkillsScreen } from '../screens/worker-skills-screen';
 const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockReplace = jest.fn();
+let latestFocusCallback: (() => void) | null = null;
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({
@@ -19,6 +20,7 @@ jest.mock('expo-router', () => ({
     canGoBack: () => true,
   }),
   useFocusEffect: (cb: any) => {
+    latestFocusCallback = cb;
     const ReactModule = require('react');
     ReactModule.useEffect(() => {
       return cb();
@@ -818,6 +820,221 @@ describe('workerSkillsScreen', () => {
       expect(screen.getByTestId('orders-query-error-banner')).toBeOnTheScreen();
       expect(screen.getByText('Không thể tải thống kê đơn hàng. Vui lòng thử lại.')).toBeOnTheScreen();
       expect(screen.getByTestId('retry-orders-query-btn')).toBeOnTheScreen();
+    });
+  });
+
+  it('fetches all pages and aggregates stats accurately when worker has 1,001 orders (21 pages)', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isHydrated: true,
+      user: {
+        id: 'worker-1001',
+        phone: '0900001001',
+        email: 'w1001@test.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-1001',
+        userId: 'worker-1001',
+        fullName: 'Nguyễn Văn Nghìn Đơn',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1001,
+          completedOrderCount: 1001,
+          orderCountTotal: 1001,
+          ratingDistribution: { 5: 1001, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-1001',
+            serviceId: 'svc-uuid-1001',
+            title: 'Sửa ống nước tổng hợp',
+            experienceYears: 6,
+            isActive: true,
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    const createOrders = (count: number, startIndex: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `order-${startIndex + i}`,
+        orderCode: `ORD-${startIndex + i}`,
+        customerUserId: 'customer-1',
+        workerUserId: 'worker-1001',
+        serviceId: 'svc-uuid-1001',
+        agreedPrice: 100000,
+        status: 'completed' as any,
+        paymentState: 'paid' as any,
+        createdAt: new Date().toISOString(),
+      }));
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      const page = params?.page ?? 1;
+      const limit = 50;
+      const total = 1001;
+      const totalPages = 21;
+      const count = page < 21 ? 50 : 1;
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: createOrders(count, (page - 1) * limit + 1),
+          total,
+          totalPages,
+          page,
+          limit,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('1001 đơn')).toBeOnTheScreen();
+      // 1,001 orders * 100,000 = 100,100,000 -> 100.100.000 đ
+      expect(screen.getAllByText('100.100.000 đ').length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('refreshes both profile services and orders stats on focus even when cache is still fresh', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isHydrated: true,
+      user: {
+        id: 'worker-focus-1',
+        phone: '0900002001',
+        email: 'wfocus@test.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    let isRefocused = false;
+
+    const profileSpy = jest
+      .spyOn(WorkersApi, 'getWorkerPublicProfile')
+      .mockImplementation(async () => ({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          id: 'wp-focus-1',
+          userId: 'worker-focus-1',
+          fullName: 'Thợ Focus Fresh',
+          avatarUrl: null,
+          status: 'verified',
+          isVerified: true,
+          stats: {
+            averageRating: 5.0,
+            ratingCount: isRefocused ? 2 : 1,
+            completedOrderCount: isRefocused ? 2 : 1,
+            orderCountTotal: isRefocused ? 2 : 1,
+            ratingDistribution: { 5: isRefocused ? 2 : 1, 4: 0, 3: 0, 2: 0, 1: 0 },
+          },
+          services: [
+            {
+              id: 'svc-offering-focus',
+              serviceId: 'svc-uuid-focus',
+              title: 'Bảo trì máy lạnh',
+              experienceYears: 4,
+              isActive: true,
+            },
+          ],
+        },
+      }));
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    const ordersSpy = jest
+      .spyOn(OrdersApi, 'getMyOrders')
+      .mockImplementation(async () => ({
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: isRefocused
+            ? [
+                {
+                  id: 'ord-f1',
+                  orderCode: 'ORD-F1',
+                  customerUserId: 'c1',
+                  workerUserId: 'worker-focus-1',
+                  serviceId: 'svc-uuid-focus',
+                  agreedPrice: 100000,
+                  status: 'completed' as any,
+                  paymentState: 'paid' as any,
+                  createdAt: new Date().toISOString(),
+                },
+                {
+                  id: 'ord-f2',
+                  orderCode: 'ORD-F2',
+                  customerUserId: 'c1',
+                  workerUserId: 'worker-focus-1',
+                  serviceId: 'svc-uuid-focus',
+                  agreedPrice: 150000,
+                  status: 'completed' as any,
+                  paymentState: 'paid' as any,
+                  createdAt: new Date().toISOString(),
+                },
+              ]
+            : [
+                {
+                  id: 'ord-f1',
+                  orderCode: 'ORD-F1',
+                  customerUserId: 'c1',
+                  workerUserId: 'worker-focus-1',
+                  serviceId: 'svc-uuid-focus',
+                  agreedPrice: 100000,
+                  status: 'completed' as any,
+                  paymentState: 'paid' as any,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+          total: isRefocused ? 2 : 1,
+          totalPages: 1,
+          page: 1,
+          limit: 50,
+        } as any,
+      }));
+
+    render(<WorkerSkillsScreen />);
+
+    // Initial fresh data rendered
+    await waitFor(() => {
+      expect(screen.getByText('1 đơn')).toBeOnTheScreen();
+      expect(screen.getAllByText('100.000 đ').length).toBeGreaterThanOrEqual(1);
+    });
+
+    const profileCallsBeforeFocus = profileSpy.mock.calls.length;
+    const ordersCallsBeforeFocus = ordersSpy.mock.calls.length;
+
+    // Simulate returning focus while staleTime (30s) has not elapsed
+    isRefocused = true;
+    latestFocusCallback?.();
+
+    await waitFor(() => {
+      expect(profileSpy.mock.calls.length).toBeGreaterThan(profileCallsBeforeFocus);
+      expect(ordersSpy.mock.calls.length).toBeGreaterThan(ordersCallsBeforeFocus);
+      expect(screen.getByText('2 đơn')).toBeOnTheScreen();
+      expect(screen.getAllByText('250.000 đ').length).toBeGreaterThanOrEqual(1);
     });
   });
 });
