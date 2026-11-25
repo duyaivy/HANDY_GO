@@ -69,7 +69,7 @@ Tham khảo: [Expo local builds](https://docs.expo.dev/build-reference/local-bui
 và [APK profiles](https://docs.expo.dev/build-reference/apk/),
 [Gradle build cache](https://docs.gradle.org/current/userguide/build_cache.html).
 
-> **Chạy trên điện thoại bằng Metro:** dùng [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Máy đã cài làm phần 1; máy mới làm phần 2 trước. Khi lệnh/env trong README này khác hướng dẫn đó, đối chiếu source và dùng quy trình mới.
+> **Chạy bằng Metro:** máy mới làm phần [cài đặt lần đầu](#4-cài-đặt-lần-đầu), máy đã cài làm phần [chạy ứng dụng hằng ngày](#5-quy-trình-chạy-ứng-dụng-hằng-ngày). Nếu dùng backend local, khởi động [backend bằng Docker Compose](../backend/README.md#4-chạy-với-docker-compose-khuyến-nghị) trước.
 
 Ứng dụng di động của dự án HANDY GO, xây dựng bằng React Native và Expo Development Build. Source base được tổ chức theo business domain và vai trò người dùng để nhiều thành viên có thể phát triển song song với ít xung đột Git.
 

@@ -1,5 +1,6 @@
 import type { NotificationResponse } from 'expo-notifications';
 import type { AuthUser } from '@/services/auth/auth-api';
+import type { NotificationRecord } from '@/services/notifications/notification-api';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
@@ -88,4 +89,44 @@ it('routes matching notification tap directly to /worker?requestId=...', async (
   await act(async () => tapped(matchingResp));
 
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/worker?requestId=req-match-123'));
+});
+
+it.each([false, true])('opens the invited request and switches to Worker mode when notification detail is unavailable: %s', async (offline) => {
+  const requestId = '33333333-3333-4333-8333-333333333333';
+  const payload = {
+    eventType: 'quote_invitation.created',
+    requestId,
+    entityId: '44444444-4444-4444-8444-444444444444',
+  };
+  const record: NotificationRecord = {
+    id: '55555555-5555-4555-8555-555555555555',
+    category: 'request',
+    title: 'Khách hàng muốn trao đổi',
+    body: 'Bạn vừa nhận được lời mời báo giá.',
+    payload,
+    readAt: null,
+    createdAt: '2026-11-25T03:00:00Z',
+    updatedAt: '2026-11-25T03:00:00Z',
+  };
+  const invitationResponse = {
+    actionIdentifier: 'default',
+    notification: {
+      request: {
+        identifier: 'push-invitation-1',
+        content: { data: { ...payload, notificationId: record.id, category: record.category } },
+      },
+    },
+  } as unknown as NotificationResponse;
+  useAuthStore.setState({ user: { id: 'worker-1', roles: ['Customer', 'Worker'] } as AuthUser, activeMode: 'Customer' });
+  if (offline)
+    jest.mocked(NotificationApi.detail).mockRejectedValueOnce(new Error('offline'));
+  else
+    jest.mocked(NotificationApi.detail).mockResolvedValueOnce(record);
+
+  render(<NotificationLifecycle />);
+  const tapped = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0][0];
+  await act(async () => tapped(invitationResponse));
+
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith(`/worker?requestId=${requestId}`));
+  expect(useAuthStore.getState().activeMode).toBe('Worker');
 });

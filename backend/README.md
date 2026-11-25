@@ -1,6 +1,6 @@
 # HANDY GO Backend
 
-> **Chạy cùng mobile qua Metro:** đọc [hướng dẫn ngắn](../docs/HUONG_DAN_BUILD_VA_CHAY.md). Phần 1 là chạy hằng ngày; phần 2 là chuẩn bị env, keys, DB và build lần đầu. Các mô tả scaffold/lệnh cũ ở những phần chưa cập nhật của README này cần đối chiếu với source.
+> **Chạy cùng mobile qua Metro:** chuẩn bị [biến môi trường](#3-cấu-hình-biến-môi-trường-environment-setup), khởi động [backend bằng Docker Compose](#4-chạy-với-docker-compose-khuyến-nghị), rồi làm theo [cài đặt mobile lần đầu](../mobile/README.md#4-cài-đặt-lần-đầu) và [chạy Metro hằng ngày](../mobile/README.md#5-quy-trình-chạy-ứng-dụng-hằng-ngày). Các mô tả scaffold/lệnh cũ ở những phần chưa cập nhật của README này cần đối chiếu với source.
 
 
 NestJS monorepo gồm **API Gateway** và **10 microservices**, cùng các thư viện dùng chung (**shared libraries**).

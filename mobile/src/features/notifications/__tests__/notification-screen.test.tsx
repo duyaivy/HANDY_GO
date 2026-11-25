@@ -1,11 +1,12 @@
 import type { AuthUser } from '@/services/auth/auth-api';
 import type { NotificationRecord } from '@/services/notifications/notification-api';
-import { act, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { act, fireEvent, fireEventAsync, render, screen, waitFor } from '@/lib/test-utils';
 import { NotificationApi } from '@/services/notifications/notification-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationScreen } from '../notification-screen';
 
-jest.mock('expo-router', () => ({ useRouter: jest.fn(() => ({ back: jest.fn() })) }));
+const mockRouter = { back: jest.fn(), push: jest.fn() };
+jest.mock('expo-router', () => ({ useRouter: jest.fn(() => mockRouter) }));
 jest.mock('@/services/notifications/notification-api', () => ({ NotificationApi: {
   list: jest.fn(),
   unreadCount: jest.fn(),
@@ -69,4 +70,27 @@ it('optimistically marks all notifications as read', async () => {
 
   fireEvent.press(screen.getByTestId('mark-all-read-btn'));
   await waitFor(() => expect(NotificationApi.markAllRead).toHaveBeenCalled());
+});
+
+it.each(['Customer', 'Worker'] as const)('opens the invited request from the notification list in %s mode', async (activeMode) => {
+  const requestId = '33333333-3333-4333-8333-333333333333';
+  const invitation: NotificationRecord = {
+    ...item,
+    category: 'request',
+    readAt: item.createdAt,
+    payload: {
+      eventType: 'quote_invitation.created',
+      requestId,
+      entityId: '44444444-4444-4444-8444-444444444444',
+    },
+  };
+  useAuthStore.setState({ user: { id: 'worker-1', roles: ['Customer', 'Worker'] } as AuthUser, activeMode });
+  jest.mocked(NotificationApi.list).mockResolvedValue({ items: [invitation], nextCursor: null });
+
+  render(<NotificationScreen />);
+  const notification = await screen.findByLabelText(`Đã đọc: ${item.title}`);
+  await fireEventAsync.press(notification);
+
+  expect(mockRouter.push).toHaveBeenCalledWith(`/worker?requestId=${requestId}`);
+  expect(useAuthStore.getState().activeMode).toBe('Worker');
 });
