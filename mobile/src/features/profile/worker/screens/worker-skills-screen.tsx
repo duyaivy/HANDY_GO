@@ -69,6 +69,7 @@ export function WorkerSkillsScreen() {
 
   const [activeTab, setActiveTab] = React.useState<MainTab>('my_services');
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isScreenFocused, setIsScreenFocused] = React.useState(true);
 
   // Local active toggle state for approved services
   const [servicesActiveState, setServicesActiveState] = React.useState<Record<string, boolean>>({});
@@ -153,6 +154,7 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(workerIdentifier),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
   });
 
   // Query: Worker Service Registrations History
@@ -164,6 +166,14 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      if (!isScreenFocused) {
+        return false;
+      }
+      const list = query.state.data ?? [];
+      const hasPending = list.some(r => r.status === 'pending');
+      return hasPending ? 10000 : false;
+    },
     retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
@@ -197,8 +207,34 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
     retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
+
+  // Khi có hồ sơ chuyển từ pending sang đã duyệt/từ chối, tự động làm mới danh sách nghiệp vụ đã duyệt
+  const prevHasPendingRef = React.useRef(false);
+  React.useEffect(() => {
+    const list = registrationsQuery.data ?? [];
+    const hasPending = list.some(r => r.status === 'pending');
+    if (prevHasPendingRef.current && !hasPending) {
+      void profileQuery.refetch();
+    }
+    prevHasPendingRef.current = hasPending;
+  }, [registrationsQuery.data, profileQuery]);
+
+  const handleSelectTab = React.useCallback(
+    (nextTab: MainTab) => {
+      setActiveTab(nextTab);
+      if (nextTab === 'my_services') {
+        void profileQuery.refetch();
+        void ordersQuery.refetch();
+      }
+      else {
+        void registrationsQuery.refetch();
+      }
+    },
+    [profileQuery, ordersQuery, registrationsQuery],
+  );
 
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -216,12 +252,16 @@ export function WorkerSkillsScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
+      setIsScreenFocused(true);
       if (userId) {
         void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.workerSkillsOrders(userId) });
         void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier) });
         void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileQueryKey(workerIdentifier) });
         void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
       }
+      return () => {
+        setIsScreenFocused(false);
+      };
     }, [userId, workerIdentifier, queryClient]),
   );
 
@@ -500,7 +540,7 @@ export function WorkerSkillsScreen() {
             <View className="flex-row border-b border-neutral-200 bg-white px-2 pt-1 dark:border-neutral-800 dark:bg-neutral-900">
               <Pressable
                 testID="tab-my-services"
-                onPress={() => setActiveTab('my_services')}
+                onPress={() => handleSelectTab('my_services')}
                 className={`mr-5 border-b-2 pb-3 ${
                   activeTab === 'my_services'
                     ? 'border-blue-600'
@@ -523,7 +563,7 @@ export function WorkerSkillsScreen() {
 
               <Pressable
                 testID="tab-registrations"
-                onPress={() => setActiveTab('registrations')}
+                onPress={() => handleSelectTab('registrations')}
                 className={`border-b-2 pb-3 ${
                   activeTab === 'registrations'
                     ? 'border-blue-600'

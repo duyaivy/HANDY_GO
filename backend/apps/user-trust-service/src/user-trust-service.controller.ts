@@ -161,6 +161,37 @@ export class UserTrustServiceController {
   }
 
   private readonly MAX_EVENT_RETRIES = 3;
+  private confirmChannel: any = null;
+
+  private async getConfirmChannel(channel: any): Promise<any | null> {
+    if (!channel) {
+      return null;
+    }
+    if (typeof channel.waitForConfirms === 'function') {
+      return channel;
+    }
+    if (this.confirmChannel && typeof this.confirmChannel.waitForConfirms === 'function') {
+      return this.confirmChannel;
+    }
+    if (typeof channel.connection?.createConfirmChannel === 'function') {
+      const created = await channel.connection.createConfirmChannel();
+      if (typeof created?.on === 'function') {
+        created.on('close', () => {
+          if (this.confirmChannel === created) {
+            this.confirmChannel = null;
+          }
+        });
+        created.on('error', () => {
+          if (this.confirmChannel === created) {
+            this.confirmChannel = null;
+          }
+        });
+      }
+      this.confirmChannel = created;
+      return created;
+    }
+    return null;
+  }
 
   private async publishToBrokerQueue(
     channel: any,
@@ -170,15 +201,18 @@ export class UserTrustServiceController {
     headers: Record<string, unknown>,
     queueArgs?: Record<string, unknown>,
   ): Promise<boolean> {
-    if (
-      !channel ||
-      typeof channel.assertQueue !== 'function' ||
-      typeof channel.sendToQueue !== 'function'
-    ) {
-      return false;
-    }
     try {
-      await channel.assertQueue(
+      const confirmCh = await this.getConfirmChannel(channel);
+      if (
+        !confirmCh ||
+        typeof confirmCh.assertQueue !== 'function' ||
+        typeof confirmCh.sendToQueue !== 'function' ||
+        typeof confirmCh.waitForConfirms !== 'function'
+      ) {
+        return false;
+      }
+
+      await confirmCh.assertQueue(
         queueName,
         queueArgs ? { durable: true, arguments: queueArgs } : { durable: true },
       );
@@ -187,7 +221,7 @@ export class UserTrustServiceController {
           ? originalMsg.content
           : Buffer.from(JSON.stringify(event ?? {}));
       const existingProps = originalMsg?.properties ?? {};
-      const sent = channel.sendToQueue(queueName, rawContent, {
+      const sent = confirmCh.sendToQueue(queueName, rawContent, {
         ...existingProps,
         persistent: true,
         headers: {
@@ -198,11 +232,10 @@ export class UserTrustServiceController {
       if (sent === false) {
         return false;
       }
-      if (typeof channel.waitForConfirms === 'function') {
-        await channel.waitForConfirms();
-      }
+      await confirmCh.waitForConfirms();
       return true;
     } catch (publishErr) {
+      this.confirmChannel = null;
       this.logger.error(
         `Failed to publish message to ${queueName}: ${(publishErr as Error).message}`,
       );

@@ -256,6 +256,7 @@ describe('UserTrustServiceController', () => {
       nack: vi.fn(),
       assertQueue: vi.fn().mockResolvedValue({}),
       sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi.fn().mockResolvedValue(undefined),
     };
     const contextAttempt3 = {
       getChannelRef: () => channelMock,
@@ -294,6 +295,52 @@ describe('UserTrustServiceController', () => {
     });
     expect(duplicateReplay).toEqual({ processed: false, idempotent: true });
     expect(channelMock.ack).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses connection.createConfirmChannel and requeues if broker publisher confirm fails', async () => {
+    const event = {
+      eventId: 'evt-confirm-1',
+      data: { orderId: 'ord-confirm', workerUserId: 'w-1' },
+    } as any;
+    const confirmChMock = {
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Broker nack / confirm timeout')),
+      on: vi.fn(),
+    };
+    const regularChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      connection: {
+        createConfirmChannel: vi.fn().mockResolvedValue(confirmChMock),
+      },
+    };
+    const contextMock = {
+      getChannelRef: () => regularChannelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(event)),
+        properties: { headers: {} },
+      }),
+    };
+
+    // 1. Confirmed handoff -> ACKs original after waitForConfirms succeeds
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(regularChannelMock.connection.createConfirmChannel).toHaveBeenCalledTimes(1);
+    expect(confirmChMock.waitForConfirms).toHaveBeenCalledTimes(1);
+    expect(regularChannelMock.ack).toHaveBeenCalledTimes(1);
+    expect(regularChannelMock.nack).not.toHaveBeenCalled();
+
+    // 2. Unconfirmed handoff (waitForConfirms rejects) -> must NOT ACK; must NACK requeue=true
+    regularChannelMock.ack.mockClear();
+    regularChannelMock.nack.mockClear();
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(regularChannelMock.ack).not.toHaveBeenCalled();
+    expect(regularChannelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
   });
 
   it('should handle order.created event and ack channel', async () => {

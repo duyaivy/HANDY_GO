@@ -1136,4 +1136,125 @@ describe('workerSkillsScreen', () => {
       expect(screen.getAllByText('200.000 đ').length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it('polls pending registrations every 10s, updates badge & approved services on admin approval without push, and stops polling when no pending remain', async () => {
+    jest.useFakeTimers();
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isHydrated: true,
+      user: {
+        id: 'worker-poll-1',
+        phone: '0900004001',
+        email: 'wpoll@test.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    let approved = false;
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockImplementation(async () => ({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-poll-1',
+        userId: 'worker-poll-1',
+        fullName: 'Thợ Chờ Duyệt',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          ratingDistribution: { 5: 1, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: approved
+          ? [
+              {
+                id: 'svc-offering-1',
+                serviceId: 'svc-1',
+                title: 'Sửa điện dân dụng',
+                experienceYears: 3,
+                isActive: true,
+              },
+              {
+                id: 'svc-offering-2',
+                serviceId: 'svc-2',
+                title: 'Lắp đặt máy nước nóng',
+                experienceYears: 2,
+                isActive: true,
+              },
+            ]
+          : [
+              {
+                id: 'svc-offering-1',
+                serviceId: 'svc-1',
+                title: 'Sửa điện dân dụng',
+                experienceYears: 3,
+                isActive: true,
+              },
+            ],
+      },
+    }));
+
+    const regSpy = jest
+      .spyOn(WorkersApi, 'getMyServiceRegistrations')
+      .mockImplementation(async () => ({
+        statusCode: 200,
+        message: 'OK',
+        data: [
+          {
+            id: 'reg-pending-1',
+            workerId: 'wp-poll-1',
+            serviceId: 'svc-2',
+            serviceTitle: 'Lắp đặt máy nước nóng',
+            experienceYears: 2,
+            status: approved ? 'approved' : 'pending',
+            rejectionReason: null,
+            submittedAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          } as any,
+        ],
+      }));
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: { items: [], total: 0, totalPages: 1, page: 1, limit: 50 } as any,
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nghiệp vụ của bạn (1)')).toBeOnTheScreen();
+      expect(screen.getByText('Chờ phê duyệt (1)')).toBeOnTheScreen();
+    });
+
+    // Admin approves registration while worker keeps screen open and push is disabled
+    approved = true;
+
+    // Advance 10s for conditional pending polling
+    jest.advanceTimersByTime(10000);
+
+    await waitFor(() => {
+      expect(screen.getByText('Chờ phê duyệt (0)')).toBeOnTheScreen();
+      expect(screen.getByText('Nghiệp vụ của bạn (2)')).toBeOnTheScreen();
+      expect(screen.getByText('Lắp đặt máy nước nóng')).toBeOnTheScreen();
+    });
+
+    // Verify polling stops once no pending registrations remain
+    const callsAfterApproval = regSpy.mock.calls.length;
+    jest.advanceTimersByTime(25000);
+    expect(regSpy.mock.calls.length).toBe(callsAfterApproval);
+
+    // Switching tabs also triggers fresh fetch without push
+    fireEvent.press(screen.getByTestId('tab-registrations'));
+    await waitFor(() => {
+      expect(regSpy.mock.calls.length).toBeGreaterThan(callsAfterApproval);
+    });
+
+    jest.useRealTimers();
+  });
 });
