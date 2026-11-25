@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '@/features/orders';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { queryClient } from '@/lib/api/query-client';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
-import { WorkersApi } from '@/services/workers/workers-api';
+import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerSkillsScreen } from '../screens/worker-skills-screen';
 
@@ -415,7 +416,7 @@ describe('workerSkillsScreen', () => {
     });
   });
 
-  it('does not render edit button for approved registrations', async () => {
+  it('filters out approved registrations from pending approval tab', async () => {
     useAuthStore.setState({
       isAuthenticated: true,
       user: {
@@ -479,7 +480,10 @@ describe('workerSkillsScreen', () => {
     fireEvent.press(screen.getByTestId('tab-registrations'));
 
     await waitFor(() => {
-      expect(screen.getByText('Đã duyệt')).toBeOnTheScreen();
+      expect(screen.queryByText('Đã duyệt')).toBeNull();
+      expect(screen.queryByText('Lắp đặt điều hòa treo tường')).toBeNull();
+      expect(screen.getByText('Chờ phê duyệt (0)')).toBeOnTheScreen();
+      expect(screen.getByText('Không có dịch vụ nào đang chờ duyệt')).toBeOnTheScreen();
       expect(screen.queryByTestId('edit-registration-btn-reg-approved-uuid')).toBeNull();
       expect(screen.queryByTestId('cancel-registration-btn-reg-approved-uuid')).toBeNull();
     });

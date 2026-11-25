@@ -36,6 +36,8 @@ export const DEFAULT_PRODUCTION_POLICIES: Partial<
   'order.dispute.decision.recorded': { mode: 'mandatory', roles: ['customer', 'worker'] },
   'order.dispute.resolved': { mode: 'mandatory', roles: ['customer', 'worker'] },
   'order.warranty.completed': { mode: 'mandatory', roles: ['customer', 'worker'] },
+  'worker.service_registration.approved': { mode: 'mandatory', roles: ['worker'] },
+  'worker.service_registration.rejected': { mode: 'mandatory', roles: ['worker'] },
 };
 
 /** Illustrative choices only. Explicit opt-in and NODE_ENV guard are mandatory. */

@@ -2703,6 +2703,22 @@ describe('UserTrustServiceService', () => {
             version: { increment: 1 },
           }),
         });
+        expect(dbMock.outboxEvent.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            eventType: 'worker.service_registration.approved',
+            eventVersion: 1,
+            status: 'pending',
+            payload: expect.objectContaining({
+              source: 'user-trust-service',
+              eventType: 'worker.service_registration.approved',
+              data: expect.objectContaining({
+                registrationId: regId,
+                decision: 'approved',
+                reviewedBy: adminUserId,
+              }),
+            }),
+          }),
+        });
       });
 
       it('Admin rejects pending registration successfully with matching version', async () => {
@@ -2738,6 +2754,53 @@ describe('UserTrustServiceService', () => {
             version: { increment: 1 },
           }),
         });
+        expect(dbMock.outboxEvent.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            eventType: 'worker.service_registration.rejected',
+            eventVersion: 1,
+            status: 'pending',
+            payload: expect.objectContaining({
+              source: 'user-trust-service',
+              eventType: 'worker.service_registration.rejected',
+              data: expect.objectContaining({
+                registrationId: regId,
+                decision: 'rejected',
+                reason: 'Hồ sơ chưa đạt tiêu chuẩn kinh nghiệm',
+                reviewedBy: adminUserId,
+              }),
+            }),
+          }),
+        });
+      });
+
+      it('rolls back and does not commit review when outbox creation fails', async () => {
+        dbMock.user.findUnique.mockResolvedValue({ id: adminUserId });
+        dbMock.workerServiceRegistration.findUnique
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            workerProfile: { id: workerProfileId },
+          })
+          .mockResolvedValueOnce({
+            id: regId,
+            workerProfileId,
+            status: 'pending',
+            version: 1,
+            services: [{ serviceId }],
+          });
+
+        dbMock.workerServiceRegistration.updateMany.mockResolvedValue({ count: 1 });
+        dbMock.workerServiceOffering.upsert.mockResolvedValue({});
+        dbMock.outboxEvent.create.mockRejectedValueOnce(new Error('Outbox database write error'));
+
+        await expect(
+          service.reviewServiceRegistration(adminUserId, regId, {
+            decision: 'approved',
+            expectedVersion: 1,
+          }),
+        ).rejects.toThrow('Outbox database write error');
       });
 
       it('throws ConflictException if registration is already not pending', async () => {

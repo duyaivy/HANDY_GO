@@ -77,4 +77,7 @@ export const EVENT_PATTERNS = {
   SERVICE_UPDATED: 'service.updated',
   SERVICE_STATUS_CHANGED: 'service.status_changed',
   SERVICE_DELETED: 'service.deleted',
+
+  WORKER_SERVICE_REGISTRATION_APPROVED: 'worker.service_registration.approved',
+  WORKER_SERVICE_REGISTRATION_REJECTED: 'worker.service_registration.rejected',
 } as const;

@@ -72,6 +72,14 @@ const templates = {
     'Số dư ví được điều chỉnh',
     'Số dư ví của bạn vừa được cập nhật.',
   ],
+  'worker.service_registration.approved': [
+    'Nghiệp vụ dịch vụ đã được duyệt',
+    'Hồ sơ đăng ký nghiệp vụ của bạn đã được Admin phê duyệt thành công! Bạn có thể bắt đầu nhận đơn.',
+  ],
+  'worker.service_registration.rejected': [
+    'Hồ sơ nghiệp vụ bị từ chối',
+    'Hồ sơ đăng ký nghiệp vụ của bạn chưa đạt yêu cầu. Vui lòng kiểm tra lý do và cập nhật lại.',
+  ],
 } satisfies Record<NotificationEventType, readonly [string, string]>;
 
 export function renderNotificationTemplate(

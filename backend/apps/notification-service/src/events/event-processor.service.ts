@@ -140,7 +140,10 @@ export class EventProcessorService {
               : event.eventType === 'matching.eligible_workers.ready' &&
                   route.requestId
                 ? `new-request:${route.requestId}:${userId}`
-                : `${event.eventId}:${userId}`;
+                : event.eventType.startsWith('worker.service_registration.') &&
+                    (event.data as any)?.registrationId
+                  ? `${event.eventType}:${(event.data as any).registrationId}:${userId}`
+                  : `${event.eventId}:${userId}`;
 
           rows.push({
             id: notifId,
