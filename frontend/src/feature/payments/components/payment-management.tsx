@@ -175,7 +175,7 @@ export default function PaymentManagement() {
 
   const statsUnavailable = statisticsQuery.isPending;
 
-  const totalTransactions = paymentStats.total ?? data?.total ?? null;
+  const totalTransactions = paymentStats.total;
 
   const statCards = [
     {

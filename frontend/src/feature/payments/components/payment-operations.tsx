@@ -412,6 +412,9 @@ function Pagination({
   total,
   hasNext,
   isFetching,
+  isCheckingNext,
+  nextError,
+  onRetryNext,
   onPrevious,
   onNext,
   onPageChange,
@@ -421,13 +424,16 @@ function Pagination({
   total?: number;
   hasNext?: boolean;
   isFetching: boolean;
+  isCheckingNext?: boolean;
+  nextError?: boolean;
+  onRetryNext?: () => void;
   onPrevious: () => void;
   onNext: () => void;
   onPageChange?: (page: number) => void;
 }) {
   const canGoNext =
     totalPages !== undefined ? page < totalPages : Boolean(hasNext);
-  if (page <= 1 && !canGoNext) return null;
+  if (page <= 1 && !canGoNext && !isCheckingNext && !nextError) return null;
   const pages = totalPages ? getVisiblePages(page, totalPages) : [];
   const changePage = (targetPage: number) => {
     if (onPageChange) return onPageChange(targetPage);
@@ -437,13 +443,31 @@ function Pagination({
   return (
     <div className="border-t border-slate-100 px-3 py-4 sm:px-6">
       <div className="flex flex-col items-center justify-between gap-3 text-[13px] text-[#64748B] xl:flex-row">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span>
             {total !== undefined
               ? `Tổng ${total} sự kiện · Trang ${page}`
               : `Trang ${page}`}
           </span>
           {isFetching && <span>· Đang cập nhật...</span>}
+          {!isFetching && isCheckingNext && (
+            <span>· Đang kiểm tra trang tiếp theo...</span>
+          )}
+          {nextError && (
+            <span role="alert" className="inline-flex items-center gap-2 text-red-700">
+              · Không thể kiểm tra trang báo cáo tiếp theo.
+              {onRetryNext && (
+                <button
+                  type="button"
+                  onClick={onRetryNext}
+                  disabled={isCheckingNext}
+                  className="font-medium underline disabled:opacity-50"
+                >
+                  Thử lại
+                </button>
+              )}
+            </span>
+          )}
         </div>
         <nav
           aria-label="Phân trang"
@@ -482,7 +506,7 @@ function Pagination({
           )}
           <button
             type="button"
-            disabled={!canGoNext || isFetching}
+            disabled={!canGoNext || isFetching || Boolean(isCheckingNext)}
             onClick={() => changePage(page + 1)}
             className="inline-flex h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-transparent"
           >
@@ -674,8 +698,13 @@ export default function PaymentOperations() {
     ? Math.max(Math.ceil(deadLetters.data.total / PAGE_SIZE), 1)
     : undefined;
   const reportItems = reports.data ?? [];
+  const mightHaveNextReport = reportItems.length === PAGE_SIZE;
+  const nextReportChecking =
+    mightHaveNextReport && (nextReports.isPending || nextReports.isFetching);
+  const nextReportError =
+    mightHaveNextReport && !nextReportChecking && nextReports.isError;
   const reportsHasNext = Boolean(
-    reportItems.length === PAGE_SIZE && nextReports.data?.length,
+    mightHaveNextReport && !nextReports.isError && nextReports.data?.length,
   );
 
   // Nếu bản ghi cuối bị xử lý/xóa, đưa Admin về trang hợp lệ.
@@ -844,6 +873,9 @@ export default function PaymentOperations() {
             page={reportPage}
             hasNext={reportsHasNext}
             isFetching={reports.isFetching}
+            isCheckingNext={nextReportChecking}
+            nextError={nextReportError}
+            onRetryNext={() => void nextReports.refetch()}
             onPrevious={() => setReportPage((page) => Math.max(1, page - 1))}
             onNext={() => setReportPage((page) => page + 1)}
             onPageChange={setReportPage}
