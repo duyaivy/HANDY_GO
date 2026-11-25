@@ -5,6 +5,7 @@ import { RequestStatus } from '@prisma/order-client';
 import { ServiceRequestsService } from './service-requests.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
+import type { PricingEstimatorService } from './services/pricing-estimator.service.js';
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
 import { ORDER_ERROR_CODES } from '../common/constants/order-errors.js';
 
@@ -12,6 +13,7 @@ describe('ServiceRequestsService', () => {
   let service: ServiceRequestsService;
   let prismaMock: any;
   let outboxRepoMock: any;
+  let pricingEstimatorMock: any;
 
   const mockUserId = '11111111-1111-1111-1111-111111111111';
   const mockRequestId = '22222222-2222-2222-2222-222222222222';
@@ -57,9 +59,14 @@ describe('ServiceRequestsService', () => {
       createEvent: vi.fn().mockResolvedValue({ id: 'outbox-1' }),
     };
 
+    pricingEstimatorMock = {
+      estimatePrice: vi.fn(),
+    };
+
     service = new ServiceRequestsService(
       prismaMock as unknown as PrismaService,
       outboxRepoMock as unknown as OrderOutboxRepository,
+      pricingEstimatorMock as unknown as PricingEstimatorService,
     );
   });
 
@@ -154,6 +161,224 @@ describe('ServiceRequestsService', () => {
       });
       expect(result.media).toHaveLength(1);
     });
+
+    it('should not persist client-provided reference prices as authoritative (HG96-REM-01)', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      };
+
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 220000,
+        aiRefPriceMax: 450000,
+        isFallback: false,
+      });
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      // Persisted prices must come from server-side pricing estimator, NOT client input (1000, 2000)
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 220000,
+            aiRefPriceMax: 450000,
+          }),
+        }),
+      );
+    });
+
+    it('should derive authoritative reference prices from PricingEstimatorService when serviceId is provided (HG96-REM-01)', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa chén rò rỉ nước',
+      };
+
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 250000,
+        aiRefPriceMax: 500000,
+        matchedReason: 'Bồn rửa rò rỉ',
+        isFallback: false,
+      });
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(pricingEstimatorMock.estimatePrice).toHaveBeenCalledWith({
+        serviceId: dto.serviceId,
+        description: dto.description,
+      });
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 250000,
+            aiRefPriceMax: 500000,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to schema-qualified catalog_service.services when PricingEstimatorService fails (HG96-REM-02)', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      };
+
+      // AI estimator throws error (e.g., 500 Internal Error)
+      pricingEstimatorMock.estimatePrice.mockRejectedValueOnce(
+        new Error('AI Service 500 Internal Error'),
+      );
+
+      prismaMock.$queryRaw.mockResolvedValueOnce([
+        {
+          base_price_min: 180000,
+          base_price_max: 380000,
+        },
+      ]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      // Verify that queryRaw was executed with schema-qualified catalog_service.services
+      expect(prismaMock.$queryRaw).toHaveBeenCalled();
+      const rawCallArgs = JSON.stringify(prismaMock.$queryRaw.mock.calls);
+      expect(rawCallArgs).toContain('catalog_service');
+
+      // Persisted values should be the catalog base prices
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 180000,
+            aiRefPriceMax: 380000,
+          }),
+        }),
+      );
+    });
+
+    it('should handle AI timeout deterministically and fallback to catalog baseline (HG96-REM-01)', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+      };
+
+      pricingEstimatorMock.estimatePrice.mockRejectedValueOnce(
+        new Error('AI Service request timed out after 15000ms'),
+      );
+
+      prismaMock.$queryRaw.mockResolvedValueOnce([
+        {
+          base_price_min: 200000,
+          base_price_max: 420000,
+        },
+      ]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 200000,
+            aiRefPriceMax: 420000,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to system defaults (150000 - 350000) when AI and Catalog lookup are empty or invalid', async () => {
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+      };
+
+      pricingEstimatorMock.estimatePrice.mockRejectedValueOnce(
+        new Error('Service not found'),
+      );
+      prismaMock.$queryRaw.mockResolvedValueOnce([]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await service.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 150000,
+            aiRefPriceMax: 350000,
+          }),
+        }),
+      );
+    });
+
+    it('should resolve catalog baseline when PricingEstimatorService is not provided', async () => {
+      const serviceWithoutEstimator = new ServiceRequestsService(
+        prismaMock as unknown as PrismaService,
+        outboxRepoMock as unknown as OrderOutboxRepository,
+      );
+
+      const dto = {
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa bồn rửa',
+      };
+
+      prismaMock.$queryRaw.mockResolvedValueOnce([
+        {
+          base_price_min: 175000,
+          base_price_max: 325000,
+        },
+      ]);
+
+      prismaMock.serviceRequest.create.mockResolvedValue({
+        id: mockRequestId,
+        requestCode: 'REQ-20261023-A1B2',
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+      });
+
+      await serviceWithoutEstimator.createDraft(mockUserId, dto);
+
+      expect(prismaMock.serviceRequest.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            aiRefPriceMin: 175000,
+            aiRefPriceMax: 325000,
+          }),
+        }),
+      );
+    });
   });
 
   describe('findAll', () => {
@@ -195,6 +420,36 @@ describe('ServiceRequestsService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             status: { in: ['open_for_bidding', 'draft', 'bidding_closed'] },
+          }),
+        }),
+      );
+    });
+
+    it('should filter by search keyword across requestCode, description, and addressText (HG-72)', async () => {
+      prismaMock.serviceRequest.count.mockResolvedValue(1);
+      prismaMock.serviceRequest.findMany.mockResolvedValue([
+        { id: mockRequestId, customerUserId: mockUserId, media: [] },
+      ]);
+
+      const result = await service.findAll(mockUserId, {
+        page: 1,
+        limit: 10,
+        search: 'sửa vòi nước',
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.serviceRequest.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { requestCode: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                  { description: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                  { addressText: { contains: 'sửa vòi nước', mode: 'insensitive' } },
+                ]),
+              }),
+            ]),
           }),
         }),
       );
@@ -337,6 +592,119 @@ describe('ServiceRequestsService', () => {
       await expect(
         service.updateDraft(mockRequestId, mockUserId, { description: 'test' }),
       ).rejects.toThrow(AppException);
+    });
+
+    it('should ignore client-provided prices and not overwrite server prices when only address/schedule changes (HG96-REM-04)', async () => {
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 1,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        addressText: '456 Lê Duẩn, Đà Nẵng',
+        aiRefPriceMin: 1000,
+        aiRefPriceMax: 2000,
+      } as any);
+
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 1 },
+        data: expect.objectContaining({
+          addressText: '456 Lê Duẩn, Đà Nẵng',
+          aiRefPriceMin: undefined,
+          aiRefPriceMax: undefined,
+          version: { increment: 1 },
+        }),
+      });
+    });
+
+    it('should recalculate reference price when description changes (HG96-REM-04)', async () => {
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh nhẹ',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 1,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 350000,
+        aiRefPriceMax: 700000,
+        currency: 'VND',
+        source: 'ai_semantic',
+      });
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        description: 'Sửa máy lạnh hỏng block nặng',
+      });
+
+      expect(pricingEstimatorMock.estimatePrice).toHaveBeenCalledWith({
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Sửa máy lạnh hỏng block nặng',
+      });
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 1 },
+        data: expect.objectContaining({
+          description: 'Sửa máy lạnh hỏng block nặng',
+          aiRefPriceMin: 350000,
+          aiRefPriceMax: 700000,
+          version: { increment: 1 },
+        }),
+      });
+    });
+
+    it('should recalculate reference price when serviceId changes (HG96-REM-04)', async () => {
+      const newServiceId = 'b1ffcd88-8d1c-4fe9-aa5e-5bb8bd270b22';
+      const existing = {
+        id: mockRequestId,
+        customerUserId: mockUserId,
+        status: RequestStatus.draft,
+        serviceId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+        description: 'Bảo trì',
+        aiRefPriceMin: 200000,
+        aiRefPriceMax: 400000,
+        version: 2,
+        media: [],
+      };
+
+      prismaMock.serviceRequest.findUnique.mockResolvedValue(existing);
+      pricingEstimatorMock.estimatePrice.mockResolvedValueOnce({
+        aiRefPriceMin: 500000,
+        aiRefPriceMax: 900000,
+        currency: 'VND',
+        source: 'ai_semantic',
+      });
+
+      await service.updateDraft(mockRequestId, mockUserId, {
+        serviceId: newServiceId,
+      });
+
+      expect(pricingEstimatorMock.estimatePrice).toHaveBeenCalledWith({
+        serviceId: newServiceId,
+        description: 'Bảo trì',
+      });
+      expect(prismaMock.serviceRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: mockRequestId, status: RequestStatus.draft, version: 2 },
+        data: expect.objectContaining({
+          serviceId: newServiceId,
+          aiRefPriceMin: 500000,
+          aiRefPriceMax: 900000,
+          version: { increment: 1 },
+        }),
+      });
     });
   });
 

@@ -1,3 +1,5 @@
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const KNOWN_SERVICES_BY_ID: Record<string, string> = {
   // UUIDs from Catalog Service & Database
   'a26e3c78-f202-4ec0-a2f9-2462371d05a4': 'Vệ sinh máy lạnh',
@@ -62,6 +64,13 @@ export const KNOWN_SERVICES_BY_ID: Record<string, string> = {
   'me-be': 'Chăm sóc mẹ và em bé',
   'srv-clean': 'Dọn dẹp nhà cửa',
   'srv-paint': 'Sơn nhà',
+
+  // Vận chuyển & Bốc xếp
+  'srv-boc-xep': 'Bốc xếp hàng hoá',
+  'srv-porter': 'Bốc xếp hàng hoá',
+  'boc-xep-hang-hoa': 'Bốc xếp hàng hoá',
+  'boc-xep': 'Bốc xếp hàng hoá',
+  'van-chuyen': 'Vận chuyển hàng hoá',
 };
 
 /**
@@ -92,10 +101,12 @@ export function resolveServiceName(
     return fallbackName.trim();
   }
 
-  if (serviceId) {
-    if (KNOWN_SERVICES_BY_ID[serviceId]) {
-      return KNOWN_SERVICES_BY_ID[serviceId];
-    }
+  if (serviceId && KNOWN_SERVICES_BY_ID[serviceId.toLowerCase()]) {
+    return KNOWN_SERVICES_BY_ID[serviceId.toLowerCase()];
+  }
+
+  // UUIDs are opaque identifiers; only readable slugs can carry service keywords.
+  if (serviceId && !UUID_REGEX.test(serviceId) && /^[a-z]+(?:-[a-z0-9]+)+$/i.test(serviceId)) {
     const idLower = serviceId.toLowerCase();
     // 1. Chăm sóc gia đình & Mẹ và bé
     if (
@@ -166,6 +177,10 @@ export function resolveServiceName(
     if (idLower.includes('tv') || idLower.includes('tivi') || idLower.includes('am-thanh')) {
       return 'Sửa tivi và âm thanh';
     }
+    // 10. Bốc xếp & Vận chuyển
+    if (idLower.includes('boc-xep') || idLower.includes('porter') || idLower.includes('van-chuyen')) {
+      return 'Bốc xếp hàng hoá';
+    }
   }
 
   if (description) {
@@ -212,13 +227,25 @@ export function resolveServiceName(
     if (descLower.includes('máy tính') || descLower.includes('laptop') || descLower.includes('cài win')) {
       return 'Sửa máy tính';
     }
+    if (descLower.includes('bốc xếp') || descLower.includes('khuân vác') || descLower.includes('chuyển đồ') || descLower.includes('vận chuyển')) {
+      return 'Bốc xếp hàng hoá';
+    }
 
     const match = desc.match(
-      /(?:Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*|Cần\s+(?:thợ|người)?\s*)(.*?)(?:\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$|,)/i,
+      /(?:Tôi\s+cần\s+(?:thợ|người|dịch\s+vụ)?\s*|Cần\s+(?:thợ|người)?\s*)(.*?)(?:\s*[:\-–]\s*(?:Sự cố|Vị trí|Mức độ)|\s+đến|\s+tận|\s+hỗ\s+trợ|\s+phục\s+vụ|\.|$|,)/i,
     );
     if (match && match[1]) {
       const extracted = match[1].trim();
-      if (extracted && !extracted.toLowerCase().includes('hỗ trợ') && extracted.length < 50) {
+      const extractedLower = extracted.toLowerCase();
+      if (
+        extracted
+        && !extractedLower.includes('hỗ trợ')
+        && !extractedLower.includes('kiểm tra')
+        && !extractedLower.includes('xử lý')
+        && !extractedLower.includes('khắc phục')
+        && !extractedLower.includes('báo giá')
+        && extracted.length < 50
+      ) {
         return extracted.replace(/bão dưỡng/i, 'Bảo dưỡng');
       }
     }

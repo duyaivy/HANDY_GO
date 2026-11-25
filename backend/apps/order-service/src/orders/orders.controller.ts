@@ -61,6 +61,28 @@ export class OrdersController {
     return buildSuccessResponse(data, 'Orders retrieved successfully');
   }
 
+  @Get('summary')
+  @ApiOperation({
+    summary: 'Get order statistics summary',
+    description:
+      'Retrieves completed, cancelled count and total completed gross price for current user and role.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Order summary retrieved successfully',
+  })
+  async getSummary(
+    @CurrentUser() user: RequestUserIdentity,
+    @Query('role') role?: 'customer' | 'worker',
+  ) {
+    const data = await this.ordersService.getOrderSummary(
+      user.userId,
+      role,
+      user.roles,
+    );
+    return buildSuccessResponse(data, 'Order summary retrieved successfully');
+  }
+
   @Get(':id')
   @ApiOperation({
     summary: 'Get details of an order',
@@ -324,9 +346,9 @@ export class OrdersController {
   @Post(':id/dispute')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Open a dispute (ORD-08)',
+    summary: 'Open an order dispute (ORD-08, HG-82)',
     description:
-      'Customer or Worker opens a dispute during execution (in_progress or awaiting_customer_confirmation).',
+      'Customer or worker may dispute an active order. Only the customer may dispute a completed order within seven days of completion. The request may include a category and image or video evidence URLs.',
   })
   @ApiParam({ name: 'id', description: 'Order UUID' })
   @ApiBody({ type: DisputeOrderDto })
@@ -334,6 +356,21 @@ export class OrdersController {
     status: HttpStatus.OK,
     description: 'Dispute opened successfully',
     type: OrderResponseDto,
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description:
+      'Completed order is outside the seven-day complaint window or has no completion timestamp (COMPLAINT_WINDOW_EXPIRED)',
+  })
+  @ApiResponse({
+    status: HttpStatus.FORBIDDEN,
+    description:
+      'Caller is not a participant, or is not the customer of a completed order',
+  })
+  @ApiResponse({
+    status: HttpStatus.CONFLICT,
+    description:
+      'Order state does not allow a dispute (INVALID_STATE_TRANSITION)',
   })
   async dispute(
     @Param('id', ParseUUIDPipe) id: string,

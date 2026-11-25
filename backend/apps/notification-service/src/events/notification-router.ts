@@ -102,6 +102,10 @@ const strategies: StrategyMap = {
     entityId: data.orderId,
     recipients: customerOrder(data),
   }),
+  'order.warranty.completed': ({ data }) => ({ category: 'order', entityId: data.orderId, recipients: customerOrder(data) }),
+  'order.dispute.decision.recorded': ({ data }) => ({ category: 'order', entityId: data.orderId, recipients: customerOrder(data) }),
+  'order.dispute.resolved': ({ data }) => ({ category: 'order', entityId: data.orderId,
+    recipients: customerOrder(data) }),
   'payment.succeeded': ({ data }) => ({
     category: 'payment',
     entityId: data.paymentId,
@@ -131,6 +135,16 @@ const strategies: StrategyMap = {
     category: 'wallet',
     entityId: data.transactionId,
     recipients: [{ userId: data.walletOwnerId, role: 'owner' }],
+  }),
+  'worker.service_registration.approved': ({ data }) => ({
+    category: 'system',
+    entityId: data.registrationId,
+    recipients: [{ userId: data.userId, role: 'worker' }],
+  }),
+  'worker.service_registration.rejected': ({ data }) => ({
+    category: 'system',
+    entityId: data.registrationId,
+    recipients: [{ userId: data.userId, role: 'worker' }],
   }),
 };
 

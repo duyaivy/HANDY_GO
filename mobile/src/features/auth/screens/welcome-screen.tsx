@@ -260,7 +260,10 @@ export function WelcomeScreen() {
 
           <Pressable
             testID="welcome-login-link"
-            onPress={() => router.push(RouteNames.AUTH_LOGIN as any)}
+            onPress={() => {
+              setGuestRole(selectedRole);
+              router.push(RouteNames.AUTH_LOGIN as any);
+            }}
             accessibilityRole="button"
             accessibilityLabel="Đã có tài khoản? Đăng nhập ngay"
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}

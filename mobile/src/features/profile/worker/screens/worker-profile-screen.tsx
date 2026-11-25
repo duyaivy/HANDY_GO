@@ -5,6 +5,7 @@ import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons/arrow-right';
 import {
+  ClockIcon,
   OrdersIcon,
   ShieldCheckIcon,
   WalletIcon,
@@ -63,7 +64,7 @@ export function WorkerProfileScreen() {
   };
 
   return (
-    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen edges={['top', 'left', 'right']} scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
         hideBackButton
@@ -117,6 +118,30 @@ export function WorkerProfileScreen() {
               <ArrowRight color="#9CA3AF" />
             </Pressable>
 
+            {/* Mục 2: Lịch sử công việc */}
+            <Pressable
+              testID="profile-job-history-item"
+              accessibilityRole="button"
+              accessibilityLabel="Lịch sử công việc"
+              onPress={() => router.push(RouteNames.WORKER_JOB_HISTORY as any)}
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 active:bg-blue-50/80 dark:border-neutral-800 dark:active:bg-blue-950/30"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-purple-50 dark:bg-purple-950/50">
+                  <ClockIcon color="#7C3AED" size={20} />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Lịch sử công việc
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Danh sách việc đã làm & đã hủy
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
+
             {/* Mục 2: Kỹ năng chuyên môn */}
             <Pressable
               testID="profile-skills-item"
@@ -158,7 +183,7 @@ export function WorkerProfileScreen() {
                     HANDY_GO balance
                   </Text>
                   <Text className="text-xs text-neutral-500 dark:text-neutral-400">
-                    Số dư & tài khoản ký quỹ
+                    Số dư ví
                   </Text>
                 </View>
               </View>

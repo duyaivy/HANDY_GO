@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { Alert } from 'react-native';
+import { CandidatesApi } from '@/features/candidates/api/candidates.api';
+import { OrdersApi } from '@/features/orders/api/orders.api';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { DeviceLocationService } from '@/services/location/device-location';
@@ -47,8 +49,16 @@ jest.mock('@/services/location/device-location', () => ({
   },
 }));
 
+beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getMyRequests').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(OrdersApi, 'getRequestDetail').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
+  jest.spyOn(OrdersApi, 'getProposalsForRequest').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
+  jest.spyOn(CandidatesApi, 'getCandidatesData').mockResolvedValue({ bidding: { items: [] }, matching: { recommendations: [] } } as any);
+});
+
 afterEach(() => {
   cleanup();
+  jest.restoreAllMocks();
   jest.clearAllMocks();
   useBookingDraftStore.getState().resetDraft();
 });

@@ -14,6 +14,9 @@ describe('UserTrustServiceController', () => {
     serviceMock = {
       getHello: vi.fn().mockReturnValue('Hello World!'),
       handleUserRegistered: vi.fn().mockResolvedValue({ processed: true }),
+      handleOrderCompleted: vi.fn().mockResolvedValue({ processed: true }),
+      handleOrderCreated: vi.fn().mockResolvedValue({ processed: true }),
+      recordDeadLetter: vi.fn().mockResolvedValue(undefined),
       getProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       updateProfile: vi.fn().mockResolvedValue({ statusCode: 200 }),
       listUsers: vi.fn().mockResolvedValue({ statusCode: 200, data: [], pagination: {} }),
@@ -75,6 +78,335 @@ describe('UserTrustServiceController', () => {
     const result = await controller.handleUserRegistered(event, undefined as any);
     expect(result).toEqual({ processed: true });
     expect(serviceMock.handleUserRegistered).toHaveBeenCalledWith(event);
+  });
+
+  it('should handle order.completed event and ack channel', async () => {
+    const event = {
+      eventId: 'evt-order-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    const result = await controller.handleOrderCompleted(event, contextMock);
+    expect(result).toEqual({ processed: true });
+    expect(serviceMock.handleOrderCompleted).toHaveBeenCalledWith(event);
+    expect(channelMock.ack).toHaveBeenCalled();
+  });
+
+  it('moves malformed payload to quorum DLQ and ACKs, or requeues if both broker DLQ and DB fail', async () => {
+    const malformedEvent = { eventId: 'evt-order-err', data: {} } as any;
+    const confirmChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi.fn().mockResolvedValue(undefined),
+    };
+    const contextOk = {
+      getChannelRef: () => confirmChannelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(malformedEvent)),
+        properties: { headers: {} },
+      }),
+    };
+
+    const result = await controller.handleOrderCompleted(malformedEvent, contextOk);
+    expect(result).toEqual({ processed: false, reason: 'MALFORMED_PAYLOAD' });
+    expect(confirmChannelMock.assertQueue).toHaveBeenCalledWith(
+      'user-trust-service.v2.dlq',
+      expect.objectContaining({
+        durable: true,
+        arguments: {
+          'x-queue-type': 'quorum',
+          'x-overflow': 'reject-publish',
+        },
+      }),
+    );
+    expect(confirmChannelMock.ack).toHaveBeenCalledTimes(1);
+    expect(confirmChannelMock.nack).not.toHaveBeenCalled();
+    expect(serviceMock.handleOrderCompleted).not.toHaveBeenCalled();
+
+    // When both broker DLQ and DB fail for malformed payload, must requeue (never nack(false,false))
+    const failingChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockRejectedValue(new Error('Broker down')),
+      sendToQueue: vi.fn(),
+      waitForConfirms: vi.fn(),
+    };
+    serviceMock.recordDeadLetter.mockResolvedValueOnce(false);
+    await controller.handleOrderCompleted(malformedEvent, {
+      getChannelRef: () => failingChannelMock,
+      getMessage: () => ({ content: Buffer.from('{}'), properties: { headers: {} } }),
+    });
+    expect(failingChannelMock.ack).not.toHaveBeenCalled();
+    expect(failingChannelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+  });
+
+  it('should retry transient DB error with requeue up to max retries', async () => {
+    const event = {
+      eventId: 'evt-transient-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout to PostgreSQL'));
+
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('Connection timeout');
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true); // requeue = true
+  });
+
+  it('recovers on second retry attempt and ACKs channel', async () => {
+    const event = {
+      eventId: 'evt-retry-recover',
+      data: { orderId: 'ord-recover', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    // First attempt fails with transient DB error
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow('connection terminated');
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+
+    // Second attempt recovers
+    channelMock.nack.mockClear();
+    serviceMock.handleOrderCompleted.mockResolvedValueOnce({ processed: true, idempotent: false });
+    const result = await controller.handleOrderCompleted(event, contextMock);
+
+    expect(result).toEqual({ processed: true, idempotent: false });
+    expect(channelMock.ack).toHaveBeenCalled();
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('should persist dead letter to durable broker DLQ when DB is down throughout retries and only ACK after DLQ confirms', async () => {
+    const event = {
+      eventId: 'evt-exhaust-retries',
+      data: { orderId: 'ord-exhaust', workerUserId: 'w-1' },
+    } as any;
+    let currentHeaders: Record<string, any> = {};
+    const channelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn((_queue: string, _content: Buffer, opts: any) => {
+        currentHeaders = { ...(opts?.headers ?? {}) };
+        return true;
+      }),
+      waitForConfirms: vi.fn().mockResolvedValue(undefined),
+    };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(event)),
+        properties: { headers: currentHeaders },
+      }),
+    };
+
+    serviceMock.handleOrderCompleted.mockRejectedValue(new Error('Persistent connection refused'));
+    serviceMock.recordDeadLetter.mockResolvedValue(false); // DB is still down when DLQ DB record is attempted
+
+    // Attempts 1, 2, 3 publish to broker retry queues with x-retry-count and ACK original
+    for (let i = 1; i <= 3; i++) {
+      channelMock.ack.mockClear();
+      channelMock.sendToQueue.mockClear();
+      await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+      expect(channelMock.assertQueue).toHaveBeenCalledWith(
+        `user-trust-service.v2.retry.${i}`,
+        expect.objectContaining({
+          durable: true,
+          arguments: expect.objectContaining({
+            'x-queue-type': 'quorum',
+            'x-overflow': 'reject-publish',
+            'x-dead-letter-strategy': 'at-least-once',
+            'x-dead-letter-exchange': '',
+            'x-dead-letter-routing-key': 'user-trust-service',
+          }),
+        }),
+      );
+      expect(channelMock.sendToQueue).toHaveBeenCalledWith(
+        `user-trust-service.v2.retry.${i}`,
+        expect.any(Buffer),
+        expect.objectContaining({
+          persistent: true,
+          headers: expect.objectContaining({ 'x-retry-count': i }),
+        }),
+      );
+      expect(channelMock.ack).toHaveBeenCalledTimes(1);
+      expect(channelMock.nack).not.toHaveBeenCalled();
+    }
+
+    // Attempt 4 (exhausted) publishes to broker DLQ even though DB recordDeadLetter failed, then ACKs original
+    channelMock.ack.mockClear();
+    channelMock.sendToQueue.mockClear();
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(channelMock.sendToQueue).toHaveBeenCalledWith(
+      'user-trust-service.v2.dlq',
+      expect.any(Buffer),
+      expect.objectContaining({
+        persistent: true,
+        headers: expect.objectContaining({ 'x-retry-count': 4, 'x-event-type': 'order.completed' }),
+      }),
+    );
+    expect(channelMock.ack).toHaveBeenCalledTimes(1);
+    expect(channelMock.nack).not.toHaveBeenCalled();
+  });
+
+  it('does NOT drop message if both broker DLQ publish and DB recordDeadLetter fail during outage', async () => {
+    const event = {
+      eventId: 'evt-dlq-fail',
+      data: { orderId: 'ord-dlq-fail', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockRejectedValue(new Error('Broker unreachable')),
+      sendToQueue: vi.fn(),
+    };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(event)),
+        properties: { headers: { 'x-retry-count': 3 } },
+      }),
+    };
+
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('DB connection refused'));
+    serviceMock.recordDeadLetter.mockResolvedValueOnce(false);
+
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(channelMock.ack).not.toHaveBeenCalled();
+    expect(channelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true); // Must requeue, never drop
+  });
+
+  it('preserves retry count across instance restart via AMQP headers and avoids double counting on replay', async () => {
+    const event = {
+      eventId: 'evt-restart-1',
+      data: { orderId: 'ord-restart', workerUserId: 'w-1' },
+    } as any;
+
+    // Simulate a brand new controller instance after pod restart receiving message with x-retry-count = 2
+    const restartedController = new UserTrustServiceController(
+      serviceMock as any,
+      { internalServiceSecret: 'secret-1' } as any,
+    );
+    const channelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi.fn().mockResolvedValue(undefined),
+    };
+    const contextAttempt3 = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(event)),
+        properties: { headers: { 'x-retry-count': 2 } },
+      }),
+    };
+
+    // Attempt 3 (from header 2 -> 3) still fails -> publishes to retry.3
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
+    await expect(restartedController.handleOrderCompleted(event, contextAttempt3)).rejects.toThrow();
+    expect(channelMock.sendToQueue).toHaveBeenCalledWith(
+      'user-trust-service.v2.retry.3',
+      expect.any(Buffer),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'x-retry-count': 3 }),
+      }),
+    );
+
+    // DB recovers -> replay succeeds once, subsequent replay is idempotent
+    channelMock.ack.mockClear();
+    serviceMock.handleOrderCompleted
+      .mockResolvedValueOnce({ processed: true, idempotent: false })
+      .mockResolvedValueOnce({ processed: false, idempotent: true });
+
+    const firstRecovery = await restartedController.handleOrderCompleted(event, {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({ properties: { headers: { 'x-retry-count': 3 } } }),
+    });
+    expect(firstRecovery).toEqual({ processed: true, idempotent: false });
+
+    const duplicateReplay = await restartedController.handleOrderCompleted(event, {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({ properties: { headers: { 'x-retry-count': 3 } } }),
+    });
+    expect(duplicateReplay).toEqual({ processed: false, idempotent: true });
+    expect(channelMock.ack).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses connection.createConfirmChannel and requeues if broker publisher confirm fails', async () => {
+    const event = {
+      eventId: 'evt-confirm-1',
+      data: { orderId: 'ord-confirm', workerUserId: 'w-1' },
+    } as any;
+    const confirmChMock = {
+      assertQueue: vi.fn().mockResolvedValue({}),
+      sendToQueue: vi.fn().mockReturnValue(true),
+      waitForConfirms: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Broker nack / confirm timeout')),
+      on: vi.fn(),
+    };
+    const regularChannelMock = {
+      ack: vi.fn(),
+      nack: vi.fn(),
+      connection: {
+        createConfirmChannel: vi.fn().mockResolvedValue(confirmChMock),
+      },
+    };
+    const contextMock = {
+      getChannelRef: () => regularChannelMock,
+      getMessage: () => ({
+        content: Buffer.from(JSON.stringify(event)),
+        properties: { headers: {} },
+      }),
+    };
+
+    // 1. Confirmed handoff -> ACKs original after waitForConfirms succeeds
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(regularChannelMock.connection.createConfirmChannel).toHaveBeenCalledTimes(1);
+    expect(confirmChMock.waitForConfirms).toHaveBeenCalledTimes(1);
+    expect(regularChannelMock.ack).toHaveBeenCalledTimes(1);
+    expect(regularChannelMock.nack).not.toHaveBeenCalled();
+
+    // 2. Unconfirmed handoff (waitForConfirms rejects) -> must NOT ACK; must NACK requeue=true
+    regularChannelMock.ack.mockClear();
+    regularChannelMock.nack.mockClear();
+    serviceMock.handleOrderCompleted.mockRejectedValueOnce(new Error('Connection timeout'));
+    await expect(controller.handleOrderCompleted(event, contextMock)).rejects.toThrow();
+    expect(regularChannelMock.ack).not.toHaveBeenCalled();
+    expect(regularChannelMock.nack).toHaveBeenCalledWith(expect.anything(), false, true);
+  });
+
+  it('should handle order.created event and ack channel', async () => {
+    const event = {
+      eventId: 'evt-order-created-1',
+      data: { orderId: 'ord-1', workerUserId: 'w-1' },
+    } as any;
+    const channelMock = { ack: vi.fn(), nack: vi.fn() };
+    const contextMock = {
+      getChannelRef: () => channelMock,
+      getMessage: () => ({}),
+    };
+
+    const result = await controller.handleOrderCreated(event, contextMock);
+    expect(result).toEqual({ processed: true });
+    expect(serviceMock.handleOrderCreated).toHaveBeenCalledWith(event);
+    expect(channelMock.ack).toHaveBeenCalled();
   });
 
   it('should return profile for authenticated user', async () => {

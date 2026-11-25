@@ -51,6 +51,9 @@ const templates = {
   ],
   'order.cancelled': ['Đơn hàng đã bị hủy', '{{audience}} đã được hủy.'],
   'order.completed': ['Công việc đã hoàn thành', '{{audience}} đã hoàn thành.'],
+  'order.warranty.completed': ['Bảo hành đã hoàn thành', '{{audience}} đã hoàn thành lần bảo hành.'],
+  'order.dispute.decision.recorded': ['Đang xử lý hoàn tiền', 'Yêu cầu hoàn tiền của đơn hàng đã được chấp thuận và đang xử lý.'],
+  'order.dispute.resolved': ['Khiếu nại đã được giải quyết', '{{audience}} đã có kết quả giải quyết khiếu nại.'],
   'payment.succeeded': [
     'Thanh toán thành công',
     'Giao dịch của bạn đã thành công.',
@@ -68,6 +71,14 @@ const templates = {
   'wallet.balance.adjusted': [
     'Số dư ví được điều chỉnh',
     'Số dư ví của bạn vừa được cập nhật.',
+  ],
+  'worker.service_registration.approved': [
+    'Nghiệp vụ dịch vụ đã được duyệt',
+    'Hồ sơ đăng ký nghiệp vụ của bạn đã được Admin phê duyệt thành công! Bạn có thể bắt đầu nhận đơn.',
+  ],
+  'worker.service_registration.rejected': [
+    'Hồ sơ nghiệp vụ bị từ chối',
+    'Hồ sơ đăng ký nghiệp vụ của bạn chưa đạt yêu cầu. Vui lòng kiểm tra lý do và cập nhật lại.',
   ],
 } satisfies Record<NotificationEventType, readonly [string, string]>;
 

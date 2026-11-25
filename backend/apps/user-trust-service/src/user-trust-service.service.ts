@@ -12,7 +12,7 @@ import {
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
-import type { DomainEvent } from '@app/common';
+import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
@@ -27,11 +27,42 @@ import { CreateReviewDto, UpdateReviewDto } from './dto/create-review.dto.js';
 import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
+import { AuthClient } from './clients/auth.client.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
 export const WORKER_CANCELLED_REGISTRATION_SENTINEL =
   '[Thợ chủ động hủy yêu cầu]';
+
+export class WorkerProfileNotReadyException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerProfileNotReadyException';
+  }
+}
+
+export function isTransientEventError(error: any): boolean {
+  if (!error) return false;
+  if (error instanceof WorkerProfileNotReadyException) return true;
+  if (error.name === 'WorkerProfileNotReadyException') return true;
+  const msg = String(error.message || error).toLowerCase();
+  if (
+    msg.includes('connection') ||
+    msg.includes('timeout') ||
+    msg.includes('deadlock') ||
+    msg.includes('could not serialize') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('try again') ||
+    msg.includes('econnrefused') ||
+    msg.includes('not ready')
+  ) {
+    return true;
+  }
+  if (error.code === 'P2028' || error.code === 'P2034' || error.code === 'P1001') {
+    return true;
+  }
+  return false;
+}
 
 function maskIdNumber(idStr?: string | null): string {
   if (!idStr) return '';
@@ -217,6 +248,8 @@ export class UserTrustServiceService {
     private readonly orderClient?: OrderClient,
     @Optional()
     private readonly configService?: ConfigService,
+    @Optional()
+    private readonly authClient?: AuthClient,
   ) { }
 
   async getDisplayNames(ids: string[]) {
@@ -381,6 +414,352 @@ export class UserTrustServiceService {
     return { processed: true, idempotent: false };
   }
 
+  async recordDeadLetter(
+    eventType: string,
+    eventPayload: any,
+    errorMsg: string,
+    attempts: number,
+  ): Promise<boolean> {
+    try {
+      await this.db.outboxEvent.create({
+        data: {
+          eventType: `${eventType}.dead_letter`,
+          eventVersion: 1,
+          payload: {
+            event: eventPayload,
+            error: errorMsg,
+            attempts,
+            failedAt: new Date().toISOString(),
+          },
+          status: 'failed',
+          lastError: errorMsg,
+          retryCount: attempts,
+        },
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `Failed to record dead letter for ${eventType}: ${(err as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  async handleOrderCompleted(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-completed-${orderId}` : null);
+    const eventType = 'order.completed';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId || !orderId) {
+      this.logger.warn(
+        `Ignoring order.completed event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId})`,
+      );
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing && existing.processedAt) {
+        this.logger.log(
+          `Event ${eventId} (${eventType}) has already been processed. Skipping idempotently.`,
+        );
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
+
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadCompleted = contribution?.hasContributedCompleted ?? false;
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaCompleted = hadCompleted ? 0 : 1;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+          },
+          update: {
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment with total >= completed invariant
+      if (deltaCompleted > 0 || deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET completed_order_count = completed_order_count + ${deltaCompleted},
+                order_count_total = GREATEST(order_count_total + ${deltaTotal}, completed_order_count + ${deltaCompleted}),
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          const nextCompleted =
+            (worker.completedOrderCount || 0) + deltaCompleted;
+          const nextTotal = Math.max(
+            (worker.orderCountTotal || 0) + deltaTotal,
+            nextCompleted,
+          );
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              completedOrderCount: nextCompleted,
+              orderCountTotal: nextTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized completed orders for worker ${worker.userId}: deltaCompleted=${deltaCompleted}, deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+          update: {
+            processedAt: new Date(),
+          },
+        });
+      }
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
+  async handleOrderCreated(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-created-${orderId}` : null);
+    const eventType = 'order.created';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId || !orderId) {
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing && existing.processedAt) {
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
+
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: false,
+          },
+          update: {
+            hasContributedTotal: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment
+      if (deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET order_count_total = order_count_total + ${deltaTotal},
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              orderCountTotal: (worker.orderCountTotal || 0) + deltaTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized total orders for worker ${worker.userId}: deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+          update: {
+            processedAt: new Date(),
+          },
+        });
+      }
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
   async getUserAuthStatus(
     userId: string,
     roles: string[],
@@ -515,6 +894,7 @@ export class UserTrustServiceService {
           averageRating: worker.ratingCount > 0 ? Number(worker.averageRating) : null,
           ratingCount: worker.ratingCount ?? 0,
           completedOrderCount: worker.completedOrderCount ?? 0,
+          orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
           headline: worker.serviceOfferings[0]?.title ?? null,
         },
       };
@@ -544,6 +924,7 @@ export class UserTrustServiceService {
         averageRating: null,
         ratingCount: 0,
         completedOrderCount: 0,
+        orderCountTotal: 0,
         headline: null,
       },
     };
@@ -1868,17 +2249,27 @@ export class UserTrustServiceService {
       },
     });
 
-    return workers.map((w) => ({
-      workerId: w.userId,
-      workerUserId: w.userId,
-      fullName: w.user.fullName,
-      avatarUrl: w.user.avatarUrl,
-      averageRating: Number(w.averageRating || 5.0),
-      ratingCount: w.ratingCount || 0,
-      completedOrderCount: w.completedOrderCount || 0,
-      orderCountTotal: w.orderCountTotal || 0,
-      status: w.status,
-    }));
+    return workers.map((w) => {
+      const completedOrderCount = w.completedOrderCount || 0;
+      const orderCountTotal = w.orderCountTotal || completedOrderCount;
+      const completionRate =
+        orderCountTotal > 0
+          ? Math.round((completedOrderCount / orderCountTotal) * 100)
+          : (completedOrderCount > 0 ? 100 : 0);
+
+      return {
+        workerId: w.userId,
+        workerUserId: w.userId,
+        fullName: w.user.fullName,
+        avatarUrl: w.user.avatarUrl,
+        averageRating: Number(w.averageRating || 5.0),
+        ratingCount: w.ratingCount || 0,
+        completedOrderCount,
+        orderCountTotal,
+        completionRate,
+        status: w.status,
+      };
+    });
   }
 
   /**
@@ -1983,6 +2374,13 @@ export class UserTrustServiceService {
         ? Number(Number(worker.averageRating).toFixed(2))
         : 0;
 
+    const headline =
+      worker.serviceOfferings.find((s) => s.isActive)?.title ||
+      worker.serviceOfferings[0]?.title ||
+      'Thợ kỹ thuật chuyên nghiệp';
+
+    const phone = await this.authClient?.getUserPhone(worker.userId) ?? null;
+
     return {
       statusCode: 200,
       data: {
@@ -1991,6 +2389,8 @@ export class UserTrustServiceService {
         fullName: worker.user.fullName,
         avatarUrl: worker.user.avatarUrl,
         bio: worker.user.customerProfile?.bio ?? null,
+        phone,
+        headline,
         status: worker.status,
         isVerified: worker.status === 'verified',
         verifiedAt: worker.verifiedAt,
@@ -3084,6 +3484,35 @@ export class UserTrustServiceService {
             },
           });
         }
+
+        // 4. Lưu outbox event cho notification với chuẩn CloudEvent envelope (khớp event-contracts)
+        const eventId = crypto.randomUUID();
+        const envelope = {
+          eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+          eventVersion: 1,
+          source: 'user-trust-service',
+          producer: 'user-trust-service',
+          occurredAt: now.toISOString(),
+          data: {
+            registrationId,
+            workerProfileId: currentReg.workerProfileId,
+            userId: registration.workerProfile?.userId,
+            decision: 'approved',
+            reviewedBy: reviewerId,
+            reviewedAt: now.toISOString(),
+          },
+        };
+
+        await tx.outboxEvent.create({
+          data: {
+            id: eventId,
+            eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+            eventVersion: 1,
+            payload: envelope,
+            status: 'pending',
+          },
+        });
       });
 
       return {
@@ -3098,27 +3527,58 @@ export class UserTrustServiceService {
     }
 
     // Từ chối (rejected)
-    const updateResult = await this.db.workerServiceRegistration.updateMany({
-      where: {
-        id: registrationId,
-        status: 'pending',
-        version: targetVersion,
-      },
-      data: {
-        status: 'rejected',
-        rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
-        reviewedByUserId: reviewerId,
-        reviewedAt: now,
-        version: { increment: 1 },
-        updatedAt: now,
-      },
-    });
+    await this.db.$transaction(async (tx) => {
+      const updateResult = await tx.workerServiceRegistration.updateMany({
+        where: {
+          id: registrationId,
+          status: 'pending',
+          version: targetVersion,
+        },
+        data: {
+          status: 'rejected',
+          rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedByUserId: reviewerId,
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
+      });
 
-    if (updateResult.count === 0) {
-      throw new ConflictException(
-        'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
-      );
-    }
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      }
+
+      const eventId = crypto.randomUUID();
+      const envelope = {
+        eventId,
+        eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+        eventVersion: 1,
+        source: 'user-trust-service',
+        producer: 'user-trust-service',
+        occurredAt: now.toISOString(),
+        data: {
+          registrationId,
+          workerProfileId: registration.workerProfileId,
+          userId: registration.workerProfile?.userId,
+          decision: 'rejected',
+          reason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedBy: reviewerId,
+          reviewedAt: now.toISOString(),
+        },
+      };
+
+      await tx.outboxEvent.create({
+        data: {
+          id: eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+          eventVersion: 1,
+          payload: envelope,
+          status: 'pending',
+        },
+      });
+    });
 
     return {
       statusCode: HttpStatus.OK,
@@ -3229,7 +3689,7 @@ export class UserTrustServiceService {
    * 1. Ràng buộc đúng CLOUDINARY_CLOUD_NAME.
    * 2. Giao thức HTTPS và đúng loại resource (image/video).
    * 3. Xác thực quyền sở hữu của caller (chặn URL tài nguyên của người dùng khác hoặc giả mạo).
-   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (thuộc user-scoped path hoặc uploadReceipt hợp lệ).
+   * 4. Bắt buộc video direct upload phải có chứng thực nguồn gốc (uploadReceipt hợp lệ).
    */
   private async validateReviewMedia(
     mediaItems: Array<{
@@ -3237,6 +3697,7 @@ export class UserTrustServiceService {
       mediaUrl: string;
       thumbnailUrl?: string;
       uploadReceipt?: string;
+      thumbnailUploadReceipt?: string;
     }> | undefined,
     currentUserId: string,
   ) {
@@ -3305,53 +3766,14 @@ export class UserTrustServiceService {
       const publicIdWithExt = assetSegments.join('/');
       const publicId = publicIdWithExt.replace(/\.[^/.]+$/, '');
 
-      // 1. Kiểm tra nếu đường dẫn asset chứa ID của người dùng khác (không thuộc caller)
-      const userPattern =
-        /(?:users|user|reviews|videos|chat|evidence)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-      const match = publicIdWithExt.match(userPattern);
-      if (
-        match &&
-        match[1] &&
-        match[1].toLowerCase() !== currentUserId.toLowerCase()
-      ) {
+      if (!this.cloudinaryService || !(await this.cloudinaryService.verifyReviewMedia({
+        publicId, ownerId: currentUserId, mediaType: type, uploadReceipt: item.uploadReceipt,
+      }))) {
         throw new BadRequestException(
-          'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
+          item.uploadReceipt
+            ? `Mã xác thực upload (uploadReceipt) của ${type} không hợp lệ hoặc không thuộc caller`
+            : 'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller)',
         );
-      }
-
-      // 2. Đối với video: bắt buộc phải có chứng thực quyền sở hữu từ direct upload signature
-      if (type === 'video') {
-        const secret =
-          this.configService?.cloudinaryApiSecret ||
-          process.env.CLOUDINARY_API_SECRET ||
-          'handygo-review-secret';
-
-        let isReceiptValid = false;
-        if (item.uploadReceipt) {
-          const expectedProof = crypto
-            .createHmac('sha256', secret)
-            .update(`${currentUserId}:${publicId}`)
-            .digest('hex');
-          isReceiptValid = item.uploadReceipt === expectedProof;
-          if (!isReceiptValid) {
-            throw new BadRequestException(
-              'Mã xác thực upload (uploadReceipt) của video không hợp lệ hoặc không thuộc caller',
-            );
-          }
-        }
-
-        const isUserScopedPath =
-          publicIdWithExt.includes(`/videos/${currentUserId}`) ||
-          publicIdWithExt.includes(`/reviews/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`reviews/videos/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`handy-go/reviews/videos/${currentUserId}`) ||
-          publicIdWithExt.startsWith(`handygo/reviews/videos/${currentUserId}`);
-
-        if (!isUserScopedPath && !isReceiptValid) {
-          throw new BadRequestException(
-            'Tài nguyên media không thuộc quyền sở hữu của người dùng (URL asset không thuộc caller hoặc thiếu xác thực direct upload)',
-          );
-        }
       }
 
       // 3. Kiểm tra thumbnail nếu có
@@ -3367,7 +3789,8 @@ export class UserTrustServiceService {
         if (
           thumbParsed.protocol !== 'https:' ||
           thumbParsed.hostname !== 'res.cloudinary.com' ||
-          !thumbParsed.pathname.includes('/image/upload/')
+          !/^\/[^/]+\/(image|video)\/upload\//.test(thumbParsed.pathname) ||
+          !/\.(jpg|jpeg|png|webp)$/i.test(thumbParsed.pathname)
         ) {
           throw new BadRequestException(
             'Ảnh thu nhỏ (thumbnailUrl) phải là hình ảnh hợp lệ trên Cloudinary (/image/upload/...)',
@@ -3380,15 +3803,15 @@ export class UserTrustServiceService {
           );
         }
 
-        const thumbMatch = thumbParsed.pathname.match(userPattern);
-        if (
-          thumbMatch &&
-          thumbMatch[1] &&
-          thumbMatch[1].toLowerCase() !== currentUserId.toLowerCase()
-        ) {
-          throw new BadRequestException(
-            'Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng (không thuộc caller)',
-          );
+        const thumbAfterUpload = thumbSegments.slice(3);
+        const thumbKey = (/^v\d+$/.test(thumbAfterUpload[0] || '')
+          ? thumbAfterUpload.slice(1) : thumbAfterUpload).join('/').replace(/\.[^/.]+$/, '');
+        const derivedFromVideo = type === 'video' && thumbSegments[1] === 'video' && thumbKey === publicId;
+        const ownedImage = thumbSegments[1] === 'image' && await this.cloudinaryService.verifyReviewMedia({
+          publicId: thumbKey, ownerId: currentUserId, mediaType: 'image', uploadReceipt: item.thumbnailUploadReceipt,
+        });
+        if (!derivedFromVideo && !ownedImage) {
+          throw new BadRequestException('Ảnh thu nhỏ (thumbnailUrl) không thuộc quyền sở hữu của người dùng');
         }
       }
     }
@@ -3512,10 +3935,6 @@ export class UserTrustServiceService {
       );
     }
 
-    if (dto.media && dto.media.length > 0) {
-      await this.validateReviewMedia(dto.media, currentUserId);
-    }
-
     const imgFromDto = (dto.media || []).filter(
       (m) => (m.mediaType || '').toLowerCase() === 'image',
     ).length;
@@ -3539,6 +3958,10 @@ export class UserTrustServiceService {
     }
     if (totalVideos > 1) {
       throw new BadRequestException('Chỉ được đính kèm tối đa 1 video');
+    }
+
+    if (dto.media && dto.media.length > 0) {
+      await this.validateReviewMedia(dto.media, currentUserId);
     }
 
     const mediaItems: Array<{
@@ -3783,9 +4206,13 @@ export class UserTrustServiceService {
       );
     }
 
-    if (dto.media && dto.media.length > 0) {
-      await this.validateReviewMedia(dto.media, currentUserId);
-    }
+    // The authorized review establishes ownership only for exact persisted attachments.
+    const newMedia = dto.media?.filter((item) => !(review.media || []).some((existing) =>
+      existing.mediaType === item.mediaType.toLowerCase() &&
+      existing.mediaUrl === item.mediaUrl &&
+      (existing.thumbnailUrl || undefined) === (item.thumbnailUrl || undefined),
+    ));
+    await this.validateReviewMedia(newMedia, currentUserId);
 
     let updatedMediaItems: Array<{
       mediaType: 'image' | 'video';
@@ -4224,27 +4651,12 @@ export class UserTrustServiceService {
       },
       userId,
     );
-    const secret =
-      this.configService?.cloudinaryApiSecret ||
-      process.env.CLOUDINARY_API_SECRET ||
-      'handygo-review-secret';
-    const publicId =
-      signature?.publicId ||
-      `handy-go/reviews/videos/${userId}/${crypto.randomUUID()}`;
-    const uploadReceipt =
-      signature?.uploadReceipt ||
-      crypto
-        .createHmac('sha256', secret)
-        .update(`${userId}:${publicId}`)
-        .digest('hex');
 
     return {
       statusCode: HttpStatus.OK,
       message: 'Khởi tạo chữ ký upload video đánh giá thành công',
       data: {
-        ...(signature || {}),
-        publicId,
-        uploadReceipt,
+        ...signature,
       },
     };
   }

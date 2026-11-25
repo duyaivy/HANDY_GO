@@ -5,6 +5,7 @@ import { AppBar } from '@/components/ui/app-bar';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from '@/components/ui/icons/arrow-right';
 import {
+  ClockIcon,
   MapPinIcon,
   OrdersIcon,
   ShieldCheckIcon,
@@ -63,7 +64,7 @@ export function CustomerProfileScreen() {
   };
 
   return (
-    <Screen safeArea={false} scrollable className="bg-neutral-50 dark:bg-neutral-950">
+    <Screen edges={['top', 'left', 'right']} scrollable className="bg-neutral-50 dark:bg-neutral-950">
       <AppBar
         mode="stack"
         hideBackButton
@@ -112,6 +113,30 @@ export function CustomerProfileScreen() {
                   </Text>
                   <Text className="text-xs text-neutral-500 dark:text-neutral-400">
                     Quản lý thẻ, ví điện tử & số dư
+                  </Text>
+                </View>
+              </View>
+              <ArrowRight color="#9CA3AF" />
+            </Pressable>
+
+            {/* Lịch sử đơn hàng */}
+            <Pressable
+              testID="profile-order-history-item"
+              accessibilityRole="button"
+              accessibilityLabel="Lịch sử đơn hàng"
+              onPress={() => router.push(RouteNames.CUSTOMER_HISTORY as any)}
+              className="flex-row items-center justify-between border-b border-neutral-100 p-4 dark:border-neutral-800"
+            >
+              <View className="flex-1 flex-row items-center pr-3">
+                <View className="size-10 items-center justify-center rounded-2xl bg-indigo-50 dark:bg-indigo-950/50">
+                  <ClockIcon color="#4F46E5" size={20} />
+                </View>
+                <View className="ml-3.5 flex-1">
+                  <Text className="text-sm font-bold text-neutral-900 dark:text-white">
+                    Lịch sử đơn hàng
+                  </Text>
+                  <Text className="text-xs text-neutral-500 dark:text-neutral-400">
+                    Xem lại các dịch vụ đã đặt & hoàn thành
                   </Text>
                 </View>
               </View>

@@ -48,7 +48,14 @@ let database: PaymentPrismaService,
   operations: PaymentOperationsService;
 let app: INestApplication;
 let seedEnv: NodeJS.ProcessEnv;
-const wallet = { getOperation: vi.fn().mockResolvedValue({ outcome: 'missing' }), refundCredit: vi.fn().mockResolvedValue({ outcome: 'rejected', status: 409, message: 'Unfunded' }) };
+const wallet = {
+  getOperation: vi.fn().mockResolvedValue({ outcome: 'missing' }),
+  refundCredit: vi.fn().mockResolvedValue({
+    outcome: 'rejected',
+    status: 409,
+    message: 'Unfunded',
+  }),
+};
 const outbox = { enqueue: vi.fn() };
 const runOnce = vi.fn().mockResolvedValue({ pointAttempts: 0 });
 function token(id: string, roles: string[] = [], permissions: string[] = []) {
@@ -116,7 +123,12 @@ beforeAll(async () => {
     .toString();
   database = new PaymentPrismaService();
   audit = new AdminAuditService(database);
-  refunds = new RefundsService(database, audit, wallet as never, outbox as never);
+  refunds = new RefundsService(
+    database,
+    audit,
+    wallet as never,
+    outbox as never,
+  );
   rules = new CommissionRulesAdminService(database, audit);
   operations = new PaymentOperationsService(database, audit);
   seedEnv = {
@@ -376,7 +388,12 @@ describe('Refund reservations and Admin decisions (PostgreSQL)', () => {
     const unavailableAudit = {
       record: vi.fn().mockRejectedValue(new Error('Audit unavailable')),
     };
-    const service = new RefundsService(database, unavailableAudit as never, wallet as never, outbox as never);
+    const service = new RefundsService(
+      database,
+      unavailableAudit as never,
+      wallet as never,
+      outbox as never,
+    );
     await expect(
       service.decide(admin, refund.id, { approve: true, reason: 'Reviewed' }),
     ).rejects.toThrow(/Audit unavailable/);
@@ -398,6 +415,7 @@ describe('Admin HTTP authorization, validation and operations', () => {
     const routes = [
       '/admin/records',
       '/admin/commission-rules',
+      '/admin/refunds',
       `/admin/${paid.id}/refunds`,
       '/admin/operations/dead-letters',
       '/admin/operations/reports',
@@ -461,6 +479,196 @@ describe('Admin HTTP authorization, validation and operations', () => {
     )
       .send({ approve: true, reason: 'Evidence' })
       .expect(201);
+    const allRefunds = await authorized(
+      'get',
+      '/admin/refunds?status=needs_review,pending',
+      P.refundReadAll,
+    ).expect(200);
+    expect(
+      allRefunds.body.data.items.some(
+        (item: { id: string }) => item.id === refund.id,
+      ),
+    ).toBe(true);
+    expect(allRefunds.body.data.items[0]).toHaveProperty('orderId');
+  });
+  it('filters Admin refunds by status, paymentId, pagination, and validates bad query parameters', async () => {
+    const payA = await payment();
+    const payB = await payment();
+    const refA1 = await database.client.refund.create({
+      data: {
+        paymentId: payA.id,
+        requestedByUserId: customer,
+        amountVnd: 10n,
+        reason: 'Refund A1',
+        idempotencyKey: randomUUID(),
+        status: 'needs_review',
+      },
+    });
+    const refA2 = await database.client.refund.create({
+      data: {
+        paymentId: payA.id,
+        requestedByUserId: customer,
+        amountVnd: 20n,
+        reason: 'Refund A2',
+        idempotencyKey: randomUUID(),
+        status: 'failed',
+      },
+    });
+    const refB1 = await database.client.refund.create({
+      data: {
+        paymentId: payB.id,
+        requestedByUserId: customer,
+        amountVnd: 30n,
+        reason: 'Refund B1',
+        idempotencyKey: randomUUID(),
+        status: 'completed',
+        approvedByUserId: admin,
+        approvedAt: new Date(),
+        decisionNote: 'Approved in test',
+      },
+    });
+    const refB2 = await database.client.refund.create({
+      data: {
+        paymentId: payB.id,
+        requestedByUserId: customer,
+        amountVnd: 40n,
+        reason: 'Refund B2',
+        idempotencyKey: randomUUID(),
+        status: 'needs_review',
+      },
+    });
+
+    // 1. Without status query: returns all refunds for paymentId and maps payment details correctly
+    const byPayment = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(byPayment.body.data.total).toBe(2);
+    expect(byPayment.body.data.items).toHaveLength(2);
+    const itemA1 = byPayment.body.data.items.find(
+      (i: { id: string }) => i.id === refA1.id,
+    );
+    expect(itemA1).toBeDefined();
+    expect(itemA1.orderId).toBe(payA.orderId);
+    expect(itemA1.customerUserId).toBe(payA.customerUserId);
+    expect(itemA1.workerUserId).toBe(payA.workerUserId);
+
+    // 2. Filter single status: returns only matching refund
+    const singleStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(singleStatus.body.data.total).toBe(1);
+    expect(singleStatus.body.data.items[0].id).toBe(refA2.id);
+
+    // 3. Filter multi-status via comma-separated string
+    const commaStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed,needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(commaStatus.body.data.total).toBe(2);
+    expect(
+      commaStatus.body.data.items.map((i: { id: string }) => i.id).sort(),
+    ).toEqual([refA1.id, refA2.id].sort());
+
+    // 4. Filter multi-status via repeated query parameters (?status=...&status=...)
+    const repeatStatus = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=failed&status=needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(repeatStatus.body.data.total).toBe(2);
+    expect(
+      repeatStatus.body.data.items.map((i: { id: string }) => i.id).sort(),
+    ).toEqual([refA1.id, refA2.id].sort());
+
+    // 5. Filter paymentId excludes refunds from other payments
+    const needsReviewA = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=needs_review`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(needsReviewA.body.data.total).toBe(1);
+    expect(needsReviewA.body.data.items[0].id).toBe(refA1.id);
+    expect(
+      needsReviewA.body.data.items.some(
+        (i: { id: string }) => i.id === refB2.id,
+      ),
+    ).toBe(false);
+
+    // 6. AND condition: status + paymentId combination
+    const emptyAnd = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&status=completed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(emptyAnd.body.data.total).toBe(0);
+    expect(emptyAnd.body.data.items).toEqual([]);
+
+    const matchAnd = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payB.id}&status=completed`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(matchAnd.body.data.total).toBe(1);
+    expect(matchAnd.body.data.items[0].id).toBe(refB1.id);
+
+    // 7. Pagination and deterministic ordering (page 1 vs page 2)
+    const page1 = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&page=1&limit=1`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(page1.body.data).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      totalPages: 2,
+    });
+    expect(page1.body.data.items).toHaveLength(1);
+
+    const page2 = await authorized(
+      'get',
+      `/admin/refunds?paymentId=${payA.id}&page=2&limit=1`,
+      P.refundReadAll,
+    ).expect(200);
+    expect(page2.body.data).toMatchObject({
+      total: 2,
+      page: 2,
+      limit: 1,
+      totalPages: 2,
+    });
+    expect(page2.body.data.items).toHaveLength(1);
+    expect(page1.body.data.items[0].id).not.toBe(page2.body.data.items[0].id);
+
+    // 8. Negative validation tests (400 Bad Request)
+    await authorized(
+      'get',
+      '/admin/refunds?paymentId=not-a-uuid',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized('get', '/admin/refunds?page=0', P.refundReadAll).expect(
+      400,
+    );
+    await authorized('get', '/admin/refunds?limit=101', P.refundReadAll).expect(
+      400,
+    );
+    await authorized(
+      'get',
+      '/admin/refunds?status=unknown',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized(
+      'get',
+      '/admin/refunds?status=,,,',
+      P.refundReadAll,
+    ).expect(400);
+    await authorized('get', '/admin/refunds?status=', P.refundReadAll).expect(
+      400,
+    );
   });
   it('replays dead letters once with unchanged ID/payload and audit', async () => {
     const payload = { eventId, data: { sensitive: 'hidden-bank-data' } };
@@ -516,7 +724,6 @@ describe('Admin HTTP authorization, validation and operations', () => {
   });
 });
 
-
 describe('Inbound quarantine persistence (PostgreSQL)', () => {
   it('persists one safe record before ACK and rejects Admin replay of the missing body', async () => {
     const eventType = `test.unknown.${randomUUID()}`;
@@ -526,7 +733,9 @@ describe('Inbound quarantine persistence (PostgreSQL)', () => {
       const raw = { eventId: randomUUID(), token: 'must-not-be-stored' };
       await inbox.consume(eventType, raw, {} as never);
       await inbox.consume(eventType, raw, {} as never);
-      const rows = await database.client.failedInboundEvent.findMany({ where: { eventType } });
+      const rows = await database.client.failedInboundEvent.findMany({
+        where: { eventType },
+      });
       expect(rows).toHaveLength(1);
       expect(rows[0].status).toBe('quarantined');
       expect(rows[0].attempts).toBe(2);
@@ -534,11 +743,24 @@ describe('Inbound quarantine persistence (PostgreSQL)', () => {
       expect(JSON.stringify(rows)).not.toContain('must-not-be-stored');
       expect(rabbit.ack).toHaveBeenCalledTimes(2);
       expect(rabbit.nack).not.toHaveBeenCalled();
-      await expect(operations.replay(admin, rows[0].eventId, 'Cannot replay redacted body')).rejects.toMatchObject({ status: 409 });
-      const listing = await operations.deadLetters({ page: 1, limit: 100 } as never);
-      expect(listing.items.some((row) => row.eventId === rows[0].eventId)).toBe(true);
+      await expect(
+        operations.replay(
+          admin,
+          rows[0].eventId,
+          'Cannot replay redacted body',
+        ),
+      ).rejects.toMatchObject({ status: 409 });
+      const listing = await operations.deadLetters({
+        page: 1,
+        limit: 100,
+      } as never);
+      expect(listing.items.some((row) => row.eventId === rows[0].eventId)).toBe(
+        true,
+      );
     } finally {
-      await database.client.failedInboundEvent.deleteMany({ where: { eventType } });
+      await database.client.failedInboundEvent.deleteMany({
+        where: { eventType },
+      });
     }
   });
 });

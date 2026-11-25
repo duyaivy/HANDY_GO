@@ -7,9 +7,11 @@ import { HealthModule } from './health/health.module.js';
 import { RegisterModule } from './register/register.module.js';
 import { OtpModule } from './otp/otp.module.js';
 import { LoginModule } from './login/login.module.js';
+import { DashboardCustomersController } from './internal/dashboard-customers.controller.js';
+import { UserContactController } from './internal/user-contact.controller.js';
 
 @Module({
-  controllers: [ChatSessionController],
+  controllers: [ChatSessionController, DashboardCustomersController, UserContactController],
   imports: [
     ConfigModule.forRoot({
       serviceName: 'auth-service',

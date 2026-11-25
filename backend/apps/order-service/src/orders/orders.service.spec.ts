@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   BadRequestException,
   ConflictException,
@@ -10,6 +10,14 @@ import { OrdersService } from './orders.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { OrderOutboxRepository } from '../common/outbox/order-outbox.repository.js';
 import { ORDER_CONSTANTS } from '../common/constants/order.constants.js';
+import { ORDER_ERROR_CODES } from '../common/constants/order-errors.js';
+import { DisputeCategory } from './dto/dispute-order.dto.js';
+import {
+  AdminQueryDisputesDto,
+  DisputePreviousStatus,
+  DisputeSortBy,
+  SortOrder,
+} from './dto/admin-query-disputes.dto.js';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -21,6 +29,7 @@ describe('OrdersService', () => {
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
+      aggregate: ReturnType<typeof vi.fn>;
     };
     bookingProposal: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -36,6 +45,8 @@ describe('OrdersService', () => {
     };
     orderEvidence: {
       create: ReturnType<typeof vi.fn>;
+      createMany: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
       findMany: ReturnType<typeof vi.fn>;
       findFirst: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
@@ -55,6 +66,15 @@ describe('OrdersService', () => {
       findUnique: ReturnType<typeof vi.fn>;
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
+      updateMany: ReturnType<typeof vi.fn>;
+    };
+    orderEvidence: {
+      create: ReturnType<typeof vi.fn>;
+      createMany: ReturnType<typeof vi.fn>;
+      count: ReturnType<typeof vi.fn>;
+      findMany: ReturnType<typeof vi.fn>;
+      findFirst: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
     };
     orderStatusHistory: {
       create: ReturnType<typeof vi.fn>;
@@ -197,6 +217,8 @@ describe('OrdersService', () => {
           return { count: 1 };
         }),
         count: vi.fn(),
+        aggregate: vi.fn(),
+        groupBy: vi.fn().mockResolvedValue([]),
       },
       bookingProposal: {
         findUnique: vi.fn(),
@@ -217,6 +239,7 @@ describe('OrdersService', () => {
       },
       orderEvidence: {
         create: vi.fn(),
+        createMany: vi.fn().mockResolvedValue({ count: 0 }),
         count: vi.fn().mockResolvedValue(1),
         findMany: vi.fn(),
         findFirst: vi.fn(),
@@ -594,12 +617,12 @@ describe('OrdersService', () => {
   });
 
   describe('finish', () => {
-    it('should mark order finished when in_progress and evidence count >= 1', async () => {
+    it('should mark order finished when in_progress and work evidence count >= 1', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'in_progress',
-        _count: { evidences: 1 },
       });
+      txMock.orderEvidence.count = vi.fn().mockResolvedValue(1);
       txMock.order.update.mockResolvedValue({
         ...validBaseOrder,
         status: 'awaiting_customer_confirmation',
@@ -612,6 +635,12 @@ describe('OrdersService', () => {
 
       const result = await service.finish(mockOrderId, mockWorkerId);
 
+      expect(txMock.orderEvidence.count).toHaveBeenCalledWith({
+        where: {
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
       expect(txMock.order.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -627,23 +656,33 @@ describe('OrdersService', () => {
       expect(result.status).toBe('awaiting_customer_confirmation');
     });
 
-    it('should throw BadRequestException if worker did not attach any evidence (ORD-10)', async () => {
+    it('should throw BadRequestException if worker did not attach any work evidence even when dispute evidence exists (ORD-10)', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'in_progress',
-        _count: { evidences: 0 },
+        _count: { evidences: 2 },
       });
+      txMock.orderEvidence.count = vi.fn().mockResolvedValue(0);
 
-      await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          code: ORDER_ERROR_CODES.MISSING_EVIDENCE,
+        }),
+      });
+      expect(txMock.orderEvidence.count).toHaveBeenCalledWith({
+        where: {
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
     });
 
     it('should throw ConflictException if order is not in_progress', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'confirmed',
-        _count: { evidences: 1 },
       });
 
       await expect(service.finish(mockOrderId, mockWorkerId)).rejects.toThrow(
@@ -653,15 +692,17 @@ describe('OrdersService', () => {
   });
 
   describe('confirmCompletion', () => {
-    it('should complete order and emit order.completed event for payment settlement', async () => {
+    it('should complete order, set firstCompletedAt, and emit order.completed event for first completion', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
         status: 'awaiting_customer_confirmation',
+        firstCompletedAt: null,
       });
       txMock.order.update.mockResolvedValue({
         ...validBaseOrder,
         status: 'completed',
         completedAt: new Date(),
+        firstCompletedAt: new Date(),
       });
       txMock.orderStatusHistory.create.mockResolvedValue({
         id: 'hist-1',
@@ -673,9 +714,14 @@ describe('OrdersService', () => {
         mockCustomerId,
       );
 
-      expect(txMock.order.update).toHaveBeenCalledWith(
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: 'completed' }),
+          where: { id: mockOrderId, status: 'awaiting_customer_confirmation' },
+          data: expect.objectContaining({
+            status: 'completed',
+            completedAt: expect.any(Date),
+            firstCompletedAt: expect.any(Date),
+          }),
         }),
       );
       expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
@@ -690,6 +736,44 @@ describe('OrdersService', () => {
         txMock,
       );
       expect(result.status).toBe('completed');
+    });
+
+    it('should preserve firstCompletedAt and emit order.warranty.completed (not order.completed) after warranty rework', async () => {
+      const initialFirstCompletedAt = new Date('2026-11-15T10:00:00.000Z');
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'awaiting_customer_confirmation',
+        firstCompletedAt: initialFirstCompletedAt,
+        completedAt: null,
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({
+        id: 'hist-2',
+        toStatus: 'completed',
+      });
+
+      const result = await service.confirmCompletion(
+        mockOrderId,
+        mockCustomerId,
+      );
+
+      const updateData = txMock.order.updateMany.mock.calls[0][0].data;
+      expect(updateData.status).toBe('completed');
+      expect(updateData.completedAt).toBeInstanceOf(Date);
+      expect(updateData.firstCompletedAt).toBeUndefined();
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(1);
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_WARRANTY_COMPLETED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            agreedPrice: validBaseOrder.agreedPrice.toString(),
+            currency: 'VND',
+          }),
+        }),
+        txMock,
+      );
+      expect(result.status).toBe('completed');
+      expect(result.firstCompletedAt).toEqual(initialFirstCompletedAt);
     });
 
     it('should throw ForbiddenException if caller is not the customer owner', async () => {
@@ -942,6 +1026,13 @@ describe('OrdersService', () => {
       };
       const result = await service.addEvidence(mockOrderId, mockWorkerId, dto);
 
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenNthCalledWith(2, {
+        where: {
+          orderId: mockOrderId,
+          mediaUrl: 'https://example.com/img-same-url.jpg',
+          evidenceType: 'work',
+        },
+      });
       expect(prismaMock.orderEvidence.create).not.toHaveBeenCalled();
       expect(result.id).toBe(mockEvidenceId);
       expect(result.mediaUrl).toBe('https://example.com/img-same-url.jpg');
@@ -984,7 +1075,9 @@ describe('OrdersService', () => {
           return existingEvidence;
         });
 
-      const p2002Error = new Error('Unique constraint failed on the fields: (order_id, client_evidence_id)');
+      const p2002Error = new Error(
+        'Unique constraint failed on the fields: (order_id, client_evidence_id)',
+      );
       (p2002Error as any).code = 'P2002';
       prismaMock.orderEvidence.create.mockRejectedValue(p2002Error);
 
@@ -1034,9 +1127,287 @@ describe('OrdersService', () => {
         where: { id: mockEvidenceId },
       });
     });
+
+    it('does not let a worker delete dispute evidence after the order resumes', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      prismaMock.orderEvidence.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deleteEvidence(mockOrderId, mockEvidenceId, mockWorkerId),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.EVIDENCE_NOT_FOUND },
+        status: 404,
+      });
+      expect(prismaMock.orderEvidence.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: mockEvidenceId,
+          orderId: mockOrderId,
+          evidenceType: 'work',
+        },
+      });
+      expect(prismaMock.orderEvidence.delete).not.toHaveBeenCalled();
+    });
   });
 
   describe('dispute', () => {
+    const now = new Date('2026-11-21T12:00:00.000Z');
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(now);
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    it('allows the customer at the exact seven-day boundary and saves evidence with both outbox events', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: new Date(now.getTime() - sevenDaysMs),
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-1' });
+      const dto = {
+        reason: 'Dịch vụ bị lỗi sau khi nghiệm thu',
+        category: DisputeCategory.SERVICE_QUALITY,
+        evidenceUrls: [
+          'https://example.com/photo.jpg',
+          'https://example.com/video.mp4',
+          'https://example.com/photo.jpg',
+        ],
+      };
+
+      const result = await service.dispute(mockOrderId, mockCustomerId, dto);
+
+      expect(result.status).toBe('disputed');
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId, status: 'completed' },
+          data: expect.objectContaining({
+            status: 'disputed',
+            disputePreviousStatus: 'completed',
+            disputedAt: now,
+            disputeReason: dto.reason,
+            disputeCategory: DisputeCategory.SERVICE_QUALITY,
+            version: { increment: 1 },
+          }),
+        }),
+      );
+      expect(txMock.orderEvidence.createMany).toHaveBeenCalledWith({
+        data: [
+          {
+            orderId: mockOrderId,
+            mediaUrl: dto.evidenceUrls[0],
+            mediaType: 'image',
+            evidenceType: 'dispute',
+            submittedByUserId: mockCustomerId,
+          },
+          {
+            orderId: mockOrderId,
+            mediaUrl: dto.evidenceUrls[1],
+            mediaType: 'video',
+            evidenceType: 'dispute',
+            submittedByUserId: mockCustomerId,
+          },
+        ],
+      });
+      expect(txMock.orderStatusHistory.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orderId: mockOrderId,
+          fromStatus: 'completed',
+          toStatus: 'disputed',
+          changedByUserId: mockCustomerId,
+          reason: dto.reason,
+        }),
+      });
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledTimes(2);
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_DISPUTED,
+          payload: expect.objectContaining({
+            orderId: mockOrderId,
+            orderCode: validBaseOrder.orderCode,
+            customerUserId: mockCustomerId,
+            workerUserId: mockWorkerId,
+            disputedByUserId: mockCustomerId,
+            reason: dto.reason,
+            category: dto.category,
+            evidences: dto.evidenceUrls.slice(0, 2),
+            disputePreviousStatus: 'completed',
+            completedAt: new Date(now.getTime() - sevenDaysMs).toISOString(),
+            disputedAt: now.toISOString(),
+          }),
+        }),
+        txMock,
+      );
+      expect(outboxRepoMock.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: ORDER_CONSTANTS.EVENT_ORDER_STATUS_CHANGED,
+          payload: expect.objectContaining({
+            previousStatus: 'completed',
+            nextStatus: 'disputed',
+          }),
+        }),
+        txMock,
+      );
+    });
+
+    it('rejects opening a new post-completion dispute when the order is already fully refunded (paymentState=refunded)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        paymentState: 'refunded',
+        completedAt: now,
+      });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Thử khiếu nại lại sau khi đã hoàn tiền 100%',
+        }),
+      ).rejects.toMatchObject({
+        response: {
+          code: ORDER_ERROR_CODES.ORDER_ALREADY_FULLY_REFUNDED,
+        },
+        status: 409,
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('still allows opening a post-completion dispute within 7 days after a partial refund (paymentState=partially_refunded)', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        paymentState: 'partially_refunded',
+        completedAt: now,
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-partial' });
+
+      const result = await service.dispute(mockOrderId, mockCustomerId, {
+        reason: 'Vẫn còn lỗi nghiêm trọng sau hoàn tiền một phần',
+      });
+
+      expect(result.status).toBe('disputed');
+      expect(txMock.order.updateMany).toHaveBeenCalled();
+    });
+
+    it.each([
+      ['expired', new Date(now.getTime() - sevenDaysMs - 1)],
+      ['missing completion time', null],
+    ])('rejects a completed order with %s', async (_case, completedAt) => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt,
+      });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+        }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.COMPLAINT_WINDOW_EXPIRED },
+        status: 400,
+      });
+      expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([mockWorkerId, mockAdminId])(
+      'rejects non-customer %s for a completed order',
+      async (userId) => {
+        prismaMock.order.findUnique.mockResolvedValue({
+          ...validBaseOrder,
+          status: 'completed',
+          completedAt: now,
+        });
+
+        await expect(
+          service.dispute(mockOrderId, userId, { reason: 'Dịch vụ bị lỗi' }),
+        ).rejects.toMatchObject({
+          response: {
+            code: ORDER_ERROR_CODES.DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION,
+          },
+          status: 403,
+        });
+        expect(txMock.order.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('lets the worker dispute while awaiting confirmation without evidence', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'awaiting_customer_confirmation',
+      });
+      txMock.orderStatusHistory.create.mockResolvedValue({ id: 'hist-1' });
+
+      await service.dispute(mockOrderId, mockWorkerId, {
+        reason: 'Khách hàng phản ánh sai tiến độ',
+      });
+
+      expect(txMock.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrderId, status: 'awaiting_customer_confirmation' },
+        }),
+      );
+      expect(txMock.orderEvidence.createMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-participant on an active order', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'in_progress',
+      });
+      await expect(
+        service.dispute(mockOrderId, mockAdminId, { reason: 'Dịch vụ bị lỗi' }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.NOT_ORDER_OWNER },
+        status: 403,
+      });
+    });
+
+    it('does not create events when evidence persistence fails', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: now,
+      });
+      txMock.orderEvidence.createMany.mockRejectedValue(
+        new Error('write failed'),
+      );
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+          evidenceUrls: ['https://example.com/photo.jpg'],
+        }),
+      ).rejects.toThrow('write failed');
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
+    it('rejects a concurrent status change before writing evidence or events', async () => {
+      prismaMock.order.findUnique.mockResolvedValue({
+        ...validBaseOrder,
+        status: 'completed',
+        completedAt: now,
+      });
+      txMock.order.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.dispute(mockOrderId, mockCustomerId, {
+          reason: 'Dịch vụ bị lỗi',
+          evidenceUrls: ['https://example.com/photo.jpg'],
+        }),
+      ).rejects.toMatchObject({
+        response: { code: ORDER_ERROR_CODES.INVALID_STATE_TRANSITION },
+        status: 409,
+      });
+      expect(txMock.orderEvidence.createMany).not.toHaveBeenCalled();
+      expect(outboxRepoMock.createEvent).not.toHaveBeenCalled();
+    });
+
     it('should open dispute when order is in_progress and emit order.disputed', async () => {
       prismaMock.order.findUnique.mockResolvedValue({
         ...validBaseOrder,
@@ -1306,6 +1677,416 @@ describe('OrdersService', () => {
           }),
         }),
       );
+    });
+
+
+    it('should filter by role worker matching only workerUserId (isolating dual-role customer orders)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Worker', 'Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should filter by role customer matching only customerUserId', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, role: 'customer' },
+        ['Worker', 'Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerUserId: mockCustomerId,
+          }),
+        }),
+      );
+      expect(prismaMock.order.findMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockCustomerId,
+          }),
+        }),
+      );
+    });
+
+    it('should isolate role by workerUserId when role=worker (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Customer', 'Worker'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to where.OR when no role is provided for non-admin user', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10 },
+        ['Customer'],
+      );
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ customerUserId: mockCustomerId }, { workerUserId: mockCustomerId }],
+          }),
+        }),
+      );
+    });
+
+    it('should filter by search keyword across orderCode, addressText, and agreedScope (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, search: 'Sửa điện' },
+        ['Customer'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { orderCode: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { addressText: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { agreedScope: { contains: 'Sửa điện', mode: 'insensitive' } },
+                ]),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('should return order summary statistics (HG-72)', async () => {
+      prismaMock.order.aggregate.mockResolvedValue({
+        _count: { id: 5 },
+        _sum: { agreedPrice: 2500000n as any },
+      } as any);
+      prismaMock.order.count.mockResolvedValue(2);
+      prismaMock.order.groupBy
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _count: { id: 7 } }, // 5 completed + 2 in_progress/cancelled
+        ] as any)
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _sum: { agreedPrice: 2800000n } }, // includes paid in_progress
+        ] as any);
+
+      const summary = await service.getOrderSummary(mockWorkerId, 'worker', ['Worker']);
+      expect(summary.completedCount).toBe(5);
+      expect(summary.cancelledCount).toBe(2);
+      expect(summary.totalCompletedAmount).toBe(2500000);
+      expect(summary.totalServiceRevenue).toBe(2800000);
+      expect(summary.byService).toEqual([
+        { serviceId: 'svc-1', orderCount: 7, revenue: 2800000 },
+      ]);
+
+      // Verify no-role non-admin preserves OR authorization inside AND (never overwritten)
+      prismaMock.order.groupBy.mockClear();
+      prismaMock.order.groupBy.mockResolvedValue([]);
+      await service.getOrderSummary(mockWorkerId, undefined, ['Worker']);
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(1, {
+        by: ['serviceId'],
+        where: {
+          OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+        },
+        _count: { id: true },
+      });
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(2, {
+        by: ['serviceId'],
+        where: {
+          AND: [
+            {
+              OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+            },
+            { OR: [{ status: 'completed' }, { paymentState: 'paid' }] },
+          ],
+        },
+        _sum: { agreedPrice: true },
+      });
+      expect(prismaMock.order.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ workerUserId: mockWorkerId }, { status: 'completed' }],
+          },
+        }),
+      );
+    });
+  });
+
+  describe('adminFindDisputes (HG-82)', () => {
+    it.each(['refund_pending', 'needs_review'])('projects the current %s refund in the active dispute queue', async (state) => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const resolutionId = '88888888-8888-8888-8888-888888888888';
+      const findResolutions = vi.fn().mockResolvedValue([{
+        id: resolutionId, orderId: mockOrderId, disputedAt, action: 'refund', state,
+        refundAmountVnd: 200000n, decidedAt: new Date('2026-11-20T10:00:00.000Z'),
+        failureCode: state === 'needs_review' ? 'PAYMENT_NOT_REFUNDABLE' : null,
+      }]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(findResolutions).toHaveBeenCalledWith({
+        where: { state: { not: 'superseded' }, OR: [{ orderId: mockOrderId, disputedAt }] },
+        orderBy: { decidedAt: 'asc' },
+      });
+      expect(result.items[0].resolution).toEqual(expect.objectContaining({
+        resolutionId, state, refundAmountVnd: '200000',
+      }));
+      expect(result.pagination).toEqual({ page: 1, limit: 10, total: 1, totalPages: 1 });
+    });
+
+    it('ignores superseded resolutions and projects only the active decision for the current dispute', async () => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const activeResolutionId = '99999999-9999-9999-9999-999999999999';
+      const findResolutions = vi.fn().mockResolvedValue([
+        {
+          id: '77777777-7777-7777-7777-777777777777',
+          orderId: mockOrderId,
+          disputedAt,
+          action: 'refund',
+          state: 'superseded',
+          refundAmountVnd: 200000n,
+          decidedAt: new Date('2026-11-20T10:00:00.000Z'),
+          failureCode: 'REFUND_AMOUNT_EXCEEDS_REFUNDABLE',
+        },
+        {
+          id: activeResolutionId,
+          orderId: mockOrderId,
+          disputedAt,
+          action: 'refund',
+          state: 'refund_pending',
+          refundAmountVnd: 100000n,
+          decidedAt: new Date('2026-11-20T10:05:00.000Z'),
+          failureCode: null,
+        },
+      ]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(result.items[0].resolution).toEqual(expect.objectContaining({
+        resolutionId: activeResolutionId,
+        state: 'refund_pending',
+        refundAmountVnd: '100000',
+      }));
+    });
+
+    it('does not project a decision from an earlier dispute cycle', async () => {
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      const findResolutions = vi.fn().mockResolvedValue([{
+        id: '88888888-8888-8888-8888-888888888888', orderId: mockOrderId,
+        disputedAt: new Date('2026-11-18T09:00:00.000Z'), action: 'refund', state: 'completed',
+      }]);
+      (prismaMock as any).orderDisputeResolution = { findMany: findResolutions };
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([{
+        ...validBaseOrder, status: 'disputed', disputePreviousStatus: 'completed', disputedAt, evidences: [],
+      }]);
+
+      const result = await service.adminFindDisputes(new AdminQueryDisputesDto(), ['Admin']);
+
+      expect(result.items[0].resolution).toBeNull();
+    });
+
+    it('returns only active disputes with dispute evidence and party IDs', async () => {
+      const evidence = {
+        id: mockEvidenceId,
+        mediaUrl: 'https://example.com/dispute.jpg',
+        mediaType: 'image',
+        submittedByUserId: mockCustomerId,
+        createdAt: new Date('2026-11-20T10:00:00.000Z'),
+      };
+      const disputedAt = new Date('2026-11-20T09:00:00.000Z');
+      prismaMock.order.count.mockResolvedValue(1);
+      prismaMock.order.findMany.mockResolvedValue([
+        {
+          ...validBaseOrder,
+          status: 'disputed',
+          disputePreviousStatus: 'completed',
+          disputeReason: 'Rò rỉ nước sau sửa chữa',
+          disputeCategory: DisputeCategory.SERVICE_QUALITY,
+          disputedAt,
+          completedAt: new Date('2026-11-18T09:00:00.000Z'),
+          evidences: [evidence],
+        },
+      ]);
+
+      const result = await service.adminFindDisputes(
+        new AdminQueryDisputesDto(),
+        ['ADMIN'],
+      );
+
+      expect(prismaMock.order.count).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+      });
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+        include: {
+          evidences: {
+            where: { evidenceType: 'dispute' },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        skip: 0,
+        take: 10,
+        orderBy: [{ disputedAt: 'desc' }, { id: 'asc' }],
+      });
+      expect(result).toEqual({
+        items: [
+          {
+            orderId: mockOrderId,
+            orderCode: validBaseOrder.orderCode,
+            status: 'disputed',
+            disputePreviousStatus: 'completed',
+            customerUserId: mockCustomerId,
+            workerUserId: mockWorkerId,
+            customer: { id: mockCustomerId },
+            worker: { id: mockWorkerId },
+            serviceId: mockServiceId,
+            agreedPrice: '350000',
+            currency: 'VND',
+            disputeReason: 'Rò rỉ nước sau sửa chữa',
+            disputeCategory: DisputeCategory.SERVICE_QUALITY,
+            disputedAt,
+            completedAt: new Date('2026-11-18T09:00:00.000Z'),
+            resolution: null,
+            evidences: [evidence],
+            createdAt: validBaseOrder.createdAt,
+          },
+        ],
+        pagination: { page: 1, limit: 10, total: 1, totalPages: 1 },
+      });
+    });
+
+    it('applies search, previous status, date range, pagination and price sorting', async () => {
+      prismaMock.order.count.mockResolvedValue(8);
+      prismaMock.order.findMany.mockResolvedValue([]);
+      const query = Object.assign(new AdminQueryDisputesDto(), {
+        page: 2,
+        limit: 3,
+        search: '  rò rỉ  ',
+        previousStatus: DisputePreviousStatus.COMPLETED,
+        disputedFrom: '2026-11-01T00:00:00.000Z',
+        disputedTo: '2026-11-21T23:59:59.000Z',
+        sortBy: DisputeSortBy.AGREED_PRICE,
+        sortOrder: SortOrder.ASC,
+      });
+
+      const result = await service.adminFindDisputes(query, ['Admin']);
+
+      const where = {
+        status: 'disputed',
+        disputePreviousStatus: 'completed',
+        disputedAt: {
+          gte: new Date(query.disputedFrom),
+          lte: new Date(query.disputedTo),
+        },
+        OR: [
+          { orderCode: { contains: 'rò rỉ', mode: 'insensitive' } },
+          { disputeReason: { contains: 'rò rỉ', mode: 'insensitive' } },
+        ],
+      };
+      expect(prismaMock.order.count).toHaveBeenCalledWith({ where });
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where,
+          skip: 3,
+          take: 3,
+          orderBy: [{ agreedPrice: 'asc' }, { id: 'asc' }],
+        }),
+      );
+      expect(result.pagination).toEqual({
+        page: 2,
+        limit: 3,
+        total: 8,
+        totalPages: 3,
+      });
+    });
+
+    it('returns an empty queue without applying a blank search term', async () => {
+      prismaMock.order.count.mockResolvedValue(0);
+      prismaMock.order.findMany.mockResolvedValue([]);
+
+      const result = await service.adminFindDisputes(
+        Object.assign(new AdminQueryDisputesDto(), { search: '   ' }),
+        ['Admin'],
+      );
+
+      expect(prismaMock.order.count).toHaveBeenCalledWith({
+        where: { status: 'disputed' },
+      });
+      expect(result).toEqual({
+        items: [],
+        pagination: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      });
+    });
+
+    it.each([{ roles: [] }, { roles: ['Customer'] }, { roles: ['Worker'] }])(
+      'rejects non-admin roles %j before querying the database',
+      async ({ roles }) => {
+        await expect(
+          service.adminFindDisputes(new AdminQueryDisputesDto(), roles),
+        ).rejects.toMatchObject({
+          response: { code: ORDER_ERROR_CODES.FORBIDDEN_ROLE },
+          status: 403,
+        });
+        expect(prismaMock.order.count).not.toHaveBeenCalled();
+        expect(prismaMock.order.findMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('rejects reversed date ranges before querying the database', async () => {
+      const query = Object.assign(new AdminQueryDisputesDto(), {
+        disputedFrom: '2026-11-21T00:00:00.000Z',
+        disputedTo: '2026-11-20T00:00:00.000Z',
+      });
+
+      await expect(service.adminFindDisputes(query, ['Admin'])).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prismaMock.order.count).not.toHaveBeenCalled();
     });
   });
 

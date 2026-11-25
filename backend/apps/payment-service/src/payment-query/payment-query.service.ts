@@ -22,6 +22,7 @@ const paymentSelect = {
   paidAt: true,
   createdAt: true,
   updatedAt: true,
+  refunds: { where: { status: 'completed' }, select: { amountVnd: true } },
 } satisfies Prisma.PaymentSelect;
 
 type PaymentRecord = Prisma.PaymentGetPayload<{ select: typeof paymentSelect }>;
@@ -35,11 +36,13 @@ export class PaymentQueryService {
   }
 
   private serialize(payment: PaymentRecord) {
+    const { refunds, ...fields } = payment;
     return {
-      ...payment,
+      ...fields,
       amount: payment.amount.toString(),
       platformFee: payment.platformFee.toString(),
       workerEarning: payment.workerEarning.toString(),
+      refundedAmount: refunds.reduce((sum, refund) => sum + refund.amountVnd, 0n).toString(),
     };
   }
 
@@ -71,10 +74,37 @@ export class PaymentQueryService {
     return this.serialize(payment);
   }
 
+  /** Internal, read-only preflight. The consumer repeats this check under a Payment lock. */
+  async refundableByOrder(orderId: string) {
+    const payment = await this.database.client.payment.findUnique({
+      where: { orderId },
+      select: { id: true, status: true, amount: true },
+    });
+    if (!payment) return { paymentId: null, status: 'missing', refundableAmountVnd: '0' };
+    const reserved = await this.database.client.refund.aggregate({
+      where: { paymentId: payment.id, status: { in: ['pending', 'processing', 'needs_review', 'completed'] } },
+      _sum: { amountVnd: true },
+    });
+    const remaining = payment.amount - (reserved._sum.amountVnd ?? 0n);
+    return {
+      paymentId: payment.id,
+      status: payment.status,
+      refundableAmountVnd: remaining > 0n ? remaining.toString() : '0',
+    };
+  }
+
   async list(userId: string, query: PaymentQueryDto, admin = false) {
+    const statusWhere: Prisma.PaymentWhereInput['status'] = query.status
+      ? Array.isArray(query.status)
+        ? query.status.length > 0
+          ? { in: query.status }
+          : undefined
+        : { in: [query.status] }
+      : undefined;
+
     const where: Prisma.PaymentWhereInput = {
       ...(admin ? {} : this.visibleTo(userId)),
-      ...(query.status ? { status: query.status } : {}),
+      ...(statusWhere ? { status: statusWhere } : {}),
       ...(query.method ? { method: query.method } : {}),
     };
     const [items, total] = await this.database.client.$transaction([

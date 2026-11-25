@@ -33,6 +33,13 @@ export default function CustomerLayout() {
           }}
         />
         <Stack.Screen
+          name="orders/[id]/review"
+          options={{
+            title: 'Đánh giá đơn hàng',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
           name="services/[id]"
           options={{
             title: 'Chi tiết dịch vụ',

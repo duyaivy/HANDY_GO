@@ -41,11 +41,13 @@ export const usePaymentStatisticsQuery = () =>
         }
       };
 
-      const total = await count();
-      const succeeded = await count("succeeded");
-      const pending = await count("pending");
-      const processing = await count("processing");
-      const failed = await count("failed");
+      const [total, succeeded, pending, processing, failed] = await Promise.all([
+        count(),
+        count("succeeded"),
+        count("pending"),
+        count("processing"),
+        count("failed"),
+      ]);
 
       return {
         total,

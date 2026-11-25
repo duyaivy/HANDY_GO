@@ -32,7 +32,8 @@ Mọi đường dẫn bên dưới nằm sau `API_PREFIX` (mặc định `/api/v
 | GET, POST | `/payments/admin/commission-rules` | Admin + `commission:manage` |
 | POST, GET | `/payments/:id/refunds` | Customer của Payment |
 | POST | `/payments/admin/:id/refunds` | Admin + `refund:create` |
-| GET | `/payments/admin/:id/refunds` | Admin + `refund:read:all` |
+| GET | `/payments/admin/refunds` | Admin + `refund:read:all` (danh sách toàn bộ refund hệ thống, query status/paymentId/paging) |
+| GET | `/payments/admin/:id/refunds` | Admin + `refund:read:all` (danh sách refund của 1 payment) |
 | POST | `/payments/admin/refunds/:id/decision` | Admin + `refund:approve`, không tự duyệt |
 | GET | `/payments/admin/operations/dead-letters` | Admin + `payment:dlq:replay`; metadata, không trả payload |
 | POST | `/payments/admin/operations/replay` | Admin + `payment:dlq:replay` |

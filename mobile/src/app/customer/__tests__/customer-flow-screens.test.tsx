@@ -239,6 +239,7 @@ describe('customer Skeleton & Route Flow', () => {
 
   describe('customerBookingSummaryScreen (booking/summary)', () => {
     it('renders booking summary skeleton and navigates to radar on start finding', async () => {
+      useBookingDraftStore.getState().setService('b1026b8e-dd6c-478b-aeab-1afb582bcfd0', 'Sửa ống nước');
       render(<CustomerBookingSummaryScreen />);
 
       expect(screen.getByText('Tóm tắt đơn đặt việc')).toBeOnTheScreen();
@@ -248,7 +249,7 @@ describe('customer Skeleton & Route Flow', () => {
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith({
           pathname: '/customer/booking/radar',
-          params: { requestId: 'req-001', serviceName: 'Dịch vụ tiện ích' },
+          params: { requestId: 'req-001', serviceName: 'Sửa ống nước' },
         });
       });
     });
@@ -328,9 +329,9 @@ describe('customer Skeleton & Route Flow', () => {
   });
 
   describe('customerUtilityAndFeatureScreens', () => {
-    it('renders history skeleton screen', () => {
+    it('renders customer order history screen', () => {
       render(<CustomerHistoryScreen />);
-      expect(screen.getByText('Lịch sử')).toBeOnTheScreen();
+      expect(screen.getByText('Lịch sử đơn hàng')).toBeOnTheScreen();
       expect(screen.getByTestId('customer-history-screen')).toBeOnTheScreen();
     });
 

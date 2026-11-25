@@ -50,7 +50,7 @@ export class CreateReviewMediaDto {
   @IsOptional()
   @IsUrl({}, { message: 'thumbnailUrl phải là URL hợp lệ' })
   @Matches(
-    /^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/image\/upload\/.+/i,
+    /^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/(?:image|video)\/upload\/.+/i,
     {
       message:
         'thumbnailUrl phải là đường dẫn hình ảnh Cloudinary hợp lệ (https://res.cloudinary.com/<cloud>/image/upload/...)',
@@ -58,8 +58,13 @@ export class CreateReviewMediaDto {
   )
   thumbnailUrl?: string;
 
+  @ApiPropertyOptional({ description: 'Owner-bound image receipt required for a separately uploaded thumbnail' })
+  @IsOptional()
+  @IsString()
+  thumbnailUploadReceipt?: string;
+
   @ApiPropertyOptional({
-    description: 'Mã xác thực biên nhận upload (upload receipt) cho video trực tiếp từ API video-upload-signature',
+    description: 'Biên nhận sở hữu gắn với người dùng, loại media và public ID; bắt buộc cho media URL: từ API uploads/image hoặc reviews/video-upload-signature',
     example: 'a1b2c3d4e5f6...',
   })
   @IsOptional()

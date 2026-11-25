@@ -347,4 +347,26 @@ describe('workerProfileScreen', () => {
     fireEvent.press(supportBtn);
     expect(mockPush).toHaveBeenCalledWith('/customer/support');
   });
+
+  it('navigates to worker job history when pressing "Lịch sử công việc" in utilities', () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-123',
+        phone: '0977777777',
+        email: 'worker@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    render(<WorkerProfileScreen />);
+
+    const historyItem = screen.getByTestId('profile-job-history-item');
+    expect(historyItem).toBeOnTheScreen();
+    expect(screen.getByText('Lịch sử công việc')).toBeOnTheScreen();
+
+    fireEvent.press(historyItem);
+    expect(mockPush).toHaveBeenCalledWith('/worker/history');
+  });
 });

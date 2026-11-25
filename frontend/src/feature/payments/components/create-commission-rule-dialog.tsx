@@ -1,5 +1,5 @@
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,13 +43,14 @@ export default function CreateCommissionRuleDialog({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [formError, setFormError] = useState("");
+  const submittingRef = useRef(false);
 
   const createMutation = useCreateCommissionRule();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (createMutation.isPending) return;
+    if (createMutation.isPending || submittingRef.current) return;
 
     const form = new FormData(event.currentTarget);
 
@@ -92,6 +93,7 @@ export default function CreateCommissionRuleDialog({
       return;
     }
 
+    submittingRef.current = true;
     createMutation.mutate(
       {
         ratePercent,
@@ -103,6 +105,9 @@ export default function CreateCommissionRuleDialog({
           onCreated();
           setOpen(false);
           toast.success("Tạo quy tắc thành công");
+        },
+        onSettled: () => {
+          submittingRef.current = false;
         },
       },
     );
@@ -248,16 +253,8 @@ export default function CreateCommissionRuleDialog({
 
             <Button
               type="submit"
-              form={undefined}
               disabled={createMutation.isPending}
               className="h-10 rounded-lg bg-[#FF5E14] px-4 font-medium text-white hover:bg-[#E65310]"
-              onClick={(event) => {
-                const form = event.currentTarget.closest(
-                  "[role='dialog']",
-                )?.querySelector("form");
-
-                form?.requestSubmit();
-              }}
             >
               {createMutation.isPending
                 ? "Đang lưu..."

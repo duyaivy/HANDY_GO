@@ -282,4 +282,94 @@ describe('EventProcessorService Push Scheduling', () => {
     expect(result.skipReason).toBe('PAYMENT_DEBIT_SUPPRESSED');
     expect(notifications.createInAppBatch).not.toHaveBeenCalled();
   });
+
+  it('enforces dedupeKey for worker.service_registration.approved and skips push jobs on duplicate event', async () => {
+    const fakeTx = {};
+    const db = {
+      $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => cb(fakeTx)),
+    } as unknown as NotificationPrismaService;
+
+    // Simulate duplicate in-app insert: DB skips duplicate row and returns count: 0
+    const notifications = {
+      createInAppBatch: vi.fn().mockResolvedValue(0),
+    } as unknown as NotificationsRepository;
+
+    const preferences = {
+      findInAppOptOuts: vi.fn().mockResolvedValue(new Set()),
+      findPushOptOuts: vi.fn().mockResolvedValue(new Set()),
+    } as unknown as PreferencesRepository;
+
+    const router = new NotificationRouter();
+    const policies = {
+      resolve: vi.fn().mockReturnValue({
+        policy: {
+          mode: 'mandatory',
+          roles: ['worker'],
+        },
+      }),
+    } as unknown as NotificationPolicy;
+
+    const devices = {
+      findActiveByUserIds: vi.fn().mockResolvedValue([
+        {
+          id: 'dev-1',
+          userId: 'w-user-123',
+          pushToken: 'push-token-1',
+        },
+      ]),
+    } as unknown as DevicesRepository;
+
+    const pushJobs = {
+      schedulePushAttempts: vi.fn().mockResolvedValue(0),
+    } as unknown as PushJobRepository;
+
+    const pushPolicies = {
+      resolve: vi.fn().mockReturnValue({
+        enabled: true,
+        mode: 'mandatory',
+      }),
+    } as unknown as PushPolicyResolver;
+
+    (fakeTx as any).consumedEvent = {
+      createMany: vi.fn().mockResolvedValue({ count: 1 }),
+    };
+
+    const processor = new EventProcessorService(
+      db,
+      notifications,
+      preferences,
+      router,
+      policies,
+      devices,
+      pushJobs,
+      pushPolicies,
+    );
+
+    const event = {
+      eventId: '11111111-2222-3333-4444-555555555555',
+      eventType: 'worker.service_registration.approved' as const,
+      eventVersion: 1 as const,
+      source: 'user-trust-service',
+      occurredAt: new Date().toISOString(),
+      data: {
+        registrationId: 'reg-dedupe-1',
+        userId: 'w-user-123',
+        workerProfileId: 'wp-123',
+        decision: 'approved',
+      },
+    };
+
+    const result = await processor.process(event);
+
+    // Verify dedupeKey format
+    const batchRows = vi.mocked(notifications.createInAppBatch).mock.calls[0][1];
+    expect(batchRows[0].dedupeKey).toBe(
+      `worker.service_registration.approved:reg-dedupe-1:w-user-123`,
+    );
+
+    // Duplicate skipped -> notificationCount: 0 and NO push jobs scheduled
+    expect(result.notificationCount).toBe(0);
+    expect(result.pushJobCount).toBe(0);
+    expect(pushJobs.schedulePushAttempts).not.toHaveBeenCalled();
+  });
 });

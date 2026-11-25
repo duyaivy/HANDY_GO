@@ -1,4 +1,7 @@
 import * as React from 'react';
+import { PaymentApi } from '@/features/wallet/api/payment.api';
+import { WalletApi } from '@/features/wallet/api/wallet.api';
+import { response, workerWallet } from '@/features/wallet/worker/__tests__/fixtures';
 import { cleanup, fireEvent, render, screen } from '@/lib/test-utils';
 
 import WorkerWalletScreen from '../(tabs)/wallet';
@@ -19,6 +22,17 @@ const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
 let mockParams: Record<string, string> = { id: 'JOB-1020' };
+jest.mock('@shopify/flash-list/jestSetup', () => ({}));
+jest.mock('@shopify/flash-list', () => ({ FlashList: require('react-native').FlatList }));
+jest.mock('@/features/wallet/api/wallet.api', () => ({ WalletApi: { getMyWallet: jest.fn(), getMyTransactions: jest.fn(), getBankAccounts: jest.fn(), getMyWithdrawals: jest.fn() } }));
+jest.mock('@/features/wallet/api/payment.api', () => ({ PaymentApi: { getMyPayments: jest.fn() } }));
+beforeEach(() => {
+  jest.mocked(WalletApi.getMyWallet).mockResolvedValue(response(workerWallet));
+  jest.mocked(WalletApi.getMyTransactions).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+  jest.mocked(WalletApi.getBankAccounts).mockResolvedValue(response([]));
+  jest.mocked(WalletApi.getMyWithdrawals).mockResolvedValue(response([]));
+  jest.mocked(PaymentApi.getMyPayments).mockResolvedValue(response({ items: [], page: 1, limit: 100, total: 0, totalPages: 0 }));
+});
 
 jest.mock('expo-router', () => ({
   useRouter: jest.fn(() => ({
@@ -27,6 +41,12 @@ jest.mock('expo-router', () => ({
     back: mockBack,
   })),
   useLocalSearchParams: jest.fn(() => mockParams),
+  useFocusEffect: (cb: any) => {
+    const ReactModule = require('react');
+    ReactModule.useEffect(() => {
+      return cb();
+    }, [cb]);
+  },
 }));
 
 afterEach(() => {
@@ -37,11 +57,12 @@ afterEach(() => {
 
 describe('worker Skeleton & Route Flow', () => {
   describe('workerWalletScreen ((tabs)/wallet)', () => {
-    it('renders clean placeholder with title and standard development notice', () => {
+    it('renders the wallet title and backend balance', async () => {
       render(<WorkerWalletScreen />);
 
       expect(screen.getByText('Ví & Thu nhập')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(await screen.findByTestId('worker-wallet-available')).toHaveTextContent('300.000 đ');
+      expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
       expect(screen.getByTestId('worker-wallet-screen')).toBeOnTheScreen();
     });
   });
@@ -75,11 +96,12 @@ describe('worker Skeleton & Route Flow', () => {
   });
 
   describe('workerWalletDepositScreen (wallet/deposit)', () => {
-    it('renders deposit placeholder with title and back button', () => {
+    it('renders deposit amounts with title and back button', () => {
       render(<WorkerWalletDepositScreen />);
 
-      expect(screen.getByText('Nạp tiền ví ký quỹ')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByText('Nạp tiền vào ví')).toBeOnTheScreen();
+      expect(screen.getByTestId('worker-deposit-amount-200000')).toBeOnTheScreen();
+      expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);
@@ -88,11 +110,12 @@ describe('worker Skeleton & Route Flow', () => {
   });
 
   describe('workerWalletWithdrawScreen (wallet/withdraw)', () => {
-    it('renders withdraw placeholder with title and back button', () => {
+    it('renders the withdrawal form with title and back button', () => {
       render(<WorkerWalletWithdrawScreen />);
 
       expect(screen.getByText('Rút tiền về ngân hàng')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(screen.getByTestId('withdraw-amount-input')).toBeOnTheScreen();
+      expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');
       fireEvent.press(backBtn);
@@ -167,11 +190,12 @@ describe('worker Skeleton & Route Flow', () => {
   });
 
   describe('workerBalanceScreen (balance)', () => {
-    it('renders balance placeholder and navigates back via app-bar', () => {
+    it('renders backend balance and navigates back via app-bar', async () => {
       render(<WorkerBalanceScreen />);
 
       expect(screen.getByText('HANDY_GO balance')).toBeOnTheScreen();
-      expect(screen.getByText('Chức năng đang được phát triển')).toBeOnTheScreen();
+      expect(await screen.findByText('Tổng số dư ví: 300.000 đ')).toBeOnTheScreen();
+      expect(screen.queryByText('Chức năng đang được phát triển')).toBeNull();
       expect(screen.getByTestId('worker-balance-screen')).toBeOnTheScreen();
 
       const backBtn = screen.getByTestId('app-bar-back-btn');

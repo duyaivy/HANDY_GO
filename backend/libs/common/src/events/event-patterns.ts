@@ -17,6 +17,9 @@ export const EVENT_PATTERNS = {
   ORDER_COMPLETED: 'order.completed',
   ORDER_CANCELLED: 'order.cancelled',
   ORDER_DISPUTED: 'order.disputed',
+  ORDER_DISPUTE_DECISION_RECORDED: 'order.dispute.decision.recorded',
+  ORDER_DISPUTE_RESOLVED: 'order.dispute.resolved',
+  ORDER_WARRANTY_COMPLETED: 'order.warranty.completed',
   ORDER_REWORK_REQUESTED: 'order.rework_requested',
 
   BIDDING_ROUND_OPENED: 'bidding.round.opened',
@@ -58,6 +61,8 @@ export const EVENT_PATTERNS = {
   PAYMENT_COMPLETED: 'payment.completed',
   PAYMENT_FAILED: 'payment.failed',
   PAYMENT_REFUNDED: 'payment.refunded',
+  PAYMENT_DISPUTE_REFUND_COMPLETED: 'payment.dispute.refund.completed',
+  PAYMENT_DISPUTE_REFUND_NEEDS_REVIEW: 'payment.dispute.refund.needs_review',
   PAYMENT_REFUND_REQUESTED: 'payment.refund.requested',
   PAYMENT_REFUND_COMPLETED: 'payment.refund.completed',
 
@@ -72,4 +77,7 @@ export const EVENT_PATTERNS = {
   SERVICE_UPDATED: 'service.updated',
   SERVICE_STATUS_CHANGED: 'service.status_changed',
   SERVICE_DELETED: 'service.deleted',
+
+  WORKER_SERVICE_REGISTRATION_APPROVED: 'worker.service_registration.approved',
+  WORKER_SERVICE_REGISTRATION_REJECTED: 'worker.service_registration.rejected',
 } as const;

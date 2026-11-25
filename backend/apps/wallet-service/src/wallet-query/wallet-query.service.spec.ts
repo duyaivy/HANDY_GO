@@ -46,4 +46,15 @@ describe('WalletQueryService', () => {
       page: 1, limit: 20, from: '2026-02-01T00:00:00Z', to: '2026-01-01T00:00:00Z',
     })).rejects.toMatchObject({ status: 400 });
   });
+
+  it('returns recorded transaction snapshots as exact decimal strings, including zero', async () => {
+    const { service, repository } = makeService();
+    vi.mocked(repository.findTransaction).mockResolvedValue({ id: 'tx', walletId: 'wallet-1', type: 'credit', amount: 9007199254740993n, balanceBefore: 0n, balanceAfter: 9007199254740993n, status: 'completed', createdAt: new Date() });
+    await expect(service.getTransaction('user-1', 'tx')).resolves.toMatchObject({ balanceBefore: '0', balanceAfter: '9007199254740993' });
+  });
+
+  it('reports missing legacy snapshots as null rather than using the current balance', async () => {
+    const { service } = makeService();
+    await expect(service.getTransaction('user-1', 'tx-1')).resolves.toMatchObject({ balanceBefore: null, balanceAfter: null });
+  });
 });

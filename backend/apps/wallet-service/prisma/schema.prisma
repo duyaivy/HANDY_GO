@@ -57,6 +57,8 @@ model WalletTransaction {
   type String @db.VarChar(40)
   direction String @db.VarChar(8)
   amount BigInt
+  balanceBefore BigInt? @map("balance_before")
+  balanceAfter BigInt? @map("balance_after")
   status LedgerStatus @default(completed)
   operationId String? @map("operation_id") @db.VarChar(160)
   idempotencyKey String? @unique @map("idempotency_key") @db.VarChar(200)

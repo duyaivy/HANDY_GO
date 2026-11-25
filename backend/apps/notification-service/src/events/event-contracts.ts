@@ -14,12 +14,17 @@ export const NOTIFICATION_EVENTS = [
   'order.status.changed',
   'order.cancelled',
   'order.completed',
+  'order.warranty.completed',
+  'order.dispute.decision.recorded',
+  'order.dispute.resolved',
   'payment.succeeded',
   'payment.failed',
   'payment.refunded',
   'wallet.credited',
   'wallet.debited',
   'wallet.balance.adjusted',
+  'worker.service_registration.approved',
+  'worker.service_registration.rejected',
 ] as const;
 
 export type NotificationEventType = (typeof NOTIFICATION_EVENTS)[number];
@@ -65,16 +70,33 @@ export interface EventDataMap {
   };
   'order.cancelled': OrderData;
   'order.completed': OrderData;
+  'order.warranty.completed': OrderData;
+  'order.dispute.decision.recorded': OrderData & { resolutionId: string; action: 'dismiss' | 'rework' | 'refund' };
+  'order.dispute.resolved': OrderData & { resolutionId: string; action: 'dismiss' | 'rework' | 'refund' };
   'payment.succeeded': { paymentId: string; payerId: string };
   'payment.failed': { paymentId: string; payerId: string };
   'payment.refunded': {
     paymentId: string;
     refundId: string;
     recipientId: string;
+    resolutionId?: string;
   };
   'wallet.credited': WalletData;
   'wallet.debited': WalletData;
   'wallet.balance.adjusted': WalletData;
+  'worker.service_registration.approved': {
+    registrationId: string;
+    userId: string;
+    workerProfileId?: string;
+    decision?: string;
+  };
+  'worker.service_registration.rejected': {
+    registrationId: string;
+    userId: string;
+    workerProfileId?: string;
+    decision?: string;
+    reason?: string;
+  };
 }
 
 export type NotificationEvent = {
@@ -130,6 +152,9 @@ export const EVENT_CONTRACTS = {
   'order.status.changed': { source: 'order-service', ids: order },
   'order.cancelled': { source: 'order-service', ids: order },
   'order.completed': { source: 'order-service', ids: order },
+  'order.warranty.completed': { source: 'order-service', ids: order },
+  'order.dispute.decision.recorded': { source: 'order-service', ids: [...order, 'resolutionId'] },
+  'order.dispute.resolved': { source: 'order-service', ids: [...order, 'resolutionId'] },
   'payment.succeeded': {
     source: 'payment-service',
     ids: ['paymentId', 'payerId'],
@@ -145,6 +170,14 @@ export const EVENT_CONTRACTS = {
   'wallet.credited': { source: 'wallet-service', ids: wallet },
   'wallet.debited': { source: 'wallet-service', ids: wallet },
   'wallet.balance.adjusted': { source: 'wallet-service', ids: wallet },
+  'worker.service_registration.approved': {
+    source: 'user-trust-service',
+    ids: ['registrationId', 'userId'],
+  },
+  'worker.service_registration.rejected': {
+    source: 'user-trust-service',
+    ids: ['registrationId', 'userId'],
+  },
 } satisfies Record<NotificationEventType, { source: string; ids: string[] }>;
 
 export const MAX_EVENT_BYTES = 128 * 1024;
@@ -296,6 +329,15 @@ export function validateNotificationEvent(
     )
       throw new PermanentEventError('INVALID_TRANSITION_KIND');
     data.notificationKind = rawData.notificationKind;
+    if (typeof rawData.resolutionId === 'string' && isUUID(rawData.resolutionId)) data.resolutionId = rawData.resolutionId;
+  }
+  if (type === 'payment.refunded' && typeof rawData.resolutionId === 'string') {
+    if (!isUUID(rawData.resolutionId)) throw new PermanentEventError('INVALID_RESOLUTION_ID');
+    data.resolutionId = rawData.resolutionId;
+  }
+  if (type === 'order.dispute.decision.recorded' || type === 'order.dispute.resolved') {
+    if (!['dismiss', 'rework', 'refund'].includes(String(rawData.action))) throw new PermanentEventError('INVALID_DISPUTE_ACTION');
+    data.action = rawData.action;
   }
   if (type.startsWith('wallet.')) {
     if (typeof rawData.reason === 'string') data.reason = rawData.reason;
@@ -309,6 +351,15 @@ export function validateNotificationEvent(
     const customerId = resolveField(rawData, 'customerId');
     if (typeof customerId === 'string' && isUUID(customerId)) {
       data.customerId = customerId.toLowerCase();
+    }
+  }
+  if (type === 'worker.service_registration.rejected') {
+    if (typeof rawData.reason === 'string') data.reason = rawData.reason;
+  }
+  if (type.startsWith('worker.service_registration.')) {
+    if (typeof rawData.decision === 'string') data.decision = rawData.decision;
+    if (typeof rawData.workerProfileId === 'string' && isUUID(rawData.workerProfileId)) {
+      data.workerProfileId = rawData.workerProfileId.toLowerCase();
     }
   }
   // Whitelist metadata; unknown business fields and secrets never reach storage/logs.

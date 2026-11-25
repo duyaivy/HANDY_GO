@@ -55,8 +55,10 @@ import {
   EVENT_PATTERNS,
   type DomainEvent,
 } from '@app/common';
+import { RABBITMQ_QUEUES } from '@app/rabbitmq';
 import {
   UserTrustServiceService,
+  isTransientEventError,
   type UserRegisteredData,
 } from './user-trust-service.service.js';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
@@ -94,6 +96,7 @@ export class UserTrustServiceController {
 
   private readonly logger = new Logger(UserTrustServiceController.name);
 
+  @Public()
   @Post('internal/users/verify-bank-account')
   @HttpCode(HttpStatus.OK)
   async verifyBankAccount(
@@ -155,6 +158,288 @@ export class UserTrustServiceController {
       }
       throw err;
     }
+  }
+
+  private readonly MAX_EVENT_RETRIES = 3;
+  private readonly RETRY_DELAYS_MS = [300, 600, 900] as const;
+  private confirmChannel: any = null;
+  private publishChain: Promise<void> = Promise.resolve();
+
+  private async getConfirmChannel(channel: any): Promise<any | null> {
+    if (!channel) {
+      return null;
+    }
+    if (typeof channel.waitForConfirms === 'function') {
+      return channel;
+    }
+    if (this.confirmChannel && typeof this.confirmChannel.waitForConfirms === 'function') {
+      return this.confirmChannel;
+    }
+    if (typeof channel.connection?.createConfirmChannel === 'function') {
+      const created = await channel.connection.createConfirmChannel();
+      if (typeof created?.on === 'function') {
+        created.on('close', () => {
+          if (this.confirmChannel === created) {
+            this.confirmChannel = null;
+          }
+        });
+        created.on('error', () => {
+          if (this.confirmChannel === created) {
+            this.confirmChannel = null;
+          }
+        });
+      }
+      this.confirmChannel = created;
+      return created;
+    }
+    return null;
+  }
+
+  private publishToBrokerQueue(
+    channel: any,
+    queueName: string,
+    originalMsg: any,
+    event: unknown,
+    headers: Record<string, unknown>,
+    queueArgs?: Record<string, unknown>,
+  ): Promise<boolean> {
+    const run = async (): Promise<boolean> => {
+      try {
+        const confirmCh = await this.getConfirmChannel(channel);
+        if (
+          !confirmCh ||
+          typeof confirmCh.assertQueue !== 'function' ||
+          typeof confirmCh.sendToQueue !== 'function' ||
+          typeof confirmCh.waitForConfirms !== 'function'
+        ) {
+          return false;
+        }
+
+        await confirmCh.assertQueue(
+          queueName,
+          queueArgs ? { durable: true, arguments: queueArgs } : { durable: true },
+        );
+        const rawContent =
+          originalMsg?.content instanceof Buffer
+            ? originalMsg.content
+            : Buffer.from(JSON.stringify(event ?? {}));
+        const existingProps = originalMsg?.properties ?? {};
+        // Strip expiration so dead-lettered / retried messages never inherit stale TTLs
+        const { expiration: _omitExpiration, ...safeProps } = existingProps;
+        const sent = confirmCh.sendToQueue(queueName, rawContent, {
+          ...safeProps,
+          persistent: true,
+          headers: {
+            ...(safeProps.headers ?? {}),
+            ...headers,
+          },
+        });
+        if (sent === false && typeof confirmCh.once === 'function') {
+          await new Promise<void>((resolve) => {
+            confirmCh.once('drain', () => resolve());
+            setTimeout(resolve, 50);
+          });
+        }
+        await confirmCh.waitForConfirms();
+        return true;
+      } catch (publishErr) {
+        this.confirmChannel = null;
+        this.logger.error(
+          `Failed to publish message to ${queueName}: ${(publishErr as Error).message}`,
+        );
+        return false;
+      }
+    };
+
+    const next = this.publishChain.then(run, run);
+    this.publishChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  private async processOrderEventWithRetry(
+    eventType: 'order.completed' | 'order.created',
+    event: DomainEvent<any>,
+    context: any,
+    handler: (evt: DomainEvent<any>) => Promise<{ processed: boolean; idempotent: boolean }>,
+  ) {
+    const rawData = (event as any)?.data ?? (event as any)?.payload ?? event;
+    const workerUserId =
+      rawData?.workerUserId ?? rawData?.workerId ?? (event as any)?.workerUserId;
+    const orderId = rawData?.orderId ?? (event as any)?.orderId;
+
+    const channel =
+      context && typeof context.getChannelRef === 'function'
+        ? context.getChannelRef()
+        : null;
+    const originalMsg =
+      context && typeof context.getMessage === 'function'
+        ? context.getMessage()
+        : null;
+
+    const existingHeaders = originalMsg?.properties?.headers ?? {};
+    const previousAttempts = Number(existingHeaders['x-retry-count'] ?? 0) || 0;
+    const mainQueue = RABBITMQ_QUEUES.USER_TRUST;
+    const dlqQueue = `${mainQueue}.v2.dlq`;
+    const quorumArgs = {
+      'x-queue-type': 'quorum',
+      'x-overflow': 'reject-publish',
+    };
+
+    if (!workerUserId || !orderId) {
+      this.logger.warn(
+        `Rejected malformed ${eventType} event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId}). Moving to DLQ.`,
+      );
+      if (channel && originalMsg) {
+        const dlqPublished = await this.publishToBrokerQueue(
+          channel,
+          dlqQueue,
+          originalMsg,
+          event,
+          {
+            'x-event-type': eventType,
+            'x-last-error': 'MALFORMED_PAYLOAD',
+            'x-failed-at': new Date().toISOString(),
+          },
+          quorumArgs,
+        );
+        const dbRecorded = dlqPublished
+          ? false
+          : await this.userTrustService.recordDeadLetter(
+              eventType,
+              event,
+              'MALFORMED_PAYLOAD',
+              1,
+            );
+        if (dlqPublished || dbRecorded) {
+          channel.ack(originalMsg);
+        } else {
+          this.logger.error(
+            `Dead-letter persistence failed on both broker and DB for malformed ${eventType}; requeueing to prevent message loss.`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          channel.nack(originalMsg, false, true);
+        }
+      }
+      return { processed: false, reason: 'MALFORMED_PAYLOAD' };
+    }
+
+    try {
+      const result = await handler(event);
+      if (channel && originalMsg) {
+        channel.ack(originalMsg);
+      }
+      return result;
+    } catch (err) {
+      const errMsg = (err as Error).message;
+      const isTransient = isTransientEventError(err);
+      const nextAttempt = previousAttempts + 1;
+
+      if (isTransient && nextAttempt <= this.MAX_EVENT_RETRIES) {
+        const delay =
+          this.RETRY_DELAYS_MS[nextAttempt - 1] ?? 300 * nextAttempt;
+        this.logger.warn(
+          `Transient error handling ${eventType} for order ${orderId} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Republishing to quorum retry queue (${delay}ms)...`,
+        );
+        const retryQueue = `${mainQueue}.v2.retry.${nextAttempt}`;
+        const retryPublished = await this.publishToBrokerQueue(
+          channel,
+          retryQueue,
+          originalMsg,
+          event,
+          {
+            'x-retry-count': nextAttempt,
+            'x-event-type': eventType,
+            'x-last-error': errMsg,
+          },
+          {
+            ...quorumArgs,
+            'x-dead-letter-strategy': 'at-least-once',
+            'x-dead-letter-exchange': '',
+            'x-dead-letter-routing-key': mainQueue,
+            'x-message-ttl': delay,
+          },
+        );
+        if (channel && originalMsg) {
+          if (retryPublished) {
+            channel.ack(originalMsg);
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            channel.nack(originalMsg, false, true);
+          }
+        }
+      } else {
+        this.logger.error(
+          `Permanent error or retries exhausted for ${eventType} (attempt ${nextAttempt}/${this.MAX_EVENT_RETRIES}): ${errMsg}. Persisting to quorum DLQ.`,
+        );
+        const dlqPublished = await this.publishToBrokerQueue(
+          channel,
+          dlqQueue,
+          originalMsg,
+          event,
+          {
+            'x-retry-count': nextAttempt,
+            'x-event-type': eventType,
+            'x-last-error': errMsg,
+            'x-failed-at': new Date().toISOString(),
+          },
+          quorumArgs,
+        );
+        const dbRecorded = await this.userTrustService.recordDeadLetter(
+          eventType,
+          event,
+          errMsg,
+          nextAttempt,
+        );
+        if (channel && originalMsg) {
+          if (dlqPublished || dbRecorded) {
+            channel.ack(originalMsg);
+          } else {
+            this.logger.error(
+              `Dead-letter persistence failed on both broker and DB for ${eventType}; requeueing message to prevent data loss.`,
+            );
+            channel.nack(originalMsg, false, true);
+          }
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'order.completed'.
+   * Synchronizes worker completed order count and total order count in WorkerProfile.
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_COMPLETED)
+  async handleOrderCompleted(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    return this.processOrderEventWithRetry(
+      'order.completed',
+      event,
+      context,
+      (evt) => this.userTrustService.handleOrderCompleted(evt),
+    );
+  }
+
+  /**
+   * RabbitMQ Event Consumer for 'order.created'.
+   * Synchronizes worker total order count in WorkerProfile.
+   */
+  @EventPattern(EVENT_PATTERNS.ORDER_CREATED)
+  async handleOrderCreated(
+    @Payload() event: DomainEvent<any>,
+    @Ctx() context: any,
+  ): Promise<unknown> {
+    return this.processOrderEventWithRetry(
+      'order.created',
+      event,
+      context,
+      (evt) => this.userTrustService.handleOrderCreated(evt),
+    );
   }
 
   /**

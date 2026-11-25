@@ -40,6 +40,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
 
   beforeAll(async () => {
     process.env.INTERNAL_SERVICE_SECRET = INTERNAL_SECRET;
+    process.env.CLOUDINARY_CLOUD_NAME = 'handygo';
     const serviceRequestsServiceMock = {
       createDraft: async (userId: string, dto: any) => {
         const id = crypto.randomUUID();
@@ -550,7 +551,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           longitude: 108.1499,
           aiRefPriceMin: 200000,
           aiRefPriceMax: 350000,
-          media: [{ mediaUrl: 'https://sample.cloudinary.com/pipe.jpg', mediaType: 'image' }],
+          media: [{ mediaUrl: 'https://res.cloudinary.com/handygo/image/upload/v1/req/pipe.jpg', mediaType: 'image' }],
         })
         .expect(201);
 
@@ -567,15 +568,21 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
       expect(listRes.body.data.items).toHaveLength(1);
       expect(listRes.body.data.items[0].id).toBe(requestId);
 
-      // Step C: Update draft
+      // Step C: Update draft - verify client-supplied price is stripped / not updated (HG96-REM-04)
       const updateRes = await request(app.getHttpServer())
         .patch(`/api/v1/service-requests/${requestId}`)
         .set('x-user-id', CUSTOMER_ID)
         .set('x-user-roles', 'customer')
-        .send({ description: 'Sửa bồn rửa chén rò rỉ nước (Đã bổ sung mô tả)' })
+        .send({
+          description: 'Sửa bồn rửa chén rò rỉ nước (Đã bổ sung mô tả)',
+          aiRefPriceMin: 1000,
+          aiRefPriceMax: 2000,
+        })
         .expect(200);
 
       expect(updateRes.body.data.description).toContain('Đã bổ sung mô tả');
+      expect(updateRes.body.data.aiRefPriceMin).not.toBe(1000);
+      expect(Number(updateRes.body.data.aiRefPriceMin)).toBe(200000);
 
       // Step D: Publish request
       const publishRes = await request(app.getHttpServer())
@@ -627,6 +634,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           serviceRequestId: reqId,
           workerUserId: WORKER_1_ID,
           selectionSource: 'bid',
+          sourceBidId: crypto.randomUUID(),
           agreedPrice: 300000,
           agreedScope: 'Thử autoAccept',
           autoAccept: true,
@@ -642,6 +650,7 @@ describe('OrderService E2E Test Suite (Comprehensive Lifecycle)', () => {
           serviceRequestId: reqId,
           workerUserId: WORKER_1_ID,
           selectionSource: 'bid',
+          sourceBidId: crypto.randomUUID(),
           agreedPrice: 300000,
           agreedScope: 'Thay toàn bộ ổ khóa mới loại tay gạt Hafele',
         })

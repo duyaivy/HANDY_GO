@@ -1,13 +1,70 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  Min,
+  Validate,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
+import {
+  IsValidSuggestionGroups,
+  normalizeSuggestionGroups,
+  ServiceSuggestionGroupDto,
+  SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  validateSuggestionGroupsValue,
+} from '../../common/dto/suggestion-group.dto.js';
+
+@ValidatorConstraint({ name: 'isLessThanBasePriceMax', async: false })
+export class IsLessThanBasePriceMaxConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(basePriceMin: any, args: ValidationArguments) {
+    const obj = args.object as any;
+    if (
+      basePriceMin === undefined ||
+      basePriceMin === null ||
+      obj.basePriceMax === undefined ||
+      obj.basePriceMax === null
+    ) {
+      return true;
+    }
+    return Number(basePriceMin) < Number(obj.basePriceMax);
+  }
+
+  defaultMessage(_args: ValidationArguments) {
+    return 'basePriceMin must be strictly less than basePriceMax';
+  }
+}
+
+@ValidatorConstraint({ name: 'isGreaterThanBasePriceMin', async: false })
+export class IsGreaterThanBasePriceMinConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(basePriceMax: any, args: ValidationArguments) {
+    const obj = args.object as any;
+    if (
+      basePriceMax === undefined ||
+      basePriceMax === null ||
+      obj.basePriceMin === undefined ||
+      obj.basePriceMin === null
+    ) {
+      return true;
+    }
+    return Number(basePriceMax) > Number(obj.basePriceMin);
+  }
+
+  defaultMessage(_args: ValidationArguments) {
+    return 'basePriceMax must be strictly greater than basePriceMin';
+  }
+}
 
 export class CreateServiceDto {
   @ApiProperty({
@@ -57,4 +114,42 @@ export class CreateServiceDto {
   @IsOptional()
   @IsBoolean({ message: 'isActive must be a boolean' })
   isActive?: boolean = true;
+
+  @ApiPropertyOptional({
+    description:
+      'Service-specific suggestion groups override (1..6 groups, or null to inherit from parent category)',
+    type: () => [ServiceSuggestionGroupDto],
+    nullable: true,
+    example: SUGGESTION_GROUPS_SWAGGER_EXAMPLE,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    Array.isArray(value) && validateSuggestionGroupsValue(value) === null
+      ? normalizeSuggestionGroups(value as ServiceSuggestionGroupDto[])
+      : value,
+  )
+  @IsValidSuggestionGroups()
+  suggestionGroups?: ServiceSuggestionGroupDto[] | null;
+
+  @ApiPropertyOptional({
+    description: 'Baseline minimum reference price for the service in VND',
+    example: 150000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'basePriceMin must be a number' })
+  @Min(0, { message: 'basePriceMin must be non-negative' })
+  @Validate(IsLessThanBasePriceMaxConstraint)
+  basePriceMin?: number;
+
+  @ApiPropertyOptional({
+    description: 'Baseline maximum reference price for the service in VND',
+    example: 400000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({}, { message: 'basePriceMax must be a number' })
+  @Min(0, { message: 'basePriceMax must be non-negative' })
+  @Validate(IsGreaterThanBasePriceMinConstraint)
+  basePriceMax?: number;
 }

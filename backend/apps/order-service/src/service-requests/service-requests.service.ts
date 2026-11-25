@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { AppException } from '@app/common';
 import {
   BookingProposalStatus,
@@ -19,6 +19,7 @@ import {
 } from './dto/create-service-request.dto.js';
 import { UpdateServiceRequestDto } from './dto/update-service-request.dto.js';
 import { QueryServiceRequestDto } from './dto/query-service-request.dto.js';
+import { PricingEstimatorService } from './services/pricing-estimator.service.js';
 
 @Injectable()
 export class ServiceRequestsService {
@@ -27,7 +28,102 @@ export class ServiceRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outboxRepo: OrderOutboxRepository,
+    @Optional()
+    private readonly pricingEstimator?: PricingEstimatorService,
   ) { }
+
+  /**
+   * Authoritative server-side reference price resolution (HG96-REM-01, HG96-REM-04).
+   * Never trust client-supplied reference prices as authoritative.
+   * 1. PricingEstimatorService (AI semantic similarity)
+   * 2. Direct catalog fallback using schema-qualified catalog_service.services table
+   * 3. Documented system fallback (150,000 - 350,000 VND)
+   */
+  private async resolveReferencePrices(
+    serviceId?: string | null,
+    description?: string | null,
+  ): Promise<{ min: number; max: number }> {
+    let resolvedMin: number | undefined;
+    let resolvedMax: number | undefined;
+
+    // 1. Authoritative server-side resolution via PricingEstimatorService (HG96-REM-01)
+    if (serviceId) {
+      if (this.pricingEstimator) {
+        try {
+          const estimate = await this.pricingEstimator.estimatePrice({
+            serviceId,
+            description: description || '',
+          });
+          if (
+            typeof estimate.aiRefPriceMin === 'number' &&
+            typeof estimate.aiRefPriceMax === 'number' &&
+            Number.isFinite(estimate.aiRefPriceMin) &&
+            Number.isFinite(estimate.aiRefPriceMax) &&
+            estimate.aiRefPriceMin > 0 &&
+            estimate.aiRefPriceMin < estimate.aiRefPriceMax
+          ) {
+            resolvedMin = Math.round(estimate.aiRefPriceMin);
+            resolvedMax = Math.round(estimate.aiRefPriceMax);
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to derive price via PricingEstimatorService for service ${serviceId}: ${err?.message || err}`,
+          );
+        }
+      }
+
+      // 2. Direct catalog fallback using schema-qualified catalog_service.services table (HG96-REM-02)
+      if (
+        resolvedMin === undefined ||
+        resolvedMax === undefined ||
+        !Number.isFinite(resolvedMin) ||
+        !Number.isFinite(resolvedMax) ||
+        resolvedMin <= 0 ||
+        resolvedMin >= resolvedMax
+      ) {
+        try {
+          const rows = await this.prisma.$queryRaw<
+            Array<{
+              base_price_min: number | null;
+              base_price_max: number | null;
+            }>
+          >`
+            SELECT base_price_min, base_price_max
+            FROM "catalog_service"."services"
+            WHERE id = ${serviceId}::uuid
+            LIMIT 1
+          `;
+          if (rows.length > 0) {
+            const bMin = rows[0].base_price_min != null ? Number(rows[0].base_price_min) : undefined;
+            const bMax = rows[0].base_price_max != null ? Number(rows[0].base_price_max) : undefined;
+            if (bMin !== undefined && bMax !== undefined && bMin > 0 && bMin < bMax) {
+              resolvedMin = Math.round(bMin);
+              resolvedMax = Math.round(bMax);
+            }
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to resolve catalog base prices for service ${serviceId}: ${err?.message || err}`,
+          );
+        }
+      }
+    }
+
+    // 3. Documented system fallback (150,000 - 350,000 VND) when AI & Catalog are unavailable or serviceId is absent
+    if (
+      resolvedMin === undefined ||
+      resolvedMax === undefined ||
+      !Number.isFinite(resolvedMin) ||
+      !Number.isFinite(resolvedMax) ||
+      resolvedMin <= 0 ||
+      resolvedMin >= resolvedMax
+    ) {
+      resolvedMin = 150000;
+      resolvedMax = 350000;
+    }
+
+    return { min: resolvedMin, max: resolvedMax };
+  }
 
   /**
    * Create a new service request in `draft` status.
@@ -35,6 +131,9 @@ export class ServiceRequestsService {
    */
   async createDraft(userId: string, dto: CreateServiceRequestDto) {
     const requestCode = generateRequestCode();
+
+    const { min: resolvedMin, max: resolvedMax } =
+      await this.resolveReferencePrices(dto.serviceId, dto.description);
 
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.serviceRequest.create({
@@ -44,10 +143,8 @@ export class ServiceRequestsService {
           serviceId: dto.serviceId ?? null,
           description: dto.description ?? null,
           scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-          aiRefPriceMin:
-            dto.aiRefPriceMin !== undefined ? dto.aiRefPriceMin : null,
-          aiRefPriceMax:
-            dto.aiRefPriceMax !== undefined ? dto.aiRefPriceMax : null,
+          aiRefPriceMin: resolvedMin,
+          aiRefPriceMax: resolvedMax,
           addressText: dto.addressText ?? null,
           latitude: dto.latitude !== undefined ? dto.latitude : null,
           longitude: dto.longitude !== undefined ? dto.longitude : null,
@@ -117,6 +214,20 @@ export class ServiceRequestsService {
         where.status = { in: statuses as RequestStatus[] };
       } else if (statuses.length === 1) {
         where.status = statuses[0] as RequestStatus;
+      }
+    }
+
+    if (typeof query.search === 'string' && query.search.trim().length > 0) {
+      const keyword = query.search.trim();
+      const searchConditions: Prisma.ServiceRequestWhereInput[] = [
+        { requestCode: { contains: keyword, mode: 'insensitive' } },
+        { description: { contains: keyword, mode: 'insensitive' } },
+        { addressText: { contains: keyword, mode: 'insensitive' } },
+      ];
+      if (where.AND) {
+        (where.AND as Prisma.ServiceRequestWhereInput[]).push({ OR: searchConditions });
+      } else {
+        where.AND = [{ OR: searchConditions }];
       }
     }
 
@@ -268,6 +379,29 @@ export class ServiceRequestsService {
       );
     }
 
+    // Re-resolve reference price if serviceId or description has changed (HG96-REM-04)
+    const isServiceChanged =
+      dto.serviceId !== undefined && dto.serviceId !== request.serviceId;
+    const isDescriptionChanged =
+      dto.description !== undefined && dto.description !== request.description;
+
+    let resolvedMin: number | undefined;
+    let resolvedMax: number | undefined;
+
+    if (isServiceChanged || isDescriptionChanged) {
+      const targetServiceId =
+        dto.serviceId !== undefined ? dto.serviceId : request.serviceId;
+      const targetDescription =
+        dto.description !== undefined ? dto.description : request.description;
+
+      const prices = await this.resolveReferencePrices(
+        targetServiceId,
+        targetDescription,
+      );
+      resolvedMin = prices.min;
+      resolvedMax = prices.max;
+    }
+
     return this.prisma.$transaction(async (tx) => {
       if (typeof tx.$queryRaw === 'function') {
         try {
@@ -296,7 +430,11 @@ export class ServiceRequestsService {
       }
 
       const updateResult = await tx.serviceRequest.updateMany({
-        where: { id, status: RequestStatus.draft },
+        where: {
+          id,
+          status: RequestStatus.draft,
+          ...(request.version !== undefined ? { version: request.version } : {}),
+        },
         data: {
           serviceId: dto.serviceId !== undefined ? dto.serviceId : undefined,
           description:
@@ -307,10 +445,8 @@ export class ServiceRequestsService {
                 ? new Date(dto.scheduledAt)
                 : null
               : undefined,
-          aiRefPriceMin:
-            dto.aiRefPriceMin !== undefined ? dto.aiRefPriceMin : undefined,
-          aiRefPriceMax:
-            dto.aiRefPriceMax !== undefined ? dto.aiRefPriceMax : undefined,
+          aiRefPriceMin: resolvedMin,
+          aiRefPriceMax: resolvedMax,
           addressText:
             dto.addressText !== undefined ? dto.addressText : undefined,
           latitude: dto.latitude !== undefined ? dto.latitude : undefined,
@@ -323,7 +459,7 @@ export class ServiceRequestsService {
         throw new AppException(
           HttpStatus.CONFLICT,
           ORDER_ERROR_CODES.INVALID_STATE_TRANSITION,
-          'Service request is no longer in draft status',
+          'Service request is no longer in draft status or was modified concurrently',
         );
       }
 

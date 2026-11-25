@@ -28,7 +28,9 @@
       "url_env": "AUTH_SERVICE_URL",
       "http_callers": [
         "api-gateway",
-        "message-service"
+        "user-trust-service",
+        "message-service",
+        "order-service"
       ],
       "wireguard_http": true
     },
@@ -48,7 +50,8 @@
         "bidding-service",
         "wallet-service",
         "message-service",
-        "payment-service"
+        "payment-service",
+        "order-service"
       ],
       "wireguard_http": true
     },
@@ -145,7 +148,8 @@
       "migration_order": 2,
       "url_env": "PAYMENT_SERVICE_URL",
       "http_callers": [
-        "api-gateway"
+        "api-gateway",
+        "order-service"
       ],
       "wireguard_http": true
     },
@@ -178,6 +182,7 @@
       "http_callers": [
         "api-gateway",
         "user-trust-service",
+        "order-service",
         "message-service"
       ],
       "wireguard_http": true

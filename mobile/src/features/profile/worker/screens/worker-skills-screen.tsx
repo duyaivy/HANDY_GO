@@ -4,7 +4,7 @@ import type {
   WorkerServiceRegistrationItem,
 } from '@/services/workers/workers-api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
@@ -31,7 +31,12 @@ import { Image } from '@/components/ui/image';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import {
+  getWorkerPublicProfileQueryKey,
+  getWorkerPublicProfileServicesQueryKey,
+} from '@/features/catalog/hooks/use-worker-public-profile';
 import { OrdersApi } from '@/features/orders';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -64,6 +69,7 @@ export function WorkerSkillsScreen() {
 
   const [activeTab, setActiveTab] = React.useState<MainTab>('my_services');
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isScreenFocused, setIsScreenFocused] = React.useState(true);
 
   // Local active toggle state for approved services
   const [servicesActiveState, setServicesActiveState] = React.useState<Record<string, boolean>>({});
@@ -82,7 +88,7 @@ export function WorkerSkillsScreen() {
               try {
                 await WorkersApi.cancelServiceRegistration(regId);
                 await queryClient.invalidateQueries({
-                  queryKey: ['worker-my-service-registrations'],
+                  queryKey: ['worker-my-service-registrations', userId],
                 });
                 Alert.alert('Đã hủy yêu cầu', 'Đơn đăng ký dịch vụ đã được hủy thành công.');
               }
@@ -95,7 +101,7 @@ export function WorkerSkillsScreen() {
         ],
       );
     },
-    [queryClient],
+    [queryClient, userId],
   );
 
   const handleEditRegistration = React.useCallback(
@@ -138,7 +144,7 @@ export function WorkerSkillsScreen() {
 
   // Query: Worker Public Profile (with existing active services)
   const profileQuery = useQuery<WorkerPublicProfileData>({
-    queryKey: ['worker-public-profile-services', workerIdentifier],
+    queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier),
     queryFn: async () => {
       if (!workerIdentifier) {
         throw new Error('Chưa đăng nhập');
@@ -148,38 +154,111 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(workerIdentifier),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
   });
 
   // Query: Worker Service Registrations History
   const registrationsQuery = useQuery<WorkerServiceRegistrationItem[]>({
-    queryKey: ['worker-my-service-registrations'],
+    queryKey: ['worker-my-service-registrations', userId],
     queryFn: async () => {
       const res = await WorkersApi.getMyServiceRegistrations();
       return res.data ?? [];
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: (query) => {
+      if (!isScreenFocused) {
+        return false;
+      }
+      const list = query.state.data ?? [];
+      const hasPending = list.some(r => r.status === 'pending');
+      return hasPending ? 10000 : false;
+    },
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
-  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ
+  // Query: Worker Orders Stats (ưu tiên endpoint aggregate nhẹ GET /orders/summary?role=worker)
   const ordersQuery = useQuery({
-    queryKey: ['worker-skills-orders', userId],
+    queryKey: ordersQueryKeys.workerSkillsOrders(userId),
     queryFn: async () => {
+      let summaryData: Awaited<ReturnType<typeof OrdersApi.getOrderSummary>>['data'] | undefined;
       try {
-        const res = await OrdersApi.getMyOrders({ limit: 100 });
-        const raw = res.data;
-        if (Array.isArray(raw)) {
-          return raw;
+        const summaryRes = await OrdersApi.getOrderSummary({ role: 'worker' });
+        summaryData = summaryRes?.data;
+      }
+      catch (err: any) {
+        if (err?.statusCode || err?.response?.status) {
+          throw err;
         }
-        return (raw as any)?.items ?? [];
       }
-      catch {
-        return [];
+
+      if (Array.isArray(summaryData?.byService)) {
+        const sumByServiceRevenue = summaryData.byService.reduce(
+          (acc, item) => acc + (Number(item.revenue) || 0),
+          0,
+        );
+        return {
+          mode: 'aggregate' as const,
+          byService: summaryData.byService,
+          completedCount: summaryData.completedCount ?? 0,
+          totalServiceRevenue:
+            summaryData.totalServiceRevenue ?? sumByServiceRevenue,
+        };
       }
+
+      let allOrders: any[] = [];
+      let page = 1;
+      const limit = 50;
+      let totalPages = 1;
+
+      do {
+        const res = await OrdersApi.getMyOrders({ page, limit, role: 'worker' });
+        const raw = res.data;
+        const items = Array.isArray(raw) ? raw : (raw as any)?.items ?? [];
+        if (items.length === 0) {
+          break;
+        }
+        const workerOnlyItems = items.filter(
+          (order: any) => !order?.workerUserId || order.workerUserId === userId,
+        );
+        allOrders = allOrders.concat(workerOnlyItems);
+        const rawTotal = (raw as any)?.totalPages ?? ((raw as any)?.total ? Math.ceil((raw as any).total / limit) : 1);
+        totalPages = rawTotal;
+        page += 1;
+      } while (page <= totalPages);
+
+      return allOrders;
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
+
+  // Khi có hồ sơ chuyển từ pending sang đã duyệt/từ chối, tự động làm mới danh sách nghiệp vụ đã duyệt
+  const prevHasPendingRef = React.useRef(false);
+  React.useEffect(() => {
+    const list = registrationsQuery.data ?? [];
+    const hasPending = list.some(r => r.status === 'pending');
+    if (prevHasPendingRef.current && !hasPending) {
+      void profileQuery.refetch();
+    }
+    prevHasPendingRef.current = hasPending;
+  }, [registrationsQuery.data, profileQuery]);
+
+  const handleSelectTab = React.useCallback(
+    (nextTab: MainTab) => {
+      setActiveTab(nextTab);
+      if (nextTab === 'my_services') {
+        void profileQuery.refetch();
+        void ordersQuery.refetch();
+      }
+      else {
+        void registrationsQuery.refetch();
+      }
+    },
+    [profileQuery, ordersQuery, registrationsQuery],
+  );
 
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -194,6 +273,21 @@ export function WorkerSkillsScreen() {
       setRefreshing(false);
     }
   }, [profileQuery, registrationsQuery, ordersQuery]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setIsScreenFocused(prev => (prev === false ? true : prev));
+      if (userId) {
+        void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.workerSkillsOrders(userId) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+      }
+      return () => {
+        setIsScreenFocused(false);
+      };
+    }, [userId, workerIdentifier, queryClient]),
+  );
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
 
@@ -230,19 +324,43 @@ export function WorkerSkillsScreen() {
   const approvedServices: WorkerServiceOfferingItem[] = React.useMemo(() => {
     return profileQuery.data?.services ?? [];
   }, [profileQuery.data?.services]);
-  // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn thợ đã chủ động hủy)
+  // Chỉ hiển thị các đơn đang chờ hoặc bị từ chối bởi Admin (ẩn các đơn đã được duyệt hoặc thợ đã chủ động hủy)
   const registrations: WorkerServiceRegistrationItem[] = React.useMemo(() => {
     return (registrationsQuery.data ?? []).filter(
-      reg => reg.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
+      reg =>
+        reg.status !== 'approved'
+        && reg.rejectionReason !== WORKER_CANCELLED_REGISTRATION_SENTINEL,
     );
   }, [registrationsQuery.data]);
 
+  // Số lượng hồ sơ thực sự đang ở trạng thái chờ duyệt (loại trừ hồ sơ bị từ chối để hiển thị badge chính xác)
+  const pendingRegistrationsCount = React.useMemo(() => {
+    return registrations.filter(r => r.status === 'pending').length;
+  }, [registrations]);
+
   // Thống kê số đơn và doanh thu tổng hợp từ Order Service theo từng serviceId
   const ordersStatsByService = React.useMemo(() => {
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      const map: Record<string, { count: number; revenue: number }> = {};
+      for (const item of rawOrders.byService) {
+        if (item.serviceId) {
+          map[item.serviceId] = {
+            count: item.orderCount ?? 0,
+            revenue: Number(item.revenue) || 0,
+          };
+        }
+      }
+      return map;
+    }
+
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     const map: Record<string, { count: number; revenue: number }> = {};
     for (const order of list) {
+      // Chỉ tính đơn của worker hiện tại (loại bỏ đơn đặt của chính tài khoản khi đóng vai trò Customer)
+      if (order.workerUserId && order.workerUserId !== userId) {
+        continue;
+      }
       const sId = order.serviceId;
       if (!sId) {
         continue;
@@ -259,7 +377,7 @@ export function WorkerSkillsScreen() {
       }
     }
     return map;
-  }, [ordersQuery.data]);
+  }, [ordersQuery.data, userId]);
 
   // Row 1 Statistics
   const totalApproved = approvedServices.length;
@@ -273,10 +391,24 @@ export function WorkerSkillsScreen() {
 
   // Tổng doanh thu tính từ Order Service (hoặc fallback theo dịch vụ)
   const totalRevenue = React.useMemo(() => {
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      if (rawOrders.totalServiceRevenue > 0) {
+        return rawOrders.totalServiceRevenue;
+      }
+      return approvedServices.reduce((sum, s) => {
+        const stats = ordersStatsByService[s.serviceId || s.id];
+        const r = s.revenue ?? stats?.revenue ?? 0;
+        return sum + r;
+      }, 0);
+    }
+
     let revFromOrders = 0;
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     for (const o of list) {
+      if (o.workerUserId && o.workerUserId !== userId) {
+        continue;
+      }
       const statusLower = String(o.status || '').toLowerCase();
       const paymentLower = String(o.paymentState || '').toLowerCase();
       if (statusLower === 'completed' || paymentLower === 'paid') {
@@ -291,7 +423,7 @@ export function WorkerSkillsScreen() {
       const r = s.revenue ?? stats?.revenue ?? 0;
       return sum + r;
     }, 0);
-  }, [ordersQuery.data, approvedServices, ordersStatsByService]);
+  }, [ordersQuery.data, userId, approvedServices, ordersStatsByService]);
 
   return (
     <Screen
@@ -364,7 +496,7 @@ export function WorkerSkillsScreen() {
                 testID="worker-total-service-orders"
                 className="text-base font-bold text-emerald-700 dark:text-emerald-400"
               >
-                {totalOrders}
+                {ordersQuery.isError && !ordersQuery.data ? '--' : totalOrders}
               </Text>
               <Text
                 className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
@@ -388,7 +520,7 @@ export function WorkerSkillsScreen() {
                 adjustsFontSizeToFit
                 minimumFontScale={0.8}
               >
-                {formatCurrency(totalRevenue)}
+                {ordersQuery.isError && !ordersQuery.data ? '--' : formatCurrency(totalRevenue)}
               </Text>
               <Text
                 className="mt-0.5 text-[10.5px] leading-tight font-medium text-neutral-500 dark:text-neutral-400"
@@ -430,12 +562,33 @@ export function WorkerSkillsScreen() {
             </View>
           </Pressable>
 
+          {/* Banner lỗi khi không thể tải thống kê đơn hàng */}
+          {ordersQuery.isError && (
+            <View
+              testID="orders-query-error-banner"
+              className="mt-4 flex-row items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-3.5 dark:border-red-900/50 dark:bg-red-950/40"
+            >
+              <Text className="flex-1 text-xs text-red-700 dark:text-red-400">
+                Không thể tải thống kê đơn hàng. Vui lòng thử lại.
+              </Text>
+              <Button
+                variant="outline"
+                size="sm"
+                testID="retry-orders-query-btn"
+                onPress={() => ordersQuery.refetch()}
+                className="ml-2 border-red-300 bg-white dark:border-red-800 dark:bg-neutral-900"
+              >
+                <Text className="text-xs font-semibold text-red-600 dark:text-red-400">Thử lại</Text>
+              </Button>
+            </View>
+          )}
+
           {/* ROW 3: Cụm 2 Tabs "Nghiệp vụ của bạn" và "Chờ phê duyệt" */}
           <View className="mt-5">
             <View className="flex-row border-b border-neutral-200 bg-white px-2 pt-1 dark:border-neutral-800 dark:bg-neutral-900">
               <Pressable
                 testID="tab-my-services"
-                onPress={() => setActiveTab('my_services')}
+                onPress={() => handleSelectTab('my_services')}
                 className={`mr-5 border-b-2 pb-3 ${
                   activeTab === 'my_services'
                     ? 'border-blue-600'
@@ -458,7 +611,7 @@ export function WorkerSkillsScreen() {
 
               <Pressable
                 testID="tab-registrations"
-                onPress={() => setActiveTab('registrations')}
+                onPress={() => handleSelectTab('registrations')}
                 className={`border-b-2 pb-3 ${
                   activeTab === 'registrations'
                     ? 'border-blue-600'
@@ -474,7 +627,7 @@ export function WorkerSkillsScreen() {
                   }`}
                 >
                   Chờ phê duyệt (
-                  {registrations.length}
+                  {pendingRegistrationsCount}
                   )
                 </Text>
               </Pressable>

@@ -70,6 +70,9 @@ with tempfile.TemporaryDirectory(prefix='handygo-compose-') as temporary:
                 'USER_TRUST_SERVICE_URL': 'http://user-trust-service:3002',
                 'NOTIFICATION_SERVICE_URL': 'http://notification-service:3008',
             },
+            ('vps1', 'user-trust-service'): {
+                'AUTH_SERVICE_URL': 'http://auth-service:3001',
+            },
             ('vps2', 'order-service'): {
                 'BIDDING_SERVICE_URL': 'http://bidding-service:3005',
                 'MATCHING_SERVICE_URL': 'http://matching-service:3006',

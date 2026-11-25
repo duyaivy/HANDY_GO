@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { AlertCircle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { HttpError } from "@/shared/api/http";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 import type { Refund } from "../types/refund";
+import { useRefundDecision } from "../hooks/use-refunds";
 import { formatPaymentAmount } from "../payment-utils";
 
 type RefundDecision = {
@@ -28,24 +29,17 @@ type RefundDecisionDialogProps = {
   onClose: () => void;
 };
 
-type ApiErrorResponse = {
-  statusCode?: number;
-  code?: string;
-  message?: string;
-  data?: unknown;
-};
-
 const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF5E14]";
 
-function isOwnRefundError(status: number, payload: ApiErrorResponse) {
+function isOwnRefundError(status: number, message: string) {
   if (status !== 403) return false;
 
-  const message = (payload.message ?? "").toLowerCase();
+  const normalized = message.toLowerCase();
 
   return (
-    message.includes("cannot decide their own refund") ||
-    message.includes("own refund")
+    normalized.includes("cannot decide their own refund") ||
+    normalized.includes("own refund")
   );
 }
 
@@ -53,7 +47,7 @@ export default function RefundDecisionDialog({
   decision,
   onClose,
 }: RefundDecisionDialogProps) {
-  const queryClient = useQueryClient();
+  const mutation = useRefundDecision();
 
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState("");
@@ -93,74 +87,15 @@ export default function RefundDecisionDialog({
     setIsSubmitting(true);
 
     try {
-      const response = await fetch(
-        `/api/payments/refunds/${encodeURIComponent(
-          decision.refund.id,
-        )}/decision`,
-        {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            approve: decision.approve,
-            reason: normalizedReason,
-          }),
+      await mutation.mutateAsync({
+        refundId: decision.refund.id,
+        input: {
+          approve: decision.approve,
+          reason: normalizedReason,
         },
-      );
+      });
 
-      const payload: ApiErrorResponse = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        if (isOwnRefundError(response.status, payload)) {
-          toast.error("Không thể xử lý yêu cầu", {
-            description:
-              "Bạn không thể tự duyệt hoặc từ chối yêu cầu hoàn tiền do chính mình tạo. Vui lòng để Admin khác xử lý.",
-            duration: 5000,
-          });
-          return;
-        }
-
-        if (response.status === 403) {
-          toast.error("Bạn không có quyền thực hiện", {
-            description:
-              "Tài khoản hiện tại không được phép xử lý yêu cầu hoàn tiền này.",
-            duration: 5000,
-          });
-          return;
-        }
-
-        if (response.status === 404) {
-          toast.error("Không tìm thấy yêu cầu", {
-            description:
-              "Yêu cầu hoàn tiền không tồn tại hoặc không còn khả dụng.",
-          });
-          return;
-        }
-
-        if (response.status === 409) {
-          toast.error("Không thể xử lý yêu cầu", {
-            description:
-              "Yêu cầu có thể đã được xử lý trước đó. Vui lòng tải lại danh sách.",
-          });
-          return;
-        }
-
-        if (response.status === 401) {
-          toast.error("Phiên đăng nhập không hợp lệ", {
-            description: "Vui lòng đăng nhập lại để tiếp tục.",
-          });
-          return;
-        }
-
-        toast.error("Xử lý hoàn tiền thất bại", {
-          description:
-            payload.message || "Đã xảy ra lỗi. Vui lòng thử lại sau.",
-        });
-        return;
-      }
-
+      // useRefundDecision đã invalidate query danh sách refund.
       toast.success(
         decision.approve
           ? "Đã duyệt yêu cầu hoàn tiền"
@@ -172,18 +107,50 @@ export default function RefundDecisionDialog({
         },
       );
 
-      // Làm mới dữ liệu sau khi xử lý thành công
-      await queryClient.invalidateQueries();
-
       setReason("");
       setFormError("");
       onClose();
     } catch (error) {
-      console.error("[refund/decision]", error);
+      if (error instanceof HttpError) {
+        const message = error.payload.message ?? "";
 
-      toast.error("Không thể kết nối đến máy chủ", {
-        description: "Vui lòng kiểm tra kết nối mạng và thử lại.",
-      });
+        if (isOwnRefundError(error.status, message)) {
+          toast.error("Không thể xử lý yêu cầu", {
+            description:
+              "Bạn không thể tự duyệt hoặc từ chối yêu cầu hoàn tiền do chính mình tạo. Vui lòng để Admin khác xử lý.",
+            duration: 5000,
+          });
+        } else if (error.status === 403) {
+          toast.error("Bạn không có quyền thực hiện", {
+            description:
+              "Tài khoản hiện tại không được phép xử lý yêu cầu hoàn tiền này.",
+            duration: 5000,
+          });
+        } else if (error.status === 404) {
+          toast.error("Không tìm thấy yêu cầu", {
+            description:
+              "Yêu cầu hoàn tiền không tồn tại hoặc không còn khả dụng.",
+          });
+        } else if (error.status === 409) {
+          toast.error("Không thể xử lý yêu cầu", {
+            description:
+              "Yêu cầu có thể đã được xử lý trước đó. Vui lòng tải lại danh sách.",
+          });
+        } else if (error.status === 401) {
+          toast.error("Phiên đăng nhập không hợp lệ", {
+            description: "Vui lòng đăng nhập lại để tiếp tục.",
+          });
+        } else {
+          toast.error("Xử lý hoàn tiền thất bại", {
+            description: message || "Đã xảy ra lỗi. Vui lòng thử lại sau.",
+          });
+        }
+      } else {
+        console.error("[refund/decision]", error);
+        toast.error("Không thể kết nối đến máy chủ", {
+          description: "Vui lòng kiểm tra kết nối mạng và thử lại.",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }

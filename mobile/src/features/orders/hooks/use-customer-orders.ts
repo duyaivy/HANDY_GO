@@ -2,7 +2,7 @@ import type { Order, ServiceRequest } from '../types/order.types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
-import { ordersQueryKeys } from './orders-query-keys';
+import { invalidateOrderRelatedQueries, ordersQueryKeys } from './orders-query-keys';
 
 function extractItems<T>(data: unknown): T[] {
   if (Array.isArray(data)) {
@@ -127,6 +127,11 @@ export function useCustomerOrders(activeTab = 'Searching') {
   const isLoading = (shouldFetchRequests && requestsQuery.isLoading)
     || (shouldFetchOrders && ordersQuery.isLoading);
 
+  const isError = Boolean(
+    (shouldFetchRequests && requestsQuery.isError)
+    || (shouldFetchOrders && ordersQuery.isError),
+  );
+
   const isRefetching = requestsQuery.isRefetching || ordersQuery.isRefetching;
 
   const refetch = async () => {
@@ -170,6 +175,7 @@ export function useCustomerOrders(activeTab = 'Searching') {
 
     // Unified states
     isLoading,
+    isError,
     isRefetching,
     refetch,
     hasNextPage,
@@ -415,7 +421,7 @@ export function useCustomerOrderDetail(orderId?: string) {
     },
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -429,7 +435,7 @@ export function useCustomerOrderDetail(orderId?: string) {
     },
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -443,7 +449,7 @@ export function useCustomerOrderDetail(orderId?: string) {
     },
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -457,7 +463,7 @@ export function useCustomerOrderDetail(orderId?: string) {
     },
     onSuccess: (updatedOrder) => {
       queryClient.setQueryData(ordersQueryKeys.orderDetail(orderId!), updatedOrder);
-      queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+      invalidateOrderRelatedQueries(queryClient);
     },
   });
 
@@ -467,6 +473,8 @@ export function useCustomerOrderDetail(orderId?: string) {
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
     isLoading: orderQuery.isLoading,
     isRefetching: orderQuery.isRefetching,
+    isError: orderQuery.isError,
+    error: orderQuery.error,
     refetch: async () => {
       await Promise.all([orderQuery.refetch(), historyQuery.refetch(), workerProfileQuery.refetch()]);
     },
