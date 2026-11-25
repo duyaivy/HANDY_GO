@@ -7,6 +7,16 @@ describe('AiWarmupService', () => {
   let mockConfigService: Partial<ConfigService>;
   const originalFetch = global.fetch;
 
+  const realFastApiHealthResponse = {
+    success: true,
+    message: 'AI Service đang hoạt động',
+    data: {
+      appName: 'CCCD AI Service',
+      version: '14.1.0',
+      status: 'healthy',
+    },
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
 
@@ -110,7 +120,7 @@ describe('AiWarmupService', () => {
           ok: true,
           status: 200,
           headers: new Headers({ 'content-type': 'application/json' }),
-          json: async () => ({ status: 'healthy', version: '1.0' }),
+          json: async () => realFastApiHealthResponse,
         };
       });
 
@@ -137,7 +147,7 @@ describe('AiWarmupService', () => {
           ok: true,
           status: 200,
           headers: new Headers({ 'content-type': 'application/json' }),
-          json: async () => ({ status: 'healthy' }),
+          json: async () => realFastApiHealthResponse,
         };
       });
 
@@ -167,15 +177,12 @@ describe('AiWarmupService', () => {
   });
 
   describe('Schema and liveness semantics validation (P2)', () => {
-    it('updates status to UP on valid JSON with healthy/ok status', async () => {
+    it('updates status to UP on real FastAPI envelope (success=true, data.status=healthy)', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({
-          status: 'healthy',
-          appName: 'CCCD AI Service',
-        }),
+        json: async () => realFastApiHealthResponse,
       });
 
       service.onModuleInit();
@@ -185,6 +192,70 @@ describe('AiWarmupService', () => {
       expect(state.httpStatus).toBe(200);
       expect(state.consecutiveFailures).toBe(0);
       expect(state.message).toContain('AI Service liveness check OK');
+      expect(state.data).toEqual(realFastApiHealthResponse.data);
+    });
+
+    it('treats response with success=false as DOWN', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          success: false,
+          message: 'Model initialization failure',
+          data: null,
+        }),
+      });
+
+      service.onModuleInit();
+      const state = await service.probeNow();
+
+      expect(state.status).toBe('DOWN');
+      expect(state.consecutiveFailures).toBe(1);
+      expect(state.error).toContain('AI Health returned success=false');
+    });
+
+    it('treats response with missing data or missing data.status as DOWN', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          success: true,
+          message: 'OK',
+          data: {},
+        }),
+      });
+
+      service.onModuleInit();
+      const state = await service.probeNow();
+
+      expect(state.status).toBe('DOWN');
+      expect(state.consecutiveFailures).toBe(1);
+      expect(state.error).toContain('AI Health response missing valid data.status');
+    });
+
+    it('treats response with non-healthy status in data as DOWN', async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({
+          success: true,
+          message: 'AI Service degraded',
+          data: {
+            appName: 'CCCD AI Service',
+            status: 'degraded',
+          },
+        }),
+      });
+
+      service.onModuleInit();
+      const state = await service.probeNow();
+
+      expect(state.status).toBe('DOWN');
+      expect(state.consecutiveFailures).toBe(1);
+      expect(state.error).toContain('AI Health returned non-healthy status');
     });
 
     it('treats HTML response as DOWN even if HTTP 200', async () => {
@@ -221,20 +292,20 @@ describe('AiWarmupService', () => {
       expect(state.error).toContain('Malformed JSON');
     });
 
-    it('treats response with non-healthy status as DOWN', async () => {
+    it('supports backward compatibility with root-level status if present', async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: async () => ({ status: 'degraded' }),
+        json: async () => ({ status: 'healthy' }),
       });
 
       service.onModuleInit();
       const state = await service.probeNow();
 
-      expect(state.status).toBe('DOWN');
-      expect(state.consecutiveFailures).toBe(1);
-      expect(state.error).toContain('AI Health returned non-healthy status');
+      expect(state.status).toBe('UP');
+      expect(state.httpStatus).toBe(200);
+      expect(state.consecutiveFailures).toBe(0);
     });
   });
 
@@ -312,7 +383,7 @@ describe('AiWarmupService', () => {
           ok: true,
           status: 200,
           headers: new Headers({ 'content-type': 'application/json' }),
-          json: async () => ({ status: 'ok' }),
+          json: async () => realFastApiHealthResponse,
         };
       });
 
@@ -340,7 +411,7 @@ describe('AiWarmupService', () => {
           ok: true,
           status: 200,
           headers: new Headers({ 'content-type': 'application/json' }),
-          json: async () => ({ status: 'ok' }),
+          json: async () => realFastApiHealthResponse,
         };
       });
 

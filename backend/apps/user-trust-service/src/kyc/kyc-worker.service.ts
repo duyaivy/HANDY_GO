@@ -262,6 +262,7 @@ export class KycWorkerService {
       this.aiTimeoutMs,
     );
 
+    const startTime = Date.now();
     try {
       const res = await fetch(targetUrl, {
         method: 'POST',
@@ -270,6 +271,7 @@ export class KycWorkerService {
         signal: controller.signal,
       });
 
+      const elapsedMs = Date.now() - startTime;
       const bodyText = await res.text();
       let parsed: any;
       try {
@@ -280,7 +282,7 @@ export class KycWorkerService {
 
       if (res.status === 504) {
         throw new Error(
-          `AI Service Ingress Gateway Timeout (504): Azure Container Apps ingress timed out after ${this.aiTimeoutMs}ms. ${parsed.message || bodyText}`,
+          `AI Service Ingress Gateway Timeout (504): Ingress timed out after ${elapsedMs}ms (client timeout configured at ${this.aiTimeoutMs}ms). ${parsed.message || bodyText}`,
         );
       }
 
@@ -304,8 +306,9 @@ export class KycWorkerService {
 
       return parsed;
     } catch (err: any) {
+      const elapsedMs = Date.now() - startTime;
       if (err.name === 'AbortError') {
-        throw new Error(`AI Service request timed out after ${this.aiTimeoutMs}ms`);
+        throw new Error(`AI Service request timed out after ${this.aiTimeoutMs}ms (elapsed: ${elapsedMs}ms)`);
       }
       throw err;
     } finally {

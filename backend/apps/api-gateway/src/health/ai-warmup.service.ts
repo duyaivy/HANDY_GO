@@ -180,12 +180,31 @@ export class AiWarmupService implements OnModuleInit, OnModuleDestroy {
           failureReason = `Expected application/json response but received: ${contentType || 'empty'}`;
         } else {
           try {
-            body = (await response.json()) as Record<string, unknown>;
-            const statusStr = String(body?.status || '').toLowerCase();
-            if (statusStr === 'healthy' || statusStr === 'ok') {
-              isHealthy = true;
+            const rawBody = (await response.json()) as unknown;
+            if (rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody)) {
+              body = rawBody as Record<string, unknown>;
+              const isSuccess = body.success === true;
+              const dataObj =
+                body.data && typeof body.data === 'object' && !Array.isArray(body.data)
+                  ? (body.data as Record<string, unknown>)
+                  : null;
+              const dataStatus = typeof dataObj?.status === 'string' ? dataObj.status.toLowerCase() : null;
+              const rootStatus = typeof body.status === 'string' ? body.status.toLowerCase() : null;
+
+              if (isSuccess && (dataStatus === 'healthy' || dataStatus === 'ok')) {
+                isHealthy = true;
+              } else if (rootStatus === 'healthy' || rootStatus === 'ok') {
+                // Fallback for flat root-level health payloads
+                isHealthy = true;
+              } else if (body.success === false) {
+                failureReason = `AI Health returned success=false: '${body.message || 'unhealthy'}'`;
+              } else if (!dataObj || !dataStatus) {
+                failureReason = `AI Health response missing valid data.status: '${JSON.stringify(body)}'`;
+              } else {
+                failureReason = `AI Health returned non-healthy status: '${dataStatus}'`;
+              }
             } else {
-              failureReason = `AI Health returned non-healthy status: '${body?.status ?? 'missing'}'`;
+              failureReason = `AI Health returned non-object JSON: ${typeof rawBody}`;
             }
           } catch (parseErr) {
             failureReason = `Malformed JSON in AI health response: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`;

@@ -306,7 +306,9 @@ describe('KycWorkerService', () => {
       expect(repoMock.recordJobFailure).toHaveBeenCalledWith(
         'job-504',
         'case-1',
-        expect.stringContaining('AI Service Ingress Gateway Timeout (504)'),
+        expect.stringMatching(
+          /AI Service Ingress Gateway Timeout \(504\): Ingress timed out after \d+ms \(client timeout configured at \d+ms\)/,
+        ),
         1,
         false,
       );
