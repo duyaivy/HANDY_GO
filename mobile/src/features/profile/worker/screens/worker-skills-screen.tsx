@@ -271,7 +271,7 @@ export function WorkerSkillsScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      setIsScreenFocused(true);
+      setIsScreenFocused(prev => (prev === false ? true : prev));
       if (userId) {
         void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.workerSkillsOrders(userId) });
         void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier) });
