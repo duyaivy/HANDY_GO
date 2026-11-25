@@ -385,4 +385,17 @@ model WorkerServiceRegistration {
   @@map("worker_service_registrations")
 }
 
+model WorkerOrderContribution {
+  orderId                 String   @id @map("order_id") @db.Uuid
+  workerUserId            String   @map("worker_user_id") @db.Uuid
+  hasContributedTotal     Boolean  @default(false) @map("has_contributed_total")
+  hasContributedCompleted Boolean  @default(false) @map("has_contributed_completed")
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([workerUserId])
+  @@map("worker_order_contributions")
+}
+
+
 

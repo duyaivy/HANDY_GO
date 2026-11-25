@@ -38,6 +38,7 @@ describe('WorkersService', () => {
         averageRating: '4.75',
         ratingCount: 8,
         completedOrderCount: 12,
+        orderCountTotal: 15,
       },
     ]);
     const service = new WorkersService({
@@ -51,6 +52,7 @@ describe('WorkersService', () => {
         averageRating: 4.75,
         ratingCount: 8,
         completedOrderCount: 12,
+        orderCountTotal: 15,
       },
     ]);
     expect(findMany).toHaveBeenCalledWith(

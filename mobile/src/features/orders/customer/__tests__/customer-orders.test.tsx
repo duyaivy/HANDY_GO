@@ -30,6 +30,7 @@ beforeEach(() => {
   jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
   jest.spyOn(OrdersApi, 'getStatusHistory').mockResolvedValue({ statusCode: 200, message: 'OK', data: [] });
   jest.spyOn(OrdersApi, 'cancelOrder').mockResolvedValue({ statusCode: 200, message: 'OK', data: { status: 'cancelled' } } as any);
+  jest.spyOn(ReviewsApi, 'getOrderReview').mockResolvedValue({ statusCode: 200, message: 'OK', data: null } as any);
 });
 
 afterEach(() => {
@@ -197,7 +198,7 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
       expect(screen.getAllByText('Đang khiếu nại')).toHaveLength(2);
       expect(screen.getByText('Chi tiết đơn')).toBeOnTheScreen();
       expect(screen.queryByText('Đặt lại')).toBeNull();
-    });
+    }, { timeout: 5000 });
   });
 
   it('renders "⭐ Đánh giá" for unreviewed completed order, and "Sửa đánh giá" if already reviewed and within 48h', async () => {

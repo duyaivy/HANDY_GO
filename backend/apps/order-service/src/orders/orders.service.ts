@@ -1966,7 +1966,17 @@ export class OrdersService {
     const where: Prisma.OrderWhereInput = {};
 
     if (!isAdmin) {
-      where.OR = [{ customerUserId: userId }, { workerUserId: userId }];
+      if (query.role === 'customer') {
+        where.customerUserId = userId;
+      } else if (query.role === 'worker') {
+        where.workerUserId = userId;
+      } else {
+        where.OR = [{ customerUserId: userId }, { workerUserId: userId }];
+      }
+    } else if (query.role === 'customer') {
+      where.customerUserId = userId;
+    } else if (query.role === 'worker') {
+      where.workerUserId = userId;
     }
 
     if (typeof query.status === 'string' && query.status.trim().length > 0) {
@@ -1984,6 +1994,24 @@ export class OrdersService {
     if (query.paymentState) {
       where.paymentState =
         query.paymentState as Prisma.EnumPaymentStateFilter['equals'];
+    }
+
+    if (typeof query.search === 'string' && query.search.trim().length > 0) {
+      const keyword = query.search.trim();
+      const searchConditions: Prisma.OrderWhereInput[] = [
+        { orderCode: { contains: keyword, mode: 'insensitive' } },
+        { addressText: { contains: keyword, mode: 'insensitive' } },
+        { agreedScope: { contains: keyword, mode: 'insensitive' } },
+      ];
+      if (where.OR) {
+        where.AND = [
+          { OR: where.OR },
+          { OR: searchConditions },
+        ];
+        delete where.OR;
+      } else {
+        where.AND = [{ OR: searchConditions }];
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -2008,6 +2036,96 @@ export class OrdersService {
       page,
       limit,
       totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  /**
+   * Retrieves high-level order summary statistics for customer or worker.
+   */
+  async getOrderSummary(
+    userId: string,
+    role?: 'customer' | 'worker',
+    roles: string[] = [],
+  ) {
+    const isAdmin = roles.includes('Admin');
+    const whereRole: Prisma.OrderWhereInput = {};
+
+    if (!isAdmin) {
+      if (role === 'customer') {
+        whereRole.customerUserId = userId;
+      } else if (role === 'worker') {
+        whereRole.workerUserId = userId;
+      } else {
+        whereRole.OR = [{ customerUserId: userId }, { workerUserId: userId }];
+      }
+    } else if (role === 'customer') {
+      whereRole.customerUserId = userId;
+    } else if (role === 'worker') {
+      whereRole.workerUserId = userId;
+    }
+
+    const [completedAgg, cancelledCount, serviceCountRows, serviceRevenueRows] =
+      await Promise.all([
+        this.prisma.order.aggregate({
+          where: { AND: [whereRole, { status: 'completed' }] },
+          _count: { id: true },
+          _sum: { agreedPrice: true },
+        }),
+        this.prisma.order.count({
+          where: { AND: [whereRole, { status: 'cancelled' }] },
+        }),
+        this.prisma.order.groupBy({
+          by: ['serviceId'],
+          where: whereRole,
+          _count: { id: true },
+        }),
+        this.prisma.order.groupBy({
+          by: ['serviceId'],
+          where: {
+            AND: [
+              whereRole,
+              { OR: [{ status: 'completed' }, { paymentState: 'paid' }] },
+            ],
+          },
+          _sum: { agreedPrice: true },
+        }),
+      ]);
+
+    const revenueByServiceId = new Map<string, number>();
+    let totalServiceRevenue = 0;
+    for (const row of serviceRevenueRows) {
+      const rev = Number(row._sum.agreedPrice || 0);
+      revenueByServiceId.set(row.serviceId, rev);
+      totalServiceRevenue += rev;
+    }
+
+    const serviceStatsMap = new Map<
+      string,
+      { serviceId: string; orderCount: number; revenue: number }
+    >();
+    for (const row of serviceCountRows) {
+      serviceStatsMap.set(row.serviceId, {
+        serviceId: row.serviceId,
+        orderCount: row._count.id ?? 0,
+        revenue: revenueByServiceId.get(row.serviceId) ?? 0,
+      });
+    }
+    for (const [serviceId, revenue] of revenueByServiceId.entries()) {
+      if (!serviceStatsMap.has(serviceId)) {
+        serviceStatsMap.set(serviceId, {
+          serviceId,
+          orderCount: 0,
+          revenue,
+        });
+      }
+    }
+
+    return {
+      completedCount: completedAgg._count.id ?? 0,
+      cancelledCount: cancelledCount ?? 0,
+      totalCompletedAmount: Number(completedAgg._sum.agreedPrice || 0),
+      totalServiceRevenue,
+      byService: Array.from(serviceStatsMap.values()),
     };
   }
 

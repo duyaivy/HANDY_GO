@@ -419,6 +419,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
             later_migrations = {
                 "apps/wallet-service/prisma/migrations/20261120170000_transaction_balance_snapshots/migration.sql",
                 "apps/catalog-service/prisma/migrations/20261121000000_add_service_base_prices/migration.sql",
+                "apps/catalog-service/prisma/migrations/20261122000000_add_catalog_suggestion_groups/migration.sql",
                 "apps/order-service/prisma/migrations/20261121000000_add_dispute_evidence_metadata/migration.sql",
                 "apps/order-service/prisma/migrations/20261121001000_add_dispute_queue_index/migration.sql",
                 "apps/order-service/prisma/migrations/20261121002000_admin_dispute_resolutions/migration.sql",
@@ -426,6 +427,7 @@ class OnboardingMigrationProofTests(unittest.TestCase):
                 "apps/order-service/prisma/migrations/20261122001000_add_order_dispute_category/migration.sql",
                 "apps/order-service/prisma/migrations/20261122002000_add_inbound_event_reconciliations/migration.sql",
                 "apps/payment-service/prisma/migrations/20261121002000_dispute_refund_link/migration.sql",
+                "apps/user-trust-service/prisma/migrations/20261125000001_add_worker_order_contributions/migration.sql",
             }
             for source in PROD.parents[1].glob(
                 "apps/*/prisma/migrations/**/migration.sql"

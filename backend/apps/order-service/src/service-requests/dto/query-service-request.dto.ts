@@ -30,6 +30,13 @@ export class QueryServiceRequestDto {
   serviceId?: string;
 
   @ApiPropertyOptional({
+    description: 'Search service requests by code, description, or address',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @ApiPropertyOptional({
     description: 'Page number for pagination',
     default: 1,
   })

@@ -29,6 +29,7 @@ describe('OrdersService', () => {
       create: ReturnType<typeof vi.fn>;
       update: ReturnType<typeof vi.fn>;
       count: ReturnType<typeof vi.fn>;
+      aggregate: ReturnType<typeof vi.fn>;
     };
     bookingProposal: {
       findUnique: ReturnType<typeof vi.fn>;
@@ -216,6 +217,8 @@ describe('OrdersService', () => {
           return { count: 1 };
         }),
         count: vi.fn(),
+        aggregate: vi.fn(),
+        groupBy: vi.fn().mockResolvedValue([]),
       },
       bookingProposal: {
         findUnique: vi.fn(),
@@ -1672,6 +1675,172 @@ describe('OrdersService', () => {
           where: expect.objectContaining({
             status: { in: ['created', 'confirmed', 'in_progress'] },
           }),
+        }),
+      );
+    });
+
+
+    it('should filter by role worker matching only workerUserId (isolating dual-role customer orders)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Worker', 'Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should filter by role customer matching only customerUserId', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, role: 'customer' },
+        ['Worker', 'Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            customerUserId: mockCustomerId,
+          }),
+        }),
+      );
+      expect(prismaMock.order.findMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockCustomerId,
+          }),
+        }),
+      );
+    });
+
+    it('should isolate role by workerUserId when role=worker (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Customer', 'Worker'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to where.OR when no role is provided for non-admin user', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10 },
+        ['Customer'],
+      );
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ customerUserId: mockCustomerId }, { workerUserId: mockCustomerId }],
+          }),
+        }),
+      );
+    });
+
+    it('should filter by search keyword across orderCode, addressText, and agreedScope (HG-72)', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10, search: 'Sửa điện' },
+        ['Customer'],
+      );
+
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: expect.arrayContaining([
+              expect.objectContaining({
+                OR: expect.arrayContaining([
+                  { orderCode: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { addressText: { contains: 'Sửa điện', mode: 'insensitive' } },
+                  { agreedScope: { contains: 'Sửa điện', mode: 'insensitive' } },
+                ]),
+              }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('should return order summary statistics (HG-72)', async () => {
+      prismaMock.order.aggregate.mockResolvedValue({
+        _count: { id: 5 },
+        _sum: { agreedPrice: 2500000n as any },
+      } as any);
+      prismaMock.order.count.mockResolvedValue(2);
+      prismaMock.order.groupBy
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _count: { id: 7 } }, // 5 completed + 2 in_progress/cancelled
+        ] as any)
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _sum: { agreedPrice: 2800000n } }, // includes paid in_progress
+        ] as any);
+
+      const summary = await service.getOrderSummary(mockWorkerId, 'worker', ['Worker']);
+      expect(summary.completedCount).toBe(5);
+      expect(summary.cancelledCount).toBe(2);
+      expect(summary.totalCompletedAmount).toBe(2500000);
+      expect(summary.totalServiceRevenue).toBe(2800000);
+      expect(summary.byService).toEqual([
+        { serviceId: 'svc-1', orderCount: 7, revenue: 2800000 },
+      ]);
+
+      // Verify no-role non-admin preserves OR authorization inside AND (never overwritten)
+      prismaMock.order.groupBy.mockClear();
+      prismaMock.order.groupBy.mockResolvedValue([]);
+      await service.getOrderSummary(mockWorkerId, undefined, ['Worker']);
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(1, {
+        by: ['serviceId'],
+        where: {
+          OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+        },
+        _count: { id: true },
+      });
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(2, {
+        by: ['serviceId'],
+        where: {
+          AND: [
+            {
+              OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+            },
+            { OR: [{ status: 'completed' }, { paymentState: 'paid' }] },
+          ],
+        },
+        _sum: { agreedPrice: true },
+      });
+      expect(prismaMock.order.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [{ workerUserId: mockWorkerId }, { status: 'completed' }],
+          },
         }),
       );
     });

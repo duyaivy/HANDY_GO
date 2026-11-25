@@ -5,7 +5,8 @@ import { NotificationApi } from '@/services/notifications/notification-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { NotificationScreen } from '../notification-screen';
 
-jest.mock('expo-router', () => ({ useRouter: jest.fn(() => ({ back: jest.fn() })) }));
+const mockPush = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: jest.fn(() => ({ back: jest.fn(), push: mockPush })) }));
 jest.mock('@/services/notifications/notification-api', () => ({ NotificationApi: {
   list: jest.fn(),
   unreadCount: jest.fn(),
@@ -69,4 +70,85 @@ it('optimistically marks all notifications as read', async () => {
 
   fireEvent.press(screen.getByTestId('mark-all-read-btn'));
   await waitFor(() => expect(NotificationApi.markAllRead).toHaveBeenCalled());
+});
+
+it('routes in-app booking_proposal.created to /worker?requestId=... and switches dual-role to Worker', async () => {
+  useAuthStore.setState({
+    user: { id: 'dual-prop-1', roles: ['Customer', 'Worker'] } as AuthUser,
+    isAuthenticated: true,
+    isHydrated: true,
+    isLoading: false,
+    activeMode: 'Customer',
+  });
+  const proposalItem: NotificationRecord = {
+    id: 'prop-1',
+    title: 'Đề nghị mới',
+    body: 'Khách gửi đề nghị',
+    category: 'proposal',
+    payload: {
+      eventType: 'booking_proposal.created',
+      requestId: 'req-inapp-1',
+      recipientRole: 'worker',
+    },
+    readAt: '2026-10-22T00:00:00Z',
+    createdAt: '2026-10-22T00:00:00Z',
+    updatedAt: '',
+  };
+  jest.mocked(NotificationApi.list).mockResolvedValueOnce({ items: [proposalItem], nextCursor: null });
+
+  render(<NotificationScreen />);
+  await screen.findByText(proposalItem.title);
+  fireEvent.press(screen.getByLabelText(`Đã đọc: ${proposalItem.title}`));
+
+  expect(useAuthStore.getState().activeMode).toBe('Worker');
+  expect(mockPush).toHaveBeenCalledWith('/worker?requestId=req-inapp-1');
+});
+
+it('routes in-app booking_proposal.changes_requested and booking_proposal.rejected to customer radar', async () => {
+  useAuthStore.setState({
+    user: { id: 'dual-prop-2', roles: ['Customer', 'Worker'] } as AuthUser,
+    isAuthenticated: true,
+    isHydrated: true,
+    isLoading: false,
+    activeMode: 'Worker',
+  });
+  const changesItem: NotificationRecord = {
+    id: 'prop-2',
+    title: 'Yêu cầu chỉnh sửa',
+    body: 'Thợ yêu cầu chỉnh sửa',
+    category: 'proposal',
+    payload: {
+      eventType: 'booking_proposal.changes_requested',
+      requestId: 'req-inapp-2',
+      recipientRole: 'customer',
+    },
+    readAt: '2026-10-22T00:00:00Z',
+    createdAt: '2026-10-22T00:00:00Z',
+    updatedAt: '',
+  };
+  const rejectedItem: NotificationRecord = {
+    id: 'prop-3',
+    title: 'Đề nghị bị từ chối',
+    body: 'Thợ từ chối đề nghị',
+    category: 'proposal',
+    payload: {
+      eventType: 'booking_proposal.rejected',
+      requestId: 'req-inapp-3',
+      recipientRole: 'customer',
+    },
+    readAt: '2026-10-22T00:00:00Z',
+    createdAt: '2026-10-22T00:00:00Z',
+    updatedAt: '',
+  };
+  jest.mocked(NotificationApi.list).mockResolvedValueOnce({ items: [changesItem, rejectedItem], nextCursor: null });
+
+  render(<NotificationScreen worker />);
+  await screen.findByText(changesItem.title);
+
+  fireEvent.press(screen.getByLabelText(`Đã đọc: ${changesItem.title}`));
+  expect(useAuthStore.getState().activeMode).toBe('Customer');
+  expect(mockPush).toHaveBeenCalledWith('/customer/booking/radar?requestId=req-inapp-2');
+
+  fireEvent.press(screen.getByLabelText(`Đã đọc: ${rejectedItem.title}`));
+  expect(mockPush).toHaveBeenCalledWith('/customer/booking/radar?requestId=req-inapp-3');
 });

@@ -12,7 +12,7 @@ import {
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
-import type { DomainEvent } from '@app/common';
+import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
@@ -33,6 +33,36 @@ import { RabbitMQService } from '@app/rabbitmq';
 
 export const WORKER_CANCELLED_REGISTRATION_SENTINEL =
   '[Thợ chủ động hủy yêu cầu]';
+
+export class WorkerProfileNotReadyException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WorkerProfileNotReadyException';
+  }
+}
+
+export function isTransientEventError(error: any): boolean {
+  if (!error) return false;
+  if (error instanceof WorkerProfileNotReadyException) return true;
+  if (error.name === 'WorkerProfileNotReadyException') return true;
+  const msg = String(error.message || error).toLowerCase();
+  if (
+    msg.includes('connection') ||
+    msg.includes('timeout') ||
+    msg.includes('deadlock') ||
+    msg.includes('could not serialize') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('try again') ||
+    msg.includes('econnrefused') ||
+    msg.includes('not ready')
+  ) {
+    return true;
+  }
+  if (error.code === 'P2028' || error.code === 'P2034' || error.code === 'P1001') {
+    return true;
+  }
+  return false;
+}
 
 function maskIdNumber(idStr?: string | null): string {
   if (!idStr) return '';
@@ -384,6 +414,352 @@ export class UserTrustServiceService {
     return { processed: true, idempotent: false };
   }
 
+  async recordDeadLetter(
+    eventType: string,
+    eventPayload: any,
+    errorMsg: string,
+    attempts: number,
+  ): Promise<boolean> {
+    try {
+      await this.db.outboxEvent.create({
+        data: {
+          eventType: `${eventType}.dead_letter`,
+          eventVersion: 1,
+          payload: {
+            event: eventPayload,
+            error: errorMsg,
+            attempts,
+            failedAt: new Date().toISOString(),
+          },
+          status: 'failed',
+          lastError: errorMsg,
+          retryCount: attempts,
+        },
+      });
+      return true;
+    } catch (err) {
+      this.logger.error(
+        `Failed to record dead letter for ${eventType}: ${(err as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  async handleOrderCompleted(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-completed-${orderId}` : null);
+    const eventType = 'order.completed';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId || !orderId) {
+      this.logger.warn(
+        `Ignoring order.completed event: missing workerUserId or orderId (orderId=${orderId}, workerUserId=${workerUserId})`,
+      );
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing && existing.processedAt) {
+        this.logger.log(
+          `Event ${eventId} (${eventType}) has already been processed. Skipping idempotently.`,
+        );
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
+
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.completed event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadCompleted = contribution?.hasContributedCompleted ?? false;
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaCompleted = hadCompleted ? 0 : 1;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+          },
+          update: {
+            hasContributedTotal: true,
+            hasContributedCompleted: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment with total >= completed invariant
+      if (deltaCompleted > 0 || deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET completed_order_count = completed_order_count + ${deltaCompleted},
+                order_count_total = GREATEST(order_count_total + ${deltaTotal}, completed_order_count + ${deltaCompleted}),
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          const nextCompleted =
+            (worker.completedOrderCount || 0) + deltaCompleted;
+          const nextTotal = Math.max(
+            (worker.orderCountTotal || 0) + deltaTotal,
+            nextCompleted,
+          );
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              completedOrderCount: nextCompleted,
+              orderCountTotal: nextTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized completed orders for worker ${worker.userId}: deltaCompleted=${deltaCompleted}, deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+          update: {
+            processedAt: new Date(),
+          },
+        });
+      }
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
+  async handleOrderCreated(
+    event: DomainEvent<any> | Record<string, any>,
+  ): Promise<{ processed: boolean; idempotent: boolean }> {
+    const rawData = (event as any).data ?? (event as any).payload ?? event;
+    const workerUserId =
+      rawData.workerUserId ?? rawData.workerId ?? (event as any).workerUserId;
+    const orderId = rawData.orderId ?? (event as any).orderId;
+    const eventId =
+      (event as any).eventId ??
+      (event as any).id ??
+      (orderId ? `order-created-${orderId}` : null);
+    const eventType = 'order.created';
+    const producer =
+      (event as any).producer ?? (event as any).source ?? 'order-service';
+
+    if (!workerUserId || !orderId) {
+      return { processed: false, idempotent: false };
+    }
+
+    if (eventId) {
+      const existing = await this.db.eventInbox.findUnique({
+        where: { id: eventId },
+      });
+      if (existing && existing.processedAt) {
+        return { processed: true, idempotent: true };
+      }
+    }
+
+    await this.db.$transaction(async (tx) => {
+      // 1. Row-level lock on worker profile using SELECT ... FOR UPDATE or findFirst
+      let worker: {
+        id: string;
+        userId: string;
+        completedOrderCount: number;
+        orderCountTotal: number;
+      } | null = null;
+
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await (tx as any).$queryRaw`
+          SELECT id, user_id AS "userId", completed_order_count AS "completedOrderCount", order_count_total AS "orderCountTotal"
+          FROM user_trust_service.worker_profiles
+          WHERE id::text = ${workerUserId} OR user_id::text = ${workerUserId}
+          LIMIT 1
+          FOR UPDATE
+        `;
+        if (rows && rows.length > 0) {
+          worker = rows[0];
+        }
+      }
+
+      if (!worker && tx.workerProfile?.findFirst) {
+        const found = await tx.workerProfile.findFirst({
+          where: {
+            OR: [{ id: workerUserId }, { userId: workerUserId }],
+          },
+        });
+        if (found) {
+          worker = {
+            id: found.id,
+            userId: found.userId,
+            completedOrderCount: found.completedOrderCount ?? 0,
+            orderCountTotal: found.orderCountTotal ?? 0,
+          };
+        }
+      }
+
+      if (!worker) {
+        this.logger.warn(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId}). Rolling back for retry.`,
+        );
+        throw new WorkerProfileNotReadyException(
+          `WorkerProfile not found for worker identifier ${workerUserId} on order.created event (orderId=${orderId})`,
+        );
+      }
+
+      // 2. Projection contribution tracking per orderId
+      let contribution = (tx as any).workerOrderContribution?.findUnique
+        ? await (tx as any).workerOrderContribution.findUnique({
+            where: { orderId },
+          })
+        : null;
+
+      const hadTotal = contribution?.hasContributedTotal ?? false;
+      const deltaTotal = hadTotal ? 0 : 1;
+
+      if ((tx as any).workerOrderContribution?.upsert) {
+        await (tx as any).workerOrderContribution.upsert({
+          where: { orderId },
+          create: {
+            orderId,
+            workerUserId: worker.userId,
+            hasContributedTotal: true,
+            hasContributedCompleted: false,
+          },
+          update: {
+            hasContributedTotal: true,
+            updatedAt: new Date(),
+          },
+        });
+      }
+
+      // 3. Atomic counter increment
+      if (deltaTotal > 0) {
+        if (typeof (tx as any).$executeRaw === 'function') {
+          await (tx as any).$executeRaw`
+            UPDATE user_trust_service.worker_profiles
+            SET order_count_total = order_count_total + ${deltaTotal},
+                updated_at = NOW()
+            WHERE id = ${worker.id}::uuid
+          `;
+        }
+
+        if (tx.workerProfile?.update) {
+          await tx.workerProfile.update({
+            where: { id: worker.id },
+            data: {
+              orderCountTotal: (worker.orderCountTotal || 0) + deltaTotal,
+              updatedAt: new Date(),
+            },
+          });
+        }
+
+        this.logger.log(
+          `Synchronized total orders for worker ${worker.userId}: deltaTotal=${deltaTotal}`,
+        );
+      }
+
+      // 4. Record in EventInbox as processed only after business operations succeed
+      if (eventId) {
+        await tx.eventInbox.upsert({
+          where: { id: eventId },
+          create: {
+            id: eventId,
+            producer,
+            eventType,
+            payload: JSON.parse(JSON.stringify(event)),
+            receivedAt: new Date(),
+            processedAt: new Date(),
+          },
+          update: {
+            processedAt: new Date(),
+          },
+        });
+      }
+    });
+
+    return { processed: true, idempotent: false };
+  }
+
   async getUserAuthStatus(
     userId: string,
     roles: string[],
@@ -518,6 +894,7 @@ export class UserTrustServiceService {
           averageRating: worker.ratingCount > 0 ? Number(worker.averageRating) : null,
           ratingCount: worker.ratingCount ?? 0,
           completedOrderCount: worker.completedOrderCount ?? 0,
+          orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
           headline: worker.serviceOfferings[0]?.title ?? null,
         },
       };
@@ -547,6 +924,7 @@ export class UserTrustServiceService {
         averageRating: null,
         ratingCount: 0,
         completedOrderCount: 0,
+        orderCountTotal: 0,
         headline: null,
       },
     };
@@ -3106,6 +3484,35 @@ export class UserTrustServiceService {
             },
           });
         }
+
+        // 4. Lưu outbox event cho notification với chuẩn CloudEvent envelope (khớp event-contracts)
+        const eventId = crypto.randomUUID();
+        const envelope = {
+          eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+          eventVersion: 1,
+          source: 'user-trust-service',
+          producer: 'user-trust-service',
+          occurredAt: now.toISOString(),
+          data: {
+            registrationId,
+            workerProfileId: currentReg.workerProfileId,
+            userId: registration.workerProfile?.userId,
+            decision: 'approved',
+            reviewedBy: reviewerId,
+            reviewedAt: now.toISOString(),
+          },
+        };
+
+        await tx.outboxEvent.create({
+          data: {
+            id: eventId,
+            eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+            eventVersion: 1,
+            payload: envelope,
+            status: 'pending',
+          },
+        });
       });
 
       return {
@@ -3120,27 +3527,58 @@ export class UserTrustServiceService {
     }
 
     // Từ chối (rejected)
-    const updateResult = await this.db.workerServiceRegistration.updateMany({
-      where: {
-        id: registrationId,
-        status: 'pending',
-        version: targetVersion,
-      },
-      data: {
-        status: 'rejected',
-        rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
-        reviewedByUserId: reviewerId,
-        reviewedAt: now,
-        version: { increment: 1 },
-        updatedAt: now,
-      },
-    });
+    await this.db.$transaction(async (tx) => {
+      const updateResult = await tx.workerServiceRegistration.updateMany({
+        where: {
+          id: registrationId,
+          status: 'pending',
+          version: targetVersion,
+        },
+        data: {
+          status: 'rejected',
+          rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedByUserId: reviewerId,
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
+      });
 
-    if (updateResult.count === 0) {
-      throw new ConflictException(
-        'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
-      );
-    }
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      }
+
+      const eventId = crypto.randomUUID();
+      const envelope = {
+        eventId,
+        eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+        eventVersion: 1,
+        source: 'user-trust-service',
+        producer: 'user-trust-service',
+        occurredAt: now.toISOString(),
+        data: {
+          registrationId,
+          workerProfileId: registration.workerProfileId,
+          userId: registration.workerProfile?.userId,
+          decision: 'rejected',
+          reason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedBy: reviewerId,
+          reviewedAt: now.toISOString(),
+        },
+      };
+
+      await tx.outboxEvent.create({
+        data: {
+          id: eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+          eventVersion: 1,
+          payload: envelope,
+          status: 'pending',
+        },
+      });
+    });
 
     return {
       statusCode: HttpStatus.OK,

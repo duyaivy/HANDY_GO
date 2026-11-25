@@ -13,6 +13,9 @@ export const PAYMENT_STATE_VALUES = [
   'failed',
 ] as const;
 
+export const ORDER_PARTICIPANT_ROLE_VALUES = ['customer', 'worker'] as const;
+export type OrderParticipantRole = (typeof ORDER_PARTICIPANT_ROLE_VALUES)[number];
+
 export class QueryOrderDto {
   @ApiPropertyOptional({
     description: 'Page number (1-based)',
@@ -29,13 +32,13 @@ export class QueryOrderDto {
     description: 'Number of items per page',
     default: 10,
     minimum: 1,
-    maximum: 50,
+    maximum: 100,
   })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(100)
   limit?: number = 10;
 
   @ApiPropertyOptional({
@@ -55,4 +58,19 @@ export class QueryOrderDto {
   @IsOptional()
   @IsEnum(PAYMENT_STATE_VALUES)
   paymentState?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filter orders by participant role: customer or worker',
+    enum: ORDER_PARTICIPANT_ROLE_VALUES,
+  })
+  @IsOptional()
+  @IsEnum(ORDER_PARTICIPANT_ROLE_VALUES)
+  role?: OrderParticipantRole;
+
+  @ApiPropertyOptional({
+    description: 'Search orders by code, address, or agreed scope',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

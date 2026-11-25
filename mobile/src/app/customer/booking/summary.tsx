@@ -14,6 +14,7 @@ import { RouteNames } from '@/constants/route-names';
 import { isSpecificServiceName } from '@/constants/services';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
 import { OrdersApi } from '@/features/orders/api/orders.api';
+import { startsWithSuggestionPrefix } from '@/features/orders/customer/utils/service-issue-suggestions';
 import { useBookingDraftStore } from '@/features/orders/stores/use-booking-draft-store';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -141,7 +142,7 @@ export default function CustomerBookingSummaryRoute() {
         && serviceName.trim()
         && serviceName.trim() !== 'Dịch vụ tiện ích'
         && !finalDescription.toLowerCase().includes(serviceName.trim().toLowerCase())
-        && (finalDescription.toLowerCase().startsWith('sự cố:') || finalDescription.toLowerCase().startsWith('vị trí:'))
+        && startsWithSuggestionPrefix(finalDescription)
       ) {
         finalDescription = `Tôi cần người ${serviceName.trim()}: ${finalDescription}`;
       }

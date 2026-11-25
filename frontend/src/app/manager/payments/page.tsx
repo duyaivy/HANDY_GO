@@ -1,3 +1,6 @@
+import { redirect } from "next/navigation";
+import { ROUTES } from "@/shared/constants/route";
+
 export default function PaymentPage() {
-  return <h1>Quản lý thanh toán</h1>;
+  redirect(ROUTES.manageR.PAYMENTS.TRANSACTIONS);
 }

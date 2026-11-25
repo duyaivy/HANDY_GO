@@ -48,6 +48,7 @@ export const ROUTES = {
       REFUNDS: "/manager/payments/refunds",
       PAYOUTS: "/manager/payments/payouts",
       FEES: "/manager/payments/fees",
+      OPERATIONS: "/manager/payments/operations",
     },
 
     CATALOGS: "/manager/catalogs",
