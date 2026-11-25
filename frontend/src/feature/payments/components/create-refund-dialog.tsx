@@ -210,7 +210,6 @@ export default function CreateRefundDialog({
   const [storageError, setStorageError] = useState(initial.storageError);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshingCapacity, setIsRefreshingCapacity] = useState(false);
-  const [confirmingClear, setConfirmingClear] = useState(false);
   const [needsCapacityReview, setNeedsCapacityReview] = useState(false);
   // Chốt snapshot ban đầu của form; không tự động ghi đè khi React Query
   // refetchOnWindowFocus cập nhật ngầm lúc đổi từ tab khác quay lại.
@@ -248,7 +247,6 @@ export default function CreateRefundDialog({
       if (event.newValue === null) {
         setPendingRefund(null);
         setStorageError("");
-        setConfirmingClear(false);
         if (event.oldValue !== null) {
           setNeedsCapacityReview(true);
           setFormError(
@@ -265,11 +263,9 @@ export default function CreateRefundDialog({
         setAmount(parsed.amount);
         setReason(parsed.reason);
         setStorageError("");
-        setConfirmingClear(false);
         setFormError("");
       } catch {
         setPendingRefund(null);
-        setConfirmingClear(false);
         setStorageError(
           "Không thể đọc yêu cầu hoàn tiền đang chờ. Hãy xác minh danh sách hoàn tiền trước khi thao tác tiếp.",
         );
@@ -287,7 +283,6 @@ export default function CreateRefundDialog({
 
           if (event.data.type === "refund-created") {
             setNeedsCapacityReview(true);
-            setConfirmingClear(false);
             setFormError(
               "Một tab khác vừa tạo yêu cầu hoàn tiền cho giao dịch này. Hãy kiểm tra danh sách hoàn tiền và làm mới hạn mức trước khi gửi yêu cầu mới.",
             );
@@ -295,7 +290,6 @@ export default function CreateRefundDialog({
           } else if (event.data.type === "pending-cleared") {
             setPendingRefund(null);
             setStorageError("");
-            setConfirmingClear(false);
             setNeedsCapacityReview(true);
             onRefreshStateRef.current?.();
           }
@@ -343,119 +337,6 @@ export default function CreateRefundDialog({
     }
   }
 
-  async function requestClearPending() {
-    if (
-      submittingRef.current ||
-      isSubmitting ||
-      isRefreshingCapacity ||
-      mutation.isPending
-    ) {
-      return;
-    }
-
-    setIsRefreshingCapacity(true);
-    setFormError("");
-    try {
-      if (onVerifyCapacity) {
-        await onVerifyCapacity();
-      }
-      onRefreshState?.();
-      setConfirmingClear(true);
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : "Không thể xác minh trạng thái từ máy chủ trước khi hủy.",
-      );
-    } finally {
-      setIsRefreshingCapacity(false);
-    }
-  }
-
-  async function confirmClearPending() {
-    if (submittingRef.current || isSubmitting || mutation.isPending) return;
-
-    const storageKey = getStorageKey(user.id, paymentId);
-    const senderTabId = tabIdRef.current ?? "unknown";
-
-    submittingRef.current = true;
-    setIsSubmitting(true);
-    onSubmittingChange?.(true);
-
-    try {
-      const lockOutcome = await withRefundSubmitLock(
-        user.id,
-        paymentId,
-        async () => {
-          // Xác minh kết nối/trạng thái từ backend bên trong lock trước khi xóa.
-          let fresh: VerifiedCapacity | null = null;
-          if (onVerifyCapacity) {
-            fresh = await onVerifyCapacity();
-          }
-
-          try {
-            if (pendingRefund) {
-              const stored = readPendingRefund(user.id, paymentId);
-              if (
-                stored &&
-                stored.idempotencyKey !== pendingRefund.idempotencyKey
-              ) {
-                setPendingRefund(stored);
-                setAmount(stored.amount);
-                setReason(stored.reason);
-                setConfirmingClear(false);
-                setFormError(
-                  "Trạng thái chờ vừa thay đổi từ một thao tác khác. Vui lòng kiểm tra lại trước khi hủy.",
-                );
-                return;
-              }
-              window.localStorage.removeItem(storageKey);
-            } else if (storageError) {
-              window.localStorage.removeItem(storageKey);
-            }
-          } catch {
-            window.localStorage.removeItem(storageKey);
-          }
-
-          if (fresh) {
-            setAcknowledgedSnapshot(
-              fresh.capacitySnapshot ?? fresh.refundableAmount,
-            );
-          }
-          setPendingRefund(null);
-          setStorageError("");
-          setFormError("");
-          setConfirmingClear(false);
-          setNeedsCapacityReview(false);
-          mutation.reset();
-          postSyncMessage(user.id, paymentId, {
-            type: "pending-cleared",
-            senderTabId,
-          });
-          onRefreshState?.();
-        },
-      );
-
-      if (!lockOutcome.acquired) {
-        setConfirmingClear(false);
-        setFormError(
-          "Giao dịch này đang được xử lý hoàn tiền ở một tab khác. Không thể hủy trạng thái chờ lúc này.",
-        );
-        onRefreshState?.();
-      }
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : "Không thể hủy trạng thái chờ một cách an toàn. Vui lòng thử lại.",
-      );
-    } finally {
-      submittingRef.current = false;
-      setIsSubmitting(false);
-      onSubmittingChange?.(false);
-    }
-  }
-
   const isPending = mutation.isPending || isSubmitting;
   const isRetryingPending = Boolean(pendingRefund);
   const snapshotChangedSinceAck = Boolean(
@@ -493,7 +374,6 @@ export default function CreateRefundDialog({
     const normalizedAmount = amount.trim();
     const normalizedReason = reason.trim();
     setFormError("");
-    setConfirmingClear(false);
     mutation.reset();
 
     if (!/^[1-9]\d{0,18}$/.test(normalizedAmount)) {
@@ -697,7 +577,6 @@ export default function CreateRefundDialog({
             setReason("");
             setFormError("");
             setNeedsCapacityReview(false);
-            setConfirmingClear(false);
             toast.success("Đã tạo yêu cầu hoàn tiền");
             // Báo cho modal cha mở khóa trước khi yêu cầu đóng modal.
             submittingRef.current = false;
@@ -798,57 +677,20 @@ export default function CreateRefundDialog({
             <Info size={16} className="mt-0.5 shrink-0" />
             <p>
               {storageError
-                ? "Dữ liệu khôi phục hoàn tiền đang gặp lỗi đọc. Hãy kiểm tra danh sách hoàn tiền trước khi xóa trạng thái chờ."
-                : "Có yêu cầu trước đó chưa xác định kết quả. Nội dung đã được khôi phục và khóa để retry bằng mã chống trùng cũ. Hãy kiểm tra danh sách refund trước khi gửi lại."}
+                ? "Dữ liệu khôi phục hoàn tiền đang gặp lỗi đọc. Đã tạm dừng gửi yêu cầu mới để tránh hoàn tiền trùng; hãy kiểm tra danh sách hoàn tiền."
+                : "Có yêu cầu trước đó chưa xác định kết quả. Nội dung đã được khôi phục và khóa để retry bằng mã chống trùng cũ. Hãy kiểm tra danh sách refund hoặc bấm gửi lại đúng yêu cầu cũ."}
             </p>
           </div>
-          {!confirmingClear ? (
-            <div className="flex flex-wrap gap-3 pl-6">
-              {onRefreshState && (
-                <button
-                  type="button"
-                  disabled={isPending || isRefreshingCapacity}
-                  onClick={onRefreshState}
-                  className="font-medium text-amber-900 underline disabled:opacity-50"
-                >
-                  Làm mới danh sách
-                </button>
-              )}
+          {onRefreshState && (
+            <div className="pl-6">
               <button
                 type="button"
                 disabled={isPending || isRefreshingCapacity}
-                onClick={() => void requestClearPending()}
+                onClick={onRefreshState}
                 className="font-medium text-amber-900 underline disabled:opacity-50"
               >
-                {isRefreshingCapacity
-                  ? "Đang kiểm tra máy chủ..."
-                  : "Kiểm tra & hủy trạng thái chờ"}
+                Làm mới danh sách
               </button>
-            </div>
-          ) : (
-            <div className="space-y-2 rounded-lg border border-amber-300 bg-white/70 p-2.5 pl-3">
-              <p className="font-medium text-amber-950">
-                Đã đối chiếu danh sách hoàn tiền và xác nhận muốn hủy khôi phục
-                yêu cầu này?
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => void confirmClearPending()}
-                  className="font-semibold text-red-700 underline disabled:opacity-50"
-                >
-                  Xác nhận hủy trạng thái chờ
-                </button>
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={() => setConfirmingClear(false)}
-                  className="font-medium text-slate-700 underline disabled:opacity-50"
-                >
-                  Giữ lại
-                </button>
-              </div>
             </div>
           )}
         </div>

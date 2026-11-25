@@ -497,26 +497,11 @@ describe("CreateRefundDialog (P1 idempotency, Web Locks & recovery)", () => {
     expect(window.localStorage.getItem(getPendingKey("admin-1", "pay-1"))).not.toBeNull();
   });
 
-  it("synchronizes manual clear with Web Lock and backend verification", async () => {
+  it("does not allow unverified manual clear and preserves corrupted storage records", async () => {
     const key = getPendingKey("admin-1", "pay-1");
-    window.localStorage.setItem(
-      key,
-      JSON.stringify({
-        userId: "admin-1",
-        paymentId: "pay-1",
-        amount: "50000",
-        reason: "Cần hủy",
-        idempotencyKey: "key-to-clear",
-      }),
-    );
-
-    let lockBusy = false;
-    installLockMock({ isBusy: () => lockBusy });
-    const onVerifyCapacity = vi.fn().mockResolvedValue({
-      disabled: false,
-      refundableAmount: "200000",
-      capacitySnapshot: "200000:succeeded:0:none:none",
-    });
+    const rawCorrupted = "{broken-json";
+    window.localStorage.setItem(key, rawCorrupted);
+    const onRefreshState = vi.fn();
 
     render(
       <CreateRefundDialog
@@ -526,50 +511,20 @@ describe("CreateRefundDialog (P1 idempotency, Web Locks & recovery)", () => {
         capacitySnapshot="200000:succeeded:0:none:none"
         capacityLoading={false}
         capacityError={null}
-        onVerifyCapacity={onVerifyCapacity}
+        onRefreshState={onRefreshState}
       />,
     );
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /Kiểm tra & hủy trạng thái chờ/i }),
-    );
+    expect(
+      screen.queryByRole("button", { name: /hủy trạng thái chờ/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Xác nhận tạo yêu cầu/i }),
+    ).toBeDisabled();
 
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Xác nhận hủy trạng thái chờ/i }),
-      ).toBeInTheDocument();
-    });
-
-    // Giả lập tab khác đang submit -> lock bận -> không được xóa
-    lockBusy = true;
-    fireEvent.click(
-      screen.getByRole("button", { name: /Xác nhận hủy trạng thái chờ/i }),
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Không thể hủy trạng thái chờ lúc này/i),
-      ).toBeInTheDocument();
-    });
-    expect(window.localStorage.getItem(key)).not.toBeNull();
-
-    // Khi lock rảnh -> xóa thành công sau khi verify từ BE
-    lockBusy = false;
-    fireEvent.click(
-      screen.getByRole("button", { name: /Kiểm tra & hủy trạng thái chờ/i }),
-    );
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /Xác nhận hủy trạng thái chờ/i }),
-      ).toBeInTheDocument();
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Xác nhận hủy trạng thái chờ/i }),
-    );
-
-    await waitFor(() => {
-      expect(window.localStorage.getItem(key)).toBeNull();
-    });
+    fireEvent.click(screen.getByRole("button", { name: /Làm mới danh sách/i }));
+    expect(onRefreshState).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(key)).toBe(rawCorrupted);
   });
 });
 
