@@ -7,11 +7,8 @@ import type { DashboardParams } from "../types/dashboard";
 
 // 4xx không thể khắc phục bằng retry (trừ 408/429).
 // Retry tối đa 2 lần cho lỗi mạng, timeout hoặc backend tạm thời lỗi.
-export function shouldRetryDashboard(
-  failureCount: number,
-  error: Error,
-): boolean {
-  if (failureCount > 2) return false;
+export function shouldRetryDashboard(failureCount: number, error: Error): boolean {
+  if (failureCount >= 2) return false;
   if (error.name === "AbortError") return false;
 
   if (error instanceof HttpError) {

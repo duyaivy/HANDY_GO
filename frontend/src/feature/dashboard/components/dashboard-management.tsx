@@ -201,10 +201,11 @@ export default function DashboardManagement() {
     };
   }, [checkVietnamDay]);
 
-  const params: DashboardParams =
-    filter.range === "custom"
-      ? { period: "custom", startDate: filter.from, endDate: filter.to }
-      : { period: filter.range };
+  const params: DashboardParams = {
+    period: filter.range,
+    startDate: filter.from,
+    endDate: filter.to,
+  };
   const { overview, orderTrend, orderStatus, topWorkers, topServices } =
     useDashboard(params);
   const refreshing = [
