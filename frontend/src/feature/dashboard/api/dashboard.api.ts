@@ -18,18 +18,11 @@ type Metric =
   | "top-services";
 
 function buildQuery(params: DashboardParams) {
-  const query = new URLSearchParams({
-    period: params.period,
-  });
+  const query = new URLSearchParams({ period: params.period });
 
   if (params.period === "custom") {
-    if (params.startDate) {
-      query.set("startDate", params.startDate);
-    }
-
-    if (params.endDate) {
-      query.set("endDate", params.endDate);
-    }
+    if (params.startDate) query.set("startDate", params.startDate);
+    if (params.endDate) query.set("endDate", params.endDate);
   }
 
   return query.toString();
@@ -38,11 +31,13 @@ function buildQuery(params: DashboardParams) {
 async function getMetric<T>(
   metric: Metric,
   params: DashboardParams,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await http.get<ApiResponse<T>>(
     `/api/dashboard/${metric}?${buildQuery(params)}`,
     {
       baseUrl: "",
+      signal,
     },
   );
 
@@ -50,18 +45,18 @@ async function getMetric<T>(
 }
 
 export const dashboardApi = {
-  overview: (params: DashboardParams) =>
-    getMetric<DashboardOverview>("overview", params),
+  overview: (params: DashboardParams, signal?: AbortSignal) =>
+    getMetric<DashboardOverview>("overview", params, signal),
 
-  orderTrend: (params: DashboardParams) =>
-    getMetric<OrderTrend>("order-trend", params),
+  orderTrend: (params: DashboardParams, signal?: AbortSignal) =>
+    getMetric<OrderTrend>("order-trend", params, signal),
 
-  orderStatus: (params: DashboardParams) =>
-    getMetric<OrderStatus>("order-status", params),
+  orderStatus: (params: DashboardParams, signal?: AbortSignal) =>
+    getMetric<OrderStatus>("order-status", params, signal),
 
-  topWorkers: (params: DashboardParams) =>
-    getMetric<TopWorker[]>("top-workers", params),
+  topWorkers: (params: DashboardParams, signal?: AbortSignal) =>
+    getMetric<TopWorker[]>("top-workers", params, signal),
 
-  topServices: (params: DashboardParams) =>
-    getMetric<TopService[]>("top-services", params),
+  topServices: (params: DashboardParams, signal?: AbortSignal) =>
+    getMetric<TopService[]>("top-services", params, signal),
 };

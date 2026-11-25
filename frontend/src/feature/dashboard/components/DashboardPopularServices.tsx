@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { ArrowUpRight, Layers3, Wrench } from "lucide-react";
 
 import type { TopService } from "../types/dashboard";
@@ -12,6 +12,32 @@ interface DashboardPopularServicesProps {
 
 const formatNumber = (value: number) =>
   new Intl.NumberFormat("vi-VN").format(value);
+
+function ServiceIcon({ url, name }: { url: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
+      {url && !failed ? (
+        // URL ảnh do backend cung cấp; fallback về icon nếu tải lỗi.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={name}
+          className="block h-full w-full object-cover object-center"
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <Wrench
+          className="h-6 w-6 text-slate-400"
+          strokeWidth={1.7}
+          aria-hidden="true"
+        />
+      )}
+    </div>
+  );
+}
 
 export const DashboardPopularServices: React.FC<
   DashboardPopularServicesProps
@@ -33,7 +59,6 @@ export const DashboardPopularServices: React.FC<
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50">
             <Layers3 className="h-5 w-5 text-[#FF5E14]" strokeWidth={1.8} />
           </div>
-
           <div>
             <h2 className="text-base font-bold tracking-tight text-slate-950">
               Dịch vụ phổ biến
@@ -43,7 +68,6 @@ export const DashboardPopularServices: React.FC<
             </p>
           </div>
         </div>
-
         {onViewAll && (
           <button
             type="button"
@@ -67,22 +91,11 @@ export const DashboardPopularServices: React.FC<
                 key={service.serviceId}
                 className="flex items-center gap-3 py-3.5 first:pt-1 last:pb-0"
               >
-                {/* Avatar dịch vụ */}
-                <div className="flex h-[52px] w-[52px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
-                  {service.iconUrl ? (
-                    <img
-                      src={service.iconUrl}
-                      alt={service.name}
-                      className="block h-full w-full object-cover object-center"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <Wrench
-                      className="h-6 w-6 text-slate-400"
-                      strokeWidth={1.7}
-                    />
-                  )}
-                </div>
+                <ServiceIcon
+                  key={service.iconUrl ?? "no-icon"}
+                  url={service.iconUrl}
+                  name={service.name}
+                />
 
                 {/* Tên dịch vụ và tiến độ */}
                 <div className="min-w-0 flex-1">
@@ -93,8 +106,6 @@ export const DashboardPopularServices: React.FC<
                     >
                       {service.name}
                     </p>
-
-                    {/* Số đơn */}
                     <div className="shrink-0 whitespace-nowrap text-right">
                       <span className="text-sm font-bold text-slate-900">
                         {formatNumber(service.completedOrderCount)}
@@ -104,8 +115,6 @@ export const DashboardPopularServices: React.FC<
                       </span>
                     </div>
                   </div>
-
-                  {/* Thanh tiến độ */}
                   <div
                     className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-slate-100"
                     role="progressbar"
@@ -116,9 +125,7 @@ export const DashboardPopularServices: React.FC<
                   >
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-[#FF8B42] to-[#FF5E14] transition-all duration-500"
-                      style={{
-                        width: `${percentage}%`,
-                      }}
+                      style={{ width: `${percentage}%` }}
                     />
                   </div>
                 </div>
@@ -131,7 +138,6 @@ export const DashboardPopularServices: React.FC<
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50">
             <Layers3 className="h-6 w-6 text-slate-400" />
           </div>
-
           <div>
             <p className="text-sm font-medium text-slate-700">
               Chưa có dữ liệu dịch vụ

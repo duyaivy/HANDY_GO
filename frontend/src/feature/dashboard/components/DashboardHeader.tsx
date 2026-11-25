@@ -15,20 +15,37 @@ interface DashboardHeaderProps {
   onFilterChange: (filter: DashboardDateFilter) => void;
 }
 
-const localDate = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+const VIETNAM_TIMEZONE = "Asia/Ho_Chi_Minh";
+const vietnamDayFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: VIETNAM_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
-export const makeDateFilter = (range: DashboardRange): DashboardDateFilter => {
-  const end = new Date();
-  const start = new Date(end);
-  if (range === "7days") start.setDate(start.getDate() - 6);
-  if (range === "30days" || range === "custom")
-    start.setDate(start.getDate() - 29);
-  return { range, from: localDate(start), to: localDate(end) };
+/** Trả về YYYY-MM-DD theo giờ Việt Nam, bất kể timezone trình duyệt. */
+export function vietnamDate(date: Date = new Date()): string {
+  const parts = vietnamDayFormatter.formatToParts(date);
+  const get = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** Trừ ngày theo lịch UTC để tránh ảnh hưởng DST/timezone của máy. */
+function subtractCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day - days));
+  return shifted.toISOString().slice(0, 10);
+}
+
+export const makeDateFilter = (
+  range: DashboardRange,
+  now: Date = new Date(),
+): DashboardDateFilter => {
+  const to = vietnamDate(now);
+  const daysBack =
+    range === "7days" ? 6 : range === "30days" || range === "custom" ? 29 : 0;
+  return { range, from: subtractCalendarDays(to, daysBack), to };
 };
 
 const displayDate = (value: string) => {
@@ -82,7 +99,7 @@ export function DashboardHeader({
       setError("Khoảng ngày tùy chỉnh tối đa 365 ngày.");
       return;
     }
-    if (draftTo > localDate(new Date())) {
+    if (draftTo > vietnamDate()) {
       setError("Ngày kết thúc không được ở tương lai.");
       return;
     }
@@ -148,7 +165,7 @@ export function DashboardHeader({
               type="date"
               value={draftTo}
               min={draftFrom || undefined}
-              max={localDate(new Date())}
+              max={vietnamDate()}
               onChange={(e) => setDraftTo(e.target.value)}
               className={inputClass}
             />

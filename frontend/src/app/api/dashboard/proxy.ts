@@ -10,7 +10,6 @@ const validPeriods = new Set<DashboardPeriod>([
 ]);
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
-// Đổi tên cookie hoặc base URL trong .env.local để trùng dự án của bạn.
 export async function proxyDashboard(request: NextRequest, metric: string) {
   const period = request.nextUrl.searchParams.get("period") ?? "30days";
   if (!validPeriods.has(period as DashboardPeriod)) {
@@ -49,8 +48,8 @@ export async function proxyDashboard(request: NextRequest, metric: string) {
     }
   }
 
-  const cookieName = process.env.DASHBOARD_ACCESS_TOKEN_COOKIE || "accessToken";
-  const token = (await cookies()).get(cookieName)?.value;
+  // Dùng chung cookie với các API proxy khác (Payment, Refund, ...).
+  const token = (await cookies()).get("accessToken")?.value;
   if (!token) {
     return NextResponse.json(
       { message: "Phiên đăng nhập hết hạn hoặc không tìm thấy access token" },
@@ -58,11 +57,11 @@ export async function proxyDashboard(request: NextRequest, metric: string) {
     );
   }
 
-  const configured =
-    process.env.ORDER_SERVICE_API_URL || process.env.NEXT_PUBLIC_API_ENDPOINT;
+  // Gọi qua API Gateway, không ưu tiên URL Order Service nội bộ.
+  const configured = process.env.NEXT_PUBLIC_API_ENDPOINT;
   if (!configured) {
     return NextResponse.json(
-      { message: "Chưa cấu hình ORDER_SERVICE_API_URL" },
+      { message: "Chưa cấu hình Backend API Gateway" },
       { status: 500 },
     );
   }
@@ -88,6 +87,8 @@ export async function proxyDashboard(request: NextRequest, metric: string) {
       method: "GET",
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       cache: "no-store",
+      // Abort khi đổi bộ lọc / rời Dashboard và giới hạn thời gian upstream.
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]),
     });
     const content = await backend.text();
     return new NextResponse(content, {
@@ -98,9 +99,19 @@ export async function proxyDashboard(request: NextRequest, metric: string) {
       },
     });
   } catch (error) {
+    if (request.signal.aborted) {
+      // Client đã huỷ request. Không coi đây là lỗi Gateway.
+      return new NextResponse(null, { status: 499 });
+    }
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return NextResponse.json(
+        { message: "Dashboard API phản hồi quá thời gian cho phép" },
+        { status: 504 },
+      );
+    }
     console.error("[dashboard proxy]", error);
     return NextResponse.json(
-      { message: "Không kết nối được Order Service" },
+      { message: "Không kết nối được API Gateway" },
       { status: 502 },
     );
   }

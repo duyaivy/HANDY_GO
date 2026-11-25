@@ -1,7 +1,32 @@
+"use client";
+
+import { useState } from "react";
 import { Star, Trophy, UserRound } from "lucide-react";
 import type { TopWorker } from "../types/dashboard";
 
 const integer = (n: number) => new Intl.NumberFormat("vi-VN").format(n);
+
+function WorkerAvatar({ url }: { url: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  return (
+    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-slate-500">
+      {url && !failed ? (
+        // URL ảnh do backend cung cấp; fallback về icon nếu tải lỗi.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt=""
+          className="size-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <UserRound className="size-5" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
 export function DashboardTopWorkers({
   data,
   onViewAll,
@@ -54,17 +79,10 @@ export function DashboardTopWorkers({
               {index + 1}
             </span>
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-slate-500">
-                {worker.avatarUrl ? (
-                  <img
-                    src={worker.avatarUrl}
-                    alt=""
-                    className="size-full object-cover"
-                  />
-                ) : (
-                  <UserRound className="size-5" />
-                )}
-              </div>
+              <WorkerAvatar
+                key={worker.avatarUrl ?? "no-avatar"}
+                url={worker.avatarUrl}
+              />
               <p
                 className="truncate text-xs font-semibold text-slate-900 sm:text-sm"
                 title={worker.fullName}
