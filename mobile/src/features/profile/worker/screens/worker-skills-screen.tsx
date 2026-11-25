@@ -67,7 +67,7 @@ export function WorkerSkillsScreen() {
   const { profile } = useUserProfile();
   const workerIdentifier = profile?.workerProfile?.id || userId;
 
-  const [activeTab] = React.useState<MainTab>('my_services');
+  const [activeTab, setActiveTab] = React.useState<MainTab>('my_services');
   const [refreshing, setRefreshing] = React.useState(false);
 
   // Local active toggle state for approved services
@@ -500,7 +500,7 @@ export function WorkerSkillsScreen() {
             <View className="flex-row border-b border-neutral-200 bg-white px-2 pt-1 dark:border-neutral-800 dark:bg-neutral-900">
               <Pressable
                 testID="tab-my-services"
-                onPress={() => handleSelectTab('my_services')}
+                onPress={() => setActiveTab('my_services')}
                 className={`mr-5 border-b-2 pb-3 ${
                   activeTab === 'my_services'
                     ? 'border-blue-600'
@@ -523,7 +523,7 @@ export function WorkerSkillsScreen() {
 
               <Pressable
                 testID="tab-registrations"
-                onPress={() => handleSelectTab('registrations')}
+                onPress={() => setActiveTab('registrations')}
                 className={`border-b-2 pb-3 ${
                   activeTab === 'registrations'
                     ? 'border-blue-600'
