@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KycWorkerService } from './kyc-worker.service.js';
+import { KYC_CONSTANTS } from './kyc.constants.js';
 
 describe('KycWorkerService', () => {
   let worker: KycWorkerService;
@@ -214,5 +215,47 @@ describe('KycWorkerService', () => {
       expect.objectContaining({ jobId: 'job-1' }),
     );
     expect(channelMock.ack).toHaveBeenCalled();
+  });
+
+  describe('Timeout configuration', () => {
+    const originalKycTimeout = process.env.KYC_AI_TIMEOUT_MS;
+    const originalAiTimeout = process.env.AI_SERVICE_TIMEOUT_MS;
+
+    afterEach(() => {
+      if (originalKycTimeout !== undefined) {
+        process.env.KYC_AI_TIMEOUT_MS = originalKycTimeout;
+      } else {
+        delete process.env.KYC_AI_TIMEOUT_MS;
+      }
+      if (originalAiTimeout !== undefined) {
+        process.env.AI_SERVICE_TIMEOUT_MS = originalAiTimeout;
+      } else {
+        delete process.env.AI_SERVICE_TIMEOUT_MS;
+      }
+    });
+
+    it('falls back to KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS (360000ms) even if AI_SERVICE_TIMEOUT_MS is 15000ms', () => {
+      delete process.env.KYC_AI_TIMEOUT_MS;
+      process.env.AI_SERVICE_TIMEOUT_MS = '15000';
+
+      const instance = new KycWorkerService(repoMock, configMock as any);
+      expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+      expect(instance.timeoutMs).toBe(360000);
+    });
+
+    it('uses configured KYC_AI_TIMEOUT_MS when provided', () => {
+      process.env.KYC_AI_TIMEOUT_MS = '120000';
+      process.env.AI_SERVICE_TIMEOUT_MS = '15000';
+
+      const instance = new KycWorkerService(repoMock, configMock as any);
+      expect(instance.timeoutMs).toBe(120000);
+    });
+
+    it('falls back to default if KYC_AI_TIMEOUT_MS is invalid or negative', () => {
+      process.env.KYC_AI_TIMEOUT_MS = 'invalid-number';
+
+      const instance = new KycWorkerService(repoMock, configMock as any);
+      expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+    });
   });
 });

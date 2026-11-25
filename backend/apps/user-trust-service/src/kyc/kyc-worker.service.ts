@@ -34,9 +34,16 @@ export class KycWorkerService {
       process.env.AI_SERVICE_URL || 'http://localhost:8000';
     this.internalSecret =
       process.env.INTERNAL_SERVICE_SECRET || '';
-    this.aiTimeoutMs = optionalValue(process.env.AI_SERVICE_TIMEOUT_MS)
-      ? Number(optionalValue(process.env.AI_SERVICE_TIMEOUT_MS))
-      : KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS;
+    const configuredTimeout = optionalValue(process.env.KYC_AI_TIMEOUT_MS);
+    const parsedTimeout = configuredTimeout ? Number(configuredTimeout) : NaN;
+    this.aiTimeoutMs =
+      !isNaN(parsedTimeout) && parsedTimeout > 0
+        ? parsedTimeout
+        : KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS;
+  }
+
+  get timeoutMs(): number {
+    return this.aiTimeoutMs;
   }
 
   /**
@@ -220,7 +227,7 @@ export class KycWorkerService {
     selfieBuffer: Buffer,
   ): Promise<{ success: boolean; data?: any; errorCode?: string; message?: string }> {
     const targetUrl = `${this.aiServiceUrl.replace(/\/+$/, '')}/internal/v1/identity/analyze`;
-    this.logger.log(`[KYC Worker] Calling AI inference at ${targetUrl}`);
+    this.logger.log(`[KYC Worker] Calling AI inference at ${targetUrl} (timeout: ${this.aiTimeoutMs}ms)`);
     const formData = new FormData();
 
     formData.append(

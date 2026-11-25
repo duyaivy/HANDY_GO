@@ -75,7 +75,7 @@ services:
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_TRUST_SERVICE_URL: http://user-trust-service:3002
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
-      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
       AI_WARMUP_ENABLED: ${AI_WARMUP_ENABLED:-true}
       AI_WARMUP_INTERVAL_MS: ${AI_WARMUP_INTERVAL_MS:-255000}
       CATALOG_SERVICE_URL: http://catalog-service:3003
@@ -138,7 +138,8 @@ services:
       CATALOG_SERVICE_URL: http://catalog-service:3003
       ORDER_SERVICE_URL: http://order-service:3004
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://host.docker.internal:8000}
-      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-360000}
+      KYC_AI_TIMEOUT_MS: ${KYC_AI_TIMEOUT_MS:-360000}
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-15000}
       AI_WARMUP_ENABLED: ${AI_WARMUP_ENABLED:-true}
       AI_WARMUP_INTERVAL_MS: ${AI_WARMUP_INTERVAL_MS:-255000}
     extra_hosts:
