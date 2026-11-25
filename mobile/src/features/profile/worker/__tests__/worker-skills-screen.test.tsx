@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '@/features/orders';
-import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { queryClient } from '@/lib/api/query-client';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
-import { WorkersApi } from '@/services/workers/workers-api';
+import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerSkillsScreen } from '../screens/worker-skills-screen';
 
@@ -407,7 +408,7 @@ describe('workerSkillsScreen', () => {
     });
   });
 
-  it('does not render edit button for approved registrations', async () => {
+  it('filters out approved registrations from pending approval tab', async () => {
     useAuthStore.setState({
       isAuthenticated: true,
       user: {
@@ -471,7 +472,10 @@ describe('workerSkillsScreen', () => {
     fireEvent.press(screen.getByTestId('tab-registrations'));
 
     await waitFor(() => {
-      expect(screen.getByText('Đã duyệt')).toBeOnTheScreen();
+      expect(screen.queryByText('Đã duyệt')).toBeNull();
+      expect(screen.queryByText('Lắp đặt điều hòa treo tường')).toBeNull();
+      expect(screen.getByText('Chờ phê duyệt (0)')).toBeOnTheScreen();
+      expect(screen.getByText('Không có dịch vụ nào đang chờ duyệt')).toBeOnTheScreen();
       expect(screen.queryByTestId('edit-registration-btn-reg-approved-uuid')).toBeNull();
       expect(screen.queryByTestId('cancel-registration-btn-reg-approved-uuid')).toBeNull();
     });
@@ -592,5 +596,618 @@ describe('workerSkillsScreen', () => {
       // Revenue is rendered in both top summary card and this service card = 350.000 đ
       expect(screen.getAllByText('350.000 đ')).toHaveLength(2);
     });
+  });
+
+  it('mixed pending and rejected registrations badge counts only pending and displays rejected items with reasons while approved are hidden', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [],
+      },
+    });
+
+    // 1 pending, 2 rejected, 1 approved, 1 worker-cancelled
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [
+        {
+          id: 'reg-pending-1',
+          workerProfileId: 'wp-101',
+          status: 'pending',
+          rejectionReason: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 's-pending',
+              serviceName: 'Dịch vụ đang chờ',
+              title: 'Dịch vụ đang chờ duyệt',
+              categoryName: 'Điện Lạnh',
+              experienceYears: 2,
+            },
+          ],
+          evidenceFiles: [],
+        },
+        {
+          id: 'reg-rejected-1',
+          workerProfileId: 'wp-101',
+          status: 'rejected',
+          rejectionReason: 'Thiếu chứng chỉ hành nghề chính thức',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 's-rej-1',
+              serviceName: 'Sửa điện 3 pha',
+              title: 'Sửa điện 3 pha công nghiệp',
+              categoryName: 'Điện',
+              experienceYears: 1,
+            },
+          ],
+          evidenceFiles: [],
+        },
+        {
+          id: 'reg-rejected-2',
+          workerProfileId: 'wp-101',
+          status: 'rejected',
+          rejectionReason: 'Ảnh chụp đồ nghề bị mờ',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 's-rej-2',
+              serviceName: 'Lắp camera an ninh',
+              title: 'Lắp đặt camera IP',
+              categoryName: 'Điện tử',
+              experienceYears: 3,
+            },
+          ],
+          evidenceFiles: [],
+        },
+        {
+          id: 'reg-approved-1',
+          workerProfileId: 'wp-101',
+          status: 'approved',
+          rejectionReason: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 's-appr-1',
+              serviceName: 'Đã được duyệt',
+              title: 'Dịch vụ đã được duyệt từ trước',
+              categoryName: 'Điện Lạnh',
+              experienceYears: 5,
+            },
+          ],
+          evidenceFiles: [],
+        },
+        {
+          id: 'reg-cancelled-1',
+          workerProfileId: 'wp-101',
+          status: 'rejected',
+          rejectionReason: WORKER_CANCELLED_REGISTRATION_SENTINEL,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          services: [
+            {
+              serviceId: 's-cancel-1',
+              serviceName: 'Đã hủy',
+              title: 'Dịch vụ thợ chủ động hủy',
+              categoryName: 'Khác',
+              experienceYears: 1,
+            },
+          ],
+          evidenceFiles: [],
+        },
+      ],
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    // Tab badge must show only pending count (1), NOT including the 2 rejected or approved or cancelled!
+    await waitFor(() => {
+      expect(screen.getByText('Chờ phê duyệt (1)')).toBeOnTheScreen();
+    });
+
+    // Switch to registrations tab
+    fireEvent.press(screen.getByTestId('tab-registrations'));
+
+    await waitFor(() => {
+      // Pending item is visible
+      expect(screen.getByText('Dịch vụ đang chờ duyệt')).toBeOnTheScreen();
+      // Rejected items are visible with reasons
+      expect(screen.getByText('Sửa điện 3 pha công nghiệp')).toBeOnTheScreen();
+      expect(screen.getByText(/Thiếu chứng chỉ hành nghề chính thức/)).toBeOnTheScreen();
+      expect(screen.getByText('Lắp đặt camera IP')).toBeOnTheScreen();
+      expect(screen.getByText(/Ảnh chụp đồ nghề bị mờ/)).toBeOnTheScreen();
+      // Approved and worker-cancelled items must NOT be visible
+      expect(screen.queryByText('Dịch vụ đã được duyệt từ trước')).toBeNull();
+      expect(screen.queryByText('Dịch vụ thợ chủ động hủy')).toBeNull();
+    });
+  });
+
+  it('fetches and aggregates orders across multiple pages (>50 orders) and isolates dual-role customer orders', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker', 'Customer'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-multipage',
+            serviceId: 'svc-ac-clean-multi',
+            title: 'Bảo trì máy lạnh công nghiệp',
+            description: 'Vệ sinh hệ thống điều hòa VRV',
+            experienceYears: 6,
+            isActive: true,
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    // Page 1: 50 completed worker orders + 1 customer order (dual-role)
+    const page1WorkerOrders = Array.from({ length: 50 }, (_, i) => ({
+      id: `order-p1-${i}`,
+      orderCode: `ORD-P1-${i}`,
+      workerUserId: 'worker-101',
+      serviceId: 'svc-ac-clean-multi',
+      agreedPrice: 200000,
+      status: 'completed',
+      paymentState: 'paid',
+      createdAt: new Date().toISOString(),
+    }));
+
+    const page1CustomerOrder = {
+      id: 'order-cust-dual',
+      orderCode: 'ORD-CUST-DUAL',
+      customerUserId: 'worker-101',
+      workerUserId: 'another-worker-999',
+      serviceId: 'svc-ac-clean-multi',
+      agreedPrice: 500000,
+      status: 'completed',
+      paymentState: 'paid',
+      createdAt: new Date().toISOString(),
+    };
+
+    // Page 2: 10 completed worker orders
+    const page2WorkerOrders = Array.from({ length: 10 }, (_, i) => ({
+      id: `order-p2-${i}`,
+      orderCode: `ORD-P2-${i}`,
+      workerUserId: 'worker-101',
+      serviceId: 'svc-ac-clean-multi',
+      agreedPrice: 200000,
+      status: 'completed',
+      paymentState: 'paid',
+      createdAt: new Date().toISOString(),
+    }));
+
+    const getMyOrdersSpy = jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params: any) => {
+      if (params?.page === 2) {
+        return {
+          statusCode: 200,
+          message: 'OK',
+          data: {
+            items: page2WorkerOrders,
+            total: 60,
+            page: 2,
+            limit: 50,
+            totalPages: 2,
+          } as any,
+        };
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: [...page1WorkerOrders, page1CustomerOrder],
+          total: 60,
+          page: 1,
+          limit: 50,
+          totalPages: 2,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText('12.000.000 đ')).toHaveLength(2);
+    });
+
+    // Must query with role: 'worker'
+    expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 1, limit: 50 }));
+    expect(getMyOrdersSpy).toHaveBeenCalledWith(expect.objectContaining({ role: 'worker', page: 2, limit: 50 }));
+    // Total orders for this service = 60 (the 1 customer order of dual-role is excluded!)
+    expect(screen.getByText('60 đơn')).toBeOnTheScreen();
+  });
+
+  it('stops polling and triggers profile refresh when pending registration is approved', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-101',
+        phone: '0911222333',
+        email: 'worker101@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    const getProfileSpy = jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-101',
+        userId: 'worker-101',
+        fullName: 'Nguyễn Văn Kỹ Thuật',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [],
+      },
+    });
+
+    const pendingItem = {
+      id: 'reg-polling-1',
+      workerProfileId: 'wp-101',
+      status: 'pending',
+      rejectionReason: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      services: [],
+      evidenceFiles: [],
+    };
+
+    const getRegsSpy = jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValueOnce({
+      statusCode: 200,
+      message: 'OK',
+      data: [pendingItem],
+    }).mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [], // Next fetch returns 0 pending (approved/resolved)
+    });
+
+    const { rerender } = render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(getRegsSpy).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(getProfileSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // Rerender when pending list is cleared
+    rerender(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      // Profile query refetched to pick up newly approved services
+      expect(getProfileSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it('does not reset revenue/orders to 0 when page 2 fails with 500 on initial load', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-err-init',
+        phone: '0911222334',
+        email: 'workererr1@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-err-init',
+        fullName: 'Thợ Test',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-err-1',
+        userId: 'worker-err-init',
+        fullName: 'Thợ Test',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      if (params?.page === 2) {
+        throw new Error('Request failed with status code 500');
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: [
+            {
+              id: 'ord-p1',
+              serviceId: 'svc-1',
+              workerUserId: 'worker-err-init',
+              status: 'completed',
+              paymentState: 'paid',
+              agreedPrice: 200000,
+            },
+          ],
+          total: 60,
+          page: 1,
+          limit: 50,
+          totalPages: 2,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('--');
+    });
+    expect(screen.getByTestId('worker-total-service-orders')).toHaveTextContent('--');
+  });
+
+  it('preserves cached revenue/orders when refetch page 2 fails with 500', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      user: {
+        id: 'worker-err-cache',
+        phone: '0911222335',
+        email: 'workererr2@example.com',
+        roles: ['Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(AuthApi, 'getMyProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'worker-err-cache',
+        fullName: 'Thợ Cache',
+        avatarUrl: null,
+        status: 'active',
+        customerProfile: null,
+        workerProfile: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-err-2',
+        userId: 'worker-err-cache',
+        fullName: 'Thợ Cache',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5,
+          ratingCount: 0,
+          completedOrderCount: 0,
+          orderCountTotal: 0,
+          ratingDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'offering-cache-1',
+            serviceId: 'svc-1',
+            serviceName: 'Sửa điện dân dụng',
+            categoryName: 'Điện nước',
+            isActive: true,
+            experienceYears: 2,
+          } as any,
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    let failPage2 = false;
+    jest.spyOn(OrdersApi, 'getMyOrders').mockImplementation(async (params?: any) => {
+      if (params?.page === 2) {
+        if (failPage2) {
+          throw new Error('Request failed with status code 500');
+        }
+        return {
+          statusCode: 200,
+          message: 'OK',
+          data: {
+            items: [
+              {
+                id: 'ord-c2',
+                serviceId: 'svc-1',
+                workerUserId: 'worker-err-cache',
+                status: 'completed',
+                paymentState: 'paid',
+                agreedPrice: 300000,
+              },
+            ],
+            total: 60,
+            page: 2,
+            limit: 50,
+            totalPages: 2,
+          } as any,
+        };
+      }
+      return {
+        statusCode: 200,
+        message: 'OK',
+        data: {
+          items: [
+            {
+              id: 'ord-c1',
+              serviceId: 'svc-1',
+              workerUserId: 'worker-err-cache',
+              status: 'completed',
+              paymentState: 'paid',
+              agreedPrice: 200000,
+            },
+          ],
+          total: 60,
+          page: 1,
+          limit: 50,
+          totalPages: 2,
+        } as any,
+      };
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('500.000 đ');
+    });
+
+    failPage2 = true;
+    // Trigger refetch via pull-to-refresh or query invalidation
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['worker-skills-orders', 'worker-err-cache'] });
+    });
+
+    // Cached revenue & order count remain preserved instead of resetting to 0
+    expect(screen.getByTestId('worker-total-service-revenue')).toHaveTextContent('500.000 đ');
+    expect(screen.getByText('2 đơn')).toBeOnTheScreen();
   });
 });

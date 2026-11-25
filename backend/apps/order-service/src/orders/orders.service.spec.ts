@@ -1678,15 +1678,36 @@ describe('OrdersService', () => {
       );
     });
 
-    it('should isolate role by customerUserId when role=customer (HG-72)', async () => {
+
+    it('should filter by role worker matching only workerUserId (isolating dual-role customer orders)', async () => {
       prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
       prismaMock.order.count.mockResolvedValue(1);
 
-      await service.findAll(
+      const result = await service.findAll(
+        mockWorkerId,
+        { page: 1, limit: 10, role: 'worker' },
+        ['Worker', 'Customer'],
+      );
+      expect(result.items).toHaveLength(1);
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should filter by role customer matching only customerUserId', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
         mockCustomerId,
         { page: 1, limit: 10, role: 'customer' },
-        ['Customer', 'Worker'],
+        ['Worker', 'Customer'],
       );
+      expect(result.items).toHaveLength(1);
 
       expect(prismaMock.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1718,6 +1739,24 @@ describe('OrdersService', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             workerUserId: mockWorkerId,
+          }),
+        }),
+      );
+    });
+
+    it('should fallback to where.OR when no role is provided for non-admin user', async () => {
+      prismaMock.order.findMany.mockResolvedValue([validBaseOrder]);
+      prismaMock.order.count.mockResolvedValue(1);
+
+      await service.findAll(
+        mockCustomerId,
+        { page: 1, limit: 10 },
+        ['Customer'],
+      );
+      expect(prismaMock.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            OR: [{ customerUserId: mockCustomerId }, { workerUserId: mockCustomerId }],
           }),
         }),
       );
