@@ -67,7 +67,7 @@ export function WorkerSkillsScreen() {
   const { profile } = useUserProfile();
   const workerIdentifier = profile?.workerProfile?.id || userId;
 
-  const [activeTab, setActiveTab] = React.useState<MainTab>('my_services');
+  const [activeTab] = React.useState<MainTab>('my_services');
   const [refreshing, setRefreshing] = React.useState(false);
 
   // Local active toggle state for approved services
