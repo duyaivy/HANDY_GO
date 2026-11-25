@@ -1,5 +1,6 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AiWarmupService, type AiHealthState } from './ai-warmup.service.js';
+import { AdminRoleGuard } from '../auth/admin-role.guard.js';
 
 @Controller('health')
 export class HealthController {
@@ -15,11 +16,13 @@ export class HealthController {
   }
 
   @Get('ai')
+  @UseGuards(AdminRoleGuard)
   getAiHealth(): AiHealthState {
     return this.aiWarmupService.getStatus();
   }
 
   @Post('ai/probe')
+  @UseGuards(AdminRoleGuard)
   async probeAiHealth(): Promise<AiHealthState> {
     return await this.aiWarmupService.probeNow();
   }

@@ -251,11 +251,65 @@ describe('KycWorkerService', () => {
       expect(instance.timeoutMs).toBe(120000);
     });
 
-    it('falls back to default if KYC_AI_TIMEOUT_MS is invalid or negative', () => {
-      process.env.KYC_AI_TIMEOUT_MS = 'invalid-number';
+    it('falls back to default if KYC_AI_TIMEOUT_MS is invalid, fractional or out of bounds', () => {
+      const invalidValues = [
+        'invalid-number',
+        'Infinity',
+        '-Infinity',
+        'NaN',
+        '2147483648', // > 2^31-1 ms
+        '1000000000000',
+        '-5000',
+        '0',
+        '120000.5', // fractional
+        '',
+        '   ',
+        '1000', // below MIN_MS (5000)
+        '700000', // above MAX_MS (600000)
+      ];
 
-      const instance = new KycWorkerService(repoMock, configMock as any);
-      expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+      for (const val of invalidValues) {
+        process.env.KYC_AI_TIMEOUT_MS = val;
+        const instance = new KycWorkerService(repoMock, configMock as any);
+        expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+      }
+    });
+
+    it('identifies HTTP 504 as Azure ingress gateway timeout with clear message', async () => {
+      repoMock.markJobProcessing.mockResolvedValue({
+        isStale: false,
+        job: { retryCount: 0 },
+      });
+      repoMock.findJobById.mockResolvedValue({ retryCount: 0, maxRetries: 3 });
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('/internal/v1/identity/analyze')) {
+          return {
+            ok: false,
+            status: 504,
+            text: async () => 'Gateway Timeout',
+          } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => Buffer.from('data'),
+        } as any;
+      });
+
+      await worker.processKycJob(
+        { jobId: 'job-504', kycCaseId: 'case-1', documentFrontRef: 'http://img/1', selfieRef: 'http://img/2' } as any,
+        contextMock,
+      );
+
+      expect(repoMock.recordJobFailure).toHaveBeenCalledWith(
+        'job-504',
+        'case-1',
+        expect.stringContaining('AI Service Ingress Gateway Timeout (504)'),
+        1,
+        false,
+      );
     });
   });
 });

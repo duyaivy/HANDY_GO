@@ -110,7 +110,7 @@ describe('GatewayAuthRoutePolicy (Unit)', () => {
     describe('Infrastructure & Dev Tooling routes', () => {
       const infraRoutes = [
         { path: '/health', method: 'GET' },
-        { path: '/health/ready', method: 'GET' },
+        { path: '/health', method: 'HEAD' },
         { path: '/docs', method: 'GET' },
         { path: '/docs/swagger-ui.css', method: 'GET' },
         { path: '/docs/specs/auth-service', method: 'GET' },
@@ -130,6 +130,10 @@ describe('GatewayAuthRoutePolicy (Unit)', () => {
 
     describe('Protected routes (bắt buộc xác thực)', () => {
       const protectedRoutes = [
+        { path: '/health/ai', method: 'GET' },
+        { path: '/health/ai/probe', method: 'POST' },
+        { path: '/health', method: 'POST' },
+        { path: '/health/ready', method: 'GET' },
         { path: '/api/v1/orders', method: 'GET' },
         { path: '/api/v1/orders', method: 'POST' },
         { path: '/api/v1/uploads/image', method: 'POST' },

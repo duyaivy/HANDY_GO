@@ -17,6 +17,11 @@ export interface KycJobProcessPayload {
   idDocumentType?: string;
 }
 
+export const KYC_WORKER_TIMEOUT_BOUNDS = {
+  MIN_MS: 5000, // 5s
+  MAX_MS: 600000, // 10 minutes (well within Node.js 32-bit signed int max of 2,147,483,647ms)
+} as const;
+
 @Injectable()
 export class KycWorkerService {
   private readonly logger = new Logger(KycWorkerService.name);
@@ -35,9 +40,14 @@ export class KycWorkerService {
     this.internalSecret =
       process.env.INTERNAL_SERVICE_SECRET || '';
     const configuredTimeout = optionalValue(process.env.KYC_AI_TIMEOUT_MS);
-    const parsedTimeout = configuredTimeout ? Number(configuredTimeout) : NaN;
+    const parsedTimeout =
+      configuredTimeout !== undefined && configuredTimeout !== ''
+        ? Number(configuredTimeout)
+        : NaN;
     this.aiTimeoutMs =
-      !isNaN(parsedTimeout) && parsedTimeout > 0
+      Number.isSafeInteger(parsedTimeout) &&
+      parsedTimeout >= KYC_WORKER_TIMEOUT_BOUNDS.MIN_MS &&
+      parsedTimeout <= KYC_WORKER_TIMEOUT_BOUNDS.MAX_MS
         ? parsedTimeout
         : KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS;
   }
@@ -266,6 +276,12 @@ export class KycWorkerService {
         parsed = JSON.parse(bodyText);
       } catch {
         parsed = { message: bodyText };
+      }
+
+      if (res.status === 504) {
+        throw new Error(
+          `AI Service Ingress Gateway Timeout (504): Azure Container Apps ingress timed out after ${this.aiTimeoutMs}ms. ${parsed.message || bodyText}`,
+        );
       }
 
       if (res.status >= 500) {
