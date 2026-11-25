@@ -178,13 +178,16 @@ export function WorkerSkillsScreen() {
       let totalPages = 1;
 
       do {
-        const res = await OrdersApi.getMyOrders({ page, limit });
+        const res = await OrdersApi.getMyOrders({ page, limit, role: 'worker' });
         const raw = res.data;
         const items = Array.isArray(raw) ? raw : (raw as any)?.items ?? [];
         if (items.length === 0) {
           break;
         }
-        allOrders = allOrders.concat(items);
+        const workerOnlyItems = items.filter(
+          (order: any) => !order?.workerUserId || order.workerUserId === userId,
+        );
+        allOrders = allOrders.concat(workerOnlyItems);
         const rawTotal = (raw as any)?.totalPages ?? ((raw as any)?.total ? Math.ceil((raw as any).total / limit) : 1);
         totalPages = rawTotal;
         page += 1;

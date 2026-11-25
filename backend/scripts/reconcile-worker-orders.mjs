@@ -10,8 +10,10 @@ const { Pool } = pg;
  * Safe for:
  * 1. First-time bootstrap when `worker_profiles` already holds historical counts
  *    and `worker_order_contributions` is empty (recomputes from projection, never double-adds).
- * 2. Repeated runs (idempotent upsert + exact projection recompute).
- * 3. Concurrent execution alongside live RabbitMQ consumers (acquires row lock on
+ * 2. Warranty / rework orders where `completed_at` was reset to NULL after dispute
+ *    but `first_completed_at` is set (preserves completed contribution).
+ * 3. Repeated runs (idempotent upsert + exact projection recompute).
+ * 4. Concurrent execution alongside live RabbitMQ consumers (acquires row lock on
  *    `worker_profiles` first, matching consumer lock order).
  */
 export async function reconcileWorkerOrders(client) {
@@ -30,7 +32,24 @@ export async function reconcileWorkerOrders(client) {
     ON user_trust_service.worker_order_contributions(worker_user_id);
   `);
 
-  // 2. Load all worker profiles to reconcile one worker at a time under row lock
+  // 2. Detect orders whose worker_user_id has no provisioned worker_profile
+  const missingProfilesRes = await client.query(`
+    SELECT o.id AS order_id, o.worker_user_id
+    FROM order_service.orders o
+    LEFT JOIN user_trust_service.worker_profiles wp
+      ON wp.user_id = o.worker_user_id OR wp.id = o.worker_user_id
+    WHERE o.worker_user_id IS NOT NULL
+      AND wp.id IS NULL
+    ORDER BY o.created_at ASC;
+  `);
+
+  const skippedOrders = missingProfilesRes.rows.map((row) => ({
+    orderId: row.order_id,
+    workerUserId: row.worker_user_id,
+    reason: 'MISSING_WORKER_PROFILE',
+  }));
+
+  // 3. Load all worker profiles to reconcile one worker at a time under row lock
   const profilesRes = await client.query(`
     SELECT id, user_id
     FROM user_trust_service.worker_profiles
@@ -40,6 +59,7 @@ export async function reconcileWorkerOrders(client) {
   let syncedOrders = 0;
   let updatedWorkers = 0;
   const summary = [];
+  const failedWorkers = [];
 
   for (const profileRow of profilesRes.rows) {
     await client.query('BEGIN');
@@ -57,6 +77,11 @@ export async function reconcileWorkerOrders(client) {
 
       if (lockedProfileRes.rows.length === 0) {
         await client.query('ROLLBACK');
+        failedWorkers.push({
+          workerUserId: profileRow.user_id,
+          profileId: profileRow.id,
+          error: 'WORKER_PROFILE_DISAPPEARED',
+        });
         continue;
       }
 
@@ -65,7 +90,7 @@ export async function reconcileWorkerOrders(client) {
       // Fetch all source orders for this worker from order_service.orders
       const ordersRes = await client.query(
         `
-        SELECT id AS order_id, status, completed_at
+        SELECT id AS order_id, status, completed_at, first_completed_at
         FROM order_service.orders
         WHERE worker_user_id = $1 OR worker_user_id = $2
         ORDER BY created_at ASC;
@@ -75,7 +100,9 @@ export async function reconcileWorkerOrders(client) {
 
       for (const order of ordersRes.rows) {
         const isCompleted =
-          order.status === 'completed' || order.completed_at !== null;
+          order.status === 'completed' ||
+          order.completed_at !== null ||
+          order.first_completed_at !== null;
 
         await client.query(
           `
@@ -136,16 +163,26 @@ export async function reconcileWorkerOrders(client) {
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK');
+      const message = err instanceof Error ? err.message : String(err);
       console.error(`Error reconciling worker ${profileRow.user_id}:`, err);
-      throw err;
+      failedWorkers.push({
+        workerUserId: profileRow.user_id,
+        profileId: profileRow.id,
+        error: message,
+      });
     }
   }
+
+  const hasErrors = failedWorkers.length > 0 || skippedOrders.length > 0;
 
   return {
     workersChecked: profilesRes.rows.length,
     syncedOrders,
     updatedWorkers,
     summary,
+    skippedOrders,
+    failedWorkers,
+    hasErrors,
   };
 }
 
@@ -175,6 +212,34 @@ async function main() {
           `  Worker ${item.workerUserId}: completed ${item.prevCompleted}->${item.targetCompleted}, total ${item.prevTotal}->${item.targetTotal}`,
         );
       }
+
+      if (result.skippedOrders.length > 0) {
+        console.error(
+          `Skipped orders (${result.skippedOrders.length}) due to missing worker profile:`,
+        );
+        for (const skipped of result.skippedOrders) {
+          console.error(
+            `  Order ${skipped.orderId} (worker ${skipped.workerUserId}): ${skipped.reason}`,
+          );
+        }
+      }
+
+      if (result.failedWorkers.length > 0) {
+        console.error(`Failed workers (${result.failedWorkers.length}):`);
+        for (const failed of result.failedWorkers) {
+          console.error(
+            `  Worker ${failed.workerUserId} (${failed.profileId}): ${failed.error}`,
+          );
+        }
+      }
+
+      if (result.hasErrors) {
+        console.error(
+          'Reconciliation finished with errors/skipped orders. Resolve issues and re-run.',
+        );
+        process.exit(1);
+      }
+
       console.log('Projection-based reconciliation completed successfully.');
     } finally {
       client.release();

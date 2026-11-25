@@ -1037,4 +1037,100 @@ describe('workerSkillsScreen', () => {
       expect(screen.getAllByText('250.000 đ').length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  it('filters orders by role=worker and excludes customer-role orders on dual-role accounts', async () => {
+    useAuthStore.setState({
+      isAuthenticated: true,
+      isHydrated: true,
+      user: {
+        id: 'dual-user-1',
+        phone: '0900003001',
+        email: 'dual@test.com',
+        roles: ['Customer', 'Worker'],
+        permissions: [],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        id: 'wp-dual-1',
+        userId: 'dual-user-1',
+        fullName: 'Dual Role Worker',
+        avatarUrl: null,
+        status: 'verified',
+        isVerified: true,
+        stats: {
+          averageRating: 5.0,
+          ratingCount: 1,
+          completedOrderCount: 1,
+          orderCountTotal: 1,
+          ratingDistribution: { 5: 1, 4: 0, 3: 0, 2: 0, 1: 0 },
+        },
+        services: [
+          {
+            id: 'svc-offering-dual',
+            serviceId: 'svc-uuid-dual',
+            title: 'Sửa khóa cửa',
+            experienceYears: 3,
+            isActive: true,
+          },
+        ],
+      },
+    });
+
+    jest.spyOn(WorkersApi, 'getMyServiceRegistrations').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: [],
+    });
+
+    const getMyOrdersSpy = jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: {
+        items: [
+          // Worker order (should be counted)
+          {
+            id: 'ord-worker-1',
+            orderCode: 'ORD-W1',
+            customerUserId: 'other-customer',
+            workerUserId: 'dual-user-1',
+            serviceId: 'svc-uuid-dual',
+            agreedPrice: 200000,
+            status: 'completed' as any,
+            paymentState: 'paid' as any,
+            createdAt: new Date().toISOString(),
+          },
+          // Customer order placed by the same dual-role user (must NOT be counted)
+          {
+            id: 'ord-customer-1',
+            orderCode: 'ORD-C1',
+            customerUserId: 'dual-user-1',
+            workerUserId: 'some-other-worker',
+            serviceId: 'svc-uuid-dual',
+            agreedPrice: 900000,
+            status: 'completed' as any,
+            paymentState: 'paid' as any,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        total: 2,
+        totalPages: 1,
+        page: 1,
+        limit: 50,
+      } as any,
+    });
+
+    render(<WorkerSkillsScreen />);
+
+    await waitFor(() => {
+      expect(getMyOrdersSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'worker' }),
+      );
+      expect(screen.getByText('1 đơn')).toBeOnTheScreen();
+      expect(screen.getAllByText('200.000 đ').length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
