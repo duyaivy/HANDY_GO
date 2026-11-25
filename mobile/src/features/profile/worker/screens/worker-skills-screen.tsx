@@ -4,7 +4,7 @@ import type {
   WorkerServiceRegistrationItem,
 } from '@/services/workers/workers-api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
@@ -31,7 +31,12 @@ import { Image } from '@/components/ui/image';
 import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import {
+  getWorkerPublicProfileQueryKey,
+  getWorkerPublicProfileServicesQueryKey,
+} from '@/features/catalog/hooks/use-worker-public-profile';
 import { OrdersApi } from '@/features/orders';
+import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
 import { useUserProfile } from '@/features/profile/hooks/use-user-profile';
 import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
@@ -64,6 +69,7 @@ export function WorkerSkillsScreen() {
 
   const [activeTab, setActiveTab] = React.useState<MainTab>('my_services');
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isScreenFocused, setIsScreenFocused] = React.useState(true);
 
   // Local active toggle state for approved services
   const [servicesActiveState, setServicesActiveState] = React.useState<Record<string, boolean>>({});
@@ -138,7 +144,7 @@ export function WorkerSkillsScreen() {
 
   // Query: Worker Public Profile (with existing active services)
   const profileQuery = useQuery<WorkerPublicProfileData>({
-    queryKey: ['worker-public-profile-services', workerIdentifier],
+    queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier),
     queryFn: async () => {
       if (!workerIdentifier) {
         throw new Error('Chưa đăng nhập');
@@ -148,6 +154,7 @@ export function WorkerSkillsScreen() {
     },
     enabled: Boolean(workerIdentifier),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
   });
 
   // Query: Worker Service Registrations History
@@ -160,58 +167,98 @@ export function WorkerSkillsScreen() {
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
     refetchInterval: (query) => {
-      const list = (query.state.data as WorkerServiceRegistrationItem[]) ?? [];
+      if (!isScreenFocused) {
+        return false;
+      }
+      const list = query.state.data ?? [];
       const hasPending = list.some(r => r.status === 'pending');
       return hasPending ? 10000 : false;
     },
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
 
-  const hasPendingRegistrations = (registrationsQuery.data ?? []).some(r => r.status === 'pending');
-  const prevHasPendingRef = React.useRef(hasPendingRegistrations);
-
-  React.useEffect(() => {
-    if (prevHasPendingRef.current && !hasPendingRegistrations) {
-      // Khi đơn vừa được duyệt xong, tự động cập nhật danh sách nghiệp vụ đã kích hoạt
-      profileQuery.refetch();
-    }
-    prevHasPendingRef.current = hasPendingRegistrations;
-  }, [hasPendingRegistrations, profileQuery]);
-
-  // Query: Worker Orders để tính số đơn & doanh thu chi tiết theo từng dịch vụ (phân trang đủ với role worker)
+  // Query: Worker Orders Stats (ưu tiên endpoint aggregate nhẹ GET /orders/summary?role=worker)
   const ordersQuery = useQuery({
-    queryKey: ['worker-skills-orders', userId],
+    queryKey: ordersQueryKeys.workerSkillsOrders(userId),
     queryFn: async () => {
-      const firstRes = await OrdersApi.getMyOrders({ role: 'worker', page: 1, limit: 50 });
-      const rawFirst = firstRes.data;
-      if (Array.isArray(rawFirst)) {
-        return rawFirst;
+      let summaryData: Awaited<ReturnType<typeof OrdersApi.getOrderSummary>>['data'] | undefined;
+      try {
+        const summaryRes = await OrdersApi.getOrderSummary({ role: 'worker' });
+        summaryData = summaryRes?.data;
       }
-      const firstItems = (rawFirst as any)?.items ?? [];
-      const totalPages = Number((rawFirst as any)?.totalPages) || 1;
-      if (totalPages <= 1) {
-        return firstItems;
+      catch (err: any) {
+        if (err?.statusCode || err?.response?.status) {
+          throw err;
+        }
       }
 
-      // Giới hạn concurrency = 3 thay vì bắn toàn bộ trang cùng lúc; lỗi sẽ propagate để React Query giữ cache cũ và retry
-      const allItems = [...firstItems];
-      const CONCURRENCY = 3;
-      for (let startPage = 2; startPage <= totalPages; startPage += CONCURRENCY) {
-        const batchPromises = [];
-        for (let page = startPage; page < startPage + CONCURRENCY && page <= totalPages; page++) {
-          batchPromises.push(OrdersApi.getMyOrders({ role: 'worker', page, limit: 50 }));
-        }
-        const batchResponses = await Promise.all(batchPromises);
-        for (const res of batchResponses) {
-          const data = res.data;
-          const items = Array.isArray(data) ? data : (data as any)?.items ?? [];
-          allItems.push(...items);
-        }
+      if (Array.isArray(summaryData?.byService)) {
+        const sumByServiceRevenue = summaryData.byService.reduce(
+          (acc, item) => acc + (Number(item.revenue) || 0),
+          0,
+        );
+        return {
+          mode: 'aggregate' as const,
+          byService: summaryData.byService,
+          completedCount: summaryData.completedCount ?? 0,
+          totalServiceRevenue:
+            summaryData.totalServiceRevenue ?? sumByServiceRevenue,
+        };
       }
-      return allItems;
+
+      let allOrders: any[] = [];
+      let page = 1;
+      const limit = 50;
+      let totalPages = 1;
+
+      do {
+        const res = await OrdersApi.getMyOrders({ page, limit, role: 'worker' });
+        const raw = res.data;
+        const items = Array.isArray(raw) ? raw : (raw as any)?.items ?? [];
+        if (items.length === 0) {
+          break;
+        }
+        const workerOnlyItems = items.filter(
+          (order: any) => !order?.workerUserId || order.workerUserId === userId,
+        );
+        allOrders = allOrders.concat(workerOnlyItems);
+        const rawTotal = (raw as any)?.totalPages ?? ((raw as any)?.total ? Math.ceil((raw as any).total / limit) : 1);
+        totalPages = rawTotal;
+        page += 1;
+      } while (page <= totalPages);
+
+      return allOrders;
     },
     enabled: Boolean(userId),
     staleTime: 30 * 1000,
+    refetchInterval: isScreenFocused ? 15000 : false,
+    retry: process.env.NODE_ENV === 'test' ? false : 1,
   });
+
+  // Khi có hồ sơ chuyển từ pending sang đã duyệt/từ chối, tự động làm mới danh sách nghiệp vụ đã duyệt
+  const prevHasPendingRef = React.useRef(false);
+  React.useEffect(() => {
+    const list = registrationsQuery.data ?? [];
+    const hasPending = list.some(r => r.status === 'pending');
+    if (prevHasPendingRef.current && !hasPending) {
+      void profileQuery.refetch();
+    }
+    prevHasPendingRef.current = hasPending;
+  }, [registrationsQuery.data, profileQuery]);
+
+  const handleSelectTab = React.useCallback(
+    (nextTab: MainTab) => {
+      setActiveTab(nextTab);
+      if (nextTab === 'my_services') {
+        void profileQuery.refetch();
+        void ordersQuery.refetch();
+      }
+      else {
+        void registrationsQuery.refetch();
+      }
+    },
+    [profileQuery, ordersQuery, registrationsQuery],
+  );
 
   const handleRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -227,17 +274,19 @@ export function WorkerSkillsScreen() {
     }
   }, [profileQuery, registrationsQuery, ordersQuery]);
 
-  const handleSelectTab = React.useCallback(
-    (tab: MainTab) => {
-      setActiveTab(tab);
-      if (tab === 'registrations') {
-        registrationsQuery.refetch();
+  useFocusEffect(
+    React.useCallback(() => {
+      setIsScreenFocused(prev => (prev === false ? true : prev));
+      if (userId) {
+        void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.workerSkillsOrders(userId) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileServicesQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: getWorkerPublicProfileQueryKey(workerIdentifier) });
+        void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
       }
-      else {
-        profileQuery.refetch();
-      }
-    },
-    [registrationsQuery, profileQuery],
+      return () => {
+        setIsScreenFocused(false);
+      };
+    }, [userId, workerIdentifier, queryClient]),
   );
 
   const [togglingServiceId, setTogglingServiceId] = React.useState<string | null>(null);
@@ -291,8 +340,21 @@ export function WorkerSkillsScreen() {
 
   // Thống kê số đơn và doanh thu tổng hợp từ Order Service theo từng serviceId
   const ordersStatsByService = React.useMemo(() => {
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      const map: Record<string, { count: number; revenue: number }> = {};
+      for (const item of rawOrders.byService) {
+        if (item.serviceId) {
+          map[item.serviceId] = {
+            count: item.orderCount ?? 0,
+            revenue: Number(item.revenue) || 0,
+          };
+        }
+      }
+      return map;
+    }
+
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     const map: Record<string, { count: number; revenue: number }> = {};
     for (const order of list) {
       // Chỉ tính đơn của worker hiện tại (loại bỏ đơn đặt của chính tài khoản khi đóng vai trò Customer)
@@ -329,9 +391,20 @@ export function WorkerSkillsScreen() {
 
   // Tổng doanh thu tính từ Order Service (hoặc fallback theo dịch vụ)
   const totalRevenue = React.useMemo(() => {
+    const rawOrders = ordersQuery.data;
+    if (rawOrders && !Array.isArray(rawOrders) && rawOrders.mode === 'aggregate') {
+      if (rawOrders.totalServiceRevenue > 0) {
+        return rawOrders.totalServiceRevenue;
+      }
+      return approvedServices.reduce((sum, s) => {
+        const stats = ordersStatsByService[s.serviceId || s.id];
+        const r = s.revenue ?? stats?.revenue ?? 0;
+        return sum + r;
+      }, 0);
+    }
+
     let revFromOrders = 0;
-    const rawOrders = ordersQuery.data ?? [];
-    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any).items ?? [];
+    const list = Array.isArray(rawOrders) ? rawOrders : (rawOrders as any)?.items ?? [];
     for (const o of list) {
       if (o.workerUserId && o.workerUserId !== userId) {
         continue;
@@ -488,6 +561,27 @@ export function WorkerSkillsScreen() {
               <ArrowRight color="#2563EB" width={8} height={16} />
             </View>
           </Pressable>
+
+          {/* Banner lỗi khi không thể tải thống kê đơn hàng */}
+          {ordersQuery.isError && (
+            <View
+              testID="orders-query-error-banner"
+              className="mt-4 flex-row items-center justify-between rounded-2xl border border-red-200 bg-red-50 p-3.5 dark:border-red-900/50 dark:bg-red-950/40"
+            >
+              <Text className="flex-1 text-xs text-red-700 dark:text-red-400">
+                Không thể tải thống kê đơn hàng. Vui lòng thử lại.
+              </Text>
+              <Button
+                variant="outline"
+                size="sm"
+                testID="retry-orders-query-btn"
+                onPress={() => ordersQuery.refetch()}
+                className="ml-2 border-red-300 bg-white dark:border-red-800 dark:bg-neutral-900"
+              >
+                <Text className="text-xs font-semibold text-red-600 dark:text-red-400">Thử lại</Text>
+              </Button>
+            </View>
+          )}
 
           {/* ROW 3: Cụm 2 Tabs "Nghiệp vụ của bạn" và "Chờ phê duyệt" */}
           <View className="mt-5">

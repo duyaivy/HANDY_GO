@@ -4,7 +4,7 @@ import * as Notifications from 'expo-notifications';
 import { useRootNavigationState, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { ordersQueryKeys } from '@/features/orders/hooks/orders-query-keys';
+import { scheduleOrderRelatedInvalidation } from '@/features/orders/hooks/orders-query-keys';
 import { queryClient } from '@/lib/api/query-client';
 import { setNotificationLogoutHook } from '@/services/notifications/logout-hook';
 import { NotificationApi } from '@/services/notifications/notification-api';
@@ -207,7 +207,7 @@ export function NotificationLifecycle() {
         const id = sessionUser();
         if (id) {
           void refreshNotifications(id);
-          void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+          scheduleOrderRelatedInvalidation(queryClient);
           void queryClient.invalidateQueries({ queryKey: ['chat', id, 'list'] });
           void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
           void queryClient.invalidateQueries({ queryKey: ['worker-public-profile-services'] });
