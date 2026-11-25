@@ -1,10 +1,9 @@
 import * as React from 'react';
 import { RouteNames } from '@/constants/route-names';
 import { OrdersApi } from '@/features/orders';
-import { queryClient } from '@/lib/api/query-client';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
+import { cleanup, fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { AuthApi } from '@/services/auth/auth-api';
-import { WORKER_CANCELLED_REGISTRATION_SENTINEL, WorkersApi } from '@/services/workers/workers-api';
+import { WorkersApi } from '@/services/workers/workers-api';
 import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerSkillsScreen } from '../screens/worker-skills-screen';
 
