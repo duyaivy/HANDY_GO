@@ -218,6 +218,7 @@ describe('OrdersService', () => {
         }),
         count: vi.fn(),
         aggregate: vi.fn(),
+        groupBy: vi.fn().mockResolvedValue([]),
       },
       bookingProposal: {
         findUnique: vi.fn(),
@@ -1795,17 +1796,51 @@ describe('OrdersService', () => {
         _sum: { agreedPrice: 2500000n as any },
       } as any);
       prismaMock.order.count.mockResolvedValue(2);
+      prismaMock.order.groupBy
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _count: { id: 7 } }, // 5 completed + 2 in_progress/cancelled
+        ] as any)
+        .mockResolvedValueOnce([
+          { serviceId: 'svc-1', _sum: { agreedPrice: 2800000n } }, // includes paid in_progress
+        ] as any);
 
       const summary = await service.getOrderSummary(mockWorkerId, 'worker', ['Worker']);
       expect(summary.completedCount).toBe(5);
       expect(summary.cancelledCount).toBe(2);
       expect(summary.totalCompletedAmount).toBe(2500000);
+      expect(summary.totalServiceRevenue).toBe(2800000);
+      expect(summary.byService).toEqual([
+        { serviceId: 'svc-1', orderCount: 7, revenue: 2800000 },
+      ]);
+
+      // Verify no-role non-admin preserves OR authorization inside AND (never overwritten)
+      prismaMock.order.groupBy.mockClear();
+      prismaMock.order.groupBy.mockResolvedValue([]);
+      await service.getOrderSummary(mockWorkerId, undefined, ['Worker']);
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(1, {
+        by: ['serviceId'],
+        where: {
+          OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+        },
+        _count: { id: true },
+      });
+      expect(prismaMock.order.groupBy).toHaveBeenNthCalledWith(2, {
+        by: ['serviceId'],
+        where: {
+          AND: [
+            {
+              OR: [{ customerUserId: mockWorkerId }, { workerUserId: mockWorkerId }],
+            },
+            { OR: [{ status: 'completed' }, { paymentState: 'paid' }] },
+          ],
+        },
+        _sum: { agreedPrice: true },
+      });
       expect(prismaMock.order.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({
-            workerUserId: mockWorkerId,
-            status: 'completed',
-          }),
+          where: {
+            AND: [{ workerUserId: mockWorkerId }, { status: 'completed' }],
+          },
         }),
       );
     });

@@ -1,3 +1,5 @@
+import type { QueryClient } from '@tanstack/react-query';
+
 export const ordersQueryKeys = {
   all: ['orders'] as const,
   customerRequests: (
@@ -56,4 +58,55 @@ export const ordersQueryKeys = {
       params?.status ?? '',
       params?.search ?? '',
     ] as const,
+  workerSkillsOrders: (userId?: string | null) =>
+    ['worker-skills-orders', userId] as const,
 };
+
+/**
+ * Invalidate all queries related to order statistics, worker profiles, and earnings.
+ * Ensures all UI surfaces across customer and worker apps reflect updated order counts.
+ */
+export function invalidateOrderRelatedQueries(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
+  void queryClient.invalidateQueries({ queryKey: ['user-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-public-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-public-profile-services'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-skills-orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+  void queryClient.invalidateQueries({ queryKey: ['order-worker-profile'] });
+  void queryClient.invalidateQueries({ queryKey: ['candidates'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-bidding'] });
+  void queryClient.invalidateQueries({ queryKey: ['wallet'] });
+  void queryClient.invalidateQueries({ queryKey: ['worker-reviews'] });
+}
+
+const pendingInvalidationTimers = new WeakMap<QueryClient, ReturnType<typeof setTimeout>[]>();
+const INVALIDATION_RETRY_DELAYS_MS = [1000, 2500, 5000] as const;
+
+/**
+ * Immediately invalidates order-related queries and schedules staggered retries
+ * at the QueryClient level so unmounting a screen (e.g. tracking) or slow async
+ * projection commits (> 1.2s) do not leave stale counters.
+ */
+export function scheduleOrderRelatedInvalidation(queryClient: QueryClient): void {
+  invalidateOrderRelatedQueries(queryClient);
+
+  const existing = pendingInvalidationTimers.get(queryClient);
+  if (existing) {
+    for (const timer of existing) {
+      clearTimeout(timer);
+    }
+  }
+
+  const timers = INVALIDATION_RETRY_DELAYS_MS.map((delay) => {
+    const timer = setTimeout(() => {
+      invalidateOrderRelatedQueries(queryClient);
+    }, delay);
+    if (typeof (timer as any).unref === 'function') {
+      (timer as any).unref();
+    }
+    return timer;
+  });
+
+  pendingInvalidationTimers.set(queryClient, timers);
+}
