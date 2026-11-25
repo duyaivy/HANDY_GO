@@ -497,7 +497,7 @@ describe("CreateRefundDialog (P1 idempotency, Web Locks & recovery)", () => {
     expect(window.localStorage.getItem(getPendingKey("admin-1", "pay-1"))).not.toBeNull();
   });
 
-  it("does not allow unverified manual clear and preserves corrupted storage records", async () => {
+  it("does not allow unverified manual clear and shows runbook diagnostics for corrupted storage", async () => {
     const key = getPendingKey("admin-1", "pay-1");
     const rawCorrupted = "{broken-json";
     window.localStorage.setItem(key, rawCorrupted);
@@ -521,10 +521,66 @@ describe("CreateRefundDialog (P1 idempotency, Web Locks & recovery)", () => {
     expect(
       screen.getByRole("button", { name: /Xác nhận tạo yêu cầu/i }),
     ).toBeDisabled();
+    expect(screen.getByText(/Payment ID: pay-1/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Storage Key: ${key}`))).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Làm mới danh sách/i }));
     expect(onRefreshState).toHaveBeenCalledTimes(1);
     expect(window.localStorage.getItem(key)).toBe(rawCorrupted);
+  });
+
+  it("blocks repeated retries and exposes diagnostics when 409 idempotency conflict is unrecoverable", async () => {
+    const key = getPendingKey("admin-1", "pay-1");
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        userId: "admin-1",
+        paymentId: "pay-1",
+        amount: "50000",
+        reason: "Yêu cầu xung đột",
+        idempotencyKey: "conflict-key-123",
+      }),
+    );
+
+    const onRefreshState = vi.fn();
+    mockMutateAsync.mockRejectedValueOnce(
+      new HttpError({
+        status: 409,
+        payload: {
+          code: "CONFLICT",
+          message: "Idempotency key was used for another request",
+        },
+      }),
+    );
+
+    render(
+      <CreateRefundDialog
+        paymentId="pay-1"
+        disabled={false}
+        refundableAmount="200000"
+        capacitySnapshot="200000:succeeded:0:none:none"
+        capacityLoading={false}
+        capacityError={null}
+        onRefreshState={onRefreshState}
+      />,
+    );
+
+    const retryBtn = screen.getByRole("button", { name: /Gửi lại yêu cầu cũ/i });
+    fireEvent.submit(retryBtn.closest("form")!);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/gặp xung đột mã chống trùng và không thể tự gửi lại/i),
+      ).toBeInTheDocument();
+    });
+
+    expect(retryBtn).toBeDisabled();
+    expect(screen.getByText(/Payment ID: pay-1/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Idempotency Key: conflict-key-123/i),
+    ).toBeInTheDocument();
+    expect(window.localStorage.getItem(key)).not.toBeNull();
+    expect(onRefreshState).toHaveBeenCalled();
   });
 });
 

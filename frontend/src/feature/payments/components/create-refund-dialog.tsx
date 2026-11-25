@@ -211,6 +211,7 @@ export default function CreateRefundDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRefreshingCapacity, setIsRefreshingCapacity] = useState(false);
   const [needsCapacityReview, setNeedsCapacityReview] = useState(false);
+  const [unrecoverableConflict, setUnrecoverableConflict] = useState(false);
   // Chốt snapshot ban đầu của form; không tự động ghi đè khi React Query
   // refetchOnWindowFocus cập nhật ngầm lúc đổi từ tab khác quay lại.
   const [acknowledgedSnapshot, setAcknowledgedSnapshot] = useState<
@@ -247,6 +248,7 @@ export default function CreateRefundDialog({
       if (event.newValue === null) {
         setPendingRefund(null);
         setStorageError("");
+        setUnrecoverableConflict(false);
         if (event.oldValue !== null) {
           setNeedsCapacityReview(true);
           setFormError(
@@ -263,9 +265,11 @@ export default function CreateRefundDialog({
         setAmount(parsed.amount);
         setReason(parsed.reason);
         setStorageError("");
+        setUnrecoverableConflict(false);
         setFormError("");
       } catch {
         setPendingRefund(null);
+        setUnrecoverableConflict(false);
         setStorageError(
           "Không thể đọc yêu cầu hoàn tiền đang chờ. Hãy xác minh danh sách hoàn tiền trước khi thao tác tiếp.",
         );
@@ -290,6 +294,7 @@ export default function CreateRefundDialog({
           } else if (event.data.type === "pending-cleared") {
             setPendingRefund(null);
             setStorageError("");
+            setUnrecoverableConflict(false);
             setNeedsCapacityReview(true);
             onRefreshStateRef.current?.();
           }
@@ -358,12 +363,14 @@ export default function CreateRefundDialog({
       refundableAmount === "0");
   // Payment không còn eligible chỉ chặn request MỚI.
   // Operation cũ vẫn phải có đường retry với đúng key đã lưu.
+  const storageKey = getStorageKey(user.id, paymentId);
   const cannotCreateNewRefund = disabled && !isRetryingPending;
   const isBlocked =
     cannotCreateNewRefund ||
     isPending ||
     isRefreshingCapacity ||
     Boolean(storageError) ||
+    unrecoverableConflict ||
     requiresCapacityReview ||
     capacityUnavailable;
 
@@ -622,6 +629,7 @@ export default function CreateRefundDialog({
             }
 
             if (classified.kind === "idempotency_conflict") {
+              setUnrecoverableConflict(true);
               setFormError(classified.message);
               onRefreshState?.();
               return;
@@ -675,11 +683,24 @@ export default function CreateRefundDialog({
         <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-[12px] leading-5 text-amber-900">
           <div className="flex items-start gap-2">
             <Info size={16} className="mt-0.5 shrink-0" />
-            <p>
-              {storageError
-                ? "Dữ liệu khôi phục hoàn tiền đang gặp lỗi đọc. Đã tạm dừng gửi yêu cầu mới để tránh hoàn tiền trùng; hãy kiểm tra danh sách hoàn tiền."
-                : "Có yêu cầu trước đó chưa xác định kết quả. Nội dung đã được khôi phục và khóa để retry bằng mã chống trùng cũ. Hãy kiểm tra danh sách refund hoặc bấm gửi lại đúng yêu cầu cũ."}
-            </p>
+            <div className="min-w-0 space-y-1.5">
+              <p>
+                {storageError
+                  ? "Dữ liệu khôi phục hoàn tiền đang gặp lỗi đọc. Không tự xóa để tránh hoàn tiền trùng; hãy làm mới danh sách và đối chiếu trên hệ thống theo runbook hỗ trợ trước khi can thiệp."
+                  : unrecoverableConflict
+                    ? "Yêu cầu đang chờ gặp xung đột mã chống trùng và không thể tự gửi lại. Không tự xóa để tránh hoàn tiền trùng; hãy làm mới danh sách hoặc cung cấp thông tin bên dưới cho kỹ thuật đối chiếu Backend theo runbook."
+                    : "Có yêu cầu trước đó chưa xác định kết quả. Nội dung đã được khôi phục và khóa để retry bằng mã chống trùng cũ. Hãy kiểm tra danh sách refund hoặc bấm gửi lại đúng yêu cầu cũ."}
+              </p>
+              {(storageError || unrecoverableConflict) && (
+                <div className="space-y-0.5 rounded-lg border border-amber-200/80 bg-white/70 px-2.5 py-2 font-mono text-[11px] text-amber-950 break-all">
+                  <p>Payment ID: {paymentId}</p>
+                  {pendingRefund && (
+                    <p>Idempotency Key: {pendingRefund.idempotencyKey}</p>
+                  )}
+                  {storageError && <p>Storage Key: {storageKey}</p>}
+                </div>
+              )}
+            </div>
           </div>
           {onRefreshState && (
             <div className="pl-6">
