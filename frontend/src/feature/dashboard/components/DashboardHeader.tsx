@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
+import { CalendarDays } from "lucide-react";
+import type { DashboardPeriod } from "../types/dashboard";
 
-export type DashboardRange = "today" | "7days" | "30days" | "custom";
+export type DashboardRange = DashboardPeriod;
 export interface DashboardDateFilter {
   range: DashboardRange;
   from: string;
@@ -13,20 +15,37 @@ interface DashboardHeaderProps {
   onFilterChange: (filter: DashboardDateFilter) => void;
 }
 
-const localDate = (date: Date) => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-};
+const VIETNAM_TIMEZONE = "Asia/Ho_Chi_Minh";
+const vietnamDayFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: VIETNAM_TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
-export const makeDateFilter = (range: DashboardRange): DashboardDateFilter => {
-  const end = new Date();
-  const start = new Date(end);
-  if (range === "7days") start.setDate(start.getDate() - 6);
-  if (range === "30days" || range === "custom")
-    start.setDate(start.getDate() - 29);
-  return { range, from: localDate(start), to: localDate(end) };
+/** Trả về YYYY-MM-DD theo giờ Việt Nam, bất kể timezone trình duyệt. */
+export function vietnamDate(date: Date = new Date()): string {
+  const parts = vietnamDayFormatter.formatToParts(date);
+  const get = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/** Trừ ngày theo lịch UTC để tránh ảnh hưởng DST/timezone của máy. */
+function subtractCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day - days));
+  return shifted.toISOString().slice(0, 10);
+}
+
+export const makeDateFilter = (
+  range: DashboardRange,
+  now: Date = new Date(),
+): DashboardDateFilter => {
+  const to = vietnamDate(now);
+  const daysBack =
+    range === "7days" ? 6 : range === "30days" || range === "custom" ? 29 : 0;
+  return { range, from: subtractCalendarDays(to, daysBack), to };
 };
 
 const displayDate = (value: string) => {
@@ -41,13 +60,13 @@ const OPTIONS = [
   ["custom", "Tùy chỉnh"],
 ] as const;
 
-const inputCls =
-  "rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900 outline-none focus:border-slate-900";
+const inputClass =
+  "h-9 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-[#FF5E14] focus:ring-2 focus:ring-orange-100";
 
-export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
+export function DashboardHeader({
   filter,
   onFilterChange,
-}) => {
+}: DashboardHeaderProps) {
   const [customOpen, setCustomOpen] = useState(false);
   const [draftFrom, setDraftFrom] = useState(filter.from);
   const [draftTo, setDraftTo] = useState(filter.to);
@@ -58,7 +77,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       setDraftFrom(filter.from);
       setDraftTo(filter.to);
       setError("");
-      setCustomOpen((previous) => !previous);
+      setCustomOpen((open) => !open);
       return;
     }
     setCustomOpen(false);
@@ -70,32 +89,50 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       setError("Vui lòng chọn khoảng ngày hợp lệ.");
       return;
     }
+    const days =
+      Math.round(
+        (Date.parse(`${draftTo}T00:00:00Z`) -
+          Date.parse(`${draftFrom}T00:00:00Z`)) /
+          86_400_000,
+      ) + 1;
+    if (!Number.isFinite(days) || days > 365) {
+      setError("Khoảng ngày tùy chỉnh tối đa 365 ngày.");
+      return;
+    }
+    if (draftTo > vietnamDate()) {
+      setError("Ngày kết thúc không được ở tương lai.");
+      return;
+    }
     onFilterChange({ range: "custom", from: draftFrom, to: draftTo });
     setCustomOpen(false);
     setError("");
   };
 
   return (
-    <header className="space-y-4">
+    <header className="space-y-3">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-            Tổng quan
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
+            Tổng quan hệ thống
           </h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {displayDate(filter.from)} – {displayDate(filter.to)}
+          <p className="mt-1 text-sm text-slate-500">
+            Theo dõi hiệu suất hoạt động của HandyGo
           </p>
         </div>
-        <div className="inline-flex rounded-lg bg-slate-100 p-1">
-          {OPTIONS.map(([value, label]) => (
+        <div
+          role="group"
+          aria-label="Lọc thời gian Dashboard"
+          className="inline-flex max-w-full flex-wrap rounded-xl border border-slate-200 bg-slate-100/80 p-1"
+        >
+          {OPTIONS.map(([range, label]) => (
             <button
-              key={value}
+              key={range}
               type="button"
-              onClick={() => choose(value)}
-              aria-pressed={filter.range === value}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                filter.range === value
-                  ? "bg-white text-slate-900 shadow-sm"
+              onClick={() => choose(range)}
+              aria-pressed={filter.range === range}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors sm:text-sm ${
+                filter.range === range
+                  ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200/80"
                   : "text-slate-500 hover:text-slate-900"
               }`}
             >
@@ -104,39 +141,49 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           ))}
         </div>
       </div>
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <CalendarDays className="size-3.5" />
+        <span>
+          {displayDate(filter.from)} – {displayDate(filter.to)}
+        </span>
+      </div>
       {customOpen && (
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white p-3">
-          <label className="flex flex-col gap-1 text-xs text-slate-500">
+        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             Từ ngày
             <input
               type="date"
               value={draftFrom}
               max={draftTo || undefined}
               onChange={(e) => setDraftFrom(e.target.value)}
-              className={inputCls}
+              className={inputClass}
             />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-slate-500">
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
             Đến ngày
             <input
               type="date"
               value={draftTo}
               min={draftFrom || undefined}
+              max={vietnamDate()}
               onChange={(e) => setDraftTo(e.target.value)}
-              className={inputCls}
+              className={inputClass}
             />
           </label>
           <button
             type="button"
             onClick={applyCustom}
-            className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            className="h-9 rounded-lg bg-[#FF5E14] px-4 text-sm font-semibold text-white hover:bg-[#E65310]"
           >
             Áp dụng
           </button>
           <button
             type="button"
-            onClick={() => setCustomOpen(false)}
-            className="rounded-md px-3 py-1.5 text-sm text-slate-500 hover:text-slate-900"
+            onClick={() => {
+              setCustomOpen(false);
+              setError("");
+            }}
+            className="h-9 rounded-lg px-3 text-sm text-slate-500 hover:bg-slate-50"
           >
             Đóng
           </button>
@@ -149,4 +196,4 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
       )}
     </header>
   );
-};
+}

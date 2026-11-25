@@ -1,9 +1,6 @@
-import DashboardPage from '@/feature/dashboard/page';
-import React from 'react';
+import DashboardManagement from
+  "@/feature/dashboard/components/dashboard-management";
 
-
-// Next.js Route: /manage/dashboard
-// Trang này chỉ gọi lại page.tsx chung từ features/dashboard
-export default function ManageDashboardPage() {
-  return <DashboardPage />;
+export default function DashboardPage() {
+  return <DashboardManagement />;
 }

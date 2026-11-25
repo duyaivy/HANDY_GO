@@ -1,70 +1,74 @@
-import React from "react";
-import { Banknote, ShoppingBag, UsersRound, UserRound } from "lucide-react";
+import { Banknote, BriefcaseBusiness, HardHat, UsersRound } from "lucide-react";
+import type { DashboardOverview } from "../types/dashboard";
 
-export interface DashboardKpis {
-  revenue: number;
-  totalOrders: number;
-  activeWorkers: number;
-  customers: number;
-}
+const integer = (n: number) => new Intl.NumberFormat("vi-VN").format(n);
+const money = (value: number, currency: string) => {
+  if (currency === "VND" && Math.abs(value) >= 1_000_000) {
+    return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(value / 1_000_000)} triệu ₫`;
+  }
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: currency || "VND",
+    maximumFractionDigits: 0,
+  }).format(value);
+};
 
-const integer = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
-const money = (value: number) =>
-  `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(value / 1_000_000)} triệu ₫`;
-
-export const DashboardKpiCards: React.FC<{ data: DashboardKpis }> = ({
-  data,
-}) => {
+export function DashboardKpiCards({ data }: { data: DashboardOverview }) {
   const cards = [
     {
       title: "Doanh thu",
-      value: money(data.revenue),
+      value: money(data.revenue.total, data.revenue.currency),
       icon: Banknote,
-      iconColor: "text-orange-500",
-      bg: "bg-orange-50",
+      hint: "Trong khoảng thời gian",
     },
     {
       title: "Tổng đơn hàng",
-      value: integer(data.totalOrders),
-      icon: ShoppingBag,
-      iconColor: "text-blue-600",
-      bg: "bg-blue-50",
+      value: integer(data.orders.total),
+      icon: BriefcaseBusiness,
+      hint: "Đơn hàng trong kỳ",
     },
     {
       title: "Thợ hoạt động",
-      value: integer(data.activeWorkers),
-      icon: UsersRound,
-      iconColor: "text-violet-600",
-      bg: "bg-violet-50",
+      value: integer(data.workers.activeInPeriod),
+      icon: HardHat,
+      hint: "Thợ có hoạt động trong kỳ",
     },
     {
       title: "Khách hàng",
-      value: integer(data.customers),
-      icon: UserRound,
-      iconColor: "text-green-600",
-      bg: "bg-green-50",
+      value: integer(data.customers.totalCumulative),
+      icon: UsersRound,
+      hint: "Tổng khách hàng tích lũy",
     },
   ];
+
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map(({ title, value, icon: Icon, iconColor, bg }) => (
+    <section
+      aria-label="Chỉ số tổng quan"
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4"
+    >
+      {cards.map(({ title, value, icon: Icon, hint }, index) => (
         <div
           key={title}
-          className="flex min-h-[104px] items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5"
+          className="group flex min-h-[118px] items-start gap-3 rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.025)] transition-colors hover:border-orange-200"
         >
-          <div
-            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full ${bg}`}
+          <span
+            className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${index === 0 ? "bg-orange-50 text-[#FF5E14]" : "bg-slate-100 text-slate-700"}`}
           >
-            <Icon className={`h-7 w-7 ${iconColor}`} strokeWidth={2.1} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-700">{title}</p>
-            <p className="mt-1 break-words text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+            <Icon className="size-5" strokeWidth={1.8} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-slate-500 sm:text-sm">
+              {title}
+            </p>
+            <p className="mt-1 break-words text-xl font-bold tracking-tight text-slate-950 sm:text-[23px]">
               {value}
+            </p>
+            <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+              {hint}
             </p>
           </div>
         </div>
       ))}
-    </div>
+    </section>
   );
-};
+}
