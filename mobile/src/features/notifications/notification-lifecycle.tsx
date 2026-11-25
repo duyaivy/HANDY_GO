@@ -13,10 +13,28 @@ import { useAuthStore } from '@/stores/use-auth-store';
 import { usePushRegistrationStore } from '@/stores/use-push-registration-store';
 import { notificationKeys, refreshNotifications, useNotificationUserId } from './hooks/use-notifications';
 import { notificationIdFromData } from './notification-payload';
+import { getFallbackNotificationRoute, resolveNotificationDeepLink } from './notification-routing';
 
 function sessionUser() {
   const state = useAuthStore.getState();
   return state.isHydrated && state.isAuthenticated ? state.user?.id ?? null : null;
+}
+
+function isOwnershipOrAuthError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') {
+    return false;
+  }
+  const anyErr = err as Record<string, any>;
+  const status = anyErr?.response?.status ?? anyErr?.status ?? anyErr?.statusCode;
+  if (status === 401 || status === 403 || status === 404) {
+    return true;
+  }
+  const code = String(anyErr?.code || '').toUpperCase();
+  if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || code === 'NOT_FOUND') {
+    return true;
+  }
+  const msg = String(anyErr?.message || '');
+  return /\b(?:401|403|404)\b/.test(msg);
 }
 
 // Root subscriptions and their symmetric cleanup belong to one effect.
@@ -38,46 +56,38 @@ export function NotificationLifecycle() {
     const pendingData = pending.notification.request.content.data as Record<string, unknown> | undefined;
     const fallbackEventType = String(pendingData?.eventType || pendingData?.type || '');
     const fallbackRequestId = String(pendingData?.requestId || pendingData?.serviceRequestId || pendingData?.entityId || '');
+    const fallbackOrderId = String(pendingData?.orderId || pendingData?.entityId || '');
     const fallbackCategory = String(pendingData?.category || '');
 
-    const handleDeepLink = (eventType: string, requestId: string, details?: { category?: string; conversationId?: string }) => {
+    const handleDeepLink = (
+      eventType: string,
+      requestId: string,
+      details?: { category?: string; conversationId?: string; orderId?: string; recipientRole?: string },
+    ) => {
       try {
-        const { category, conversationId } = details ?? {};
+        const { category, conversationId, orderId, recipientRole } = details ?? {};
         const mode = useAuthStore.getState().activeMode;
         const userRoles = useAuthStore.getState().user?.roles || [];
 
-        if (eventType === 'message.created' && conversationId && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(conversationId)) {
-          router.push(`/chat/${conversationId}` as Href);
-          return;
-        }
+        const target = resolveNotificationDeepLink({
+          eventType,
+          category,
+          requestId,
+          orderId,
+          conversationId,
+          recipientRole,
+          userRoles,
+          activeMode: mode,
+        });
 
-        // Route bid notifications to Customer Radar
-        if (
-          (eventType === 'bid.submitted' || eventType === 'bid.revised' || category === 'bidding')
-          && requestId
-        ) {
-          if (userRoles.includes('Customer') && mode !== 'Customer') {
-            useAuthStore.getState().setActiveMode('Customer');
+        if (target) {
+          if (target.targetMode && target.targetMode !== mode) {
+            useAuthStore.getState().setActiveMode(target.targetMode);
           }
-          router.push(`/customer/booking/radar?requestId=${encodeURIComponent(requestId)}` as Href);
-        }
-        // Route matching job discovery notifications to Worker Home with bidding requestId
-        else if (
-          eventType === 'matching.eligible_workers.ready'
-          || (category === 'matching' && (mode === 'Worker' || userRoles.includes('Worker')))
-        ) {
-          if (userRoles.includes('Worker') && mode !== 'Worker') {
-            useAuthStore.getState().setActiveMode('Worker');
-          }
-          if (requestId) {
-            router.push(`/worker?requestId=${encodeURIComponent(requestId)}` as Href);
-          }
-          else {
-            router.push('/worker' as Href);
-          }
+          router.push(target.route as Href);
         }
         else {
-          router.push((mode === 'Worker' ? '/worker/notifications' : '/customer/(tabs)/notifications') as Href);
+          router.push(getFallbackNotificationRoute(mode) as Href);
         }
       }
       catch (navErr) {
@@ -94,13 +104,31 @@ export function NotificationLifecycle() {
       const eventType = String(record?.payload?.eventType || fallbackEventType);
       const requestId = String(record?.payload?.requestId || record?.payload?.serviceRequestId || record?.payload?.entityId || fallbackRequestId);
       const category = String(record?.category || fallbackCategory);
+      const orderId = String(record?.payload?.orderId || record?.payload?.entityId || fallbackOrderId);
 
-      handleDeepLink(eventType, requestId, { category, conversationId: String(record?.payload?.conversationId || '') });
+      handleDeepLink(eventType, requestId, {
+        category,
+        conversationId: String(record?.payload?.conversationId || ''),
+        orderId,
+        recipientRole: String(record?.payload?.recipientRole || pendingData?.recipientRole || ''),
+      });
       void refreshNotifications(userId);
-    }).catch((_err) => {
-      // Safe fallback for cold-start or offline/failed detail fetch: navigate using notification payload
-      if (sessionUser() === userId && (fallbackEventType || fallbackRequestId)) {
-        handleDeepLink(fallbackEventType, fallbackRequestId, { category: fallbackCategory });
+    }).catch((err) => {
+      if (controller.signal.aborted || sessionUser() !== userId) {
+        return;
+      }
+      // Reject navigation if backend reports unauthorized/forbidden/not-found (unowned or stale notification)
+      if (isOwnershipOrAuthError(err)) {
+        return;
+      }
+      // Offline / transient network error where ownership could not be verified:
+      // only open generic notifications inbox instead of deep-linking into domain routes.
+      try {
+        const mode = useAuthStore.getState().activeMode;
+        router.push(getFallbackNotificationRoute(mode) as Href);
+      }
+      catch (navErr) {
+        console.warn('[NOTIF_DEEP_LINK] Fallback inbox navigation error:', navErr);
       }
     }).finally(() => {
       if (!controller.signal.aborted)
@@ -133,6 +161,12 @@ export function NotificationLifecycle() {
         const queryKey = notificationKeys.user(previous.user.id);
         void queryClient.cancelQueries({ queryKey });
         queryClient.removeQueries({ queryKey });
+        void queryClient.cancelQueries({ queryKey: ['worker-my-service-registrations'] });
+        queryClient.removeQueries({ queryKey: ['worker-my-service-registrations'] });
+        void queryClient.cancelQueries({ queryKey: ['worker-skills-orders'] });
+        queryClient.removeQueries({ queryKey: ['worker-skills-orders'] });
+        void queryClient.cancelQueries({ queryKey: ['worker-public-profile-services'] });
+        queryClient.removeQueries({ queryKey: ['worker-public-profile-services'] });
         usePushRegistrationStore.setState({ registration: null });
       }
       if (nextId && !state.isLoading) {
@@ -175,6 +209,8 @@ export function NotificationLifecycle() {
           void refreshNotifications(id);
           void queryClient.invalidateQueries({ queryKey: ordersQueryKeys.all });
           void queryClient.invalidateQueries({ queryKey: ['chat', id, 'list'] });
+          void queryClient.invalidateQueries({ queryKey: ['worker-my-service-registrations'] });
+          void queryClient.invalidateQueries({ queryKey: ['worker-public-profile-services'] });
         }
       }));
       subscriptions.push(Notifications.addNotificationResponseReceivedListener(handleResponse));

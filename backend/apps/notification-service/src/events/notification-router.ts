@@ -136,6 +136,16 @@ const strategies: StrategyMap = {
     entityId: data.transactionId,
     recipients: [{ userId: data.walletOwnerId, role: 'owner' }],
   }),
+  'worker.service_registration.approved': ({ data }) => ({
+    category: 'system',
+    entityId: data.registrationId,
+    recipients: [{ userId: data.userId, role: 'worker' }],
+  }),
+  'worker.service_registration.rejected': ({ data }) => ({
+    category: 'system',
+    entityId: data.registrationId,
+    recipients: [{ userId: data.userId, role: 'worker' }],
+  }),
 };
 
 @Injectable()

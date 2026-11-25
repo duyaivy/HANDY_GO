@@ -12,7 +12,7 @@ import {
 import crypto from 'node:crypto';
 import { UserTrustPrismaService } from '@app/database';
 import { RegisterRole, Role, StandardPermissions } from '@app/auth';
-import type { DomainEvent } from '@app/common';
+import { EVENT_PATTERNS, type DomainEvent } from '@app/common';
 import { UpdateProfileDto } from './dto/update-profile.dto.js';
 import { ListUsersDto } from './dto/list-users.dto.js';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto.js';
@@ -3106,6 +3106,35 @@ export class UserTrustServiceService {
             },
           });
         }
+
+        // 4. Lưu outbox event cho notification với chuẩn CloudEvent envelope (khớp event-contracts)
+        const eventId = crypto.randomUUID();
+        const envelope = {
+          eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+          eventVersion: 1,
+          source: 'user-trust-service',
+          producer: 'user-trust-service',
+          occurredAt: now.toISOString(),
+          data: {
+            registrationId,
+            workerProfileId: currentReg.workerProfileId,
+            userId: registration.workerProfile?.userId,
+            decision: 'approved',
+            reviewedBy: reviewerId,
+            reviewedAt: now.toISOString(),
+          },
+        };
+
+        await tx.outboxEvent.create({
+          data: {
+            id: eventId,
+            eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_APPROVED,
+            eventVersion: 1,
+            payload: envelope,
+            status: 'pending',
+          },
+        });
       });
 
       return {
@@ -3120,27 +3149,58 @@ export class UserTrustServiceService {
     }
 
     // Từ chối (rejected)
-    const updateResult = await this.db.workerServiceRegistration.updateMany({
-      where: {
-        id: registrationId,
-        status: 'pending',
-        version: targetVersion,
-      },
-      data: {
-        status: 'rejected',
-        rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
-        reviewedByUserId: reviewerId,
-        reviewedAt: now,
-        version: { increment: 1 },
-        updatedAt: now,
-      },
-    });
+    await this.db.$transaction(async (tx) => {
+      const updateResult = await tx.workerServiceRegistration.updateMany({
+        where: {
+          id: registrationId,
+          status: 'pending',
+          version: targetVersion,
+        },
+        data: {
+          status: 'rejected',
+          rejectionReason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedByUserId: reviewerId,
+          reviewedAt: now,
+          version: { increment: 1 },
+          updatedAt: now,
+        },
+      });
 
-    if (updateResult.count === 0) {
-      throw new ConflictException(
-        'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
-      );
-    }
+      if (updateResult.count === 0) {
+        throw new ConflictException(
+          'Đơn đăng ký đã được xử lý hoặc có cập nhật mới từ thợ. Vui lòng tải lại trang.',
+        );
+      }
+
+      const eventId = crypto.randomUUID();
+      const envelope = {
+        eventId,
+        eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+        eventVersion: 1,
+        source: 'user-trust-service',
+        producer: 'user-trust-service',
+        occurredAt: now.toISOString(),
+        data: {
+          registrationId,
+          workerProfileId: registration.workerProfileId,
+          userId: registration.workerProfile?.userId,
+          decision: 'rejected',
+          reason: dto.reason || 'Hồ sơ chưa đạt yêu cầu của hệ thống',
+          reviewedBy: reviewerId,
+          reviewedAt: now.toISOString(),
+        },
+      };
+
+      await tx.outboxEvent.create({
+        data: {
+          id: eventId,
+          eventType: EVENT_PATTERNS.WORKER_SERVICE_REGISTRATION_REJECTED,
+          eventVersion: 1,
+          payload: envelope,
+          status: 'pending',
+        },
+      });
+    });
 
     return {
       statusCode: HttpStatus.OK,

@@ -19,6 +19,8 @@ export interface PushPolicyDecision {
 
 const defaultPolicies: Record<string, PushPolicy> = {
   'message.created': { enabled: true, mode: 'optional' },
+  'worker.service_registration.approved': { enabled: true, mode: 'mandatory' },
+  'worker.service_registration.rejected': { enabled: true, mode: 'mandatory' },
 };
 
 export function simulatedPushPolicies(): Record<string, PushPolicy> {
