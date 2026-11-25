@@ -38,8 +38,12 @@ it('reports disconnected immediately when the request is removed and releases th
   client.clear();
 });
 
+afterEach(() => {
+  jest.useRealTimers();
+});
+
 it('triggers immediate and staggered retry invalidations (> 1.2s) even after unmount on order.* SSE events', () => {
-  jest.useFakeTimers();
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
   const client = new QueryClient();
   const invalidateSpy = jest.spyOn(client, 'invalidateQueries');
   const wrapper = ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client }, children);

@@ -29,6 +29,15 @@ jest.mock('expo-router', () => ({
 }));
 
 beforeEach(() => {
+  jest.spyOn(OrdersApi, 'getOrderSummary').mockResolvedValue({
+    statusCode: 200,
+    message: 'OK',
+    data: {
+      completedCount: 0,
+      cancelledCount: 0,
+      totalCompletedAmount: 0,
+    },
+  });
   jest.spyOn(OrdersApi, 'getMyOrders').mockResolvedValue({
     statusCode: 200,
     message: 'OK',
@@ -37,6 +46,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   cleanup();
   jest.clearAllMocks();
   useAuthStore.setState({
@@ -1138,7 +1148,7 @@ describe('workerSkillsScreen', () => {
   });
 
   it('polls pending registrations every 10s, updates badge & approved services on admin approval without push, and stops polling when no pending remain', async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     useAuthStore.setState({
       isAuthenticated: true,
       isHydrated: true,
@@ -1259,7 +1269,7 @@ describe('workerSkillsScreen', () => {
   });
 
   it('uses lightweight getOrderSummary aggregate endpoint (1 request per 15s poll for >1,000 orders) and stops polling on blur', async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
     useAuthStore.setState({
       isAuthenticated: true,
       isHydrated: true,
