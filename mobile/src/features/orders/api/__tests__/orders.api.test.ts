@@ -180,3 +180,33 @@ describe('ordersApi.uploadImage', () => {
     expect(result.uploadReceipt).toBe('receipt-hmac-123');
   });
 });
+
+describe('ordersApi.openDispute', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('supports legacy string reason and full OpenDisputePayload', async () => {
+    const postSpy = jest.spyOn(ApiClient, 'post').mockResolvedValue({
+      statusCode: 200,
+      message: 'OK',
+      data: { id: 'ord-1', status: 'disputed' },
+    } as any);
+
+    await OrdersApi.openDispute('ord-1', 'Lý do khiếu nại cũ');
+    expect(postSpy).toHaveBeenCalledWith('/orders/ord-1/dispute', {
+      reason: 'Lý do khiếu nại cũ',
+    });
+
+    await OrdersApi.openDispute('ord-2', {
+      reason: 'Ống nước bị rò rỉ lại sau 2 ngày',
+      category: 'service_quality',
+      evidenceUrls: ['https://cdn.handygo.vn/ev1.jpg'],
+    });
+    expect(postSpy).toHaveBeenCalledWith('/orders/ord-2/dispute', {
+      reason: 'Ống nước bị rò rỉ lại sau 2 ngày',
+      category: 'service_quality',
+      evidenceUrls: ['https://cdn.handygo.vn/ev1.jpg'],
+    });
+  });
+});

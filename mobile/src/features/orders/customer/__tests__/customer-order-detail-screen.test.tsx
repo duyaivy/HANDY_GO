@@ -1012,4 +1012,70 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       });
     });
   });
+
+  describe('order dispute flows (HG-82)', () => {
+    it('shows 7-day warranty dispute button on completed order within window and submits dispute via modal', async () => {
+      const completedTwoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      const completedOrder = {
+        ...baseOrder,
+        status: 'completed',
+        paymentState: 'paid',
+        completedAt: completedTwoDaysAgo,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: completedOrder,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+      const openDisputeSpy = jest.spyOn(OrdersApi, 'openDispute').mockResolvedValue({
+        data: { ...completedOrder, status: 'disputed', disputeReason: 'Ống nước lại rò rỉ' },
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      const disputeBtn = await screen.findByTestId('customer-open-dispute-btn');
+      expect(disputeBtn).toBeOnTheScreen();
+
+      fireEvent.press(disputeBtn);
+      expect(await screen.findByTestId('order-dispute-modal')).toBeOnTheScreen();
+      expect(screen.getByTestId('dispute-warranty-notice')).toBeOnTheScreen();
+
+      fireEvent.changeText(screen.getByTestId('dispute-reason-input'), 'Ống nước lại rò rỉ sau khi thợ sửa xong.');
+      fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+      await waitFor(() => {
+        expect(openDisputeSpy).toHaveBeenCalledWith('ord-test-001', {
+          reason: 'Ống nước lại rò rỉ sau khi thợ sửa xong.',
+          category: 'service_quality',
+          evidenceUrls: [],
+        });
+      });
+    });
+
+    it('hides warranty dispute button when completed order is past 7-day window', async () => {
+      const completedNineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000).toISOString();
+      const expiredOrder = {
+        ...baseOrder,
+        status: 'completed',
+        paymentState: 'paid',
+        completedAt: completedNineDaysAgo,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: expiredOrder,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Đơn hàng hoàn tất thành công!')).toBeOnTheScreen();
+      });
+      expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
+    });
+  });
 });

@@ -4,6 +4,7 @@ import type {
   CreateServiceRequestPayload,
   EstimatePricePayload,
   EstimatePriceResponse,
+  OpenDisputePayload,
   Order,
   OrderEvidence,
   OrderStatusHistoryItem,
@@ -273,10 +274,19 @@ export const OrdersApi = {
     );
   },
 
-  openDispute: async (id: string, reason: string) => {
+  openDispute: async (id: string, payload: string | OpenDisputePayload) => {
+    const body: OpenDisputePayload = typeof payload === 'string'
+      ? { reason: payload }
+      : {
+          reason: payload.reason,
+          ...(payload.category ? { category: payload.category } : {}),
+          ...(payload.evidenceUrls && payload.evidenceUrls.length > 0
+            ? { evidenceUrls: payload.evidenceUrls }
+            : {}),
+        };
     return ApiClient.post<{ statusCode: number; message: string; data: Order }>(
       `/orders/${id}/dispute`,
-      { reason },
+      body,
     );
   },
 

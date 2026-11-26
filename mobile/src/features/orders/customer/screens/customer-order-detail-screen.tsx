@@ -27,6 +27,7 @@ import { PaymentApi } from '@/features/wallet/api/payment.api';
 import { OrderPaymentModal } from '@/features/wallet/customer/components/order-payment-modal';
 import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import {
+  OrderDisputeModal,
   OrderEvidenceGallery,
   OrderPaymentCard,
   OrderReviewCard,
@@ -37,6 +38,7 @@ import {
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
 import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
+import { getDisputeEligibility } from '../../utils/dispute-utils';
 
 export type CustomerOrderDetailScreenProps = {
   orderId?: string;
@@ -119,6 +121,7 @@ export function CustomerOrderDetailScreen({
   } = useCustomerOrderDetail(orderId);
 
   const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
+  const [isDisputeOpen, setIsDisputeOpen] = React.useState(false);
   const paymentQuery = useQuery({
     queryKey: walletQueryKeys.paymentByOrder(orderId),
     queryFn: async () => (await PaymentApi.getPaymentByOrder(orderId)).data,
@@ -323,18 +326,15 @@ export function CustomerOrderDetailScreen({
     }
   };
 
-  const handleOpenDispute = async () => {
-    try {
-      await openDispute('Thợ thi công chưa đạt yêu cầu.');
-      Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ sẽ liên hệ bạn trong 15 phút.');
-    }
-    catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Không thể mở khiếu nại. Vui lòng thử lại sau.';
-      Alert.alert('Lỗi khiếu nại', message);
-    }
+  const handleOpenDispute = () => {
+    setIsDisputeOpen(true);
   };
 
   const currentStatus = order?.status || (isPlumberOrder ? 'confirmed' : 'created');
+  const disputeEligibility = React.useMemo(
+    () => getDisputeEligibility(order ? { ...order, paymentState: paymentState ?? order.paymentState } : null, 'customer'),
+    [order, paymentState],
+  );
 
   return (
     <Screen safeArea scrollable={false} className="bg-neutral-50 dark:bg-neutral-950">
@@ -373,7 +373,29 @@ export function CustomerOrderDetailScreen({
           cancelReason={order?.cancelReason}
           disputedAt={order?.disputedAt}
           disputeReason={order?.disputeReason}
+          disputeCategory={order?.disputeCategory}
         />
+
+        {currentStatus !== 'disputed' && order?.disputeResolutionNote && (
+          <View
+            testID="customer-dispute-resolution-card"
+            className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20"
+          >
+            <Text className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+              ⚖️ Kết quả xử lý khiếu nại
+            </Text>
+            <Text className="mt-1 text-xs leading-5 text-indigo-800 dark:text-indigo-300">
+              {order.disputeResolutionNote}
+            </Text>
+            {order.disputeResolvedAt && (
+              <Text className="mt-1.5 text-[11px] text-indigo-600 dark:text-indigo-400">
+                Thời gian giải quyết:
+                {' '}
+                {new Date(order.disputeResolvedAt).toLocaleString('vi-VN')}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* 2. Worker Card Pro */}
         <OrderWorkerCard
@@ -567,6 +589,16 @@ export function CustomerOrderDetailScreen({
               textClassName="text-xs font-bold text-orange-600 dark:text-orange-400"
               onPress={handleRequestRework}
             />
+
+            <Button
+              testID="customer-open-dispute-btn"
+              label={isDisputing ? 'Đang gửi...' : 'Khiếu Nại / Mở Tranh Chấp'}
+              variant="outline"
+              disabled={isDisputing}
+              className="h-11 w-full rounded-2xl border-rose-500 active:bg-rose-50 dark:active:bg-rose-950/20"
+              textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+              onPress={handleOpenDispute}
+            />
           </View>
         )}
 
@@ -599,42 +631,55 @@ export function CustomerOrderDetailScreen({
         )}
 
         {currentStatus === 'completed' && (
-          <View className="flex-row items-center gap-2.5">
-            {showReviewAction && (
+          <View className="gap-2">
+            <View className="flex-row items-center gap-2.5">
+              {showReviewAction && (
+                <Button
+                  testID="customer-review-order-btn"
+                  label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
+                  variant="default"
+                  className="h-11 flex-1 rounded-2xl bg-primary"
+                  textClassName="text-xs font-bold text-white"
+                  onPress={() => {
+                    if (hasReviewed && canEditReview) {
+                      router.push({
+                        pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                        params: { mode: 'edit' },
+                      } as any);
+                    }
+                    else if (hasReviewed) {
+                      router.push({
+                        pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                        params: { mode: 'view' },
+                      } as any);
+                    }
+                    else {
+                      router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
+                    }
+                  }}
+                />
+              )}
               <Button
-                testID="customer-review-order-btn"
-                label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
-                variant="default"
-                className="h-11 flex-1 rounded-2xl bg-primary"
-                textClassName="text-xs font-bold text-white"
-                onPress={() => {
-                  if (hasReviewed && canEditReview) {
-                    router.push({
-                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                      params: { mode: 'edit' },
-                    } as any);
-                  }
-                  else if (hasReviewed) {
-                    router.push({
-                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                      params: { mode: 'view' },
-                    } as any);
-                  }
-                  else {
-                    router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
-                  }
-                }}
+                label="Đặt Lại Dịch Vụ"
+                variant="outline"
+                className={`h-11 rounded-2xl border-primary ${
+                  showReviewAction ? 'flex-1' : 'w-full'
+                }`}
+                textClassName="text-xs font-bold text-primary"
+                onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
+              />
+            </View>
+            {disputeEligibility.canDispute && (
+              <Button
+                testID="customer-open-dispute-btn"
+                label={`Khiếu Nại / Bảo Hành (Còn ${disputeEligibility.remainingDays} ngày)`}
+                variant="outline"
+                disabled={isDisputing}
+                className="h-10 w-full rounded-2xl border-rose-400 active:bg-rose-50 dark:border-rose-700 dark:active:bg-rose-950/20"
+                textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+                onPress={handleOpenDispute}
               />
             )}
-            <Button
-              label="Đặt Lại Dịch Vụ"
-              variant="outline"
-              className={`h-11 rounded-2xl border-primary ${
-                showReviewAction ? 'flex-1' : 'w-full'
-              }`}
-              textClassName="text-xs font-bold text-primary"
-              onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
-            />
           </View>
         )}
 
@@ -675,6 +720,23 @@ export function CustomerOrderDetailScreen({
               onConfirmCompletion={confirmCompletion}
               onResult={handlePaymentResult}
               onClose={() => setIsPaymentOpen(false)}
+            />
+          )
+        : null}
+      {isDisputeOpen
+        ? (
+            <OrderDisputeModal
+              visible={isDisputeOpen}
+              role="customer"
+              orderCode={order?.orderCode || orderId}
+              isPostCompletion={disputeEligibility.isPostCompletion}
+              remainingDays={disputeEligibility.remainingDays}
+              isSubmitting={isDisputing}
+              onSubmit={openDispute}
+              onSuccess={() => {
+                Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ đã tiếp nhận yêu cầu và sẽ liên hệ bạn sớm nhất.');
+              }}
+              onClose={() => setIsDisputeOpen(false)}
             />
           )
         : null}

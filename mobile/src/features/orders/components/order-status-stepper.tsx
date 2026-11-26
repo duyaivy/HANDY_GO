@@ -3,6 +3,7 @@ import * as React from 'react';
 import { View } from 'react-native';
 import { CheckCircleIcon, ClockIcon, CloseIcon, ShieldCheckIcon, WrenchIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
+import { getDisputeCategoryLabel } from '../utils/dispute-utils';
 
 export const ORDER_PROGRESS_STEPS = [
   { key: 'created', label: 'Đã đặt' },
@@ -19,6 +20,7 @@ export type OrderStatusStepperProps = {
   cancelReason?: string | null;
   disputedAt?: string | null;
   disputeReason?: string | null;
+  disputeCategory?: string | null;
 };
 
 function formatDateTime(isoString?: string | null): string {
@@ -66,7 +68,9 @@ export function OrderStatusStepper({
   cancelReason,
   disputedAt,
   disputeReason,
+  disputeCategory,
 }: OrderStatusStepperProps) {
+  const disputeCategoryLabel = getDisputeCategoryLabel(disputeCategory);
   const currentStep = getStepIndex(status);
   const isCancelled = status === 'cancelled';
   const isDisputed = status === 'disputed';
@@ -208,12 +212,24 @@ export function OrderStatusStepper({
           </View>
         )}
 
-        {isDisputed && disputedAt && (
-          <View className="mt-3 flex-row items-center justify-between border-t border-amber-200/60 pt-2.5 dark:border-amber-900/40">
-            <Text className="text-xs font-medium text-amber-800 dark:text-amber-300">Thời gian khiếu nại:</Text>
-            <Text className="text-xs font-bold text-amber-900 dark:text-amber-200">
-              {formatDateTime(disputedAt)}
-            </Text>
+        {isDisputed && (disputedAt || disputeCategoryLabel) && (
+          <View className="mt-3 gap-1.5 border-t border-amber-200/60 pt-2.5 dark:border-amber-900/40">
+            {disputeCategoryLabel && (
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs font-medium text-amber-800 dark:text-amber-300">Loại vấn đề:</Text>
+                <Text className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                  {disputeCategoryLabel}
+                </Text>
+              </View>
+            )}
+            {disputedAt && (
+              <View className="flex-row items-center justify-between">
+                <Text className="text-xs font-medium text-amber-800 dark:text-amber-300">Thời gian khiếu nại:</Text>
+                <Text className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                  {formatDateTime(disputedAt)}
+                </Text>
+              </View>
+            )}
           </View>
         )}
       </View>
