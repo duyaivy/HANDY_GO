@@ -9,7 +9,9 @@ import {
 } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { ForbiddenException } from '@nestjs/common';
 import { GatewayAuthMiddleware } from '../src/auth/gateway-auth.middleware.js';
+import { AdminRoleGuard } from '../src/auth/admin-role.guard.js';
 import {
   AuthModule,
   AuthSignerModule,
@@ -119,5 +121,146 @@ describe('GatewayAuthMiddleware Integration (Real RS256 Tokens)', () => {
     expect(next).toHaveBeenCalledOnce();
     expect(req.headers['x-user-id']).toBe('user-real-2');
     expect(req.headers['x-user-account-id']).toBe('acc-real-2');
+  });
+
+  describe('Forged identity headers and role-based protection (P1/P2 review)', () => {
+    const adminGuard = new AdminRoleGuard();
+
+    function mockExecutionContext(req: Request): any {
+      return {
+        switchToHttp: () => ({
+          getRequest: () => req,
+          getResponse: () => ({}),
+        }),
+      };
+    }
+
+    it('rejects anonymous request to /health/ai with forged x-user-roles: Admin (401 Unauthorized)', async () => {
+      const req = buildReq({
+        originalUrl: '/health/ai',
+        method: 'GET',
+        headers: {
+          'x-user-roles': 'Admin',
+          'x-user-id': 'attacker-uuid',
+          'x-internal-secret': 'fake-secret',
+        },
+      });
+      const { res, status, json } = buildRes();
+
+      await realMiddleware.use(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(status).toHaveBeenCalledWith(401);
+      expect(json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          statusCode: 401,
+          code: 'UNAUTHORIZED',
+        }),
+      );
+      // Forged headers must be stripped
+      expect(req.headers['x-user-roles']).toBeUndefined();
+      expect(req.headers['x-user-id']).toBeUndefined();
+    });
+
+    it('strips forged x-user-roles: Admin from valid Customer token and rejects at AdminRoleGuard (403 Forbidden)', async () => {
+      const { token: customerToken } = await realSigner.signAccessToken({
+        accountId: 'acc-cust-1',
+        userId: 'user-cust-1',
+        sessionId: 'sess-cust-1',
+        roles: ['Customer'],
+        permissions: ['profile:read'],
+      });
+
+      const req = buildReq({
+        originalUrl: '/health/ai',
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${customerToken}`,
+          'x-user-roles': 'Admin', // Forged role header from client
+          'x-user-id': 'spoofed-admin-id',
+        },
+      });
+      const { res } = buildRes();
+
+      await realMiddleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      // Forged header is overwritten with real JWT role
+      expect(req.headers['x-user-roles']).toBe('Customer');
+      expect(req.headers['x-user-id']).toBe('user-cust-1');
+      expect((req as any).user.roles).toEqual(['Customer']);
+
+      // AdminRoleGuard must reject Customer access with 403 Forbidden
+      expect(() => adminGuard.canActivate(mockExecutionContext(req))).toThrow(ForbiddenException);
+    });
+
+    it('rejects Worker token at AdminRoleGuard (403 Forbidden)', async () => {
+      const { token: workerToken } = await realSigner.signAccessToken({
+        accountId: 'acc-worker-1',
+        userId: 'user-worker-1',
+        sessionId: 'sess-worker-1',
+        roles: ['Worker'],
+        permissions: ['jobs:read'],
+      });
+
+      const req = buildReq({
+        originalUrl: '/health/ai',
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${workerToken}`,
+        },
+      });
+      const { res } = buildRes();
+
+      await realMiddleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.headers['x-user-roles']).toBe('Worker');
+      expect(() => adminGuard.canActivate(mockExecutionContext(req))).toThrow(ForbiddenException);
+    });
+
+    it('allows valid Admin token at AdminRoleGuard (200 OK)', async () => {
+      const { token: adminToken } = await realSigner.signAccessToken({
+        accountId: 'acc-admin-1',
+        userId: 'user-admin-1',
+        sessionId: 'sess-admin-1',
+        roles: ['Admin'],
+        permissions: ['system:all'],
+      });
+
+      const req = buildReq({
+        originalUrl: '/health/ai',
+        method: 'GET',
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+        },
+      });
+      const { res } = buildRes();
+
+      await realMiddleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.headers['x-user-roles']).toBe('Admin');
+      expect(adminGuard.canActivate(mockExecutionContext(req))).toBe(true);
+    });
+
+    it('allows exact GET /health publicly and strips forged identity headers', async () => {
+      const req = buildReq({
+        originalUrl: '/health',
+        method: 'GET',
+        headers: {
+          'x-user-roles': 'Admin',
+          'x-user-id': 'forged-user',
+        },
+      });
+      const { res } = buildRes();
+
+      await realMiddleware.use(req, res, next);
+
+      expect(next).toHaveBeenCalledOnce();
+      expect(req.headers['x-user-roles']).toBeUndefined();
+      expect(req.headers['x-user-id']).toBeUndefined();
+      expect(req.headers['x-internal-secret']).toBe('super-secret-internal-key');
+    });
   });
 });
