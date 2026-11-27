@@ -23,8 +23,9 @@ export const PUBLIC_ROUTE_RULES: readonly PublicRouteRule[] = [
   { path: '/api/v1/categories', methods: ['GET', 'HEAD'], match: 'prefix' },
   { path: '/api/v1/services', methods: ['GET', 'HEAD'], match: 'prefix' },
 
-  // Infrastructure & Dev Tooling (prefix match)
-  { path: '/health', match: 'prefix' },
+  // Infrastructure & Dev Tooling
+  // Only the exact GET/HEAD /health liveness probe is public; subroutes like /health/ai require auth.
+  { path: '/health', methods: ['GET', 'HEAD'], match: 'exact' },
   { path: '/docs', match: 'prefix' },
   { path: '/docs-json', match: 'prefix' },
   { path: '/favicon.ico', match: 'prefix' },

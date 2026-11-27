@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KycWorkerService } from './kyc-worker.service.js';
+import { KYC_CONSTANTS } from './kyc.constants.js';
 
 describe('KycWorkerService', () => {
   let worker: KycWorkerService;
@@ -214,5 +215,103 @@ describe('KycWorkerService', () => {
       expect.objectContaining({ jobId: 'job-1' }),
     );
     expect(channelMock.ack).toHaveBeenCalled();
+  });
+
+  describe('Timeout configuration', () => {
+    const originalKycTimeout = process.env.KYC_AI_TIMEOUT_MS;
+    const originalAiTimeout = process.env.AI_SERVICE_TIMEOUT_MS;
+
+    afterEach(() => {
+      if (originalKycTimeout !== undefined) {
+        process.env.KYC_AI_TIMEOUT_MS = originalKycTimeout;
+      } else {
+        delete process.env.KYC_AI_TIMEOUT_MS;
+      }
+      if (originalAiTimeout !== undefined) {
+        process.env.AI_SERVICE_TIMEOUT_MS = originalAiTimeout;
+      } else {
+        delete process.env.AI_SERVICE_TIMEOUT_MS;
+      }
+    });
+
+    it('falls back to KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS (360000ms) even if AI_SERVICE_TIMEOUT_MS is 15000ms', () => {
+      delete process.env.KYC_AI_TIMEOUT_MS;
+      process.env.AI_SERVICE_TIMEOUT_MS = '15000';
+
+      const instance = new KycWorkerService(repoMock, configMock as any);
+      expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+      expect(instance.timeoutMs).toBe(360000);
+    });
+
+    it('uses configured KYC_AI_TIMEOUT_MS when provided', () => {
+      process.env.KYC_AI_TIMEOUT_MS = '120000';
+      process.env.AI_SERVICE_TIMEOUT_MS = '15000';
+
+      const instance = new KycWorkerService(repoMock, configMock as any);
+      expect(instance.timeoutMs).toBe(120000);
+    });
+
+    it('falls back to default if KYC_AI_TIMEOUT_MS is invalid, fractional or out of bounds', () => {
+      const invalidValues = [
+        'invalid-number',
+        'Infinity',
+        '-Infinity',
+        'NaN',
+        '2147483648', // > 2^31-1 ms
+        '1000000000000',
+        '-5000',
+        '0',
+        '120000.5', // fractional
+        '',
+        '   ',
+        '1000', // below MIN_MS (5000)
+        '700000', // above MAX_MS (600000)
+      ];
+
+      for (const val of invalidValues) {
+        process.env.KYC_AI_TIMEOUT_MS = val;
+        const instance = new KycWorkerService(repoMock, configMock as any);
+        expect(instance.timeoutMs).toBe(KYC_CONSTANTS.AI_INFERENCE_TIMEOUT_MS);
+      }
+    });
+
+    it('identifies HTTP 504 as Azure ingress gateway timeout with clear message', async () => {
+      repoMock.markJobProcessing.mockResolvedValue({
+        isStale: false,
+        job: { retryCount: 0 },
+      });
+      repoMock.findJobById.mockResolvedValue({ retryCount: 0, maxRetries: 3 });
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+        const urlStr = url.toString();
+        if (urlStr.includes('/internal/v1/identity/analyze')) {
+          return {
+            ok: false,
+            status: 504,
+            text: async () => 'Gateway Timeout',
+          } as any;
+        }
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => Buffer.from('data'),
+        } as any;
+      });
+
+      await worker.processKycJob(
+        { jobId: 'job-504', kycCaseId: 'case-1', documentFrontRef: 'http://img/1', selfieRef: 'http://img/2' } as any,
+        contextMock,
+      );
+
+      expect(repoMock.recordJobFailure).toHaveBeenCalledWith(
+        'job-504',
+        'case-1',
+        expect.stringMatching(
+          /AI Service Ingress Gateway Timeout \(504\): Ingress timed out after \d+ms \(client timeout configured at \d+ms\)/,
+        ),
+        1,
+        false,
+      );
+    });
   });
 });
