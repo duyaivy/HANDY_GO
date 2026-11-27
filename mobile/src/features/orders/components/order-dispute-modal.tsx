@@ -251,12 +251,14 @@ export function OrderDisputeModal({
               <Text className="text-base font-bold text-neutral-900 dark:text-white">
                 {isPostCompletion ? 'Khiếu nại bảo hành đơn hàng' : 'Mở khiếu nại / Tranh chấp'}
               </Text>
-              {orderCode ? (
-                <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                  Mã đơn: #
-                  {orderCode}
-                </Text>
-              ) : null}
+              {orderCode
+                ? (
+                    <Text className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                      Mã đơn: #
+                      {orderCode}
+                    </Text>
+                  )
+                : null}
             </View>
             <Pressable
               testID="dispute-modal-close-btn"
@@ -277,7 +279,7 @@ export function OrderDisputeModal({
                 className="mb-4 flex-row items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/20"
               >
                 <ShieldCheckIcon size={18} color="#D97706" />
-                <Text className="flex-1 text-xs leading-5 text-amber-800 dark:text-amber-300">
+                <Text className="flex-1 text-xs/5 text-amber-800 dark:text-amber-300">
                   Đơn hàng đang trong thời hạn bảo hành 7 ngày (còn khoảng
                   {' '}
                   {remainingDays}
@@ -288,7 +290,7 @@ export function OrderDisputeModal({
             )}
 
             {/* Category Selection */}
-            <Text className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+            <Text className="mb-2 text-xs font-bold tracking-wide text-neutral-600 uppercase dark:text-neutral-400">
               Loại vấn đề
             </Text>
             <View className="mb-4 flex-row flex-wrap gap-2">
@@ -301,15 +303,15 @@ export function OrderDisputeModal({
                     accessibilityRole="button"
                     onPress={() => setCategory(option.value)}
                     className={`rounded-xl border px-3 py-2 ${isSelected
-                        ? 'border-rose-500 bg-rose-50 dark:border-rose-500 dark:bg-rose-950/40'
-                        : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                      }`}
+                      ? 'border-rose-500 bg-rose-50 dark:border-rose-500 dark:bg-rose-950/40'
+                      : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
+                    }`}
                   >
                     <Text
                       className={`text-xs font-semibold ${isSelected
-                          ? 'text-rose-700 dark:text-rose-300'
-                          : 'text-neutral-700 dark:text-neutral-300'
-                        }`}
+                        ? 'text-rose-700 dark:text-rose-300'
+                        : 'text-neutral-700 dark:text-neutral-300'
+                      }`}
                     >
                       {option.label}
                     </Text>
@@ -319,7 +321,7 @@ export function OrderDisputeModal({
             </View>
 
             {/* Quick Reason Chips */}
-            <Text className="mb-2 text-xs font-bold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+            <Text className="mb-2 text-xs font-bold tracking-wide text-neutral-600 uppercase dark:text-neutral-400">
               Chọn nhanh lý do
             </Text>
             <View className="mb-3 flex-row flex-wrap gap-2">
@@ -342,7 +344,7 @@ export function OrderDisputeModal({
             </View>
 
             {/* Reason TextInput */}
-            <Text className="mb-1.5 text-xs font-bold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+            <Text className="mb-1.5 text-xs font-bold tracking-wide text-neutral-600 uppercase dark:text-neutral-400">
               Mô tả chi tiết *
             </Text>
             <TextInput
@@ -376,7 +378,7 @@ export function OrderDisputeModal({
             {/* Evidence Photos */}
             <View className="mt-3">
               <View className="flex-row items-center justify-between">
-                <Text className="text-xs font-bold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+                <Text className="text-xs font-bold tracking-wide text-neutral-600 uppercase dark:text-neutral-400">
                   Ảnh bằng chứng (Tối đa
                   {' '}
                   {DISPUTE_MAX_EVIDENCE_URLS}
@@ -429,7 +431,7 @@ export function OrderDisputeModal({
                         accessibilityRole="button"
                         accessibilityLabel="Xóa ảnh bằng chứng"
                         onPress={() => handleRemoveMedia(item.id)}
-                        className="absolute right-1 top-1 size-5 items-center justify-center rounded-full bg-black/70"
+                        className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70"
                       >
                         <CloseIcon size={12} color="#FFFFFF" />
                       </Pressable>
@@ -440,16 +442,18 @@ export function OrderDisputeModal({
             </View>
 
             {/* Server Error Banner */}
-            {submitError ? (
-              <View
-                testID="dispute-submit-error"
-                className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/60 dark:bg-rose-950/30"
-              >
-                <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">
-                  {submitError}
-                </Text>
-              </View>
-            ) : null}
+            {submitError
+              ? (
+                  <View
+                    testID="dispute-submit-error"
+                    className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/60 dark:bg-rose-950/30"
+                  >
+                    <Text className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                      {submitError}
+                    </Text>
+                  </View>
+                )
+              : null}
           </ScrollView>
 
           {/* Footer Submit Actions */}
@@ -478,4 +482,3 @@ export function OrderDisputeModal({
     </Modal>
   );
 }
-
