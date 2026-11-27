@@ -8,7 +8,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
-  Alert,
   BackHandler,
   Linking,
   Modal,
@@ -392,29 +391,6 @@ export function WorkerDetailScreen({
   }, [allReviews, selectedRating]);
 
   const isLoading = profileQuery.isLoading || reviewsInfiniteQuery.isLoading;
-
-  const handleCall = () => {
-    if (!phoneNumber) {
-      Alert.alert('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
-      return;
-    }
-    const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
-    if (!cleanPhone) {
-      Alert.alert('Thông báo', 'Số điện thoại của thợ không hợp lệ.');
-      return;
-    }
-    const url = `tel:${cleanPhone}`;
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        }
-        Alert.alert('Không thể gọi', `Thiết bị không hỗ trợ cuộc gọi tới số: ${phoneNumber}`);
-      })
-      .catch(() => {
-        Alert.alert('Lỗi', `Không thể kết nối cuộc gọi tới số: ${phoneNumber}`);
-      });
-  };
 
   const handleChat = () => {
     router.push({

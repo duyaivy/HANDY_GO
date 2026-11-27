@@ -1,7 +1,6 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { TouchableOpacity, View } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Image, Text } from '@/components/ui';
 import { RouteNames } from '@/constants/route-names';
@@ -10,14 +9,6 @@ const TECH_AVATAR_URI = 'https://images.unsplash.com/photo-1540569014015-19a7be5
 
 export const NearbyTechnicians = React.memo(() => {
   const router = useRouter();
-
-  const handleCall = React.useCallback(() => {
-    showMessage({
-      message: 'Gọi thợ',
-      description: 'Đang kết nối tới Thợ Hoàng Văn Minh...',
-      type: 'info',
-    });
-  }, []);
 
   const handleAiAssistant = React.useCallback(() => {
     router.push(RouteNames.CUSTOMER_ASK_ME as any);
