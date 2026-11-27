@@ -1074,6 +1074,44 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Đơn hàng hoàn tất thành công!')).toBeOnTheScreen();
+        expect(screen.getByTestId('customer-dispute-expired-note')).toBeOnTheScreen();
+      });
+      expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
+    });
+
+    it('displays dispute resolution note with refunded amount and blocks new dispute when fully refunded', async () => {
+      const completedYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const refundedOrder = {
+        ...baseOrder,
+        status: 'completed',
+        paymentState: 'refunded',
+        completedAt: completedYesterday,
+        disputeResolutionNote: 'Chấp thuận hoàn 100% tiền cho khách hàng.',
+        disputeResolvedAt: '2026-11-26T10:00:00Z',
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: refundedOrder,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+      jest.spyOn(PaymentApi, 'getPaymentByOrder').mockResolvedValue({
+        data: {
+          ...testPayment,
+          status: 'refunded',
+          refundedAmount: '450000',
+        },
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('customer-dispute-resolution-card')).toBeOnTheScreen();
+        expect(screen.getByText('Chấp thuận hoàn 100% tiền cho khách hàng.')).toBeOnTheScreen();
+        expect(screen.getByTestId('dispute-refund-amount-text')).toHaveTextContent(/450\.000 đ/);
+        expect(screen.getByTestId('customer-dispute-refunded-note')).toBeOnTheScreen();
       });
       expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
     });

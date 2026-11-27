@@ -132,11 +132,21 @@ export function CustomerOrderDetailScreen({
   const payment = paymentQuery.data;
   const paymentState = payment?.status === 'succeeded'
     ? 'paid'
-    : payment?.status === 'refunded' || payment?.status === 'partially_refunded'
-      ? 'refunded'
-      : payment?.status === 'pending' || payment?.status === 'processing'
-        ? 'pending'
-        : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+    : payment?.status === 'partially_refunded'
+      ? 'partially_refunded'
+      : payment?.status === 'refunded'
+        ? 'refunded'
+        : payment?.status === 'pending' || payment?.status === 'processing'
+          ? 'pending'
+          : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+  const refundedAmountNumber = React.useMemo(() => {
+    const raw = payment?.refundedAmount;
+    if (!raw) {
+      return 0;
+    }
+    const parsed = Number.parseFloat(String(raw));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [payment?.refundedAmount]);
   const handlePaymentResult = (result: OrderPaymentRecord) => {
     setIsPaymentOpen(false);
     void refetch();
@@ -376,18 +386,41 @@ export function CustomerOrderDetailScreen({
           disputeCategory={order?.disputeCategory}
         />
 
-        {currentStatus !== 'disputed' && order?.disputeResolutionNote && (
+        {currentStatus !== 'disputed' && (order?.disputeResolutionNote || refundedAmountNumber > 0) && (
           <View
             testID="customer-dispute-resolution-card"
             className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20"
           >
-            <Text className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
-              ⚖️ Kết quả xử lý khiếu nại
-            </Text>
-            <Text className="mt-1 text-xs leading-5 text-indigo-800 dark:text-indigo-300">
-              {order.disputeResolutionNote}
-            </Text>
-            {order.disputeResolvedAt && (
+            <View className="flex-row items-center justify-between gap-2">
+              <Text className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                ⚖️ Kết quả xử lý khiếu nại
+              </Text>
+              {refundedAmountNumber > 0 && (
+                <View className="rounded-full bg-purple-100 px-2 py-0.5 dark:bg-purple-900/40">
+                  <Text className="text-[10px] font-bold text-purple-800 dark:text-purple-300">
+                    {paymentState === 'refunded' ? 'Hoàn tiền toàn phần' : 'Hoàn tiền một phần'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {order?.disputeResolutionNote ? (
+              <Text className="mt-1.5 text-xs leading-5 text-indigo-800 dark:text-indigo-300">
+                {order.disputeResolutionNote}
+              </Text>
+            ) : null}
+            {refundedAmountNumber > 0 && (
+              <Text
+                testID="dispute-refund-amount-text"
+                className="mt-1.5 text-xs font-bold text-purple-800 dark:text-purple-300"
+              >
+                Số tiền đã hoàn:
+                {' '}
+                {refundedAmountNumber.toLocaleString('vi-VN')}
+                {' '}
+                đ
+              </Text>
+            )}
+            {order?.disputeResolvedAt && (
               <Text className="mt-1.5 text-[11px] text-indigo-600 dark:text-indigo-400">
                 Thời gian giải quyết:
                 {' '}
@@ -679,6 +712,22 @@ export function CustomerOrderDetailScreen({
                 textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
                 onPress={handleOpenDispute}
               />
+            )}
+            {!disputeEligibility.canDispute && disputeEligibility.isWindowExpired && (
+              <Text
+                testID="customer-dispute-expired-note"
+                className="text-center text-[11px] text-neutral-500 dark:text-neutral-400"
+              >
+                Đã hết thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng.
+              </Text>
+            )}
+            {!disputeEligibility.canDispute && disputeEligibility.isFullyRefunded && (
+              <Text
+                testID="customer-dispute-refunded-note"
+                className="text-center text-[11px] text-neutral-500 dark:text-neutral-400"
+              >
+                Đơn hàng đã được hoàn tiền toàn phần.
+              </Text>
             )}
           </View>
         )}

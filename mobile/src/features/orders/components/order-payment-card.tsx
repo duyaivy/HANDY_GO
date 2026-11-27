@@ -30,6 +30,12 @@ function getPaymentStateBadge(state?: string | null) {
         bg: 'bg-blue-100 dark:bg-blue-950/40',
         text: 'text-blue-800 dark:text-blue-300',
       };
+    case 'partially_refunded':
+      return {
+        label: 'Hoàn tiền một phần',
+        bg: 'bg-purple-100 dark:bg-purple-950/40',
+        text: 'text-purple-800 dark:text-purple-300',
+      };
     case 'refunded':
       return {
         label: 'Đã hoàn tiền',

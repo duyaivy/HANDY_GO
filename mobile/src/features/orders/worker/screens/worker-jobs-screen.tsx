@@ -40,6 +40,12 @@ function getWorkerStatusBadge(status: string) {
       return { label: '⚡ Đang làm', bg: 'bg-indigo-100 dark:bg-indigo-950/40', text: 'text-indigo-800 dark:text-indigo-300' };
     case 'awaiting_customer_confirmation':
       return { label: 'Chờ nghiệm thu', bg: 'bg-orange-100 dark:bg-orange-950/40', text: 'text-orange-800 dark:text-orange-300' };
+    case 'disputed':
+      return { label: 'Đang khiếu nại', bg: 'bg-rose-100 dark:bg-rose-950/40', text: 'text-rose-800 dark:text-rose-300' };
+    case 'completed':
+      return { label: 'Hoàn tất', bg: 'bg-emerald-100 dark:bg-emerald-950/40', text: 'text-emerald-800 dark:text-emerald-300' };
+    case 'cancelled':
+      return { label: 'Đã hủy', bg: 'bg-neutral-100 dark:bg-neutral-800', text: 'text-neutral-700 dark:text-neutral-300' };
     default:
       return { label: status, bg: 'bg-neutral-100 dark:bg-neutral-800', text: 'text-neutral-700 dark:text-neutral-300' };
   }
