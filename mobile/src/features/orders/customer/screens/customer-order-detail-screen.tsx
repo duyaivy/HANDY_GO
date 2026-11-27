@@ -403,11 +403,13 @@ export function CustomerOrderDetailScreen({
                 </View>
               )}
             </View>
-            {order?.disputeResolutionNote ? (
-              <Text className="mt-1.5 text-xs leading-5 text-indigo-800 dark:text-indigo-300">
-                {order.disputeResolutionNote}
-              </Text>
-            ) : null}
+            {order?.disputeResolutionNote
+              ? (
+                  <Text className="mt-1.5 text-xs/5 text-indigo-800 dark:text-indigo-300">
+                    {order.disputeResolutionNote}
+                  </Text>
+                )
+              : null}
             {refundedAmountNumber > 0 && (
               <Text
                 testID="dispute-refund-amount-text"

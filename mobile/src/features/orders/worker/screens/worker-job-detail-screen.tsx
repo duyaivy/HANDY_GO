@@ -537,11 +537,13 @@ export function WorkerJobDetailScreen({
           )}
         </View>
 
-        {order?.evidences && order.evidences.some(ev => ev.evidenceType === 'dispute') ? (
-          <View className="mt-4">
-            <OrderEvidenceGallery evidences={order.evidences.filter(ev => ev.evidenceType === 'dispute')} />
-          </View>
-        ) : null}
+        {order?.evidences && order.evidences.some(ev => ev.evidenceType === 'dispute')
+          ? (
+              <View className="mt-4">
+                <OrderEvidenceGallery evidences={order.evidences.filter(ev => ev.evidenceType === 'dispute')} />
+              </View>
+            )
+          : null}
 
         {jobId === 'JOB-1020'
           ? (

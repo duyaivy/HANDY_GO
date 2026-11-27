@@ -66,15 +66,18 @@ export function OrderDisputeModal({
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets?.bottom ?? 0, 16) + 16;
 
-  React.useEffect(() => {
-    if (visible) {
-      setCategory(role === 'worker' ? 'other' : 'service_quality');
-      setReason('');
-      setMediaItems([]);
-      setValidationError(null);
-      setSubmitError(null);
-    }
-  }, [visible, role]);
+  const resetForm = React.useCallback(() => {
+    setCategory(role === 'worker' ? 'other' : 'service_quality');
+    setReason('');
+    setMediaItems([]);
+    setValidationError(null);
+    setSubmitError(null);
+  }, [role]);
+
+  const handleClose = React.useCallback(() => {
+    resetForm();
+    onClose();
+  }, [resetForm, onClose]);
 
   const isUploadingAny = mediaItems.some(item => item.status === 'uploading');
   const quickReasons = DISPUTE_QUICK_REASONS[role];
@@ -219,7 +222,7 @@ export function OrderDisputeModal({
         evidenceUrls,
       });
       onSuccess?.();
-      onClose();
+      handleClose();
     }
     catch (error) {
       setSubmitError(getDisputeErrorMessage(error));
@@ -231,7 +234,7 @@ export function OrderDisputeModal({
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -259,7 +262,7 @@ export function OrderDisputeModal({
               testID="dispute-modal-close-btn"
               accessibilityRole="button"
               accessibilityLabel="Đóng hộp thoại khiếu nại"
-              onPress={onClose}
+              onPress={handleClose}
               className="size-9 items-center justify-center rounded-full bg-neutral-100 active:bg-neutral-200 dark:bg-neutral-800"
             >
               <CloseIcon size={18} color="#6B7280" />
@@ -297,18 +300,16 @@ export function OrderDisputeModal({
                     testID={`dispute-category-${option.value}`}
                     accessibilityRole="button"
                     onPress={() => setCategory(option.value)}
-                    className={`rounded-xl border px-3 py-2 ${
-                      isSelected
+                    className={`rounded-xl border px-3 py-2 ${isSelected
                         ? 'border-rose-500 bg-rose-50 dark:border-rose-500 dark:bg-rose-950/40'
                         : 'border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800'
-                    }`}
+                      }`}
                   >
                     <Text
-                      className={`text-xs font-semibold ${
-                        isSelected
+                      className={`text-xs font-semibold ${isSelected
                           ? 'text-rose-700 dark:text-rose-300'
                           : 'text-neutral-700 dark:text-neutral-300'
-                      }`}
+                        }`}
                     >
                       {option.label}
                     </Text>
@@ -460,7 +461,7 @@ export function OrderDisputeModal({
               disabled={isSubmitting}
               className="h-11 flex-1 rounded-2xl border-neutral-300"
               textClassName="text-xs font-bold text-neutral-700 dark:text-neutral-300"
-              onPress={onClose}
+              onPress={handleClose}
             />
             <Button
               testID="dispute-submit-btn"
