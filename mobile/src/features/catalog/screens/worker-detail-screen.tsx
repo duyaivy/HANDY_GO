@@ -500,26 +500,8 @@ export function WorkerDetailScreen({
             </View>
           </View>
 
-          {/* Action CTA Buttons: Gọi điện & Nhắn tin */}
+          {/* Action CTA Buttons: Nhắn tin */}
           <View className="mt-3.5 flex-row items-center gap-2.5 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Gọi điện cho thợ"
-              testID="worker-call-btn"
-              disabled={!phoneNumber}
-              onPress={handleCall}
-              className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl py-2.5 ${
-                phoneNumber
-                  ? 'bg-emerald-600 active:bg-emerald-700'
-                  : 'bg-emerald-600/50 opacity-50'
-              }`}
-            >
-              <PhoneIcon size={15} color="#FFFFFF" />
-              <Text className="text-xs font-bold text-white">
-                Gọi điện
-              </Text>
-            </Pressable>
-
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Nhắn tin với thợ"

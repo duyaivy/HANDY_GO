@@ -47,7 +47,7 @@ describe('WorkerDetailScreen', () => {
     expect(screen.getByTestId('worker-profile-card')).toBeOnTheScreen();
     expect(screen.getByTestId('worker-profile-name')).toHaveTextContent('Nguyễn Văn Thợ');
     expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('0988 777 666');
-    expect(screen.getByTestId('worker-call-btn')).toBeOnTheScreen();
+    expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     expect(screen.getByTestId('worker-chat-btn')).toBeOnTheScreen();
   });
 
@@ -106,7 +106,7 @@ describe('WorkerDetailScreen', () => {
     expect(screen.getByTestId('worker-reviews-list')).toBeOnTheScreen();
   });
 
-  it('triggers phone call on pressing Gọi điện button', async () => {
+  it('hides Gọi điện button on worker profile', () => {
     render(
       <WorkerDetailScreen
         workerId="w-101"
@@ -114,10 +114,7 @@ describe('WorkerDetailScreen', () => {
       />,
     );
 
-    const callBtn = screen.getByTestId('worker-call-btn');
-    fireEvent.press(callBtn);
-
-    expect(Linking.canOpenURL).toHaveBeenCalledWith('tel:0988777666');
+    expect(screen.queryByTestId('worker-call-btn')).toBeNull();
   });
 
   it('navigates to chat on pressing Nhắn tin button', () => {
@@ -214,7 +211,7 @@ describe('WorkerDetailScreen', () => {
   });
 
   describe('Phone number fallback & call CTA safety', () => {
-    it('does NOT fallback to mock phone for real worker with no phone, disables call CTA', async () => {
+    it('does NOT fallback to mock phone for real worker with no phone, hides call CTA', async () => {
       render(
         <WorkerDetailScreen
           workerId="worker-real-999-uuid"
@@ -227,15 +224,10 @@ describe('WorkerDetailScreen', () => {
       expect(screen.queryByText('0977 888 999')).toBeNull();
       expect(screen.queryByText('0988 123 456')).toBeNull();
       expect(screen.getByText('Chưa cập nhật số điện thoại')).toBeOnTheScreen();
-
-      // Pressing call button should show alert and not open tel:
-      const callBtn = screen.getByTestId('worker-call-btn');
-      fireEvent.press(callBtn);
-
-      expect(Linking.openURL).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
 
-    it('opens phone URL when real worker has valid phone', async () => {
+    it('hides call button even when real worker has phone', async () => {
       render(
         <WorkerDetailScreen
           workerId="worker-real-999-uuid"
@@ -245,14 +237,7 @@ describe('WorkerDetailScreen', () => {
       );
 
       expect(screen.getByText('0933 444 555')).toBeOnTheScreen();
-
-      const callBtn = screen.getByTestId('worker-call-btn');
-      fireEvent.press(callBtn);
-
-      expect(Linking.canOpenURL).toHaveBeenCalledWith('tel:0933444555');
-      await waitFor(() => {
-        expect(Linking.openURL).toHaveBeenCalledWith('tel:0933444555');
-      });
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
 
     it('falls back to demo phone only for explicit mock worker (th-01)', () => {

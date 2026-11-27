@@ -82,17 +82,6 @@ export const NearbyTechnicians = React.memo(() => {
 
         <View className="items-end gap-1.5">
           <TouchableOpacity
-            className="rounded-full bg-orange-100 px-3.5 py-1.5 active:opacity-80"
-            onPress={(e) => {
-              e?.stopPropagation?.();
-              handleCall();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Gọi thợ"
-          >
-            <Text className="text-xs font-bold text-orange-600">Gọi</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             testID="nearby-ai-assistant-btn"
             className="flex-row items-center gap-1 rounded-full bg-primary-600 px-2.5 py-1.5 active:opacity-85"
             onPress={(e) => {

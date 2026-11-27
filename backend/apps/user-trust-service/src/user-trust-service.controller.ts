@@ -82,7 +82,7 @@ export class UserTrustServiceController {
     private readonly config: ConfigService,
     @Optional()
     private readonly cloudinaryService?: CloudinaryService,
-  ) {}
+  ) { }
 
   @Public()
   @UseGuards(InternalServiceGuard)
@@ -308,11 +308,11 @@ export class UserTrustServiceController {
         const dbRecorded = dlqPublished
           ? false
           : await this.userTrustService.recordDeadLetter(
-              eventType,
-              event,
-              'MALFORMED_PAYLOAD',
-              1,
-            );
+            eventType,
+            event,
+            'MALFORMED_PAYLOAD',
+            1,
+          );
         if (dlqPublished || dbRecorded) {
           channel.ack(originalMsg);
         } else {
@@ -627,7 +627,7 @@ export class UserTrustServiceController {
     return this.userTrustService.deleteBankAccount(user.userId, accountId);
   }
 
-    @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
   @RequirePermissions(StandardPermissions.USER_READ)
   @Get('users')
   @HttpCode(HttpStatus.OK)
@@ -951,7 +951,7 @@ export class UserTrustServiceController {
   async getMyWorkerProfile(
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<unknown> {
-    return this.userTrustService.getWorkerPublicProfile('me', user.userId);
+    return this.userTrustService.getWorkerPublicProfile('me', user.userId, user.roles);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -997,7 +997,7 @@ export class UserTrustServiceController {
     @CurrentUser() user?: AuthenticatedUser,
   ): Promise<unknown> {
     return user?.userId
-      ? this.userTrustService.getWorkerPublicProfile(id, user.userId)
+      ? this.userTrustService.getWorkerPublicProfile(id, user.userId, user.roles)
       : this.userTrustService.getWorkerPublicProfile(id);
   }
 
@@ -1023,7 +1023,7 @@ export class UserTrustServiceController {
     @CurrentUser() user?: AuthenticatedUser,
   ): Promise<unknown> {
     return user?.userId
-      ? this.userTrustService.getWorkerPublicProfile(id, user.userId)
+      ? this.userTrustService.getWorkerPublicProfile(id, user.userId, user.roles)
       : this.userTrustService.getWorkerPublicProfile(id);
   }
 

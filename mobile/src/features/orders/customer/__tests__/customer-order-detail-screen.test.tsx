@@ -168,7 +168,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByTestId('worker-quote-section')).toBeOnTheScreen();
       expect(screen.getByText('Nguyễn Văn Thợ')).toBeOnTheScreen();
       expect(screen.getByText('4.9')).toBeOnTheScreen();
-      expect(screen.getByText('Gọi điện')).toBeOnTheScreen();
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
       expect(screen.getByText('Nhắn tin')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-profile-btn')).toBeOnTheScreen();
 
@@ -193,29 +193,18 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     });
   });
 
-  it('triggers phone calling when pressing Gọi điện button', async () => {
+  it('hides Gọi điện button on worker card', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       data: baseOrder,
       statusCode: 200,
       message: 'OK',
     } as any);
 
-    const canOpenSpy = jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
-    const openSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as any);
-
     render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
 
     await waitFor(() => {
       expect(screen.getByText('Nguyễn Văn Thợ')).toBeOnTheScreen();
-      expect(screen.getByText('Gọi điện')).toBeOnTheScreen();
-    });
-
-    const callBtn = screen.getByText('Gọi điện');
-    fireEvent.press(callBtn);
-
-    await waitFor(() => {
-      expect(canOpenSpy).toHaveBeenCalledWith('tel:0905123456');
-      expect(openSpy).toHaveBeenCalledWith('tel:0905123456');
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
   });
 
@@ -543,15 +532,12 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.queryByText('5.0')).toBeNull();
       // Should not show fake 98% hoàn thành
       expect(screen.queryByText(/98% hoàn thành/)).toBeNull();
-      // Should display 'Chưa có số'
-      expect(screen.getByText('Chưa có số')).toBeOnTheScreen();
+      // Call button is hidden
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
 
-    const callBtn = screen.getByLabelText('Gọi điện cho thợ');
-    fireEvent.press(callBtn);
-
     expect(openSpy).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 
   it('P1-04: displays error alert when confirmCompletion or requestRework rejects and does not show success alert', async () => {

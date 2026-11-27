@@ -28,6 +28,7 @@ import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
 import { AuthClient } from './clients/auth.client.js';
+import { isAdminRole, maskPhone } from './common/utils/mask.util.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -2279,6 +2280,7 @@ export class UserTrustServiceService {
   async getWorkerPublicProfile(
     workerIdentifier: string,
     currentUserId?: string,
+    callerRoles?: string[],
   ): Promise<unknown> {
     let workerWhere: any;
     if (workerIdentifier === 'me') {
@@ -2379,7 +2381,8 @@ export class UserTrustServiceService {
       worker.serviceOfferings[0]?.title ||
       'Thợ kỹ thuật chuyên nghiệp';
 
-    const phone = await this.authClient?.getUserPhone(worker.userId) ?? null;
+    const rawPhone = (await this.authClient?.getUserPhone(worker.userId)) ?? null;
+    const phone = isAdminRole(callerRoles) ? rawPhone : maskPhone(rawPhone);
 
     return {
       statusCode: 200,

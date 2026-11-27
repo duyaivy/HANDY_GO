@@ -1151,11 +1151,11 @@ describe('UserTrustServiceService', () => {
       ]);
 
       authClientMock.getUserPhone.mockResolvedValue('+84912345678');
-      const result: any = await service.getWorkerPublicProfile(validWorkerId);
+      const result: any = await service.getWorkerPublicProfile(validWorkerId, 'cust-1', [Role.CUSTOMER]);
 
       expect(result.statusCode).toBe(200);
       expect(authClientMock.getUserPhone).toHaveBeenCalledWith(validUserId);
-      expect(result.data.phone).toBe('+84912345678');
+      expect(result.data.phone).toBe('09***78');
       expect(result.data.id).toBe(validWorkerId);
       expect(result.data.fullName).toBe('Trần Thợ Lành Nghề');
       expect(result.data.bio).toBe('Thợ điện nước 10 năm kinh nghiệm, tận tâm, chu đáo.');
@@ -1173,6 +1173,69 @@ describe('UserTrustServiceService', () => {
       expect(result.data.services[0].title).toBe('Sửa điện nước dân dụng');
       expect(result.data.recentReviews).toHaveLength(1);
       expect(result.data.recentReviews[0].customer.fullName).toBe('Lê Khách Hàng');
+    });
+
+    it('should mask worker phone for Worker role and unauthenticated/unknown roles', async () => {
+      const mockWorker = {
+        id: validWorkerId,
+        userId: validUserId,
+        status: 'verified',
+        averageRating: 4.8,
+        ratingCount: 1,
+        completedOrderCount: 1,
+        orderCountTotal: 1,
+        verifiedAt: new Date('2026-10-01T00:00:00Z'),
+        approvedAt: new Date('2026-10-01T00:00:00Z'),
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        user: {
+          fullName: 'Trần Thợ Lành Nghề',
+          avatarUrl: null,
+          status: 'active',
+          customerProfile: { bio: null },
+        },
+        serviceOfferings: [],
+        serviceAreas: [],
+      };
+      dbMock.workerProfile.findFirst.mockResolvedValue(mockWorker);
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      authClientMock.getUserPhone.mockResolvedValue('+84912345678');
+
+      const workerResult: any = await service.getWorkerPublicProfile(validWorkerId, 'worker-2', [Role.WORKER]);
+      expect(workerResult.data.phone).toBe('09***78');
+
+      const defaultResult: any = await service.getWorkerPublicProfile(validWorkerId);
+      expect(defaultResult.data.phone).toBe('09***78');
+    });
+
+    it('should return full unmasked worker phone for Admin role', async () => {
+      const mockWorker = {
+        id: validWorkerId,
+        userId: validUserId,
+        status: 'verified',
+        averageRating: 4.8,
+        ratingCount: 1,
+        completedOrderCount: 1,
+        orderCountTotal: 1,
+        verifiedAt: new Date('2026-10-01T00:00:00Z'),
+        approvedAt: new Date('2026-10-01T00:00:00Z'),
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        user: {
+          fullName: 'Trần Thợ Lành Nghề',
+          avatarUrl: null,
+          status: 'active',
+          customerProfile: { bio: null },
+        },
+        serviceOfferings: [],
+        serviceAreas: [],
+      };
+      dbMock.workerProfile.findFirst.mockResolvedValue(mockWorker);
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      authClientMock.getUserPhone.mockResolvedValue('+84912345678');
+
+      const adminResult: any = await service.getWorkerPublicProfile(validWorkerId, 'admin-1', [Role.ADMIN]);
+      expect(adminResult.data.phone).toBe('+84912345678');
     });
   });
 
