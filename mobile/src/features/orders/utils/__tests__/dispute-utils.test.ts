@@ -1,3 +1,4 @@
+import { ApiError } from '@/services/api/api-error';
 import {
   DISPUTE_COMPLAINT_WINDOW_MS,
   getDisputeCategoryLabel,
@@ -57,11 +58,50 @@ describe('dispute-utils', () => {
     expect(res.canDispute).toBe(false);
   });
 
-  it('maps dispute categories and backend error codes to Vietnamese labels', () => {
+  it('allows customer dispute at exact 168h boundary and blocks 1ms after', () => {
+    const completedExactly168hAgo = new Date(now - DISPUTE_COMPLAINT_WINDOW_MS).toISOString();
+    const atBoundary = getDisputeEligibility(
+      { status: 'completed', completedAt: completedExactly168hAgo, paymentState: 'paid' },
+      'customer',
+      now,
+    );
+    expect(atBoundary.canDispute).toBe(true);
+
+    const afterBoundary = getDisputeEligibility(
+      { status: 'completed', completedAt: completedExactly168hAgo, paymentState: 'paid' },
+      'customer',
+      now + 1,
+    );
+    expect(afterBoundary.canDispute).toBe(false);
+    expect(afterBoundary.isWindowExpired).toBe(true);
+  });
+
+  it('maps dispute categories and backend error codes (including ApiError) to Vietnamese labels', () => {
     expect(getDisputeCategoryLabel('property_damage')).toBe('Hư hỏng tài sản');
     expect(getDisputeErrorMessage({ response: { data: { code: 'COMPLAINT_WINDOW_EXPIRED' } } }))
       .toContain('7 ngày');
-    expect(getDisputeErrorMessage({ response: { data: { code: 'ORDER_ALREADY_FULLY_REFUNDED' } } }))
-      .toContain('hoàn tiền toàn phần');
+
+    const err400 = ApiError.fromAxiosError({
+      response: { status: 400, data: { code: 'COMPLAINT_WINDOW_EXPIRED', message: 'Expired' } },
+    });
+    expect(getDisputeErrorMessage(err400)).toContain('7 ngày');
+
+    const err403 = ApiError.fromAxiosError({
+      response: { status: 403, data: { code: 'DISPUTE_ONLY_CUSTOMER_AFTER_COMPLETION', message: 'Forbidden' } },
+    });
+    expect(getDisputeErrorMessage(err403)).toContain('Chỉ khách hàng');
+
+    const err409Refund = ApiError.fromAxiosError({
+      response: { status: 409, data: { code: 'ORDER_ALREADY_FULLY_REFUNDED', message: 'Conflict' } },
+    });
+    expect(getDisputeErrorMessage(err409Refund)).toContain('hoàn tiền toàn phần');
+
+    const err409State = ApiError.fromAxiosError({
+      response: { status: 409, data: { code: 'INVALID_STATE_TRANSITION', message: 'Conflict' } },
+    });
+    expect(getDisputeErrorMessage(err409State)).toContain('Trạng thái đơn hàng');
+
+    const networkErr = ApiError.fromAxiosError({ message: 'Network Error' });
+    expect(getDisputeErrorMessage(networkErr)).toContain('Không có kết nối mạng');
   });
 });

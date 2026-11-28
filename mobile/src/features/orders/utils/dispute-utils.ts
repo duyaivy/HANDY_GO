@@ -126,10 +126,12 @@ export function getDisputeEligibility(
 
 export function getDisputeErrorMessage(error: unknown): string {
   const err = error as {
-    response?: { data?: { code?: string; message?: string | string[] } };
+    code?: string;
+    kind?: string;
     message?: string;
+    response?: { data?: { code?: string; message?: string | string[] } };
   };
-  const code = err?.response?.data?.code;
+  const code = err?.code ?? err?.response?.data?.code;
   switch (code) {
     case 'COMPLAINT_WINDOW_EXPIRED':
       return 'Đã quá thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng, không thể mở khiếu nại.';
@@ -140,6 +142,9 @@ export function getDisputeErrorMessage(error: unknown): string {
     case 'INVALID_STATE_TRANSITION':
       return 'Trạng thái đơn hàng hiện tại không thể mở khiếu nại.';
     default: {
+      if (err?.kind === 'NETWORK_ERROR' || err?.kind === 'TIMEOUT_ERROR') {
+        return err.message || 'Không có kết nối mạng. Vui lòng kiểm tra WiFi hoặc 4G.';
+      }
       const serverMsg = err?.response?.data?.message;
       if (Array.isArray(serverMsg) && serverMsg.length > 0) {
         return serverMsg.join(', ');
@@ -147,7 +152,10 @@ export function getDisputeErrorMessage(error: unknown): string {
       if (typeof serverMsg === 'string' && serverMsg.trim().length > 0) {
         return serverMsg;
       }
-      return err?.message || 'Không thể gửi khiếu nại. Vui lòng thử lại sau.';
+      if (typeof err?.message === 'string' && err.message.trim().length > 0) {
+        return err.message;
+      }
+      return 'Không thể gửi khiếu nại. Vui lòng thử lại sau.';
     }
   }
 }

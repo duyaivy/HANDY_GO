@@ -34,6 +34,7 @@ export type OrderDisputeModalProps = {
   isPostCompletion?: boolean;
   remainingDays?: number;
   isSubmitting?: boolean;
+  checkEligibilityBeforeSubmit?: () => string | null;
   onSubmit: (payload: OpenDisputePayload) => Promise<unknown>;
   onSuccess?: () => void;
   onClose: () => void;
@@ -54,33 +55,61 @@ export function OrderDisputeModal({
   isPostCompletion = false,
   remainingDays = 0,
   isSubmitting = false,
+  checkEligibilityBeforeSubmit,
   onSubmit,
   onSuccess,
   onClose,
 }: OrderDisputeModalProps) {
-  const [category, setCategory] = React.useState<DisputeCategory>('service_quality');
+  const defaultCategory: DisputeCategory = role === 'worker' ? 'other' : 'service_quality';
+  const [category, setCategory] = React.useState<DisputeCategory>(defaultCategory);
   const [reason, setReason] = React.useState('');
   const [mediaItems, setMediaItems] = React.useState<DisputeMediaItem[]>([]);
   const [validationError, setValidationError] = React.useState<string | null>(null);
   const [submitError, setSubmitError] = React.useState<string | null>(null);
+  const [isLocalSubmitting, setIsLocalSubmitting] = React.useState(false);
+  const isSubmittingRef = React.useRef(false);
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets?.bottom ?? 0, 16) + 16;
 
+  const effectiveSubmitting = isSubmitting || isLocalSubmitting;
+
   const resetForm = React.useCallback(() => {
-    setCategory(role === 'worker' ? 'other' : 'service_quality');
+    setCategory(defaultCategory);
     setReason('');
     setMediaItems([]);
     setValidationError(null);
     setSubmitError(null);
-  }, [role]);
+  }, [defaultCategory]);
 
   const handleClose = React.useCallback(() => {
+    if (isSubmittingRef.current || effectiveSubmitting) {
+      return;
+    }
     resetForm();
     onClose();
-  }, [resetForm, onClose]);
+  }, [effectiveSubmitting, resetForm, onClose]);
 
   const isUploadingAny = mediaItems.some(item => item.status === 'uploading');
+  const hasFailedUploads = mediaItems.some(item => item.status === 'error');
   const quickReasons = DISPUTE_QUICK_REASONS[role];
+
+  const uploadSingleItem = async (item: DisputeMediaItem) => {
+    try {
+      const uploaded = await OrdersApi.uploadImageDetailed(item.localUri, `dispute_${item.id}`);
+      setMediaItems(prev =>
+        prev.map(cur => (cur.id === item.id
+          ? { ...cur, remoteUrl: uploaded.url, status: 'completed', errorMessage: undefined }
+          : cur)),
+      );
+    }
+    catch (err: any) {
+      setMediaItems(prev =>
+        prev.map(cur => (cur.id === item.id
+          ? { ...cur, status: 'error', errorMessage: err?.message || 'Tải ảnh thất bại' }
+          : cur)),
+      );
+    }
+  };
 
   const uploadSelectedAssets = async (
     assets: ReadonlyArray<{ uri: string }>,
@@ -93,26 +122,24 @@ export function OrderDisputeModal({
     }));
 
     setMediaItems(prev => [...prev, ...newItems]);
+    await Promise.all(newItems.map(item => uploadSingleItem(item)));
+  };
 
-    await Promise.all(
-      newItems.map(async (item) => {
-        try {
-          const uploaded = await OrdersApi.uploadImageDetailed(item.localUri, `dispute_${item.id}`);
-          setMediaItems(prev =>
-            prev.map(cur => (cur.id === item.id
-              ? { ...cur, remoteUrl: uploaded.url, status: 'completed' }
-              : cur)),
-          );
-        }
-        catch (err: any) {
-          setMediaItems(prev =>
-            prev.map(cur => (cur.id === item.id
-              ? { ...cur, status: 'error', errorMessage: err?.message || 'Tải ảnh thất bại' }
-              : cur)),
-          );
-        }
-      }),
+  const retryUploadMediaItem = async (id: string) => {
+    if (isSubmittingRef.current || effectiveSubmitting) {
+      return;
+    }
+    const target = mediaItems.find(item => item.id === id);
+    if (!target || target.status === 'uploading') {
+      return;
+    }
+    setValidationError(null);
+    setMediaItems(prev =>
+      prev.map(cur => (cur.id === id
+        ? { ...cur, status: 'uploading', errorMessage: undefined }
+        : cur)),
     );
+    await uploadSingleItem({ ...target, status: 'uploading' });
   };
 
   const pickFromLibrary = async (remainingSlots: number) => {
@@ -166,6 +193,9 @@ export function OrderDisputeModal({
   };
 
   const handlePickEvidenceImages = () => {
+    if (isSubmittingRef.current || effectiveSubmitting) {
+      return;
+    }
     const remainingSlots = DISPUTE_MAX_EVIDENCE_URLS - mediaItems.length;
     if (remainingSlots <= 0) {
       Alert.alert('Đã đạt giới hạn', `Bạn chỉ có thể đính kèm tối đa ${DISPUTE_MAX_EVIDENCE_URLS} ảnh bằng chứng.`);
@@ -190,10 +220,18 @@ export function OrderDisputeModal({
   };
 
   const handleRemoveMedia = (id: string) => {
+    if (isSubmittingRef.current || effectiveSubmitting) {
+      return;
+    }
     setMediaItems(prev => prev.filter(item => item.id !== id));
+    setValidationError(null);
   };
 
   const handleSubmit = async () => {
+    if (isSubmittingRef.current || effectiveSubmitting) {
+      return;
+    }
+
     const trimmedReason = reason.trim();
     if (trimmedReason.length < DISPUTE_MIN_REASON_LENGTH) {
       setValidationError(`Vui lòng mô tả lý do khiếu nại tối thiểu ${DISPUTE_MIN_REASON_LENGTH} ký tự.`);
@@ -207,6 +245,16 @@ export function OrderDisputeModal({
       setValidationError('Vui lòng chờ ảnh bằng chứng tải lên hoàn tất.');
       return;
     }
+    if (hasFailedUploads) {
+      setValidationError('Có ảnh tải lên thất bại. Vui lòng thử lại hoặc xóa ảnh lỗi trước khi gửi.');
+      return;
+    }
+
+    const eligibilityError = checkEligibilityBeforeSubmit?.();
+    if (eligibilityError) {
+      setSubmitError(eligibilityError);
+      return;
+    }
 
     setValidationError(null);
     setSubmitError(null);
@@ -215,16 +263,24 @@ export function OrderDisputeModal({
       .filter(item => item.status === 'completed' && Boolean(item.remoteUrl))
       .map(item => item.remoteUrl!);
 
+    isSubmittingRef.current = true;
+    setIsLocalSubmitting(true);
+
     try {
       await onSubmit({
         reason: trimmedReason,
         category,
         evidenceUrls,
       });
+      isSubmittingRef.current = false;
+      setIsLocalSubmitting(false);
       onSuccess?.();
-      handleClose();
+      resetForm();
+      onClose();
     }
     catch (error) {
+      isSubmittingRef.current = false;
+      setIsLocalSubmitting(false);
       setSubmitError(getDisputeErrorMessage(error));
     }
   };
@@ -264,8 +320,9 @@ export function OrderDisputeModal({
               testID="dispute-modal-close-btn"
               accessibilityRole="button"
               accessibilityLabel="Đóng hộp thoại khiếu nại"
+              disabled={effectiveSubmitting}
               onPress={handleClose}
-              className="size-9 items-center justify-center rounded-full bg-neutral-100 active:bg-neutral-200 dark:bg-neutral-800"
+              className={`size-9 items-center justify-center rounded-full bg-neutral-100 active:bg-neutral-200 dark:bg-neutral-800 ${effectiveSubmitting ? 'opacity-40' : ''}`}
             >
               <CloseIcon size={18} color="#6B7280" />
             </Pressable>
@@ -301,6 +358,7 @@ export function OrderDisputeModal({
                     key={option.value}
                     testID={`dispute-category-${option.value}`}
                     accessibilityRole="button"
+                    disabled={effectiveSubmitting}
                     onPress={() => setCategory(option.value)}
                     className={`rounded-xl border px-3 py-2 ${isSelected
                       ? 'border-rose-500 bg-rose-50 dark:border-rose-500 dark:bg-rose-950/40'
@@ -330,6 +388,7 @@ export function OrderDisputeModal({
                   key={chip}
                   testID={`dispute-quick-reason-${index}`}
                   accessibilityRole="button"
+                  disabled={effectiveSubmitting}
                   onPress={() => {
                     setReason(chip);
                     setValidationError(null);
@@ -349,6 +408,7 @@ export function OrderDisputeModal({
             </Text>
             <TextInput
               testID="dispute-reason-input"
+              editable={!effectiveSubmitting}
               value={reason}
               onChangeText={(text) => {
                 setReason(text);
@@ -387,6 +447,7 @@ export function OrderDisputeModal({
                 <Pressable
                   testID="dispute-add-evidence-btn"
                   accessibilityRole="button"
+                  disabled={effectiveSubmitting}
                   onPress={handlePickEvidenceImages}
                   className="flex-row items-center gap-1.5 rounded-xl bg-neutral-100 px-3 py-1.5 active:bg-neutral-200 dark:bg-neutral-800"
                 >
@@ -420,16 +481,26 @@ export function OrderDisputeModal({
                         </View>
                       )}
                       {item.status === 'error' && (
-                        <View className="absolute inset-0 items-center justify-center bg-rose-900/75 px-1">
+                        <Pressable
+                          testID={`dispute-retry-media-${item.id}`}
+                          accessibilityRole="button"
+                          accessibilityLabel="Thử tải lại ảnh"
+                          disabled={effectiveSubmitting}
+                          onPress={() => {
+                            void retryUploadMediaItem(item.id);
+                          }}
+                          className="absolute inset-0 items-center justify-center bg-rose-900/80 px-1"
+                        >
                           <Text className="text-center text-[10px] font-bold text-white">
-                            Lỗi tải
+                            Thử lại
                           </Text>
-                        </View>
+                        </Pressable>
                       )}
                       <Pressable
                         testID={`dispute-remove-media-${item.id}`}
                         accessibilityRole="button"
                         accessibilityLabel="Xóa ảnh bằng chứng"
+                        disabled={effectiveSubmitting}
                         onPress={() => handleRemoveMedia(item.id)}
                         className="absolute top-1 right-1 size-5 items-center justify-center rounded-full bg-black/70"
                       >
@@ -462,16 +533,16 @@ export function OrderDisputeModal({
               testID="dispute-cancel-btn"
               label="Hủy bỏ"
               variant="outline"
-              disabled={isSubmitting}
+              disabled={effectiveSubmitting}
               className="h-11 flex-1 rounded-2xl border-neutral-300"
               textClassName="text-xs font-bold text-neutral-700 dark:text-neutral-300"
               onPress={handleClose}
             />
             <Button
               testID="dispute-submit-btn"
-              label={isSubmitting ? 'Đang gửi...' : 'Gửi khiếu nại'}
+              label={effectiveSubmitting ? 'Đang gửi...' : 'Gửi khiếu nại'}
               variant="default"
-              disabled={isSubmitting || isUploadingAny}
+              disabled={effectiveSubmitting || isUploadingAny}
               className="h-11 flex-1 rounded-2xl bg-rose-600 active:bg-rose-700"
               textClassName="text-xs font-bold text-white"
               onPress={handleSubmit}

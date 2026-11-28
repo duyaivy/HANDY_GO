@@ -6,6 +6,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   RefreshControl,
   ScrollView,
   View,
@@ -38,7 +39,7 @@ import {
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
 import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
-import { getDisputeEligibility } from '../../utils/dispute-utils';
+import { DISPUTE_COMPLAINT_WINDOW_MS, getDisputeEligibility } from '../../utils/dispute-utils';
 
 export type CustomerOrderDetailScreenProps = {
   orderId?: string;
@@ -122,20 +123,27 @@ export function CustomerOrderDetailScreen({
 
   const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
   const [isDisputeOpen, setIsDisputeOpen] = React.useState(false);
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+  const shouldFetchPayment = order?.status === 'completed'
+    || order?.status === 'disputed'
+    || Boolean(order?.disputeResolvedAt)
+    || order?.paymentState === 'refunded'
+    || order?.paymentState === 'partially_refunded';
   const paymentQuery = useQuery({
     queryKey: walletQueryKeys.paymentByOrder(orderId),
     queryFn: async () => (await PaymentApi.getPaymentByOrder(orderId)).data,
-    enabled: order?.status === 'completed',
+    enabled: shouldFetchPayment,
     retry: false,
     refetchInterval: query => ['pending', 'processing'].includes(query.state.data?.status ?? '') ? 2500 : false,
   });
+  const { refetch: refetchPayment } = paymentQuery;
   const payment = paymentQuery.data;
-  const paymentState = payment?.status === 'succeeded'
-    ? 'paid'
-    : payment?.status === 'partially_refunded'
+  const paymentState = order?.paymentState === 'refunded' || payment?.status === 'refunded'
+    ? 'refunded'
+    : order?.paymentState === 'partially_refunded' || payment?.status === 'partially_refunded'
       ? 'partially_refunded'
-      : payment?.status === 'refunded'
-        ? 'refunded'
+      : payment?.status === 'succeeded'
+        ? 'paid'
         : payment?.status === 'pending' || payment?.status === 'processing'
           ? 'pending'
           : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
@@ -147,6 +155,54 @@ export function CustomerOrderDetailScreen({
     const parsed = Number.parseFloat(String(raw));
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }, [payment?.refundedAmount]);
+
+  const prevOrderSyncRef = React.useRef<{
+    status?: string;
+    paymentState?: string;
+    disputeResolvedAt?: string | null;
+  }>({});
+
+  React.useEffect(() => {
+    if (!order) {
+      return;
+    }
+    const prev = prevOrderSyncRef.current;
+    const wasDisputed = prev.status === 'disputed' && order.status !== 'disputed';
+    const paymentStateChanged = prev.paymentState !== undefined && prev.paymentState !== order.paymentState;
+    const resolvedChanged = prev.disputeResolvedAt !== undefined && prev.disputeResolvedAt !== order.disputeResolvedAt;
+    prevOrderSyncRef.current = {
+      status: order.status,
+      paymentState: order.paymentState,
+      disputeResolvedAt: order.disputeResolvedAt,
+    };
+    if (wasDisputed || paymentStateChanged || resolvedChanged) {
+      void refetchPayment();
+    }
+  }, [order, refetchPayment]);
+
+  React.useEffect(() => {
+    if (order?.status !== 'completed' || !order.completedAt) {
+      return;
+    }
+    const completedAtMs = new Date(order.completedAt).getTime();
+    if (!Number.isFinite(completedAtMs)) {
+      return;
+    }
+    const delayMs = completedAtMs + DISPUTE_COMPLAINT_WINDOW_MS - Date.now();
+    const timer = setTimeout(() => {
+      setNowMs(Date.now());
+    }, Math.max(0, delayMs) + 1);
+    return () => clearTimeout(timer);
+  }, [order?.status, order?.completedAt]);
+
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        setNowMs(Date.now());
+      }
+    });
+    return () => subscription.remove();
+  }, []);
   const handlePaymentResult = (result: OrderPaymentRecord) => {
     setIsPaymentOpen(false);
     void refetch();
@@ -194,8 +250,13 @@ export function CustomerOrderDetailScreen({
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
+    setNowMs(Date.now());
     try {
-      await Promise.allSettled([refetch(), refetchReview()]);
+      await Promise.allSettled([
+        refetch(),
+        refetchReview(),
+        ...(shouldFetchPayment ? [refetchPayment()] : []),
+      ]);
     }
     finally {
       setIsManualRefreshing(false);
@@ -336,14 +397,52 @@ export function CustomerOrderDetailScreen({
     }
   };
 
+  const getCurrentDisputeEligibility = React.useCallback(
+    (timestampMs: number) =>
+      getDisputeEligibility(
+        order ? { ...order, paymentState: paymentState ?? order.paymentState } : null,
+        'customer',
+        timestampMs,
+      ),
+    [order, paymentState],
+  );
+
   const handleOpenDispute = () => {
+    const freshNow = Date.now();
+    setNowMs(freshNow);
+    const freshEligibility = getCurrentDisputeEligibility(freshNow);
+    if (!freshEligibility.canDispute) {
+      Alert.alert(
+        'Không thể khiếu nại',
+        freshEligibility.isFullyRefunded
+          ? 'Đơn hàng đã được hoàn tiền toàn phần.'
+          : 'Đã hết thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng.',
+      );
+      return;
+    }
     setIsDisputeOpen(true);
   };
 
+  const checkDisputeEligibilityBeforeSubmit = React.useCallback((): string | null => {
+    const freshNow = Date.now();
+    setNowMs(freshNow);
+    const freshEligibility = getCurrentDisputeEligibility(freshNow);
+    if (!freshEligibility.canDispute) {
+      if (freshEligibility.isFullyRefunded) {
+        return 'Đơn hàng đã được hoàn tiền toàn phần nên không thể mở khiếu nại mới.';
+      }
+      if (freshEligibility.isWindowExpired) {
+        return 'Đã quá thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng, không thể mở khiếu nại.';
+      }
+      return 'Trạng thái đơn hàng hiện tại không thể mở khiếu nại.';
+    }
+    return null;
+  }, [getCurrentDisputeEligibility]);
+
   const currentStatus = order?.status || (isPlumberOrder ? 'confirmed' : 'created');
   const disputeEligibility = React.useMemo(
-    () => getDisputeEligibility(order ? { ...order, paymentState: paymentState ?? order.paymentState } : null, 'customer'),
-    [order, paymentState],
+    () => getCurrentDisputeEligibility(nowMs),
+    [getCurrentDisputeEligibility, nowMs],
   );
 
   return (
@@ -386,7 +485,7 @@ export function CustomerOrderDetailScreen({
           disputeCategory={order?.disputeCategory}
         />
 
-        {currentStatus !== 'disputed' && (order?.disputeResolutionNote || refundedAmountNumber > 0) && (
+        {currentStatus !== 'disputed' && Boolean(order?.disputeResolvedAt || order?.disputeResolutionNote) && (
           <View
             testID="customer-dispute-resolution-card"
             className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20"
@@ -457,6 +556,7 @@ export function CustomerOrderDetailScreen({
           agreedPrice={payment?.amount ?? order?.agreedPrice ?? (isPlumberOrder ? 250000 : 0)}
           paymentState={paymentState}
           paymentMethod={payment?.method}
+          refundedAmount={payment?.refundedAmount}
         />
 
         {/* 4b. Customer Review Section (When order is completed) */}
@@ -783,6 +883,7 @@ export function CustomerOrderDetailScreen({
               isPostCompletion={disputeEligibility.isPostCompletion}
               remainingDays={disputeEligibility.remainingDays}
               isSubmitting={isDisputing}
+              checkEligibilityBeforeSubmit={checkDisputeEligibilityBeforeSubmit}
               onSubmit={openDispute}
               onSuccess={() => {
                 Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ đã tiếp nhận yêu cầu và sẽ liên hệ bạn sớm nhất.');

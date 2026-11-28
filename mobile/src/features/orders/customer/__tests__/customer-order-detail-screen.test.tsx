@@ -1115,5 +1115,88 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       });
       expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
     });
+
+    it('P2-03: hides warranty dispute button automatically when clock crosses 168h boundary', async () => {
+      jest.useFakeTimers();
+      const baseTime = new Date('2026-11-20T10:00:00.000Z').getTime();
+      jest.setSystemTime(baseTime);
+
+      const completedOrder = {
+        ...baseOrder,
+        status: 'completed',
+        paymentState: 'paid',
+        completedAt: new Date(baseTime - (7 * 24 * 60 * 60 * 1000 - 5000)).toISOString(),
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: completedOrder,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      try {
+        render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+        expect(await screen.findByTestId('customer-open-dispute-btn')).toBeOnTheScreen();
+
+        await act(async () => {
+          jest.advanceTimersByTime(6000);
+        });
+
+        await waitFor(() => {
+          expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
+          expect(screen.getByTestId('customer-dispute-expired-note')).toBeOnTheScreen();
+        });
+      }
+      finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('P2-05 & P2-06: does not let stale succeeded payment override refunded order, refetches payment on refresh, and separates non-dispute refund from dispute card', async () => {
+      const completedYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const nonDisputeRefundOrder = {
+        ...baseOrder,
+        status: 'completed',
+        paymentState: 'refunded',
+        completedAt: completedYesterday,
+        disputeResolvedAt: null,
+        disputeResolutionNote: null,
+      };
+
+      jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
+        data: nonDisputeRefundOrder,
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+      const paymentSpy = jest.spyOn(PaymentApi, 'getPaymentByOrder').mockResolvedValue({
+        data: {
+          ...testPayment,
+          status: 'succeeded',
+          refundedAmount: '200000',
+        },
+        statusCode: 200,
+        message: 'OK',
+      } as any);
+
+      render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('customer-dispute-refunded-note')).toBeOnTheScreen();
+        expect(screen.getByTestId('payment-card-refunded-row')).toBeOnTheScreen();
+      });
+
+      expect(screen.queryByTestId('customer-open-dispute-btn')).toBeNull();
+      expect(screen.queryByTestId('customer-dispute-resolution-card')).toBeNull();
+
+      const scrollView = screen.getByTestId('orders-customer-detail-screen');
+      await act(async () => {
+        scrollView.props.refreshControl.props.onRefresh();
+      });
+
+      await waitFor(() => {
+        expect(paymentSpy).toHaveBeenCalledTimes(2);
+      });
+    });
   });
 });

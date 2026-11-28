@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as React from 'react';
-import { Alert } from 'react-native';
+import { Alert, Modal } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@/lib/test-utils';
 import { OrdersApi } from '../../api/orders.api';
 import { OrderDisputeModal } from '../order-dispute-modal';
@@ -154,6 +154,190 @@ describe('OrderDisputeModal', () => {
         expect.objectContaining({
           evidenceUrls: ['https://cdn.handygo.vn/camera-evidence.jpg'],
         }),
+      );
+    });
+  });
+
+  it('P2-01: blocks submit on partial upload failure, supports retry and removing failed image', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+      buttons?.find(btn => btn.text === 'Chọn từ thư viện')?.onPress?.();
+    });
+    jest.spyOn(ImagePicker, 'requestMediaLibraryPermissionsAsync').mockResolvedValue({
+      granted: true,
+      status: 'granted',
+    } as any);
+    jest.spyOn(ImagePicker, 'launchImageLibraryAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///ok.jpg' }, { uri: 'file:///fail.jpg' }],
+    } as any);
+
+    const uploadSpy = jest.spyOn(OrdersApi, 'uploadImageDetailed')
+      .mockResolvedValueOnce({ url: 'https://cdn.handygo.vn/ok.jpg' })
+      .mockRejectedValueOnce(new Error('Upload failed'));
+
+    const onSubmit = jest.fn().mockResolvedValue({});
+
+    render(
+      <OrderDisputeModal
+        visible
+        orderCode="ORD-005"
+        onSubmit={onSubmit}
+        onClose={jest.fn()}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('dispute-add-evidence-btn'));
+
+    const retryBtn = await screen.findByTestId(/dispute-retry-media-/);
+    fireEvent.press(screen.getByTestId('dispute-quick-reason-0'));
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    expect(await screen.findByText(/Có ảnh tải lên thất bại/i)).toBeOnTheScreen();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    uploadSpy.mockResolvedValueOnce({ url: 'https://cdn.handygo.vn/retried.jpg' });
+    fireEvent.press(retryBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId(/dispute-retry-media-/)).toBeNull();
+      expect(screen.getByTestId('dispute-submit-btn')).not.toBeDisabled();
+    });
+
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidenceUrls: ['https://cdn.handygo.vn/ok.jpg', 'https://cdn.handygo.vn/retried.jpg'],
+        }),
+      );
+    });
+  });
+
+  it('P2-01: allows removing failed image and submitting remaining completed images', async () => {
+    jest.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+      buttons?.find(btn => btn.text === 'Chọn từ thư viện')?.onPress?.();
+    });
+    jest.spyOn(ImagePicker, 'requestMediaLibraryPermissionsAsync').mockResolvedValue({
+      granted: true,
+      status: 'granted',
+    } as any);
+    jest.spyOn(ImagePicker, 'launchImageLibraryAsync').mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///ok2.jpg' }, { uri: 'file:///fail2.jpg' }],
+    } as any);
+
+    jest.spyOn(OrdersApi, 'uploadImageDetailed')
+      .mockResolvedValueOnce({ url: 'https://cdn.handygo.vn/ok2.jpg' })
+      .mockRejectedValueOnce(new Error('Upload failed'));
+
+    const onSubmit = jest.fn().mockResolvedValue({});
+
+    render(
+      <OrderDisputeModal
+        visible
+        orderCode="ORD-006"
+        onSubmit={onSubmit}
+        onClose={jest.fn()}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('dispute-add-evidence-btn'));
+    const retryBtn = await screen.findByTestId(/dispute-retry-media-/);
+    const failedId = retryBtn.props.testID.replace('dispute-retry-media-', '');
+
+    fireEvent.press(screen.getByTestId(`dispute-remove-media-${failedId}`));
+    fireEvent.press(screen.getByTestId('dispute-quick-reason-0'));
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          evidenceUrls: ['https://cdn.handygo.vn/ok2.jpg'],
+        }),
+      );
+    });
+  });
+
+  it('P2-02: locks modal close/cancel/double-submit while submitting and preserves draft on error', async () => {
+    let rejectSubmit!: (reason?: unknown) => void;
+    const onSubmit = jest.fn(
+      () => new Promise((_resolve, reject) => {
+        rejectSubmit = reject;
+      }),
+    );
+    const onClose = jest.fn();
+
+    const view = render(
+      <OrderDisputeModal
+        visible
+        orderCode="ORD-007"
+        onSubmit={onSubmit}
+        onClose={onClose}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('dispute-category-price_fraud'));
+    fireEvent.changeText(screen.getByTestId('dispute-reason-input'), 'Thu phí sai so với thỏa thuận ban đầu.');
+
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByTestId('dispute-modal-close-btn'));
+    fireEvent.press(screen.getByTestId('dispute-cancel-btn'));
+    view.UNSAFE_getByType(Modal).props.onRequestClose?.();
+
+    expect(onClose).not.toHaveBeenCalled();
+
+    rejectSubmit(new Error('Lỗi mạng tạm thời'));
+
+    expect(await screen.findByTestId('dispute-submit-error')).toBeOnTheScreen();
+    expect(screen.getByTestId('dispute-reason-input').props.value).toBe('Thu phí sai so với thỏa thuận ban đầu.');
+  });
+
+  it('P3-01: defaults category to other for worker and service_quality for customer on initial mount and reopen', async () => {
+    const onSubmit = jest.fn().mockResolvedValue({});
+
+    const { rerender } = render(
+      <OrderDisputeModal
+        visible
+        role="worker"
+        orderCode="ORD-W1"
+        onSubmit={onSubmit}
+        onClose={jest.fn()}
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('dispute-quick-reason-0'));
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'other' }),
+      );
+    });
+
+    onSubmit.mockClear();
+    rerender(
+      <OrderDisputeModal
+        visible
+        role="customer"
+        orderCode="ORD-C1"
+        onSubmit={onSubmit}
+        onClose={jest.fn()}
+      />,
+    );
+
+    // Trigger close/reset so category syncs when role prop changes on same mounted instance
+    fireEvent.press(screen.getByTestId('dispute-cancel-btn'));
+    fireEvent.press(screen.getByTestId('dispute-quick-reason-0'));
+    fireEvent.press(screen.getByTestId('dispute-submit-btn'));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'service_quality' }),
       );
     });
   });

@@ -9,6 +9,7 @@ export type OrderPaymentCardProps = {
   agreedPrice: number | string | undefined | null;
   paymentState?: PaymentState | string | null;
   paymentMethod?: string | null;
+  refundedAmount?: number | string | null;
 };
 
 function formatVND(amount: number | string | undefined | null): string {
@@ -62,9 +63,12 @@ export function OrderPaymentCard({
   agreedPrice,
   paymentState,
   paymentMethod,
+  refundedAmount,
 }: OrderPaymentCardProps) {
   const badge = getPaymentStateBadge(paymentState);
   const formattedTotal = formatVND(agreedPrice);
+  const parsedRefunded = parseOrderVnd(refundedAmount);
+  const hasRefundedAmount = parsedRefunded != null && parsedRefunded > 0;
 
   return (
     <View className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-xs dark:border-neutral-800 dark:bg-neutral-900">
@@ -103,6 +107,20 @@ export function OrderPaymentCard({
             {paymentMethod === 'point' ? 'Điểm ví HandyGo' : paymentMethod === 'cash' ? 'Tiền mặt' : paymentMethod ?? 'Chưa chọn phương thức'}
           </Text>
         </View>
+
+        {hasRefundedAmount && (
+          <View
+            testID="payment-card-refunded-row"
+            className="flex-row items-center justify-between"
+          >
+            <Text className="text-xs text-purple-700 dark:text-purple-300">
+              Số tiền đã hoàn
+            </Text>
+            <Text className="text-xs font-bold text-purple-800 dark:text-purple-200">
+              {formatPointsToVND(parsedRefunded.toString())}
+            </Text>
+          </View>
+        )}
 
         {/* Total summary */}
         <View className="mt-2 flex-row items-center justify-between border-t border-dashed border-neutral-200 pt-3 dark:border-neutral-700">
