@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Role } from '@app/auth';
-import { isAdminRole, maskEmail, maskPhone, maskSensitive } from './mask.util.js';
+import {
+  containsContactInformation,
+  isAdminRole,
+  maskEmail,
+  maskPhone,
+  maskSensitive,
+  sanitizePublicText,
+} from './mask.util.js';
 
 describe('mask.util', () => {
   describe('isAdminRole', () => {
@@ -67,5 +74,33 @@ describe('mask.util', () => {
       expect(maskSensitive(null)).toBeNull();
     });
   });
-});
 
+  describe('containsContactInformation & sanitizePublicText', () => {
+    it('detects phone numbers, emails, URLs, social handles, and messaging platforms', () => {
+      expect(containsContactInformation('Liên hệ 0912345678 nhé')).toBe(true);
+      expect(containsContactInformation('Call +84 912 345 678')).toBe(true);
+      expect(containsContactInformation('Mail: tho.dien@gmail.com')).toBe(true);
+      expect(containsContactInformation('Kết bạn Zalo mình')).toBe(true);
+      expect(containsContactInformation('Xem tại https://example.com')).toBe(true);
+      expect(containsContactInformation('Inbox @thodien123')).toBe(true);
+    });
+
+    it('allows normal service descriptions and experience numbers', () => {
+      expect(containsContactInformation('Thợ điện nước 10 năm kinh nghiệm, hỗ trợ 24/7')).toBe(false);
+      expect(containsContactInformation('Nạp gas R32/R410A, vệ sinh điều hòa Panasonic')).toBe(false);
+      expect(containsContactInformation(null)).toBe(false);
+    });
+
+    it('sanitizes embedded phones, emails, and off-platform contacts in public text', () => {
+      const sanitized = sanitizePublicText(
+        'Thợ 10 năm kinh nghiệm, gọi 0912345678 hoặc email nguyenvan@gmail.com qua Zalo',
+      );
+      expect(sanitized).toContain('09***78');
+      expect(sanitized).toContain('ng***an@gmail.com');
+      expect(sanitized).not.toContain('0912345678');
+      expect(sanitized).not.toContain('nguyenvan@gmail.com');
+      expect(sanitized).not.toMatch(/\bzalo\b/i);
+      expect(sanitizePublicText(null)).toBeNull();
+    });
+  });
+});

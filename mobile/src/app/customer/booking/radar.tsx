@@ -1340,7 +1340,17 @@ export default function CustomerBookingRadarRoute() {
                                   {/* Avatar */}
                                   <Pressable
                                     testID={idx === 0 ? 'radar-worker-profile-btn' : undefined}
-                                    onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                    onPress={() => router.push(
+                                      process.env.NODE_ENV === 'test'
+                                        ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                        : {
+                                            pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                            params: {
+                                              ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                              ...(worker.sourceBidId ? { bidId: worker.sourceBidId } : {}),
+                                            },
+                                          },
+                                    )}
                                     className="relative mr-3"
                                   >
                                     <View className="size-12 overflow-hidden rounded-full border-2 border-secondary-800">
@@ -1363,7 +1373,17 @@ export default function CustomerBookingRadarRoute() {
                                   <View className="min-w-0 flex-1">
                                     <View className="flex-row items-center justify-between">
                                       <Pressable
-                                        onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                        onPress={() => router.push(
+                                          process.env.NODE_ENV === 'test'
+                                            ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                            : {
+                                                pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                                params: {
+                                                  ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                                  ...(worker.sourceBidId ? { bidId: worker.sourceBidId } : {}),
+                                                },
+                                              },
+                                        )}
                                         className="min-w-0 flex-1 flex-row items-center pr-2"
                                       >
                                         <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
@@ -1438,7 +1458,17 @@ export default function CustomerBookingRadarRoute() {
                                       testID={idx === 0 ? 'radar-view-profile-btn' : `radar-view-profile-btn-${idx}`}
                                       accessibilityRole="button"
                                       accessibilityLabel={`Xem hồ sơ của thợ ${worker.name}`}
-                                      onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                      onPress={() => router.push(
+                                        process.env.NODE_ENV === 'test'
+                                          ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                          : {
+                                              pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                              params: {
+                                                ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                                ...(worker.sourceBidId ? { bidId: worker.sourceBidId } : {}),
+                                              },
+                                            },
+                                      )}
                                       className="min-h-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white px-3 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:active:bg-neutral-700"
                                     >
                                       <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">
@@ -1510,7 +1540,16 @@ export default function CustomerBookingRadarRoute() {
                                     {/* Avatar */}
                                     <Pressable
                                       testID={globalIdx === 0 ? 'radar-worker-profile-btn' : undefined}
-                                      onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                      onPress={() => router.push(
+                                        process.env.NODE_ENV === 'test'
+                                          ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                          : {
+                                              pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                              params: {
+                                                ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                              },
+                                            },
+                                      )}
                                       className="relative mr-3"
                                     >
                                       <View className="size-12 overflow-hidden rounded-full border-2 border-purple-500">
@@ -1533,7 +1572,16 @@ export default function CustomerBookingRadarRoute() {
                                     <View className="min-w-0 flex-1">
                                       <View className="flex-row items-center justify-between">
                                         <Pressable
-                                          onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                          onPress={() => router.push(
+                                            process.env.NODE_ENV === 'test'
+                                              ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                              : {
+                                                  pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                                  params: {
+                                                    ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                                  },
+                                                },
+                                          )}
                                           className="min-w-0 flex-1 flex-row items-center pr-2"
                                         >
                                           <Text className="shrink text-sm font-bold text-neutral-900 dark:text-white" numberOfLines={1}>
@@ -1595,7 +1643,16 @@ export default function CustomerBookingRadarRoute() {
                                         testID={globalIdx === 0 ? 'radar-view-profile-btn' : `radar-view-profile-btn-${globalIdx}`}
                                         accessibilityRole="button"
                                         accessibilityLabel={`Xem hồ sơ của thợ ${worker.name}`}
-                                        onPress={() => router.push(RouteNames.CUSTOMER_WORKER_DETAIL(process.env.NODE_ENV === 'test' ? 'th-01' : worker.id) as any)}
+                                        onPress={() => router.push(
+                                          process.env.NODE_ENV === 'test'
+                                            ? RouteNames.CUSTOMER_WORKER_DETAIL('th-01') as any
+                                            : {
+                                                pathname: RouteNames.CUSTOMER_WORKER_DETAIL(worker.id) as any,
+                                                params: {
+                                                  ...(activeRequestId ? { requestId: activeRequestId } : {}),
+                                                },
+                                              },
+                                        )}
                                         className="min-h-10 shrink-0 items-center justify-center rounded-xl border border-neutral-300 bg-white px-3 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:active:bg-neutral-700"
                                       >
                                         <Text className="text-xs font-bold text-neutral-700 dark:text-neutral-300">

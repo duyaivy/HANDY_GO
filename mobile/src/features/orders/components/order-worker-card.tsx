@@ -1,6 +1,8 @@
+import type { OrderStatus } from '../types/order.types';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
+  Alert,
   Image,
   Pressable,
   View,
@@ -8,16 +10,26 @@ import {
 import { ChatIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
+import {
+  buildConversationHref,
+  canInitiateConversation,
+  resolveConversationErrorMessage,
+  resolveConversationForContext,
+} from '@/features/chat/resolve-conversation';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 export type OrderWorkerCardProps = {
   workerId?: string;
   workerName?: string;
   avatarUrl?: string;
-  phoneNumber?: string;
   rating?: number;
   completedJobs?: number;
   completionRate?: number;
   headline?: string;
+  orderId?: string;
+  requestId?: string;
+  bidId?: string | null;
+  orderStatus?: OrderStatus;
 };
 
 export function OrderWorkerCard({
@@ -28,14 +40,44 @@ export function OrderWorkerCard({
   completedJobs,
   completionRate,
   headline = 'Thợ chuyên nghiệp HandyGo',
+  orderId,
+  requestId,
+  bidId,
 }: OrderWorkerCardProps) {
   const router = useRouter();
+  const authUserId = useAuthStore(state => (state.isAuthenticated ? state.user?.id : null));
+  const [chatPending, setChatPending] = React.useState(false);
+  const chatOpeningRef = React.useRef(false);
 
-  const handleChat = () => {
-    router.push({
-      pathname: RouteNames.CUSTOMER_CHAT as any,
-      params: workerId ? { workerId, workerName } : undefined,
-    });
+  const canChat = Boolean(
+    authUserId
+    && canInitiateConversation({ workerId, orderId, requestId, bidId }),
+  );
+  const chatDisabled = !canChat || chatPending;
+
+  const handleChat = async () => {
+    if (chatDisabled || chatOpeningRef.current) {
+      return;
+    }
+    chatOpeningRef.current = true;
+    setChatPending(true);
+    try {
+      const conversation = await resolveConversationForContext({
+        workerId,
+        workerName,
+        orderId,
+        requestId,
+        bidId,
+      });
+      router.push(buildConversationHref(conversation, workerName));
+    }
+    catch (error) {
+      Alert.alert('Chưa thể nhắn tin', resolveConversationErrorMessage(error));
+    }
+    finally {
+      chatOpeningRef.current = false;
+      setChatPending(false);
+    }
   };
 
   const handleViewProfile = () => {
@@ -62,7 +104,7 @@ export function OrderWorkerCard({
               <View className="flex-row items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 dark:bg-amber-950/40">
                 <StarIcon size={12} color="#F59E0B" fill="#F59E0B" />
                 <Text className="text-xs font-bold text-amber-700 dark:text-amber-400">
-                  {rating.toFixed(1)}
+                  {rating!.toFixed(1)}
                 </Text>
               </View>
             )
@@ -127,12 +169,20 @@ export function OrderWorkerCard({
           testID="worker-chat-btn"
           accessibilityRole="button"
           accessibilityLabel="Nhắn tin cho thợ"
-          onPress={handleChat}
-          className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 active:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:active:bg-indigo-900/60"
+          accessibilityState={{ disabled: chatDisabled }}
+          disabled={chatDisabled}
+          onPress={() => {
+            void handleChat();
+          }}
+          className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border ${
+            chatDisabled
+              ? 'border-neutral-200 bg-neutral-100 opacity-50 dark:border-neutral-800 dark:bg-neutral-900'
+              : 'border-indigo-200 bg-indigo-50/80 active:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:active:bg-indigo-900/60'
+          }`}
         >
-          <ChatIcon size={16} color="#4F46E5" />
-          <Text className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
-            Nhắn tin
+          <ChatIcon size={16} color={chatDisabled ? '#9CA3AF' : '#4F46E5'} />
+          <Text className={`text-xs font-bold ${chatDisabled ? 'text-neutral-400 dark:text-neutral-500' : 'text-indigo-700 dark:text-indigo-300'}`}>
+            {chatPending ? 'Đang mở...' : 'Nhắn tin'}
           </Text>
         </Pressable>
 

@@ -1,14 +1,18 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import * as React from 'react';
-import { Linking } from 'react-native';
+import { Alert, Linking } from 'react-native';
+import { ChatApi } from '@/features/chat/chat-api';
+import { queryClient } from '@/lib/api/query-client';
 import { render } from '@/lib/test-utils';
 import { WorkersApi } from '@/services/workers/workers-api';
+import { useAuthStore } from '@/stores/use-auth-store';
 import { WorkerDetailScreen } from '../worker-detail-screen';
 
 const mockBack = jest.fn();
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 let mockParams: Record<string, string> = {};
+const initialAuthState = useAuthStore.getState();
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({
@@ -24,15 +28,24 @@ describe('WorkerDetailScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockParams = {};
+    queryClient.clear();
+    useAuthStore.setState({
+      ...initialAuthState,
+      isAuthenticated: true,
+      user: { id: 'cust-1', fullName: 'Khách Hàng', role: 'Customer', roles: ['Customer'] } as any,
+      activeMode: 'Customer',
+    });
     jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true as any);
     jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any);
   });
 
   afterEach(() => {
+    queryClient.clear();
+    useAuthStore.setState(initialAuthState, true);
     jest.restoreAllMocks();
   });
 
-  it('renders worker profile header with avatar, name, and phone', () => {
+  it('renders worker profile header without trusting unmasked phone prop and hides call button', () => {
     render(
       <WorkerDetailScreen
         workerId="w-101"
@@ -46,7 +59,8 @@ describe('WorkerDetailScreen', () => {
     // Header Card
     expect(screen.getByTestId('worker-profile-card')).toBeOnTheScreen();
     expect(screen.getByTestId('worker-profile-name')).toHaveTextContent('Nguyễn Văn Thợ');
-    expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('0988 777 666');
+    expect(screen.queryByText('0988 777 666')).toBeNull();
+    expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('Chưa cập nhật số điện thoại');
     expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     expect(screen.getByTestId('worker-chat-btn')).toBeOnTheScreen();
   });
@@ -117,24 +131,78 @@ describe('WorkerDetailScreen', () => {
     expect(screen.queryByTestId('worker-call-btn')).toBeNull();
   });
 
-  it('navigates to chat on pressing Nhắn tin button', () => {
+  it('resolves conversation and navigates to /chat/:id when eligible request/bid context is present', async () => {
+    jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValueOnce({
+      statusCode: 200,
+      data: { id: 'worker-prof-1', userId: 'worker-user-1', fullName: 'Nguyễn Văn Thợ', phone: '09***78', stats: { averageRating: 4.8, ratingCount: 1, completedOrderCount: 1, orderCountTotal: 1, ratingDistribution: {} }, services: [] } as any,
+    } as any);
+    jest.spyOn(ChatApi, 'list').mockResolvedValueOnce({ items: [], nextCursor: null });
+    jest.spyOn(ChatApi, 'create').mockResolvedValueOnce({
+      id: 'conv-detail-1',
+      requestId: 'req-101',
+      orderId: null,
+      customerId: 'cust-1',
+      workerId: 'worker-user-1',
+      workerName: 'Nguyễn Văn Thợ',
+      status: 'OPEN',
+      lastSequence: '0',
+      lastMessageAt: null,
+      createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-01T00:00:00Z',
+      permissions: { read: true, send: true, reason: null },
+      readStates: [],
+    });
+
     render(
       <WorkerDetailScreen
-        workerId="w-101"
+        workerId="worker-prof-1"
         workerName="Nguyễn Văn Thợ"
+        requestId="req-101"
+        bidId="bid-101"
       />,
     );
 
     const chatBtn = screen.getByTestId('worker-chat-btn');
     fireEvent.press(chatBtn);
 
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/customer/chat',
-      params: {
-        workerId: 'w-101',
-        workerName: 'Nguyễn Văn Thợ',
-      },
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/chat/conv-detail-1?name=Nguy%E1%BB%85n%20V%C4%83n%20Th%E1%BB%A3');
     });
+  });
+
+  it('disables chat CTA when profile lacks eligible bid/request/order context and surfaces BE denial alert', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+
+    const { unmount } = render(
+      <WorkerDetailScreen
+        workerId="worker-real-no-ctx"
+        workerName="Thợ Không Ngữ Cảnh"
+      />,
+    );
+
+    const disabledBtn = screen.getByTestId('worker-chat-btn');
+    expect(disabledBtn).toBeDisabled();
+    fireEvent.press(disabledBtn);
+    expect(mockPush).not.toHaveBeenCalled();
+    unmount();
+
+    jest.spyOn(ChatApi, 'list').mockResolvedValueOnce({ items: [], nextCursor: null });
+    jest.spyOn(ChatApi, 'create').mockRejectedValueOnce({ code: 'CHAT_INELIGIBLE' });
+
+    render(
+      <WorkerDetailScreen
+        workerId="worker-real-denied"
+        workerName="Thợ Bị Từ Chối"
+        requestId="req-denied"
+        bidId="bid-denied"
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('worker-chat-btn'));
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Chưa thể nhắn tin', expect.any(String));
+    });
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('handles back button via onBack prop or router.back', () => {
@@ -210,44 +278,87 @@ describe('WorkerDetailScreen', () => {
     expect(screen.getByText('Xem tất cả')).toBeOnTheScreen();
   });
 
-  describe('Phone number fallback & call CTA safety', () => {
-    it('does NOT fallback to mock phone for real worker with no phone, hides call CTA', async () => {
+  describe('Phone number masking & route/prop safety', () => {
+    it('never renders unmasked phone from props or route params while API is loading or returns null', async () => {
+      mockParams = { id: 'worker-real-999-uuid', phone: '0988777666', phoneNumber: '0933 444 555' };
+      jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValueOnce({
+        statusCode: 200,
+        data: {
+          id: 'worker-real-999-uuid',
+          userId: 'u-999',
+          fullName: 'Thợ Thật Không Số',
+          phone: null,
+          status: 'verified',
+          isVerified: true,
+          stats: { averageRating: 0, ratingCount: 0, completedOrderCount: 0, orderCountTotal: 0, ratingDistribution: {} },
+          services: [],
+        } as any,
+      } as any);
+
       render(
         <WorkerDetailScreen
           workerId="worker-real-999-uuid"
           workerName="Thợ Thật Không Số"
+          phoneNumber="0911 222 333"
         />,
       );
 
-      // Verify header phone does not show fake numbers
+      expect(screen.queryByText('0988777666')).toBeNull();
+      expect(screen.queryByText('0933 444 555')).toBeNull();
+      expect(screen.queryByText('0911 222 333')).toBeNull();
       expect(screen.queryByText('0912 345 678')).toBeNull();
-      expect(screen.queryByText('0977 888 999')).toBeNull();
-      expect(screen.queryByText('0988 123 456')).toBeNull();
       expect(screen.getByText('Chưa cập nhật số điện thoại')).toBeOnTheScreen();
       expect(screen.queryByTestId('worker-call-btn')).toBeNull();
+
+      await waitFor(() => {
+        expect(WorkersApi.getWorkerPublicProfile).toHaveBeenCalledWith('worker-real-999-uuid');
+      });
+      expect(screen.queryByText('0988777666')).toBeNull();
+      expect(screen.queryByText('0933 444 555')).toBeNull();
+      expect(screen.queryByText('0911 222 333')).toBeNull();
     });
 
-    it('hides call button even when real worker has phone', async () => {
+    it('renders only backend-masked phone even if route params/props inject raw phone', async () => {
+      mockParams = { id: 'worker-real-masked-uuid', phone: '0912345678', phoneNumber: '0912345678' };
+      jest.spyOn(WorkersApi, 'getWorkerPublicProfile').mockResolvedValueOnce({
+        statusCode: 200,
+        data: {
+          id: 'worker-real-masked-uuid',
+          userId: 'u-masked',
+          fullName: 'Thợ Thật Đã Mask',
+          phone: '09***78',
+          status: 'verified',
+          isVerified: true,
+          stats: { averageRating: 4.8, ratingCount: 5, completedOrderCount: 10, orderCountTotal: 10, ratingDistribution: {} },
+          services: [],
+        } as any,
+      } as any);
+
       render(
         <WorkerDetailScreen
-          workerId="worker-real-999-uuid"
-          workerName="Thợ Thật Có Số"
-          phoneNumber="0933 444 555"
+          workerId="worker-real-masked-uuid"
+          workerName="Thợ Thật Đã Mask"
+          phoneNumber="0912345678"
         />,
       );
 
-      expect(screen.getByText('0933 444 555')).toBeOnTheScreen();
+      expect(screen.queryByText('0912345678')).toBeNull();
+      await waitFor(() => {
+        expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('09***78');
+      });
+      expect(screen.queryByText('0912345678')).toBeNull();
       expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
 
-    it('falls back to demo phone only for explicit mock worker (th-01)', () => {
+    it('does not expose hardcoded demo phone even for mock worker (th-01)', () => {
       render(
         <WorkerDetailScreen
           workerId="th-01"
         />,
       );
 
-      expect(screen.getByText('0977 888 999')).toBeOnTheScreen();
+      expect(screen.queryByText('0977 888 999')).toBeNull();
+      expect(screen.getByTestId('worker-profile-phone')).toHaveTextContent('Chưa cập nhật số điện thoại');
     });
   });
 

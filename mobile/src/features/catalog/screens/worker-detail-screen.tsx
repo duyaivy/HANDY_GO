@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Linking,
   Modal,
@@ -36,16 +37,27 @@ import { Screen } from '@/components/ui/screen';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
 import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
+import {
+  buildConversationHref,
+  canInitiateConversation,
+  resolveConversationErrorMessage,
+  resolveConversationForContext,
+} from '@/features/chat/resolve-conversation';
 import { WorkersApi } from '@/services/workers/workers-api';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 export type WorkerDetailScreenProps = {
   workerId?: string;
   title?: string;
   workerName?: string;
+  /** @deprecated Phone numbers must only come masked from backend profile API; prop is ignored for security. */
   phoneNumber?: string;
   avatarUrl?: string;
   headline?: string;
   services?: WorkerServiceOfferingItem[];
+  orderId?: string;
+  requestId?: string;
+  bidId?: string | null;
   onBack?: () => void;
 };
 
@@ -125,23 +137,31 @@ export function WorkerDetailScreen({
   workerId: propWorkerId,
   title: propTitle,
   workerName: propWorkerName,
-  phoneNumber: propPhoneNumber,
+  phoneNumber: _ignoredPropPhoneNumber,
   avatarUrl: propAvatarUrl,
   headline: propHeadline,
   services: propServices,
+  orderId: propOrderId,
+  requestId: propRequestId,
+  bidId: propBidId,
   onBack,
 }: WorkerDetailScreenProps = {}) {
   const router = useRouter();
+  const authUserId = useAuthStore(state => (state.isAuthenticated ? state.user?.id : null));
   const searchParams = useLocalSearchParams<{
     id?: string;
     name?: string;
-    phone?: string;
-    phoneNumber?: string;
     avatarUrl?: string;
     headline?: string;
+    orderId?: string;
+    requestId?: string;
+    bidId?: string;
   }>();
 
   const workerId = propWorkerId || searchParams?.id || 'th-01';
+  const orderId = propOrderId ?? searchParams?.orderId;
+  const requestId = propRequestId ?? searchParams?.requestId;
+  const bidId = propBidId ?? searchParams?.bidId;
 
   const isCanhVan = workerId === 'a-canh-van' || workerId === 'canh-van';
   const isThanhLong = workerId === 'a7d8c9e0-1122-3344-5566-778899aabbcc' || workerId === 'a7d8c9e0-1122-4344-8566-778899aabbcc';
@@ -251,15 +271,8 @@ export function WorkerDetailScreen({
         ? 'Thợ kỹ thuật sửa chữa đa năng'
         : (workerId === 'th-01' ? 'Thợ điện nước & thiết bị gia đình' : 'Thợ kỹ thuật chuyên nghiệp'));
 
-  const phoneNumber = propPhoneNumber
-    || profileData?.phone
-    || searchParams?.phoneNumber
-    || searchParams?.phone
-    || (isMockWorker
-      ? (isCanhVan
-          ? '0988 123 456'
-          : (workerId === 'th-01' ? '0977 888 999' : '0912 345 678'))
-      : undefined);
+  // Never trust phone props, route params, or hardcoded mock phones; only render backend-masked phone.
+  const phoneNumber = !isMockWorker ? (profileData?.phone ?? undefined) : undefined;
 
   // Worker Services (Multiple Services Support)
   const defaultMockServices: WorkerServiceOfferingItem[] = React.useMemo(() => [
@@ -392,11 +405,44 @@ export function WorkerDetailScreen({
 
   const isLoading = profileQuery.isLoading || reviewsInfiniteQuery.isLoading;
 
-  const handleChat = () => {
-    router.push({
-      pathname: RouteNames.CUSTOMER_CHAT as any,
-      params: workerId ? { workerId, workerName } : undefined,
-    });
+  const [chatPending, setChatPending] = React.useState(false);
+  const chatOpeningRef = React.useRef(false);
+  const chatWorkerId = profileData?.userId || workerId;
+  const canChat = Boolean(
+    authUserId
+    && !isMockWorker
+    && canInitiateConversation({
+      workerId: chatWorkerId,
+      orderId,
+      requestId,
+      bidId,
+    }),
+  );
+  const chatDisabled = !canChat || chatPending;
+
+  const handleChat = async () => {
+    if (chatDisabled || chatOpeningRef.current) {
+      return;
+    }
+    chatOpeningRef.current = true;
+    setChatPending(true);
+    try {
+      const conversation = await resolveConversationForContext({
+        workerId: chatWorkerId,
+        workerName,
+        orderId,
+        requestId,
+        bidId,
+      });
+      router.push(buildConversationHref(conversation, workerName));
+    }
+    catch (error) {
+      Alert.alert('Chưa thể nhắn tin', resolveConversationErrorMessage(error));
+    }
+    finally {
+      chatOpeningRef.current = false;
+      setChatPending(false);
+    }
   };
 
   return (
@@ -481,13 +527,19 @@ export function WorkerDetailScreen({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Nhắn tin với thợ"
+              accessibilityState={{ disabled: chatDisabled }}
               testID="worker-chat-btn"
-              onPress={handleChat}
-              className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-white py-2.5 active:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:active:bg-neutral-700"
+              disabled={chatDisabled}
+              onPress={() => {
+                void handleChat();
+              }}
+              className={`flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-white py-2.5 dark:border-neutral-700 dark:bg-neutral-800 ${
+                chatDisabled ? 'opacity-50' : 'active:bg-neutral-50 dark:active:bg-neutral-700'
+              }`}
             >
-              <ChatIcon size={15} color="#2563EB" />
-              <Text className="text-xs font-bold text-neutral-800 dark:text-neutral-200">
-                Nhắn tin
+              <ChatIcon size={15} color={chatDisabled ? '#9CA3AF' : '#2563EB'} />
+              <Text className={`text-xs font-bold ${chatDisabled ? 'text-neutral-400 dark:text-neutral-500' : 'text-neutral-800 dark:text-neutral-200'}`}>
+                {chatPending ? 'Đang mở...' : 'Nhắn tin'}
               </Text>
             </Pressable>
           </View>

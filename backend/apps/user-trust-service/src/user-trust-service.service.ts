@@ -28,7 +28,12 @@ import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
 import { AuthClient } from './clients/auth.client.js';
-import { isAdminRole, maskPhone } from './common/utils/mask.util.js';
+import {
+  containsContactInformation,
+  isAdminRole,
+  maskPhone,
+  sanitizePublicText,
+} from './common/utils/mask.util.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -968,6 +973,11 @@ export class UserTrustServiceService {
 
     let updatedCustomerProfile: any = null;
     if (dto.bio !== undefined) {
+      if (containsContactInformation(dto.bio)) {
+        throw new BadRequestException(
+          'Tiểu sử không được chứa thông tin liên hệ cá nhân (số điện thoại, email, liên kết hoặc mạng xã hội).',
+        );
+      }
       updatedCustomerProfile = await this.db.customerProfile.upsert({
         where: { userId: targetUserId },
         update: {
@@ -2376,13 +2386,19 @@ export class UserTrustServiceService {
         ? Number(Number(worker.averageRating).toFixed(2))
         : 0;
 
-    const headline =
+    const isAdmin = isAdminRole(callerRoles);
+    const rawHeadline =
       worker.serviceOfferings.find((s) => s.isActive)?.title ||
       worker.serviceOfferings[0]?.title ||
       'Thợ kỹ thuật chuyên nghiệp';
+    const headline = isAdmin
+      ? rawHeadline
+      : (sanitizePublicText(rawHeadline) ?? rawHeadline);
 
     const rawPhone = (await this.authClient?.getUserPhone(worker.userId)) ?? null;
-    const phone = isAdminRole(callerRoles) ? rawPhone : maskPhone(rawPhone);
+    const phone = isAdmin ? rawPhone : maskPhone(rawPhone);
+    const rawBio = worker.user.customerProfile?.bio ?? null;
+    const bio = isAdmin ? rawBio : sanitizePublicText(rawBio);
 
     return {
       statusCode: 200,
@@ -2391,7 +2407,7 @@ export class UserTrustServiceService {
         userId: worker.userId,
         fullName: worker.user.fullName,
         avatarUrl: worker.user.avatarUrl,
-        bio: worker.user.customerProfile?.bio ?? null,
+        bio,
         phone,
         headline,
         status: worker.status,
@@ -2409,8 +2425,8 @@ export class UserTrustServiceService {
         services: worker.serviceOfferings.map((s) => ({
           id: s.id,
           serviceId: s.serviceId,
-          title: s.title,
-          description: s.description,
+          title: isAdmin ? s.title : sanitizePublicText(s.title),
+          description: isAdmin ? s.description : sanitizePublicText(s.description),
           experienceYears: s.experienceYears ?? 0,
           isActive: s.isActive,
         })),
@@ -2643,6 +2659,17 @@ export class UserTrustServiceService {
 
     if (!services || services.length === 0) {
       throw new BadRequestException('Vui lòng chọn ít nhất 1 dịch vụ đăng ký');
+    }
+
+    for (const svc of services) {
+      if (
+        containsContactInformation(svc?.title) ||
+        containsContactInformation(svc?.description)
+      ) {
+        throw new BadRequestException(
+          'Tiêu đề và mô tả dịch vụ không được chứa thông tin liên hệ cá nhân (số điện thoại, email, liên kết hoặc mạng xã hội).',
+        );
+      }
     }
 
     const serviceIds = [...new Set(services.map((s) => s.serviceId))];

@@ -1237,6 +1237,89 @@ describe('UserTrustServiceService', () => {
       const adminResult: any = await service.getWorkerPublicProfile(validWorkerId, 'admin-1', [Role.ADMIN]);
       expect(adminResult.data.phone).toBe('+84912345678');
     });
+
+    it('should sanitize embedded phone/email in bio, headline, and service descriptions for non-admin callers while preserving for Admin', async () => {
+      const mockWorker = {
+        id: validWorkerId,
+        userId: validUserId,
+        status: 'verified',
+        averageRating: 4.8,
+        ratingCount: 1,
+        completedOrderCount: 1,
+        orderCountTotal: 1,
+        verifiedAt: new Date('2026-10-01T00:00:00Z'),
+        approvedAt: new Date('2026-10-01T00:00:00Z'),
+        createdAt: new Date('2026-09-01T00:00:00Z'),
+        user: {
+          fullName: 'Trần Thợ Lành Nghề',
+          avatarUrl: null,
+          status: 'active',
+          customerProfile: { bio: 'Liên hệ 0912345678 hoặc tho@gmail.com qua Zalo' },
+        },
+        serviceOfferings: [
+          {
+            id: 'offering-1',
+            serviceId: '00000000-0000-0000-0000-000000000010',
+            title: 'Sửa điện 0912345678',
+            description: 'Gọi +84912345678 hoặc mail nguyenvan@gmail.com',
+            experienceYears: 5,
+            isActive: true,
+          },
+        ],
+        serviceAreas: [],
+      };
+      dbMock.workerProfile.findFirst.mockResolvedValue(mockWorker);
+      dbMock.workerReview.groupBy.mockResolvedValue([]);
+      dbMock.workerReview.findMany.mockResolvedValue([]);
+      authClientMock.getUserPhone.mockResolvedValue('+84912345678');
+
+      const customerRes: any = await service.getWorkerPublicProfile(validWorkerId, 'cust-1', [Role.CUSTOMER]);
+      expect(customerRes.data.bio).not.toContain('0912345678');
+      expect(customerRes.data.bio).not.toContain('tho@gmail.com');
+      expect(customerRes.data.headline).not.toContain('0912345678');
+      expect(customerRes.data.services[0].title).not.toContain('0912345678');
+      expect(customerRes.data.services[0].description).not.toContain('+84912345678');
+      expect(customerRes.data.services[0].description).not.toContain('nguyenvan@gmail.com');
+
+      const adminRes: any = await service.getWorkerPublicProfile(validWorkerId, 'admin-1', [Role.ADMIN]);
+      expect(adminRes.data.bio).toBe('Liên hệ 0912345678 hoặc tho@gmail.com qua Zalo');
+      expect(adminRes.data.headline).toBe('Sửa điện 0912345678');
+      expect(adminRes.data.services[0].description).toBe('Gọi +84912345678 hoặc mail nguyenvan@gmail.com');
+    });
+
+    it('should reject phone/email/off-platform contact info when updating bio or submitting worker service registration', async () => {
+      dbMock.user.findUnique.mockResolvedValue({ id: 'user-1' });
+
+      await expect(
+        service.updateProfile('user-1', 'user-1', { bio: 'Gọi 0912345678 để đặt lịch' }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.updateProfile('user-1', 'user-1', { bio: 'Mail: nguyenvan@gmail.com' }),
+      ).rejects.toThrow(BadRequestException);
+
+      dbMock.workerProfile.findUnique.mockResolvedValue({ id: 'wp-1', userId: 'user-1' });
+      dbMock.workerServiceRegistration.findFirst.mockResolvedValue(null);
+      catalogClientMock.getServices.mockResolvedValue([
+        { id: '00000000-0000-0000-0000-000000000010', categoryId: 'cat-1', isActive: true, categoryIsActive: true, name: 'Sửa điện' },
+      ]);
+
+      await expect(
+        service.submitWorkerServiceRegistration('user-1', {
+          categoryIds: ['cat-1'],
+          services: [
+            {
+              serviceId: '00000000-0000-0000-0000-000000000010',
+              title: 'Sửa điện nhanh',
+              description: 'Liên hệ Zalo 0912345678 hoặc mail worker@gmail.com',
+              experienceYears: 3,
+            },
+          ],
+          serviceArea: { address: 'Đà Nẵng', latitude: 16.05, longitude: 108.2, radiusKm: 10 },
+          evidenceFiles: [{ url: 'https://res.cloudinary.com/demo/image/upload/a.jpg', fileType: 'image' }],
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('getWorkerReviews', () => {

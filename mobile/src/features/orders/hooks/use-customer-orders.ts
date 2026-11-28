@@ -276,7 +276,6 @@ export function useCustomerOrderDetail(orderId?: string) {
           completedJobsCount: typeof workerSnapshot.completedJobsCount === 'number'
             ? workerSnapshot.completedJobsCount
             : (typeof workerSnapshot.completedOrderCount === 'number' ? workerSnapshot.completedOrderCount : undefined),
-          phone: workerSnapshot.phone || workerSnapshot.phoneNumber || undefined,
           headline: workerSnapshot.headline || undefined,
         };
       }
@@ -286,7 +285,6 @@ export function useCustomerOrderDetail(orderId?: string) {
         avatarUrl?: string;
         rating?: number;
         completedJobsCount?: number;
-        phone?: string;
         headline?: string;
       } | null = null;
 
@@ -305,7 +303,6 @@ export function useCustomerOrderDetail(orderId?: string) {
               completedJobsCount: typeof rawProfile.completedOrderCount === 'number'
                 ? rawProfile.completedOrderCount
                 : (typeof (rawProfile as any).completedJobsCount === 'number' ? (rawProfile as any).completedJobsCount : undefined),
-              phone: rawProfile.phoneNumber || rawProfile.phone || undefined,
               headline: rawProfile.headline || undefined,
             };
           }
@@ -331,7 +328,6 @@ export function useCustomerOrderDetail(orderId?: string) {
               completedJobsCount: typeof profileData?.completedJobsCount === 'number'
                 ? profileData.completedJobsCount
                 : (typeof bidWorker.completedOrderCount === 'number' ? bidWorker.completedOrderCount : undefined),
-              phone: profileData?.phone || (bidWorker as any)?.phoneNumber || (bidWorker as any)?.phone || undefined,
               headline: profileData?.headline || (bidWorker as any)?.headline || undefined,
             };
           }
@@ -360,7 +356,6 @@ export function useCustomerOrderDetail(orderId?: string) {
               avatarUrl: matchedBid.workerProfile.avatarUrl || undefined,
               rating: typeof matchedBid.workerProfile.averageRating === 'number' ? matchedBid.workerProfile.averageRating : undefined,
               completedJobsCount: typeof matchedBid.workerProfile.completedOrderCount === 'number' ? matchedBid.workerProfile.completedOrderCount : undefined,
-              phone: (matchedBid.workerProfile as any)?.phoneNumber || (matchedBid.workerProfile as any)?.phone || undefined,
               headline: (matchedBid.workerProfile as any)?.headline || undefined,
             };
           }
@@ -375,7 +370,6 @@ export function useCustomerOrderDetail(orderId?: string) {
               avatarUrl: matchedRec.workerProfile.avatarUrl || undefined,
               rating: typeof matchedRec.workerProfile.averageRating === 'number' ? matchedRec.workerProfile.averageRating : undefined,
               completedJobsCount: typeof matchedRec.workerProfile.completedOrderCount === 'number' ? matchedRec.workerProfile.completedOrderCount : undefined,
-              phone: (matchedRec.workerProfile as any)?.phoneNumber || (matchedRec.workerProfile as any)?.phone || undefined,
               headline: (matchedRec.workerProfile as any)?.headline || undefined,
             };
           }
@@ -395,7 +389,6 @@ export function useCustomerOrderDetail(orderId?: string) {
               avatarUrl: matched.workerProfile.avatarUrl || undefined,
               rating: typeof matched.workerProfile.averageRating === 'number' ? matched.workerProfile.averageRating : undefined,
               completedJobsCount: typeof matched.workerProfile.completedOrderCount === 'number' ? matched.workerProfile.completedOrderCount : undefined,
-              phone: (matched.workerProfile as any)?.phoneNumber || (matched.workerProfile as any)?.phone || undefined,
               headline: (matched.workerProfile as any)?.headline || undefined,
             };
           }

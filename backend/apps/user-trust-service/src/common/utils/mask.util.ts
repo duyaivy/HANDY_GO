@@ -1,5 +1,12 @@
 import { Role } from '@app/auth';
 
+const EMAIL_PATTERN = /[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi;
+const PHONE_IN_TEXT_PATTERN = /(?:\+?\d)(?:[\s().-]*\d){8,14}/g;
+const URL_PATTERN = /(?:https?:\/\/|www\.)\S+/gi;
+const SOCIAL_HANDLE_PATTERN = /(^|\s)(@[a-z0-9_.]{3,})/gi;
+const OFF_PLATFORM_CHANNEL_PATTERN =
+  /\b(?:zalo|telegram|whatsapp|facebook|instagram|tiktok|wechat|viber|signal|m\.me|t\.me)\b/gi;
+
 /**
  * Checks whether the caller holds the Admin role (case-insensitive).
  */
@@ -78,3 +85,44 @@ export function maskEmail(email?: string | null): string | null {
   return `${local.slice(0, 2)}***${local.slice(-2)}${domain}`;
 }
 
+/**
+ * Detects whether free-form public profile text contains contact details or off-platform channels
+ * (phone numbers, emails, URLs, @handles, or messaging apps like Zalo/Telegram/Facebook).
+ */
+export function containsContactInformation(text?: string | null): boolean {
+  if (!text || !text.trim()) {
+    return false;
+  }
+  const normalized = text.normalize('NFKC');
+  EMAIL_PATTERN.lastIndex = 0;
+  PHONE_IN_TEXT_PATTERN.lastIndex = 0;
+  URL_PATTERN.lastIndex = 0;
+  SOCIAL_HANDLE_PATTERN.lastIndex = 0;
+  OFF_PLATFORM_CHANNEL_PATTERN.lastIndex = 0;
+  return (
+    EMAIL_PATTERN.test(normalized) ||
+    PHONE_IN_TEXT_PATTERN.test(normalized) ||
+    URL_PATTERN.test(normalized) ||
+    SOCIAL_HANDLE_PATTERN.test(normalized) ||
+    OFF_PLATFORM_CHANNEL_PATTERN.test(normalized)
+  );
+}
+
+/**
+ * Masks/redacts any contact details embedded inside free-form public profile text for non-admin callers.
+ */
+export function sanitizePublicText(text?: string | null): string | null {
+  if (text === null || text === undefined) {
+    return null;
+  }
+  if (!text.trim()) {
+    return text;
+  }
+  return text
+    .normalize('NFKC')
+    .replace(EMAIL_PATTERN, (match) => maskEmail(match) ?? '***')
+    .replace(PHONE_IN_TEXT_PATTERN, (match) => maskPhone(match) ?? '***')
+    .replace(URL_PATTERN, '[đã ẩn liên hệ]')
+    .replace(SOCIAL_HANDLE_PATTERN, (_, prefix: string) => `${prefix}[đã ẩn liên hệ]`)
+    .replace(OFF_PLATFORM_CHANNEL_PATTERN, '[đã ẩn liên hệ]');
+}
