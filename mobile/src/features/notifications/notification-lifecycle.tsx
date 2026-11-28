@@ -165,6 +165,8 @@ export function NotificationLifecycle() {
         queryClient.removeQueries({ queryKey: ['worker-my-service-registrations'] });
         void queryClient.cancelQueries({ queryKey: ['worker-skills-orders'] });
         queryClient.removeQueries({ queryKey: ['worker-skills-orders'] });
+        void queryClient.cancelQueries({ queryKey: ['worker-public-profile'] });
+        queryClient.removeQueries({ queryKey: ['worker-public-profile'] });
         void queryClient.cancelQueries({ queryKey: ['worker-public-profile-services'] });
         queryClient.removeQueries({ queryKey: ['worker-public-profile-services'] });
         usePushRegistrationStore.setState({ registration: null });

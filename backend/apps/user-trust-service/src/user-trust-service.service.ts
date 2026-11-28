@@ -28,6 +28,12 @@ import { OrderClient } from './clients/order.client.js';
 import { CatalogClient } from './clients/catalog.client.js';
 import { ConfigService } from '@app/config';
 import { AuthClient } from './clients/auth.client.js';
+import {
+  containsContactInformation,
+  isAdminRole,
+  maskPhone,
+  sanitizePublicText,
+} from './common/utils/mask.util.js';
 
 import { RabbitMQService } from '@app/rabbitmq';
 
@@ -861,7 +867,10 @@ export class UserTrustServiceService {
     };
   }
 
-  async getWorkerOrderSummary(workerUserId: string): Promise<unknown> {
+  async getWorkerOrderSummary(
+    workerUserId: string,
+    callerRoles?: string[],
+  ): Promise<unknown> {
     const worker = await this.db.workerProfile.findUnique({
       where: { userId: workerUserId },
       include: {
@@ -884,6 +893,10 @@ export class UserTrustServiceService {
     });
 
     if (worker && worker.user?.status === 'active') {
+      const rawHeadline = worker.serviceOfferings[0]?.title ?? null;
+      const headline = isAdminRole(callerRoles)
+        ? rawHeadline
+        : sanitizePublicText(rawHeadline);
       return {
         statusCode: 200,
         message: 'Lấy thông tin hồ sơ thợ thành công',
@@ -895,7 +908,7 @@ export class UserTrustServiceService {
           ratingCount: worker.ratingCount ?? 0,
           completedOrderCount: worker.completedOrderCount ?? 0,
           orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
-          headline: worker.serviceOfferings[0]?.title ?? null,
+          headline,
         },
       };
     }
@@ -967,6 +980,11 @@ export class UserTrustServiceService {
 
     let updatedCustomerProfile: any = null;
     if (dto.bio !== undefined) {
+      if (containsContactInformation(dto.bio)) {
+        throw new BadRequestException(
+          'Tiểu sử không được chứa thông tin liên hệ cá nhân (số điện thoại, email, liên kết hoặc mạng xã hội).',
+        );
+      }
       updatedCustomerProfile = await this.db.customerProfile.upsert({
         where: { userId: targetUserId },
         update: {
@@ -2279,6 +2297,7 @@ export class UserTrustServiceService {
   async getWorkerPublicProfile(
     workerIdentifier: string,
     currentUserId?: string,
+    callerRoles?: string[],
   ): Promise<unknown> {
     let workerWhere: any;
     if (workerIdentifier === 'me') {
@@ -2374,12 +2393,19 @@ export class UserTrustServiceService {
         ? Number(Number(worker.averageRating).toFixed(2))
         : 0;
 
-    const headline =
+    const isAdmin = isAdminRole(callerRoles);
+    const rawHeadline =
       worker.serviceOfferings.find((s) => s.isActive)?.title ||
       worker.serviceOfferings[0]?.title ||
       'Thợ kỹ thuật chuyên nghiệp';
+    const headline = isAdmin
+      ? rawHeadline
+      : (sanitizePublicText(rawHeadline) ?? rawHeadline);
 
-    const phone = await this.authClient?.getUserPhone(worker.userId) ?? null;
+    const rawPhone = (await this.authClient?.getUserPhone(worker.userId)) ?? null;
+    const phone = isAdmin ? rawPhone : maskPhone(rawPhone);
+    const rawBio = worker.user.customerProfile?.bio ?? null;
+    const bio = isAdmin ? rawBio : sanitizePublicText(rawBio);
 
     return {
       statusCode: 200,
@@ -2388,7 +2414,7 @@ export class UserTrustServiceService {
         userId: worker.userId,
         fullName: worker.user.fullName,
         avatarUrl: worker.user.avatarUrl,
-        bio: worker.user.customerProfile?.bio ?? null,
+        bio,
         phone,
         headline,
         status: worker.status,
@@ -2406,8 +2432,8 @@ export class UserTrustServiceService {
         services: worker.serviceOfferings.map((s) => ({
           id: s.id,
           serviceId: s.serviceId,
-          title: s.title,
-          description: s.description,
+          title: isAdmin ? s.title : sanitizePublicText(s.title),
+          description: isAdmin ? s.description : sanitizePublicText(s.description),
           experienceYears: s.experienceYears ?? 0,
           isActive: s.isActive,
         })),
@@ -2640,6 +2666,17 @@ export class UserTrustServiceService {
 
     if (!services || services.length === 0) {
       throw new BadRequestException('Vui lòng chọn ít nhất 1 dịch vụ đăng ký');
+    }
+
+    for (const svc of services) {
+      if (
+        containsContactInformation(svc?.title) ||
+        containsContactInformation(svc?.description)
+      ) {
+        throw new BadRequestException(
+          'Tiêu đề và mô tả dịch vụ không được chứa thông tin liên hệ cá nhân (số điện thoại, email, liên kết hoặc mạng xã hội).',
+        );
+      }
     }
 
     const serviceIds = [...new Set(services.map((s) => s.serviceId))];

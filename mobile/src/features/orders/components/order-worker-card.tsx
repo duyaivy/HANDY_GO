@@ -1,92 +1,105 @@
+import type { OrderStatus } from '../types/order.types';
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import {
   Alert,
   Image,
-  Linking,
   Pressable,
   View,
 } from 'react-native';
-import { Button } from '@/components/ui/button';
-import { ChatIcon, PhoneIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
+import { ChatIcon, StarIcon, UserIcon } from '@/components/ui/icons/handy-icons';
 import { Text } from '@/components/ui/text';
 import { RouteNames } from '@/constants/route-names';
-import { useWorkerPublicProfile } from '@/features/catalog/hooks/use-worker-public-profile';
+import {
+  buildConversationHref,
+  canInitiateConversation,
+  resolveConversationErrorMessage,
+  resolveConversationForContext,
+} from '@/features/chat/resolve-conversation';
+import { useAuthStore } from '@/stores/use-auth-store';
 
 export type OrderWorkerCardProps = {
   workerId?: string;
   workerName?: string;
   avatarUrl?: string;
-  phoneNumber?: string;
   rating?: number;
   completedJobs?: number;
   completionRate?: number;
   headline?: string;
+  orderId?: string;
+  requestId?: string;
+  bidId?: string | null;
+  orderStatus?: OrderStatus;
 };
 
 export function OrderWorkerCard({
   workerId,
   workerName = 'Thợ phụ trách',
   avatarUrl,
-  phoneNumber,
   rating,
   completedJobs,
   completionRate,
   headline = 'Thợ chuyên nghiệp HandyGo',
+  orderId,
+  requestId,
+  bidId,
 }: OrderWorkerCardProps) {
   const router = useRouter();
+  const authUserId = useAuthStore(state => (state.isAuthenticated ? state.user?.id : null));
+  const [chatPending, setChatPending] = React.useState(false);
+  const chatOpeningRef = React.useRef(false);
 
-  const isNoPhoneMock = workerId === 'worker-no-phone' || workerId === 'worker-missing-fields-uuid';
-  const isMockWorker = !isNoPhoneMock && (workerId === 'a-canh-van' || workerId === 'th-01' || workerId === 'mock-worker' || Boolean(workerId?.startsWith('mock-')));
-  const { data: publicProfile } = useWorkerPublicProfile(workerId, {
-    enabled: Boolean(workerId && !isNoPhoneMock && !phoneNumber),
-    staleTime: 5 * 60 * 1000,
-  });
+  const canChat = Boolean(
+    authUserId
+    && canInitiateConversation({ workerId, orderId, requestId, bidId }),
+  );
+  const chatDisabled = !canChat || chatPending;
 
-  const effectivePhone = phoneNumber
-    || publicProfile?.phone
-    || (isMockWorker
-      ? (workerId === 'a-canh-van' ? '0901234567' : '0912 345 678')
-      : undefined);
-
-  const handleCall = () => {
-    if (!effectivePhone) {
-      Alert.alert('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
+  const handleChat = async () => {
+    if (chatDisabled || chatOpeningRef.current) {
       return;
     }
-    const cleanPhone = effectivePhone.replace(/[^0-9+]/g, '');
-    if (!cleanPhone) {
-      Alert.alert('Thông báo', 'Số điện thoại của thợ không hợp lệ.');
-      return;
-    }
-    const url = `tel:${cleanPhone}`;
-    Linking.canOpenURL(url)
-      .then((supported) => {
-        if (supported) {
-          return Linking.openURL(url);
-        }
-        Alert.alert('Không thể gọi', `Thiết bị không hỗ trợ cuộc gọi tới số: ${effectivePhone}`);
-      })
-      .catch(() => {
-        Alert.alert('Lỗi', `Không thể kết nối cuộc gọi tới số: ${effectivePhone}`);
+    chatOpeningRef.current = true;
+    setChatPending(true);
+    try {
+      const conversation = await resolveConversationForContext({
+        workerId,
+        workerName,
+        orderId,
+        requestId,
+        bidId,
       });
-  };
-
-  const handleChat = () => {
-    router.push({
-      pathname: RouteNames.CUSTOMER_CHAT as any,
-      params: workerId ? { workerId, workerName } : undefined,
-    });
+      router.push(buildConversationHref(conversation, workerName));
+    }
+    catch (error) {
+      Alert.alert('Chưa thể nhắn tin', resolveConversationErrorMessage(error));
+    }
+    finally {
+      chatOpeningRef.current = false;
+      setChatPending(false);
+    }
   };
 
   const handleViewProfile = () => {
-    if (workerId) {
-      router.push(RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any);
+    if (!workerId) {
+      return;
     }
+    const contextParams = {
+      ...(orderId ? { orderId } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(bidId ? { bidId } : {}),
+    };
+    if (Object.keys(contextParams).length > 0) {
+      router.push({
+        pathname: RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any,
+        params: contextParams,
+      });
+      return;
+    }
+    router.push(RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any);
   };
 
   const hasRating = typeof rating === 'number' && !Number.isNaN(rating) && rating > 0;
-  const hasPhone = Boolean(effectivePhone && effectivePhone.trim().length >= 8);
   const hasStats = (typeof completionRate === 'number' && completionRate > 0)
     || (typeof completedJobs === 'number' && completedJobs > 0);
 
@@ -104,7 +117,7 @@ export function OrderWorkerCard({
               <View className="flex-row items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 dark:bg-amber-950/40">
                 <StarIcon size={12} color="#F59E0B" fill="#F59E0B" />
                 <Text className="text-xs font-bold text-amber-700 dark:text-amber-400">
-                  {rating.toFixed(1)}
+                  {rating!.toFixed(1)}
                 </Text>
               </View>
             )
@@ -163,49 +176,46 @@ export function OrderWorkerCard({
         </View>
       </View>
 
-      {/* Action Buttons Row: Gọi điện, Nhắn tin, Xem hồ sơ */}
+      {/* Action Buttons Row: Nhắn tin, Xem hồ sơ */}
       <View className="mt-4 flex-row items-center gap-2 border-t border-neutral-100 pt-3 dark:border-neutral-800">
-        <Pressable
-          testID="worker-call-btn"
-          accessibilityRole="button"
-          accessibilityLabel="Gọi điện cho thợ"
-          accessibilityState={{ disabled: !hasPhone }}
-          onPress={handleCall}
-          className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border ${
-            hasPhone
-              ? 'border-blue-200 bg-blue-50/80 active:bg-blue-100 dark:border-blue-900/60 dark:bg-blue-950/40 dark:active:bg-blue-900/60'
-              : 'border-neutral-200 bg-neutral-100 opacity-60 dark:border-neutral-800 dark:bg-neutral-900'
-          }`}
-        >
-          <PhoneIcon size={16} color={hasPhone ? '#2563EB' : '#9CA3AF'} />
-          <Text className={`text-xs font-bold ${hasPhone ? 'text-blue-700 dark:text-blue-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
-            {hasPhone ? 'Gọi điện' : 'Chưa có số'}
-          </Text>
-        </Pressable>
-
         <Pressable
           testID="worker-chat-btn"
           accessibilityRole="button"
           accessibilityLabel="Nhắn tin cho thợ"
-          onPress={handleChat}
-          className="h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/80 active:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:active:bg-indigo-900/60"
+          accessibilityState={{ disabled: chatDisabled }}
+          disabled={chatDisabled}
+          onPress={() => {
+            void handleChat();
+          }}
+          className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border ${
+            chatDisabled
+              ? 'border-neutral-200 bg-neutral-100 opacity-50 dark:border-neutral-800 dark:bg-neutral-900'
+              : 'border-indigo-200 bg-indigo-50/80 active:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:active:bg-indigo-900/60'
+          }`}
         >
-          <ChatIcon size={16} color="#4F46E5" />
-          <Text className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
-            Nhắn tin
+          <ChatIcon size={16} color={chatDisabled ? '#9CA3AF' : '#4F46E5'} />
+          <Text className={`text-xs font-bold ${chatDisabled ? 'text-neutral-400 dark:text-neutral-500' : 'text-indigo-700 dark:text-indigo-300'}`}>
+            {chatPending ? 'Đang mở...' : 'Nhắn tin'}
           </Text>
         </Pressable>
 
-        <Button
+        <Pressable
           testID="worker-profile-btn"
-          label="Xem hồ sơ"
+          accessibilityRole="button"
           accessibilityLabel="Xem hồ sơ thợ"
-          variant="outline"
-          className="h-10 flex-1 rounded-xl border-primary bg-amber-50/40 active:bg-amber-100 dark:bg-amber-950/20"
-          textClassName="text-xs font-bold text-primary"
           disabled={!workerId}
           onPress={handleViewProfile}
-        />
+          className={`h-10 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border ${
+            workerId
+              ? 'border-primary bg-amber-50/40 active:bg-amber-100 dark:bg-amber-950/20'
+              : 'border-neutral-200 bg-neutral-100 opacity-60 dark:border-neutral-800 dark:bg-neutral-900'
+          }`}
+        >
+          <UserIcon size={16} color={workerId ? '#D97706' : '#9CA3AF'} />
+          <Text className={`text-xs font-bold ${workerId ? 'text-primary' : 'text-neutral-400'}`}>
+            Xem hồ sơ
+          </Text>
+        </Pressable>
       </View>
     </View>
   );

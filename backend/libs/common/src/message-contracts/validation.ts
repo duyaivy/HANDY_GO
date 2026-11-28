@@ -56,11 +56,14 @@ export function validateChatInput(operation: string, input: unknown): boolean {
     return keys(input, ['bidId']) && isId(input.bidId);
   if (operation === 'conversations.list')
     return (
-      keys(input, ['limit', 'cursor']) &&
+      keys(input, ['limit', 'cursor', 'requestId', 'orderId', 'workerId']) &&
       limit(input.limit) &&
       (input.cursor === undefined ||
         (typeof input.cursor === 'string' &&
-          /^[A-Za-z0-9_-]{1,2048}$/.test(input.cursor)))
+          /^[A-Za-z0-9_-]{1,2048}$/.test(input.cursor))) &&
+      (input.requestId === undefined || isId(input.requestId)) &&
+      (input.orderId === undefined || isId(input.orderId)) &&
+      (input.workerId === undefined || isId(input.workerId))
     );
   if (operation === 'messages.list')
     return (

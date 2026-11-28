@@ -199,7 +199,6 @@ export function CustomerOrderDetailScreen({
     || (isPlumberOrder ? 'A CẢNH VĂN' : 'Thợ phụ trách');
   const displayWorkerId = order?.workerUserId || (isPlumberOrder ? 'a-canh-van' : undefined);
   const displayWorkerAvatar = realWorker?.avatarUrl || (order as any)?.workerAvatarUrl;
-  const displayWorkerPhone = realWorker?.phone || (order as any)?.workerPhone || (isPlumberOrder ? '0901234567' : undefined);
   const displayWorkerRating = typeof realWorker?.rating === 'number'
     ? realWorker.rating
     : (typeof (order as any)?.worker?.rating === 'number'
@@ -380,10 +379,13 @@ export function CustomerOrderDetailScreen({
           workerId={displayWorkerId}
           workerName={displayWorkerName}
           avatarUrl={displayWorkerAvatar}
-          phoneNumber={displayWorkerPhone}
           rating={displayWorkerRating}
           completedJobs={displayWorkerJobs}
           headline={displayWorkerHeadline}
+          orderId={order?.id}
+          requestId={serviceRequestId}
+          bidId={(order as any)?.selectedBidId}
+          orderStatus={order?.status}
         />
 
         {/* 3. Service & Location Card */}

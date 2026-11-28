@@ -131,9 +131,11 @@ export function WorkerReviewsScreen() {
     return () => subscription.remove();
   }, [handleBack]);
 
+  const viewerScope = `${user?.id || 'anonymous'}:${(user?.roles || []).map(r => r.toLowerCase()).sort().join(',')}`;
+
   // Fetch Public Profile Stats (Distribution, Overview) from real backend
   const profileQuery = useQuery<WorkerPublicProfileData>({
-    queryKey: ['worker-public-profile', workerIdentifier],
+    queryKey: ['worker-public-profile', workerIdentifier, viewerScope],
     queryFn: async () => {
       if (!workerIdentifier) {
         throw new Error('Chưa đăng nhập');

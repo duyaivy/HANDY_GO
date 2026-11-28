@@ -290,6 +290,8 @@ const _useAuthStore = create<AuthState>((set, get) => ({
       queryClient.removeQueries({ queryKey: ['worker-my-service-registrations'] });
       await queryClient.cancelQueries({ queryKey: ['worker-skills-orders'] });
       queryClient.removeQueries({ queryKey: ['worker-skills-orders'] });
+      await queryClient.cancelQueries({ queryKey: ['worker-public-profile'] });
+      queryClient.removeQueries({ queryKey: ['worker-public-profile'] });
       await queryClient.cancelQueries({ queryKey: ['worker-public-profile-services'] });
       queryClient.removeQueries({ queryKey: ['worker-public-profile-services'] });
       await removeToken();

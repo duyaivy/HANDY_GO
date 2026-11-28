@@ -121,6 +121,26 @@ describe('chat wire validation', () => {
       }),
     ).toBe(false);
   });
+  it('validates optional requestId, orderId, workerId UUID filters on conversations.list', () => {
+    expect(
+      validateChatInput('conversations.list', {
+        limit: 100,
+        requestId: id,
+        orderId: id,
+        workerId: worker,
+      }),
+    ).toBe(true);
+    expect(
+      validateChatInput('conversations.list', {
+        requestId: 'invalid',
+      }),
+    ).toBe(false);
+    expect(
+      validateChatInput('conversations.list', {
+        customerId: id,
+      }),
+    ).toBe(false);
+  });
 });
 describe('authoritative chat lifecycle policy', () => {
   it('grants participants of a committed valid bid only', () => {

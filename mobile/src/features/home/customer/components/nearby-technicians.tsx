@@ -1,7 +1,6 @@
 import { useRouter } from 'expo-router';
 import * as React from 'react';
 import { TouchableOpacity, View } from 'react-native';
-import { showMessage } from 'react-native-flash-message';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { Image, Text } from '@/components/ui';
 import { RouteNames } from '@/constants/route-names';
@@ -10,14 +9,6 @@ const TECH_AVATAR_URI = 'https://images.unsplash.com/photo-1540569014015-19a7be5
 
 export const NearbyTechnicians = React.memo(() => {
   const router = useRouter();
-
-  const handleCall = React.useCallback(() => {
-    showMessage({
-      message: 'Gọi thợ',
-      description: 'Đang kết nối tới Thợ Hoàng Văn Minh...',
-      type: 'info',
-    });
-  }, []);
 
   const handleAiAssistant = React.useCallback(() => {
     router.push(RouteNames.CUSTOMER_ASK_ME as any);
@@ -81,17 +72,6 @@ export const NearbyTechnicians = React.memo(() => {
         </View>
 
         <View className="items-end gap-1.5">
-          <TouchableOpacity
-            className="rounded-full bg-orange-100 px-3.5 py-1.5 active:opacity-80"
-            onPress={(e) => {
-              e?.stopPropagation?.();
-              handleCall();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Gọi thợ"
-          >
-            <Text className="text-xs font-bold text-orange-600">Gọi</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             testID="nearby-ai-assistant-btn"
             className="flex-row items-center gap-1 rounded-full bg-primary-600 px-2.5 py-1.5 active:opacity-85"

@@ -238,14 +238,17 @@ export class MessageService {
     validateInput('conversations.list', query);
     const limit = query.limit ?? 30,
       point = query.cursor ? this.cursor.decode(userId, query.cursor) : null;
+    const requestIdFilter = query.requestId ?? null;
+    const orderIdFilter = query.orderId ?? null;
+    const workerIdFilter = query.workerId ?? null;
     // Parameterized tuple keyset matches the expression indexes in the runtime migration.
     const rows = point
       ? await this.db.$queryRaw<
           Conversation[]
-        >`SELECT id,request_id AS "requestId",order_id AS "orderId",customer_id AS "customerId",worker_id AS "workerId",status,last_sequence AS "lastSequence",last_message_at AS "lastMessageAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM message.conversations WHERE (customer_id=${userId}::uuid OR worker_id=${userId}::uuid) AND (COALESCE(last_message_at,created_at),id)<(${point.timestamp},${point.id}::uuid) ORDER BY COALESCE(last_message_at,created_at) DESC,id DESC LIMIT ${limit + 1}`
+        >`SELECT id,request_id AS "requestId",order_id AS "orderId",customer_id AS "customerId",worker_id AS "workerId",status,last_sequence AS "lastSequence",last_message_at AS "lastMessageAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM message.conversations WHERE (customer_id=${userId}::uuid OR worker_id=${userId}::uuid) AND (${requestIdFilter}::uuid IS NULL OR request_id=${requestIdFilter}::uuid) AND (${orderIdFilter}::uuid IS NULL OR order_id=${orderIdFilter}::uuid) AND (${workerIdFilter}::uuid IS NULL OR worker_id=${workerIdFilter}::uuid OR customer_id=${workerIdFilter}::uuid) AND (COALESCE(last_message_at,created_at),id)<(${point.timestamp},${point.id}::uuid) ORDER BY COALESCE(last_message_at,created_at) DESC,id DESC LIMIT ${limit + 1}`
       : await this.db.$queryRaw<
           Conversation[]
-        >`SELECT id,request_id AS "requestId",order_id AS "orderId",customer_id AS "customerId",worker_id AS "workerId",status,last_sequence AS "lastSequence",last_message_at AS "lastMessageAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM message.conversations WHERE (customer_id=${userId}::uuid OR worker_id=${userId}::uuid) ORDER BY COALESCE(last_message_at,created_at) DESC,id DESC LIMIT ${limit + 1}`;
+        >`SELECT id,request_id AS "requestId",order_id AS "orderId",customer_id AS "customerId",worker_id AS "workerId",status,last_sequence AS "lastSequence",last_message_at AS "lastMessageAt",created_at AS "createdAt",updated_at AS "updatedAt" FROM message.conversations WHERE (customer_id=${userId}::uuid OR worker_id=${userId}::uuid) AND (${requestIdFilter}::uuid IS NULL OR request_id=${requestIdFilter}::uuid) AND (${orderIdFilter}::uuid IS NULL OR order_id=${orderIdFilter}::uuid) AND (${workerIdFilter}::uuid IS NULL OR worker_id=${workerIdFilter}::uuid OR customer_id=${workerIdFilter}::uuid) ORDER BY COALESCE(last_message_at,created_at) DESC,id DESC LIMIT ${limit + 1}`;
     const more = rows.length > limit;
     rows.length = Math.min(rows.length, limit);
     const states = await this.db.conversationReadState.findMany({

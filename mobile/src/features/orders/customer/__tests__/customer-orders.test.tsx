@@ -103,7 +103,13 @@ describe('customerOrdersScreen and CustomerOrderDetailScreen', () => {
 
     const workerProfileBtn = screen.getByTestId('worker-profile-btn');
     fireEvent.press(workerProfileBtn);
-    expect(mockPush).toHaveBeenCalledWith('/customer/workers/worker-uuid-456');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/workers/worker-uuid-456',
+      params: {
+        orderId: 'ord-real-001',
+        requestId: 'req-01',
+      },
+    });
   });
 
   it('renders CustomerBookingScreen and handles photo attachment and next navigation', () => {

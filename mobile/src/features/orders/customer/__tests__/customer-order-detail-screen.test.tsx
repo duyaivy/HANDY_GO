@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Alert, Linking } from 'react-native';
 import { CatalogApi } from '@/features/catalog/api/catalog.api';
+import { ChatApi } from '@/features/chat/chat-api';
 import { PaymentApi } from '@/features/wallet/api/payment.api';
 import { WalletApi } from '@/features/wallet/api/wallet.api';
 import { queryClient } from '@/lib/api/query-client';
@@ -168,7 +169,7 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByTestId('worker-quote-section')).toBeOnTheScreen();
       expect(screen.getByText('Nguyễn Văn Thợ')).toBeOnTheScreen();
       expect(screen.getByText('4.9')).toBeOnTheScreen();
-      expect(screen.getByText('Gọi điện')).toBeOnTheScreen();
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
       expect(screen.getByText('Nhắn tin')).toBeOnTheScreen();
       expect(screen.getByTestId('worker-profile-btn')).toBeOnTheScreen();
 
@@ -193,38 +194,76 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
     });
   });
 
-  it('triggers phone calling when pressing Gọi điện button', async () => {
+  it('hides Gọi điện button on worker card', async () => {
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
       data: baseOrder,
       statusCode: 200,
       message: 'OK',
     } as any);
-
-    const canOpenSpy = jest.spyOn(Linking, 'canOpenURL').mockResolvedValue(true);
-    const openSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined as any);
 
     render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
 
     await waitFor(() => {
       expect(screen.getByText('Nguyễn Văn Thợ')).toBeOnTheScreen();
-      expect(screen.getByText('Gọi điện')).toBeOnTheScreen();
-    });
-
-    const callBtn = screen.getByText('Gọi điện');
-    fireEvent.press(callBtn);
-
-    await waitFor(() => {
-      expect(canOpenSpy).toHaveBeenCalledWith('tel:0905123456');
-      expect(openSpy).toHaveBeenCalledWith('tel:0905123456');
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
   });
 
-  it('navigates to chat when pressing Nhắn tin button', async () => {
+  it('resolves existing conversation or creates via selectedBidId and navigates to /chat/:id (including multi-request disambiguation and BE denial)', async () => {
+    useAuthStore.setState({
+      ...initialAuthState,
+      isAuthenticated: true,
+      user: { id: 'cust-1', fullName: 'Khách Hàng', role: 'Customer', roles: ['Customer'] } as any,
+      activeMode: 'Customer',
+    });
+
+    const orderWithBid = {
+      ...baseOrder,
+      selectedBidId: 'bid-real-01',
+    };
     jest.spyOn(OrdersApi, 'getOrderDetail').mockResolvedValue({
-      data: baseOrder,
+      data: orderWithBid,
       statusCode: 200,
       message: 'OK',
     } as any);
+
+    // Case 1: Multiple requests with same worker -> picks conversation matching current orderId/requestId
+    jest.spyOn(ChatApi, 'list').mockResolvedValueOnce({
+      items: [
+        {
+          id: 'conv-other-req',
+          requestId: 'req-other',
+          orderId: 'ord-other',
+          customerId: 'cust-1',
+          workerId: 'worker-uuid-123',
+          workerName: 'Nguyễn Văn Thợ',
+          status: 'OPEN',
+          lastSequence: '1',
+          lastMessageAt: null,
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-01T00:00:00Z',
+          permissions: { read: true, send: true, reason: null },
+          readStates: [],
+        },
+        {
+          id: 'conv-current-order',
+          requestId: 'req-01',
+          orderId: 'ord-test-001',
+          customerId: 'cust-1',
+          workerId: 'worker-uuid-123',
+          workerName: 'Nguyễn Văn Thợ',
+          status: 'OPEN',
+          lastSequence: '2',
+          lastMessageAt: null,
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-01T00:00:00Z',
+          permissions: { read: true, send: true, reason: null },
+          readStates: [],
+        },
+      ],
+      nextCursor: null,
+    });
+    const createSpy = jest.spyOn(ChatApi, 'create');
 
     render(<CustomerOrderDetailScreen orderId="ord-test-001" />);
 
@@ -233,18 +272,61 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.getByText('Nhắn tin')).toBeOnTheScreen();
     });
 
-    const chatBtn = screen.getByText('Nhắn tin');
-    fireEvent.press(chatBtn);
+    fireEvent.press(screen.getByText('Nhắn tin'));
 
-    expect(mockPush).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pathname: '/customer/chat',
-        params: expect.objectContaining({
-          workerId: 'worker-uuid-123',
-          workerName: 'Nguyễn Văn Thợ',
-        }),
-      }),
-    );
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/chat/conv-current-order?name=Nguy%E1%BB%85n%20V%C4%83n%20Th%E1%BB%A3');
+    });
+    expect(createSpy).not.toHaveBeenCalled();
+
+    // Case 2: No existing conversation for this order -> creates conversation using selectedBidId
+    jest.clearAllMocks();
+    jest.spyOn(ChatApi, 'list').mockResolvedValueOnce({ items: [], nextCursor: null });
+    createSpy.mockResolvedValueOnce({
+      id: 'conv-created-01',
+      requestId: 'req-01',
+      orderId: 'ord-test-001',
+      customerId: 'cust-1',
+      workerId: 'worker-uuid-123',
+      workerName: 'Nguyễn Văn Thợ',
+      status: 'OPEN',
+      lastSequence: '0',
+      lastMessageAt: null,
+      createdAt: '2026-11-01T00:00:00Z',
+      updatedAt: '2026-11-01T00:00:00Z',
+      permissions: { read: true, send: true, reason: null },
+      readStates: [],
+    });
+
+    fireEvent.press(screen.getByText('Nhắn tin'));
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith('bid-real-01');
+      expect(mockPush).toHaveBeenCalledWith('/chat/conv-created-01?name=Nguy%E1%BB%85n%20V%C4%83n%20Th%E1%BB%A3');
+    });
+
+    // Case 3: Unauthorized / BE policy rejection -> shows alert and does not navigate
+    jest.clearAllMocks();
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    jest.spyOn(ChatApi, 'list').mockResolvedValueOnce({ items: [], nextCursor: null });
+    createSpy.mockRejectedValueOnce({ code: 'CHAT_INELIGIBLE' });
+
+    fireEvent.press(screen.getByText('Nhắn tin'));
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledWith('Chưa thể nhắn tin', expect.any(String));
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // Case 4: Pressing Xem hồ sơ forwards orderId, requestId, bidId context so WorkerDetailScreen keeps Nhắn tin enabled
+    jest.clearAllMocks();
+    fireEvent.press(screen.getByTestId('worker-profile-btn'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/workers/worker-uuid-123',
+      params: {
+        orderId: 'ord-test-001',
+        requestId: 'req-01',
+        bidId: 'bid-real-01',
+      },
+    });
   });
 
   it('opens and closes evidence image Lightbox modal on tap', async () => {
@@ -543,15 +625,12 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(screen.queryByText('5.0')).toBeNull();
       // Should not show fake 98% hoàn thành
       expect(screen.queryByText(/98% hoàn thành/)).toBeNull();
-      // Should display 'Chưa có số'
-      expect(screen.getByText('Chưa có số')).toBeOnTheScreen();
+      // Call button is hidden
+      expect(screen.queryByTestId('worker-call-btn')).toBeNull();
     });
 
-    const callBtn = screen.getByLabelText('Gọi điện cho thợ');
-    fireEvent.press(callBtn);
-
     expect(openSpy).not.toHaveBeenCalled();
-    expect(alertSpy).toHaveBeenCalledWith('Thông báo', 'Thợ chưa cập nhật số điện thoại.');
+    expect(alertSpy).not.toHaveBeenCalled();
   });
 
   it('P1-04: displays error alert when confirmCompletion or requestRework rejects and does not show success alert', async () => {
