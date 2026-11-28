@@ -315,6 +315,18 @@ describe('customerOrderDetailScreen redesign (TASK-08)', () => {
       expect(alertSpy).toHaveBeenCalledWith('Chưa thể nhắn tin', expect.any(String));
     });
     expect(mockPush).not.toHaveBeenCalled();
+
+    // Case 4: Pressing Xem hồ sơ forwards orderId, requestId, bidId context so WorkerDetailScreen keeps Nhắn tin enabled
+    jest.clearAllMocks();
+    fireEvent.press(screen.getByTestId('worker-profile-btn'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/customer/workers/worker-uuid-123',
+      params: {
+        orderId: 'ord-test-001',
+        requestId: 'req-01',
+        bidId: 'bid-real-01',
+      },
+    });
   });
 
   it('opens and closes evidence image Lightbox modal on tap', async () => {

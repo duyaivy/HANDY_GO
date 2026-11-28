@@ -81,9 +81,22 @@ export function OrderWorkerCard({
   };
 
   const handleViewProfile = () => {
-    if (workerId) {
-      router.push(RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any);
+    if (!workerId) {
+      return;
     }
+    const contextParams = {
+      ...(orderId ? { orderId } : {}),
+      ...(requestId ? { requestId } : {}),
+      ...(bidId ? { bidId } : {}),
+    };
+    if (Object.keys(contextParams).length > 0) {
+      router.push({
+        pathname: RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any,
+        params: contextParams,
+      });
+      return;
+    }
+    router.push(RouteNames.CUSTOMER_WORKER_DETAIL(workerId) as any);
   };
 
   const hasRating = typeof rating === 'number' && !Number.isNaN(rating) && rating > 0;

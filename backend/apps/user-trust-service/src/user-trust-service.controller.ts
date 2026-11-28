@@ -689,8 +689,11 @@ export class UserTrustServiceController {
   @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
   async getWorkerPublicProfile(
     @Param('id') workerUserId: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ): Promise<unknown> {
-    return this.userTrustService.getWorkerOrderSummary(workerUserId);
+    return user?.roles
+      ? this.userTrustService.getWorkerOrderSummary(workerUserId, user.roles)
+      : this.userTrustService.getWorkerOrderSummary(workerUserId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -703,8 +706,11 @@ export class UserTrustServiceController {
   @ApiResponse({ status: 404, description: 'Không tìm thấy thợ' })
   async getWorkerPublicProfileAlias(
     @Param('id') workerUserId: string,
+    @CurrentUser() user?: AuthenticatedUser,
   ): Promise<unknown> {
-    return this.userTrustService.getWorkerOrderSummary(workerUserId);
+    return user?.roles
+      ? this.userTrustService.getWorkerOrderSummary(workerUserId, user.roles)
+      : this.userTrustService.getWorkerOrderSummary(workerUserId);
   }
 
   // ==========================================

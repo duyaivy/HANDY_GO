@@ -111,6 +111,23 @@ describe('API Gateway -> user-trust-service HTTP worker-profile masking by JWT r
             serviceAreas: [],
           };
         }),
+        findUnique: vi.fn().mockResolvedValue({
+          id: TARGET_WORKER_PROFILE_ID,
+          userId: TARGET_WORKER_USER_ID,
+          averageRating: 4.9,
+          ratingCount: 10,
+          completedOrderCount: 12,
+          orderCountTotal: 12,
+          user: {
+            id: TARGET_WORKER_USER_ID,
+            fullName: 'Trần Văn Thợ',
+            avatarUrl: null,
+            status: 'active',
+          },
+          serviceOfferings: [
+            { title: 'Sửa điện dân dụng 0912345678 hoặc tho@gmail.com' },
+          ],
+        }),
       },
       workerReview: {
         groupBy: vi.fn().mockResolvedValue([]),
@@ -279,6 +296,40 @@ describe('API Gateway -> user-trust-service HTTP worker-profile masking by JWT r
       expect(res.status).toBe(200);
       const body = (await res.json()) as any;
       expect(body.data.phone).toBe(RAW_PHONE);
+    },
+  );
+
+  const summaryAliasRoutes = [
+    `/api/v1/users/${TARGET_WORKER_USER_ID}/worker-profile`,
+    `/api/v1/users/workers/${TARGET_WORKER_USER_ID}`,
+  ];
+
+  it.each(summaryAliasRoutes)(
+    'sanitizes contact info in headline on summary alias %s for Customer and Worker JWTs, preserves for Admin',
+    async (routePath) => {
+      const custRes = await fetch(`${gatewayOrigin}${routePath}`, {
+        headers: { Authorization: `Bearer ${customerToken}` },
+      });
+      expect(custRes.status).toBe(200);
+      const custBody = (await custRes.json()) as any;
+      expect(custBody.data.headline).not.toContain('0912345678');
+      expect(custBody.data.headline).not.toContain('tho@gmail.com');
+      expect(JSON.stringify(custBody)).not.toContain('912345678');
+
+      const workerRes = await fetch(`${gatewayOrigin}${routePath}`, {
+        headers: { Authorization: `Bearer ${workerToken}` },
+      });
+      expect(workerRes.status).toBe(200);
+      const workerBody = (await workerRes.json()) as any;
+      expect(workerBody.data.headline).not.toContain('0912345678');
+      expect(workerBody.data.headline).not.toContain('tho@gmail.com');
+
+      const adminRes = await fetch(`${gatewayOrigin}${routePath}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      expect(adminRes.status).toBe(200);
+      const adminBody = (await adminRes.json()) as any;
+      expect(adminBody.data.headline).toBe('Sửa điện dân dụng 0912345678 hoặc tho@gmail.com');
     },
   );
 });

@@ -542,6 +542,17 @@ describe('UserTrustServiceController', () => {
     expect(await controller.getWorkerPublicProfileAlias('worker-1')).toEqual(expected);
     expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledTimes(2);
     expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledWith('worker-1');
+
+    const customerUser = {
+      accountId: 'acc-c',
+      userId: 'user-c1',
+      sessionId: 'sess-c',
+      roles: [RegisterRole.CUSTOMER],
+      permissions: ['profile:read'],
+    };
+    await controller.getWorkerPublicProfile('worker-1', customerUser);
+    await controller.getWorkerPublicProfileAlias('worker-1', customerUser);
+    expect(serviceMock.getWorkerOrderSummary).toHaveBeenCalledWith('worker-1', [RegisterRole.CUSTOMER]);
   });
 
   it('should call service.getWorkerPublicProfile for getWorkerProfile and alias', async () => {

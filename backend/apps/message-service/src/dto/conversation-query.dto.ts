@@ -16,6 +16,24 @@ export class ConversationListQueryDto {
     maxLength: 2048,
   })
   cursor?: string;
+
+  @ApiPropertyOptional({
+    description: 'Lọc các cuộc trò chuyện thuộc một yêu cầu dịch vụ cụ thể (UUID).',
+    format: 'uuid',
+  })
+  requestId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Lọc các cuộc trò chuyện thuộc một đơn hàng cụ thể (UUID).',
+    format: 'uuid',
+  })
+  orderId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Lọc các cuộc trò chuyện với một thợ/đối tác cụ thể (UUID).',
+    format: 'uuid',
+  })
+  workerId?: string;
 }
 
 export class MessageListQueryDto {

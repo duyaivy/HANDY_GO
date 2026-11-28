@@ -16,11 +16,28 @@ export const ChatApi = {
         bidId,
       }, { baseURL: resolveChatBaseUrl() })
     ).data,
-  list: async (cursor?: string) =>
+  list: async (
+    cursor?: string,
+    filters?: {
+      limit?: number;
+      requestId?: string;
+      orderId?: string;
+      workerId?: string;
+    },
+  ) =>
     (
       await ApiClient.get<ChatEnvelope<ChatPage<ChatConversation>>>(
         '/conversations',
-        { baseURL: resolveChatBaseUrl(), params: { limit: 30, ...(cursor ? { cursor } : {}) } },
+        {
+          baseURL: resolveChatBaseUrl(),
+          params: {
+            limit: filters?.limit ?? 30,
+            ...(cursor ? { cursor } : {}),
+            ...(filters?.requestId ? { requestId: filters.requestId } : {}),
+            ...(filters?.orderId ? { orderId: filters.orderId } : {}),
+            ...(filters?.workerId ? { workerId: filters.workerId } : {}),
+          },
+        },
       )
     ).data,
   detail: async (id: string) =>

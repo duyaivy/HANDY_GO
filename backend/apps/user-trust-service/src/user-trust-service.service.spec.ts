@@ -810,6 +810,34 @@ describe('UserTrustServiceService', () => {
         NotFoundException,
       );
     });
+
+    it('sanitizes contact info in headline for non-admin callers while preserving for Admin', async () => {
+      dbMock.workerProfile.findUnique.mockResolvedValue({
+        userId: 'worker-103',
+        averageRating: 4.9,
+        ratingCount: 5,
+        completedOrderCount: 10,
+        orderCountTotal: 10,
+        user: {
+          id: 'worker-103',
+          fullName: 'Phạm Văn Thợ',
+          avatarUrl: null,
+          status: 'active',
+        },
+        serviceOfferings: [{ title: 'Sửa điện 0912345678 hoặc tho@gmail.com qua Zalo' }],
+      });
+
+      const customerSummary: any = await service.getWorkerOrderSummary('worker-103', [Role.CUSTOMER]);
+      expect(customerSummary.data.headline).not.toContain('0912345678');
+      expect(customerSummary.data.headline).not.toContain('tho@gmail.com');
+      expect(customerSummary.data.headline).not.toMatch(/\bzalo\b/i);
+
+      const workerSummary: any = await service.getWorkerOrderSummary('worker-103', [Role.WORKER]);
+      expect(workerSummary.data.headline).not.toContain('0912345678');
+
+      const adminSummary: any = await service.getWorkerOrderSummary('worker-103', [Role.ADMIN]);
+      expect(adminSummary.data.headline).toBe('Sửa điện 0912345678 hoặc tho@gmail.com qua Zalo');
+    });
   });
 
   describe('listUsers', () => {

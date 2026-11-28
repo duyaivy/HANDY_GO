@@ -160,6 +160,24 @@ export class MessageController {
     description:
       'Con trỏ phân trang dạng opaque HMAC-signed token lấy trực tiếp từ nextCursor của kết quả trước. Không truyền khi lấy trang đầu tiên.',
   })
+  @ApiQuery({
+    name: 'requestId',
+    required: false,
+    type: String,
+    description: 'Lọc theo ID yêu cầu dịch vụ (UUID).',
+  })
+  @ApiQuery({
+    name: 'orderId',
+    required: false,
+    type: String,
+    description: 'Lọc theo ID đơn hàng (UUID).',
+  })
+  @ApiQuery({
+    name: 'workerId',
+    required: false,
+    type: String,
+    description: 'Lọc theo ID đối tác/thợ (UUID).',
+  })
   @ApiResponse({
     status: 200,
     description: 'Danh sách cuộc trò chuyện phân trang thành công.',

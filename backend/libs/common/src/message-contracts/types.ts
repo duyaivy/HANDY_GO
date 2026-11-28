@@ -24,6 +24,9 @@ export interface MessageReadInput extends ConversationInput {
 export interface ConversationListQuery {
   limit?: number;
   cursor?: string;
+  requestId?: string;
+  orderId?: string;
+  workerId?: string;
 }
 export interface MessageListQuery {
   limit?: number;

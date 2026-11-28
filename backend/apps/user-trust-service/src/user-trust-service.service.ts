@@ -867,7 +867,10 @@ export class UserTrustServiceService {
     };
   }
 
-  async getWorkerOrderSummary(workerUserId: string): Promise<unknown> {
+  async getWorkerOrderSummary(
+    workerUserId: string,
+    callerRoles?: string[],
+  ): Promise<unknown> {
     const worker = await this.db.workerProfile.findUnique({
       where: { userId: workerUserId },
       include: {
@@ -890,6 +893,10 @@ export class UserTrustServiceService {
     });
 
     if (worker && worker.user?.status === 'active') {
+      const rawHeadline = worker.serviceOfferings[0]?.title ?? null;
+      const headline = isAdminRole(callerRoles)
+        ? rawHeadline
+        : sanitizePublicText(rawHeadline);
       return {
         statusCode: 200,
         message: 'Lấy thông tin hồ sơ thợ thành công',
@@ -901,7 +908,7 @@ export class UserTrustServiceService {
           ratingCount: worker.ratingCount ?? 0,
           completedOrderCount: worker.completedOrderCount ?? 0,
           orderCountTotal: worker.orderCountTotal ?? worker.completedOrderCount ?? 0,
-          headline: worker.serviceOfferings[0]?.title ?? null,
+          headline,
         },
       };
     }

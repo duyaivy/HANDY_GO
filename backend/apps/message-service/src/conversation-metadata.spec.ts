@@ -79,4 +79,16 @@ describe('authorized conversation metadata', () => {
     expect(names).toHaveBeenCalledTimes(1);
     expect(serviceName).toHaveBeenCalledTimes(1);
   });
+  it('accepts optional requestId, orderId, workerId UUID filters while keeping member scoping', async () => {
+    const { messages } = setup();
+    const result = await messages.list(customerId, {
+      requestId: id,
+      orderId: id,
+      workerId,
+    });
+    expect(result.items).toHaveLength(2);
+    await expect(
+      messages.list(customerId, { requestId: 'not-a-uuid' }),
+    ).rejects.toThrow('VALIDATION_ERROR');
+  });
 });
