@@ -30,8 +30,23 @@ export type PaymentState
   = 'unpaid'
     | 'pending'
     | 'paid'
+    | 'partially_refunded'
     | 'refunded'
     | 'failed';
+
+export type DisputeCategory
+  = 'service_quality'
+    | 'incomplete_work'
+    | 'property_damage'
+    | 'price_fraud'
+    | 'attitude'
+    | 'other';
+
+export type OpenDisputePayload = {
+  reason: string;
+  category?: DisputeCategory;
+  evidenceUrls?: string[];
+};
 
 export type ServiceRequestMedia = {
   id?: string;
@@ -92,6 +107,8 @@ export type OrderEvidence = {
   clientEvidenceId?: string | null;
   mediaType: string;
   mediaUrl: string;
+  evidenceType?: string | null;
+  submittedByUserId?: string | null;
   description?: string | null;
   createdAt: string;
 };
@@ -130,6 +147,10 @@ export type Order = {
   cancelReason?: string | null;
   disputedAt?: string | null;
   disputeReason?: string | null;
+  disputeCategory?: DisputeCategory | string | null;
+  disputePreviousStatus?: OrderStatus | string | null;
+  disputeResolvedAt?: string | null;
+  disputeResolutionNote?: string | null;
   evidences?: OrderEvidence[];
   statusHistory?: OrderStatusHistoryItem[];
   createdAt: string;

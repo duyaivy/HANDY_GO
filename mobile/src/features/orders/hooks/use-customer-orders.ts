@@ -1,4 +1,4 @@
-import type { Order, ServiceRequest } from '../types/order.types';
+import type { OpenDisputePayload, Order, ServiceRequest } from '../types/order.types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
@@ -454,11 +454,11 @@ export function useCustomerOrderDetail(orderId?: string) {
   });
 
   const openDisputeMutation = useMutation({
-    mutationFn: async (reason: string) => {
+    mutationFn: async (payload: string | OpenDisputePayload) => {
       if (!orderId) {
         throw new Error('Order ID is required');
       }
-      const res = await OrdersApi.openDispute(orderId, reason);
+      const res = await OrdersApi.openDispute(orderId, payload);
       return res.data;
     },
     onSuccess: (updatedOrder) => {

@@ -1,3 +1,4 @@
+export * from './order-dispute-modal';
 export * from './order-evidence-gallery';
 export * from './order-payment-card';
 export * from './order-review-card';

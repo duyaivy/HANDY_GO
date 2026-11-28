@@ -1,4 +1,4 @@
-import type { BookingProposal, Order, UploadEvidencePayload } from '../types/order.types';
+import type { BookingProposal, OpenDisputePayload, Order, UploadEvidencePayload } from '../types/order.types';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as React from 'react';
 import { OrdersApi } from '../api/orders.api';
@@ -258,6 +258,20 @@ export function useWorkerJobDetail(jobId?: string) {
     },
   });
 
+  const openDisputeMutation = useMutation({
+    mutationFn: async (payload: string | OpenDisputePayload) => {
+      if (!jobId) {
+        throw new Error('Job ID is required');
+      }
+      const res = await OrdersApi.openDispute(jobId, payload);
+      return res.data;
+    },
+    onSuccess: (updated) => {
+      queryClient.setQueryData(ordersQueryKeys.orderDetail(jobId!), updated);
+      invalidateOrderRelatedQueries(queryClient);
+    },
+  });
+
   return {
     order: orderQuery.data,
     statusHistory: historyQuery.data ?? orderQuery.data?.statusHistory ?? [],
@@ -276,5 +290,7 @@ export function useWorkerJobDetail(jobId?: string) {
     isDeletingEvidence: deleteEvidenceMutation.isPending,
     finishOrder: finishOrderMutation.mutateAsync,
     isFinishingOrder: finishOrderMutation.isPending,
+    openDispute: openDisputeMutation.mutateAsync,
+    isDisputing: openDisputeMutation.isPending,
   };
 }

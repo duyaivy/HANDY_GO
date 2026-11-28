@@ -6,6 +6,7 @@ import * as React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   RefreshControl,
   ScrollView,
   View,
@@ -27,6 +28,7 @@ import { PaymentApi } from '@/features/wallet/api/payment.api';
 import { OrderPaymentModal } from '@/features/wallet/customer/components/order-payment-modal';
 import { walletQueryKeys } from '@/features/wallet/hooks/wallet-query-keys';
 import {
+  OrderDisputeModal,
   OrderEvidenceGallery,
   OrderPaymentCard,
   OrderReviewCard,
@@ -37,6 +39,7 @@ import {
 import { useCustomerOrderDetail } from '../../hooks/use-customer-orders';
 import { canCreateOrderReview, useOrderReview } from '../../hooks/use-order-review';
 import { getCancelErrorMessage } from '../../utils/cancel-error-message';
+import { DISPUTE_COMPLAINT_WINDOW_MS, getDisputeEligibility } from '../../utils/dispute-utils';
 
 export type CustomerOrderDetailScreenProps = {
   orderId?: string;
@@ -119,21 +122,87 @@ export function CustomerOrderDetailScreen({
   } = useCustomerOrderDetail(orderId);
 
   const [isPaymentOpen, setIsPaymentOpen] = React.useState(false);
+  const [isDisputeOpen, setIsDisputeOpen] = React.useState(false);
+  const [nowMs, setNowMs] = React.useState(() => Date.now());
+  const shouldFetchPayment = order?.status === 'completed'
+    || order?.status === 'disputed'
+    || Boolean(order?.disputeResolvedAt)
+    || order?.paymentState === 'refunded'
+    || order?.paymentState === 'partially_refunded';
   const paymentQuery = useQuery({
     queryKey: walletQueryKeys.paymentByOrder(orderId),
     queryFn: async () => (await PaymentApi.getPaymentByOrder(orderId)).data,
-    enabled: order?.status === 'completed',
+    enabled: shouldFetchPayment,
     retry: false,
     refetchInterval: query => ['pending', 'processing'].includes(query.state.data?.status ?? '') ? 2500 : false,
   });
+  const { refetch: refetchPayment } = paymentQuery;
   const payment = paymentQuery.data;
-  const paymentState = payment?.status === 'succeeded'
-    ? 'paid'
-    : payment?.status === 'refunded' || payment?.status === 'partially_refunded'
-      ? 'refunded'
-      : payment?.status === 'pending' || payment?.status === 'processing'
-        ? 'pending'
-        : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+  const paymentState = order?.paymentState === 'refunded' || payment?.status === 'refunded'
+    ? 'refunded'
+    : order?.paymentState === 'partially_refunded' || payment?.status === 'partially_refunded'
+      ? 'partially_refunded'
+      : payment?.status === 'succeeded'
+        ? 'paid'
+        : payment?.status === 'pending' || payment?.status === 'processing'
+          ? 'pending'
+          : payment?.status === 'failed' || payment?.status === 'cancelled' ? 'failed' : order?.paymentState;
+  const refundedAmountNumber = React.useMemo(() => {
+    const raw = payment?.refundedAmount;
+    if (!raw) {
+      return 0;
+    }
+    const parsed = Number.parseFloat(String(raw));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }, [payment?.refundedAmount]);
+
+  const prevOrderSyncRef = React.useRef<{
+    status?: string;
+    paymentState?: string;
+    disputeResolvedAt?: string | null;
+  }>({});
+
+  React.useEffect(() => {
+    if (!order) {
+      return;
+    }
+    const prev = prevOrderSyncRef.current;
+    const wasDisputed = prev.status === 'disputed' && order.status !== 'disputed';
+    const paymentStateChanged = prev.paymentState !== undefined && prev.paymentState !== order.paymentState;
+    const resolvedChanged = prev.disputeResolvedAt !== undefined && prev.disputeResolvedAt !== order.disputeResolvedAt;
+    prevOrderSyncRef.current = {
+      status: order.status,
+      paymentState: order.paymentState,
+      disputeResolvedAt: order.disputeResolvedAt,
+    };
+    if (wasDisputed || paymentStateChanged || resolvedChanged) {
+      void refetchPayment();
+    }
+  }, [order, refetchPayment]);
+
+  React.useEffect(() => {
+    if (order?.status !== 'completed' || !order.completedAt) {
+      return;
+    }
+    const completedAtMs = new Date(order.completedAt).getTime();
+    if (!Number.isFinite(completedAtMs)) {
+      return;
+    }
+    const delayMs = completedAtMs + DISPUTE_COMPLAINT_WINDOW_MS - Date.now();
+    const timer = setTimeout(() => {
+      setNowMs(Date.now());
+    }, Math.max(0, delayMs) + 1);
+    return () => clearTimeout(timer);
+  }, [order?.status, order?.completedAt]);
+
+  React.useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        setNowMs(Date.now());
+      }
+    });
+    return () => subscription.remove();
+  }, []);
   const handlePaymentResult = (result: OrderPaymentRecord) => {
     setIsPaymentOpen(false);
     void refetch();
@@ -181,8 +250,13 @@ export function CustomerOrderDetailScreen({
   const [isManualRefreshing, setIsManualRefreshing] = React.useState(false);
   const handleManualRefresh = async () => {
     setIsManualRefreshing(true);
+    setNowMs(Date.now());
     try {
-      await Promise.allSettled([refetch(), refetchReview()]);
+      await Promise.allSettled([
+        refetch(),
+        refetchReview(),
+        ...(shouldFetchPayment ? [refetchPayment()] : []),
+      ]);
     }
     finally {
       setIsManualRefreshing(false);
@@ -323,18 +397,53 @@ export function CustomerOrderDetailScreen({
     }
   };
 
-  const handleOpenDispute = async () => {
-    try {
-      await openDispute('Thợ thi công chưa đạt yêu cầu.');
-      Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ sẽ liên hệ bạn trong 15 phút.');
+  const getCurrentDisputeEligibility = React.useCallback(
+    (timestampMs: number) =>
+      getDisputeEligibility(
+        order ? { ...order, paymentState: paymentState ?? order.paymentState } : null,
+        'customer',
+        timestampMs,
+      ),
+    [order, paymentState],
+  );
+
+  const handleOpenDispute = () => {
+    const freshNow = Date.now();
+    setNowMs(freshNow);
+    const freshEligibility = getCurrentDisputeEligibility(freshNow);
+    if (!freshEligibility.canDispute) {
+      Alert.alert(
+        'Không thể khiếu nại',
+        freshEligibility.isFullyRefunded
+          ? 'Đơn hàng đã được hoàn tiền toàn phần.'
+          : 'Đã hết thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng.',
+      );
+      return;
     }
-    catch (err: any) {
-      const message = err?.response?.data?.message || err?.message || 'Không thể mở khiếu nại. Vui lòng thử lại sau.';
-      Alert.alert('Lỗi khiếu nại', message);
-    }
+    setIsDisputeOpen(true);
   };
 
+  const checkDisputeEligibilityBeforeSubmit = React.useCallback((): string | null => {
+    const freshNow = Date.now();
+    setNowMs(freshNow);
+    const freshEligibility = getCurrentDisputeEligibility(freshNow);
+    if (!freshEligibility.canDispute) {
+      if (freshEligibility.isFullyRefunded) {
+        return 'Đơn hàng đã được hoàn tiền toàn phần nên không thể mở khiếu nại mới.';
+      }
+      if (freshEligibility.isWindowExpired) {
+        return 'Đã quá thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng, không thể mở khiếu nại.';
+      }
+      return 'Trạng thái đơn hàng hiện tại không thể mở khiếu nại.';
+    }
+    return null;
+  }, [getCurrentDisputeEligibility]);
+
   const currentStatus = order?.status || (isPlumberOrder ? 'confirmed' : 'created');
+  const disputeEligibility = React.useMemo(
+    () => getCurrentDisputeEligibility(nowMs),
+    [getCurrentDisputeEligibility, nowMs],
+  );
 
   return (
     <Screen safeArea scrollable={false} className="bg-neutral-50 dark:bg-neutral-950">
@@ -373,7 +482,54 @@ export function CustomerOrderDetailScreen({
           cancelReason={order?.cancelReason}
           disputedAt={order?.disputedAt}
           disputeReason={order?.disputeReason}
+          disputeCategory={order?.disputeCategory}
         />
+
+        {currentStatus !== 'disputed' && Boolean(order?.disputeResolvedAt || order?.disputeResolutionNote) && (
+          <View
+            testID="customer-dispute-resolution-card"
+            className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 p-4 dark:border-indigo-900/60 dark:bg-indigo-950/20"
+          >
+            <View className="flex-row items-center justify-between gap-2">
+              <Text className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                ⚖️ Kết quả xử lý khiếu nại
+              </Text>
+              {refundedAmountNumber > 0 && (
+                <View className="rounded-full bg-purple-100 px-2 py-0.5 dark:bg-purple-900/40">
+                  <Text className="text-[10px] font-bold text-purple-800 dark:text-purple-300">
+                    {paymentState === 'refunded' ? 'Hoàn tiền toàn phần' : 'Hoàn tiền một phần'}
+                  </Text>
+                </View>
+              )}
+            </View>
+            {order?.disputeResolutionNote
+              ? (
+                  <Text className="mt-1.5 text-xs/5 text-indigo-800 dark:text-indigo-300">
+                    {order.disputeResolutionNote}
+                  </Text>
+                )
+              : null}
+            {refundedAmountNumber > 0 && (
+              <Text
+                testID="dispute-refund-amount-text"
+                className="mt-1.5 text-xs font-bold text-purple-800 dark:text-purple-300"
+              >
+                Số tiền đã hoàn:
+                {' '}
+                {refundedAmountNumber.toLocaleString('vi-VN')}
+                {' '}
+                đ
+              </Text>
+            )}
+            {order?.disputeResolvedAt && (
+              <Text className="mt-1.5 text-[11px] text-indigo-600 dark:text-indigo-400">
+                Thời gian giải quyết:
+                {' '}
+                {new Date(order.disputeResolvedAt).toLocaleString('vi-VN')}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* 2. Worker Card Pro */}
         <OrderWorkerCard
@@ -400,6 +556,7 @@ export function CustomerOrderDetailScreen({
           agreedPrice={payment?.amount ?? order?.agreedPrice ?? (isPlumberOrder ? 250000 : 0)}
           paymentState={paymentState}
           paymentMethod={payment?.method}
+          refundedAmount={payment?.refundedAmount}
         />
 
         {/* 4b. Customer Review Section (When order is completed) */}
@@ -567,6 +724,16 @@ export function CustomerOrderDetailScreen({
               textClassName="text-xs font-bold text-orange-600 dark:text-orange-400"
               onPress={handleRequestRework}
             />
+
+            <Button
+              testID="customer-open-dispute-btn"
+              label={isDisputing ? 'Đang gửi...' : 'Khiếu Nại / Mở Tranh Chấp'}
+              variant="outline"
+              disabled={isDisputing}
+              className="h-11 w-full rounded-2xl border-rose-500 active:bg-rose-50 dark:active:bg-rose-950/20"
+              textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+              onPress={handleOpenDispute}
+            />
           </View>
         )}
 
@@ -599,42 +766,71 @@ export function CustomerOrderDetailScreen({
         )}
 
         {currentStatus === 'completed' && (
-          <View className="flex-row items-center gap-2.5">
-            {showReviewAction && (
+          <View className="gap-2">
+            <View className="flex-row items-center gap-2.5">
+              {showReviewAction && (
+                <Button
+                  testID="customer-review-order-btn"
+                  label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
+                  variant="default"
+                  className="h-11 flex-1 rounded-2xl bg-primary"
+                  textClassName="text-xs font-bold text-white"
+                  onPress={() => {
+                    if (hasReviewed && canEditReview) {
+                      router.push({
+                        pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                        params: { mode: 'edit' },
+                      } as any);
+                    }
+                    else if (hasReviewed) {
+                      router.push({
+                        pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
+                        params: { mode: 'view' },
+                      } as any);
+                    }
+                    else {
+                      router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
+                    }
+                  }}
+                />
+              )}
               <Button
-                testID="customer-review-order-btn"
-                label={hasReviewed ? (canEditReview ? '📝 Sửa Đánh Giá' : '⭐ Xem Đánh Giá') : '⭐ Đánh Giá Thợ'}
-                variant="default"
-                className="h-11 flex-1 rounded-2xl bg-primary"
-                textClassName="text-xs font-bold text-white"
-                onPress={() => {
-                  if (hasReviewed && canEditReview) {
-                    router.push({
-                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                      params: { mode: 'edit' },
-                    } as any);
-                  }
-                  else if (hasReviewed) {
-                    router.push({
-                      pathname: RouteNames.CUSTOMER_ORDER_REVIEW(orderId),
-                      params: { mode: 'view' },
-                    } as any);
-                  }
-                  else {
-                    router.push(RouteNames.CUSTOMER_ORDER_REVIEW(orderId) as any);
-                  }
-                }}
+                label="Đặt Lại Dịch Vụ"
+                variant="outline"
+                className={`h-11 rounded-2xl border-primary ${
+                  showReviewAction ? 'flex-1' : 'w-full'
+                }`}
+                textClassName="text-xs font-bold text-primary"
+                onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
+              />
+            </View>
+            {disputeEligibility.canDispute && (
+              <Button
+                testID="customer-open-dispute-btn"
+                label={`Khiếu Nại / Bảo Hành (Còn ${disputeEligibility.remainingDays} ngày)`}
+                variant="outline"
+                disabled={isDisputing}
+                className="h-10 w-full rounded-2xl border-rose-400 active:bg-rose-50 dark:border-rose-700 dark:active:bg-rose-950/20"
+                textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+                onPress={handleOpenDispute}
               />
             )}
-            <Button
-              label="Đặt Lại Dịch Vụ"
-              variant="outline"
-              className={`h-11 rounded-2xl border-primary ${
-                showReviewAction ? 'flex-1' : 'w-full'
-              }`}
-              textClassName="text-xs font-bold text-primary"
-              onPress={() => router.push(RouteNames.CUSTOMER_BOOKING as any)}
-            />
+            {!disputeEligibility.canDispute && disputeEligibility.isWindowExpired && (
+              <Text
+                testID="customer-dispute-expired-note"
+                className="text-center text-[11px] text-neutral-500 dark:text-neutral-400"
+              >
+                Đã hết thời hạn bảo hành 7 ngày kể từ khi hoàn tất đơn hàng.
+              </Text>
+            )}
+            {!disputeEligibility.canDispute && disputeEligibility.isFullyRefunded && (
+              <Text
+                testID="customer-dispute-refunded-note"
+                className="text-center text-[11px] text-neutral-500 dark:text-neutral-400"
+              >
+                Đơn hàng đã được hoàn tiền toàn phần.
+              </Text>
+            )}
           </View>
         )}
 
@@ -675,6 +871,24 @@ export function CustomerOrderDetailScreen({
               onConfirmCompletion={confirmCompletion}
               onResult={handlePaymentResult}
               onClose={() => setIsPaymentOpen(false)}
+            />
+          )
+        : null}
+      {isDisputeOpen
+        ? (
+            <OrderDisputeModal
+              visible={isDisputeOpen}
+              role="customer"
+              orderCode={order?.orderCode || orderId}
+              isPostCompletion={disputeEligibility.isPostCompletion}
+              remainingDays={disputeEligibility.remainingDays}
+              isSubmitting={isDisputing}
+              checkEligibilityBeforeSubmit={checkDisputeEligibilityBeforeSubmit}
+              onSubmit={openDispute}
+              onSuccess={() => {
+                Alert.alert('Đã mở khiếu nại', 'Bộ phận hỗ trợ đã tiếp nhận yêu cầu và sẽ liên hệ bạn sớm nhất.');
+              }}
+              onClose={() => setIsDisputeOpen(false)}
             />
           )
         : null}

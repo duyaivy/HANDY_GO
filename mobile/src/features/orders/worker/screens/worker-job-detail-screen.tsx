@@ -20,7 +20,9 @@ import {
   useTrackingSummary,
 } from '@/features/tracking';
 import { WorkerCashPaymentCard } from '@/features/wallet/worker/components/worker-cash-payment-card';
+import { OrderDisputeModal, OrderEvidenceGallery } from '../../components';
 import { useWorkerJobDetail } from '../../hooks/use-worker-jobs';
+import { getDisputeCategoryLabel } from '../../utils/dispute-utils';
 
 function formatVND(amount: number | string | undefined | null): string {
   if (!amount) {
@@ -77,14 +79,18 @@ export function WorkerJobDetailScreen({
   const {
     confirmReadiness,
     isConfirmingReadiness,
+    isDisputing,
     isLoading,
     isRefetching,
     isStartingOrder,
+    openDispute,
     order,
     refetch,
     startOrder,
     statusHistory,
   } = useWorkerJobDetail(jobId);
+
+  const [isDisputeOpen, setIsDisputeOpen] = React.useState(false);
 
   // Lấy serviceRequestId từ order hoặc params
   const serviceRequestId = order?.serviceRequestId || params.serviceRequestId;
@@ -428,17 +434,37 @@ export function WorkerJobDetailScreen({
                 textClassName="text-sm font-bold text-white"
                 onPress={() => router.push(RouteNames.WORKER_JOB_COMPLETE(jobId) as any)}
               />
+              <Button
+                testID="worker-open-dispute-btn"
+                label="Khiếu Nại / Mở Tranh Chấp"
+                variant="outline"
+                disabled={isDisputing}
+                className="mt-2.5 h-10 w-full rounded-2xl border-rose-400 active:bg-rose-50 dark:border-rose-700 dark:active:bg-rose-950/20"
+                textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+                onPress={() => setIsDisputeOpen(true)}
+              />
             </View>
           )}
 
           {currentStatus === 'awaiting_customer_confirmation' && (
-            <View className="rounded-xl bg-amber-50 p-3 dark:bg-amber-950/20">
-              <Text className="text-xs font-bold text-amber-900 dark:text-amber-300">
-                ✅ Bạn đã nộp ảnh bằng chứng và báo xong việc!
-              </Text>
-              <Text className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
-                Đang chờ khách hàng kiểm tra và bấm nghiệm thu hoàn tất.
-              </Text>
+            <View className="gap-2.5">
+              <View className="rounded-xl bg-amber-50 p-3 dark:bg-amber-950/20">
+                <Text className="text-xs font-bold text-amber-900 dark:text-amber-300">
+                  ✅ Bạn đã nộp ảnh bằng chứng và báo xong việc!
+                </Text>
+                <Text className="mt-1 text-[11px] text-neutral-600 dark:text-neutral-400">
+                  Đang chờ khách hàng kiểm tra và bấm nghiệm thu hoàn tất.
+                </Text>
+              </View>
+              <Button
+                testID="worker-open-dispute-btn"
+                label="Khiếu Nại / Mở Tranh Chấp"
+                variant="outline"
+                disabled={isDisputing}
+                className="h-10 w-full rounded-2xl border-rose-400 active:bg-rose-50 dark:border-rose-700 dark:active:bg-rose-950/20"
+                textClassName="text-xs font-bold text-rose-600 dark:text-rose-400"
+                onPress={() => setIsDisputeOpen(true)}
+              />
             </View>
           )}
 
@@ -461,8 +487,29 @@ export function WorkerJobDetailScreen({
               <Text className="text-xs font-bold text-rose-900 dark:text-rose-300">
                 🚨 Đơn hàng đang được khiếu nại
               </Text>
+              {getDisputeCategoryLabel(order?.disputeCategory) && (
+                <Text className="mt-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300">
+                  Loại vấn đề:
+                  {' '}
+                  {getDisputeCategoryLabel(order?.disputeCategory)}
+                </Text>
+              )}
               <Text className="mt-1 text-[11px] text-rose-800 dark:text-rose-200">
                 {order?.disputeReason || trackingSummary?.order?.disputeReason || 'Đơn hàng đang trong trạng thái xem xét tranh chấp bởi Quản trị viên.'}
+              </Text>
+            </View>
+          )}
+
+          {currentStatus !== 'disputed' && order?.disputeResolutionNote && (
+            <View
+              testID="worker-dispute-resolution-card"
+              className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 dark:border-indigo-900/50 dark:bg-indigo-950/20"
+            >
+              <Text className="text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                ⚖️ Kết quả xử lý khiếu nại
+              </Text>
+              <Text className="mt-1 text-[11px] text-indigo-800 dark:text-indigo-300">
+                {order.disputeResolutionNote}
               </Text>
             </View>
           )}
@@ -490,6 +537,14 @@ export function WorkerJobDetailScreen({
           )}
         </View>
 
+        {order?.evidences && order.evidences.some(ev => ev.evidenceType === 'dispute')
+          ? (
+              <View className="mt-4">
+                <OrderEvidenceGallery evidences={order.evidences.filter(ev => ev.evidenceType === 'dispute')} />
+              </View>
+            )
+          : null}
+
         {jobId === 'JOB-1020'
           ? (
               <View className="mt-6 items-center justify-center py-2">
@@ -501,6 +556,21 @@ export function WorkerJobDetailScreen({
           : null}
         {order?.serviceRequestId ? <Button label="Lịch sử trò chuyện" onPress={() => router.push({ pathname: RouteNames.WORKER_CHAT, params: { requestId: order.serviceRequestId } } as never)} /> : null}
       </ScrollView>
+      {isDisputeOpen
+        ? (
+            <OrderDisputeModal
+              visible={isDisputeOpen}
+              role="worker"
+              orderCode={order?.orderCode || jobId}
+              isSubmitting={isDisputing}
+              onSubmit={openDispute}
+              onSuccess={() => {
+                Alert.alert('Đã gửi khiếu nại', 'Yêu cầu tranh chấp của bạn đã được ghi nhận.');
+              }}
+              onClose={() => setIsDisputeOpen(false)}
+            />
+          )
+        : null}
     </Screen>
   );
 }
